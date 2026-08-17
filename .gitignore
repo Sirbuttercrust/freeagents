@@ -4,9 +4,13 @@ node_modules/
 !.env.example
 dist/
 build/
+src/generated/
 .DS_Store
 *.log
 .factory/runs/
 .factory/prs/
 *.pem
 *.key
+MISSION.md
+CLAUDE.md
+factory/
