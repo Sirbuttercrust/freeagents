@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -38,8 +38,18 @@ describe('src/domain purity', () => {
     expect(files.length).toBeGreaterThan(0);
   });
 
+  // Two ways to break invariant 9, and an earlier version of this test only
+  // caught the first. A bare specifier like '@ocap/wallet' is obvious. A
+  // relative one like '../adapters/identity/identity.js' reaches straight into
+  // vendor-backed code while looking like ordinary local import, and it was
+  // passing silently. Resolve relative specifiers and reject anything landing
+  // outside src/domain.
   it.each(files)('%s imports nothing outside src/domain', (file) => {
-    const offenders = importsIn(file).filter((specifier) => !specifier.startsWith('.'));
+    const offenders = importsIn(file).filter((specifier) => {
+      if (!specifier.startsWith('.')) return true;
+      const resolved = resolve(dirname(file), specifier);
+      return !resolved.startsWith(domainDir);
+    });
     expect(offenders, `${relative(here, file)} imports: ${offenders.join(', ')}`).toEqual([]);
   });
 });

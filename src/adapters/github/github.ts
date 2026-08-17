@@ -9,10 +9,9 @@ import type {
 
 const CAPABILITY = 'github';
 
-// Named arcblock.ts to match the adapter convention in CLAUDE.md even though
-// the real implementation will call GitHub's own API rather than an ArcBlock
-// package: one implementation file per capability, one place that is allowed
-// to know a vendor exists.
+// One implementation file per capability, named for the capability rather
+// than the vendor, so the filename survives a vendor swap. This is the only
+// layer allowed to know which external service is being called.
 export function createGithubAdapter(): GithubAdapter {
   return {
     getPullRequest(_ref: PullRequestRef): Promise<PullRequestSummary> {
