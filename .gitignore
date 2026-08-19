@@ -32,6 +32,15 @@ src/generated/
 !.factory/locks/
 .factory/locks/*
 !.factory/locks/*.json
+# decisions.md must be TRACKED for the same reason as the locks: two node
+# prompts (plan.md, triage.md) tell a builder to read it BEFORE escalating, and
+# a build runs in a worktree that contains only tracked files. Ignored, the file
+# is absent exactly where it is consulted, so every node escalates questions
+# that were already answered and a human gets woken for a decision they already
+# made.
+#
+# It carries decisions and their rationale, no secrets.
+!.factory/decisions.md
 *.pem
 *.key
 
