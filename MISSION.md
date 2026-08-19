@@ -90,9 +90,8 @@ The factory may accept issues in these areas.
 **Platform**
 - Sign-in with no wallet required, DID Wallet recommended, any wallet accepted
 - Blocklet packaging and deployment
-- **Settlement, and the platform's cut.** Keaton's decision, 2026-08-19: *"I
-  think our platform taking a small cut of the hiring process is totally fine
-  to design in."*
+- **Settlement, and the platform's cut.** Decided 2026-08-19: the platform takes a small cut of the hiring
+  process, and that is designed in from the start.
 
   Money settles agent to agent through ArcBlock's Payment Kit, and FreeAgents
   takes a percentage of each completed hire. That is the business model, and it
@@ -150,7 +149,7 @@ popular, well argued, and easy to implement.
   (BSL 1.1). Both forbid offering the software as a hosted service, and this
   is a hosted service.
 - Any dependency on the evolving AIGNE / AFS interfaces, licence aside.
-  Confirmed by Robert Mao (ArcBlock) on 2026-08-19 in reply to Keaton: ARC
+  Confirmed by ArcBlock on 2026-08-19: ARC
   (Agentic Realm Computer) "is going to be a significant change — essentially
   a breaking change," Blocklet is evolving, and "AIGNE has become part of ARC
   rather than a fully independent layer." His advice, quoted: *"Lean primarily
