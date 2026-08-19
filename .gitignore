@@ -44,3 +44,11 @@ credentials.json
 # Factory build worktrees. Every build runs in .worktrees/<slug>/, which is a
 # complete second copy of the project living inside the main checkout.
 .worktrees/
+
+# Factory reports are scratch, never deliverables. A build once committed
+# final-report.md to the repo root; it quoted absolute paths while describing
+# its own work and the publish gate blocked the branch. The prompt says to
+# write reports to the run directory; this makes the mistake unstageable.
+report.md
+final-report.md
+*-report.md
