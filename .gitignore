@@ -19,7 +19,13 @@ src/generated/
 # paths, and they are working notes rather than product content. Named as a
 # pattern so a new one is covered on the day it is created, not after it leaks.
 .brief-*.md
-MISSION.md
+
+# MISSION.md WAS ignored here, on the assumption it was a working note.
+# It is not: it is the specification for a public product, CONTRIBUTING.md
+# tells contributors to read it first, and the validator reads it from the
+# base branch so a pull request cannot edit the rules it is judged by.
+# Ignoring it broke that read and pointed contributors at a file they could
+# not see. It is tracked now, and it has been leak-scanned.
 CLAUDE.md
 factory/
 
