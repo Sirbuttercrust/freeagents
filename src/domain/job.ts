@@ -40,10 +40,35 @@ export class JobTransitionError extends Error {
   }
 }
 
-function assertStatus(job: Job, expected: JobStatus, action: string): void {
-  if (job.status !== expected) {
-    throw new JobTransitionError(job.status, action);
+/**
+ * Validates that a job transition from one status to another is legal according to the hire loop
+ * @param fromStatus - The current status of the job
+ * @param toStatus - The intended next status of the job
+ * @returns The toStatus if the transition is legal
+ * @throws JobTransitionError if the transition is not allowed
+ */
+export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus): JobStatus {
+  // Terminal states cannot be transitioned from
+  if (isTerminal(fromStatus)) {
+    throw new JobTransitionError(fromStatus, `transition from "${fromStatus}"`);
   }
+  
+  // Valid transitions according to the hire loop
+  const validTransitions: Record<JobStatus, JobStatus[]> = {
+    proposed: ['confirmed', 'declined'],
+    confirmed: ['submitted', 'declined'],
+    submitted: ['completed', 'declined'],
+    completed: [],
+    declined: [],
+  };
+  
+  const allowedTransitions = validTransitions[fromStatus];
+  
+  if (!allowedTransitions.includes(toStatus)) {
+    throw new JobTransitionError(fromStatus, `transition to "${toStatus}"`);
+  }
+  
+  return toStatus;
 }
 
 export function isTerminal(status: JobStatus): boolean {
@@ -51,12 +76,12 @@ export function isTerminal(status: JobStatus): boolean {
 }
 
 export function confirmSpec(job: Job, confirmedSpecHash: string, now: Date): Job {
-  assertStatus(job, 'proposed', 'confirm the spec of');
+  validateJobTransition(job.status, 'confirmed');
   return { ...job, status: 'confirmed', confirmedSpecHash, confirmedAt: now };
 }
 
 export function submitPullRequest(job: Job, pullRequestUrl: string, now: Date): Job {
-  assertStatus(job, 'confirmed', 'submit a pull request for');
+  validateJobTransition(job.status, 'submitted');
   return { ...job, status: 'submitted', pullRequestUrl, submittedAt: now };
 }
 
@@ -67,7 +92,7 @@ export function completeJob(
   job: Job,
   input: { readonly mergeCommit: string; readonly completedAt: Date },
 ): { readonly job: Job; readonly completedJob: Omit<CompletedJob, 'id'> } {
-  assertStatus(job, 'submitted', 'complete');
+  validateJobTransition(job.status, 'completed');
   return {
     job: { ...job, status: 'completed' },
     completedJob: {
@@ -81,8 +106,6 @@ export function completeJob(
 }
 
 export function decline(job: Job): Job {
-  if (isTerminal(job.status)) {
-    throw new JobTransitionError(job.status, 'decline');
-  }
+  validateJobTransition(job.status, 'declined');
   return { ...job, status: 'declined' };
 }
