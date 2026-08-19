@@ -40,6 +40,33 @@ export class JobTransitionError extends Error {
   }
 }
 
+/**
+ * Validates that a transition from one job status to another is legal.
+ * @param fromStatus - The current status of the job
+ * @param toStatus - The proposed next status of the job
+ * @throws JobTransitionError if the transition is not allowed
+ */
+export function validateTransition(fromStatus: JobStatus, toStatus: JobStatus): void {
+  // Terminal states (completed, declined) cannot be transitioned from
+  if (isTerminal(fromStatus)) {
+    throw new JobTransitionError(fromStatus, `transition to "${toStatus}"`);
+  }
+  
+  // Define valid transitions
+  const validTransitions: Record<JobStatus, JobStatus[]> = {
+    proposed: ['confirmed', 'declined'],
+    confirmed: ['submitted', 'declined'],
+    submitted: ['completed', 'declined'],
+    completed: [], // Terminal state
+    declined: [], // Terminal state
+  };
+  
+  const allowedTransitions = validTransitions[fromStatus];
+  if (!allowedTransitions.includes(toStatus)) {
+    throw new JobTransitionError(fromStatus, `transition to "${toStatus}"`);
+  }
+}
+
 function assertStatus(job: Job, expected: JobStatus, action: string): void {
   if (job.status !== expected) {
     throw new JobTransitionError(job.status, action);
@@ -51,12 +78,12 @@ export function isTerminal(status: JobStatus): boolean {
 }
 
 export function confirmSpec(job: Job, confirmedSpecHash: string, now: Date): Job {
-  assertStatus(job, 'proposed', 'confirm the spec of');
+  validateTransition(job.status, 'confirmed');
   return { ...job, status: 'confirmed', confirmedSpecHash, confirmedAt: now };
 }
 
 export function submitPullRequest(job: Job, pullRequestUrl: string, now: Date): Job {
-  assertStatus(job, 'confirmed', 'submit a pull request for');
+  validateTransition(job.status, 'submitted');
   return { ...job, status: 'submitted', pullRequestUrl, submittedAt: now };
 }
 
@@ -67,7 +94,7 @@ export function completeJob(
   job: Job,
   input: { readonly mergeCommit: string; readonly completedAt: Date },
 ): { readonly job: Job; readonly completedJob: Omit<CompletedJob, 'id'> } {
-  assertStatus(job, 'submitted', 'complete');
+  validateTransition(job.status, 'completed');
   return {
     job: { ...job, status: 'completed' },
     completedJob: {
@@ -81,8 +108,6 @@ export function completeJob(
 }
 
 export function decline(job: Job): Job {
-  if (isTerminal(job.status)) {
-    throw new JobTransitionError(job.status, 'decline');
-  }
+  validateTransition(job.status, 'declined');
   return { ...job, status: 'declined' };
 }

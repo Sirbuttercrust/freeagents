@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { completeJob, confirmSpec, decline, isTerminal, JobTransitionError, submitPullRequest } from '../../src/domain/job.js';
+import { completeJob, confirmSpec, decline, isTerminal, JobTransitionError, submitPullRequest, validateTransition } from '../../src/domain/job.js';
 import type { Job } from '../../src/domain/job.js';
 
 function proposedJob(overrides: Partial<Job> = {}): Job {
@@ -81,5 +81,70 @@ describe('job state machine', () => {
     expect(isTerminal('proposed')).toBe(false);
     expect(isTerminal('confirmed')).toBe(false);
     expect(isTerminal('submitted')).toBe(false);
+  });
+
+  describe('transition validation', () => {
+    it('allows all valid state transitions', () => {
+      // proposed -> confirmed
+      expect(() => validateTransition('proposed', 'confirmed')).not.toThrow();
+      
+      // proposed -> declined
+      expect(() => validateTransition('proposed', 'declined')).not.toThrow();
+      
+      // confirmed -> submitted
+      expect(() => validateTransition('confirmed', 'submitted')).not.toThrow();
+      
+      // confirmed -> declined
+      expect(() => validateTransition('confirmed', 'declined')).not.toThrow();
+      
+      // submitted -> completed
+      expect(() => validateTransition('submitted', 'completed')).not.toThrow();
+      
+      // submitted -> declined
+      expect(() => validateTransition('submitted', 'declined')).not.toThrow();
+    });
+
+    it('rejects all invalid state transitions', () => {
+      // Invalid transitions from proposed
+      expect(() => validateTransition('proposed', 'proposed')).toThrow(JobTransitionError);
+      expect(() => validateTransition('proposed', 'completed')).toThrow(JobTransitionError);
+      
+      // Invalid transitions from confirmed
+      expect(() => validateTransition('confirmed', 'proposed')).toThrow(JobTransitionError);
+      expect(() => validateTransition('confirmed', 'completed')).toThrow(JobTransitionError);
+      
+      // Invalid transitions from submitted
+      expect(() => validateTransition('submitted', 'proposed')).toThrow(JobTransitionError);
+      expect(() => validateTransition('submitted', 'confirmed')).toThrow(JobTransitionError);
+      
+      // Invalid transitions from completed
+      expect(() => validateTransition('completed', 'proposed')).toThrow(JobTransitionError);
+      expect(() => validateTransition('completed', 'confirmed')).toThrow(JobTransitionError);
+      expect(() => validateTransition('completed', 'submitted')).toThrow(JobTransitionError);
+      expect(() => validateTransition('completed', 'completed')).toThrow(JobTransitionError);
+      expect(() => validateTransition('completed', 'declined')).toThrow(JobTransitionError);
+      
+      // Invalid transitions from declined
+      expect(() => validateTransition('declined', 'proposed')).toThrow(JobTransitionError);
+      expect(() => validateTransition('declined', 'confirmed')).toThrow(JobTransitionError);
+      expect(() => validateTransition('declined', 'submitted')).toThrow(JobTransitionError);
+      expect(() => validateTransition('declined', 'completed')).toThrow(JobTransitionError);
+      expect(() => validateTransition('declined', 'declined')).toThrow(JobTransitionError);
+    });
+
+    it('prevents transitions from terminal states', () => {
+      // Terminal states cannot accept further transitions
+      expect(() => validateTransition('completed', 'proposed')).toThrow(JobTransitionError);
+      expect(() => validateTransition('completed', 'confirmed')).toThrow(JobTransitionError);
+      expect(() => validateTransition('completed', 'submitted')).toThrow(JobTransitionError);
+      expect(() => validateTransition('completed', 'completed')).toThrow(JobTransitionError);
+      expect(() => validateTransition('completed', 'declined')).toThrow(JobTransitionError);
+      
+      expect(() => validateTransition('declined', 'proposed')).toThrow(JobTransitionError);
+      expect(() => validateTransition('declined', 'confirmed')).toThrow(JobTransitionError);
+      expect(() => validateTransition('declined', 'submitted')).toThrow(JobTransitionError);
+      expect(() => validateTransition('declined', 'completed')).toThrow(JobTransitionError);
+      expect(() => validateTransition('declined', 'declined')).toThrow(JobTransitionError);
+    });
   });
 });
