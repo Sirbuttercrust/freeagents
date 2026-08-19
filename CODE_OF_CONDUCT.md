@@ -36,7 +36,10 @@ commit messages, and any place where someone is representing the project.
 
 ## Enforcement
 
-Report a problem to **ktuckerdumc@gmail.com**.
+Report a problem through the repository's **Security** tab using **Report a
+vulnerability**, which opens a private thread the maintainers can see and the
+public cannot. It is the wrong-sounding channel for a conduct report and the
+right one for privacy, which matters more.
 
 Every report will be reviewed and investigated. What happens next depends on
 what happened, and can range from a private word to a permanent ban. We will
