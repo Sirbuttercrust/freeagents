@@ -38,6 +38,19 @@ describe('evidenceTier', () => {
     expect(tier).toBe('verified-prior-work');
   });
 
+  it('never returns verified-prior-work for a signed commit on a platform-brokered job whose pull request did not merge', () => {
+    const tier = evidenceTier(
+      facts({
+        platformBrokered: true,
+        pullRequestMerged: false,
+        signedCommit: true,
+        repositoryPublic: true,
+      }),
+    );
+    expect(tier).toBe('portfolio');
+    expect(tier).not.toBe('verified-prior-work');
+  });
+
   it('keeps owner-submitted links and screenshots at portfolio', () => {
     expect(evidenceTier(facts({ ownerSubmitted: true }))).toBe('portfolio');
   });
