@@ -7,11 +7,31 @@ build/
 src/generated/
 .DS_Store
 *.log
-# The WHOLE of .factory/, not only its subdirectories. Previously this listed
-# `.factory/runs/` and `.factory/prs/` alone, so `.factory/needs-human.md` and
-# `.factory/locks-runtime/` were untracked-but-stageable and a blind
-# `git add -A` would have published factory internals to a public repo.
-.factory/
+# Everything under .factory/ EXCEPT the locks. Written as an exclusion of the
+# CONTENTS (`.factory/*`) rather than the directory (`.factory/`), because git
+# cannot re-include a file whose parent directory is itself excluded: the
+# walker never descends into it and the `!` rule is never consulted. Getting
+# that wrong leaves floor.json ignored while the .gitignore reads as though it
+# is tracked, which is exactly the kind of silent gap this repository keeps
+# finding.
+#
+# The whole of .factory/ was previously ignored, not just its subdirectories,
+# so `.factory/needs-human.md` and `.factory/locks-runtime/` were
+# untracked-but-stageable and a blind `git add -A` would have published factory
+# internals to a public repo. That still holds for everything except the locks.
+.factory/*
+# The locks must be TRACKED. A build runs in a `git worktree`, which contains
+# only tracked files, so an ignored floor.json does not exist where the gate
+# looks for it and every run prints FLOOR_ABSENT. The ratchet then guards
+# nothing while appearing to be configured, which is the worst state for a
+# safety property to be in.
+#
+# They carry no secrets: they are integers a human chose. They are on
+# factory/guard.py's protected list, so a pull request that lowers one is
+# auto-rejected. Tracking them is what makes that protection reachable.
+!.factory/locks/
+.factory/locks/*
+!.factory/locks/*.json
 *.pem
 *.key
 
