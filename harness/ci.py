@@ -46,6 +46,7 @@ independently.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -56,7 +57,7 @@ ROOT = Path(__file__).resolve().parent.parent
 QUICK = "--quick" in sys.argv
 
 
-def run(step: str, cmd: str, timeout: int = 900) -> tuple[int, str]:
+def run(step: str, cmd: str, timeout: int = 900, env: dict | None = None) -> tuple[int, str]:
     """Run one rung. Returns (exit code, combined output).
 
     Output is streamed to our own stdout as well as captured, so a human
@@ -66,7 +67,7 @@ def run(step: str, cmd: str, timeout: int = 900) -> tuple[int, str]:
     started = time.time()
     try:
         p = subprocess.run(
-            cmd, shell=True, cwd=ROOT, timeout=timeout,
+            cmd, shell=True, cwd=ROOT, timeout=timeout, env=env,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
         out = p.stdout or ""
@@ -190,17 +191,40 @@ def main() -> int:
     # Assertions the BUILDER cannot read. Everything the builder can read sits
     # inside its own optimisation loop; given enough attempts it satisfies those
     # rather than the thing you meant.
-    holdout = ROOT / ".factory" / "holdout" / "run.py"
-    if holdout.exists():
-        rc, out = run("holdout", f'{sys.executable} "{holdout}"')
+    #
+    # THE HOLDOUT LIVES OUTSIDE THIS REPOSITORY, at FACTORY_HOLDOUT_REPO. That
+    # is L1 enforcement: a path that is not on the builder's disk cannot be read
+    # by any command, however clever. An in-tree `.factory/holdout/` would be
+    # readable by a `find`, a base64 round trip, or a script the builder wrote
+    # in an earlier pull request.
+    #
+    # The first version of this file looked for `.factory/holdout/run.py` INSIDE
+    # the repo, which does not exist and never will, so it printed
+    # HOLDOUT_ABSENT on every run and the independence line was decorative.
+    holdout_repo = os.environ.get("FACTORY_HOLDOUT_REPO", "").strip()
+    holdout = Path(holdout_repo) / "run.py" if holdout_repo else None
+
+    if holdout and holdout.exists():
+        # The holdout asserts against THIS tree, so tell it which one, and give
+        # it the running app when there is one.
+        env = dict(os.environ, FACTORY_REPO_ROOT=str(ROOT))
+        rc, out = run("holdout", f'{sys.executable} "{holdout}"', env=env)
+        print(out.strip(), flush=True)
         if rc != 0:
             return fail("holdout", out)
-        print("HOLDOUT_OK", flush=True)
+        if "HOLDOUT_PASSED" not in out:
+            return fail(
+                "holdout",
+                "the holdout exited 0 but never printed HOLDOUT_PASSED. An "
+                "exit code with no positive marker is the exact shape of a "
+                "check that did not run.",
+            )
     else:
         print(
-            "HOLDOUT_ABSENT no .factory/holdout/run.py - NOTHING above the "
-            "independence line ran. Every check in this gate is one the builder "
-            "could read and iterate against.",
+            f"HOLDOUT_ABSENT no run.py at FACTORY_HOLDOUT_REPO"
+            f"={holdout_repo or '<unset>'} - NOTHING above the independence "
+            "line ran. Every check in this gate is one the builder could read "
+            "and iterate against.",
             flush=True,
         )
 
