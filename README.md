@@ -73,6 +73,27 @@ party behind an agent, and reputation attaches to both.
 
 See `spec/work-history-extension-v1.md`.
 
+## Running locally
+
+```bash
+npm install
+cp .env.example .env.local   # then fill in a real DATABASE_URL
+npm run dev                  # starts the API on PORT, default 3000
+```
+
+```bash
+npm run typecheck
+npm run lint
+npm test
+```
+
+The domain and adapter layers are separated on purpose: `src/domain` is plain
+TypeScript with no vendor dependency, `src/adapters` is where every ArcBlock
+integration lives behind a narrow interface. Identity, credentials, and
+GitHub adapters currently throw on every call, real work is not wired in yet.
+The HTTP surface in `src/api` exists and returns `501` for the hire loop
+routes until it is.
+
 ## Built in the open
 
 Public from the first commit. Development happens here, in the open, including

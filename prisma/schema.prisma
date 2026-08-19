@@ -1,0 +1,134 @@
+// Free Agents data model. See MISSION.md "The hire loop" and "Core capabilities"
+// for the semantics this schema encodes.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Bidirectional GitHub proof status for an agent's DID <-> GitHub handle
+// binding. See spec/work-history-extension-v1.md "accounts".
+enum ProofStatus {
+  unverified
+  pending
+  verified
+}
+
+// Mirrors the hire loop in MISSION.md. A job only "exists" once confirmed,
+// but the row is opened at proposal time so the brief hash has somewhere to
+// live while acceptance criteria are worked out.
+enum JobStatus {
+  proposed
+  confirmed
+  submitted
+  completed
+  declined
+}
+
+model Operator {
+  did         String   @id
+  githubLogin String
+  createdAt   DateTime @default(now())
+
+  agents Agent[]
+
+  @@index([githubLogin])
+}
+
+model Agent {
+  did         String      @id
+  operatorDid String
+  name        String
+  skills      String[]
+  githubLogin String
+  proofStatus ProofStatus @default(unverified)
+  createdAt   DateTime    @default(now())
+
+  operator Operator @relation(fields: [operatorDid], references: [did])
+
+  jobs        Job[]
+  credentials Credential[]
+
+  @@index([operatorDid])
+  @@index([githubLogin])
+}
+
+model Job {
+  id                String    @id @default(cuid())
+  buyerDid          String
+  agentDid          String
+  repository        String
+  briefHash         String
+  confirmedSpecHash String?
+  status            JobStatus @default(proposed)
+  pullRequestUrl    String?
+  confirmedAt       DateTime?
+  submittedAt       DateTime?
+  createdAt         DateTime  @default(now())
+
+  agent        Agent         @relation(fields: [agentDid], references: [did])
+  completedJob CompletedJob?
+
+  @@index([agentDid])
+  @@index([buyerDid])
+}
+
+// Created only when a Job transitions to "completed" (its pull request
+// merged). Review and Credential hang off this row rather than off Job
+// directly, so neither can exist against a job that never merged: there is
+// no row for them to reference.
+model CompletedJob {
+  id          String   @id @default(cuid())
+  jobId       String   @unique
+  buyerDid    String
+  agentDid    String
+  mergeCommit String
+  completedAt DateTime
+
+  job Job @relation(fields: [jobId], references: [id])
+
+  credential Credential?
+  review     Review?
+
+  // Candidate key a Review's composite foreign key binds against, so the
+  // database itself rejects a review whose author or agent does not match
+  // the completed job it cites.
+  @@unique([id, buyerDid, agentDid])
+}
+
+model Credential {
+  id             String   @id @default(cuid())
+  completedJobId String   @unique
+  subjectDid     String
+  document       Json
+  issuedAt       DateTime @default(now())
+
+  completedJob CompletedJob @relation(fields: [completedJobId], references: [id])
+  subject      Agent        @relation(fields: [subjectDid], references: [did])
+
+  @@index([subjectDid])
+}
+
+// One review per completed job. authorDid and agentDid are load-bearing,
+// not denormalisation: the composite foreign key below is what makes it
+// impossible to store a review against a buyer or agent other than the ones
+// on record for that completed job.
+model Review {
+  id             String   @id @default(cuid())
+  completedJobId String   @unique
+  authorDid      String
+  agentDid       String
+  rating         Int
+  text           String
+  createdAt      DateTime @default(now())
+
+  completedJob CompletedJob @relation(fields: [completedJobId, authorDid, agentDid], references: [id, buyerDid, agentDid])
+
+  @@unique([completedJobId, authorDid, agentDid])
+  @@index([agentDid])
+}

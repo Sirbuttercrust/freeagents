@@ -4,9 +4,39 @@ node_modules/
 !.env.example
 dist/
 build/
+src/generated/
 .DS_Store
 *.log
-.factory/runs/
-.factory/prs/
+# The WHOLE of .factory/, not only its subdirectories. Previously this listed
+# `.factory/runs/` and `.factory/prs/` alone, so `.factory/needs-human.md` and
+# `.factory/locks-runtime/` were untracked-but-stageable and a blind
+# `git add -A` would have published factory internals to a public repo.
+.factory/
+*.pem
+*.key
+
+# Scratch briefs written while driving the build. They carry local tooling
+# paths, and they are working notes rather than product content. Named as a
+# pattern so a new one is covered on the day it is created, not after it leaks.
+.brief-*.md
+MISSION.md
+CLAUDE.md
+factory/
+
+# Licensed stock assets. Usable ON the site, never redistributed IN the repo.
+# MotionElements royalty-free forbids giving the file away, and a public repo does exactly that.
+mockups/assets/*.mp4
+mockups/assets/*.webm
+public/assets/*.mp4
+
+# The factory lives in the private ops repo and is symlinked in so it can
+# operate on this tree. It must never be committed here.
+factory
+FACTORY_RULES.md
+
+# Named explicitly because the factory preflight checks the RULE, not the file.
+# A git add -A must never be able to publish a secrets file that appears later.
+secrets.json
+credentials.json
 *.pem
 *.key
