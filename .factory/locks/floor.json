@@ -1,0 +1,21 @@
+{
+  "_what_this_is": [
+    "RATCHET FLOORS. Thresholds a human chose, that the factory may raise by",
+    "doing more work but may never lower to make a build pass.",
+    "",
+    "This file is on the protected list (factory/guard.py, `.factory/locks/*`),",
+    "so a pull request that lowers a floor is auto-rejected. That is the whole",
+    "point: without it, the cheapest way past a failing gate is to move the",
+    "goalposts in the same commit that made them inconvenient."
+  ],
+
+  "_e2e_steps_asserted": [
+    "The minimum number of end-to-end assertions that must have executed against",
+    "a really running server. Measured at 11 on 2026-08-19 from",
+    "tests/e2e/smoke.test.ts, which counts every get()/post() it made.",
+    "",
+    "Set to 11, the true current value. Setting it lower would be theatre; it",
+    "would pass while assertions silently disappeared."
+  ],
+  "e2e_steps_asserted": 11
+}
