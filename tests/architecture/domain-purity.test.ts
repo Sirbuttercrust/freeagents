@@ -63,8 +63,31 @@ describe('src/domain purity', () => {
   // vendor-backed code while looking like ordinary local import, and it was
   // passing silently. Resolve relative specifiers and reject anything landing
   // outside src/domain.
+  //
+  // NODE BUILTINS ARE ALLOWED, and the reasoning matters because this is the
+  // one place the rule bends.
+  //
+  // Invariant 9 is about PORTABILITY: the domain must not depend on a vendor
+  // or on an adapter, so it stays plain TypeScript that can be lifted into
+  // another runtime or verified by someone who does not have our stack. A Node
+  // builtin is not a vendor, has no version to pin, no licence to check, and
+  // no service behind it.
+  //
+  // Refusing them costs more than it protects. A build on 2026-08-19
+  // implemented `hashSpec` with `crypto.createHash('sha256')` and this test
+  // failed it. The alternatives were all worse: hand-rolling SHA-256 in the
+  // domain layer, or pushing hashing into an adapter so the rule that says a
+  // confirmed spec is hashed would live outside the layer that owns the rules.
+  //
+  // The `node:` prefix is REQUIRED. Bare 'crypto' is ambiguous, since npm has
+  // a package by that name and the import would silently resolve to it. The
+  // prefixed form can only ever mean the builtin, which is exactly the
+  // certainty an architecture test should demand.
+  const NODE_BUILTIN = /^node:/;
+
   it.each(files)('%s imports nothing outside src/domain', (file) => {
     const offenders = importsIn(file).filter((specifier) => {
+      if (NODE_BUILTIN.test(specifier)) return false;
       if (!specifier.startsWith('.')) return true;
       const resolved = resolve(dirname(file), specifier);
       return !resolved.startsWith(domainDir);
