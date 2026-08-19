@@ -230,15 +230,52 @@ def main() -> int:
 
     # --- 5. mutations --------------------------------------------------------
     # A gate that has never failed is a gate nobody has tested.
-    mutate = ROOT / "harness" / "mutations" / "run.py"
-    if mutate.exists():
-        rc, out = run("mutations", f'{sys.executable} "{mutate}"', timeout=1800)
+    #
+    # THE MUTATION SET LIVES OUTSIDE THIS REPOSITORY, beside the holdout, for
+    # the same reason the holdout does. The publish gate blocked a push on
+    # 2026-08-19 with "holdout/mutation set is TRACKED (publishing the answer
+    # key)" and it was right: a builder that can read defects.json can write
+    # tests that catch exactly those seven defects and nothing else, which
+    # produces a green MUTATIONS_OK and a suite that notices nothing else.
+    #
+    # That is subtler than it looks. The mutation set does not assert anything
+    # about the product, so shipping it feels harmless. What it publishes is
+    # the SHAPE OF THE EXAM, and an agent optimising against a visible exam is
+    # the failure this whole layer exists to prevent.
+    mutations_dir = os.environ.get("FACTORY_MUTATIONS_DIR", "").strip()
+    if not mutations_dir and holdout_repo:
+        # Default: beside the holdout, which is already outside the tree.
+        mutations_dir = str(Path(holdout_repo) / "mutations")
+    mutate = Path(mutations_dir) / "run.py" if mutations_dir else None
+
+    if os.environ.get("FACTORY_IN_MUTATION") == "1":
+        # NOT INSIDE A MUTATION RUN. The mutation runner runs this gate inside
+        # each throwaway build, so without this the inner gate re-runs the whole
+        # suite: 7 defects becomes 49 gate runs, and it misattributes which rung
+        # caught the defect.
+        #
+        # MUTATIONS_OK is printed anyway. The marker means "the mutation rung
+        # was handled", and an inner build that legitimately skips it must not
+        # look like a build that deleted it.
+        print("MUTATIONS_OK skipped=1 running inside a mutation build", flush=True)
+    elif mutate and mutate.exists():
+        env = dict(os.environ, FACTORY_REPO_ROOT=str(ROOT))
+        rc, out = run("mutations", f'{sys.executable} "{mutate}"', timeout=1800, env=env)
+        print(out.strip(), flush=True)
         if rc != 0:
             return fail("mutations", out)
+        if "MUTATIONS_OK" not in out:
+            return fail(
+                "mutations",
+                "the mutation runner exited 0 without printing MUTATIONS_OK. "
+                "An exit code with no positive marker is a check that did not "
+                "run.",
+            )
     else:
         print(
-            "MUTATIONS_ABSENT no harness/mutations/run.py - this gate has never "
-            "been shown to fail.",
+            f"MUTATIONS_ABSENT no run.py at FACTORY_MUTATIONS_DIR"
+            f"={mutations_dir or '<unset>'} - this gate has never been shown "
+            "to fail.",
             flush=True,
         )
 
