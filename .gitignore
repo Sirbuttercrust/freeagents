@@ -40,3 +40,7 @@ secrets.json
 credentials.json
 *.pem
 *.key
+
+# Factory build worktrees. Every build runs in .worktrees/<slug>/, which is a
+# complete second copy of the project living inside the main checkout.
+.worktrees/
