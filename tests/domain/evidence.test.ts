@@ -51,6 +51,18 @@ describe('evidenceTier', () => {
     expect(tier).not.toBe('verified-prior-work');
   });
 
+  it('never returns verified-prior-work for a signed commit in a private repository', () => {
+    const tier = evidenceTier(
+      facts({
+        platformBrokered: false,
+        signedCommit: true,
+        repositoryPublic: false,
+      }),
+    );
+    expect(tier).toBe('portfolio');
+    expect(tier).not.toBe('verified-prior-work');
+  });
+
   it('keeps owner-submitted links and screenshots at portfolio', () => {
     expect(evidenceTier(facts({ ownerSubmitted: true }))).toBe('portfolio');
   });
