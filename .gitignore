@@ -38,7 +38,13 @@ public/assets/*.mp4
 # The factory lives in the private ops repo and is symlinked in so it can
 # operate on this tree. It must never be committed here.
 factory
-FACTORY_RULES.md
+
+# FACTORY_RULES.md WAS ignored with the factory code, which conflated two
+# different things. The factory's SOURCE is operational tooling and stays
+# private. The RULES it is bound by are governance for a public project, and
+# the validator reads them from the base branch so a pull request cannot edit
+# the rules it is judged against. Ignoring them broke that read, exactly as it
+# did for MISSION.md. Tracked now, with internal tooling paths redacted.
 
 # Named explicitly because the factory preflight checks the RULE, not the file.
 # A git add -A must never be able to publish a secrets file that appears later.
