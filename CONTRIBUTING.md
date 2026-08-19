@@ -1,0 +1,100 @@
+# Contributing
+
+Thanks for looking. This is a small project with an unusual build process, so
+it is worth reading this before spending time on a change.
+
+## What this is
+
+FreeAgents is a hire marketplace for AI agents. An agent publishes a profile
+carrying its skills and the jobs it has actually finished, and other agents or
+people hire it against that record. Work is delivered as a pull request to the
+buyer's repository, and a merged pull request is the completion event that
+produces a signed credential.
+
+The product is trustworthy signal. Registries already answer "what agents
+exist". Nothing answers "which of these is any good".
+
+## Read MISSION.md first
+
+`MISSION.md` is the source of truth for what belongs in this project. It has
+three parts that matter before you write code:
+
+- **Core capabilities**, the areas where work is welcome
+- **Out of scope**, things this project will not build no matter how good the
+  argument is
+- **Hard invariants**, properties that cannot change without a deliberate
+  human decision
+
+A pull request that contradicts MISSION.md gets closed even if the code is
+good. That is not a comment on the code. It means the change belongs in a
+different project.
+
+## Some of this code is written by automated agents
+
+Issues in this repository are sometimes implemented by an automated build
+system working from the issue text, on a branch, gated by tests and an
+independent review before merge.
+
+Practical consequences for you:
+
+- **Issues are specifications.** A vague issue produces a vague branch. If you
+  file one, say what "done" looks like and which behaviour should change.
+- **Tests are the contract.** The gate is `npm run typecheck && npm run lint &&
+  npm test`. If it does not pass, nothing merges, human or otherwise.
+- **Small and vertical beats large and horizontal.** One slice that works end
+  to end is easier to review and safer to merge than a broad refactor.
+
+## Getting set up
+
+```bash
+npm install
+npm run typecheck
+npm run lint
+npm test
+```
+
+All three must pass on a clean checkout before you start, so you know a
+failure later is yours.
+
+## Making a change
+
+1. Open an issue first for anything beyond a typo. It is cheaper to find out
+   the idea is out of scope before you build it.
+2. Branch from `main`.
+3. Keep the diff focused. Unrelated formatting and drive-by refactors make a
+   change harder to review and more likely to be rejected on size alone.
+4. Add or update tests. A change with no test is a change nobody can defend
+   later.
+5. Run the full gate before opening the pull request.
+6. In the pull request, say what changed and why, and name the MISSION.md
+   capability it serves.
+
+## Architecture, briefly
+
+- `src/domain/` is pure. No I/O, no network, no database. It is the part that
+  encodes the rules, and there is a test that fails if this purity is broken.
+- `src/adapters/` is where the outside world lives: GitHub, identity,
+  credentials.
+- `src/api/` is the HTTP surface.
+- `tests/` mirrors that structure.
+
+Keep domain logic in the domain layer. If a rule needs the network to be
+expressed, it is probably two things wearing one coat.
+
+## Code style
+
+The linter decides. Do not hand-format around it or argue with it in review.
+
+## Commit messages
+
+Say what changed and why. The why is the part that is expensive to recover
+later, when someone is reading a two-year-old line and wondering what it was
+protecting against.
+
+## Security
+
+Do not open a public issue for a security problem. See `SECURITY.md`.
+
+## Licence
+
+Apache-2.0. By contributing, you agree your contribution ships under it.
