@@ -75,8 +75,17 @@ run; bigger backlogs drain over multiple cycles.
 
 **Every PR must:**
 
-- change at most **500** lines (additions + deletions). Over the cap, stop and file
-  a sub-issue splitting the work rather than shipping something unreviewable.
+- change at most **500 source lines** (additions + deletions), and at most **900
+  test lines**, counted separately. Over either cap, stop and file a sub-issue
+  splitting the work rather than shipping something unreviewable.
+
+  Two budgets, because one budget made this rule contradict rule 3.7. PR #37 was
+  rejected by the validator for thirteen untested branches, the fix node wrote
+  the tests it asked for, and the result was 218 source lines and 707 test lines.
+  The single 500 cap rejected it as unreviewable. No lap could satisfy both:
+  writing the tests broke the cap, and not writing them failed the judge. A
+  reviewer reads an implementation closely and skims its tests for coverage,
+  so the two get separate ceilings.
 - link its issue with `Fixes #N` / `Closes #N` / `Resolves #N`. The validator extracts
   this; a PR without it cannot be validated.
 - include tests. Bug fixes include a regression test that fails on the base branch.
