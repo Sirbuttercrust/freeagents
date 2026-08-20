@@ -19,6 +19,10 @@
   "dependencies": {
     "@arcblock/did": "^1.30.24",
     "@arcblock/vc": "^1.30.24",
+    "@digitalbazaar/ed25519-signature-2020": "^5.4.0",
+    "@digitalbazaar/ed25519-verification-key-2020": "^4.2.0",
+    "@digitalbazaar/security-document-loader": "^3.2.0",
+    "@digitalbazaar/vc": "^7.3.0",
     "@prisma/client": "^5.20.0",
     "express": "^4.21.0"
   },
