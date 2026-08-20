@@ -88,27 +88,48 @@ async function signW3CDelegation(operator: WalletObject, agent: WalletObject): P
 }
 
 // Verify a W3C credential using an independent verifier. This simulates what
-// a third party does: given the credential and a did:abt resolver (which
-// reconstructs the DID document from the DID itself, no call to our service),
-// verify the signature. The operator wallet is used here to simulate a
-// did:abt resolver that can derive the public key from the DID.
-async function verifyIndependent(credential: Record<string, unknown>, operator: WalletObject): Promise<boolean> {
+// a third party does: given ONLY the credential itself, resolve the key from
+// the credential's proof.verificationMethod (exactly as did-abt-resolver.ts
+// does), and verify the signature. No access to the operator's private key.
+async function verifyIndependent(credential: Record<string, unknown>): Promise<boolean> {
   try {
-    const operatorDid = operator.toDid();
-    const seed = hexToBytes(operator.secretKey).slice(0, 32);
-    const key = await Ed25519VerificationKey2020.generate({ seed, controller: operatorDid });
-    key.id = `${operatorDid}#${key.publicKeyMultibase}`;
+    const proof = credential.proof as Record<string, unknown>;
+    const verificationMethod = String(proof.verificationMethod);
+    const issuer = String(credential.issuer);
 
-    // A third party with a did:abt resolver would build this document loader
-    // by extracting the public key from the DID itself (did:abt encodes it).
+    // Extract the fingerprint from verificationMethod (e.g., did:abt:z1...#z6Mk...)
+    const hashIndex = verificationMethod.indexOf('#');
+    if (hashIndex === -1) return false;
+    const fingerprint = verificationMethod.slice(hashIndex + 1);
+
+    // Reconstruct the key from the fingerprint alone, exactly as a stranger would.
+    const key = await Ed25519VerificationKey2020.fromFingerprint({ fingerprint });
+
+    // BINDING CHECK: verify the key actually belongs to the claimed issuer DID.
+    // This is what prevents forgery: an attacker can sign with their own key
+    // and write <victim-did>#<attacker-fingerprint> into verificationMethod,
+    // but the derived DID from the attacker's key will not match the victim's DID.
+    const { fromPublicKey } = await import('@arcblock/did');
+    const keyWithBuffer = key as unknown as { _publicKeyBuffer: Uint8Array };
+    const derivedDidSuffix = fromPublicKey(keyWithBuffer._publicKeyBuffer);
+    const issuerSuffix = issuer.replace(/^did:abt:/, '');
+
+    if (derivedDidSuffix !== issuerSuffix) {
+      return false; // key does not belong to claimed issuer
+    }
+
+    key.controller = issuer;
+    key.id = verificationMethod;
+
+    // Build the document loader with only the reconstructed key.
     const loader = securityLoader();
     loader.addStatic(key.id, {
       '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
       ...key.export({ publicKey: true }),
     });
-    loader.addStatic(operatorDid, {
+    loader.addStatic(issuer, {
       '@context': 'https://www.w3.org/ns/did/v1',
-      id: operatorDid,
+      id: issuer,
       assertionMethod: [key.id],
       verificationMethod: [
         {
@@ -179,12 +200,12 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
 
     // Third-party verification: the stored credential, JSON-round-tripped,
     // verifies with @digitalbazaar/vc (not @arcblock/vc), with no HTTP call
-    // to this service. This is the test that proves invariant 2. The operator
-    // wallet here simulates a did:abt resolver that a third party would use.
+    // to this service, and with NO ACCESS to the operator's private key.
+    // This is the test that proves invariant 2.
     const stored = await agentRepo.findByDid(agent.toDid());
     expect(stored).not.toBeNull();
     const strangerCopy = JSON.parse(JSON.stringify(stored?.delegation));
-    const ok = await verifyIndependent(strangerCopy, operator);
+    const ok = await verifyIndependent(strangerCopy);
     expect(ok).toBe(true);
   });
 
@@ -226,7 +247,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
     // A stranger fetching from the public API can verify with no further
     // call to this service. This is the real third-party scenario.
     const wireCopy = JSON.parse(JSON.stringify(body.delegation));
-    const ok = await verifyIndependent(wireCopy, operator);
+    const ok = await verifyIndependent(wireCopy);
     expect(ok).toBe(true);
   });
 
@@ -238,7 +259,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
     // Change the subject: the signature no longer covers this document.
     tampered.credentialSubject.id = 'did:abt:zTamperedAgent';
 
-    const ok = await verifyIndependent(tampered, operator);
+    const ok = await verifyIndependent(tampered);
     expect(ok).toBe(false);
   });
 
@@ -261,7 +282,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
     expect(res.status).toBe(400);
   });
 
-  it('a credential signed by a different key is rejected with 400', async () => {
+  it('issuer field mismatch (plain string, caught pre-crypto) is rejected with 400', async () => {
     const stranger = fromRandom();
     const otherAgent = fromRandom();
     const credential = await signW3CDelegation(stranger, otherAgent);
@@ -273,6 +294,80 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       skills: ['triage'],
     });
     expect(res.status).toBe(400);
+  });
+
+  it('FORGERY: a credential claiming victim DID, signed by attacker key, is rejected', async () => {
+    // The attacker controls their own wallet, never registered.
+    const attacker = fromRandom();
+    const forgedAgent = fromRandom();
+
+    // The attacker derives a key from THEIR OWN wallet seed.
+    const attackerSeed = hexToBytes(attacker.secretKey).slice(0, 32);
+    const attackerKey = await Ed25519VerificationKey2020.generate({
+      seed: attackerSeed,
+      controller: operator.toDid(), // LIE: claim controller is the victim
+    });
+    // THE SPLICE: prefix the key id with the VICTIM's DID, but the fragment
+    // is the attacker's own key fingerprint.
+    attackerKey.id = `${operator.toDid()}#${attackerKey.publicKeyMultibase}`;
+
+    const forgedCredential = {
+      '@context': [
+        'https://www.w3.org/2018/credentials/v1',
+        'https://w3id.org/security/suites/ed25519-2020/v1',
+        { '@vocab': 'https://freeagents.dev/terms#' },
+      ],
+      id: `urn:uuid:${crypto.randomUUID()}`,
+      type: ['VerifiableCredential', DELEGATION_TYPE],
+      issuer: operator.toDid(), // claims the VICTIM issued this
+      issuanceDate: new Date().toISOString(),
+      credentialSubject: { id: forgedAgent.toDid(), delegatedBy: operator.toDid() },
+    };
+
+    // The attacker signs with THEIR OWN private key.
+    const suite = new Ed25519Signature2020({ key: attackerKey });
+    const signLoader = securityLoader();
+    signLoader.addStatic(attackerKey.id, {
+      '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+      ...attackerKey.export({ publicKey: true }),
+    });
+    signLoader.addStatic(operator.toDid(), {
+      '@context': 'https://www.w3.org/ns/did/v1',
+      id: operator.toDid(),
+      assertionMethod: [attackerKey.id],
+      verificationMethod: [
+        {
+          '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+          ...attackerKey.export({ publicKey: true }),
+        },
+      ],
+    });
+    const signDocumentLoader = signLoader.build();
+
+    const forged = await vc.issue({
+      credential: forgedCredential,
+      suite,
+      documentLoader: signDocumentLoader,
+    });
+
+    // POST this forged delegation to the service.
+    const res = await postJson(baseUrl, '/agents', {
+      did: forgedAgent.toDid(),
+      operator: operator.toDid(),
+      delegation: forged,
+      name: 'totally-legit',
+      skills: ['triage'],
+    });
+
+    // The service MUST reject this with 400 (not 201).
+    expect(res.status).toBe(400);
+
+    // An independent verifier resolving the key from the credential alone
+    // (exactly as did-abt-resolver.ts does) MUST also reject it.
+    // The signature WILL verify against the attacker's key, but the binding
+    // check (key does not belong to claimed issuer) MUST fail.
+    const ok = await verifyIndependent(forged);
+    expect(ok).toBe(false);
   });
 
   it('delegating from an unregistered operator is 404', async () => {
