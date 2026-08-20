@@ -1,6 +1,7 @@
 import express, { type Express, type Request, type Response } from 'express';
 
 import { createIdentityAdapter } from '../adapters/identity/identity.js';
+import type { DidDocument, IdentityAdapter } from '../adapters/identity/types.js';
 import {
   AgentAlreadyExistsError,
   OperatorAlreadyExistsError,
@@ -9,12 +10,9 @@ import {
 } from '../adapters/storage/types.js';
 import { createAgentRepository, createOperatorRepository } from '../adapters/storage/storage.js';
 import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
+import { didDocumentPointsAtGithubAccount, githubAccountUrl } from '../domain/account-proof.js';
 import { isValidOperatorDid } from '../domain/operator-did.js';
 import type { Operator } from '../domain/operator.js';
-
-// One identity adapter for the whole app: verification is stateless, so a
-// module-level instance is the entire state.
-const identity = createIdentityAdapter();
 
 // Route stubs for the hire loop (MISSION.md, "The hire loop"). Every handler
 // here returns 501 until the domain and adapter layers are wired in: the
@@ -74,6 +72,7 @@ function delegationShape(value: unknown): Delegation | null {
 export function createApp(
   repo: OperatorRepository = createOperatorRepository(),
   agentRepo: AgentRepository = createAgentRepository(),
+  identity: IdentityAdapter = createIdentityAdapter(),
 ): Express {
   const app = express();
   app.use(express.json());
@@ -230,6 +229,70 @@ export function createApp(
       res.status(200).json(agentProjection(row));
     } catch (err) {
       console.error('GET /agents/:agentDid: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // R-3, direction one (ENT-5): does the agent's DID document point at the
+  // claimed GitHub account? The operator authors the alsoKnownAs entry off
+  // platform in their wallet tooling; this route resolves the document and
+  // records that the direction holds, as pending (ENT-5.1: verified needs
+  // both directions, which lands in R-4).
+  app.post('/agents/:agentDid/account-proof', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+    const body = (req.body ?? {}) as { handle?: unknown };
+    const handle = body.handle;
+
+    if (typeof handle !== 'string' || handle.length === 0 || /\s/.test(handle)) {
+      res.status(400).json({
+        error: 'body must be { handle }; a non-empty string with no whitespace',
+      });
+      return;
+    }
+
+    let row: Agent | null;
+    try {
+      row = await agentRepo.findByDid(did);
+    } catch (err) {
+      console.error('POST /agents/:agentDid/account-proof: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (row === null) {
+      res.status(404).json({ error: `agent ${did} is not registered` });
+      return;
+    }
+
+    // A NotImplementedError until a resolver is wired, or any other
+    // resolution failure, is a 503: the operator cannot fix a missing
+    // backend, and failing open would record an unverified claim as held.
+    let doc: DidDocument;
+    try {
+      doc = await identity.resolveDid(did);
+    } catch (err) {
+      console.error('POST /agents/:agentDid/account-proof: identity resolution failed', err);
+      res.status(503).json({ error: 'identity resolution unavailable' });
+      return;
+    }
+
+    if (!didDocumentPointsAtGithubAccount(doc.alsoKnownAs, handle)) {
+      // The message names the DID and the exact URL to author, so the
+      // operator can act on it in their wallet tooling.
+      res.status(409).json({
+        error: `the DID document for ${did} does not point at the GitHub account: add ${githubAccountUrl(handle)} to its alsoKnownAs field`,
+      });
+      return;
+    }
+
+    try {
+      const updated = await agentRepo.updateGithubBinding(did, { handle, status: 'pending' });
+      if (updated === null) {
+        res.status(404).json({ error: `agent ${did} is not registered` });
+        return;
+      }
+      res.status(200).json(agentProjection(updated));
+    } catch (err) {
+      console.error('POST /agents/:agentDid/account-proof: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
