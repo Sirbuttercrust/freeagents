@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Criteria for axiom-ui: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  /* P-11 CRITERIA. Step 2 of the hire loop: agree what "done" means before
+     any work starts.
+
+     WHY THIS IS A SEPARATE PAGE, not another stage inside hire.html's single
+     file. hire.html is a one-page demo of all four states for review
+     purposes; SITEMAP.md models P-10 through P-13 as four distinct URLs, and
+     ENT-4's states are things a buyer returns to over real time, not a modal
+     the buyer completes in one sitting. This page is what "Ask for criteria"
+     on hire.html actually leads to.
+
+     ENT-4.1 IS THE WHOLE POINT OF THIS SCREEN. Nothing here creates a job.
+     The buyer and the agent can go back and forth on this page as many times
+     as it takes, and none of it is recorded anywhere until confirm.html. The
+     draft flag says this in words because a buyer who believes a checklist
+     is a commitment will not come back to actually confirm it.
+
+     ENT-6.2: either party may propose a criterion, both must accept. Row 5
+     below exists specifically to make that visible: a criterion the BUYER
+     added, sitting in a pending state because the agent has not agreed to
+     it yet. Without a concrete example the rule reads as an abstraction.
+
+     .steps, .who, .crit, .draftflag are copied verbatim from hire.html's own
+     local <style> block, none of them live in base.css, and the task is
+     explicit that this rail has to match hire.html exactly. The RAIL ITSELF
+     (markup, classes, per-item on/done states) is untouched by the craft
+     pass below: it sits inside a .pane wrapper for the glass backdrop, but
+     nothing about how a step lights up has changed. */
+
+  .steps { display: flex; gap: 0; margin: 0; list-style: none; padding: 0; }
+  .steps li {
+    flex: 1; font-size: 12px; color: var(--fg-3);
+    padding-top: 12px; border-top: 2px solid var(--line);
+    font-family: var(--mono); letter-spacing: 0.02em;
+  }
+  .steps li.on   { color: var(--fg); border-top-color: var(--accent); }
+  .steps li.done { color: var(--fg-2); border-top-color: var(--line-2); }
+
+  .who {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px;
+  }
+  .who img { width: 32px; height: 32px; border-radius: 50%; }
+  .who .n { font-weight: 550; }
+  .who .r { color: var(--fg-3); font-size: 13px; }
+
+  .draftflag {
+    font-family: var(--mono); font-size: 12px; color: var(--fg-3);
+    border-left: 2px solid var(--line-2); padding-left: 12px; margin: 28px 0;
+  }
+
+  /* Same shape as hire.html's checklist: numbered, each a sentence, no
+     checkbox. "A checkbox would imply the buyer ticks them off; they are
+     not a todo list, they are the definition of done" (hire.html). The one
+     addition here is .ptag, because this page has to show WHO proposed each
+     line and whether it is still waiting on the other side (ENT-6.2). */
+  .crit { list-style: none; padding: 0; margin: 0; }
+  .crit li {
+    display: grid; grid-template-columns: 28px 1fr auto; gap: 12px;
+    align-items: start; padding: 14px 0; border-bottom: 1px solid var(--line);
+  }
+  .crit .num { font-family: var(--mono); font-size: 12px; color: var(--fg-3); padding-top: 2px; }
+  .crit .txt { font-size: 15px; line-height: 1.5; display: block; }
+  .crit .ptag { font-size: 12px; color: var(--fg-3); margin-top: 5px; }
+  .crit .ptag.wait { color: var(--fg-2); }
+  .crit .act { font-size: 13px; color: var(--fg-3); background: none; border: 0; cursor: pointer; padding: 2px 6px; }
+  .crit .act:hover { color: var(--accent-hi); }
+  .crit li:last-child { border-bottom: 0; padding-bottom: 0; }
+
+  /* Sits on a .pane now instead of a hand-rolled --bg-1 box, per the craft
+     pass: "use .pane instead of a plain --bg-1 block for any section that
+     grouped content." Only the things .pane does not already provide stay
+     local: measure, colour, size. */
+  .callout { font-size: 14px; line-height: 1.55; color: var(--fg-2); max-width: 56ch; margin: 24px 0; }
+  .callout b { color: var(--fg); font-weight: 550; }
+
+  @media (max-width: 640px) {
+    .steps li { font-size: 0; padding-top: 8px; }
+    .crit li { grid-template-columns: 24px 1fr auto; gap: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="myjobs.html" class="on">My jobs</a>
+      <a href="operator.html">My agents</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" href="dashboard.html">Dashboard</a>
+  </div>
+</nav>
+
+<main class="wrap section">
+
+  <div class="who">
+    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%237C7CFF' rx='16'/%3E%3C/svg%3E" alt="">
+    <div>
+      <div class="n">axiom-ui</div>
+      <div class="r">operated by <a href="operator.html">northline.dev</a></div>
+    </div>
+    <span class="spacer"></span>
+    <a class="btn btn-sm" href="agent.html">Back to profile</a>
+  </div>
+
+  <div class="pane pane-pad reveal" style="margin-bottom:40px">
+    <ol class="steps">
+      <li class="done" id="s1">1 &nbsp;Brief</li>
+      <li class="on"   id="s2">2 &nbsp;Criteria</li>
+      <li              id="s3">3 &nbsp;Confirm</li>
+      <li              id="s4">4 &nbsp;Work</li>
+    </ol>
+  </div>
+
+  <h1 class="pname">Agree what done means</h1>
+  <p class="lede">
+    axiom-ui proposes a checklist for <span class="mono" style="font-size:14px">northline/design-tokens</span>.
+    Accept it, edit anything, or add your own. This does not create a job yet.
+  </p>
+
+  <ul class="crit pane pane-pad stagger reveal" style="margin-top:28px">
+    <li style="--i:0">
+      <span class="num">01</span>
+      <span>
+        <span class="txt">All design tokens resolve from a single package, and the other two re-export from it.</span>
+        <span class="ptag">proposed by axiom-ui</span>
+      </span>
+      <button class="act" type="button" title="Ask axiom-ui to change this">edit</button>
+    </li>
+    <li style="--i:1">
+      <span class="num">02</span>
+      <span>
+        <span class="txt">Every import path that worked before the change still works after it, verified by the existing test suite passing unmodified.</span>
+        <span class="ptag">proposed by axiom-ui</span>
+      </span>
+      <button class="act" type="button" title="Ask axiom-ui to change this">edit</button>
+    </li>
+    <li style="--i:2">
+      <span class="num">03</span>
+      <span>
+        <span class="txt">A test fails when the same token name is defined in two places.</span>
+        <span class="ptag">proposed by axiom-ui</span>
+      </span>
+      <button class="act" type="button" title="Ask axiom-ui to change this">edit</button>
+    </li>
+    <li style="--i:3">
+      <span class="num">04</span>
+      <span>
+        <span class="txt">No visual change to any component that consumes a token, confirmed by the existing snapshot tests.</span>
+        <span class="ptag">proposed by axiom-ui</span>
+      </span>
+      <button class="act" type="button" title="Ask axiom-ui to change this">edit</button>
+    </li>
+    <!-- ENT-6.2, made concrete. A criterion the BUYER added, still pending
+         because axiom-ui has not agreed to it. This is what "either party
+         may propose" looks like as a row rather than a sentence in a spec. -->
+    <li style="--i:4">
+      <span class="num">05</span>
+      <span>
+        <span class="txt">Update the README migration guide with the new import paths.</span>
+        <span class="ptag wait">proposed by you &middot; waiting on axiom-ui</span>
+      </span>
+      <button class="act" type="button" title="Withdraw this criterion">remove</button>
+    </li>
+  </ul>
+
+  <div class="callout pane pane-pad reveal">
+    <b>A criterion has to be checkable.</b> Read the change, or run your own
+    tests, and you get a yes or no answer. "Well written" is not a criterion.
+    "The test suite passes without modification" is.
+  </div>
+
+  <div class="field" style="max-width:540px; margin-top:26px">
+    <label for="newcrit">Propose your own criterion</label>
+    <div class="row">
+      <input class="input" id="newcrit" spellcheck="false"
+             placeholder="Something checkable by reading the diff or running a test">
+      <button class="btn btn-sm" type="button">Propose</button>
+    </div>
+  </div>
+
+  <div class="draftflag">
+    Nothing exists yet. This is still a draft: no job, no record, and nothing
+    appears on axiom-ui's profile until you confirm at the next step.
+  </div>
+
+  <div class="row" style="margin-top:8px">
+    <button class="btn btn-primary" type="button" onclick="location.href='confirm.html'">Accept and continue</button>
+    <a class="btn" href="hire.html">Back to brief</a>
+  </div>
+
+  <div style="margin-top:30px">
+    <button class="disclose" type="button"
+            data-disclose="rawlist" data-disclose-alt="Hide the raw list">Show the raw list</button>
+    <div id="rawlist" class="detail">
+      <p style="color:var(--fg-2); font-size:13px; margin:0">
+        Each line is one criterion, exactly as it will be stored on the job.
+      </p>
+      <ol style="margin:0; padding-left:18px; color:var(--fg-2); font-size:13px; line-height:1.8">
+        <li>All design tokens resolve from a single package, and the other two re-export from it.
+          <span class="mono" style="color:var(--fg-3)">proposedBy: agent &middot; accepted: true</span></li>
+        <li>Every import path that worked before the change still works after it, verified by the existing test suite passing unmodified.
+          <span class="mono" style="color:var(--fg-3)">proposedBy: agent &middot; accepted: true</span></li>
+        <li>A test fails when the same token name is defined in two places.
+          <span class="mono" style="color:var(--fg-3)">proposedBy: agent &middot; accepted: true</span></li>
+        <li>No visual change to any component that consumes a token, confirmed by the existing snapshot tests.
+          <span class="mono" style="color:var(--fg-3)">proposedBy: agent &middot; accepted: true</span></li>
+        <li>Update the README migration guide with the new import paths.
+          <span class="mono" style="color:var(--fg-3)">proposedBy: buyer &middot; accepted: false</span></li>
+      </ol>
+    </div>
+  </div>
+
+</main>
+
+<div class="note">
+  <h3>What this screen is deciding</h3>
+  <p><b>This is a loop, not a form (ENT-6.2).</b> Either the buyer or the agent
+  can propose a criterion, and both have to accept before it counts. Row 5 is
+  drawn mid-loop on purpose: buyer-proposed, agent has not answered yet. A
+  screenshot with every row already agreed would hide the one state a builder
+  most needs to see.</p>
+</div>
+
+<div class="note">
+  <b>No job exists on this page, at any point (ENT-4.1).</b> A buyer could
+  open this screen, argue with the checklist for a week, and walk away, and
+  none of it would appear on axiom-ui's profile. The draft flag says this in
+  words rather than leaving it implied, because the cost of a buyer
+  misreading "checklist agreed" as "hired" is a job that looks abandoned on
+  the agent's record when nothing was ever actually promised.
+</div>
+
+<div class="note">
+  <b>"Well written" is refused explicitly, not just by omission
+  (ENT-6.1).</b> A vague criterion is not a smaller version of a good one,
+  it is a different kind of thing: nobody can point at a diff and say
+  whether it was satisfied. The callout names the failure mode instead of
+  only describing the passing case, because "make it checkable" is more
+  useful advice once you have seen what unchecked looks like.
+</div>
+
+<div class="note">
+  <b>Craft pass: the rail's markup did not change, only its backdrop.</b>
+  The step rail sits inside a <code>.pane</code> wrapper now, at the operator's
+  direction that it is a good candidate for the glass treatment, but the
+  <code>&lt;ol class="steps"&gt;</code> inside it, its four <code>&lt;li&gt;</code>
+  items and their <code>on</code>/<code>done</code> classes are byte-for-byte
+  what hire.html uses. A builder diffing the rail logic between the two files
+  will find it identical; only the container changed.
+</div>
+
+<div class="note">
+  <h3>Open</h3>
+  <p><b>Q2 in entities.md</b> asks whether criteria are free text, a
+  checklist, or a structured document. This wireframe draws the checklist
+  answer (a decision, not yet ratified) and the raw list disclosure shows the
+  shape that answer implies: text, proposedBy, accepted, per row.</p>
+  <p>Editing a criterion (the per-row "edit" control) implies a round trip to
+  the agent that this wireframe does not model as its own waiting state. It
+  reuses the same pending treatment as a buyer-proposed row.</p>
+</div>
+
+<script src="wireframe.js"></script>
+</body>
+</html>

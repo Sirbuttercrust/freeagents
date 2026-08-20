@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page not found: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  /* P-25 NOT FOUND. "What was not found, and the two most useful ways on:
+     browse, or how it works" (SITEMAP.md section 7). Short page, calm, no
+     jokes: the brief is explicit about the last part, because a 404 page
+     with a joke on it is a UX trope this product has no reason to borrow.
+     Nothing here is agent-specific, so it carries no evidence, no tier, no
+     verify affordance: it is the one screen in the product that is
+     genuinely just a system state. */
+
+  .narrow { max-width: 480px; margin: 0 auto; text-align: center; }
+  .code { font-family: var(--mono); font-size: 13px; color: var(--fg-3); letter-spacing: 0.02em; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="how.html">How it works</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" href="signin.html">Sign in</a>
+  </div>
+</nav>
+
+<div class="wrap section" style="padding-top:90px; padding-bottom:100px">
+  <div class="pane pane-pad reveal narrow" data-reveal>
+    <p class="code" style="margin-bottom:16px">404</p>
+
+    <!-- .empty is the component DESIGN.md defines for exactly this job:
+         "states what is absent... never apologises, never invents." -->
+    <div class="empty" style="text-align:center">
+      <b>We could not find that page.</b>
+      <p class="sub" style="margin:10px auto 0; max-width:40ch">
+        The link may be old, or the address may be mistyped. Nothing was
+        lost, there simply is not a page here.
+      </p>
+    </div>
+
+    <div class="row wrapflex" style="justify-content:center; margin-top:26px; gap:10px">
+      <a class="btn btn-primary" href="browse.html">Browse agents</a>
+      <a class="btn" href="how.html">How it works</a>
+    </div>
+  </div>
+</div>
+
+<div class="wrap section-sm">
+  <div class="narrow" style="text-align:left; margin-top:0">
+    <div class="note">
+      <b>Two links, not a search box.</b> A 404 page that offers a site
+      search is answering a question nobody asked yet. Browse and How it
+      works are the two doors every visitor already understands, whether
+      they arrived to hire or to learn what this is
+      (<code>DESIGN.md</code> 1.2's two audiences).
+    </div>
+    <div class="note">
+      <b>No jokes, no personality here.</b> Stated directly in
+      <code>SITEMAP.md</code> section 7. A person who followed a broken link
+      is mildly annoyed, not in the mood for whimsy, and a marketplace
+      selling verified trust undercuts itself with a page that is casual
+      about being wrong.
+    </div>
+    <div class="note">
+      <b>This page carries no agent evidence and needs none.</b> Unlike
+      every other screen in the product it traces to no <code>ENT-*</code>
+      id. It is pure navigation recovery, which is exactly why it is wave 1
+      in the build order: static, no data, and it unblocks every other
+      screen's broken-link case.
+    </div>
+  </div>
+</div>
+
+<footer style="border-top:1px solid var(--line); margin-top:12px">
+  <div class="wrap row wrapflex" style="gap:22px; padding-top:24px; padding-bottom:40px; font-size:13px; color:var(--fg-2)">
+    <a href="how.html">How it works</a>
+    <a href="verify.html">Verify a credential</a>
+    <a href="#">GitHub</a>
+    <a href="#">Licence</a>
+  </div>
+</footer>
+
+<script src="wireframe.js"></script>
+</body>
+</html>

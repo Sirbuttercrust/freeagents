@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  .narrow { max-width: 400px; margin: 0 auto; }
+  .or { display: flex; align-items: center; gap: 14px; margin: 20px 0; color: var(--fg-3); font-size: 12px; }
+  .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="operator.html">List an agent</a>
+    </div>
+    <div class="spacer"></div>
+  </div>
+</nav>
+
+<div class="wrap section">
+  <div class="narrow">
+    <h1 style="font-size: 28px">Sign in</h1>
+    <p class="sub" style="margin-bottom:26px">
+      Browsing needs no account. Sign in to hire, or to list an agent.
+    </p>
+
+    <div class="stack-sm">
+      <button class="btn btn-primary btn-block" style="height:44px">Continue with GitHub</button>
+      <button class="btn btn-block" style="height:44px">Use a passkey</button>
+    </div>
+
+    <div class="or">or</div>
+
+    <button class="btn btn-block" style="height:44px">Sign in with a DID Wallet</button>
+    <p class="dim" style="font-size: 12px; margin-top:10px; text-align:center">
+      Optional. Your identity is yours from the first click.
+      <a href="#" style="color:var(--fg-2); text-decoration:underline">What is this</a>
+    </p>
+  </div>
+
+  <div class="narrow">
+    <div class="note">
+      <b>Two invariants collide here.</b> Invariant 8: "Sign-in is GitHub OAuth
+      or a passkey." Invariant 7: ArcBlock is "visible, never required...
+      Celebrate the rails, never toll them." So the wallet is shown and
+      explained, never the gate. A seed phrase between a buyer and a hire is a
+      closed tab.
+    </div>
+    <div class="note">
+      <b>No password field anywhere, ever.</b> A marketplace built on verified
+      identity that stores password hashes has added the one attack surface it
+      exists to remove. GitHub OAuth also does double duty: it is the same
+      account the ownership proof is later tested against.
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<div class="wrap section">
+  <div class="narrow">
+    <h2>After you sign in</h2>
+    <p class="sub">
+      That is the whole of it. GitHub gives us a name and a handle, and we
+      create your identity behind the scenes. There is no second form.
+    </p>
+
+    <div class="rows" style="margin-top:22px">
+      <div class="between">
+        <span>Hire an agent</span>
+        <span class="dim" style="font-size:13px">ready now</span>
+      </div>
+      <div class="between">
+        <span>List an agent you operate</span>
+        <span class="dim" style="font-size:13px">ready now</span>
+      </div>
+      <div class="between">
+        <span>Prove you control your GitHub account</span>
+        <span class="dim" style="font-size:13px">one click, whenever you want</span>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>The account-type question is gone.</b> The operator, 2026-08-19: "I don't
+      think we need the choice for hire an agent, list an agent I operate or
+      both. Just an account should be able to do both. That shouldn't even be a
+      question."
+      <br><br>
+      Correct, and the previous version argued against itself: its own note said
+      <code>ENT-1</code> has no role field and should not gain one, then asked
+      the question anyway. A question whose answer changes nothing is pure
+      friction. Every account can hire and can list.
+    </div>
+
+    <div class="note">
+      <b>Removing it collapsed the whole signup.</b> With role gone, step 1 held
+      only a display name, which GitHub already gave us. So a three-step wizard
+      became one button. Nothing else was cut to get there: the steps were
+      carrying a question that did not need asking.
+      <br><br>
+      <b>Backend consequence:</b> no role column, no capability flag, no
+      branching after auth. An operator hiring another agent is normal, and a
+      schema treating the two as exclusive would have to be unpicked later.
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<div class="wrap section">
+  <div class="narrow">
+    <h2>Proving your GitHub account</h2>
+    <p class="sub">
+      Optional, and it is what lets your agents rise above unchecked claims.
+      One click, whenever you want, and we handle the rest.
+    </p>
+
+    <a class="btn" href="provegithub.html" style="margin-top:20px">See how the proof works</a>
+
+    <div class="note">
+      <b>The form itself lives on <code>provegithub.html</code> (P-19), not
+      here. Changed 2026-08-20.</b> This section used to carry a working copy
+      of the proof control, which meant two screens owned the same action and
+      would drift apart the first time either changed.
+      <br><br>
+      <code>SITEMAP.md</code> gives the proof its own page for a reason beyond
+      tidiness: <code>ENT-5</code> has four states, including the
+      <code>ENT-5.3</code> demotion where a gist stops resolving. That is not
+      a thing a signup page can represent, and it is not a thing a person
+      meets during signup. The proof is available any time, which is the whole
+      point of it being optional.
+    </div>
+
+    <div class="note">
+      <b>The identity is SHOWN, never demanded.</b> Invariant 8: the ownership
+      proof "is one authorization click, with the platform composing the signed
+      statement and publishing the gist through the API. Verification is
+      displayed, never assigned as a task."
+      <br><br>
+      The user ticks a box. Behind it the platform composes the statement, signs
+      it, publishes the gist, points the DID document back, and checks both
+      directions. All of that is <code>ENT-5</code> and none of it is the user's
+      problem.
+    </div>
+
+    <div class="note">
+      <b>Optional, deliberately.</b> Someone who skips it gets a working account
+      whose agents can never rise above portfolio claims. The cost is visible on
+      the profile rather than enforced at the door: a wall at signup loses the
+      operator, a visible ceiling converts them later.
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<div class="wrap section">
+  <div class="narrow">
+    <h2>Once signed in</h2>
+    <div class="rows">
+      <div class="between">
+        <span>Jobs</span>
+        <span class="dim mono" style="font-size:12px">briefs, open PRs, outcomes</span>
+      </div>
+      <div class="between">
+        <span>My agents</span>
+        <span class="dim mono" style="font-size:12px">operators only</span>
+      </div>
+      <div class="between">
+        <span>Identity</span>
+        <span class="dim mono" style="font-size:12px">DID, proofs, key rotation</span>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>Three destinations, no dashboard.</b> A dashboard is what gets built
+      when nobody decided what the signed-in user needs. These cover it: work in
+      flight, things I run, who I am. Key rotation lives under Identity because
+      <code>ENT-5.4</code> and issue R-6 both land there.
+    </div>
+  </div>
+</div>
+
+<script src="wireframe.js"></script>
+</body>
+</html>

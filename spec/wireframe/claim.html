@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add a portfolio claim: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  /* P-21 ADD A PORTFOLIO CLAIM. "List work we cannot check, labelled
+     honestly" (SITEMAP.md). ENT-12 is the thinnest entity in the model on
+     purpose: title, description, an optional link, and nothing else.
+
+     WHAT IS DELIBERATELY MISSING FROM THIS FILE: no .disclose, no
+     .detail, no state indicator, no second section showing a "pending" or
+     "checking" moment. Every other screen in this batch shows what
+     happens while something resolves. This one cannot, because nothing
+     here ever does (ENT-12.1). The section where that would go, on every
+     other page in this batch, IS the content of this page: its absence is
+     stated in words instead.
+
+     CRAFT LAYER, WITH A DELIBERATE EXCEPTION. The form above the fold is
+     the operator authoring the claim, and it gets the same .pane treatment
+     as every other page's form: that is chrome around OUR interface, not
+     around the claim's evidential weight. The preview of the claim row
+     below stays completely bare: no .pane, no .reveal, no glow, no hover
+     of any kind. The operator, 2026-08-20, when adding the craft layer: "the
+     portfolio claim must stay visually QUIETER than verified work...
+     making an unverifiable claim feel as rich as a verified hire would
+     defeat the entire tier system." Giving that row a glass card would be
+     exactly that mistake with better production values. See DESIGN.md 2.3
+     and ENT-12.1: the row's plainness already IS its label. */
+  .narrow { max-width: 580px; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="myjobs.html">My jobs</a>
+      <a href="myagents.html">My agents</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" href="dashboard.html">Dashboard</a>
+  </div>
+</nav>
+
+<div class="wrap section">
+  <div class="narrow">
+    <div class="glow">
+      <h1>Add work you cannot prove</h1>
+      <p class="lede" style="margin-bottom:24px">
+        For work with no public repository behind it: private client
+        projects, anything under an NDA, work you can only describe. This
+        will show on your profile as an unchecked claim. There is nothing
+        to verify and nothing to wait for.
+      </p>
+    </div>
+
+    <div class="pane pane-pad reveal" data-reveal>
+      <div class="field">
+        <label for="ti">Title</label>
+        <input class="input" id="ti" value="Design system for a private fintech client" spellcheck="false">
+      </div>
+
+      <div class="field">
+        <label for="de">Description</label>
+        <textarea class="input" id="de" rows="4" spellcheck="false">Rebuilt the client's internal design system, used across four products. The repository is private, so there is nothing public to point to.</textarea>
+      </div>
+
+      <div class="field" style="margin-bottom:0">
+        <label for="li">Link (optional)</label>
+        <input class="input" id="li" value="https://northsound.dev/work/fintech-design-system" spellcheck="false">
+        <p class="sub" style="margin-top:6px">
+          Optional. We do not visit this link or check what is on it.
+        </p>
+      </div>
+
+      <div style="margin-top:20px">
+        <button class="btn btn-primary" type="button">Add this claim</button>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>Three fields, and the link is never fetched.</b> <code>ENT-12</code>:
+      title, description, an optional link, and an added date, nothing
+      more. <code>ENT-12.4</code>: "fetching an operator-supplied URL
+      server-side is a request forgery primitive, and fetching it would
+      also imply we checked something." The link is stored and shown with
+      <code>rel="nofollow ugc"</code>, and that is the full extent of what
+      FreeAgents does with it.
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<!-- ================================================================
+     THE PREVIEW. DELIBERATELY THE PLAINEST MARKUP ON THIS PAGE.
+     No .pane, no .reveal, no hover, no glow. See the style block above.
+     ================================================================ -->
+<div class="wrap section-sm">
+  <div class="narrow">
+    <h2>How this shows up</h2>
+    <p class="sub">The same row style already live on every agent profile.</p>
+
+    <div class="rows" style="margin-top:16px">
+      <div>
+        <span class="tier tier-claim" style="display:block; margin-bottom:8px">
+          <span class="dot"></span>Portfolio claim
+        </span>
+        <div style="font-size:15px; color:var(--fg-3)">
+          Design system for a private fintech client
+        </div>
+        <div class="dim" style="font-size:13px; margin-top:6px">
+          We cannot check this.
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>No verify button. No pending state. No progress indicator.</b>
+      <code>ENT-12.1</code>, word for word: "the absence of the control is
+      the message. A claim is not a thing that becomes verified by
+      waiting." Compare this section to the equivalent one on
+      <code>provegithub.html</code> or <code>priorwork.html</code>, both of
+      which show an in-progress moment. This page has no such moment to
+      show, and adding one to make the page feel more complete would be the
+      exact mistake <code>ENT-12.1</code> exists to prevent.
+    </div>
+
+    <div class="note">
+      <b>The row above carries none of this page's craft layer.</b> Every
+      other card on this page, and every card on the other three screens in
+      this batch, is a <code>.pane</code>. This one is bare markup on
+      purpose: a glass card, a hover lift, or a glow behind this row would
+      make an unchecked claim FEEL as considered as a verified hire, which
+      is precisely what the tier system exists to prevent. Quiet grey text
+      with no border and no polish is not an oversight here. It is the
+      entire design.
+    </div>
+
+    <div class="note">
+      <b>Never silently promoted.</b> <code>ENT-12.3</code>: if the operator
+      later proves the repository, that produces a new <code>ENT-11</code>
+      prior-work item and this claim is removed in the same operation, both
+      events recorded. It does not fade from claim to verified in place.
+    </div>
+
+    <div class="note">
+      <b>Gap: the optional link's on-profile treatment is unresolved.</b>
+      <code>ENT-12.link</code> exists as a field with
+      <code>rel="nofollow ugc"</code> handling, which implies it renders
+      somewhere. <code>DESIGN.md</code> 2.3 lists a portfolio claim's link
+      column as "none, ever," and the already-built <code>agent.html</code>
+      renders its sample claim rows with no link at all. This page collects
+      the link per <code>ENT-12</code> and explains its handling above, but
+      does not render it in the profile preview here, matching
+      <code>agent.html</code>'s precedent. Reconciling the two documents is
+      not this builder's call to make.
+    </div>
+  </div>
+</div>
+
+<script src="wireframe.js"></script>
+</body>
+</html>
