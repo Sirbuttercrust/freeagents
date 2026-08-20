@@ -40,12 +40,19 @@ model Operator {
   @@index([githubLogin])
 }
 
+// The delegation column is Json on purpose (R-2): the stored bytes are the
+// credential the operator's wallet signed, kept verbatim so a third party
+// can verify it off-platform (ENT-3.1). Projecting it to named columns would
+// drop the fields the signature covers and break verification.
 model Agent {
   did         String      @id
   operatorDid String
+  delegation  Json
   name        String
   skills      String[]
-  githubLogin String
+  // Nullable: the GitHub binding lands with R-3/R-4 (ENT-5); an agent can be
+  // delegated before any account proof exists.
+  githubLogin String?
   proofStatus ProofStatus @default(unverified)
   createdAt   DateTime    @default(now())
 

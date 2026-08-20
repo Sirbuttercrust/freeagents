@@ -17,6 +17,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({
   create: vi.fn(),
   findUnique: vi.fn(),
+  agentCreate: vi.fn(),
+  agentFindUnique: vi.fn(),
 }));
 
 vi.mock('../../src/generated/prisma/index.js', async () => {
@@ -29,6 +31,7 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
   return {
     PrismaClient: class {
       operator = mock;
+      agent = { create: mock.agentCreate, findUnique: mock.agentFindUnique };
     },
     Prisma: actual.Prisma,
   };
@@ -36,12 +39,23 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
 
 // Import after the mock is registered: the driver's module-level singleton
 // then captures the stubbed client, and `db()` never opens a database.
-const { PrismaOperatorRepository } = await import(
+const { PrismaAgentRepository, PrismaOperatorRepository } = await import(
   '../../src/adapters/storage/prisma.js'
 );
-const { OperatorAlreadyExistsError } = await import(
+const { AgentAlreadyExistsError, OperatorAlreadyExistsError } = await import(
   '../../src/adapters/storage/types.js'
 );
+
+// The delegation the driver stores is the full credential (R-2); these tests
+// drive the driver's decisions, not the cryptography, so a shaped fixture
+// stands in for the bytes a real wallet signed.
+const delegationFixture = {
+  type: ['VerifiableCredential', 'AgentDelegation'],
+  issuer: { id: 'zOperatorKeyHash', pk: 'zOperatorPublicKey' },
+  credentialSubject: { id: 'zAgentKeyHash' },
+  proof: { jws: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJFZERTQSJ9' },
+  issuanceDate: '2026-08-20T05:00:00.000Z',
+};
 
 function p2002(did: string): Error {
   return new Prisma.PrismaClientKnownRequestError(
@@ -163,6 +177,164 @@ describe('PrismaOperatorRepository', () => {
     const row = await repo.findByDid('did:abt:prisma-none');
 
     expect(mock.findUnique).toHaveBeenCalledWith({ where: { did: 'did:abt:prisma-none' } });
+    expect(row).toBeNull();
+  });
+});
+
+describe('PrismaAgentRepository', () => {
+  beforeAll(() => {
+    vi.mocked(mock.agentCreate).mockReset();
+    vi.mocked(mock.agentFindUnique).mockReset();
+  });
+
+  afterEach(() => {
+    vi.mocked(mock.agentCreate).mockReset();
+    vi.mocked(mock.agentFindUnique).mockReset();
+  });
+
+  it('create: the stored row comes back as the agent projection, delegation verbatim', async () => {
+    const createdAt = new Date('2026-08-20T05:00:00.000Z');
+    vi.mocked(mock.agentCreate).mockResolvedValue({
+      did: 'did:abt:agent-1',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+      proofStatus: 'unverified',
+      createdAt,
+    });
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.create({
+      did: 'did:abt:agent-1',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+
+    // The data sent to the database carries the full credential, not a
+    // projection of it: projecting would drop the fields the signature
+    // covers and the stored copy would stop verifying off-platform.
+    expect(mock.agentCreate).toHaveBeenCalledWith({
+      data: {
+        did: 'did:abt:agent-1',
+        operatorDid: 'did:abt:op-1',
+        delegation: delegationFixture,
+        name: 'scout',
+        skills: ['triage'],
+        githubLogin: null,
+      },
+    });
+    expect(row).toEqual({
+      did: 'did:abt:agent-1',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+      proofStatus: 'unverified',
+      createdAt,
+    });
+  });
+
+  it('create: a P2002 unique-constraint failure is the domain duplicate error', async () => {
+    vi.mocked(mock.agentCreate).mockRejectedValue(p2002('did:abt:agent-dup'));
+
+    const repo = new PrismaAgentRepository();
+    const err = await repo
+      .create({
+        did: 'did:abt:agent-dup',
+        operatorDid: 'did:abt:op-1',
+        delegation: delegationFixture,
+        name: 'scout',
+        skills: ['triage'],
+        githubLogin: null,
+      })
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(AgentAlreadyExistsError);
+    expect((err as Error).message).toContain('did:abt:agent-dup');
+    expect((err as Error).name).toBe('AgentAlreadyExistsError');
+  });
+
+  it('create: a non-P2002 Prisma error is rethrown untouched', async () => {
+    const original = p1001();
+    vi.mocked(mock.agentCreate).mockRejectedValue(original);
+
+    const repo = new PrismaAgentRepository();
+    const err = await repo
+      .create({
+        did: 'did:abt:agent-2',
+        operatorDid: 'did:abt:op-1',
+        delegation: delegationFixture,
+        name: 'scout',
+        skills: ['triage'],
+        githubLogin: null,
+      })
+      .catch((e: unknown) => e);
+
+    expect(err).toBe(original);
+    expect(err).not.toBeInstanceOf(AgentAlreadyExistsError);
+  });
+
+  it('create: a non-Prisma error is rethrown untouched', async () => {
+    const original = new Error('disk full');
+    vi.mocked(mock.agentCreate).mockRejectedValue(original);
+
+    const repo = new PrismaAgentRepository();
+    const err = await repo
+      .create({
+        did: 'did:abt:agent-3',
+        operatorDid: 'did:abt:op-1',
+        delegation: delegationFixture,
+        name: 'scout',
+        skills: ['triage'],
+        githubLogin: null,
+      })
+      .catch((e: unknown) => e);
+
+    expect(err).toBe(original);
+  });
+
+  it('findByDid: a stored row comes back as the agent projection', async () => {
+    const createdAt = new Date('2026-08-20T05:00:00.000Z');
+    vi.mocked(mock.agentFindUnique).mockResolvedValue({
+      did: 'did:abt:agent-1',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: 'agent-login-1',
+      proofStatus: 'verified',
+      createdAt,
+    });
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.findByDid('did:abt:agent-1');
+
+    expect(mock.agentFindUnique).toHaveBeenCalledWith({ where: { did: 'did:abt:agent-1' } });
+    expect(row).toEqual({
+      did: 'did:abt:agent-1',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: 'agent-login-1',
+      proofStatus: 'verified',
+      createdAt,
+    });
+  });
+
+  it('findByDid: no stored row comes back as null, not an empty agent', async () => {
+    vi.mocked(mock.agentFindUnique).mockResolvedValue(null);
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.findByDid('did:abt:agent-none');
+
+    expect(mock.agentFindUnique).toHaveBeenCalledWith({ where: { did: 'did:abt:agent-none' } });
     expect(row).toBeNull();
   });
 });
