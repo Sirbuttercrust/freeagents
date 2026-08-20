@@ -17,6 +17,8 @@
     "prisma:generate": "prisma generate"
   },
   "dependencies": {
+    "@arcblock/did": "^1.30.24",
+    "@arcblock/vc": "^1.30.24",
     "@prisma/client": "^5.20.0",
     "express": "^4.21.0"
   },
