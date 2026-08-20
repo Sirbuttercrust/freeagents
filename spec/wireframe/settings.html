@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Account settings: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  /* P-23 SETTINGS. ENT-1, ENT-5.
+
+     One job: change the few things about your account that are actually
+     changeable.
+
+     THE HARD PART OF THIS SCREEN IS DELETION. ENT-1.3: "Deleting an operator
+     does not delete issued credentials. A credential is a record of something
+     that happened, and it verifies against the signing key independently of
+     our database."
+
+     That is surprising, and a person who deletes their account expecting
+     everything to vanish has been misled by the word "delete". So the
+     consequence is stated in plain language BEFORE the control, not in a
+     confirmation dialog after the decision is made. A dialog that explains
+     the thing you needed to know before you clicked is an apology, not a
+     design.
+
+     IDENTITY IS SHOWN, NEVER DEMANDED. The DID lives behind a disclosure. A
+     person who wants to copy it can; a person who does not need never learn
+     the word (DESIGN.md 1.2, 1.3). */
+
+  .narrow { max-width: 620px; }
+  .danger { color: var(--fg-2); }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="myjobs.html">My jobs</a>
+      <a href="myagents.html">My agents</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" href="dashboard.html">Account</a>
+  </div>
+</nav>
+
+<div class="wrap section">
+  <div class="narrow">
+    <h1 style="font-size:28px">Settings</h1>
+    <p class="sub">Your account, and the accounts connected to it.</p>
+
+    <div class="field" style="margin-top:26px">
+      <label for="dn">Display name</label>
+      <input class="input" id="dn" value="northsound.dev">
+    </div>
+
+    <div class="rows pane pane-pad stagger reveal" style="margin-top:8px">
+      <div class="between" style="--i:0">
+        <div>
+          <div>GitHub account</div>
+          <div class="small muted" style="margin-top:3px">
+            Confirmed both ways, checked 4 hours ago
+          </div>
+        </div>
+        <span class="state state-done"><span class="dot"></span> @northsound</span>
+      </div>
+      <div class="between" style="--i:1">
+        <div>
+          <div>Sign-in method</div>
+          <div class="small muted" style="margin-top:3px">GitHub, plus a passkey on this device</div>
+        </div>
+        <a class="btn btn-sm" href="#">Manage</a>
+      </div>
+      <div class="between" style="--i:2">
+        <div>
+          <div>Email about your jobs</div>
+          <div class="small muted" style="margin-top:3px">
+            When someone hires your agents, or a job needs you
+          </div>
+        </div>
+        <label class="row" style="gap:8px">
+          <input type="checkbox" checked style="accent-color:var(--accent)">
+          <span class="small muted">On</span>
+        </label>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" type="button" style="margin-top:24px">Save changes</button>
+
+    <div style="margin-top:26px">
+      <button class="disclose" type="button"
+              data-disclose="ident" data-disclose-alt="Hide identity details">Show identity details</button>
+      <div id="ident" class="detail">
+        <p style="margin:0; color:var(--fg-2)">
+          Your identity was created for you when you signed in. You never need
+          to handle it, and we never hold the key.
+        </p>
+        <div class="kv">
+          <div>
+            <dt>Your identity (DID)</dt>
+            <dd>did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St</dd>
+          </div>
+          <button class="btn btn-sm" type="button"
+                  data-copy="did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St">Copy</button>
+        </div>
+        <div class="kv">
+          <div>
+            <dt>Signing key</dt>
+            <dd>ed25519, added 4 November 2025</dd>
+          </div>
+          <a class="btn btn-sm" href="keys.html">Manage keys</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>Invariant 8, applied to a settings page.</b> "The user performs no
+      cryptography." The identity exists, it is copyable, and it is behind a
+      disclosure labelled in plain words. Nothing on the primary path requires
+      a person to know what a DID is.
+      <br><br>
+      <code>ENT-1.1</code>: the operator DID is created by the operator and we
+      never hold the key. The panel says so in a sentence rather than in
+      protocol terms.
+    </div>
+
+    <div class="note">
+      <b>No password field, here or anywhere.</b> There is nothing to change
+      because there is nothing stored. Sign-in is GitHub OAuth or a passkey
+      (invariant 8), and a marketplace built on verified identity that stores
+      password hashes has added the one attack surface it exists to remove.
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<div class="wrap section">
+  <div class="narrow">
+    <h2>Closing your account</h2>
+
+    <!-- ENT-1.3 STATED BEFORE THE CONTROL, NOT AFTER IT.
+         The consequence is genuinely surprising and it is irreversible from
+         the person's point of view, so it belongs above the button. -->
+    <p class="sub" style="margin-top:12px">
+      Your agents stop being listed and nobody can hire them. Receipts for
+      work that already shipped stay public and keep working, because they are
+      a record of something that happened and they do not depend on your
+      account existing.
+    </p>
+
+    <p class="sub" style="margin-top:14px">
+      If that is not what you want, you can unlist individual agents instead
+      and keep the account.
+    </p>
+
+    <div class="row wrapflex" style="margin-top:20px; gap:10px">
+      <a class="btn" href="myagents.html">Unlist agents instead</a>
+      <button class="btn danger" type="button">Close my account</button>
+    </div>
+
+    <div class="note">
+      <b>This is the screen where a well-meaning builder breaks a hard rule.</b>
+      <code>ENT-1.3</code>: deleting an operator does not delete issued
+      credentials. The obvious "delete everything" implementation would
+      destroy records that other people rely on, and that a third party can
+      still verify from the signature alone.
+      <br><br>
+      A credential verifies against the signing key independently of our
+      database (<code>ENT-8.1</code>), so deleting our row would not even
+      succeed at hiding it. It would only make our copy disagree with the
+      public one.
+    </div>
+
+    <div class="note">
+      <b>Why the consequence is above the button.</b> A confirmation dialog
+      that explains something the person needed before deciding is an apology
+      rather than a design. The alternative action, unlisting agents, is
+      offered beside it because it is what most people asking for deletion
+      actually want.
+    </div>
+
+    <div class="note">
+      <b>Gap G6, carried from <code>SITEMAP.md</code>.</b> Sign-in is specified
+      as a flow in <code>MISSION</code> and <code>DATA-CONTRACT</code> section
+      6, but nothing in <code>entities.md</code> models a session, a connected
+      sign-in method, or a notification preference. Every control on this page
+      except display name and the GitHub proof needs an entity that does not
+      exist yet. Filed, not invented.
+    </div>
+  </div>
+</div>
+
+<script src="wireframe.js"></script>
+</body>
+</html>

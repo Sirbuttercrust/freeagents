@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Something went wrong: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  /* P-26 ERROR. "What failed, what it means for anything in flight, and
+     what to do. Never a stack trace, never a bare error code" (SITEMAP.md
+     section 7). DESIGN.md 7: "An error a user sees names the thing they can
+     do about it," so the one primary action here is always a real next
+     step, never a dead end.
+
+     NO RED ANYWHERE. DESIGN.md 2.1 defines the whole palette and there is
+     no error token in it, on purpose: the system is achromatic except for
+     the accent, which means only "we watched this happen." Inventing a red
+     for this one page would be the first hex value in the product and
+     would teach the accent's meaning wrong by association. So this page is
+     as quiet as every other system state, told through words, not colour. */
+
+  .narrow { max-width: 480px; margin: 0 auto; text-align: center; }
+  .code { font-family: var(--mono); font-size: 13px; color: var(--fg-3); letter-spacing: 0.02em; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="how.html">How it works</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" href="signin.html">Sign in</a>
+  </div>
+</nav>
+
+<div class="wrap section" style="padding-top:90px; padding-bottom:60px">
+  <div class="pane pane-pad reveal narrow" data-reveal>
+    <p class="code" style="margin-bottom:16px">Something went wrong</p>
+
+    <h1 style="font-size:22px">This page could not load</h1>
+    <p class="sub" style="margin:12px auto 0; max-width:42ch">
+      Nothing was changed and nothing was deleted. If you were in the middle
+      of something, it is almost always safe to go back and try again.
+    </p>
+
+    <!-- THE ONE REALISTIC EXAMPLE the brief asks for, and it is grounded in
+         a real product rule (ENT-4.1) rather than invented: a job does not
+         exist until confirm, so an error during hiring genuinely has
+         nothing to lose. -->
+    <p class="sub" style="margin:14px auto 0; max-width:42ch">
+      For example: if this happened while you were confirming a hire, no job
+      was created. A job only exists once both sides confirm it, so trying
+      again cannot duplicate anything.
+    </p>
+
+    <div class="row wrapflex" style="justify-content:center; margin-top:26px; gap:10px">
+      <a class="btn btn-primary" href="#">Try again</a>
+      <a class="btn" href="browse.html">Go to browse</a>
+    </div>
+
+    <div style="margin-top:22px">
+      <button class="disclose" type="button"
+              data-disclose="ref" data-disclose-alt="Hide details for support">Show details for support</button>
+      <div id="ref" class="detail" style="text-align:left">
+        <p style="color:var(--fg-2); margin:0">
+          We could not reach one of our services in time. If this keeps
+          happening, this reference helps us find what happened when you
+          contact us.
+        </p>
+        <div class="kv">
+          <div>
+            <dt>Reference</dt>
+            <dd>run-7f2a9c31</dd>
+          </div>
+          <button class="btn btn-sm" type="button" data-copy="run-7f2a9c31">Copy</button>
+        </div>
+        <div class="kv">
+          <div>
+            <dt>When</dt>
+            <dd>20 Aug 2026, 14:31 UTC</dd>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="wrap section-sm">
+  <div class="narrow" style="text-align:left; margin-top:0">
+    <div class="note">
+      <b>Never a stack trace, never a bare code.</b> <code>SITEMAP.md</code>
+      section 7 is explicit. A code like "500" or "ECONNREFUSED" tells an
+      engineer something and tells a buyer nothing except that something
+      is broken. The reference above exists for support, behind a
+      disclosure, and is never the primary message.
+    </div>
+    <div class="note">
+      <b>The example is not invented.</b> It leans on <code>ENT-4.1</code>:
+      "a job does not exist until the buyer confirms." That is a real
+      product guarantee, not reassurance copy, which is why this exact
+      example is safe to hardcode rather than trying to generate the right
+      message for every possible failure.
+    </div>
+    <div class="note">
+      <b>"Try again" reloads, it does not resubmit blindly.</b> A generic
+      error page must never re-run a write (like confirming a hire or
+      posting a review) automatically on load, or a transient failure could
+      turn into a duplicate action. Wireframe-only affordance here; the
+      backend contract for safe retry is not yet written.
+    </div>
+    <div class="note">
+      <b>No sign-in implied, no session assumed.</b> This page can be hit by
+      a signed-out visitor as easily as a signed-in one, so it links to
+      Browse rather than a dashboard that might not exist for this visitor.
+    </div>
+  </div>
+</div>
+
+<footer style="border-top:1px solid var(--line); margin-top:12px">
+  <div class="wrap row wrapflex" style="gap:22px; padding-top:24px; padding-bottom:40px; font-size:13px; color:var(--fg-2)">
+    <a href="how.html">How it works</a>
+    <a href="verify.html">Verify a credential</a>
+    <a href="#">GitHub</a>
+    <a href="#">Licence</a>
+  </div>
+</footer>
+
+<script src="wireframe.js"></script>
+</body>
+</html>

@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confirm GitHub: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  /* P-19 PROVE GITHUB. "Confirm the operator controls a GitHub account, in
+     one click" (SITEMAP.md). ENT-5 needs proof in BOTH directions, and
+     invariant 8 says verification is watched, never performed.
+
+     FOUR STATES, ALL ON THIS PAGE, STACKED. credential.html's pattern: the
+     first section is the live page (not started, one click, one primary
+     button). Everything below is a labelled reference state so a builder
+     can see in progress, confirmed, and the ENT-5.3 demotion without a
+     backend to produce them. Only the first section carries the
+     .btn-primary; every reference state below uses a plain button or none,
+     because the page's one committed action is the click at the top.
+
+     CRAFT LAYER: each state lives in its own .pane card and its own
+     .reveal section, so scrolling through the four states reads as
+     literally watching one settle into the next, which is the point of
+     this whole screen (invariant 8: "the person clicks once and
+     watches"). The two-fact checklist in each state is a .stagger list.
+     No .pane-lift anywhere: a state card is not a link, and lifting it on
+     hover would imply an affordance that is not there. */
+
+  .narrow { max-width: 560px; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="myjobs.html">My jobs</a>
+      <a href="myagents.html">My agents</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" href="dashboard.html">Dashboard</a>
+  </div>
+</nav>
+
+<!-- ============================================== STATE 1: NOT STARTED === -->
+<div class="wrap section">
+  <div class="narrow">
+    <div class="glow">
+      <div class="state state-none" style="margin-bottom:16px">
+        <span class="dot"></span> Not confirmed yet
+      </div>
+
+      <h1>Confirm your GitHub account</h1>
+      <p class="lede" style="margin-bottom:22px">
+        One click. We check that your identity and your GitHub account
+        point at each other, and show you exactly what we found.
+      </p>
+    </div>
+
+    <div class="pane pane-pad reveal" data-reveal>
+      <div class="rows stagger" data-reveal>
+        <div class="between" style="--i:0">
+          <span>Your identity points at github.com/northsound</span>
+          <span class="state state-none"><span class="dot"></span>Not checked yet</span>
+        </div>
+        <div class="between" style="--i:1">
+          <span>github.com/northsound confirms it back</span>
+          <span class="state state-none"><span class="dot"></span>Not checked yet</span>
+        </div>
+      </div>
+
+      <p class="sub" style="margin:20px 0">
+        Both checks matter. Either one alone could be faked, so nothing
+        counts as confirmed until we have looked at both.
+      </p>
+
+      <button class="btn btn-primary" type="button">Confirm my GitHub account</button>
+    </div>
+
+    <div class="note">
+      <b>One click, then nothing left to do.</b> Invariant 8: "verification
+      is displayed, never assigned as a task." Behind this button the
+      platform composes the statement, signs it, publishes it publicly,
+      points the identity document at the account, and reads both back.
+      None of that is a step the person takes.
+    </div>
+
+    <div class="note">
+      <b>No OAuth token, no write scope, ever.</b> <code>ENT-5.2</code>: "the
+      proof is a public gist we read." FreeAgents never asks GitHub for
+      anything more than what anyone with the URL could already see.
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<!-- ============================================= STATE 2: IN PROGRESS === -->
+<div class="wrap section-sm reveal" data-reveal>
+  <div class="narrow">
+    <h2>Moments after you click</h2>
+    <p class="sub">The same page, watching rather than waiting for input.</p>
+
+    <div class="pane pane-pad" style="margin-top:16px">
+      <div class="rows stagger" data-reveal>
+        <div class="between" style="--i:0">
+          <span>Your identity points at github.com/northsound</span>
+          <span class="state state-done"><span class="dot"></span>Checking</span>
+        </div>
+        <div class="between" style="--i:1">
+          <span>github.com/northsound confirms it back</span>
+          <span class="state state-done"><span class="dot"></span>Checking</span>
+        </div>
+      </div>
+
+      <p class="sub" style="margin-top:16px">
+        Nothing to do here. This usually takes a few seconds.
+      </p>
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<!-- ================================================= STATE 3: CONFIRMED === -->
+<div class="wrap section-sm reveal" data-reveal>
+  <div class="narrow">
+    <h2>Once it is confirmed</h2>
+    <p class="sub">What the page shows when both checks come back true.</p>
+
+    <div class="pane pane-pad" style="margin-top:16px">
+      <div class="rows stagger" data-reveal>
+        <div class="between" style="--i:0">
+          <span>Your identity points at github.com/northsound</span>
+          <span class="state state-live"><span class="dot"></span>Confirmed</span>
+        </div>
+        <div class="between" style="--i:1">
+          <span>github.com/northsound confirms it back</span>
+          <span class="state state-live"><span class="dot"></span>Confirmed</span>
+        </div>
+      </div>
+
+      <p style="margin-top:18px; max-width:48ch">
+        GitHub account confirmed: <b>@northsound</b>. Checked just now, and
+        again on a regular schedule from here on.
+      </p>
+
+      <div class="row" style="margin-top:14px">
+        <a class="btn" href="#">View the confirmation on GitHub</a>
+      </div>
+
+      <div style="margin-top:20px">
+        <button class="disclose" type="button"
+                data-disclose="proof" data-disclose-alt="Hide technical details">Show technical details</button>
+        <div id="proof" class="detail">
+          <div class="kv">
+            <div>
+              <dt>Identity points at account</dt>
+              <dd>did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St &#8594; github.com/northsound</dd>
+            </div>
+            <button class="btn btn-sm" type="button"
+                    data-copy="did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St">Copy</button>
+          </div>
+          <div class="kv">
+            <div>
+              <dt>Account confirms back</dt>
+              <dd>gist.github.com/northsound/8f2a91d4e7c0b3</dd>
+            </div>
+            <button class="btn btn-sm" type="button"
+                    data-copy="https://gist.github.com/northsound/8f2a91d4e7c0b3">Copy</button>
+          </div>
+          <p style="color:var(--fg-2); font-size:13px; margin:0">
+            A public post on the account, signed with the same key as the
+            identity above. Anyone can check both halves without asking us.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>This is what unlocks verified prior work.</b> <code>ENT-11.3</code>
+      checks a pull request's author against this exact handle. Nothing on
+      <code>priorwork.html</code> can resolve without this confirmation
+      existing first.
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<!-- ========================================= STATE 4: STOPPED RESOLVING === -->
+<div class="wrap section-sm reveal" data-reveal>
+  <div class="narrow">
+    <h2>If the proof stops holding up</h2>
+    <p class="sub">
+      We check this on a schedule, not only once. This is what it looks
+      like when a check that used to pass no longer does.
+    </p>
+
+    <div class="pane pane-pad" style="margin-top:16px">
+      <div class="rows stagger" data-reveal>
+        <div class="between" style="--i:0">
+          <span>Your identity points at github.com/northsound</span>
+          <span class="state state-done"><span class="dot"></span>Still true</span>
+        </div>
+        <div class="between" style="--i:1">
+          <span>github.com/northsound confirms it back</span>
+          <span class="state state-none"><span class="dot"></span>No longer found</span>
+        </div>
+      </div>
+
+      <p class="sub" style="margin-top:16px; max-width:56ch">
+        The post on GitHub that confirmed this is no longer there, so the
+        second check fails. This is not something you did. It can happen if
+        a post is edited, deleted, or the account changes hands. Prove it
+        again whenever you are ready, and anything resting on this drops
+        back to an unchecked claim until you do.
+      </p>
+
+      <div class="row" style="margin-top:14px">
+        <button class="btn" type="button">Prove it again</button>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>Not the person's fault, and it cascades.</b>
+      <code>SITEMAP.md</code> is explicit that this state "is not an error
+      the person caused, and the copy reflects that." No apology from us
+      either: a post disappearing from GitHub is not our error.
+      <code>ENT-5.3</code> and <code>ENT-11.4</code>: prior-work items
+      resting on this proof demote with it in the same read, nothing
+      deleted, each row relabelled <code>portfolio claim</code> until the
+      proof is made again.
+    </div>
+
+    <div class="note">
+      <b>Craft layer stays calm here on purpose.</b> This card gets the same
+      quiet <code>.pane</code> treatment as the other three states and
+      nothing more festive. A demotion is not the person's fault, but it is
+      still a step backward, and a hover-lift or a glow on this card would
+      read as celebrating it.
+    </div>
+  </div>
+</div>
+
+<script src="wireframe.js"></script>
+</body>
+</html>

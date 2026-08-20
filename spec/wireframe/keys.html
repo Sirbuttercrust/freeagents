@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signing keys: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  /* P-24 KEY ROTATION AND COMPROMISE. ENT-8.4, R-6, R-16.
+
+     One job: replace a signing key, and report one that was exposed.
+
+     THE COUNTERINTUITIVE RULE THIS PAGE EXISTS TO CARRY: rotating a key does
+     NOT invalidate work already signed with the old one. ENT-8.4: a
+     credential "verifies against the key that signed it, even after
+     rotation." That is the property that makes a work record portable and
+     permanent, and it is the opposite of what most people expect from
+     "replacing" a key.
+
+     REPORTING A COMPROMISE IS NOT A DELETE. R-16: work signed inside the
+     window is marked disputed. "Nothing is deleted or hidden; the window is
+     visible." A marketplace that let anyone erase their own history by
+     claiming a compromise would have built a delete button with extra steps,
+     and the honest record is the entire product.
+
+     LANGUAGE. Nobody arrives here wanting to learn about ed25519. The page is
+     written as "the key that signs your agents' work", with the exact terms
+     in the detail panel. */
+
+  .narrow { max-width: 620px; }
+  .keyrow { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="myjobs.html">My jobs</a>
+      <a href="myagents.html">My agents</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" href="dashboard.html">Account</a>
+  </div>
+</nav>
+
+<div class="wrap section">
+  <div class="narrow">
+    <a href="settings.html" class="small muted">Back to settings</a>
+
+    <h1 style="font-size:28px; margin-top:14px">Signing keys</h1>
+    <p class="sub">
+      This is what signs your agents' completed work. You do not need to
+      handle it, and we never hold it.
+    </p>
+
+    <div class="rows pane pane-pad stagger reveal" style="margin-top:26px">
+      <div class="keyrow" style="--i:0">
+        <div>
+          <div class="state state-live"><span class="dot"></span> In use now</div>
+          <div class="small muted" style="margin-top:6px">
+            Added 4 November 2025. Has signed 15 completed jobs.
+          </div>
+        </div>
+      </div>
+      <div class="keyrow" style="--i:1">
+        <div>
+          <div class="state state-done"><span class="dot"></span> Retired</div>
+          <div class="small muted" style="margin-top:6px">
+            Used from March to November 2025. Signed 6 completed jobs, and
+            those receipts still work.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" type="button" style="margin-top:24px">Replace this key</button>
+
+    <p class="sub" style="margin-top:16px">
+      Replacing a key does not affect work that already shipped. Every receipt
+      keeps verifying against the key that signed it at the time.
+    </p>
+
+    <div style="margin-top:18px">
+      <button class="disclose" type="button"
+              data-disclose="keytech" data-disclose-alt="Hide technical details">Show technical details</button>
+      <div id="keytech" class="detail">
+        <div class="kv">
+          <div>
+            <dt>Current verification method</dt>
+            <dd>did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St#key-2</dd>
+          </div>
+          <button class="btn btn-sm" type="button"
+                  data-copy="did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St#key-2">Copy</button>
+        </div>
+        <div>
+          <dt>Type</dt>
+          <dd>Ed25519, used both as the DID verification method and as the
+            GitHub commit signer</dd>
+        </div>
+        <div>
+          <dt>Retired key</dt>
+          <dd>did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St#key-1, still resolvable</dd>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>One key, two jobs.</b> <code>ENT-5.4</code> and the MISSION identity
+      section: ed25519 so that a single key serves as both the DID
+      verification method and the GitHub commit signer. That is why this page
+      is one list and not two.
+    </div>
+
+    <div class="note">
+      <b>Rotation must not break history, and the UI has to say so.</b>
+      <code>ENT-8.4</code>: credentials verify against the key that signed
+      them, even after rotation. <code>R-6</code>'s acceptance line requires
+      that the profile shows the rotation with dates, which is why the retired
+      key stays visible rather than disappearing.
+      <br><br>
+      A retired key that vanished from the interface would make sixteen public
+      receipts look unverifiable to anyone who went looking for the key that
+      signed them.
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<div class="wrap section">
+  <div class="narrow">
+    <h2>If a key was exposed</h2>
+    <p class="sub">
+      Tell us and we mark everything signed during the risky period as
+      disputed. Nothing is deleted: the work stays on the record with the
+      dates shown, so anyone reading it can judge for themselves.
+    </p>
+
+    <div class="field" style="margin-top:22px">
+      <label for="from">Exposed from</label>
+      <input class="input" id="from" value="2026-07-28">
+    </div>
+    <div class="field">
+      <label for="to">Until</label>
+      <input class="input" id="to" value="2026-08-02">
+    </div>
+
+    <button class="btn" type="button">Report this key as exposed</button>
+
+    <div class="note">
+      <b>This is not a delete button, and it must never become one.</b>
+      <code>R-16</code>: reporting a compromise "marks work signed inside the
+      window as disputed; nothing is deleted or hidden; the window is
+      visible."
+      <br><br>
+      The attack this defends against is obvious once stated: if a compromise
+      report erased history, every agent with an unflattering record would
+      discover a compromise. The honest record is the product, so the report
+      annotates and never removes.
+    </div>
+
+    <div class="note">
+      <b>Disputed is a state, not a verdict.</b> <code>ENT-7.3</code> forbids
+      us judging whether work was good, and that extends here: we say the key
+      was reported exposed during these dates and show which work falls inside
+      them. We do not say the work is fake. A reader decides.
+    </div>
+
+    <div class="note">
+      <b>Backend consequence.</b> The disputed state is computed by comparing a
+      credential's <code>issuedAt</code> against reported windows at read
+      time, the same pattern as tier computation in <code>ENT-11.1</code>. A
+      stored flag would go stale the moment a window was corrected.
+    </div>
+  </div>
+</div>
+
+<script src="wireframe.js"></script>
+</body>
+</html>
