@@ -20,6 +20,9 @@
  *   - the app boots and binds a port
  *   - /health answers 200 with a body we control
  *   - every declared route EXISTS and is reachable, rather than 404
+ *   - the real operator registration flow works end to end
+ *   - the real agent delegation flow works end to end, with a delegation
+ *     proof a real wallet actually signed
  *   - an unknown route is still a 404, so the previous assertion means something
  *
  * It does NOT claim a hire flow works, because no hire flow exists yet. As the
@@ -36,9 +39,15 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-key-2020';
+import { Ed25519Signature2020 } from '@digitalbazaar/ed25519-signature-2020';
+import * as vc from '@digitalbazaar/vc';
+import { securityLoader } from '@digitalbazaar/security-document-loader';
+import { fromRandom, type WalletObject } from '@ocap/wallet';
 
 import { createApp } from '../../src/api/app.js';
-import { MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 
 let server: Server;
 let base: string;
@@ -62,10 +71,62 @@ async function post(path: string, body: unknown = {}): Promise<Response> {
   return res;
 }
 
+function hexToBytes(h: string): Uint8Array {
+  return Uint8Array.from(Buffer.from(h.replace(/^0x/, ''), 'hex'));
+}
+
+// Create a W3C delegation credential using Ed25519Signature2020, the
+// registered proof type that satisfies invariant 2. The operator's ArcBlock
+// wallet key drives the same ed25519 key wrapped in a W3C suite.
+async function signW3CDelegation(operator: WalletObject, agent: WalletObject): Promise<Record<string, unknown>> {
+  const operatorDid = operator.toDid();
+  const agentDid = agent.toDid();
+
+  const seed = hexToBytes(operator.secretKey).slice(0, 32);
+  const key = await Ed25519VerificationKey2020.generate({ seed, controller: operatorDid });
+  key.id = `${operatorDid}#${key.publicKeyMultibase}`;
+
+  const suite = new Ed25519Signature2020({ key });
+
+  const credential = {
+    '@context': [
+      'https://www.w3.org/2018/credentials/v1',
+      'https://w3id.org/security/suites/ed25519-2020/v1',
+      { '@vocab': 'https://freeagents.dev/terms#' },
+    ],
+    id: `urn:uuid:${crypto.randomUUID()}`,
+    type: ['VerifiableCredential', DELEGATION_TYPE],
+    issuer: operatorDid,
+    issuanceDate: new Date().toISOString(),
+    credentialSubject: { id: agentDid, delegatedBy: operatorDid },
+  };
+
+  const loader = securityLoader();
+  loader.addStatic(key.id, {
+    '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+    ...key.export({ publicKey: true }),
+  });
+  loader.addStatic(operatorDid, {
+    '@context': 'https://www.w3.org/ns/did/v1',
+    id: operatorDid,
+    assertionMethod: [key.id],
+    verificationMethod: [
+      {
+        '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+        ...key.export({ publicKey: true }),
+      },
+    ],
+  });
+  const documentLoader = loader.build();
+
+  const signed = await vc.issue({ credential, suite, documentLoader });
+  return signed;
+}
+
 beforeAll(async () => {
-  // An explicit memory repository: deterministic regardless of whether the
+  // Explicit memory repositories: deterministic regardless of whether the
   // runner environment happens to export DATABASE_URL.
-  const app = createApp(new MemoryOperatorRepository());
+  const app = createApp(new MemoryOperatorRepository(), new MemoryAgentRepository());
   server = await new Promise<Server>((resolve, reject) => {
     const s = app.listen(0, '127.0.0.1');
     s.once('listening', () => resolve(s));
@@ -94,11 +155,10 @@ describe('the API starts and answers', () => {
     // handler is honest about being unimplemented. What matters for this
     // assertion is that none of them 404, because a route that does not exist
     // cannot be said to have a contract at all.
-    // POST /operators has left this list: it is implemented, and its real
-    // flow is asserted below. This is the one-at-a-time replacement the
-    // file's design promised.
+    // POST /operators and POST /agents have left this list: they are
+    // implemented, and their real flows are asserted below. This is the
+    // one-at-a-time replacement the file's design promised.
     const declared: Array<[string, () => Promise<Response>]> = [
-      ['POST /agents', () => post('/agents')],
       ['GET  /agents/:did/card', () => get('/agents/did:abt:test/card')],
       ['GET  /agents/:did/credentials', () => get('/agents/did:abt:test/credentials')],
       ['POST /jobs', () => post('/jobs')],
@@ -144,6 +204,65 @@ describe('the API starts and answers', () => {
     // 5. An unregistered DID is a 404, so the read-back above meant
     // something.
     const missing = await get('/operators/did:abt:nobody');
+    expect(missing.status).toBe(404);
+  });
+
+  it('delegates an agent from a registered operator and refuses the failure cases', async () => {
+    // The R-2 flow. The delegation proof is a W3C Verifiable Credential with
+    // Ed25519Signature2020 proof (invariant 2), signed by a real random
+    // wallet. The wallet's ed25519 key is wrapped in the W3C suite, so the
+    // same key drives a registered proof type that third parties can verify.
+
+    const operatorWallet = fromRandom();
+    const agentWallet = fromRandom();
+    const credential = await signW3CDelegation(operatorWallet, agentWallet);
+
+    // 1. The operator registers first: a delegation vouches with its standing.
+    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-delegation' });
+    expect(op.status).toBe(201);
+
+    // 2. Delegate the agent. The response carries the delegation verbatim.
+    const created = await post('/agents', {
+      did: agentWallet.toDid(),
+      operator: operatorWallet.toDid(),
+      delegation: credential,
+      name: 'scout',
+      skills: ['triage'],
+    });
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as Record<string, unknown>;
+    expect(createdBody.did).toBe(agentWallet.toDid());
+    expect(createdBody.operatorDid).toBe(operatorWallet.toDid());
+    expect(createdBody.delegation).toEqual(credential);
+
+    // 3. Read back: the same body, field for field.
+    const read = await get(`/agents/${agentWallet.toDid()}`);
+    expect(read.status).toBe(200);
+    expect(await read.json()).toEqual(createdBody);
+
+    // 4. The same agent DID twice is a conflict, not a silent overwrite.
+    const dup = await post('/agents', {
+      did: agentWallet.toDid(),
+      operator: operatorWallet.toDid(),
+      delegation: credential,
+      name: 'scout',
+      skills: ['triage'],
+    });
+    expect(dup.status).toBe(409);
+
+    // 5. Delegating from an operator that never registered is a 404.
+    const stranger = fromRandom();
+    const orphan = await post('/agents', {
+      did: agentWallet.toDid(),
+      operator: stranger.toDid(),
+      delegation: credential,
+      name: 'orphan',
+      skills: ['triage'],
+    });
+    expect(orphan.status).toBe(404);
+
+    // 6. An unknown agent is a 404, so the read-back meant something.
+    const missing = await get('/agents/did:abt:nobody');
     expect(missing.status).toBe(404);
   });
 
