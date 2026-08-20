@@ -1,8 +1,12 @@
 // In-memory OperatorRepository: real storage for dev and tests, and the selected
 // mode when DATABASE_URL is unset (see storage.ts). A Map keyed by DID gives the
 // same duplicate-key semantics the database gives through its primary key.
+import type { Agent } from '../../domain/agent.js';
 import type { Operator } from '../../domain/operator.js';
 import {
+  AgentAlreadyExistsError,
+  type AgentInput,
+  type AgentRepository,
   OperatorAlreadyExistsError,
   type OperatorRepository,
 } from './types.js';
@@ -29,6 +33,34 @@ export class MemoryOperatorRepository implements OperatorRepository {
   }
 
   async findByDid(did: string): Promise<Operator | null> {
+    return this.rows.get(did) ?? null;
+  }
+}
+
+export class MemoryAgentRepository implements AgentRepository {
+  private readonly rows = new Map<string, Agent>();
+
+  async create(input: AgentInput): Promise<Agent> {
+    // Check-then-set is safe here: Node is single-threaded and this method
+    // awaits nothing, so two concurrent creates of one DID cannot both pass.
+    if (this.rows.has(input.did)) {
+      throw new AgentAlreadyExistsError(input.did);
+    }
+    const row: Agent = {
+      did: input.did,
+      operatorDid: input.operatorDid,
+      delegation: input.delegation,
+      name: input.name,
+      skills: [...input.skills],
+      githubLogin: input.githubLogin,
+      proofStatus: 'unverified',
+      createdAt: new Date(),
+    };
+    this.rows.set(input.did, row);
+    return row;
+  }
+
+  async findByDid(did: string): Promise<Agent | null> {
     return this.rows.get(did) ?? null;
   }
 }
