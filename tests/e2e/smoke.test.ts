@@ -23,6 +23,10 @@
  *   - the real operator registration flow works end to end
  *   - the real agent delegation flow works end to end, with a delegation
  *     proof a real wallet actually signed
+ *   - direction one of the GitHub account proof works end to end: the DID
+ *     document (served by a wrapped resolver, the real one has no resolver
+ *     yet) carries the account in alsoKnownAs, and the binding is recorded
+ *     as pending
  *   - an unknown route is still a 404, so the previous assertion means something
  *
  * It does NOT claim a hire flow works, because no hire flow exists yet. As the
@@ -46,6 +50,8 @@ import { securityLoader } from '@digitalbazaar/security-document-loader';
 import { fromRandom, type WalletObject } from '@ocap/wallet';
 
 import { createApp } from '../../src/api/app.js';
+import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
+import type { DidDocument, IdentityAdapter } from '../../src/adapters/identity/types.js';
 import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 
@@ -123,10 +129,35 @@ async function signW3CDelegation(operator: WalletObject, agent: WalletObject): P
   return signed;
 }
 
+// R-3, direction one: the real resolveDid throws NotImplementedError until a
+  // resolver exists, so the flow is exercised through a WRAPPED adapter - the
+  // real one's verifyDelegation (and hence the R-2 flow below) is untouched.
+// It serves one agent DID a standard DID Core document whose alsoKnownAs
+// carries the account URL; every other DID gets a document with no
+// alsoKnownAs. The target DID is set by the flow test, because the wallet's
+// DID is random per run.
+let accountProofDid: string | null = null;
+const identityAdapter: IdentityAdapter = {
+  ...createIdentityAdapter(),
+  resolveDid: (did: string): Promise<DidDocument> => {
+    const doc: DidDocument = {
+      id: did,
+      controller: null,
+      verificationMethod: [`${did}#key-1`],
+      alsoKnownAs: did === accountProofDid ? ['https://github.com/scout-agent'] : null,
+    };
+    return Promise.resolve(doc);
+  },
+};
+
 beforeAll(async () => {
   // Explicit memory repositories: deterministic regardless of whether the
   // runner environment happens to export DATABASE_URL.
-  const app = createApp(new MemoryOperatorRepository(), new MemoryAgentRepository());
+  const app = createApp(
+    new MemoryOperatorRepository(),
+    new MemoryAgentRepository(),
+    identityAdapter,
+  );
   server = await new Promise<Server>((resolve, reject) => {
     const s = app.listen(0, '127.0.0.1');
     s.once('listening', () => resolve(s));
@@ -263,6 +294,51 @@ describe('the API starts and answers', () => {
 
     // 6. An unknown agent is a 404, so the read-back meant something.
     const missing = await get('/agents/did:abt:nobody');
+    expect(missing.status).toBe(404);
+  });
+
+  it('proves direction one of the GitHub account binding through the DID document', async () => {
+    // The R-3 flow. The operator's wallet authors the alsoKnownAs entry off
+    // platform; the wrapped resolver above serves it for this one DID.
+    const operatorWallet = fromRandom();
+    const agentWallet = fromRandom();
+    const credential = await signW3CDelegation(operatorWallet, agentWallet);
+
+    // 1. Register and delegate, as in the R-2 flow above.
+    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-proof' });
+    expect(op.status).toBe(201);
+    const created = await post('/agents', {
+      did: agentWallet.toDid(),
+      operator: operatorWallet.toDid(),
+      delegation: credential,
+      name: 'scout',
+      skills: ['triage'],
+    });
+    expect(created.status).toBe(201);
+
+    // 2. The wrapped resolver now serves this DID the document that carries
+    // https://github.com/scout-agent in alsoKnownAs.
+    accountProofDid = agentWallet.toDid();
+
+    // 3. The matching handle records the binding. ENT-5.1: direction one
+    // alone is pending, never verified.
+    const ok = await post(`/agents/${agentWallet.toDid()}/account-proof`, { handle: 'scout-agent' });
+    expect(ok.status).toBe(200);
+    const okBody = (await ok.json()) as Record<string, unknown>;
+    expect(okBody.proofStatus).toBe('pending');
+    expect(okBody.githubLogin).toBe('scout-agent');
+
+    // 4. A different handle does not match the document: a conflict, and the
+    // failed check must not replace the recorded binding.
+    const wrong = await post(`/agents/${agentWallet.toDid()}/account-proof`, { handle: 'someone-else' });
+    expect(wrong.status).toBe(409);
+    const read = await get(`/agents/${agentWallet.toDid()}`);
+    const readBody = (await read.json()) as Record<string, unknown>;
+    expect(readBody.proofStatus).toBe('pending');
+    expect(readBody.githubLogin).toBe('scout-agent');
+
+    // 5. An unregistered agent is a 404, so the 200 above meant something.
+    const missing = await post('/agents/did:abt:nobody/account-proof', { handle: 'scout-agent' });
     expect(missing.status).toBe(404);
   });
 

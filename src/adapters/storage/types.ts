@@ -2,7 +2,7 @@
 // (R-1). Named for the capability, not the backend, so a second driver
 // (prisma) sits beside it without touching callers. Adapters may import
 // domain; never the reverse (CLAUDE.md).
-import type { Agent, Delegation } from '../../domain/agent.js';
+import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import type { Operator } from '../../domain/operator.js';
 
 // Thrown by register when the DID already exists, so the API layer can map
@@ -44,4 +44,11 @@ export interface AgentRepository {
   // Throws AgentAlreadyExistsError when the DID is already delegated.
   create(input: AgentInput): Promise<Agent>;
   findByDid(did: string): Promise<Agent | null>;
+  // R-3 direction one: record the GitHub binding the DID document proved.
+  // Null when the agent is not stored, so the API maps it to 404 without
+  // a second lookup.
+  updateGithubBinding(
+    did: string,
+    input: { readonly handle: string; readonly status: ProofStatus },
+  ): Promise<Agent | null>;
 }

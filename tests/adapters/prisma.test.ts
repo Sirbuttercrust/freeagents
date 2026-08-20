@@ -19,6 +19,7 @@ const mock = vi.hoisted(() => ({
   findUnique: vi.fn(),
   agentCreate: vi.fn(),
   agentFindUnique: vi.fn(),
+  agentUpdate: vi.fn(),
 }));
 
 vi.mock('../../src/generated/prisma/index.js', async () => {
@@ -31,7 +32,7 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
   return {
     PrismaClient: class {
       operator = mock;
-      agent = { create: mock.agentCreate, findUnique: mock.agentFindUnique };
+      agent = { create: mock.agentCreate, findUnique: mock.agentFindUnique, update: mock.agentUpdate };
     },
     Prisma: actual.Prisma,
   };
@@ -73,6 +74,13 @@ function p2002(did: string): Error {
   return new Prisma.PrismaClientKnownRequestError(
     `Unique constraint failed on the fields: (${did})`,
     { code: 'P2002', clientVersion: '5.22.0' },
+  );
+}
+
+function p2025(did: string): Error {
+  return new Prisma.PrismaClientKnownRequestError(
+    `An error occurred while updating the row with id: ${did}`,
+    { code: 'P2025', clientVersion: '5.22.0' },
   );
 }
 
@@ -197,11 +205,13 @@ describe('PrismaAgentRepository', () => {
   beforeAll(() => {
     vi.mocked(mock.agentCreate).mockReset();
     vi.mocked(mock.agentFindUnique).mockReset();
+    vi.mocked(mock.agentUpdate).mockReset();
   });
 
   afterEach(() => {
     vi.mocked(mock.agentCreate).mockReset();
     vi.mocked(mock.agentFindUnique).mockReset();
+    vi.mocked(mock.agentUpdate).mockReset();
   });
 
   it('create: the stored row comes back as the agent projection, delegation verbatim', async () => {
@@ -348,5 +358,76 @@ describe('PrismaAgentRepository', () => {
 
     expect(mock.agentFindUnique).toHaveBeenCalledWith({ where: { did: 'did:abt:agent-none' } });
     expect(row).toBeNull();
+  });
+
+  it('updateGithubBinding: an updated row comes back as the agent projection', async () => {
+    const createdAt = new Date('2026-08-20T05:00:00.000Z');
+    vi.mocked(mock.agentUpdate).mockResolvedValue({
+      did: 'did:abt:agent-1',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: 'scout-agent',
+      proofStatus: 'pending',
+      createdAt,
+    });
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.updateGithubBinding('did:abt:agent-1', {
+      handle: 'scout-agent',
+      status: 'pending',
+    });
+
+    expect(mock.agentUpdate).toHaveBeenCalledWith({
+      where: { did: 'did:abt:agent-1' },
+      data: { githubLogin: 'scout-agent', proofStatus: 'pending' },
+    });
+    expect(row).toEqual({
+      did: 'did:abt:agent-1',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: 'scout-agent',
+      proofStatus: 'pending',
+      createdAt,
+    });
+  });
+
+  it('updateGithubBinding: a P2025 not-found comes back as null, not an error', async () => {
+    vi.mocked(mock.agentUpdate).mockRejectedValue(p2025('did:abt:agent-none'));
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.updateGithubBinding('did:abt:agent-none', {
+      handle: 'scout-agent',
+      status: 'pending',
+    });
+
+    expect(row).toBeNull();
+  });
+
+  it('updateGithubBinding: a non-P2025 Prisma error is rethrown untouched', async () => {
+    const original = p1001();
+    vi.mocked(mock.agentUpdate).mockRejectedValue(original);
+
+    const repo = new PrismaAgentRepository();
+    const err = await repo
+      .updateGithubBinding('did:abt:agent-2', { handle: 'scout-agent', status: 'pending' })
+      .catch((e: unknown) => e);
+
+    expect(err).toBe(original);
+  });
+
+  it('updateGithubBinding: a non-Prisma error is rethrown untouched', async () => {
+    const original = new Error('disk full');
+    vi.mocked(mock.agentUpdate).mockRejectedValue(original);
+
+    const repo = new PrismaAgentRepository();
+    const err = await repo
+      .updateGithubBinding('did:abt:agent-3', { handle: 'scout-agent', status: 'pending' })
+      .catch((e: unknown) => e);
+
+    expect(err).toBe(original);
   });
 });
