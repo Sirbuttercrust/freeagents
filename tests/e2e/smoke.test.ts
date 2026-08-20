@@ -39,11 +39,15 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { create as createCredential } from '@arcblock/vc';
-import { fromRandom } from '@ocap/wallet';
+import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-key-2020';
+import { Ed25519Signature2020 } from '@digitalbazaar/ed25519-signature-2020';
+import * as vc from '@digitalbazaar/vc';
+import { securityLoader } from '@digitalbazaar/security-document-loader';
+import { fromRandom, type WalletObject } from '@ocap/wallet';
 
 import { createApp } from '../../src/api/app.js';
 import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 
 let server: Server;
 let base: string;
@@ -65,6 +69,58 @@ async function post(path: string, body: unknown = {}): Promise<Response> {
   });
   stepsAsserted += 1;
   return res;
+}
+
+function hexToBytes(h: string): Uint8Array {
+  return Uint8Array.from(Buffer.from(h.replace(/^0x/, ''), 'hex'));
+}
+
+// Create a W3C delegation credential using Ed25519Signature2020, the
+// registered proof type that satisfies invariant 2. The operator's ArcBlock
+// wallet key drives the same ed25519 key wrapped in a W3C suite.
+async function signW3CDelegation(operator: WalletObject, agent: WalletObject): Promise<Record<string, unknown>> {
+  const operatorDid = operator.toDid();
+  const agentDid = agent.toDid();
+
+  const seed = hexToBytes(operator.secretKey).slice(0, 32);
+  const key = await Ed25519VerificationKey2020.generate({ seed, controller: operatorDid });
+  key.id = `${operatorDid}#${key.publicKeyMultibase}`;
+
+  const suite = new Ed25519Signature2020({ key });
+
+  const credential = {
+    '@context': [
+      'https://www.w3.org/2018/credentials/v1',
+      'https://w3id.org/security/suites/ed25519-2020/v1',
+      { '@vocab': 'https://freeagents.dev/terms#' },
+    ],
+    id: `urn:uuid:${crypto.randomUUID()}`,
+    type: ['VerifiableCredential', DELEGATION_TYPE],
+    issuer: operatorDid,
+    issuanceDate: new Date().toISOString(),
+    credentialSubject: { id: agentDid, delegatedBy: operatorDid },
+  };
+
+  const loader = securityLoader();
+  loader.addStatic(key.id, {
+    '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+    ...key.export({ publicKey: true }),
+  });
+  loader.addStatic(operatorDid, {
+    '@context': 'https://www.w3.org/ns/did/v1',
+    id: operatorDid,
+    assertionMethod: [key.id],
+    verificationMethod: [
+      {
+        '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+        ...key.export({ publicKey: true }),
+      },
+    ],
+  });
+  const documentLoader = loader.build();
+
+  const signed = await vc.issue({ credential, suite, documentLoader });
+  return signed;
 }
 
 beforeAll(async () => {
@@ -152,21 +208,14 @@ describe('the API starts and answers', () => {
   });
 
   it('delegates an agent from a registered operator and refuses the failure cases', async () => {
-    // The R-2 flow. The delegation proof is signed by a real random wallet,
-    // not a hand-rolled did:abt:<short>: the whole point of R-2 is that the
-    // proof is something a key actually signed, and a fake fixture would
-    // paper over any break in the verification path. The wallet signs with
-    // its short-form key hash (z...) while the registry records the full
-    // DID (did:abt:z...); both must reconcile.
+    // The R-2 flow. The delegation proof is a W3C Verifiable Credential with
+    // Ed25519Signature2020 proof (invariant 2), signed by a real random
+    // wallet. The wallet's ed25519 key is wrapped in the W3C suite, so the
+    // same key drives a registered proof type that third parties can verify.
 
     const operatorWallet = fromRandom();
     const agentWallet = fromRandom();
-    const credential = await createCredential({
-      type: 'AgentDelegation',
-      subject: { id: agentWallet.address },
-      issuer: { wallet: operatorWallet, name: operatorWallet.toDid() },
-    });
-    if (credential === null) throw new Error('credential creation failed');
+    const credential = await signW3CDelegation(operatorWallet, agentWallet);
 
     // 1. The operator registers first: a delegation vouches with its standing.
     const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-delegation' });

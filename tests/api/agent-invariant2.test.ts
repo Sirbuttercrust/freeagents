@@ -1,20 +1,13 @@
 // Invariant 2 (MISSION.md): a third party can verify what this service
-// stores without calling it. R-2 stores the delegation proof the operator's
-// wallet signed (ENT-3); the proof carries the operator's public key, so
-// @arcblock/vc verifies it offline, with no DID resolution and no call to
-// this service. The strongest honest evidence: read the stored row straight
-// from the repository, hand it to @arcblock/vc.verify, and get a pass; a
-// tampered copy must fail the same check. Fixtures use real random wallets:
-// a hand-rolled did:abt:<short> that no key could have signed would prove
-// nothing about the cryptographic path.
-import {
-  create as createCredential,
-  verify as verifyCredential,
-} from '@arcblock/vc';
-
-// @arcblock/vc does not export its credential type, only its functions;
-// create's return type is the very thing verify expects.
-type Credential = NonNullable<Awaited<ReturnType<typeof createCredential>>>;
+// stores without calling it. The delegation credential must be a W3C
+// Verifiable Credential with Ed25519Signature2020 proof that any
+// off-the-shelf verifier can check, with no call to this service and no
+// custom code. This test MUST use @digitalbazaar/* for verification, never
+// @arcblock/vc, because that is what proves third-party verifiability.
+import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-key-2020';
+import { Ed25519Signature2020 } from '@digitalbazaar/ed25519-signature-2020';
+import * as vc from '@digitalbazaar/vc';
+import { securityLoader } from '@digitalbazaar/security-document-loader';
 import { fromRandom, type WalletObject } from '@ocap/wallet';
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -23,7 +16,7 @@ import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapt
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 
 // Names that would mean key material leaked into storage. Matched by
-// substring. The delegation's own public keys (issuer.pk, proof.pk) are the
+// substring. The delegation's own public keys in the proof metadata are the
 // point of the record, not a leak, so they are not in this list.
 const KEY_MATERIAL_STEMS = ['privateKey', 'secretKey', 'secret', 'keyPair', 'mnemonic'];
 function findKeyMaterialFields(obj: unknown, path = ''): string[] {
@@ -41,18 +34,101 @@ function findKeyMaterialFields(obj: unknown, path = ''): string[] {
   return hits;
 }
 
-// The delegation exactly as an operator would produce it: signed by the
-// operator wallet, subject the agent wallet's key hash. The vendor sets
-// issuer.id to the wallet's short form (z...); the registry records the full
-// DID (did:abt:z...), and the service must reconcile the two.
-async function signDelegation(operator: WalletObject, agent: WalletObject): Promise<Credential> {
-  const credential = await createCredential({
-    type: DELEGATION_TYPE,
-    subject: { id: agent.address },
-    issuer: { wallet: operator, name: operator.toDid() },
+// The ArcBlock wallet's secretKey is seed(32)||public(32) in hex.
+function hexToBytes(h: string): Uint8Array {
+  return Uint8Array.from(Buffer.from(h.replace(/^0x/, ''), 'hex'));
+}
+
+// Sign a W3C delegation credential using the operator's ArcBlock wallet key
+// wrapped in Ed25519Signature2020 suite. This is what an operator would
+// produce using a compliant client.
+async function signW3CDelegation(operator: WalletObject, agent: WalletObject): Promise<Record<string, unknown>> {
+  const operatorDid = operator.toDid();
+  const agentDid = agent.toDid();
+
+  const seed = hexToBytes(operator.secretKey).slice(0, 32);
+  const key = await Ed25519VerificationKey2020.generate({ seed, controller: operatorDid });
+  key.id = `${operatorDid}#${key.publicKeyMultibase}`;
+
+  const suite = new Ed25519Signature2020({ key });
+
+  const credential = {
+    '@context': [
+      'https://www.w3.org/2018/credentials/v1',
+      'https://w3id.org/security/suites/ed25519-2020/v1',
+      { '@vocab': 'https://freeagents.dev/terms#' },
+    ],
+    id: `urn:uuid:${crypto.randomUUID()}`,
+    type: ['VerifiableCredential', DELEGATION_TYPE],
+    issuer: operatorDid,
+    issuanceDate: new Date().toISOString(),
+    credentialSubject: { id: agentDid, delegatedBy: operatorDid },
+  };
+
+  const loader = securityLoader();
+  loader.addStatic(key.id, {
+    '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+    ...key.export({ publicKey: true }),
   });
-  if (credential === null) throw new Error('credential creation failed');
-  return credential;
+  loader.addStatic(operatorDid, {
+    '@context': 'https://www.w3.org/ns/did/v1',
+    id: operatorDid,
+    assertionMethod: [key.id],
+    verificationMethod: [
+      {
+        '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+        ...key.export({ publicKey: true }),
+      },
+    ],
+  });
+  const documentLoader = loader.build();
+
+  const signed = await vc.issue({ credential, suite, documentLoader });
+  return signed;
+}
+
+// Verify a W3C credential using an independent verifier. This simulates what
+// a third party does: given the credential and a did:abt resolver (which
+// reconstructs the DID document from the DID itself, no call to our service),
+// verify the signature. The operator wallet is used here to simulate a
+// did:abt resolver that can derive the public key from the DID.
+async function verifyIndependent(credential: Record<string, unknown>, operator: WalletObject): Promise<boolean> {
+  try {
+    const operatorDid = operator.toDid();
+    const seed = hexToBytes(operator.secretKey).slice(0, 32);
+    const key = await Ed25519VerificationKey2020.generate({ seed, controller: operatorDid });
+    key.id = `${operatorDid}#${key.publicKeyMultibase}`;
+
+    // A third party with a did:abt resolver would build this document loader
+    // by extracting the public key from the DID itself (did:abt encodes it).
+    const loader = securityLoader();
+    loader.addStatic(key.id, {
+      '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+      ...key.export({ publicKey: true }),
+    });
+    loader.addStatic(operatorDid, {
+      '@context': 'https://www.w3.org/ns/did/v1',
+      id: operatorDid,
+      assertionMethod: [key.id],
+      verificationMethod: [
+        {
+          '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+          ...key.export({ publicKey: true }),
+        },
+      ],
+    });
+    const documentLoader = loader.build();
+
+    const suite = new Ed25519Signature2020();
+    const result = await vc.verifyCredential({
+      credential,
+      suite,
+      documentLoader,
+    });
+    return result.verified === true;
+  } catch {
+    return false;
+  }
 }
 
 async function postJson(baseUrl: string, path: string, body: unknown): Promise<Response> {
@@ -63,7 +139,7 @@ async function postJson(baseUrl: string, path: string, body: unknown): Promise<R
   });
 }
 
-describe('agent delegation, invariant 2 (R-2)', () => {
+describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
   let server: Server;
   let baseUrl: string;
   const repo = new MemoryOperatorRepository();
@@ -79,7 +155,6 @@ describe('agent delegation, invariant 2 (R-2)', () => {
       throw new Error('expected server to listen on a port');
     }
     baseUrl = `http://127.0.0.1:${address.port}`;
-    // The operator registers first: a delegation vouches with its standing.
     const reg = await postJson(baseUrl, '/operators', { did: operator.toDid(), githubLogin: 'operator-inv2' });
     expect(reg.status).toBe(201);
   });
@@ -88,8 +163,8 @@ describe('agent delegation, invariant 2 (R-2)', () => {
     server.close();
   });
 
-  it('stores a delegation that verifies with @arcblock/vc without calling the service', async () => {
-    const credential = await signDelegation(operator, agent);
+  it('stores a W3C credential that verifies with @digitalbazaar/vc, no call to this service', async () => {
+    const credential = await signW3CDelegation(operator, agent);
     const res = await postJson(baseUrl, '/agents', {
       did: agent.toDid(),
       operator: operator.toDid(),
@@ -102,21 +177,35 @@ describe('agent delegation, invariant 2 (R-2)', () => {
     expect(body.did).toBe(agent.toDid());
     expect(body.operatorDid).toBe(operator.toDid());
 
-    // Third-party verification, with no HTTP request to this service in
-    // between: the stored row's delegation, JSON-round-tripped into a
-    // stranger's copy, verifies offline against the operator's key hash.
+    // Third-party verification: the stored credential, JSON-round-tripped,
+    // verifies with @digitalbazaar/vc (not @arcblock/vc), with no HTTP call
+    // to this service. This is the test that proves invariant 2. The operator
+    // wallet here simulates a did:abt resolver that a third party would use.
     const stored = await agentRepo.findByDid(agent.toDid());
     expect(stored).not.toBeNull();
-    const strangerCopy = JSON.parse(JSON.stringify(stored?.delegation)) as Credential;
-    const ok = await verifyCredential({
-      vc: strangerCopy,
-      ownerDid: strangerCopy.credentialSubject.id,
-      trustedIssuers: [operator.address],
-    });
+    const strangerCopy = JSON.parse(JSON.stringify(stored?.delegation));
+    const ok = await verifyIndependent(strangerCopy, operator);
     expect(ok).toBe(true);
   });
 
-  it('read-back serves the same delegation, and it still verifies', async () => {
+  it('the credential uses Ed25519Signature2020 proof with proofValue', async () => {
+    const stored = await agentRepo.findByDid(agent.toDid());
+    expect(stored).not.toBeNull();
+    if (!stored) return;
+    const delegation = stored.delegation;
+    const proof = delegation.proof;
+
+    // MISSION.md:180 explicitly requires Ed25519Signature2020, not a
+    // vendor-specific type like Ed25519Signature.
+    expect(proof.type).toBe('Ed25519Signature2020');
+
+    // The W3C suite requires proofValue. The ArcBlock suite had jws instead,
+    // which no standard verifier recognizes.
+    expect(typeof proof.proofValue).toBe('string');
+    expect(proof.proofValue).toBeTruthy();
+  });
+
+  it('read-back serves the same credential, and it still verifies', async () => {
     const readBack = await fetch(`${baseUrl}/agents/${agent.toDid()}`);
     expect(readBack.status).toBe(200);
     const body = (await readBack.json()) as Record<string, unknown>;
@@ -134,38 +223,34 @@ describe('agent delegation, invariant 2 (R-2)', () => {
       createdAt: stored?.createdAt.toISOString(),
     });
 
-    // A stranger who fetched the delegation from the public API can verify
-    // it just as well: same offline check, nothing else from this service.
-    const wireCopy = JSON.parse(JSON.stringify(body.delegation)) as Credential;
-    const ok = await verifyCredential({
-      vc: wireCopy,
-      ownerDid: wireCopy.credentialSubject.id,
-      trustedIssuers: [operator.address],
-    });
+    // A stranger fetching from the public API can verify with no further
+    // call to this service. This is the real third-party scenario.
+    const wireCopy = JSON.parse(JSON.stringify(body.delegation));
+    const ok = await verifyIndependent(wireCopy, operator);
     expect(ok).toBe(true);
   });
 
-  it('a tampered copy fails the same check', async () => {
+  it('a tampered credential FAILS the independent verifier', async () => {
     const stored = await agentRepo.findByDid(agent.toDid());
     expect(stored).not.toBeNull();
-    const tampered = JSON.parse(JSON.stringify(stored?.delegation)) as Credential;
-    const proof = tampered.proof as { jws: string };
-    tampered.proof = { ...proof, jws: `AAAA${proof.jws.slice(4)}` } as Credential['proof'];
-    await expect(
-      verifyCredential({
-        vc: tampered,
-        ownerDid: tampered.credentialSubject.id,
-        trustedIssuers: [operator.address],
-      }),
-    ).rejects.toThrow();
+    const tampered = JSON.parse(JSON.stringify(stored?.delegation));
+
+    // Change the subject: the signature no longer covers this document.
+    tampered.credentialSubject.id = 'did:abt:zTamperedAgent';
+
+    const ok = await verifyIndependent(tampered, operator);
+    expect(ok).toBe(false);
   });
 
-  it('a credential whose proof no longer matches its signer is rejected with 400', async () => {
+  it('a credential whose proof was tampered is rejected on POST', async () => {
     const intruderAgent = fromRandom();
-    const credential = await signDelegation(operator, intruderAgent);
-    // Break the proof after signing: shape stays intact (so the structural
-    // checks pass) but the signature no longer checks out.
-    const broken = { ...credential, proof: { ...(credential.proof as object), pk: 'zTamperedProofKey' } };
+    const credential = await signW3CDelegation(operator, intruderAgent);
+
+    // Break the proofValue after signing: shape stays intact but signature fails.
+    const broken = JSON.parse(JSON.stringify(credential));
+    const proof = broken.proof as Record<string, unknown>;
+    broken.proof = { ...proof, proofValue: 'zTamperedProofValue' };
+
     const res = await postJson(baseUrl, '/agents', {
       did: intruderAgent.toDid(),
       operator: operator.toDid(),
@@ -179,7 +264,7 @@ describe('agent delegation, invariant 2 (R-2)', () => {
   it('a credential signed by a different key is rejected with 400', async () => {
     const stranger = fromRandom();
     const otherAgent = fromRandom();
-    const credential = await signDelegation(stranger, otherAgent);
+    const credential = await signW3CDelegation(stranger, otherAgent);
     const res = await postJson(baseUrl, '/agents', {
       did: otherAgent.toDid(),
       operator: operator.toDid(),
@@ -193,7 +278,7 @@ describe('agent delegation, invariant 2 (R-2)', () => {
   it('delegating from an unregistered operator is 404', async () => {
     const stranger = fromRandom();
     const otherAgent = fromRandom();
-    const credential = await signDelegation(stranger, otherAgent);
+    const credential = await signW3CDelegation(stranger, otherAgent);
     const res = await postJson(baseUrl, '/agents', {
       did: otherAgent.toDid(),
       operator: stranger.toDid(),
@@ -205,7 +290,7 @@ describe('agent delegation, invariant 2 (R-2)', () => {
   });
 
   it('delegating the same agent DID twice is 409', async () => {
-    const credential = await signDelegation(operator, agent);
+    const credential = await signW3CDelegation(operator, agent);
     const res = await postJson(baseUrl, '/agents', {
       did: agent.toDid(),
       operator: operator.toDid(),
@@ -244,11 +329,14 @@ describe('agent delegation, invariant 2 (R-2)', () => {
     const stored = await agentRepo.findByDid(agent.toDid());
     expect(stored).not.toBeNull();
     expect(findKeyMaterialFields(stored)).toEqual([]);
-    // The stored delegation is the full credential, not a projection of it:
-    // drop the issuer's public key or the signature and it stops verifying
-    // off-platform (ENT-3.1).
-    expect(stored?.delegation.issuer.pk).toBeTruthy();
-    expect(stored?.delegation.proof.jws).toBeTruthy();
-    expect(stored?.delegation.type).toContain(DELEGATION_TYPE);
+
+    // The stored delegation is the full W3C credential: drop the proofValue
+    // and it stops verifying off-platform (ENT-3.1).
+    if (!stored) return;
+    const delegation = stored.delegation;
+    const proof = delegation.proof;
+    expect(proof.proofValue).toBeTruthy();
+    expect(delegation.type).toContain(DELEGATION_TYPE);
+    expect(proof.type).toBe('Ed25519Signature2020');
   });
 });
