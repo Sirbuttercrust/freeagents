@@ -47,28 +47,27 @@ function agentProjection(row: Agent): Record<string, unknown> {
   };
 }
 
-// The body carries the credential exactly as the operator wallet produced
-// it. This only checks that the fields the service relies on are present and
+// The body carries the W3C Verifiable Credential exactly as produced.
+// This only checks that the fields the service relies on are present and
 // well-typed; the object then passes through untouched, because the bytes
 // that verify are the bytes we store (ENT-3.1).
 function delegationShape(value: unknown): Delegation | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const vc = value as Record<string, unknown>;
+  if (!Array.isArray(vc['@context'])) return null;
+  if (typeof vc.id !== 'string' || vc.id.length === 0) return null;
   if (!Array.isArray(vc.type)) return null;
+  if (typeof vc.issuer !== 'string' || vc.issuer.length === 0) return null;
   if (typeof vc.issuanceDate !== 'string' || vc.issuanceDate.length === 0) return null;
-  const issuer = vc.issuer;
   const subject = vc.credentialSubject;
   const proof = vc.proof;
-  if (typeof issuer !== 'object' || issuer === null) return null;
   if (typeof subject !== 'object' || subject === null) return null;
   if (typeof proof !== 'object' || proof === null) return null;
-  const i = issuer as Record<string, unknown>;
   const s = subject as Record<string, unknown>;
   const p = proof as Record<string, unknown>;
-  if (typeof i.id !== 'string' || i.id.length === 0) return null;
-  if (typeof i.pk !== 'string' || i.pk.length === 0) return null;
   if (typeof s.id !== 'string' || s.id.length === 0) return null;
-  if (typeof p.jws !== 'string' || p.jws.length === 0) return null;
+  if (typeof p.type !== 'string' || p.type !== 'Ed25519Signature2020') return null;
+  if (typeof p.proofValue !== 'string' || p.proofValue.length === 0) return null;
   return value as Delegation;
 }
 
@@ -164,7 +163,7 @@ export function createApp(
     const proof = delegationShape(body.delegation);
     if (proof === null) {
       res.status(400).json({
-        error: 'delegation must be the credential the operator wallet signed: object with type, issuer { id, pk }, credentialSubject { id }, proof { jws }, issuanceDate',
+        error: 'delegation must be a W3C Verifiable Credential: object with @context, id, type, issuer (string), credentialSubject { id }, proof { type: Ed25519Signature2020, proofValue }, issuanceDate',
       });
       return;
     }

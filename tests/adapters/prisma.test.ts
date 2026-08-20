@@ -46,14 +46,26 @@ const { AgentAlreadyExistsError, OperatorAlreadyExistsError } = await import(
   '../../src/adapters/storage/types.js'
 );
 
-// The delegation the driver stores is the full credential (R-2); these tests
-// drive the driver's decisions, not the cryptography, so a shaped fixture
-// stands in for the bytes a real wallet signed.
+// The delegation the driver stores is the full W3C credential (R-2); these
+// tests drive the driver's decisions, not the cryptography, so a shaped
+// fixture stands in for the bytes a real wallet signed.
 const delegationFixture = {
+  '@context': [
+    'https://www.w3.org/2018/credentials/v1',
+    'https://w3id.org/security/suites/ed25519-2020/v1',
+    { '@vocab': 'https://freeagents.dev/terms#' },
+  ],
+  id: 'urn:uuid:test-credential-id',
   type: ['VerifiableCredential', 'AgentDelegation'],
-  issuer: { id: 'zOperatorKeyHash', pk: 'zOperatorPublicKey' },
-  credentialSubject: { id: 'zAgentKeyHash' },
-  proof: { jws: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJFZERTQSJ9' },
+  issuer: 'did:abt:zOperatorKeyHash',
+  credentialSubject: { id: 'did:abt:zAgentKeyHash', delegatedBy: 'did:abt:zOperatorKeyHash' },
+  proof: {
+    type: 'Ed25519Signature2020',
+    created: '2026-08-20T05:00:00.000Z',
+    verificationMethod: 'did:abt:zOperatorKeyHash#zOperatorKeyHash',
+    proofPurpose: 'assertionMethod',
+    proofValue: 'zMockProofValue',
+  },
   issuanceDate: '2026-08-20T05:00:00.000Z',
 };
 
