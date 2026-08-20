@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Incoming work: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  /* P-22 INCOMING JOBS. "Work offered to your agents, and what each one is
+     waiting on. This is the operator's side of P-11: proposing criteria,
+     accepting a brief" (SITEMAP.md).
+
+     ONE JOB, ONE SCREEN (DESIGN.md 1.2 rule 3): this page is only the
+     negotiation stage, ENT-4's awaiting_criteria and criteria_offered
+     states. The moment a buyer confirms, it is a real job and belongs on
+     job.html, reachable from dashboard.html's "in progress," not here.
+     Adding a history of past offers to this screen would give it two jobs:
+     what is waiting on me right now, and what already happened.
+
+     criteria.html IS THE SAME SCREEN FOR BOTH SIDES. ENT-6 criteria are one
+     shared negotiation regardless of who is looking, so this page's rows
+     link into the identical criteria exchange that P-11 uses from the
+     buyer's side. There is no second criteria-editing screen to build. */
+
+  .orow { padding: 18px 20px; }
+  .orow .who { font-size: 15px; font-weight: 550; }
+  .orow .repo { font-size: 12px; color: var(--fg-3); margin-top: 3px; }
+  .orow .brief {
+    font-size: 14px; color: var(--fg-2); line-height: 1.6;
+    max-width: 56ch; margin: 12px 0 0;
+  }
+  .orow .foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="myjobs.html">My jobs</a>
+      <a href="myagents.html">My agents</a>
+    </div>
+    <div class="spacer"></div>
+    <details class="avatarmenu">
+      <summary class="avatarbtn" aria-label="Account menu">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#3A3A4A"/></svg>
+      </summary>
+      <div class="avatardrop">
+        <a href="dashboard.html">Dashboard</a>
+        <a href="settings.html">Settings</a>
+        <a href="index.html">Sign out</a>
+      </div>
+    </details>
+  </div>
+</nav>
+
+<div class="wrap section">
+  <div class="glow" style="max-width:620px">
+    <h1>Incoming work</h1>
+    <p class="lede">Work offered to your agents, and what each is waiting on.</p>
+  </div>
+
+  <div class="rows pane pane-pad stagger reveal" data-reveal style="margin-top:26px">
+
+    <!-- A brief that has had no response at all: the most urgent state on
+         the page, so it carries the page's one primary action. -->
+    <div class="orow pane-lift" style="--i:0">
+      <div class="between">
+        <div>
+          <div class="who">driftcheck</div>
+          <div class="repo mono">offered by lakeforge.io &middot; lakeforge/ingest-service</div>
+        </div>
+        <span class="state state-none"><span class="dot"></span>New, nothing sent back yet</span>
+      </div>
+      <p class="brief">
+        &#8220;Our OpenAPI spec drifts from the actual response shape every
+        few releases. Watch for that automatically and flag it in CI.&#8221;
+      </p>
+      <div class="foot">
+        <span class="small dim">Read the brief and propose what &#8220;done&#8221; means</span>
+        <a class="btn btn-sm btn-primary" href="criteria.html">Propose criteria</a>
+      </div>
+    </div>
+
+    <!-- Criteria sent, waiting on the buyer. Nothing for the operator to
+         decide right now, so the action is a quiet review, not a button
+         that implies work is due. -->
+    <div class="orow pane-lift" style="--i:1">
+      <div class="between">
+        <div>
+          <div class="who">hatchmark</div>
+          <div class="repo mono">offered by coalfield.dev &middot; coalfield/api-tests</div>
+        </div>
+        <span class="state state-done"><span class="dot"></span>Sent, waiting on the buyer</span>
+      </div>
+      <p class="brief">
+        &#8220;Add property-based tests around the pricing calculator. It has
+        broken twice on edge cases regular tests did not catch.&#8221;
+      </p>
+      <div class="foot">
+        <span class="small dim">You proposed 3 criteria, 2 days ago</span>
+        <a class="btn btn-sm" href="criteria.html">View what you sent</a>
+      </div>
+    </div>
+
+    <!-- The buyer pushed back. ENT-6.2 made concrete from the receiving
+         side: either party may propose, and here it is the buyer's turn
+         landing back on the operator. -->
+    <div class="orow pane-lift" style="--i:2">
+      <div class="between">
+        <div>
+          <div class="who">seamline</div>
+          <div class="repo mono">offered by northline.dev &middot; northline/billing-api</div>
+        </div>
+        <span class="state state-none"><span class="dot"></span>Buyer proposed a change, waiting on you</span>
+      </div>
+      <p class="brief">
+        &#8220;Migrate the billing endpoints to tRPC, keeping the existing
+        REST routes live for external callers during the switch.&#8221;
+      </p>
+      <div class="foot">
+        <span class="small dim">One new criterion added since you last looked</span>
+        <a class="btn btn-sm" href="criteria.html">Review the change</a>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="note">
+    <b>Nothing on this page is a job yet.</b> <code>ENT-4.1</code>: a job
+    does not exist until the buyer confirms. Every row here is in
+    <code>awaiting_criteria</code> or <code>criteria_offered</code>. The
+    instant one gets confirmed it leaves this list and appears as real work
+    on <code>dashboard.html</code>'s "in progress" and on the buyer's
+    <code>myjobs.html</code>, never both places at once.
+  </div>
+
+  <div class="note">
+    <b>The middle row has no button that implies work is due.</b> hatchmark
+    already answered; the ball is in the buyer's court. A quiet "View what
+    you sent" instead of a repeated call-to-action stops an operator from
+    reading their own list as containing three chores when it contains one.
+  </div>
+
+  <div class="note">
+    <b>The third row is the fact ENT-6.2 exists to cover.</b> "Either party
+    may propose. Both must accept before confirm." Rows one and two are the
+    two ends most builders imagine, brand new and answered. Row three is the
+    state that only shows up once you draw the loop rather than a straight
+    line: the buyer replying to the operator's own proposal.
+  </div>
+
+  <div class="note">
+    <b>Gap G1, carried from SITEMAP.md.</b> "Nothing in entities.md says how
+    a buyer learns criteria arrived, or an operator learns a job was
+    offered." Same gap as <code>dashboard.html</code>. This page assumes
+    poll-only in v1: an operator sees a new offer by visiting, not by a push
+    notification landing them here.
+  </div>
+</div>
+
+<hr class="rule">
+
+<div class="wrap section-sm">
+  <h2>When nothing is waiting</h2>
+  <p class="sub">The common case. Most agents, most days, have no open offer.</p>
+
+  <div class="empty" style="margin-top:18px; max-width:56ch">
+    <b>No work is waiting on a reply.</b>
+    <p class="sub" style="margin:8px 0 0">
+      New offers for any agent you operate will show up here.
+    </p>
+  </div>
+
+  <div class="note">
+    <b>Not the same empty state as "no agents yet."</b>
+    <code>myagents.html</code> handles having nothing to operate; this page
+    only ever renders once at least one agent exists, so its empty state
+    talks about offers, never about listing a first agent.
+  </div>
+</div>
+
+<script src="wireframe.js"></script>
+</body>
+</html>

@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreeAgents marketplace wireframe</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  /* Cap the hero text so the agents have genuine empty space to occupy, and
+     so the h1's BOX stops spanning the full width. A block-level heading is
+     as wide as its container even when its text is short, and an overlap test
+     measures the box, not the glyphs. Capping fixes both the layout and the
+     measurement. */
+  #hero h1, #hero .lede { max-width: 560px; }
+  #hero { padding-bottom: 40px; }
+
+  /* The screen grid. Panes with real gaps, not a hairline table: the craft
+     layer gives each card its own surface, so a shared 1px background grid
+     would fight the rims and read as a spreadsheet. */
+  .screens { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .screen { padding: 20px 22px; display: block; }
+  .screen h3 { margin-bottom: 5px; }
+  .screen p { font-size: 13px; color: var(--fg-2); margin: 0; }
+  .screen .q { font-family: var(--mono); font-size: 12px; color: var(--fg-3); margin-top: 10px; display: block; }
+  @media (max-width: 700px) { .screens { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="operator.html">List an agent</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" href="signin.html">Sign in</a>
+  </div>
+</nav>
+
+<div class="wrap section perch-host glow" id="hero">
+  <h1>Marketplace wireframe</h1>
+  <p class="lede">
+    Every screen in the platform, drawn against the mission and the entity
+    spec so the factory has a skeleton to build from.
+  </p>
+  <p class="perch-say" id="say"></p>
+  <div class="row wrapflex" style="margin-top:22px; gap:10px">
+    <a class="btn btn-primary" href="browse.html">Start at browse</a>
+    <a class="btn" href="how.html">How it works</a>
+  </div>
+</div>
+
+<!-- ==================================================================
+     THE FULL INDEX. 26 screens, grouped the way SITEMAP.md groups them.
+
+     Rewritten 2026-08-20. This page previously listed four screens, which
+     was accurate when four existed. An index that silently omits
+     three quarters of the product is worse than no index: it tells a
+     builder the work is smaller than it is.
+
+     Grouped by who the screen is for rather than by build order, because
+     the question a reader arrives with is "what does a buyer see" or
+     "what does an operator see", never "what was built in wave 3".
+     ================================================================== -->
+
+<div class="wrap section">
+  <h2>Public, no account needed</h2>
+  <p class="sub">
+    Anyone can read an entire record and check a receipt before signing up.
+    That is invariant 2 expressed as navigation.
+  </p>
+  <div class="screens stagger reveal" style="margin-top:20px">
+    <a class="screen pane pane-lift" href="browse.html" style="--i:0">
+      <h3>Browse and search</h3>
+      <p>One search field, the filters people actually use, evidence on the card.</p>
+      <span class="q">P-2</span>
+    </a>
+    <a class="screen pane pane-lift" href="agent.html" style="--i:1">
+      <h3>Agent profile</h3>
+      <p>The record in three tiers, derived facts, reviews welded to hires.</p>
+      <span class="q">P-3</span>
+    </a>
+    <a class="screen pane pane-lift" href="operator.html" style="--i:2">
+      <h3>Operator profile</h3>
+      <p>Who is accountable, and every agent they run.</p>
+      <span class="q">P-4</span>
+    </a>
+    <a class="screen pane pane-lift" href="credential.html" style="--i:3">
+      <h3>Receipt</h3>
+      <p>One completed job, public and permanent. Plain language first.</p>
+      <span class="q">P-5</span>
+    </a>
+    <a class="screen pane pane-lift" href="verify.html" style="--i:4">
+      <h3>Check it yourself</h3>
+      <p>Prove the claim without trusting us. Works when our API is down.</p>
+      <span class="q">P-6</span>
+    </a>
+    <a class="screen pane pane-lift" href="how.html" style="--i:5">
+      <h3>How it works</h3>
+      <p>The model, for someone with no background in any of this.</p>
+      <span class="q">P-7</span>
+    </a>
+    <a class="screen pane pane-lift" href="signin.html" style="--i:6">
+      <h3>Sign in</h3>
+      <p>GitHub or passkey. No account type, no signup form, no password.</p>
+      <span class="q">P-8</span>
+    </a>
+  </div>
+</div>
+
+<div class="wrap section">
+  <h2>Hiring an agent</h2>
+  <p class="sub">
+    Four stages with a real gate between them. Nothing exists until confirm.
+  </p>
+  <div class="screens stagger reveal" style="margin-top:20px">
+    <a class="screen pane pane-lift" href="dashboard.html" style="--i:0">
+      <h3>Dashboard</h3>
+      <p>What needs your attention, and nothing else.</p>
+      <span class="q">P-9</span>
+    </a>
+    <a class="screen pane pane-lift" href="hire.html" style="--i:1">
+      <h3>1. Brief</h3>
+      <p>Describe the work in plain prose. Still a draft.</p>
+      <span class="q">P-10</span>
+    </a>
+    <a class="screen pane pane-lift" href="criteria.html" style="--i:2">
+      <h3>2. Criteria</h3>
+      <p>Agree what done means. Loops as many times as it takes.</p>
+      <span class="q">P-11</span>
+    </a>
+    <a class="screen pane pane-lift" href="confirm.html" style="--i:3">
+      <h3>3. Confirm</h3>
+      <p>The gate. The job exists after this and not before.</p>
+      <span class="q">P-12</span>
+    </a>
+    <a class="screen pane pane-lift" href="job.html" style="--i:4">
+      <h3>4. The job</h3>
+      <p>Live state, watched from GitHub rather than asserted.</p>
+      <span class="q">P-13</span>
+    </a>
+    <a class="screen pane pane-lift" href="myjobs.html" style="--i:5">
+      <h3>My jobs</h3>
+      <p>Everything you have hired.</p>
+      <span class="q">P-14</span>
+    </a>
+    <a class="screen pane pane-lift" href="review.html" style="--i:6">
+      <h3>Write a review</h3>
+      <p>Only after a completed hire. No stars, no score, ever.</p>
+      <span class="q">P-15</span>
+    </a>
+  </div>
+</div>
+
+<div class="wrap section">
+  <h2>Listing an agent</h2>
+  <p class="sub">
+    For someone who built an agent and wants its record to be worth something.
+  </p>
+  <div class="screens stagger reveal" style="margin-top:20px">
+    <a class="screen pane pane-lift" href="myagents.html" style="--i:0">
+      <h3>My agents</h3>
+      <p>What you operate, and what each one needs.</p>
+      <span class="q">P-16</span>
+    </a>
+    <a class="screen pane pane-lift" href="listagent.html" style="--i:1">
+      <h3>List an agent</h3>
+      <p>The fewest steps that are honest. Identity created behind the scenes.</p>
+      <span class="q">P-17</span>
+    </a>
+    <a class="screen pane pane-lift" href="agentsettings.html" style="--i:2">
+      <h3>Agent settings</h3>
+      <p>Edit what it says about itself. The record is not editable.</p>
+      <span class="q">P-18</span>
+    </a>
+    <a class="screen pane pane-lift" href="provegithub.html" style="--i:3">
+      <h3>Prove GitHub</h3>
+      <p>One click. All four states, including the demotion.</p>
+      <span class="q">P-19</span>
+    </a>
+    <a class="screen pane pane-lift" href="priorwork.html" style="--i:4">
+      <h3>Add prior work</h3>
+      <p>A URL only. We read the title, never the operator.</p>
+      <span class="q">P-20</span>
+    </a>
+    <a class="screen pane pane-lift" href="claim.html" style="--i:5">
+      <h3>Add a claim</h3>
+      <p>Work we cannot check, labelled honestly. No verify control exists.</p>
+      <span class="q">P-21</span>
+    </a>
+    <a class="screen pane pane-lift" href="incoming.html" style="--i:6">
+      <h3>Incoming work</h3>
+      <p>Jobs offered to your agents, and what each is waiting on.</p>
+      <span class="q">P-22</span>
+    </a>
+  </div>
+</div>
+
+<div class="wrap section">
+  <h2>Account and system</h2>
+  <div class="screens stagger reveal" style="margin-top:20px">
+    <a class="screen pane pane-lift" href="settings.html" style="--i:0">
+      <h3>Settings</h3>
+      <p>Identity behind a disclosure. Closing an account keeps receipts alive.</p>
+      <span class="q">P-23</span>
+    </a>
+    <a class="screen pane pane-lift" href="keys.html" style="--i:1">
+      <h3>Signing keys</h3>
+      <p>Rotation does not break history. A compromise report is not a delete.</p>
+      <span class="q">P-24</span>
+    </a>
+    <a class="screen pane pane-lift" href="notfound.html" style="--i:2">
+      <h3>Not found</h3>
+      <p>What was missing, and the two most useful ways on.</p>
+      <span class="q">P-25</span>
+    </a>
+    <a class="screen pane pane-lift" href="error.html" style="--i:3">
+      <h3>Error</h3>
+      <p>What failed and what it means for work in flight.</p>
+      <span class="q">P-26</span>
+    </a>
+  </div>
+</div>
+
+<div class="wrap section">
+  <h2>What this pass changed</h2>
+  <p class="sub" style="margin-bottom:24px">
+    Simplification pass, 2026-08-19. The operator: "on every page you should
+    understand clearly what you're looking at, what you can do, what you can
+    search for, all in the least amount of space as possible."
+  </p>
+
+  <div class="rows">
+    <div>
+      <h3>Builder notes are hidden by default</h3>
+      <p class="sub" style="margin-top:4px">
+        They were roughly half the visual weight of every screen, which makes it
+        impossible to judge whether a page is calm. Toggle at the bottom right.
+      </p>
+    </div>
+    <div>
+      <h3>The filter rail became one row</h3>
+      <p class="sub" style="margin-top:4px">
+        Twenty-five visible checkboxes down to six chips and one "more filters"
+        control. A buyer met a form before they met an agent.
+      </p>
+    </div>
+    <div>
+      <h3>Evidence reads as a sentence</h3>
+      <p class="sub" style="margin-top:4px">
+        "12 verified hires, 31 prior, 2 claims" instead of three numbers over
+        three uppercase labels, repeated in a sidebar.
+      </p>
+    </div>
+    <div>
+      <h3>Tier labels lost their boxes</h3>
+      <p class="sub" style="margin-top:4px">
+        A dot and a word. It is the most repeated element on the site, so the
+        box around it was the largest single source of noise.
+      </p>
+    </div>
+    <div>
+      <h3>The profile sidebar is gone</h3>
+      <p class="sub" style="margin-top:4px">
+        One column, one reading measure. Three bordered panels were competing
+        with the work history, which is the reason the page exists.
+      </p>
+    </div>
+    <div>
+      <h3>Navigation is two links</h3>
+      <p class="sub" style="margin-top:4px">
+        Browse and List an agent, plus Sign in. Profiles are destinations you
+        reach by clicking a result, never top-level nav.
+      </p>
+    </div>
+    <div>
+      <h3>Signup is one button</h3>
+      <p class="sub" style="margin-top:4px">
+        The account-type question is gone: every account can hire and can list.
+        With role removed, the only remaining field was a display name GitHub
+        already supplies, so the three-step wizard collapsed entirely.
+      </p>
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<div class="wrap section">
+  <h2>Decisions the wireframe locks</h2>
+  <div class="rows">
+    <div>
+      <h3>Skills filter, evidence ranks</h3>
+      <p class="sub" style="margin-top:4px">
+        <code class="mono">ENT-2.2</code> forbids rendering skills as verified,
+        and ranking on them would be exactly that.
+      </p>
+    </div>
+    <div>
+      <h3>A claim has no verify link</h3>
+      <p class="sub" style="margin-top:4px">
+        The missing affordance teaches the difference faster than the word
+        "unverified" beside an identical control. No surveyed marketplace marks
+        unverified claims at all.
+      </p>
+    </div>
+    <div>
+      <h3>The unmerged job stays on the profile</h3>
+      <p class="sub" style="margin-top:4px">
+        <code class="mono">ENT-7.2</code>. The row every marketplace drops, and
+        keeping it is the credibility of the rest.
+      </p>
+    </div>
+    <div>
+      <h3>Merge rate is a fraction, never a percentage</h3>
+      <p class="sub" style="margin-top:4px">
+        "12 of 14" keeps the denominator visible. Upwork shows "100% Job Success"
+        while hiding the per-job detail.
+      </p>
+    </div>
+    <div>
+      <h3>Tier is computed, never stored</h3>
+      <p class="sub" style="margin-top:4px">
+        <code class="mono">ENT-5.3</code> lets a proof stop resolving, which
+        demotes prior work on its own. A cached column is wrong within one
+        re-check cycle.
+      </p>
+    </div>
+    <div>
+      <h3>Zeros render as zeros</h3>
+      <p class="sub" style="margin-top:4px">
+        <code class="mono">ENT-2.4</code>. No "new" badge, no promotional
+        framing, no reordering to hide an empty record.
+      </p>
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<div class="wrap section">
+  <h2>Open, and where it bites</h2>
+  <div class="rows">
+    <div>
+      <h3><span class="mono">Q1</span> ranking before there are hires to rank on</h3>
+      <p class="sub" style="margin-top:4px">
+        Browse defaults to verified hires. Honest, and permanently advantages
+        whoever arrived first. Not a blocker: sort is a query parameter.
+      </p>
+    </div>
+    <div>
+      <h3><span class="mono">Q5</span> operator profile at one agent versus twenty</h3>
+      <p class="sub" style="margin-top:4px">
+        Drawn at four. Twenty needs sort and filter.
+      </p>
+    </div>
+    <div>
+      <h3>Three entity gaps</h3>
+      <p class="sub" style="margin-top:4px">
+        Prior-work items and portfolio claims are counted everywhere but are not
+        entities, and the discipline facet needs a bounded vocabulary that
+        <code class="mono">ENT-2.skills</code> cannot give.
+        <code class="mono">DATA-CONTRACT.md</code> section 7.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script src="agents.js"></script>
+<script src="perch.js"></script>
+<script src="wireframe.js"></script>
+<script>
+/* Five here, because this is the cover page and the whole cast belongs on it.
+   Sizes and positions differ from browse deliberately: the same characters
+   arranged for a different room, not a component with one fixed layout. */
+(function () {
+  var say = document.getElementById("say");
+  var timer = 0;
+  /* Five spots, spread so no agent covers another. Two agents that overlap
+     make the one behind unclickable, which verify_perch.py catches by hit
+     testing each agent at its own centre. */
+  FAPerch.create("#hero", [
+    {
+      colour: "--agent-1", glow: true,
+      spot: { x: 68, y: 52 }, drift: 5, rate: 0.18,
+      opts: { shape: "pebble", temperament: "curious", size: 92, seed: 1013 },
+      line: "Four screens. Start with Browse, that is the room a buyer arrives in."
+    },
+    {
+      colour: "--agent-2",
+      spot: { x: 82, y: 20 }, drift: 6, rate: 0.27,
+      opts: { shape: "hex", temperament: "alert", size: 54, seed: 2027 },
+      line: "Every element traces to an ENT id, so the factory can wire the backend without guessing."
+    },
+    {
+      colour: "--agent-3",
+      spot: { x: 95, y: 55 }, drift: 4, rate: 0.14,
+      opts: { shape: "cloud", temperament: "dozy", size: 48, seed: 3041 },
+      line: "Builder notes are hidden. The toggle at the bottom right brings back the reasoning."
+    },
+    {
+      colour: "--agent-4",
+      spot: { x: 79, y: 84 }, drift: 4, rate: 0.23,
+      opts: { shape: "squircle", temperament: "stoic", size: 42, seed: 4051 },
+      line: "Three evidence tiers, never blended into a score. That is the product."
+    },
+    {
+      colour: "--agent-5",
+      spot: { x: 92, y: 88 }, drift: 5, rate: 0.31,
+      opts: { shape: "drop", temperament: "calm", size: 34, seed: 5077 },
+      line: "At launch the honest page has zeros on it."
+    }
+  ], {
+    onPick: function (s) {
+      if (!say) return;
+      say.innerHTML = "<b>" + s.line + "</b>";
+      say.classList.add("on");
+      clearTimeout(timer);
+      timer = setTimeout(function () { say.classList.remove("on"); }, 5200);
+    }
+  });
+})();
+</script>
+</body>
+</html>

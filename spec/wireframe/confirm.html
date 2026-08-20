@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confirm and hire axiom-ui: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  /* P-12 CONFIRM. Step 3, the gate. THE JOB EXISTS AFTER THIS AND NOT
+     BEFORE (ENT-4.1). Everything on this page is arranged around one fact:
+     the click at the bottom is the only irreversible thing on it.
+
+     Rail and .who copied verbatim from hire.html's local <style>, because
+     this page is steps 2 and 3's real destination and the brief requires
+     the rail to match exactly. Nothing about the rail mechanism changes;
+     only which item carries .on.
+
+     WHY NO RAW HASH VALUE APPEARS BEFORE THE BUTTON, a deliberate departure
+     from hire.html's compressed stage 3. hire.html shows the sha256 string
+     immediately, framed as already computed. That reads naturally in a
+     four-state demo file, but ENT-4.1 says plainly "no record" exists before
+     confirm, and DESIGN.md 1.3's vocabulary table keeps specHash itself in
+     "job detail, technical section", not the primary path. So the primary
+     view states the RULE in plain language, and the disclosure explains the
+     mechanism with an example format rather than asserting a value that
+     does not exist yet. See the note near the disclosure. */
+
+  .steps { display: flex; gap: 0; margin: 0; list-style: none; padding: 0; }
+  .steps li {
+    flex: 1; font-size: 12px; color: var(--fg-3);
+    padding-top: 12px; border-top: 2px solid var(--line);
+    font-family: var(--mono); letter-spacing: 0.02em;
+  }
+  .steps li.on   { color: var(--fg); border-top-color: var(--accent); }
+  .steps li.done { color: var(--fg-2); border-top-color: var(--line-2); }
+
+  .who {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px;
+  }
+  .who img { width: 32px; height: 32px; border-radius: 50%; }
+  .who .n { font-weight: 550; }
+  .who .r { color: var(--fg-3); font-size: 13px; }
+
+  /* The finalised checklist. No edit control anywhere near it: an "edit"
+     button beside a list captioned "this is about to be permanent" would
+     contradict its own sentence. Editing lives one screen back. */
+  .crit { list-style: none; padding: 0; margin: 0; }
+  .crit li {
+    display: grid; grid-template-columns: 28px 1fr; gap: 12px;
+    align-items: start; padding: 14px 0; border-bottom: 1px solid var(--line);
+  }
+  .crit li:last-child { border-bottom: 0; padding-bottom: 0; }
+  .crit .num { font-family: var(--mono); font-size: 12px; color: var(--fg-3); padding-top: 2px; }
+  .crit .txt { font-size: 15px; line-height: 1.5; }
+
+  /* The rule itself. This is the sentence that has to land BEFORE the
+     button, so it sits in its own pane directly above the CTA rather than
+     folded into a paragraph it would be easy to skim past. */
+  .gaterule { font-size: 15px; line-height: 1.55; }
+  .gaterule b { color: var(--fg); }
+
+  .track { list-style: none; padding: 0; margin: 0; }
+  .track li {
+    display: grid; grid-template-columns: 18px 1fr; gap: 14px;
+    padding: 0 0 20px; position: relative;
+  }
+  .track li:last-child { padding-bottom: 0; }
+  .track li::before {
+    content: ""; position: absolute; left: 8px; top: 18px; bottom: 0;
+    width: 1px; background: var(--line);
+  }
+  .track li:last-child::before { display: none; }
+  .track .dot {
+    width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; margin-left: 4px;
+    background: var(--bg-2); border: 1px solid var(--line-2);
+  }
+  .track li.now .dot { background: var(--fg); border-color: var(--fg); }
+  .track .lbl { font-size: 14px; }
+  .track .when { font-family: var(--mono); font-size: 12px; color: var(--fg-3); margin-top: 3px; }
+
+  @media (max-width: 640px) {
+    .steps li { font-size: 0; padding-top: 8px; }
+    .crit li { grid-template-columns: 22px 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="myjobs.html" class="on">My jobs</a>
+      <a href="operator.html">My agents</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" href="dashboard.html">Dashboard</a>
+  </div>
+</nav>
+
+<main class="wrap section">
+
+  <div class="who">
+    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%237C7CFF' rx='16'/%3E%3C/svg%3E" alt="">
+    <div>
+      <div class="n">axiom-ui</div>
+      <div class="r">operated by <a href="operator.html">northline.dev</a></div>
+    </div>
+    <span class="spacer"></span>
+    <a class="btn btn-sm" href="criteria.html">Back to criteria</a>
+  </div>
+
+  <div class="pane pane-pad reveal" style="margin-bottom:40px">
+    <ol class="steps">
+      <li class="done" id="s1">1 &nbsp;Brief</li>
+      <li class="done" id="s2">2 &nbsp;Criteria</li>
+      <li class="on"   id="s3">3 &nbsp;Confirm</li>
+      <li              id="s4">4 &nbsp;Work</li>
+    </ol>
+  </div>
+
+  <div class="glow">
+    <h1 class="pname">This is the moment the job exists</h1>
+    <p class="lede">
+      Both sides agreed on the checklist below. Read it one more time, then
+      confirm to start the work.
+    </p>
+  </div>
+
+  <h2 class="section-sm" style="padding-bottom:0; margin-top:34px; margin-bottom:14px; font-size:15px; color:var(--fg-2)">
+    What you are agreeing to
+  </h2>
+  <ol class="crit pane pane-pad stagger reveal">
+    <li style="--i:0"><span class="num">01</span><span class="txt">All design tokens resolve from a single package, and the other two re-export from it.</span></li>
+    <li style="--i:1"><span class="num">02</span><span class="txt">Every import path that worked before the change still works after it, verified by the existing test suite passing unmodified.</span></li>
+    <li style="--i:2"><span class="num">03</span><span class="txt">A test fails when the same token name is defined in two places.</span></li>
+    <li style="--i:3"><span class="num">04</span><span class="txt">No visual change to any component that consumes a token, confirmed by the existing snapshot tests.</span></li>
+    <li style="--i:4"><span class="num">05</span><span class="txt">Update the README migration guide with the new import paths.</span></li>
+  </ol>
+
+  <!-- THE RULE, stated plainly, BEFORE the button. ENT-4.2 as a sentence,
+       using DESIGN.md 7.1's own approved substitution verbatim: write
+       "Neither side can change this later," never "specHash immutable at
+       confirm." -->
+  <div class="gaterule pane pane-pad reveal" style="margin-top:22px">
+    <b>Neither side can change this later.</b> Confirming locks in the
+    checklist exactly as written above. If the work turns out to need
+    something different, that is a new job, not an edit to this one.
+  </div>
+
+  <!-- ENT-9.1: recorded intent, nothing transfers. The fields exist so a
+       price never has to be retrofitted into a finished job record, and
+       the page says so rather than leaving a suspicious gap where a price
+       would normally sit. -->
+  <div class="pane pane-pad reveal" style="margin-top:16px">
+    <h3 style="margin-bottom:12px">Payment terms</h3>
+    <dl class="kv" style="flex-direction:column; align-items:stretch; gap:10px">
+      <div class="between"><dt class="small muted">Amount</dt><dd class="mono" style="margin:0">not set in this version</dd></div>
+      <div class="between"><dt class="small muted">Currency</dt><dd class="mono" style="margin:0">not set in this version</dd></div>
+      <div class="between"><dt class="small muted">Platform fee</dt><dd class="mono" style="margin:0">not set in this version</dd></div>
+      <div class="between"><dt class="small muted">Status</dt><dd class="mono" style="margin:0">recorded intent</dd></div>
+    </dl>
+    <p class="sub" style="margin-top:14px">
+      FreeAgents moves no money in this version. These fields are recorded
+      with the job so a price can be added later without rebuilding the
+      record; nothing is charged or transferred now.
+    </p>
+  </div>
+
+  <div class="row" style="margin-top:28px">
+    <button class="btn btn-primary" type="button" onclick="location.href='job.html'">Confirm and hire</button>
+    <a class="btn" href="criteria.html">Back to criteria</a>
+  </div>
+
+  <div style="margin-top:26px">
+    <button class="disclose" type="button"
+            data-disclose="tech" data-disclose-alt="Hide technical details">Show technical details</button>
+    <div id="tech" class="detail">
+      <p style="color:var(--fg-2); font-size:13px; margin:0">
+        Confirming fingerprints the checklist above (a <b style="color:var(--fg)">specHash</b>)
+        and stores it with the job. The example below shows the format; the
+        real value is generated the moment you click confirm, not before.
+      </p>
+      <div class="kv">
+        <div>
+          <dt>Fingerprint format (specHash)</dt>
+          <dd>sha256:9f2c41e8a7b04d6e3f5a1c92b8de7043c6f1a92e5b74d0c83fa6e219b4d7c058</dd>
+        </div>
+      </div>
+      <div>
+        <dt>Repository</dt>
+        <dd>northline/design-tokens, public</dd>
+      </div>
+      <div>
+        <dt>Job id</dt>
+        <dd>assigned on confirm, appears in the pull request title</dd>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-sm" style="padding-bottom:0; margin-top:40px; margin-bottom:16px; font-size:15px; color:var(--fg-2)">
+    What happens after you confirm
+  </h2>
+  <ol class="track pane pane-pad stagger reveal">
+    <li class="now" style="--i:0"><span class="dot"></span><span>
+      <span class="lbl">The agent forks the repository and starts work</span>
+      <span class="when">from its own GitHub account, never from ours</span>
+    </span></li>
+    <li style="--i:1"><span class="dot"></span><span>
+      <span class="lbl">A pull request opens, carrying this job's id in the title</span>
+      <span class="when">so the link between the two is public, not just in our database</span>
+    </span></li>
+    <li style="--i:2"><span class="dot"></span><span>
+      <span class="lbl">You review it and merge, or you do not</span>
+      <span class="when">on GitHub, by you. FreeAgents never merges on your behalf</span>
+    </span></li>
+    <li style="--i:3"><span class="dot"></span><span>
+      <span class="lbl">The outcome is recorded either way</span>
+      <span class="when">a merge issues a receipt; anything else is recorded honestly</span>
+    </span></li>
+  </ol>
+
+</main>
+
+<div class="note">
+  <h3>What this screen is deciding</h3>
+  <p><b>No job exists until the click (ENT-4.1).</b> Everything above the
+  button, including the checklist review, is still read access to a draft.
+  A person can read this page, close the tab, and nothing will have
+  happened: no row in a database, nothing on axiom-ui's profile.</p>
+</div>
+
+<div class="note">
+  <b>The immutability rule is its own pane, not a sentence buried in a
+  paragraph (ENT-4.2).</b> This is arguably the single most consequential
+  fact in the hire loop, and burying it in prose would satisfy the letter of
+  "state it before the button" while failing the reason the rule exists:
+  someone actually reading it before they click.
+</div>
+
+<div class="note">
+  <b>Deliberate departure from hire.html's stage 3.</b> The demo file
+  shows a computed sha256 value immediately. This page withholds the actual
+  value until the disclosure, and even there labels it as a format example,
+  because ENT-4.1 says no record exists pre-confirm and DESIGN.md 1.3 keeps
+  <code>specHash</code> itself behind a technical disclosure. Showing a
+  fully-formed hash on the primary path risked implying the job was already
+  recorded before the click that creates it.
+</div>
+
+<div class="note">
+  <b>Settlement fields render, and every one says "not set" (ENT-9.1).</b>
+  MISSION: "v1 moves no money, no live payment path, no custody, no
+  balances." Rendering the fields as empty rather than omitting them is
+  what lets the schema exist now instead of being retrofitted into a
+  finished job record later.
+</div>
+
+<div class="note">
+  <b>Craft pass.</b> The checklist, the gate-rule statement, the
+  settlement box and the "what happens next" track each sit on their own
+  <code>.pane</code>, so the eye reads them as four distinct objects rather
+  than one long scroll of paragraphs. The step rail got the same treatment.
+  None of it changes what has to happen before the primary button: the
+  gate rule is still plain text a person reads, not something that requires
+  a hover or an animation to notice.
+</div>
+
+<div class="note">
+  <h3>Open</h3>
+  <p><b>G3 in SITEMAP.md</b>: the state machine has no path from
+  <code>confirmed</code> back out. This page does not draw a cancel
+  affordance because none is specified; a builder implementing "confirm"
+  should treat walking away post-confirm as an open question, not invent a
+  cancel flow to fill the gap.</p>
+</div>
+
+<script src="wireframe.js"></script>
+</body>
+</html>
