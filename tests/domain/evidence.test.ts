@@ -27,6 +27,18 @@ describe('evidenceTier', () => {
     expect(tier).toBe('verified-hire');
   });
 
+  it('never returns verified-hire for a merged pull request in a public repository when the job was not platform-brokered', () => {
+    const tier = evidenceTier(
+      facts({
+        platformBrokered: false,
+        pullRequestMerged: true,
+        repositoryPublic: true,
+      }),
+    );
+    expect(tier).toBe('portfolio');
+    expect(tier).not.toBe('verified-hire');
+  });
+
   it('promotes a signed commit in a public repository with no brief to verified-prior-work', () => {
     const tier = evidenceTier(
       facts({
@@ -36,6 +48,19 @@ describe('evidenceTier', () => {
       }),
     );
     expect(tier).toBe('verified-prior-work');
+  });
+
+  it('never returns verified-prior-work for a public repository with no signed commit and no brief', () => {
+    const tier = evidenceTier(
+      facts({
+        platformBrokered: false,
+        signedCommit: false,
+        pullRequestMerged: false,
+        repositoryPublic: true,
+      }),
+    );
+    expect(tier).toBe('portfolio');
+    expect(tier).not.toBe('verified-prior-work');
   });
 
   it('never returns verified-prior-work for a signed commit on a platform-brokered job whose pull request did not merge', () => {
