@@ -1,12 +1,20 @@
 import express, { type Express, type Request, type Response } from 'express';
 
+import { createIdentityAdapter } from '../adapters/identity/identity.js';
 import {
+  AgentAlreadyExistsError,
   OperatorAlreadyExistsError,
+  type AgentRepository,
   type OperatorRepository,
 } from '../adapters/storage/types.js';
-import { createOperatorRepository } from '../adapters/storage/storage.js';
+import { createAgentRepository, createOperatorRepository } from '../adapters/storage/storage.js';
+import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
 import { isValidOperatorDid } from '../domain/operator-did.js';
 import type { Operator } from '../domain/operator.js';
+
+// One identity adapter for the whole app: verification is stateless, so a
+// module-level instance is the entire state.
+const identity = createIdentityAdapter();
 
 // Route stubs for the hire loop (MISSION.md, "The hire loop"). Every handler
 // here returns 501 until the domain and adapter layers are wired in: the
@@ -26,7 +34,47 @@ function operatorProjection(row: Operator): Record<string, unknown> {
   };
 }
 
-export function createApp(repo: OperatorRepository = createOperatorRepository()): Express {
+function agentProjection(row: Agent): Record<string, unknown> {
+  return {
+    did: row.did,
+    operatorDid: row.operatorDid,
+    delegation: row.delegation,
+    name: row.name,
+    skills: [...row.skills],
+    githubLogin: row.githubLogin,
+    proofStatus: row.proofStatus,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+// The body carries the W3C Verifiable Credential exactly as produced.
+// This only checks that the fields the service relies on are present and
+// well-typed; the object then passes through untouched, because the bytes
+// that verify are the bytes we store (ENT-3.1).
+function delegationShape(value: unknown): Delegation | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const vc = value as Record<string, unknown>;
+  if (!Array.isArray(vc['@context'])) return null;
+  if (typeof vc.id !== 'string' || vc.id.length === 0) return null;
+  if (!Array.isArray(vc.type)) return null;
+  if (typeof vc.issuer !== 'string' || vc.issuer.length === 0) return null;
+  if (typeof vc.issuanceDate !== 'string' || vc.issuanceDate.length === 0) return null;
+  const subject = vc.credentialSubject;
+  const proof = vc.proof;
+  if (typeof subject !== 'object' || subject === null) return null;
+  if (typeof proof !== 'object' || proof === null) return null;
+  const s = subject as Record<string, unknown>;
+  const p = proof as Record<string, unknown>;
+  if (typeof s.id !== 'string' || s.id.length === 0) return null;
+  if (typeof p.type !== 'string' || p.type !== 'Ed25519Signature2020') return null;
+  if (typeof p.proofValue !== 'string' || p.proofValue.length === 0) return null;
+  return value as Delegation;
+}
+
+export function createApp(
+  repo: OperatorRepository = createOperatorRepository(),
+  agentRepo: AgentRepository = createAgentRepository(),
+): Express {
   const app = express();
   app.use(express.json());
 
@@ -83,7 +131,109 @@ export function createApp(repo: OperatorRepository = createOperatorRepository())
     }
   });
 
-  app.post('/agents', notImplemented);
+  app.post('/agents', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const did = body.did;
+    const operator = body.operator;
+    const name = body.name;
+    const skills = body.skills;
+    const githubLogin = body.githubLogin;
+
+    if (
+      typeof did !== 'string' || did.length === 0 ||
+      typeof operator !== 'string' || operator.length === 0 ||
+      typeof name !== 'string' || name.length === 0 ||
+      !Array.isArray(skills) || skills.length === 0 ||
+      skills.some((s) => typeof s !== 'string' || s.length === 0) ||
+      (githubLogin !== undefined && (typeof githubLogin !== 'string' || githubLogin.length === 0))
+    ) {
+      res.status(400).json({
+        error: 'body must be { did, operator, delegation, name, skills, githubLogin? }; did, operator, name non-empty strings, skills non-empty list of strings',
+      });
+      return;
+    }
+    // The registry speaks full DIDs (did:abt:...) in both fields; the
+    // credential may carry either form, and that is reconciled below.
+    if (!isValidOperatorDid(did) || !isValidOperatorDid(operator)) {
+      res.status(400).json({
+        error: 'did and operator must look like did:abt:<suffix>, non-empty suffix, no whitespace',
+      });
+      return;
+    }
+    const proof = delegationShape(body.delegation);
+    if (proof === null) {
+      res.status(400).json({
+        error: 'delegation must be a W3C Verifiable Credential: object with @context, id, type, issuer (string), credentialSubject { id }, proof { type: Ed25519Signature2020, proofValue }, issuanceDate',
+      });
+      return;
+    }
+
+    let operatorRow: Operator | null;
+    try {
+      operatorRow = await repo.findByDid(operator);
+    } catch (err) {
+      console.error('POST /agents: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (operatorRow === null) {
+      res.status(404).json({
+        error: `operator ${operator} is not registered; register it before delegating from it`,
+      });
+      return;
+    }
+
+    if (!delegationConsistent({ did, operatorDid: operator, delegation: proof })) {
+      res.status(400).json({
+        error: 'delegation does not bind this operator to this agent DID: type must include AgentDelegation, issuer must be the operator, credentialSubject must be the agent DID',
+      });
+      return;
+    }
+
+    // ownerDid is the credential's own subject, verbatim, because the
+    // verifier compares it by equality with credentialSubject.id.
+    const verified = await identity.verifyDelegation(proof, proof.credentialSubject.id, operator);
+    if (!verified) {
+      res.status(400).json({
+        error: 'delegation proof failed verification: the signature does not check out against the operator key',
+      });
+      return;
+    }
+
+    try {
+      const row = await agentRepo.create({
+        did,
+        operatorDid: operator,
+        delegation: proof,
+        name,
+        skills,
+        githubLogin: githubLogin ?? null,
+      });
+      res.status(201).json(agentProjection(row));
+    } catch (err) {
+      if (err instanceof AgentAlreadyExistsError) {
+        res.status(409).json({ error: `agent ${did} is already delegated` });
+        return;
+      }
+      console.error('POST /agents: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  app.get('/agents/:agentDid', async (req: Request, res: Response) => {
+    try {
+      const row = await agentRepo.findByDid(String(req.params.agentDid));
+      if (row === null) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      res.status(200).json(agentProjection(row));
+    } catch (err) {
+      console.error('GET /agents/:agentDid: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
   app.get('/agents/:agentDid/card', notImplemented);
   app.get('/agents/:agentDid/credentials', notImplemented);
 

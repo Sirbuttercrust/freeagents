@@ -2,6 +2,7 @@
 // (R-1). Named for the capability, not the backend, so a second driver
 // (prisma) sits beside it without touching callers. Adapters may import
 // domain; never the reverse (CLAUDE.md).
+import type { Agent, Delegation } from '../../domain/agent.js';
 import type { Operator } from '../../domain/operator.js';
 
 // Thrown by register when the DID already exists, so the API layer can map
@@ -17,4 +18,30 @@ export interface OperatorRepository {
   // Throws OperatorAlreadyExistsError when the DID is already registered.
   register(input: { readonly did: string; readonly githubLogin: string }): Promise<Operator>;
   findByDid(did: string): Promise<Operator | null>;
+}
+
+// Thrown by AgentRepository.create when the agent DID is already delegated,
+// so the API layer maps it to 409 without inspecting error messages.
+export class AgentAlreadyExistsError extends Error {
+  constructor(did: string) {
+    super(`agent ${did} is already delegated`);
+    this.name = 'AgentAlreadyExistsError';
+  }
+}
+
+// Everything the operator supplied or vouched for at delegation time. The
+// delegation credential arrives verified (R-2); storage does not re-check it.
+export interface AgentInput {
+  readonly did: string;
+  readonly operatorDid: string;
+  readonly delegation: Delegation;
+  readonly name: string;
+  readonly skills: readonly string[];
+  readonly githubLogin: string | null;
+}
+
+export interface AgentRepository {
+  // Throws AgentAlreadyExistsError when the DID is already delegated.
+  create(input: AgentInput): Promise<Agent>;
+  findByDid(did: string): Promise<Agent | null>;
 }
