@@ -69,4 +69,25 @@ describe('didDocumentPointsAtGithubAccount', () => {
     expect(didDocumentPointsAtGithubAccount(['https://github.com/scout-agent'], '')).toBe(false);
     expect(didDocumentPointsAtGithubAccount(['https://github.com/scout-agent'], '   ')).toBe(false);
   });
+
+  it('a non-null, non-array alsoKnownAs is false, never a throw', () => {
+    // A half-built document can carry any value in the field: the guard must
+    // turn it into "no" instead of letting .some throw on a non-array.
+    const malformed = 'https://github.com/scout-agent' as unknown as readonly string[];
+    expect(didDocumentPointsAtGithubAccount(malformed, 'scout-agent')).toBe(false);
+  });
+
+  it('a non-string handle is false, never a throw', () => {
+    const handle = 42 as unknown as string;
+    expect(
+      didDocumentPointsAtGithubAccount(['https://github.com/scout-agent'], handle),
+    ).toBe(false);
+  });
+
+  it('a non-string entry among the entries is skipped, never a throw', () => {
+    // The non-string comes first, so .some reaches it before any match: a
+    // deleted guard would call .trim() on it and throw instead of skipping.
+    const entries = [42, 'https://github.com/scout-agent'] as unknown as readonly string[];
+    expect(didDocumentPointsAtGithubAccount(entries, 'scout-agent')).toBe(true);
+  });
 });

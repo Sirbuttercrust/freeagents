@@ -6,14 +6,16 @@
 // from resolveDid until a resolver is wired, and the production 503 branch is
 // exactly what that exercises. Everything else runs on the real logic, the
 // same way the R-1/R-2 tests inject repositories.
+import type { Express } from 'express';
 import type { Server } from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
 import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import type { AgentRepository } from '../../src/adapters/storage/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import type { DidDocument, IdentityAdapter } from '../../src/adapters/identity/types.js';
-import type { Delegation } from '../../src/domain/agent.js';
+import type { Agent, Delegation, ProofStatus } from '../../src/domain/agent.js';
 
 // The stored delegation only needs its shape here: create() does not
 // re-verify, and the proof under test in this file is the DID document.
@@ -183,5 +185,102 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
     expect(res.status).toBe(503);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe('identity resolution unavailable');
+  });
+});
+
+// The three storage branches of the route, which the real repository never
+// exercises: a failing lookup, a failing update, and an update that reports
+// the agent as not stored even though the lookup succeeded. Each gets its own
+// app with a wrapped repository, the same way the R-1/R-2 tests inject them.
+describe('POST /agents/:agentDid/account-proof, storage branches', () => {
+  const documents = new Map<string, DidDocument>();
+  const base = new MemoryAgentRepository();
+
+  function makeApp(overrides: {
+    findByDid?: (did: string) => Promise<Agent | null>;
+    updateGithubBinding?: (
+      did: string,
+      input: { readonly handle: string; readonly status: ProofStatus },
+    ) => Promise<Agent | null>;
+  }): Express {
+    const repo: AgentRepository = {
+      create: (input) => base.create(input),
+      findByDid: overrides.findByDid ?? ((did) => base.findByDid(did)),
+      updateGithubBinding:
+        overrides.updateGithubBinding ?? ((did, input) => base.updateGithubBinding(did, input)),
+    };
+    return createApp(new MemoryOperatorRepository(), repo, fakeIdentity(documents));
+  }
+
+  // A storage failure is a logged operator concern, not output the test
+  // needs; silence it so the branch under test is the response, not the log.
+  async function withApp(app: Express, run: (url: string) => Promise<void>): Promise<void> {
+    const server = app.listen(0);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const address = server.address();
+      if (address === null || typeof address === 'string') {
+        throw new Error('expected server to listen on a port');
+      }
+      await run(`http://127.0.0.1:${address.port}`);
+    } finally {
+      errSpy.mockRestore();
+      server.close();
+    }
+  }
+
+  async function registerAgent(did: string): Promise<void> {
+    await base.create({
+      did,
+      operatorDid: 'did:abt:zOperatorKeyHash',
+      delegation,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+  }
+
+  it('503: the agent lookup throws', async () => {
+    const did = 'did:abt:zAgentLookupFail';
+    const app = makeApp({
+      findByDid: () => Promise.reject(new Error('storage down')),
+    });
+    await withApp(app, async (url) => {
+      const res = await postJson(url, `/agents/${did}/account-proof`, { handle: 'scout-agent' });
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.error).toBe('storage unavailable');
+    });
+  });
+
+  it('404: the update reports the agent as not stored, after the lookup succeeded', async () => {
+    const did = 'did:abt:zAgentUpdateNull';
+    await registerAgent(did);
+    documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+    const app = makeApp({
+      updateGithubBinding: () => Promise.resolve(null),
+    });
+    await withApp(app, async (url) => {
+      const res = await postJson(url, `/agents/${did}/account-proof`, { handle: 'scout-agent' });
+      expect(res.status).toBe(404);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.error).toBe(`agent ${did} is not registered`);
+    });
+  });
+
+  it('503: the binding update throws', async () => {
+    const did = 'did:abt:zAgentUpdateFail';
+    await registerAgent(did);
+    documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+    const app = makeApp({
+      updateGithubBinding: () => Promise.reject(new Error('storage down')),
+    });
+    await withApp(app, async (url) => {
+      const res = await postJson(url, `/agents/${did}/account-proof`, { handle: 'scout-agent' });
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.error).toBe('storage unavailable');
+    });
   });
 });
