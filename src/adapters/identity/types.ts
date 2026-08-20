@@ -13,6 +13,10 @@ export interface DidDocument {
   readonly id: string;
   readonly controller: string | null;
   readonly verificationMethod: readonly string[];
+  // Standard DID Core field. R-3 direction one reads the GitHub account
+  // claim from here and only from here (invariant 2: a third party reading
+  // the same field reaches the same conclusion).
+  readonly alsoKnownAs: readonly string[] | null;
 }
 
 export interface SignedPayload {

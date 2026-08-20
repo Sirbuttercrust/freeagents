@@ -1,7 +1,7 @@
 // In-memory OperatorRepository: real storage for dev and tests, and the selected
 // mode when DATABASE_URL is unset (see storage.ts). A Map keyed by DID gives the
 // same duplicate-key semantics the database gives through its primary key.
-import type { Agent } from '../../domain/agent.js';
+import type { Agent, ProofStatus } from '../../domain/agent.js';
 import type { Operator } from '../../domain/operator.js';
 import {
   AgentAlreadyExistsError,
@@ -62,5 +62,18 @@ export class MemoryAgentRepository implements AgentRepository {
 
   async findByDid(did: string): Promise<Agent | null> {
     return this.rows.get(did) ?? null;
+  }
+
+  async updateGithubBinding(
+    did: string,
+    input: { readonly handle: string; readonly status: ProofStatus },
+  ): Promise<Agent | null> {
+    const row = this.rows.get(did);
+    if (row === undefined) return null;
+    // The live DID document is the source of truth, so a later successful
+    // check for a different handle replaces the stored binding.
+    const updated: Agent = { ...row, githubLogin: input.handle, proofStatus: input.status };
+    this.rows.set(did, updated);
+    return updated;
   }
 }

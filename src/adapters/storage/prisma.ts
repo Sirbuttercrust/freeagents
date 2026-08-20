@@ -1,7 +1,7 @@
 // Prisma-backed OperatorRepository over the generated client. This is the
 // only file in the repository that knows Postgres exists.
 import { Prisma, PrismaClient } from '../../generated/prisma/index.js';
-import type { Agent, Delegation } from '../../domain/agent.js';
+import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import type { Operator } from '../../domain/operator.js';
 import {
   AgentAlreadyExistsError,
@@ -79,6 +79,27 @@ export class PrismaAgentRepository implements AgentRepository {
   async findByDid(did: string): Promise<Agent | null> {
     const row = await db().agent.findUnique({ where: { did } });
     return row === null ? null : toAgent(row);
+  }
+
+  async updateGithubBinding(
+    did: string,
+    input: { readonly handle: string; readonly status: ProofStatus },
+  ): Promise<Agent | null> {
+    try {
+      const row = await db().agent.update({
+        where: { did },
+        data: { githubLogin: input.handle, proofStatus: input.status },
+      });
+      return toAgent(row);
+    } catch (err) {
+      // P2025 is Prisma's "record to update not found" error code: the
+      // agent was never stored (or the DID is unknown), and the API layer
+      // maps the null to 404.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        return null;
+      }
+      throw err;
+    }
   }
 }
 
