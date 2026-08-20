@@ -1,38 +1,56 @@
-import { create as createCredential, verify as verifyCredential } from '@arcblock/vc';
+import { Ed25519Signature2020 } from '@digitalbazaar/ed25519-signature-2020';
+import * as vc from '@digitalbazaar/vc';
 import { didSuffix, type Delegation } from '../../domain/agent.js';
 import { NotImplementedError } from '../not-implemented.js';
+import { buildDidAbtLoader } from './did-abt-resolver.js';
 import type { DidDocument, DidKeyPair, IdentityAdapter, SignedPayload } from './types.js';
 
 const CAPABILITY = 'identity';
 
-// @arcblock/vc does not export its credential type, only its functions;
-// create's return type is the very thing verify expects, so that is where
-// it comes from.
-type Credential = NonNullable<Awaited<ReturnType<typeof createCredential>>>;
-
 // Real implementation is @arcblock/did behind this factory. Until then every
 // method throws, which is honest: there is no in-memory stand-in for DID
 // cryptography that would not be misleading to build against. verifyDelegation
-// is the one real method (R-2): the proof already carries the issuer's public
-// key, so @arcblock/vc verifies it offline, no DID resolution and no call
-// back to this service. That offline property is what invariant 2 needs.
+// uses W3C Ed25519Signature2020 suite for third-party verifiability (invariant 2):
+// the verification uses only the credential itself, no DID resolution and no
+// call back to this service.
 export function createIdentityAdapter(): IdentityAdapter {
   return {
     createOperatorDid(): Promise<DidKeyPair> {
       throw new NotImplementedError(CAPABILITY, 'createOperatorDid');
     },
-    // The vendor signs proofs with the wallet's short-form address (z...),
-    // while the registry records the full DID (did:abt:z...), so the trusted
-    // list carries both forms of the operator DID. The vendor throws on any
-    // shape it does not recognise; a rejected proof is false, not an error.
+    // Verify a W3C Verifiable Credential with Ed25519Signature2020 proof.
+    // The proof type and proofValue presence are already checked in
+    // delegationConsistent; this handles the cryptographic verification.
+    // Uses a did:abt resolver that extracts the public key from the DID
+    // itself, so verification needs no network call (invariant 2).
     async verifyDelegation(delegation: Delegation, ownerDid: string, issuerDid: string): Promise<boolean> {
       try {
-        const ok = await verifyCredential({
-          vc: delegation as unknown as Credential,
-          ownerDid,
-          trustedIssuers: [issuerDid, didSuffix(issuerDid)],
+        // The credential's subject must match ownerDid.
+        if (delegation.credentialSubject.id !== ownerDid &&
+            didSuffix(delegation.credentialSubject.id) !== didSuffix(ownerDid)) {
+          return false;
+        }
+        // The issuer must match issuerDid (allow both full and short form).
+        if (delegation.issuer !== issuerDid &&
+            didSuffix(delegation.issuer) !== didSuffix(issuerDid)) {
+          return false;
+        }
+
+        // Build a document loader that can resolve did:abt DIDs. The public key
+        // fingerprint is in proof.verificationMethod, not derivable from the DID
+        // alone (did:abt encodes an address hash, not the raw key). No network call.
+        const verificationMethod = typeof delegation.proof.verificationMethod === 'string'
+          ? delegation.proof.verificationMethod
+          : '';
+        const documentLoader = await buildDidAbtLoader(issuerDid, verificationMethod);
+
+        const suite = new Ed25519Signature2020();
+        const result = await vc.verifyCredential({
+          credential: delegation,
+          suite,
+          documentLoader,
         });
-        return ok === true;
+        return result.verified === true;
       } catch {
         return false;
       }
