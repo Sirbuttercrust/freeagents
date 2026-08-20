@@ -38,6 +38,7 @@ import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
+import { MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 
 let server: Server;
 let base: string;
@@ -62,7 +63,9 @@ async function post(path: string, body: unknown = {}): Promise<Response> {
 }
 
 beforeAll(async () => {
-  const app = createApp();
+  // An explicit memory repository: deterministic regardless of whether the
+  // runner environment happens to export DATABASE_URL.
+  const app = createApp(new MemoryOperatorRepository());
   server = await new Promise<Server>((resolve, reject) => {
     const s = app.listen(0, '127.0.0.1');
     s.once('listening', () => resolve(s));
@@ -91,8 +94,10 @@ describe('the API starts and answers', () => {
     // handler is honest about being unimplemented. What matters for this
     // assertion is that none of them 404, because a route that does not exist
     // cannot be said to have a contract at all.
+    // POST /operators has left this list: it is implemented, and its real
+    // flow is asserted below. This is the one-at-a-time replacement the
+    // file's design promised.
     const declared: Array<[string, () => Promise<Response>]> = [
-      ['POST /operators', () => post('/operators')],
       ['POST /agents', () => post('/agents')],
       ['GET  /agents/:did/card', () => get('/agents/did:abt:test/card')],
       ['GET  /agents/:did/credentials', () => get('/agents/did:abt:test/credentials')],
@@ -108,6 +113,38 @@ describe('the API starts and answers', () => {
       expect(res.status, `${label} must exist, got ${res.status}`).not.toBe(404);
       expect(res.status, `${label} should be 501 until implemented`).toBe(501);
     }
+  });
+
+  it('registers an operator, reads it back, and refuses duplicates and bad DIDs', async () => {
+    // The first real hire-loop flow this file exercises. Five HTTP calls,
+    // each counted in stepsAsserted by the helpers above; the fixture is a
+    // generic handle, not a real person (public repository).
+
+    // 1. Register. The response is exactly the stored fact projection:
+    // did, githubLogin, createdAt, and nothing else, no key material.
+    const created = await post('/operators', { did: 'did:abt:op1', githubLogin: 'operator-1' });
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as Record<string, unknown>;
+    expect(createdBody.did).toBe('did:abt:op1');
+    expect(Object.keys(createdBody).sort()).toEqual(['createdAt', 'did', 'githubLogin']);
+
+    // 2. Read back: the same body, field for field.
+    const read = await get('/operators/did:abt:op1');
+    expect(read.status).toBe(200);
+    expect(await read.json()).toEqual(createdBody);
+
+    // 3. The same DID twice is a conflict, not a silent overwrite.
+    const dup = await post('/operators', { did: 'did:abt:op1', githubLogin: 'operator-1' });
+    expect(dup.status).toBe(409);
+
+    // 4. A DID of the wrong method is a client error.
+    const bad = await post('/operators', { did: 'did:eth:xyz', githubLogin: 'operator-1' });
+    expect(bad.status).toBe(400);
+
+    // 5. An unregistered DID is a 404, so the read-back above meant
+    // something.
+    const missing = await get('/operators/did:abt:nobody');
+    expect(missing.status).toBe(404);
   });
 
   it('still 404s an undeclared route', async () => {
