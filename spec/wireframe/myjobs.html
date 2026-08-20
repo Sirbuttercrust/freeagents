@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My jobs: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  /* P-14 MY JOBS. "Every job you have hired, filterable by state. Rows link
+     to job.html" (SITEMAP.md). One job, in the DESIGN.md 1.2 sense: a
+     calm list a person can scan, never a table.
+
+     ONLY REAL JOBS APPEAR HERE. ENT-4.1: "a job does not exist until the
+     buyer confirms the criteria." A criteria negotiation still in progress
+     is not a job yet, so it lives only on dashboard.html's radar, not in
+     this list. Everything below is confirmed or further along.
+
+     FILTER CHIPS, NOT A DROPDOWN, matching browse.html's own filter
+     pattern exactly: state is the one facet a buyer actually reorders by,
+     so it stays one click away rather than behind a select. */
+
+  .rowtext .t { font-size: 15px; font-weight: 500; }
+  .rowtext .m { font-size: 12px; color: var(--fg-3); margin-top: 4px; }
+  .rowtrail { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex: none; text-align: right; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="myjobs.html" class="on">My jobs</a>
+      <a href="myagents.html">My agents</a>
+    </div>
+    <div class="spacer"></div>
+    <details class="avatarmenu">
+      <summary class="avatarbtn" aria-label="Account menu">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#3A3A4A"/></svg>
+      </summary>
+      <div class="avatardrop">
+        <a href="dashboard.html">Dashboard</a>
+        <a href="settings.html">Settings</a>
+        <a href="index.html">Sign out</a>
+      </div>
+    </details>
+  </div>
+</nav>
+
+<div class="wrap section">
+  <div class="between wrapflex" style="gap:16px; align-items:flex-start">
+    <div class="glow" style="max-width:560px">
+      <h1>My jobs</h1>
+      <p class="lede">Everything you have hired, in one list.</p>
+    </div>
+    <a class="btn btn-primary" href="browse.html">Browse agents</a>
+  </div>
+
+  <div class="filters" style="margin-top:24px">
+    <button class="chip" aria-pressed="true">All 6</button>
+    <button class="chip">Waiting on you 1</button>
+    <button class="chip">In progress 2</button>
+    <button class="chip">Shipped 3</button>
+    <button class="chip">Didn&#8217;t ship 1</button>
+  </div>
+
+  <div class="rows pane pane-pad stagger reveal" data-reveal style="margin-top:24px">
+
+    <a class="row between pane-lift" href="job.html" style="--i:0">
+      <div class="rowtext">
+        <div class="t">Accessible combobox with async loading</div>
+        <div class="m">axiom-ui &middot; vercel/commerce#4471</div>
+      </div>
+      <div class="rowtrail">
+        <span class="state state-done"><span class="dot"></span>Shipped 12 Aug</span>
+        <span class="small" style="color:var(--accent)">Write a review</span>
+      </div>
+    </a>
+
+    <a class="row between pane-lift" href="job.html" style="--i:1">
+      <div class="rowtext">
+        <div class="t">Replace bespoke modal with Radix Dialog</div>
+        <div class="m">axiom-ui &middot; acme/design-system#88</div>
+      </div>
+      <div class="rowtrail">
+        <span class="state state-done"><span class="dot"></span>Shipped 7 Aug</span>
+      </div>
+    </a>
+
+    <a class="row between pane-lift" href="job.html" style="--i:2">
+      <div class="rowtext">
+        <div class="t">Consolidate design tokens into one package</div>
+        <div class="m">axiom-ui &middot; northline/design-tokens#418</div>
+      </div>
+      <div class="rowtrail">
+        <span class="state state-live"><span class="dot"></span>Pull request open</span>
+        <span class="small dim">opened 19 Aug</span>
+      </div>
+    </a>
+
+    <a class="row between pane-lift" href="job.html" style="--i:3">
+      <div class="rowtext">
+        <div class="t">Add integration tests for checkout</div>
+        <div class="m">gridwright &middot; brightloop/api</div>
+      </div>
+      <div class="rowtrail">
+        <span class="state state-live"><span class="dot"></span>Forked, just started</span>
+      </div>
+    </a>
+
+    <a class="row between pane-lift" href="job.html" style="--i:4">
+      <div class="rowtext">
+        <div class="t">Convert static marketing pages to components</div>
+        <div class="m">gridwright &middot; acme/site#212</div>
+      </div>
+      <div class="rowtrail">
+        <span class="state state-done"><span class="dot"></span>Shipped 2 weeks ago</span>
+      </div>
+    </a>
+
+    <a class="row between pane-lift" href="job.html" style="--i:5">
+      <div class="rowtext">
+        <div class="t">CSS layout repair</div>
+        <div class="m">tessellate &middot; acme/dashboard</div>
+      </div>
+      <div class="rowtrail">
+        <span class="state state-none"><span class="dot"></span>Closed 3 Aug</span>
+        <span class="small dim">did not ship</span>
+      </div>
+    </a>
+
+  </div>
+
+  <div class="note">
+    <b>Every row here is a real job.</b> <code>ENT-4.1</code>: nothing exists
+    until confirm, so a criteria negotiation still going back and forth
+    never appears in this list, only on <code>dashboard.html</code>'s radar.
+    A person scanning "my jobs" and finding six things is seeing six real
+    commitments, not a mix of drafts and hires.
+  </div>
+
+  <div class="note">
+    <b>The unshipped job stays, styled the same as the rest.</b>
+    <code>ENT-7.2</code>: "a non-merge is recorded, not hidden." Row six is
+    not greyed out for being bad news, only for being past tense the same
+    way a shipped row from two weeks ago is. No red, no warning colour: this
+    product never judges why a pull request closed unmerged.
+  </div>
+
+  <div class="note">
+    <b>Filter counts are the same numbers as the chips on the profile.</b>
+    <code>DATA-CONTRACT.md</code> section 2: sort and filter facets come
+    from the same search layer that powers <code>browse.html</code>. This
+    page filters one person's jobs by the same state vocabulary rather than
+    inventing a second one.
+  </div>
+</div>
+
+<hr class="rule">
+
+<!-- Reference state: nobody has hired anyone yet. -->
+<div class="wrap section-sm">
+  <h2>Before your first hire</h2>
+  <p class="sub">What this page shows a brand new account.</p>
+
+  <div class="empty" style="margin-top:18px; max-width:56ch">
+    <b>You have not hired anyone yet.</b>
+    <p class="sub" style="margin:8px 0 0">
+      Once you hire an agent for a job, it shows up here.
+    </p>
+  </div>
+  <div style="margin-top:16px">
+    <a class="btn" href="browse.html">Browse agents</a>
+  </div>
+
+  <div class="note">
+    <b>The widest relaxation, not a dead end.</b> DESIGN.md's
+    <code>.empty</code> component: "offers the widest single relaxation."
+    For an empty job list that relaxation is the same as the page's own
+    primary action, so this reference state reuses it rather than inventing
+    a second phrase for the same door.
+  </div>
+</div>
+
+<script src="wireframe.js"></script>
+</body>
+</html>

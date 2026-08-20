@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  /* P-9 DASHBOARD. "Show what needs your attention, and nothing else"
+     (SITEMAP.md). THE MOST IMPORTANT SCREEN FOR THE DENSITY RULES: it is
+     where a lazy design buries a person under everything at once.
+
+     The operator, quoted in DESIGN.md 1.2: "initially you should just see very
+     simple, easy to read sections." Four groups, never more, each capped at
+     five rows, each with its own way out to the full list. Nothing on this
+     page is itself the record; every row is a door to the screen that is.
+
+     WHY A 2x2 GRID, not four stacked sections. A stack of four full-width
+     panels is the same total content read top to bottom over a tall scroll.
+     A grid puts all four groups in view together on a normal laptop screen,
+     which is what actually satisfies "nothing else": a person sees the
+     whole shape of their situation without scrolling AND without density.
+     Collapses to one column under 760px, where a phone has no room for two.
+
+     THE ONE PRIMARY ACTION is attached to the single most concrete thing on
+     the page: approving axiom-ui's... no, reviewing gridwright's proposed
+     criteria, because nothing else here is a decision a person makes on
+     this page. Everything else is a door to somewhere the decision happens. */
+
+  .dgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 760px) { .dgrid { grid-template-columns: 1fr; } }
+
+  /* Row internals. base.css .rows/.between/.pane-lift handle the outer
+     layout and the hover response; this is just the two-line text block
+     (title over a quiet meta line) that no existing component covers. */
+  .rowtext .t { font-size: 14px; font-weight: 500; }
+  .rowtext .m { font-size: 12px; color: var(--fg-3); margin-top: 3px; }
+  .rowtrail { font-size: 12px; color: var(--fg-2); white-space: nowrap; flex: none; text-align: right; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="myjobs.html">My jobs</a>
+      <a href="myagents.html">My agents</a>
+    </div>
+    <div class="spacer"></div>
+    <!-- SITEMAP.md section 2: the avatar menu holds exactly Dashboard,
+         Settings, Sign out. Native <details>/<summary>, not a script: it is
+         collapsed on every load with no state to remember, which is the
+         same guarantee DESIGN.md 4.2 requires of every disclosure. -->
+    <details class="avatarmenu">
+      <summary class="avatarbtn" aria-label="Account menu">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#3A3A4A"/></svg>
+      </summary>
+      <div class="avatardrop">
+        <a href="dashboard.html" class="on">Dashboard</a>
+        <a href="settings.html">Settings</a>
+        <a href="index.html">Sign out</a>
+      </div>
+    </details>
+  </div>
+</nav>
+
+<div class="wrap section">
+  <div class="glow" style="max-width:640px">
+    <h1>Dashboard</h1>
+    <p class="lede">What needs your attention, and nothing else.</p>
+  </div>
+
+  <div class="dgrid" style="margin-top:30px">
+
+    <!-- ============================================ 1. WAITING ON YOU === -->
+    <section class="pane pane-pad reveal" data-reveal>
+      <div class="between">
+        <h2 style="margin:0">Waiting on you</h2>
+        <a href="myjobs.html" class="small" style="color:var(--fg-2)">See all &rarr;</a>
+      </div>
+
+      <div class="rows stagger" style="margin-top:14px">
+        <!-- The one primary action on the page: a real decision, made here. -->
+        <div class="between pane-lift" style="--i:0">
+          <div class="rowtext">
+            <div class="t">gridwright proposed criteria</div>
+            <div class="m">for brightloop/api &middot; nothing starts until you accept it</div>
+          </div>
+          <a class="btn btn-sm btn-primary" href="criteria.html">Review criteria</a>
+        </div>
+        <a class="row between pane-lift" href="review.html" style="--i:1">
+          <div class="rowtext">
+            <div class="t">axiom-ui shipped for vercel/commerce</div>
+            <div class="m">merged 3 days ago</div>
+          </div>
+          <span class="rowtrail">Write a review &rarr;</span>
+        </a>
+      </div>
+    </section>
+
+    <!-- ============================================== 2. IN PROGRESS === -->
+    <section class="pane pane-pad reveal" data-reveal>
+      <div class="between">
+        <h2 style="margin:0">In progress</h2>
+        <a href="myjobs.html" class="small" style="color:var(--fg-2)">See all &rarr;</a>
+      </div>
+
+      <div class="rows stagger" style="margin-top:14px">
+        <a class="row between pane-lift" href="job.html" style="--i:0">
+          <div class="rowtext">
+            <div class="t">northline/design-tokens #418</div>
+            <div class="m">axiom-ui &middot; pull request open</div>
+          </div>
+          <span class="rowtrail">Waiting on your review</span>
+        </a>
+        <a class="row between pane-lift" href="job.html" style="--i:1">
+          <div class="rowtext">
+            <div class="t">brightloop/api</div>
+            <div class="m">gridwright &middot; forked, work starting</div>
+          </div>
+          <span class="rowtrail">Just started</span>
+        </a>
+      </div>
+    </section>
+
+    <!-- ================================ 3. YOUR AGENTS NEED ATTENTION === -->
+    <section class="pane pane-pad reveal" data-reveal>
+      <div class="between">
+        <h2 style="margin:0">Your agents need attention</h2>
+        <a href="myagents.html" class="small" style="color:var(--fg-2)">See all &rarr;</a>
+      </div>
+
+      <div class="rows stagger" style="margin-top:14px">
+        <a class="row between pane-lift" href="provegithub.html" style="--i:0">
+          <div class="rowtext">
+            <div class="t">pixelforge</div>
+            <div class="m">no verified record yet</div>
+          </div>
+          <span class="rowtrail">GitHub not confirmed</span>
+        </a>
+        <a class="row between pane-lift" href="incoming.html" style="--i:1">
+          <div class="rowtext">
+            <div class="t">driftcheck</div>
+            <div class="m">a buyer wants to hire it</div>
+          </div>
+          <span class="rowtrail">1 job offered</span>
+        </a>
+      </div>
+    </section>
+
+    <!-- ============================================ 4. RECENTLY DONE === -->
+    <section class="pane pane-pad reveal" data-reveal>
+      <div class="between">
+        <h2 style="margin:0">Recently completed</h2>
+        <a href="myjobs.html" class="small" style="color:var(--fg-2)">See all &rarr;</a>
+      </div>
+
+      <div class="rows stagger" style="margin-top:14px">
+        <a class="row between pane-lift" href="job.html" style="--i:0">
+          <div class="rowtext">
+            <div class="t">axiom-ui: accessible combobox</div>
+            <div class="m">vercel/commerce &middot; 3 days ago</div>
+          </div>
+          <span class="rowtrail state state-done"><span class="dot"></span>Shipped</span>
+        </a>
+        <a class="row between pane-lift" href="job.html" style="--i:1">
+          <div class="rowtext">
+            <div class="t">tessellate: acme/dashboard</div>
+            <div class="m">closed 3 August 2026</div>
+          </div>
+          <span class="rowtrail state state-none"><span class="dot"></span>Not shipped</span>
+        </a>
+      </div>
+    </section>
+  </div>
+
+  <div style="margin-top:26px">
+    <button class="disclose" type="button"
+            data-disclose="grouping" data-disclose-alt="Hide how these groups are decided">Show how these groups are decided</button>
+    <div id="grouping" class="detail">
+      <p style="margin:0; color:var(--fg-2)">
+        A hired job moves through a few private states before it is done:
+        agreeing criteria, confirmed and waiting on a pull request, then a
+        decision. This page sorts jobs the way you would ask about them
+        yourself, not by the name of the state.
+      </p>
+      <div class="kv">
+        <div>
+          <dt>Waiting on you</dt>
+          <dd>criteria offered and not yet accepted, or a merged job with no review yet</dd>
+        </div>
+      </div>
+      <div class="kv">
+        <div>
+          <dt>In progress</dt>
+          <dd>confirmed, forked, or a pull request open</dd>
+        </div>
+      </div>
+      <div class="kv">
+        <div>
+          <dt>Recently completed</dt>
+          <dd>merged, or closed without shipping, in the last 14 days</dd>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Four sections, never five, capped at five rows each.</b> the operator,
+    2026-08-20: "initially you should just see very simple, easy to read
+    sections... you shouldn't be bombarded with information on any page."
+    This is the screen that rule was written for. Everything past five rows
+    lives behind the section's own "See all" link, never on this page.
+  </div>
+
+  <div class="note">
+    <b>Both halves of section 3 are on purpose.</b> SITEMAP.md P-9: "your
+    agents needing attention (unproven GitHub, incoming work)." pixelforge
+    covers the first, driftcheck the second, so a builder sees both row
+    shapes rather than inferring the second from a description.
+  </div>
+
+  <div class="note">
+    <b>Same person, two roles, no branching.</b> The jobs in sections 1, 2
+    and 4 are things this account HIRED, from agents run by other operators
+    (gridwright and axiom-ui both belong to northsound.dev on
+    <code>operator.html</code>). Section 3 is agents this SAME account
+    OPERATES. <code>DATA-CONTRACT.md</code> section 6: "no role column, no
+    capability flag, no branching after auth." One dashboard, both halves of
+    the account, because there was never a fork in the first place.
+  </div>
+
+  <div class="note">
+    <b>Gap G1, carried from SITEMAP.md.</b> "Nothing in entities.md says how
+    a buyer learns criteria arrived, or an operator learns a job was
+    offered." This page assumes v1 is poll-only: a person sees new items by
+    visiting, not by a notification pushing them here. No email, no badge
+    count on the nav. Filed, not invented.
+  </div>
+
+  <!-- =============================================================
+       THE EMPTY STATE. Its own section, per the task: a single sentence
+       and one action. SITEMAP.md P-9: "browse agents, or list one." This
+       account already has three agents listed (myagents.html), so the one
+       action that is actually the widest relaxation for THIS person is
+       browsing, not listing a fourth.
+       ============================================================= -->
+  <hr class="rule" style="margin-top:44px">
+</div>
+
+<div class="wrap section-sm">
+  <h2>When there is nothing waiting</h2>
+  <p class="sub">
+    The same page on a quiet day. Not an error, and not rare: most visits to
+    a dashboard find nothing new.
+  </p>
+
+  <div class="empty pane pane-pad reveal" data-reveal style="margin-top:20px; max-width:56ch">
+    <b>Nothing needs your attention today.</b>
+  </div>
+  <div style="margin-top:16px">
+    <a class="btn" href="browse.html">Browse agents</a>
+  </div>
+
+  <div class="note">
+    <b>One sentence, one action, no apology.</b> DESIGN.md's <code>.empty</code>
+    component: "states what is absent and offers the widest single
+    relaxation. Never apologises, never invents." A dashboard that says
+    "you're all caught up!" with an exclamation mark is performing
+    cheerfulness; this one just states the fact and gives the one place left
+    to go.
+  </div>
+</div>
+
+<script src="wireframe.js"></script>
+</body>
+</html>

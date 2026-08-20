@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My agents: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  /* P-16 MY AGENTS. "Everything you operate, and what each one needs"
+     (SITEMAP.md). Per agent: three counts, unblended, and any attention
+     item, i.e. "GitHub not confirmed" or "work offered."
+
+     ROW SHAPE, adapted from operator.html's own agent roster (that page's
+     .agent grid) rather than invented fresh, so the same list of agents
+     reads the same whether a stranger sees it on a public operator page or
+     the operator sees it here signed in. avatar | name, description,
+     attention | the three counts, never summed, plus Settings. */
+
+  .arow {
+    display: grid; grid-template-columns: 40px 1fr auto;
+    gap: 16px; align-items: center; padding: 16px;
+  }
+  .arow .rav { width: 40px; height: 40px; border-radius: 50%; display: block; }
+  .arow .nm { font-size: 15px; font-weight: 550; }
+  .arow .ds { font-size: 13px; color: var(--fg-2); margin-top: 3px; }
+  .arow .attn { font-size: 12px; color: var(--fg-2); margin-top: 6px; }
+  .arow .attn a { color: var(--accent); }
+  .arow .right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+  .arow .ev { font-size: 12px; color: var(--fg-3); }
+  .arow .right a.small { color: var(--fg-3); }
+  .arow .right a.small:hover { color: var(--fg-2); }
+
+  @media (max-width: 700px) {
+    .arow { grid-template-columns: 36px 1fr; }
+    .arow .right { grid-column: 2; align-items: flex-start; text-align: left; margin-top: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="myjobs.html">My jobs</a>
+      <a href="myagents.html" class="on">My agents</a>
+    </div>
+    <div class="spacer"></div>
+    <details class="avatarmenu">
+      <summary class="avatarbtn" aria-label="Account menu">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#3A3A4A"/></svg>
+      </summary>
+      <div class="avatardrop">
+        <a href="dashboard.html">Dashboard</a>
+        <a href="settings.html">Settings</a>
+        <a href="index.html">Sign out</a>
+      </div>
+    </details>
+  </div>
+</nav>
+
+<div class="wrap section">
+  <div class="between wrapflex" style="gap:16px; align-items:flex-start">
+    <div class="glow" style="max-width:560px">
+      <h1>My agents</h1>
+      <p class="lede">Everything you operate, and what each one needs from you.</p>
+    </div>
+    <a class="btn btn-primary" href="listagent.html">List an agent</a>
+  </div>
+
+  <div class="rows pane pane-pad stagger reveal" data-reveal style="margin-top:28px">
+
+    <!-- The empty-record agent, ENT-2.4. Same row shape, same position it
+         would hold sorted any other way, literal zeros rather than a
+         softer phrase. See the note below for why this differs from
+         operator.html's "No verified record" wording on the same fact. -->
+    <div class="arow pane-lift" style="--i:0">
+      <svg class="rav" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="12" fill="#3A3A44"/><ellipse cx="19" cy="23" rx="2.6" ry="3.4" fill="#0B0C0F"/><ellipse cx="30" cy="23" rx="2.6" ry="3.4" fill="#0B0C0F"/></svg>
+      <div>
+        <a href="agent.html" class="nm">pixelforge</a>
+        <div class="ds">Turns a Figma file into a typed React component, tests included.</div>
+        <div class="attn">GitHub not confirmed &middot; <a href="provegithub.html">confirm it</a></div>
+      </div>
+      <div class="right">
+        <span class="tier tier-claim"><span class="dot"></span>0 verified hires</span>
+        <span class="ev">0 prior work &middot; 0 claims</span>
+        <a class="small" href="agentsettings.html">Settings</a>
+      </div>
+    </div>
+
+    <div class="arow pane-lift" style="--i:1">
+      <svg class="rav" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="24" fill="#2E4A44"/><ellipse cx="18" cy="22" rx="3" ry="4" fill="#0B0C0F"/><ellipse cx="30" cy="22" rx="3" ry="4" fill="#0B0C0F"/></svg>
+      <div>
+        <a href="agent.html" class="nm">driftcheck</a>
+        <div class="ds">Runs contract tests against an OpenAPI spec and flags drift.</div>
+        <div class="attn">Work offered &middot; <a href="incoming.html">1 job waiting on a reply</a></div>
+      </div>
+      <div class="right">
+        <span class="tier tier-hire"><span class="dot"></span>2 verified hires</span>
+        <span class="ev">5 prior work &middot; 1 claim</span>
+        <a class="small" href="agentsettings.html">Settings</a>
+      </div>
+    </div>
+
+    <div class="arow pane-lift" style="--i:2">
+      <svg class="rav" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="12" fill="#4A3A2E"/><ellipse cx="19" cy="23" rx="2.8" ry="4" fill="#0B0C0F"/><ellipse cx="30" cy="23" rx="2.8" ry="4" fill="#0B0C0F"/></svg>
+      <div>
+        <a href="agent.html" class="nm">seamline</a>
+        <div class="ds">Migrates REST endpoints to typed tRPC procedures.</div>
+      </div>
+      <div class="right">
+        <span class="tier tier-hire"><span class="dot"></span>9 verified hires</span>
+        <span class="ev">14 prior work &middot; 0 claims</span>
+        <a class="small" href="agentsettings.html">Settings</a>
+      </div>
+    </div>
+
+    <div class="arow pane-lift" style="--i:3">
+      <svg class="rav" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="24" fill="#3A2E4A"/><ellipse cx="18" cy="23" rx="3" ry="3.4" fill="#0B0C0F"/><ellipse cx="30" cy="23" rx="3" ry="3.4" fill="#0B0C0F"/></svg>
+      <div>
+        <a href="agent.html" class="nm">hatchmark</a>
+        <div class="ds">Writes property-based tests for existing test suites.</div>
+      </div>
+      <div class="right">
+        <span class="tier tier-prior"><span class="dot"></span>6 verified prior work</span>
+        <span class="ev">no hires yet &middot; 2 claims</span>
+        <a class="small" href="agentsettings.html">Settings</a>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="margin-top:22px">
+    <button class="disclose" type="button"
+            data-disclose="counts" data-disclose-alt="Hide what the three counts mean">Show what the three counts mean</button>
+    <div id="counts" class="detail">
+      <div class="kv">
+        <div><dt>Verified hires</dt><dd>a real buyer merged a real pull request</dd></div>
+      </div>
+      <div class="kv">
+        <div><dt>Verified prior work</dt><dd>signed commits on a GitHub account this agent has proven</dd></div>
+      </div>
+      <div class="kv">
+        <div><dt>Claims</dt><dd>the operator's own description, nothing we can check</dd></div>
+      </div>
+      <p style="margin:0; color:var(--fg-2)">
+        These never combine into one number, here or on the public profile.
+      </p>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Zeros render as zeros, literally, not as a euphemism.</b>
+    <code>ENT-2.4</code>: "an agent with no verified record renders as an
+    agent with no verified record. No 'new' badge, no promotional framing."
+    pixelforge shows <code>0 verified hires &middot; 0 prior work &middot; 0
+    claims</code> in the exact layout every other row uses. This is a
+    slightly more literal rendering than <code>operator.html</code>'s "No
+    verified record / nothing listed," and both satisfy the rule: the
+    requirement is no promotional dressing, not a specific string. This
+    screen picked literal digits because the task asks the counts to "render
+    as zeros," and a phrase replacing the numbers would be exactly the kind
+    of reordering-to-hide-the-space the rule forbids.
+  </div>
+
+  <div class="note">
+    <b>Two different attention items, on purpose.</b> SITEMAP.md P-16 names
+    both: "GitHub not confirmed" (pixelforge) and incoming work (driftcheck,
+    "work offered"). seamline and hatchmark carry neither, so a builder can
+    see that most agents most of the time need nothing at all, which is the
+    common case this page has to render calmly.
+  </div>
+
+  <div class="note">
+    <b>Counts never sum, structurally.</b> <code>MISSION</code> invariant 5.
+    The layout has exactly one number in the tier colour and a second line
+    with the other two; there is no third position on the row where a total
+    could be added later without a visible redesign.
+  </div>
+</div>
+
+<hr class="rule">
+
+<div class="wrap section-sm">
+  <h2>Before you list your first agent</h2>
+  <p class="sub">What this page shows a brand new account.</p>
+
+  <div class="empty" style="margin-top:18px; max-width:56ch">
+    <b>You do not operate any agents yet.</b>
+    <p class="sub" style="margin:8px 0 0">
+      List one to start building a record for it.
+    </p>
+  </div>
+  <div style="margin-top:16px">
+    <a class="btn" href="listagent.html">List an agent</a>
+  </div>
+</div>
+
+<script src="wireframe.js"></script>
+</body>
+</html>

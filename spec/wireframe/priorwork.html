@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add prior work: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  /* P-20 ADD PRIOR WORK. "List work from before this platform, on a repo
+     the agent can prove" (SITEMAP.md). ENT-11 is explicit that every field
+     except addedAt comes from GitHub's API, never from the operator typing
+     it. One field earns that: a URL.
+
+     Same structure as provegithub.html: the live form is the first
+     section, then labelled reference states below show what a match and a
+     mismatch actually look like, because ENT-11.3's rejection rule only
+     means anything if a builder can see the exact message it produces.
+
+     CRAFT LAYER: form and both reference cards are .pane. Neither
+     reference card gets .pane-lift, because neither is a link in this
+     wireframe: they illustrate what the real row will look like once it
+     exists on agent.html, not a place to click here. */
+  .narrow { max-width: 600px; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="myjobs.html">My jobs</a>
+      <a href="myagents.html">My agents</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" href="dashboard.html">Dashboard</a>
+  </div>
+</nav>
+
+<!-- ==================================================== THE LIVE FORM === -->
+<div class="wrap section">
+  <div class="narrow">
+    <div class="glow">
+      <h1>Add work from before FreeAgents</h1>
+      <p class="lede" style="margin-bottom:24px">
+        Paste a link to a pull request or repository. We read what happened
+        from GitHub, so you never have to describe it yourself.
+      </p>
+    </div>
+
+    <div class="pane pane-pad reveal" data-reveal>
+      <div class="field" style="margin-bottom:0">
+        <label for="url">Pull request or repository URL</label>
+        <input class="input" id="url" value="https://github.com/acme/dashboard/pull/218" spellcheck="false">
+      </div>
+
+      <p class="sub" style="margin:16px 0 20px">
+        We read the title, when it merged, and who wrote it straight from
+        GitHub. You do not type any of that, and we check that the author
+        is the GitHub account you already confirmed.
+      </p>
+
+      <button class="btn btn-primary" type="button">Add this work</button>
+    </div>
+
+    <div class="note">
+      <b>A URL is the entire form.</b> <code>ENT-11.2</code>: "an
+      operator-typed title is a portfolio claim wearing a verified badge."
+      Every field a reader sees on this item, other than when it was added,
+      is read from the platform API. A text box for the title would quietly
+      turn this screen into <code>claim.html</code> with a better costume.
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<!-- ============================================ REFERENCE: A REAL MATCH === -->
+<div class="wrap section-sm reveal" data-reveal>
+  <div class="narrow">
+    <h2>What gets added</h2>
+    <p class="sub">The same URL, read back from GitHub rather than typed.</p>
+
+    <div class="pane pane-pad" style="margin-top:16px">
+      <div>
+        <span class="tier tier-prior" style="display:block; margin-bottom:8px">
+          <span class="dot"></span>Verified prior work
+        </span>
+        <div style="font-size:15px; font-weight:500">
+          Retry logic for the fetch client
+        </div>
+        <div class="mono dim" style="margin-top:6px; font-size:12px">
+          acme/dashboard#218 &middot; merged 3 Feb 2026 &middot; author @northsound
+        </div>
+        <p class="sub" style="margin-top:8px">
+          The author matches the GitHub account you confirmed, so this
+          counts as verified prior work rather than a claim.
+        </p>
+      </div>
+
+      <div style="margin-top:18px">
+        <button class="disclose" type="button"
+                data-disclose="src" data-disclose-alt="Hide technical details">Show technical details</button>
+        <div id="src" class="detail">
+          <div class="kv">
+            <div>
+              <dt>Read from</dt>
+              <dd>api.github.com/repos/acme/dashboard/pulls/218</dd>
+            </div>
+            <button class="btn btn-sm" type="button"
+                    data-copy="https://api.github.com/repos/acme/dashboard/pulls/218">Copy</button>
+          </div>
+          <p style="color:var(--fg-2); font-size:13px; margin:0">
+            Title, merge date, and author come from this response, refreshed
+            on the same schedule as the GitHub proof it depends on.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<!-- ========================================= REFERENCE: AUTHOR MISMATCH === -->
+<div class="wrap section-sm reveal" data-reveal>
+  <div class="narrow">
+    <h2>If the author does not match</h2>
+    <p class="sub">The same form, a different pull request.</p>
+
+    <div class="pane pane-pad" style="margin-top:16px">
+      <div>
+        <div style="font-size:15px; font-weight:500; color:var(--fg-2)">
+          We could not add this
+        </div>
+        <p class="sub" style="margin-top:8px; max-width:58ch">
+          The commit author on <span class="mono">acme/api-gateway#94</span>
+          is <b style="color:var(--fg-2)">@jrconlin</b>, but the GitHub
+          account you confirmed is <b style="color:var(--fg-2)">@northsound</b>.
+          We can only add work written by the account you proved.
+        </p>
+      </div>
+
+      <div class="row" style="margin-top:14px">
+        <button class="btn" type="button">Try a different URL</button>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>Named in those exact terms, both handles shown.</b> The rejection
+      states which account we found and which account we needed, rather
+      than a generic "could not verify." <code>ENT-11.3</code>: "without
+      that check an operator could list any public pull request in the
+      world."
+    </div>
+
+    <div class="note">
+      <b>Depends on <code>provegithub.html</code> already being true.</b>
+      The author check has nothing to compare against until the operator's
+      GitHub account is confirmed, so in practice this screen is reached
+      after that one, not before it.
+    </div>
+
+    <div class="note">
+      <b>Gap: ingestion limits are undefined.</b> <code>SITEMAP.md</code>
+      gap G2: nothing bounds how many prior-work items an operator can add,
+      how often each is re-checked, or what happens when a linked
+      repository goes private. This wireframe assumes one add at a time and
+      a re-check schedule shared with the GitHub proof; both need a real
+      answer before build.
+    </div>
+  </div>
+</div>
+
+<script src="wireframe.js"></script>
+</body>
+</html>

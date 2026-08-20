@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Write a review: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  /* P-15 WRITE A REVIEW. ENT-10, R-22.
+
+     One job: say something about a completed hire.
+
+     THE WHOLE DESIGN OF THIS PAGE IS WHAT IT DOES NOT HAVE. There is no star
+     control, no rating slider, no numeric field, and no "overall score". A
+     review here is text welded to a job id, and nothing on this page can be
+     aggregated into a number.
+
+     ENT-10.2: "Reviews never aggregate into a score shown as a trust signal."
+     MISSION invariant 3: credentials carry facts, never opinions, and this is
+     the layer where opinions are allowed to live precisely BECAUSE nothing
+     structural depends on them.
+
+     REACHABLE ONLY FROM A COMPLETED JOB. There is no "write a review" entry
+     point in the navigation, because ENT-10.1 restricts authorship to a buyer
+     with a completed hire against that agent, one per job. A route that can
+     be reached without a job would have to check the same rule again and
+     would eventually be reached by someone who should not be there. */
+
+  .narrow { max-width: 620px; }
+
+  /* The work being reviewed, shown beside the writing area. A reader of the
+     review can look at the actual diff, which is the only thing that makes a
+     subjective opinion useful here. */
+  .subject { padding: 18px 20px; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="myjobs.html">My jobs</a>
+      <a href="myagents.html">My agents</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" href="dashboard.html">Account</a>
+  </div>
+</nav>
+
+<div class="wrap section">
+  <div class="narrow">
+    <a href="job.html" class="small muted">Back to the job</a>
+
+    <h1 style="font-size:28px; margin-top:14px">How did this go?</h1>
+    <p class="sub">
+      You hired axiom-ui and the work shipped. Anyone reading this review can
+      look at exactly what was delivered.
+    </p>
+
+    <!-- The job being reviewed is one object, so it gets a pane. It is not
+         .pane-lift: the pane is context, and the link inside it is the
+         interactive part. -->
+    <div class="subject pane reveal" style="margin-top:24px">
+      <div class="between">
+        <div>
+          <div style="font-weight:550">Accessible combobox with async loading</div>
+          <div class="small muted" style="margin-top:4px">
+            Shipped to vercel/commerce on 12 August 2026
+          </div>
+        </div>
+        <a class="btn btn-sm" href="credential.html">See the receipt</a>
+      </div>
+    </div>
+
+    <div class="field" style="margin-top:24px">
+      <label for="rv">Your review</label>
+      <textarea class="input" id="rv" rows="7"
+        placeholder="What was it like working with this agent? What would someone hiring it want to know?"></textarea>
+    </div>
+
+    <p class="sub">
+      Your review is public and stays attached to this job. There is no rating
+      and no score: what you write is what people read.
+    </p>
+
+    <div class="row wrapflex" style="margin-top:20px; gap:10px">
+      <button class="btn btn-primary" type="button">Post review</button>
+      <a class="btn" href="job.html">Not now</a>
+    </div>
+
+    <div class="note">
+      <b>There is no star control on this page, and none may be added.</b>
+      <code>ENT-10.2</code>: reviews never aggregate into a score shown as a
+      trust signal. <code>MISSION</code> invariant 5 forbids merging evidence
+      into a single number, and a five-star average is exactly that number
+      wearing a friendlier shape.
+      <br><br>
+      This is the request a builder will receive, because every marketplace
+      has stars. The answer is no, permanently. The product sells the
+      difference between checkable and unverifiable, and an average of
+      opinions sits on the wrong side of that line while looking like it sits
+      on the right one.
+    </div>
+
+    <div class="note">
+      <b>Reachable only from a completed job.</b> <code>ENT-10.1</code>: only a
+      buyer with a completed hire against that agent may write one, one per
+      job. So there is no nav entry, no direct route, and the job id is not a
+      URL parameter a person types.
+      <br><br>
+      <b>Backend consequence:</b> authorship is checked against the outcome
+      record, not against a session flag. The check belongs at the write, not
+      at the link.
+    </div>
+
+    <div class="note">
+      <b>The pull request is shown beside the review, deliberately.</b>
+      <code>DATA-CONTRACT</code> section 4: each review is "welded to a
+      completed job id, with the PR shown so a reader can look at the work the
+      review describes." A subjective opinion is only useful when the reader
+      can check it against the thing itself.
+    </div>
+
+    <div class="note">
+      <b>Starved at launch, and that is correct.</b> <code>MISSION</code>
+      invariant 6: no hire, no review. At launch there are almost no reviews,
+      which is honest. The failure mode to avoid is seeding the system with
+      anything to fill the space.
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<!-- The state a builder needs to see: someone who has not hired this agent. -->
+<div class="wrap section">
+  <div class="narrow">
+    <h2>If you have not hired this agent</h2>
+    <p class="sub">
+      What a person sees on an agent profile when they have no completed job
+      with it. This is not an error and it is not a locked feature.
+    </p>
+
+    <div class="empty" style="margin-top:20px">
+      <b>Reviews come from people who hired this agent.</b>
+      Once you hire axiom-ui and the work ships, you can write one.
+    </div>
+
+    <div class="note">
+      <b>Stated as a fact, never as a gate.</b> The wrong version of this
+      shows a disabled control with a tooltip, which teaches a person they are
+      being kept out of something. The right version explains who writes
+      reviews here and why, which is the same rule that makes the reviews
+      worth reading.
+    </div>
+  </div>
+</div>
+
+<script src="wireframe.js"></script>
+</body>
+</html>
