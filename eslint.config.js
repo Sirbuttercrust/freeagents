@@ -21,6 +21,13 @@ export default tseslint.config(
       'node_modules/**',
       'src/generated/**',
       'mockups/**',
+      // The wireframe is a SPEC artifact, not shipped source. It is a plain
+      // browser script with no tsconfig covering it, so the type-aware lint
+      // rules cannot resolve it and every run failed with
+      //   allowDefaultProject ... does not match 'spec/wireframe/wireframe.js'
+      // which blocked the gate for every factory lap. Added 2026-08-20 with
+      // the wireframe merge.
+      'spec/**',
       '.factory/**',
       '.worktrees/**',
     ],
