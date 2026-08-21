@@ -11,6 +11,7 @@
 //
 // If a real Postgres ever becomes available in CI, these tests still pin the
 // branch behaviour; the stub is the seam, and it stays.
+import type { Job } from '../../src/domain/job.js';
 import { Prisma } from '../../src/generated/prisma/index.js';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -20,6 +21,9 @@ const mock = vi.hoisted(() => ({
   agentCreate: vi.fn(),
   agentFindUnique: vi.fn(),
   agentUpdate: vi.fn(),
+  jobCreate: vi.fn(),
+  jobFindUnique: vi.fn(),
+  jobUpdate: vi.fn(),
 }));
 
 vi.mock('../../src/generated/prisma/index.js', async () => {
@@ -33,6 +37,7 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
     PrismaClient: class {
       operator = mock;
       agent = { create: mock.agentCreate, findUnique: mock.agentFindUnique, update: mock.agentUpdate };
+      job = { create: mock.jobCreate, findUnique: mock.jobFindUnique, update: mock.jobUpdate };
     },
     Prisma: actual.Prisma,
   };
@@ -40,12 +45,27 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
 
 // Import after the mock is registered: the driver's module-level singleton
 // then captures the stubbed client, and `db()` never opens a database.
-const { PrismaAgentRepository, PrismaOperatorRepository } = await import(
-  '../../src/adapters/storage/prisma.js'
-);
-const { AgentAlreadyExistsError, OperatorAlreadyExistsError } = await import(
-  '../../src/adapters/storage/types.js'
-);
+const { PrismaAgentRepository, PrismaJobRepository, PrismaOperatorRepository } =
+  await import('../../src/adapters/storage/prisma.js');
+const { AgentAlreadyExistsError, JobAlreadyExistsError, OperatorAlreadyExistsError } =
+  await import('../../src/adapters/storage/types.js');
+
+// The same input/output pair tests/adapters/storage.test.ts pins the memory
+// driver to: if the two fixtures drift, both tests must be changed together.
+const jobFixture = {
+  id: 'job_1',
+  buyerDid: 'did:example:buyer',
+  agentDid: 'did:example:agent',
+  repository: 'buyer/target-repo',
+  brief: 'Fix the login bug on the checkout page',
+  briefHash: 'sha256:brief',
+  confirmedSpecHash: null,
+  status: 'draft',
+  pullRequestUrl: null,
+  confirmedAt: null,
+  submittedAt: null,
+  createdAt: new Date('2026-01-01T00:00:00Z'),
+} satisfies Job;
 
 // The delegation the driver stores is the full W3C credential (R-2); these
 // tests drive the driver's decisions, not the cryptography, so a shaped
@@ -429,5 +449,159 @@ describe('PrismaAgentRepository', () => {
       .catch((e: unknown) => e);
 
     expect(err).toBe(original);
+  });
+});
+
+describe('PrismaJobRepository', () => {
+  beforeAll(() => {
+    vi.mocked(mock.jobCreate).mockReset();
+    vi.mocked(mock.jobFindUnique).mockReset();
+    vi.mocked(mock.jobUpdate).mockReset();
+  });
+
+  afterEach(() => {
+    vi.mocked(mock.jobCreate).mockReset();
+    vi.mocked(mock.jobFindUnique).mockReset();
+    vi.mocked(mock.jobUpdate).mockReset();
+  });
+
+  it('create: sends every stored field, including the brief, and projects it back', async () => {
+    vi.mocked(mock.jobCreate).mockResolvedValue({ ...jobFixture });
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.create(jobFixture);
+
+    // Every domain field crosses the wire: the brief in particular is the
+    // field this issue exists to keep (R-27), and a projection that dropped
+    // it would make the round-trip below fail.
+    expect(mock.jobCreate).toHaveBeenCalledWith({ data: { ...jobFixture } });
+    expect(row).toEqual(jobFixture);
+    expect(Object.keys(row).sort()).toEqual(
+      [
+        'agentDid',
+        'brief',
+        'briefHash',
+        'buyerDid',
+        'confirmedAt',
+        'confirmedSpecHash',
+        'createdAt',
+        'id',
+        'pullRequestUrl',
+        'repository',
+        'status',
+        'submittedAt',
+      ].sort(),
+    );
+  });
+
+  it('create: a P2002 unique-constraint failure is the domain duplicate error', async () => {
+    vi.mocked(mock.jobCreate).mockRejectedValue(p2002('job_dup'));
+
+    const repo = new PrismaJobRepository();
+    const err = await repo.create(jobFixture).catch((e: unknown) => e);
+
+    // The domain error names the id of the job the caller tried to store,
+    // not the Prisma message: the API maps the type, humans read the id.
+    expect(err).toBeInstanceOf(JobAlreadyExistsError);
+    expect((err as Error).message).toContain(jobFixture.id);
+    expect((err as Error).name).toBe('JobAlreadyExistsError');
+  });
+
+  it('create: a non-P2002 Prisma error is rethrown untouched', async () => {
+    const original = p1001();
+    vi.mocked(mock.jobCreate).mockRejectedValue(original);
+
+    const repo = new PrismaJobRepository();
+    const err = await repo.create(jobFixture).catch((e: unknown) => e);
+
+    // Same object: a dead database must not be rewritten into a duplicate,
+    // and it must not be swallowed.
+    expect(err).toBe(original);
+    expect(err).not.toBeInstanceOf(JobAlreadyExistsError);
+  });
+
+  it('create: a non-Prisma error is rethrown untouched', async () => {
+    const original = new Error('disk full');
+    vi.mocked(mock.jobCreate).mockRejectedValue(original);
+
+    const repo = new PrismaJobRepository();
+    const err = await repo.create(jobFixture).catch((e: unknown) => e);
+
+    expect(err).toBe(original);
+  });
+
+  it('update: sends every field except the id and projects the row back', async () => {
+    const updated = { ...jobFixture, status: 'proposed' as const };
+    vi.mocked(mock.jobUpdate).mockResolvedValue({ ...updated });
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.update(updated);
+
+    expect(mock.jobUpdate).toHaveBeenCalledWith({
+      where: { id: 'job_1' },
+      data: {
+        buyerDid: updated.buyerDid,
+        agentDid: updated.agentDid,
+        repository: updated.repository,
+        brief: updated.brief,
+        briefHash: updated.briefHash,
+        confirmedSpecHash: updated.confirmedSpecHash,
+        status: updated.status,
+        pullRequestUrl: updated.pullRequestUrl,
+        confirmedAt: updated.confirmedAt,
+        submittedAt: updated.submittedAt,
+        createdAt: updated.createdAt,
+      },
+    });
+    expect(row).toEqual(updated);
+  });
+
+  it('update: a P2025 not-found comes back as null, not an error', async () => {
+    vi.mocked(mock.jobUpdate).mockRejectedValue(p2025('job_missing'));
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.update(jobFixture);
+
+    expect(row).toBeNull();
+  });
+
+  it('update: a non-P2025 Prisma error is rethrown untouched', async () => {
+    const original = p1001();
+    vi.mocked(mock.jobUpdate).mockRejectedValue(original);
+
+    const repo = new PrismaJobRepository();
+    const err = await repo.update(jobFixture).catch((e: unknown) => e);
+
+    expect(err).toBe(original);
+  });
+
+  it('update: a non-Prisma error is rethrown untouched', async () => {
+    const original = new Error('disk full');
+    vi.mocked(mock.jobUpdate).mockRejectedValue(original);
+
+    const repo = new PrismaJobRepository();
+    const err = await repo.update(jobFixture).catch((e: unknown) => e);
+
+    expect(err).toBe(original);
+  });
+
+  it('findById: a stored row comes back as the full projection, brief included', async () => {
+    vi.mocked(mock.jobFindUnique).mockResolvedValue({ ...jobFixture });
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.findById('job_1');
+
+    expect(mock.jobFindUnique).toHaveBeenCalledWith({ where: { id: 'job_1' } });
+    expect(row).toEqual(jobFixture);
+  });
+
+  it('findById: no stored row comes back as null, not an empty job', async () => {
+    vi.mocked(mock.jobFindUnique).mockResolvedValue(null);
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.findById('job_missing');
+
+    expect(mock.jobFindUnique).toHaveBeenCalledWith({ where: { id: 'job_missing' } });
+    expect(row).toBeNull();
   });
 });

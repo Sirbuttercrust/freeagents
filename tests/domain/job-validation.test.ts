@@ -15,6 +15,7 @@ function proposedJob(overrides: Partial<Job> = {}): Job {
     buyerDid: 'did:example:buyer',
     agentDid: 'did:example:agent',
     repository: 'buyer/target-repo',
+    brief: 'Fix the login bug on the checkout page',
     briefHash: 'sha256:brief',
     confirmedSpecHash: null,
     status: 'proposed',
@@ -28,6 +29,9 @@ function proposedJob(overrides: Partial<Job> = {}): Job {
 
 describe('job transition validation', () => {
   it('validates all valid transitions correctly', () => {
+    // Test draft -> proposed (the edge R-8's criteria exchange will walk)
+    expect(validateJobTransition('draft', 'proposed')).toBe('proposed');
+
     // Test proposed -> confirmed
     expect(validateJobTransition('proposed', 'confirmed')).toBe('confirmed');
     
@@ -53,10 +57,18 @@ describe('job transition validation', () => {
   });
 
   it('throws errors for invalid transitions', () => {
+    // Test invalid transitions from draft: a draft can only be proposed or
+    // declined, nothing else
+    expect(() => validateJobTransition('draft', 'confirmed')).toThrow(JobTransitionError);
+    expect(() => validateJobTransition('draft', 'submitted')).toThrow(JobTransitionError);
+    expect(() => validateJobTransition('draft', 'completed')).toThrow(JobTransitionError);
+    expect(() => validateJobTransition('draft', 'draft')).toThrow(JobTransitionError);
+
     // Test invalid transitions from proposed
     expect(() => validateJobTransition('proposed', 'submitted')).toThrow(JobTransitionError);
     expect(() => validateJobTransition('proposed', 'completed')).toThrow(JobTransitionError);
     expect(() => validateJobTransition('proposed', 'proposed')).toThrow(JobTransitionError);
+    expect(() => validateJobTransition('proposed', 'draft')).toThrow(JobTransitionError);
     
     // Test invalid transitions from confirmed
     expect(() => validateJobTransition('confirmed', 'confirmed')).toThrow(JobTransitionError);

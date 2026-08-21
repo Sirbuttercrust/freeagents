@@ -2,11 +2,14 @@
 // only file in the repository that knows Postgres exists.
 import { Prisma, PrismaClient } from '../../generated/prisma/index.js';
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
+import type { Job, JobStatus } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 import {
   AgentAlreadyExistsError,
   type AgentInput,
   type AgentRepository,
+  JobAlreadyExistsError,
+  type JobRepository,
   OperatorAlreadyExistsError,
   type OperatorRepository,
 } from './types.js';
@@ -112,6 +115,113 @@ function toAgent(row: { did: string; operatorDid: string; delegation: unknown; n
     skills: [...row.skills],
     githubLogin: row.githubLogin,
     proofStatus: row.proofStatus,
+    createdAt: row.createdAt,
+  };
+}
+
+// The generated client is produced from schema.prisma at build time and is
+// gitignored; a worktree generated before the brief column exists types the
+// Job row without it. The casts keep this file compiling against either
+// generation of the client, and are no-ops once a fresh client is generated.
+interface JobRow {
+  id: string;
+  buyerDid: string;
+  agentDid: string;
+  repository: string;
+  brief: string;
+  briefHash: string;
+  confirmedSpecHash: string | null;
+  status: JobStatus;
+  pullRequestUrl: string | null;
+  confirmedAt: Date | null;
+  submittedAt: Date | null;
+  createdAt: Date;
+}
+
+export class PrismaJobRepository implements JobRepository {
+  async create(job: Job): Promise<Job> {
+    try {
+      const row = await db().job.create({
+        // createdAt is passed explicitly: the domain timestamp must survive
+        // the round-trip, not be re-issued by the database default.
+        data: {
+          id: job.id,
+          buyerDid: job.buyerDid,
+          agentDid: job.agentDid,
+          repository: job.repository,
+          brief: job.brief,
+          briefHash: job.briefHash,
+          confirmedSpecHash: job.confirmedSpecHash,
+          status: job.status,
+          pullRequestUrl: job.pullRequestUrl,
+          confirmedAt: job.confirmedAt,
+          submittedAt: job.submittedAt,
+          createdAt: job.createdAt,
+        } as unknown as Prisma.JobCreateInput,
+      });
+      return toJob(row as unknown as JobRow);
+    } catch (err) {
+      // P2002 is Prisma's "unique constraint failed" error code: the only
+      // unique constraint reachable here is the id primary key, so a P2002
+      // from create() means the job is already stored, and the API layer
+      // maps the domain error to 409.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new JobAlreadyExistsError(job.id);
+      }
+      throw err;
+    }
+  }
+
+  async update(job: Job): Promise<Job | null> {
+    try {
+      const row = await db().job.update({
+        where: { id: job.id },
+        data: {
+          buyerDid: job.buyerDid,
+          agentDid: job.agentDid,
+          repository: job.repository,
+          brief: job.brief,
+          briefHash: job.briefHash,
+          confirmedSpecHash: job.confirmedSpecHash,
+          status: job.status,
+          pullRequestUrl: job.pullRequestUrl,
+          confirmedAt: job.confirmedAt,
+          submittedAt: job.submittedAt,
+          createdAt: job.createdAt,
+        } as unknown as Prisma.JobUpdateInput,
+      });
+      return toJob(row as unknown as JobRow);
+    } catch (err) {
+      // P2025 is Prisma's "record to update not found" error code: the job
+      // was never stored, and the API layer maps the null to 404.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  async findById(id: string): Promise<Job | null> {
+    const row = await db().job.findUnique({ where: { id } });
+    return row === null ? null : toJob(row as unknown as JobRow);
+  }
+}
+
+// Every Job field, no omissions: a dropped field here is a silent loss of
+// the buyer's record, which is the failure class R-27 closes.
+function toJob(row: JobRow): Job {
+  return {
+    id: row.id,
+    buyerDid: row.buyerDid,
+    agentDid: row.agentDid,
+    repository: row.repository,
+    brief: row.brief,
+    briefHash: row.briefHash,
+    confirmedSpecHash: row.confirmedSpecHash,
+    status: row.status,
+    pullRequestUrl: row.pullRequestUrl,
+    confirmedAt: row.confirmedAt,
+    submittedAt: row.submittedAt,
     createdAt: row.createdAt,
   };
 }
