@@ -32,6 +32,23 @@ describe('rotationWellFormed', () => {
     expect(rotationWellFormed(rotation({ rotatedAt: new Date('not a date') }))).toBe(false);
   });
 
+  it('a parseable string rotatedAt returns true: stored records may come back as strings', () => {
+    expect(
+      rotationWellFormed(rotation({ rotatedAt: '2026-08-21T05:00:00.000Z' as unknown as Date })),
+    ).toBe(true);
+  });
+
+  it('an unparseable string rotatedAt returns false', () => {
+    expect(
+      rotationWellFormed(rotation({ rotatedAt: 'not a date' as unknown as Date })),
+    ).toBe(false);
+  });
+
+  it('a rotatedAt that is neither a Date nor a string returns false', () => {
+    expect(rotationWellFormed(rotation({ rotatedAt: 1724226000000 as unknown as Date }))).toBe(false);
+    expect(rotationWellFormed(rotation({ rotatedAt: undefined as unknown as Date }))).toBe(false);
+  });
+
   it('fromKey === toKey returns true: equality is a semantic error the API rejects in R-30, not a shape error', () => {
     expect(rotationWellFormed(rotation({ toKey: rotation().fromKey }))).toBe(true);
   });
