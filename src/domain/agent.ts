@@ -2,6 +2,7 @@
 // something (ENT-2): the agent DID, plus the delegation proof that binds it
 // to the operator DID (ENT-3). The agent DID is the primary key: it is what
 // a third party verifies against, not an internal id.
+import type { KeyRotation } from './key-rotation.js';
 
 // ENT-3, in the shape the operator's wallet produced it. The stored object
 // is the FULL credential, not a projection of it: drop the proof signature
@@ -46,6 +47,9 @@ export interface Agent {
   readonly githubLogin: string | null;
   readonly proofStatus: ProofStatus;
   readonly createdAt: Date;
+  // ENT-8.4: append-only rotation history, the record that keeps a
+  // credential signed by a superseded key verifiable.
+  readonly keyRotations: readonly KeyRotation[];
 }
 
 // The structural half of "the delegation proof verifies" (R-2 accept). The
