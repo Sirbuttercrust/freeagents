@@ -27,6 +27,11 @@
  *     document (served by a wrapped resolver, the real one has no resolver
  *     yet) carries the account in alsoKnownAs, and the binding is recorded
  *     as pending
+ *   - direction two of the GitHub account proof works end to end: the agent
+ *     wallet key signs the canonical proof bytes, the statement is published
+ *     as a public gist, and with both directions holding the binding is
+ *     verified, with a third party re-checking the signature without the
+ *     service
  *   - an unknown route is still a 404, so the previous assertion means something
  *
  * It does NOT claim a hire flow works, because no hire flow exists yet. As the
@@ -39,6 +44,7 @@
  * marker mechanism exists to catch, so the ordering here is load-bearing rather
  * than stylistic.
  */
+import * as nodeCrypto from 'node:crypto';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
@@ -50,8 +56,10 @@ import { securityLoader } from '@digitalbazaar/security-document-loader';
 import { fromRandom, type WalletObject } from '@ocap/wallet';
 
 import { createApp } from '../../src/api/app.js';
+import type { Gist, GithubAdapter } from '../../src/adapters/github/types.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
-import type { DidDocument, IdentityAdapter } from '../../src/adapters/identity/types.js';
+import type { DidDocument, IdentityAdapter, SignedPayload } from '../../src/adapters/identity/types.js';
+import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 
@@ -137,6 +145,28 @@ async function signW3CDelegation(operator: WalletObject, agent: WalletObject): P
 // alsoKnownAs. The target DID is set by the flow test, because the wallet's
 // DID is random per run.
 let accountProofDid: string | null = null;
+
+// R-4, direction two: the agent wallet whose key signs the gist statement.
+// Set by the flow test, because the wallet's DID is random per run.
+let proofSigningWallet: WalletObject | null = null;
+
+// R-4, direction two: the published gists, as the public GitHub API would
+// serve them. The fake adapter below is the only file that knows a vendor
+// exists, as with every other adapter in this test.
+const gists = new Map<string, Gist>();
+const githubAdapter: GithubAdapter = {
+  getPullRequest: () => Promise.reject(new NotImplementedError('github', 'getPullRequest')),
+  getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
+  getPublicGist: (ref) => {
+    const gist = gists.get(ref.id);
+    if (gist === undefined) {
+      return Promise.reject(new Error(`gist ${ref.id} not found`));
+    }
+    return Promise.resolve(gist);
+  },
+  forkAndOpenPullRequest: () => Promise.reject(new NotImplementedError('github', 'forkAndOpenPullRequest')),
+};
+
 const identityAdapter: IdentityAdapter = {
   ...createIdentityAdapter(),
   resolveDid: (did: string): Promise<DidDocument> => {
@@ -148,6 +178,24 @@ const identityAdapter: IdentityAdapter = {
     };
     return Promise.resolve(doc);
   },
+  // The real verify is a NotImplementedError until a resolver exists. The
+  // flow test needs a real one, so this wrapper does the standard ed25519
+  // check against the agent wallet's public key with node:crypto. The
+  // wallet key is raw 32-byte hex; the JWK wrap is the standard form.
+  verify: (signed: SignedPayload): Promise<boolean> => {
+    if (proofSigningWallet === null) {
+      return Promise.reject(new NotImplementedError('identity', 'verify'));
+    }
+    // Wallet keys are 0x-prefixed hex; node:crypto wants the raw 32 bytes.
+    const raw = Buffer.from(proofSigningWallet.publicKey.replace(/^0x/, ''), 'hex');
+    const publicKey = nodeCrypto.createPublicKey({
+      key: { kty: 'OKP', crv: 'Ed25519', x: raw.toString('base64url') },
+      format: 'jwk',
+    });
+    return Promise.resolve(
+      nodeCrypto.verify(null, Buffer.from(signed.payload, 'utf8'), publicKey, Buffer.from(signed.signature, 'base64')),
+    );
+  },
 };
 
 beforeAll(async () => {
@@ -157,6 +205,7 @@ beforeAll(async () => {
     new MemoryOperatorRepository(),
     new MemoryAgentRepository(),
     identityAdapter,
+    githubAdapter,
   );
   server = await new Promise<Server>((resolve, reject) => {
     const s = app.listen(0, '127.0.0.1');
@@ -340,6 +389,116 @@ describe('the API starts and answers', () => {
     // 5. An unregistered agent is a 404, so the 200 above meant something.
     const missing = await post('/agents/did:abt:nobody/account-proof', { handle: 'scout-agent' });
     expect(missing.status).toBe(404);
+  });
+
+  it('proves direction two of the GitHub account binding through a signed gist', async () => {
+    // The R-4 flow. The agent's wallet key signs the canonical proof bytes;
+    // the gist is published as a plain fixture the fake adapter serves; and
+    // the wrapped identity adapter verifies with real node:crypto ed25519,
+    // so the signature round trip is genuine end to end.
+    const operatorWallet = fromRandom();
+    const agentWallet = fromRandom();
+    const credential = await signW3CDelegation(operatorWallet, agentWallet);
+
+    // 1. Register and delegate, as in the R-2 flow above.
+    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-gist' });
+    expect(op.status).toBe(201);
+    const created = await post('/agents', {
+      did: agentWallet.toDid(),
+      operator: operatorWallet.toDid(),
+      delegation: credential,
+      name: 'scout',
+      skills: ['triage'],
+    });
+    expect(created.status).toBe(201);
+
+    // 2. The wallet key becomes the agent key: the wrapped verifier now
+    // checks signatures against it, and the resolver serves the document.
+    proofSigningWallet = agentWallet;
+    accountProofDid = agentWallet.toDid();
+
+    // 3. The agent signs the canonical proof bytes with its wallet key -
+    // raw ed25519, no pre-hash, base64 - and the gist goes up.
+    const accountUrl = 'https://github.com/scout-agent';
+    const canonical = `freeagents-github-proof v1\n${agentWallet.toDid()}\n${accountUrl}\n`;
+    const signature = await agentWallet.sign(canonical, false, 'base64');
+    const statement = `version: 1\ndid: ${agentWallet.toDid()}\ngithub: ${accountUrl}\nsignature: ${signature}\n`;
+    gists.set('e2e-proof-gist', {
+      id: 'e2e-proof-gist',
+      owner: 'scout-agent',
+      files: { 'proof.txt': statement },
+    });
+
+    // 4. Both directions hold: 200 and verified, per ENT-5.1.
+    const ok = await post(`/agents/${agentWallet.toDid()}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/scout-agent/e2e-proof-gist',
+    });
+    expect(ok.status).toBe(200);
+    const okBody = (await ok.json()) as Record<string, unknown>;
+    expect(okBody.proofStatus).toBe('verified');
+    expect(okBody.githubLogin).toBe('scout-agent');
+
+    // 5. A third party re-checks the signature with the same standard
+    // primitives, from the gist and the agent DID alone: no call to this
+    // service, and the binding is real rather than recorded. The bytes are
+    // rebuilt from the DID and the account being checked, not from the file.
+    const published = gists.get('e2e-proof-gist');
+    expect(published !== undefined).toBe(true);
+    const thirdPartyPublicKey = nodeCrypto.createPublicKey({
+      key: {
+        kty: 'OKP',
+        crv: 'Ed25519',
+        x: Buffer.from(agentWallet.publicKey.replace(/^0x/, ''), 'hex').toString('base64url'),
+      },
+      format: 'jwk',
+    });
+    expect(
+      nodeCrypto.verify(null, Buffer.from(canonical, 'utf8'), thirdPartyPublicKey, Buffer.from(signature, 'base64')),
+    ).toBe(true);
+    const tampered = `freeagents-github-proof v1\n${agentWallet.toDid()}\nhttps://github.com/someone-else\n`;
+    expect(
+      nodeCrypto.verify(null, Buffer.from(tampered, 'utf8'), thirdPartyPublicKey, Buffer.from(signature, 'base64')),
+    ).toBe(false);
+
+    // 6. A gist authored by someone else is a conflict, even with the
+    // matching URL owner and a genuine statement.
+    gists.set('e2e-forged-gist', {
+      id: 'e2e-forged-gist',
+      owner: 'someone-else',
+      files: { 'proof.txt': statement },
+    });
+    const forged = await post(`/agents/${agentWallet.toDid()}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/scout-agent/e2e-forged-gist',
+    });
+    expect(forged.status).toBe(409);
+
+    // 7. A statement signed by a different key is a conflict, and the
+    // verified binding is not replaced by the rejected attempt.
+    const imposter = fromRandom();
+    const imposterSignature = await imposter.sign(canonical, false, 'base64');
+    gists.set('e2e-imposter-gist', {
+      id: 'e2e-imposter-gist',
+      owner: 'scout-agent',
+      files: { 'proof.txt': `version: 1\ndid: ${agentWallet.toDid()}\ngithub: ${accountUrl}\nsignature: ${imposterSignature}\n` },
+    });
+    const imposterRes = await post(`/agents/${agentWallet.toDid()}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/scout-agent/e2e-imposter-gist',
+    });
+    expect(imposterRes.status).toBe(409);
+    const read = await get(`/agents/${agentWallet.toDid()}`);
+    const readBody = (await read.json()) as Record<string, unknown>;
+    expect(readBody.proofStatus).toBe('verified');
+
+    // 8. A malformed gist URL is a client error, checked before anything
+    // is fetched or recorded.
+    const badUrl = await post(`/agents/${agentWallet.toDid()}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://github.com/scout-agent/x',
+    });
+    expect(badUrl.status).toBe(400);
   });
 
   it('still 404s an undeclared route', async () => {

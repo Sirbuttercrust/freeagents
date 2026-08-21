@@ -1,5 +1,7 @@
 import express, { type Express, type Request, type Response } from 'express';
 
+import { createGithubAdapter } from '../adapters/github/github.js';
+import type { Gist, GithubAdapter } from '../adapters/github/types.js';
 import { createIdentityAdapter } from '../adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter } from '../adapters/identity/types.js';
 import {
@@ -10,7 +12,16 @@ import {
 } from '../adapters/storage/types.js';
 import { createAgentRepository, createOperatorRepository } from '../adapters/storage/storage.js';
 import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
-import { didDocumentPointsAtGithubAccount, githubAccountUrl } from '../domain/account-proof.js';
+import {
+  didDocumentPointsAtGithubAccount,
+  gistProofPayload,
+  githubAccountUrl,
+  parseGistStatement,
+  parseGistUrl,
+  statementBindsBinding,
+  type GistStatement,
+  type GistUrlRef,
+} from '../domain/account-proof.js';
 import { isValidOperatorDid } from '../domain/operator-did.js';
 import type { Operator } from '../domain/operator.js';
 
@@ -73,6 +84,7 @@ export function createApp(
   repo: OperatorRepository = createOperatorRepository(),
   agentRepo: AgentRepository = createAgentRepository(),
   identity: IdentityAdapter = createIdentityAdapter(),
+  github: GithubAdapter = createGithubAdapter(),
 ): Express {
   const app = express();
   app.use(express.json());
@@ -233,19 +245,19 @@ export function createApp(
     }
   });
 
-  // R-3, direction one (ENT-5): does the agent's DID document point at the
-  // claimed GitHub account? The operator authors the alsoKnownAs entry off
-  // platform in their wallet tooling; this route resolves the document and
-  // records that the direction holds, as pending (ENT-5.1: verified needs
-  // both directions, which lands in R-4).
+  // R-3 + R-4 (ENT-5): does the agent's GitHub account hold? Direction one
+  // is the DID document's standard alsoKnownAs entry; direction two is a
+  // public gist whose statement the agent's key signed. Without gist the
+  // route records direction one as pending (R-3); with it, the binding is
+  // marked verified only when BOTH directions hold (ENT-5.1).
   app.post('/agents/:agentDid/account-proof', async (req: Request, res: Response) => {
     const did = String(req.params.agentDid);
-    const body = (req.body ?? {}) as { handle?: unknown };
+    const body = (req.body ?? {}) as { handle?: unknown; gist?: unknown };
     const handle = body.handle;
 
     if (typeof handle !== 'string' || handle.length === 0 || /\s/.test(handle)) {
       res.status(400).json({
-        error: 'body must be { handle }; a non-empty string with no whitespace',
+        error: 'body must be { handle, gist? }; handle is a non-empty string with no whitespace',
       });
       return;
     }
@@ -263,6 +275,25 @@ export function createApp(
       return;
     }
 
+    // A malformed gist URL is a client error, and the URL owner must be the
+    // claimed handle: the operator is pointing at someone else's gist, which
+    // no signature could fix anyway.
+    let gistRef: GistUrlRef | null = null;
+    if (body.gist !== undefined) {
+      if (typeof body.gist !== 'string' || (gistRef = parseGistUrl(body.gist)) === null) {
+        res.status(400).json({
+          error: 'gist, when present, must be a URL like https://gist.github.com/<owner>/<id>',
+        });
+        return;
+      }
+      if (gistRef.owner.toLowerCase() !== handle.toLowerCase()) {
+        res.status(409).json({
+          error: `direction two (signed gist): the gist URL owner ${gistRef.owner} does not match the claimed handle ${handle}`,
+        });
+        return;
+      }
+    }
+
     // A NotImplementedError until a resolver is wired, or any other
     // resolution failure, is a 503: the operator cannot fix a missing
     // backend, and failing open would record an unverified claim as held.
@@ -277,15 +308,91 @@ export function createApp(
 
     if (!didDocumentPointsAtGithubAccount(doc.alsoKnownAs, handle)) {
       // The message names the DID and the exact URL to author, so the
-      // operator can act on it in their wallet tooling.
+      // operator can act on it in their wallet tooling. The prefix appears
+      // only when both directions were requested, to say which one failed.
+      const prefix = gistRef === null ? '' : 'direction one (DID document): ';
       res.status(409).json({
-        error: `the DID document for ${did} does not point at the GitHub account: add ${githubAccountUrl(handle)} to its alsoKnownAs field`,
+        error: `${prefix}the DID document for ${did} does not point at the GitHub account: add ${githubAccountUrl(handle)} to its alsoKnownAs field`,
+      });
+      return;
+    }
+
+    if (gistRef === null) {
+      // R-3: direction one alone records pending, never verified (ENT-5.1).
+      try {
+        const updated = await agentRepo.updateGithubBinding(did, { handle, status: 'pending' });
+        if (updated === null) {
+          res.status(404).json({ error: `agent ${did} is not registered` });
+          return;
+        }
+        res.status(200).json(agentProjection(updated));
+      } catch (err) {
+        console.error('POST /agents/:agentDid/account-proof: storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+      }
+      return;
+    }
+
+    // R-4, direction two. Fetching the gist is a public, unauthenticated
+    // read; any failure is a platform-side unavailability, not an operator
+    // error, so it is a 503 and records nothing.
+    let gist: Gist;
+    try {
+      gist = await github.getPublicGist({ id: gistRef.id });
+    } catch (err) {
+      console.error('POST /agents/:agentDid/account-proof: github unavailable', err);
+      res.status(503).json({ error: 'github unavailable' });
+      return;
+    }
+
+    // The gist must be authored by the claimed account itself, not merely
+    // linked from it: a forked or quoted gist would otherwise pass.
+    if (gist.owner === null || gist.owner.toLowerCase() !== handle.toLowerCase()) {
+      res.status(409).json({
+        error: `direction two (signed gist): the gist author ${gist.owner ?? 'unknown'} does not match the claimed handle ${handle}`,
+      });
+      return;
+    }
+
+    // The statement may sit in any file of the gist; the first well-formed
+    // one decides. A gist with no well-formed statement, or one that binds a
+    // different DID or account, is a conflict: the operator can fix the gist.
+    let statement: GistStatement | null = null;
+    for (const content of Object.values(gist.files)) {
+      statement = parseGistStatement(content);
+      if (statement !== null) break;
+    }
+    if (statement === null || !statementBindsBinding(statement, did, handle)) {
+      res.status(409).json({
+        error: 'direction two (signed gist): the gist does not hold a well-formed statement binding this agent DID to this account',
+      });
+      return;
+    }
+
+    // The signature covers the canonical bytes built from the DID and the
+    // account URL, not the statement text as written: a third party
+    // reconstructs the same bytes from the gist alone (invariant 2).
+    let checksOut: boolean;
+    try {
+      checksOut = await identity.verify({
+        payload: gistProofPayload(did, githubAccountUrl(handle)),
+        signature: statement.signature,
+        signerDid: did,
+      });
+    } catch (err) {
+      console.error('POST /agents/:agentDid/account-proof: identity verification failed', err);
+      res.status(503).json({ error: 'identity verification unavailable' });
+      return;
+    }
+    if (!checksOut) {
+      res.status(409).json({
+        error: 'direction two (signed gist): the signature does not check out against the agent key',
       });
       return;
     }
 
     try {
-      const updated = await agentRepo.updateGithubBinding(did, { handle, status: 'pending' });
+      const updated = await agentRepo.updateGithubBinding(did, { handle, status: 'verified' });
       if (updated === null) {
         res.status(404).json({ error: `agent ${did} is not registered` });
         return;

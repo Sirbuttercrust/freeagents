@@ -12,10 +12,14 @@
 // This test is the strongest invariant-2 proof available now: it pins the
 // claim to a standard field in a standard document shape, and it proves the
 // standard reading reaches the same conclusion as the platform's decision.
+import * as nodeCrypto from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   didDocumentPointsAtGithubAccount,
+  gistProofPayload,
   githubAccountUrl,
+  parseGistStatement,
+  statementBindsBinding,
 } from '../../src/domain/account-proof.js';
 
 // A standard DID Core document: @context is the DID v1 context, id is a
@@ -106,5 +110,129 @@ describe('direction one of the GitHub proof, invariant 2', () => {
         HANDLE,
       ),
     ).toBe(false);
+  });
+});
+
+// Direction two, invariant 2: the proof is a public gist holding a signed
+// statement. A third party verifies it with the gist, the agent DID, and
+// standard ed25519 tooling, WITHOUT calling this service. The third party
+// here is the test's own parser, its own canonical-bytes construction, and
+// node:crypto; the platform side is the domain decision plus the same
+// standard primitive. Agreement between the two is what the invariant pins.
+describe('direction two of the GitHub proof, invariant 2', () => {
+  const agentUrl = githubAccountUrl(HANDLE);
+  // Real key material, generated at run time: nothing memorized in the repo.
+  const agentKeys = nodeCrypto.generateKeyPairSync('ed25519');
+
+  // The third party's canonical bytes: its own string construction of the
+  // documented format, deliberately not the platform helper.
+  const thirdPartyBytes = `freeagents-github-proof v1\n${AGENT_DID}\n${agentUrl}\n`;
+  const signature = nodeCrypto
+    .sign(null, Buffer.from(thirdPartyBytes, 'utf8'), agentKeys.privateKey)
+    .toString('base64');
+
+  // The statement as the third party chose to write it: CRLF line endings,
+  // keys out of order and mixed case, a comment line, and a trailing blank.
+  // The bytes the signature covers must not depend on any of that.
+  const statement =
+    [
+      '# posted from a laptop, keys out of order on purpose',
+      `signature: ${signature}`,
+      `GITHUB: ${agentUrl}`,
+      `did: ${AGENT_DID}`,
+      'Version: 1',
+      '',
+    ].join('\r\n') + '\r\n';
+
+  // The published gist, as the public GitHub API serves it: id, the author
+  // login, and the file contents. A plain fixture, no service involved.
+  const gist = {
+    id: 'invariant2-gist',
+    owner: HANDLE,
+    files: { 'proof.txt': statement },
+  };
+
+  // The third party's own reader: split lines, take the keys it knows,
+  // ignore the rest. Deliberately NOT the platform parser.
+  function thirdPartyReadsStatement(content: string): Record<string, string> {
+    const fields: Record<string, string> = {};
+    for (const line of content.split(/\r?\n/)) {
+      const at = line.indexOf(':');
+      if (at <= 0) continue;
+      fields[line.slice(0, at).trim().toLowerCase()] = line.slice(at + 1).trim();
+    }
+    return fields;
+  }
+
+  function thirdPartyVerifies(content: string): boolean {
+    const fields = thirdPartyReadsStatement(content);
+    const did = fields['did'];
+    const account = fields['github'];
+    const sig = fields['signature'];
+    if (fields['version'] !== '1') return false;
+    if (did === undefined || account === undefined || sig === undefined) return false;
+    // Rebuilt from the DID and account being checked, not from the file.
+    const bytes = `freeagents-github-proof v1\n${did}\n${account}\n`;
+    return nodeCrypto.verify(null, Buffer.from(bytes, 'utf8'), agentKeys.publicKey, Buffer.from(sig, 'base64'));
+  }
+
+  it('the platform decision (parse, bind-check, signature) holds for the gist', () => {
+    const content = gist.files['proof.txt'];
+    if (content === undefined) throw new Error('fixture is missing the statement file');
+    const parsed = parseGistStatement(content);
+    expect(parsed).not.toBeNull();
+    if (parsed === null) throw new Error('statement failed to parse');
+    expect(statementBindsBinding(parsed, AGENT_DID, HANDLE)).toBe(true);
+    const checksOut = nodeCrypto.verify(
+      null,
+      Buffer.from(gistProofPayload(AGENT_DID, agentUrl), 'utf8'),
+      agentKeys.publicKey,
+      Buffer.from(parsed.signature, 'base64'),
+    );
+    expect(checksOut).toBe(true);
+  });
+
+  it('a third party verifies the same gist with its own reader and primitives', () => {
+    const content = gist.files['proof.txt'];
+    if (content === undefined) throw new Error('fixture is missing the statement file');
+    expect(thirdPartyVerifies(content)).toBe(true);
+  });
+
+  it('tampering any byte the signature covers breaks verification', () => {
+    const tampered =
+      [
+        'signature: ' + signature,
+        `GITHUB: ${agentUrl}`,
+        `did: did:abt:zSomeOtherAgentKeyHashFixture`,
+        'Version: 1',
+      ].join('\n');
+    expect(thirdPartyVerifies(tampered)).toBe(false);
+    const parsed = parseGistStatement(tampered);
+    expect(parsed).not.toBeNull();
+    if (parsed === null) throw new Error('statement failed to parse');
+    expect(statementBindsBinding(parsed, AGENT_DID, HANDLE)).toBe(false);
+  });
+
+  it('the platform and the third party agree on every statement they meet', () => {
+    const cases: Array<[string, string]> = [
+      ['the valid statement', statement],
+      ['the tampered statement', statement.replace(AGENT_DID, 'did:abt:zSomeOtherAgentKeyHashFixture')],
+      ['a v2 statement', statement.replace('Version: 1', 'Version: 2')],
+      ['a statement without the signature', 'version: 1\ndid: ' + AGENT_DID + '\ngithub: ' + agentUrl + '\n'],
+      ['an empty file', ''],
+    ];
+    for (const [label, content] of cases) {
+      const parsed = parseGistStatement(content);
+      const platform =
+        parsed !== null &&
+        statementBindsBinding(parsed, AGENT_DID, HANDLE) &&
+        nodeCrypto.verify(
+          null,
+          Buffer.from(gistProofPayload(AGENT_DID, agentUrl), 'utf8'),
+          agentKeys.publicKey,
+          Buffer.from(parsed.signature, 'base64'),
+        );
+      expect(thirdPartyVerifies(content), label).toBe(platform);
+    }
   });
 });

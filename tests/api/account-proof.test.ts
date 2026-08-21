@@ -7,14 +7,17 @@
 // exactly what that exercises. Everything else runs on the real logic, the
 // same way the R-1/R-2 tests inject repositories.
 import type { Express } from 'express';
+import * as nodeCrypto from 'node:crypto';
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
+import type { Gist, GithubAdapter } from '../../src/adapters/github/types.js';
 import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 import type { AgentRepository } from '../../src/adapters/storage/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
-import type { DidDocument, IdentityAdapter } from '../../src/adapters/identity/types.js';
+import type { DidDocument, IdentityAdapter, SignedPayload } from '../../src/adapters/identity/types.js';
+import { gistProofPayload } from '../../src/domain/account-proof.js';
 import type { Agent, Delegation, ProofStatus } from '../../src/domain/agent.js';
 
 // The stored delegation only needs its shape here: create() does not
@@ -44,9 +47,43 @@ function standardDocument(id: string, alsoKnownAs: readonly string[] | null): Di
   };
 }
 
-// The only capability under test is resolveDid; everything else is a stub
-// that throws NotImplementedError, the same honest shape as the real adapter.
-function fakeIdentity(documents: Map<string, DidDocument>): IdentityAdapter {
+// Real ed25519 keypairs, generated at run time so no key material is
+// fabricated or memorized in the repository. The statement is signed with
+// the private key and the fake verify checks it out against the public key
+// with the same primitive the implementation calls, so the 200-verified path
+// exercises a genuine signature round trip.
+const agentKeyPair = nodeCrypto.generateKeyPairSync('ed25519');
+const otherKeyPair = nodeCrypto.generateKeyPairSync('ed25519');
+
+function signPayload(payload: string, privateKey: nodeCrypto.KeyObject): string {
+  return nodeCrypto.sign(null, Buffer.from(payload, 'utf8'), privateKey).toString('base64');
+}
+
+function gistStatementContent(did: string, github: string, signature: string): string {
+  return [
+    'FreeAgents GitHub proof',
+    'version: 1',
+    `did: ${did}`,
+    `github: ${github}`,
+    `signature: ${signature}`,
+  ].join('\n');
+}
+
+// The agent's key signs the canonical payload for this DID and account, as
+// the operator's wallet tooling would. Deriving the bytes through the same
+// primitive the implementation calls is the recommended test shape.
+function signedStatementFor(did: string, accountUrl: string): string {
+  return gistStatementContent(did, accountUrl, signPayload(gistProofPayload(did, accountUrl), agentKeyPair.privateKey));
+}
+
+// The only capabilities under test are resolveDid and verify; everything
+// else is a stub that throws NotImplementedError, the same honest shape as
+// the real adapter. verify does the real ed25519 check by default, and a
+// test that needs a failing verifier passes its own implementation.
+function fakeIdentity(
+  documents: Map<string, DidDocument>,
+  verifyImpl?: (signed: SignedPayload) => Promise<boolean> | boolean,
+): IdentityAdapter {
   return {
     createOperatorDid: () => Promise.reject(new NotImplementedError('identity', 'createOperatorDid')),
     createAgentDid: () => Promise.reject(new NotImplementedError('identity', 'createAgentDid')),
@@ -58,8 +95,36 @@ function fakeIdentity(documents: Map<string, DidDocument>): IdentityAdapter {
       return Promise.resolve(doc);
     },
     sign: () => Promise.reject(new NotImplementedError('identity', 'sign')),
-    verify: () => Promise.resolve(false),
+    verify: (signed) =>
+      Promise.resolve(
+        verifyImpl !== undefined
+          ? verifyImpl(signed)
+          : nodeCrypto.verify(
+              null,
+              Buffer.from(signed.payload, 'utf8'),
+              agentKeyPair.publicKey,
+              Buffer.from(signed.signature, 'base64'),
+            ),
+      ),
     verifyDelegation: () => Promise.resolve(true),
+  };
+}
+
+// The only capability under test is getPublicGist; everything else throws
+// NotImplementedError, the same honest shape as the real adapter. An id not
+// in the map rejects, so the route's github-unavailable branch is reachable.
+function fakeGithub(gists: Map<string, Gist>): GithubAdapter {
+  return {
+    getPullRequest: () => Promise.reject(new NotImplementedError('github', 'getPullRequest')),
+    getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
+    getPublicGist: (ref) => {
+      const gist = gists.get(ref.id);
+      if (gist === undefined) {
+        return Promise.reject(new Error(`gist ${ref.id} not found`));
+      }
+      return Promise.resolve(gist);
+    },
+    forkAndOpenPullRequest: () => Promise.reject(new NotImplementedError('github', 'forkAndOpenPullRequest')),
   };
 }
 
@@ -78,9 +143,10 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
   const agentRepo = new MemoryAgentRepository();
 
   const documents = new Map<string, DidDocument>();
+  const gists = new Map<string, Gist>();
 
   beforeAll(async () => {
-    const app = createApp(repo, agentRepo, fakeIdentity(documents));
+    const app = createApp(repo, agentRepo, fakeIdentity(documents), fakeGithub(gists));
     server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
@@ -185,6 +251,260 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
     expect(res.status).toBe(503);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe('identity resolution unavailable');
+  });
+
+  it('200: with a valid signed gist both directions hold and the binding is verified', async () => {
+    const did = 'did:abt:zAgentProof2';
+    await registerAgent(did);
+    documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+    gists.set('abc123', {
+      id: 'abc123',
+      owner: 'scout-agent',
+      files: { 'proof.txt': signedStatementFor(did, 'https://github.com/scout-agent') },
+    });
+
+    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/scout-agent/abc123',
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    // ENT-5.1: verified is the whole point of direction two.
+    expect(body.proofStatus).toBe('verified');
+    expect(body.githubLogin).toBe('scout-agent');
+
+    // Read-back: the verified binding survives the round trip.
+    const read = await fetch(`${baseUrl}/agents/${did}`);
+    expect(read.status).toBe(200);
+    const readBody = (await read.json()) as Record<string, unknown>;
+    expect(readBody.proofStatus).toBe('verified');
+  });
+
+  it('400: a gist that is not a parseable gist URL', async () => {
+    const did = 'did:abt:zAgentProof1';
+    for (const gist of [42, 'https://github.com/scout-agent/x', 'https://gist.github.com/only-owner', 'not a url']) {
+      const res = await postJson(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent', gist });
+      expect(res.status, JSON.stringify(gist)).toBe(400);
+    }
+  });
+
+  it('409 direction one: the document does not point at the account, a valid gist present', async () => {
+    const did = 'did:abt:zAgentProof3';
+    await registerAgent(did);
+    documents.set(did, standardDocument(did, null));
+    gists.set('def456', {
+      id: 'def456',
+      owner: 'scout-agent',
+      files: { 'proof.txt': signedStatementFor(did, 'https://github.com/scout-agent') },
+    });
+
+    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/scout-agent/def456',
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(String(body.error)).toContain('direction one (DID document)');
+    expect(String(body.error)).toContain(did);
+
+    // The failed check recorded nothing.
+    const stored = await agentRepo.findByDid(did);
+    expect(stored?.githubLogin).toBeNull();
+    expect(stored?.proofStatus).toBe('unverified');
+  });
+
+  it('409 direction two: the gist URL owner does not match the claimed handle', async () => {
+    const did = 'did:abt:zAgentProof4';
+    await registerAgent(did);
+    documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+
+    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/someone-else/abc123',
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(String(body.error)).toContain('direction two (signed gist)');
+  });
+
+  it('409 direction two: the gist author does not match the claimed handle', async () => {
+    const did = 'did:abt:zAgentProof5';
+    await registerAgent(did);
+    documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+    gists.set('ghi789', {
+      id: 'ghi789',
+      owner: 'someone-else',
+      files: { 'proof.txt': signedStatementFor(did, 'https://github.com/scout-agent') },
+    });
+
+    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/scout-agent/ghi789',
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(String(body.error)).toContain('direction two (signed gist)');
+  });
+
+  it('409 direction two: the gist holds no well-formed statement', async () => {
+    const did = 'did:abt:zAgentProof6';
+    await registerAgent(did);
+    documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+    gists.set('jkl012', {
+      id: 'jkl012',
+      owner: 'scout-agent',
+      files: { 'readme.md': 'some notes without any statement keys' },
+    });
+
+    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/scout-agent/jkl012',
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(String(body.error)).toContain('direction two (signed gist)');
+  });
+
+  it('409 direction two: the statement binds a different DID', async () => {
+    const did = 'did:abt:zAgentProof7';
+    await registerAgent(did);
+    documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+    // The signature itself is genuine: it checks out against the payload it
+    // was made for, but that payload names the other agent.
+    gists.set('mno345', {
+      id: 'mno345',
+      owner: 'scout-agent',
+      files: { 'proof.txt': signedStatementFor('did:abt:zSomeOtherAgent', 'https://github.com/scout-agent') },
+    });
+
+    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/scout-agent/mno345',
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(String(body.error)).toContain('direction two (signed gist)');
+  });
+
+  it('409 direction two: the statement binds a different account', async () => {
+    const did = 'did:abt:zAgentProof8';
+    await registerAgent(did);
+    documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+    gists.set('pqr678', {
+      id: 'pqr678',
+      owner: 'scout-agent',
+      files: { 'proof.txt': signedStatementFor(did, 'https://github.com/someone-else') },
+    });
+
+    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/scout-agent/pqr678',
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(String(body.error)).toContain('direction two (signed gist)');
+  });
+
+  it('409 direction two: the signature does not check out against the agent key', async () => {
+    const did = 'did:abt:zAgentProof9';
+    await registerAgent(did);
+    documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+    // A genuine signature, but made by a different key: the statement is
+    // well-formed and binds the right DID and account, only the signature
+    // is not the agent's.
+    const forged = gistStatementContent(
+      did,
+      'https://github.com/scout-agent',
+      signPayload(gistProofPayload(did, 'https://github.com/scout-agent'), otherKeyPair.privateKey),
+    );
+    gists.set('stu901', {
+      id: 'stu901',
+      owner: 'scout-agent',
+      files: { 'proof.txt': forged },
+    });
+
+    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/scout-agent/stu901',
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(String(body.error)).toContain('direction two (signed gist)');
+
+    // Nothing was recorded by the rejected attempt.
+    const stored = await agentRepo.findByDid(did);
+    expect(stored?.githubLogin).toBeNull();
+    expect(stored?.proofStatus).toBe('unverified');
+  });
+
+  it('503: github unavailable (fetching the gist fails)', async () => {
+    const did = 'did:abt:zAgentProof10';
+    await registerAgent(did);
+    documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+    // The id is not in the fake's map, so getPublicGist rejects.
+
+    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/scout-agent/does-not-exist',
+    });
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toBe('github unavailable');
+  });
+});
+
+// The identity verification branch that is unreachable with the default
+// fake: a verifier that throws is platform unavailability, not an operator
+// error, so it is a 503 and records nothing.
+describe('POST /agents/:agentDid/account-proof, identity verification failure', () => {
+  const documents = new Map<string, DidDocument>();
+  const gists = new Map<string, Gist>();
+  const base = new MemoryAgentRepository();
+  const app = createApp(
+    new MemoryOperatorRepository(),
+    base,
+    fakeIdentity(documents, () => {
+      throw new Error('verify down');
+    }),
+    fakeGithub(gists),
+  );
+
+  it('503: the verifier throws', async () => {
+    const did = 'did:abt:zAgentVerifyDown';
+    await base.create({
+      did,
+      operatorDid: 'did:abt:zOperatorKeyHash',
+      delegation,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+    gists.set('vwx234', {
+      id: 'vwx234',
+      owner: 'scout-agent',
+      files: { 'proof.txt': signedStatementFor(did, 'https://github.com/scout-agent') },
+    });
+
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const server = app.listen(0);
+    try {
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const address = server.address();
+      if (address === null || typeof address === 'string') {
+        throw new Error('expected server to listen on a port');
+      }
+      const res = await postJson(`http://127.0.0.1:${address.port}`, `/agents/${did}/account-proof`, {
+        handle: 'scout-agent',
+        gist: 'https://gist.github.com/scout-agent/vwx234',
+      });
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.error).toBe('identity verification unavailable');
+    } finally {
+      errSpy.mockRestore();
+      server.close();
+    }
   });
 });
 
