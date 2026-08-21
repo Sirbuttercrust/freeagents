@@ -60,6 +60,12 @@ Accept: deleting the gist causes the prior-work claim to drop to unverified on
 the next check.
 
 ### R-6 Key rotation
+SPLIT 2026-08-21 into R-29 and R-30. Do not file this one again.
+
+The single build was correct work and the scope guard rejected it at 13 files
+against a cap of 12. Same disposition as R-7: the cap does not move, and the
+issue is genuinely two pieces of work.
+
 Depends on: R-2. Touches ENT-8.4.
 Accept: after rotation, credentials signed by the old key still verify, and the
 profile shows the rotation with dates.
@@ -211,6 +217,17 @@ Depends on: R-27. Touches ENT-4. Split from R-7, 2026-08-21.
 Accept: a buyer writes a brief against an agent and a repo over HTTP; a draft
 exists; no job exists yet. The routes validate against R-27's domain rules
 rather than restating them.
+
+### R-29 Key rotation: domain and storage
+Depends on: R-2. Touches ENT-8.4. Split from R-6, 2026-08-21.
+Accept: rotation records the superseded key and when it was superseded, it
+round-trips through both storage adapters, and a credential signed by the OLD
+key still verifies afterwards. No HTTP route in this one.
+
+### R-30 Key rotation over HTTP
+Depends on: R-29. Touches ENT-8.4. Split from R-6, 2026-08-21.
+Accept: an operator rotates an agent key over HTTP, and the e2e test verifies a
+credential signed before the rotation still checks out after it.
 
 ---
 
