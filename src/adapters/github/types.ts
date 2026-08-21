@@ -29,8 +29,19 @@ export interface ForkAndOpenPullRequestInput {
   readonly body: string;
 }
 
+// A public gist, as far as the account-proof flow cares about it: the id, the
+// GitHub login of its author, and the contents of its files by name.
+export interface Gist {
+  readonly id: string;
+  readonly owner: string | null;
+  readonly files: Record<string, string>;
+}
+
 export interface GithubAdapter {
   getPullRequest(ref: PullRequestRef): Promise<PullRequestSummary>;
   getMergeCommitSignature(ref: PullRequestRef): Promise<CommitSignatureStatus>;
+  // R-4: a public gist by id. No authentication: the statement is public by
+  // design, so anyone can fetch it without this service.
+  getPublicGist(ref: { readonly id: string }): Promise<Gist>;
   forkAndOpenPullRequest(input: ForkAndOpenPullRequestInput): Promise<PullRequestRef>;
 }
