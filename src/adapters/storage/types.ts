@@ -41,6 +41,14 @@ export interface AgentInput {
   readonly githubLogin: string | null;
 }
 
+// One rotation record, in the shape the API accepts (R-30). Carries only
+// the public key identifiers in DID fragment form; the driver stamps the
+// time. No key material, ever.
+export interface KeyRotationInput {
+  readonly fromKey: string;
+  readonly toKey: string;
+}
+
 export interface AgentRepository {
   // Throws AgentAlreadyExistsError when the DID is already delegated.
   create(input: AgentInput): Promise<Agent>;
@@ -52,6 +60,10 @@ export interface AgentRepository {
     did: string,
     input: { readonly handle: string; readonly status: ProofStatus },
   ): Promise<Agent | null>;
+  // R-29 (ENT-8.4): append one rotation record to the agent's history.
+  // Null when the agent is not stored, mirroring updateGithubBinding, so
+  // the API maps it to 404 without a second lookup.
+  recordKeyRotation(did: string, input: KeyRotationInput): Promise<Agent | null>;
 }
 
 // Thrown by JobRepository.create when the id is already stored, so the API

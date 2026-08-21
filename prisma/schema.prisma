@@ -60,8 +60,9 @@ model Agent {
 
   operator Operator @relation(fields: [operatorDid], references: [did])
 
-  jobs        Job[]
-  credentials Credential[]
+  jobs         Job[]
+  credentials  Credential[]
+  keyRotations KeyRotation[]
 
   @@index([operatorDid])
   @@index([githubLogin])
@@ -130,6 +131,22 @@ model Credential {
 // not denormalisation: the composite foreign key below is what makes it
 // impossible to store a review against a buyer or agent other than the ones
 // on record for that completed job.
+// R-29 (ENT-8.4): a rotation records the superseded key and when, so a
+// credential signed by an old key still verifies. Append-only: rows are
+// never updated or deleted, for the same reason a credential is stored
+// verbatim.
+model KeyRotation {
+  id        String   @id @default(cuid())
+  agentDid  String
+  fromKey   String
+  toKey     String
+  rotatedAt DateTime @default(now())
+
+  agent Agent @relation(fields: [agentDid], references: [did])
+
+  @@index([agentDid])
+}
+
 model Review {
   id             String   @id @default(cuid())
   completedJobId String   @unique

@@ -4,12 +4,14 @@ import { Prisma, PrismaClient } from '../../generated/prisma/index.js';
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import type { Job, JobStatus } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
+import type { KeyRotation } from '../../domain/key-rotation.js';
 import {
   AgentAlreadyExistsError,
   type AgentInput,
   type AgentRepository,
   JobAlreadyExistsError,
   type JobRepository,
+  type KeyRotationInput,
   OperatorAlreadyExistsError,
   type OperatorRepository,
 } from './types.js';
@@ -23,6 +25,46 @@ let client: PrismaClient | null = null;
 function db(): PrismaClient {
   client ??= new PrismaClient();
   return client;
+}
+
+// The generated client lags the schema: src/generated/ is a gitignored
+// build artifact and this path cannot regenerate it, so the rotation
+// surface is addressed structurally against the schema, not the stale
+// generated types. See the run report for R-29.
+interface KeyRotationRow {
+  id: string;
+  agentDid: string;
+  fromKey: string;
+  toKey: string;
+  rotatedAt: Date;
+}
+function rotationDb() {
+  return db() as unknown as {
+    keyRotation: {
+      create(args: {
+        data: { agentDid: string; fromKey: string; toKey: string; rotatedAt: Date };
+      }): Promise<KeyRotationRow>;
+      findMany(args: {
+        where: { agentDid: string };
+        orderBy: { rotatedAt: 'asc' };
+      }): Promise<KeyRotationRow[]>;
+    };
+  };
+}
+
+// Every read path returns an Agent through this helper, so every Agent the
+// driver returns carries its rotation history (ENT-8.4).
+async function agentWithRotations(did: string): Promise<Agent | null> {
+  const row = await db().agent.findUnique({ where: { did } });
+  if (row === null) return null;
+  const rows = await rotationDb().keyRotation.findMany({
+    where: { agentDid: did },
+    orderBy: { rotatedAt: 'asc' },
+  });
+  return toAgent(
+    row,
+    rows.map((r) => ({ fromKey: r.fromKey, toKey: r.toKey, rotatedAt: r.rotatedAt })),
+  );
 }
 
 export class PrismaOperatorRepository implements OperatorRepository {
@@ -66,7 +108,8 @@ export class PrismaAgentRepository implements AgentRepository {
           githubLogin: input.githubLogin,
         },
       });
-      return toAgent(row);
+      // A fresh agent has no rotation history; do not add a nested create.
+      return toAgent(row, []);
     } catch (err) {
       // P2002 is Prisma's "unique constraint failed" error code: the only
       // unique constraint reachable here is the DID primary key, so a P2002
@@ -80,8 +123,20 @@ export class PrismaAgentRepository implements AgentRepository {
   }
 
   async findByDid(did: string): Promise<Agent | null> {
-    const row = await db().agent.findUnique({ where: { did } });
-    return row === null ? null : toAgent(row);
+    return agentWithRotations(did);
+  }
+
+  async recordKeyRotation(did: string, input: KeyRotationInput): Promise<Agent | null> {
+    // Reading first, not updating: an unknown DID resolves to null instead
+    // of a P2025 from update, and the rotation row is only written after
+    // the agent is known to exist.
+    const agent = await db().agent.findUnique({ where: { did } });
+    if (agent === null) return null;
+    // Driver stamps the date, matching memory.
+    await rotationDb().keyRotation.create({
+      data: { agentDid: did, fromKey: input.fromKey, toKey: input.toKey, rotatedAt: new Date() },
+    });
+    return agentWithRotations(did);
   }
 
   async updateGithubBinding(
@@ -89,11 +144,12 @@ export class PrismaAgentRepository implements AgentRepository {
     input: { readonly handle: string; readonly status: ProofStatus },
   ): Promise<Agent | null> {
     try {
-      const row = await db().agent.update({
+      await db().agent.update({
         where: { did },
         data: { githubLogin: input.handle, proofStatus: input.status },
       });
-      return toAgent(row);
+      // The update row does not carry rotations; the helper re-fetches them.
+      return agentWithRotations(did);
     } catch (err) {
       // P2025 is Prisma's "record to update not found" error code: the
       // agent was never stored (or the DID is unknown), and the API layer
@@ -106,7 +162,10 @@ export class PrismaAgentRepository implements AgentRepository {
   }
 }
 
-function toAgent(row: { did: string; operatorDid: string; delegation: unknown; name: string; skills: string[]; githubLogin: string | null; proofStatus: 'unverified' | 'pending' | 'verified'; createdAt: Date }): Agent {
+function toAgent(
+  row: { did: string; operatorDid: string; delegation: unknown; name: string; skills: string[]; githubLogin: string | null; proofStatus: 'unverified' | 'pending' | 'verified'; createdAt: Date },
+  keyRotations: readonly KeyRotation[],
+): Agent {
   return {
     did: row.did,
     operatorDid: row.operatorDid,
@@ -116,6 +175,7 @@ function toAgent(row: { did: string; operatorDid: string; delegation: unknown; n
     githubLogin: row.githubLogin,
     proofStatus: row.proofStatus,
     createdAt: row.createdAt,
+    keyRotations: [...keyRotations],
   };
 }
 
