@@ -72,12 +72,18 @@ The product's spine. Cannot start before phase 1, because a job references two
 DIDs that must already exist.
 
 ### R-7 Job: draft and brief
+SPLIT 2026-08-21 into R-27 and R-28. Do not file this one again.
+
+The single build was correct work and the scope guard rejected it at 14 files
+against a cap of 12. The cap is not moving: it exists to stop a node growing a
+PR into files nobody asked it to touch, and raising it to fit one issue would
+weaken it for every future issue. R-7 is genuinely two pieces of work.
+
 Depends on: R-2. Touches ENT-4.
-Accept: a buyer writes a brief against an agent and a repo; a draft exists; no
-job exists yet.
+Accept: superseded by R-27 and R-28 below.
 
 ### R-8 Acceptance criteria exchange
-Depends on: R-7. Touches ENT-6.
+Depends on: R-27, R-28. Touches ENT-6.
 Accept: the agent proposes criteria, the buyer may request changes, and the
 loop can run more than once without creating a job.
 Note: Q2 is open. Build the checklist shape, record the assumption.
@@ -193,6 +199,18 @@ Depends on: most of the above. Deploy as a blocklet.
 Depends on: R-13. Touches ENT-9.
 Accept: the schema carries amount, currency, platform fee, and state; **no code
 path moves money**; a test asserts that.
+
+### R-27 Job: domain and storage
+Depends on: R-2. Touches ENT-4. Split from R-7, 2026-08-21.
+Accept: a Job carries draft and brief state in the domain, and it round-trips
+through both storage adapters with the memory and prisma paths agreeing. No
+HTTP route in this one.
+
+### R-28 Job: draft and brief over HTTP
+Depends on: R-27. Touches ENT-4. Split from R-7, 2026-08-21.
+Accept: a buyer writes a brief against an agent and a repo over HTTP; a draft
+exists; no job exists yet. The routes validate against R-27's domain rules
+rather than restating them.
 
 ---
 
