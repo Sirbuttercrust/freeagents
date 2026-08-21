@@ -20,6 +20,8 @@ const mock = vi.hoisted(() => ({
   agentCreate: vi.fn(),
   agentFindUnique: vi.fn(),
   agentUpdate: vi.fn(),
+  keyRotationCreate: vi.fn(),
+  keyRotationFindMany: vi.fn(),
 }));
 
 vi.mock('../../src/generated/prisma/index.js', async () => {
@@ -33,6 +35,7 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
     PrismaClient: class {
       operator = mock;
       agent = { create: mock.agentCreate, findUnique: mock.agentFindUnique, update: mock.agentUpdate };
+      keyRotation = { create: mock.keyRotationCreate, findMany: mock.keyRotationFindMany };
     },
     Prisma: actual.Prisma,
   };
@@ -206,12 +209,20 @@ describe('PrismaAgentRepository', () => {
     vi.mocked(mock.agentCreate).mockReset();
     vi.mocked(mock.agentFindUnique).mockReset();
     vi.mocked(mock.agentUpdate).mockReset();
+    vi.mocked(mock.keyRotationCreate).mockReset();
+    vi.mocked(mock.keyRotationFindMany).mockReset();
+    // Every read path now goes through agentWithRotations, which always
+    // fetches the rotation rows; an agent with no rotations gets none.
+    vi.mocked(mock.keyRotationFindMany).mockResolvedValue([]);
   });
 
   afterEach(() => {
     vi.mocked(mock.agentCreate).mockReset();
     vi.mocked(mock.agentFindUnique).mockReset();
     vi.mocked(mock.agentUpdate).mockReset();
+    vi.mocked(mock.keyRotationCreate).mockReset();
+    vi.mocked(mock.keyRotationFindMany).mockReset();
+    vi.mocked(mock.keyRotationFindMany).mockResolvedValue([]);
   });
 
   it('create: the stored row comes back as the agent projection, delegation verbatim', async () => {
@@ -259,6 +270,7 @@ describe('PrismaAgentRepository', () => {
       githubLogin: null,
       proofStatus: 'unverified',
       createdAt,
+      keyRotations: [],
     });
   });
 
@@ -347,6 +359,7 @@ describe('PrismaAgentRepository', () => {
       githubLogin: 'agent-login-1',
       proofStatus: 'verified',
       createdAt,
+      keyRotations: [],
     });
   });
 
@@ -362,7 +375,7 @@ describe('PrismaAgentRepository', () => {
 
   it('updateGithubBinding: an updated row comes back as the agent projection', async () => {
     const createdAt = new Date('2026-08-20T05:00:00.000Z');
-    vi.mocked(mock.agentUpdate).mockResolvedValue({
+    const updatedRow = {
       did: 'did:abt:agent-1',
       operatorDid: 'did:abt:op-1',
       delegation: delegationFixture,
@@ -371,7 +384,11 @@ describe('PrismaAgentRepository', () => {
       githubLogin: 'scout-agent',
       proofStatus: 'pending',
       createdAt,
-    });
+    };
+    vi.mocked(mock.agentUpdate).mockResolvedValue(updatedRow);
+    // The update row does not carry rotations, so the driver re-fetches the
+    // agent through the same read path as every other lookup.
+    vi.mocked(mock.agentFindUnique).mockResolvedValue(updatedRow);
 
     const repo = new PrismaAgentRepository();
     const row = await repo.updateGithubBinding('did:abt:agent-1', {
@@ -383,16 +400,7 @@ describe('PrismaAgentRepository', () => {
       where: { did: 'did:abt:agent-1' },
       data: { githubLogin: 'scout-agent', proofStatus: 'pending' },
     });
-    expect(row).toEqual({
-      did: 'did:abt:agent-1',
-      operatorDid: 'did:abt:op-1',
-      delegation: delegationFixture,
-      name: 'scout',
-      skills: ['triage'],
-      githubLogin: 'scout-agent',
-      proofStatus: 'pending',
-      createdAt,
-    });
+    expect(row).toEqual({ ...updatedRow, keyRotations: [] });
   });
 
   it('updateGithubBinding: a P2025 not-found comes back as null, not an error', async () => {
@@ -429,5 +437,108 @@ describe('PrismaAgentRepository', () => {
       .catch((e: unknown) => e);
 
     expect(err).toBe(original);
+  });
+
+  it('findByDid: rotation rows are projected in the order the database returns them', async () => {
+    const createdAt = new Date('2026-08-20T05:00:00.000Z');
+    const first = new Date('2026-08-21T01:00:00.000Z');
+    const second = new Date('2026-08-21T02:00:00.000Z');
+    vi.mocked(mock.agentFindUnique).mockResolvedValue({
+      did: 'did:abt:agent-rot',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+      proofStatus: 'unverified',
+      createdAt,
+    });
+    vi.mocked(mock.keyRotationFindMany).mockResolvedValue([
+      {
+        id: 'kr-1',
+        agentDid: 'did:abt:agent-rot',
+        fromKey: 'did:abt:zOldKey#zOldFingerprint',
+        toKey: 'did:abt:zNewKey#zNewFingerprint',
+        rotatedAt: first,
+      },
+      {
+        id: 'kr-2',
+        agentDid: 'did:abt:agent-rot',
+        fromKey: 'did:abt:zNewKey#zNewFingerprint',
+        toKey: 'did:abt:zNewerKey#zNewerFingerprint',
+        rotatedAt: second,
+      },
+    ]);
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.findByDid('did:abt:agent-rot');
+
+    expect(mock.keyRotationFindMany).toHaveBeenCalledWith({
+      where: { agentDid: 'did:abt:agent-rot' },
+      orderBy: { rotatedAt: 'asc' },
+    });
+    expect(row?.keyRotations).toEqual([
+      { fromKey: 'did:abt:zOldKey#zOldFingerprint', toKey: 'did:abt:zNewKey#zNewFingerprint', rotatedAt: first },
+      { fromKey: 'did:abt:zNewKey#zNewFingerprint', toKey: 'did:abt:zNewerKey#zNewerFingerprint', rotatedAt: second },
+    ]);
+  });
+
+  it('recordKeyRotation: an agent that was never stored comes back as null, and no rotation row is written', async () => {
+    vi.mocked(mock.agentFindUnique).mockResolvedValue(null);
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.recordKeyRotation('did:abt:agent-none', {
+      fromKey: 'did:abt:zOldKey#zOldFingerprint',
+      toKey: 'did:abt:zNewKey#zNewFingerprint',
+    });
+
+    expect(row).toBeNull();
+    expect(mock.keyRotationCreate).not.toHaveBeenCalled();
+  });
+
+  it('recordKeyRotation: appends a row with a driver-stamped date, and the row comes back on the returned agent', async () => {
+    const createdAt = new Date('2026-08-20T05:00:00.000Z');
+    const rotatedAt = new Date('2026-08-21T01:00:00.000Z');
+    const newRow = {
+      id: 'kr-1',
+      agentDid: 'did:abt:agent-1',
+      fromKey: 'did:abt:zOldKey#zOldFingerprint',
+      toKey: 'did:abt:zNewKey#zNewFingerprint',
+      rotatedAt,
+    };
+    vi.mocked(mock.agentFindUnique).mockResolvedValue({
+      did: 'did:abt:agent-1',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+      proofStatus: 'unverified',
+      createdAt,
+    });
+    vi.mocked(mock.keyRotationCreate).mockResolvedValue(newRow);
+    vi.mocked(mock.keyRotationFindMany).mockResolvedValue([newRow]);
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.recordKeyRotation('did:abt:agent-1', {
+      fromKey: 'did:abt:zOldKey#zOldFingerprint',
+      toKey: 'did:abt:zNewKey#zNewFingerprint',
+    });
+
+    // The row sent to the database carries the public identifiers and a
+    // driver-stamped date. A driver that silently drops the history (the
+    // rejected R-6 branch) would return keyRotations: [] here, which the
+    // projection assertion below catches.
+    expect(mock.keyRotationCreate).toHaveBeenCalledWith({
+      data: {
+        agentDid: 'did:abt:agent-1',
+        fromKey: 'did:abt:zOldKey#zOldFingerprint',
+        toKey: 'did:abt:zNewKey#zNewFingerprint',
+        rotatedAt: expect.any(Date),
+      },
+    });
+    expect(row?.keyRotations).toEqual([
+      { fromKey: 'did:abt:zOldKey#zOldFingerprint', toKey: 'did:abt:zNewKey#zNewFingerprint', rotatedAt },
+    ]);
   });
 });

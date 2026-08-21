@@ -34,6 +34,76 @@ async function register(repo: MemoryAgentRepository, did: string): Promise<void>
   });
 }
 
+describe('MemoryAgentRepository.recordKeyRotation', () => {
+  it('returns null for an unregistered DID', async () => {
+    const repo = new MemoryAgentRepository();
+    const rotated = await repo.recordKeyRotation('did:abt:zNobody', {
+      fromKey: 'did:abt:zOldKey#zOldFingerprint',
+      toKey: 'did:abt:zNewKey#zNewFingerprint',
+    });
+    expect(rotated).toBeNull();
+  });
+
+  it('appends: two rotations are both present, in order, first not replaced', async () => {
+    const repo = new MemoryAgentRepository();
+    const did = 'did:abt:zAgentRotations';
+    await register(repo, did);
+
+    const first = await repo.recordKeyRotation(did, {
+      fromKey: 'did:abt:zOldKey#zOldFingerprint',
+      toKey: 'did:abt:zNewKey#zNewFingerprint',
+    });
+    expect(first?.keyRotations).toHaveLength(1);
+    expect(first?.keyRotations[0]?.fromKey).toBe('did:abt:zOldKey#zOldFingerprint');
+
+    const second = await repo.recordKeyRotation(did, {
+      fromKey: 'did:abt:zNewKey#zNewFingerprint',
+      toKey: 'did:abt:zNewerKey#zNewerFingerprint',
+    });
+    expect(second?.keyRotations).toHaveLength(2);
+    // The first record survives the second: replacing it would silently
+    // orphan the credentials signed by the older key (ENT-8.4).
+    expect(second?.keyRotations[0]?.fromKey).toBe('did:abt:zOldKey#zOldFingerprint');
+    expect(second?.keyRotations[0]?.toKey).toBe('did:abt:zNewKey#zNewFingerprint');
+    expect(second?.keyRotations[1]?.fromKey).toBe('did:abt:zNewKey#zNewFingerprint');
+    expect(second?.keyRotations[1]?.toKey).toBe('did:abt:zNewerKey#zNewerFingerprint');
+
+    // The append survives the round trip.
+    const stored = await repo.findByDid(did);
+    expect(stored?.keyRotations).toHaveLength(2);
+    expect(stored?.keyRotations[0]?.fromKey).toBe('did:abt:zOldKey#zOldFingerprint');
+  });
+
+  it('stamps the rotation with a driver-set, parseable rotatedAt', async () => {
+    const repo = new MemoryAgentRepository();
+    const did = 'did:abt:zAgentStamped';
+    await register(repo, did);
+
+    const rotated = await repo.recordKeyRotation(did, {
+      fromKey: 'did:abt:zOldKey#zOldFingerprint',
+      toKey: 'did:abt:zNewKey#zNewFingerprint',
+    });
+    const rotatedAt = rotated?.keyRotations[0]?.rotatedAt;
+    expect(rotatedAt).toBeInstanceOf(Date);
+    // The driver stamps it; the test cannot know the value, only that it
+    // parses.
+    expect(Number.isNaN((rotatedAt as Date).getTime())).toBe(false);
+  });
+
+  it('create() returns keyRotations: []', async () => {
+    const repo = new MemoryAgentRepository();
+    const agent = await repo.create({
+      did: 'did:abt:zAgentFresh',
+      operatorDid: 'did:abt:zOperatorKeyHash',
+      delegation,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    expect(agent.keyRotations).toEqual([]);
+  });
+});
+
 describe('MemoryAgentRepository.updateGithubBinding', () => {
   it('returns null for an unregistered DID', async () => {
     const repo = new MemoryAgentRepository();

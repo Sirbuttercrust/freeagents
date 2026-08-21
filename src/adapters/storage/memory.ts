@@ -3,10 +3,12 @@
 // same duplicate-key semantics the database gives through its primary key.
 import type { Agent, ProofStatus } from '../../domain/agent.js';
 import type { Operator } from '../../domain/operator.js';
+import type { KeyRotation } from '../../domain/key-rotation.js';
 import {
   AgentAlreadyExistsError,
   type AgentInput,
   type AgentRepository,
+  type KeyRotationInput,
   OperatorAlreadyExistsError,
   type OperatorRepository,
 } from './types.js';
@@ -55,6 +57,7 @@ export class MemoryAgentRepository implements AgentRepository {
       githubLogin: input.githubLogin,
       proofStatus: 'unverified',
       createdAt: new Date(),
+      keyRotations: [],
     };
     this.rows.set(input.did, row);
     return row;
@@ -73,6 +76,25 @@ export class MemoryAgentRepository implements AgentRepository {
     // The live DID document is the source of truth, so a later successful
     // check for a different handle replaces the stored binding.
     const updated: Agent = { ...row, githubLogin: input.handle, proofStatus: input.status };
+    this.rows.set(did, updated);
+    return updated;
+  }
+
+  async recordKeyRotation(did: string, input: KeyRotationInput): Promise<Agent | null> {
+    const row = this.rows.get(did);
+    if (row === undefined) return null;
+    // The driver stamps the time; storage does not re-check well-formedness
+    // (same stance as create: the API layer validates against the domain
+    // rule).
+    const rotation: KeyRotation = {
+      fromKey: input.fromKey,
+      toKey: input.toKey,
+      rotatedAt: new Date(),
+    };
+    // Append, never replace: the rotation history is the point of the
+    // record (ENT-8.4), and replacing it would silently orphan the
+    // credentials signed by earlier keys.
+    const updated: Agent = { ...row, keyRotations: [...row.keyRotations, rotation] };
     this.rows.set(did, updated);
     return updated;
   }

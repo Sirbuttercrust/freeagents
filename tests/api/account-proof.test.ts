@@ -528,6 +528,7 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
       findByDid: overrides.findByDid ?? ((did) => base.findByDid(did)),
       updateGithubBinding:
         overrides.updateGithubBinding ?? ((did, input) => base.updateGithubBinding(did, input)),
+      recordKeyRotation: (did, input) => base.recordKeyRotation(did, input),
     };
     return createApp(new MemoryOperatorRepository(), repo, fakeIdentity(documents));
   }
