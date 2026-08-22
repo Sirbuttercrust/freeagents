@@ -2,12 +2,15 @@
 // mode when DATABASE_URL is unset (see storage.ts). A Map keyed by DID gives the
 // same duplicate-key semantics the database gives through its primary key.
 import type { Agent, ProofStatus } from '../../domain/agent.js';
+import type { Job } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
 import {
   AgentAlreadyExistsError,
   type AgentInput,
   type AgentRepository,
+  JobAlreadyExistsError,
+  type JobRepository,
   type KeyRotationInput,
   OperatorAlreadyExistsError,
   type OperatorRepository,
@@ -97,5 +100,31 @@ export class MemoryAgentRepository implements AgentRepository {
     const updated: Agent = { ...row, keyRotations: [...row.keyRotations, rotation] };
     this.rows.set(did, updated);
     return updated;
+  }
+}
+
+export class MemoryJobRepository implements JobRepository {
+  private readonly rows = new Map<string, Job>();
+
+  async create(job: Job): Promise<Job> {
+    // Check-then-set is safe here: Node is single-threaded and this method
+    // awaits nothing, so two concurrent creates of one id cannot both pass.
+    if (this.rows.has(job.id)) {
+      throw new JobAlreadyExistsError(job.id);
+    }
+    const row: Job = { ...job };
+    this.rows.set(job.id, row);
+    return row;
+  }
+
+  async update(job: Job): Promise<Job | null> {
+    if (!this.rows.has(job.id)) return null;
+    const row: Job = { ...job };
+    this.rows.set(job.id, row);
+    return row;
+  }
+
+  async findById(id: string): Promise<Job | null> {
+    return this.rows.get(id) ?? null;
   }
 }

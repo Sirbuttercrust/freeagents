@@ -20,9 +20,11 @@ enum ProofStatus {
 }
 
 // Mirrors the hire loop in MISSION.md. A job only "exists" once confirmed,
-// but the row is opened at proposal time so the brief hash has somewhere to
-// live while acceptance criteria are worked out.
+// but the row is opened as a draft from the buyer's brief so both the brief
+// and its hash have somewhere to live while acceptance criteria are worked
+// out.
 enum JobStatus {
+  draft
   proposed
   confirmed
   submitted
@@ -71,6 +73,9 @@ model Job {
   buyerDid          String
   agentDid          String
   repository        String
+  // The buyer's own prose, stored verbatim (ENT-4): a third party holding it
+  // can recompute briefHash without calling this service.
+  brief             String
   briefHash         String
   confirmedSpecHash String?
   status            JobStatus @default(proposed)
