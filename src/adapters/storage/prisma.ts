@@ -2,7 +2,7 @@
 // only file in the repository that knows Postgres exists.
 import { Prisma, PrismaClient } from '../../generated/prisma/index.js';
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
-import type { Job, JobStatus } from '../../domain/job.js';
+import type { Criterion, Job, JobStatus } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
 import {
@@ -191,6 +191,9 @@ interface JobRow {
   brief: string;
   briefHash: string;
   confirmedSpecHash: string | null;
+  // Json column: arrives as whatever the database round-tripped, so it is
+  // validated structurally in toJob rather than trusted.
+  criteria: unknown;
   status: JobStatus;
   pullRequestUrl: string | null;
   confirmedAt: Date | null;
@@ -212,6 +215,7 @@ export class PrismaJobRepository implements JobRepository {
           brief: job.brief,
           briefHash: job.briefHash,
           confirmedSpecHash: job.confirmedSpecHash,
+          criteria: job.criteria,
           status: job.status,
           pullRequestUrl: job.pullRequestUrl,
           confirmedAt: job.confirmedAt,
@@ -243,6 +247,7 @@ export class PrismaJobRepository implements JobRepository {
           brief: job.brief,
           briefHash: job.briefHash,
           confirmedSpecHash: job.confirmedSpecHash,
+          criteria: job.criteria,
           status: job.status,
           pullRequestUrl: job.pullRequestUrl,
           confirmedAt: job.confirmedAt,
@@ -278,6 +283,10 @@ function toJob(row: JobRow): Job {
     brief: row.brief,
     briefHash: row.briefHash,
     confirmedSpecHash: row.confirmedSpecHash,
+    // A row written before the column existed (or a null) is a job with no
+    // proposal yet, never a job whose criteria are undefined: every caller
+    // may read criteria as an array.
+    criteria: Array.isArray(row.criteria) ? (row.criteria as Criterion[]) : [],
     status: row.status,
     pullRequestUrl: row.pullRequestUrl,
     confirmedAt: row.confirmedAt,

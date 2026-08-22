@@ -32,6 +32,7 @@ const jobFixture: Job = {
   briefHash: 'sha256:brief',
   confirmedSpecHash: null,
   status: 'draft',
+  criteria: [],
   pullRequestUrl: null,
   confirmedAt: null,
   submittedAt: null,
@@ -169,5 +170,33 @@ describe('MemoryJobRepository', () => {
   it('an update of a missing id is null', async () => {
     const repo = new MemoryJobRepository();
     expect(await repo.update(jobFixture)).toBeNull();
+  });
+
+  // The criteria round-trip (R-8): a job whose exchange has run must read
+  // back exactly what was stored, through update (the path the exchange
+  // routes use) and without the array being shared with the caller's input.
+  it('round-trips criteria through create and reads them back identical', async () => {
+    const repo = new MemoryJobRepository();
+    const withCriteria: Job = {
+      ...jobFixture,
+      status: 'proposed',
+      criteria: [
+        { text: 'The login bug is fixed', proposedBy: 'agent', accepted: false },
+        { text: 'Checkout e2e test passes', proposedBy: 'buyer', accepted: true },
+      ],
+    };
+    await repo.create(jobFixture);
+
+    const updated = await repo.update(withCriteria);
+    expect(updated).toEqual(withCriteria);
+    expect(await repo.findById('job_1')).toEqual(withCriteria);
+  });
+
+  it('a job with no proposal yet reads back with criteria as an empty array', async () => {
+    const repo = new MemoryJobRepository();
+    await repo.create(jobFixture);
+    const read = await repo.findById('job_1');
+    expect(read?.criteria).toEqual([]);
+    expect(Array.isArray(read?.criteria)).toBe(true);
   });
 });

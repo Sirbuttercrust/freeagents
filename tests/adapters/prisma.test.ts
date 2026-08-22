@@ -64,6 +64,7 @@ const jobFixture = {
   briefHash: 'sha256:brief',
   confirmedSpecHash: null,
   status: 'draft',
+  criteria: [] as Array<{ text: string; proposedBy: 'agent' | 'buyer'; accepted: boolean }>,
   pullRequestUrl: null,
   confirmedAt: null,
   submittedAt: null,
@@ -596,6 +597,7 @@ describe('PrismaJobRepository', () => {
         'confirmedAt',
         'confirmedSpecHash',
         'createdAt',
+        'criteria',
         'id',
         'pullRequestUrl',
         'repository',
@@ -657,6 +659,7 @@ describe('PrismaJobRepository', () => {
         brief: updated.brief,
         briefHash: updated.briefHash,
         confirmedSpecHash: updated.confirmedSpecHash,
+        criteria: updated.criteria,
         status: updated.status,
         pullRequestUrl: updated.pullRequestUrl,
         confirmedAt: updated.confirmedAt,
@@ -704,6 +707,42 @@ describe('PrismaJobRepository', () => {
 
     expect(mock.jobFindUnique).toHaveBeenCalledWith({ where: { id: 'job_1' } });
     expect(row).toEqual(jobFixture);
+  });
+
+  it("findById: a row with no criteria on it reads back with criteria as an empty array, never undefined or null", async () => {
+    // A row written before the column existed, or a null Json cell: the
+    // projection must normalise both to [] so callers can iterate criteria
+    // without a guard.
+    vi.mocked(mock.jobFindUnique).mockResolvedValue({
+      ...jobFixture,
+      criteria: null,
+    } as unknown as typeof jobFixture);
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.findById('job_1');
+
+    expect(row).toEqual(jobFixture);
+    expect(Array.isArray(row?.criteria)).toBe(true);
+  });
+
+  it('findById: a row whose criteria hold real entries reads them back verbatim, not flattened to []', async () => {
+    // The Array.isArray TRUE arm of the toJob criteria mapping. Deleting that
+    // arm (returning [] unconditionally) passes the null-normalisation test
+    // above while silently discarding every stored criterion; this test is
+    // the one that fails if it does.
+    const stored = [
+      { text: 'parses a well-formed brief', proposedBy: 'agent' as const, accepted: true },
+      { text: 'rejects an empty repository', proposedBy: 'buyer' as const, accepted: false },
+    ];
+    vi.mocked(mock.jobFindUnique).mockResolvedValue({
+      ...jobFixture,
+      criteria: stored,
+    } as unknown as typeof jobFixture);
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.findById('job_1');
+
+    expect(row?.criteria).toEqual(stored);
   });
 
   it('findById: no stored row comes back as null, not an empty job', async () => {

@@ -19,6 +19,7 @@ function proposedJob(overrides: Partial<Job> = {}): Job {
     briefHash: 'sha256:brief',
     confirmedSpecHash: null,
     status: 'proposed',
+    criteria: [],
     pullRequestUrl: null,
     confirmedAt: null,
     submittedAt: null,
