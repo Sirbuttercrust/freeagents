@@ -32,11 +32,17 @@
  *     as a public gist, and with both directions holding the binding is
  *     verified, with a third party re-checking the signature without the
  *     service
+ *   - the first half of the hire loop works end to end: an operator
+ *     registers, delegates an agent, and a buyer's brief opens a job draft
+ *     that reads back identically, with brief and briefHash riding the
+ *     response so a third party can recompute the hash without the service
  *   - an unknown route is still a 404, so the previous assertion means something
  *
- * It does NOT claim a hire flow works, because no hire flow exists yet. As the
- * handlers land, the flow assertions below replace the 501 expectations one at
- * a time, and the e2e step floor rises with them.
+ * It does NOT claim a full hire flow works: the draft exists but nothing
+ * walks it toward proposed/confirmed yet, so the confirm, pull-request,
+ * merge and review handlers stay 501. As their handlers land, the flow
+ * assertions below replace those 501 expectations one at a time, and the
+ * e2e step floor rises with them.
  *
  * THE MARKERS ARE PRINTED ONLY AFTER THE ASSERTIONS THEY DESCRIBE.
  * Printing APP_STARTED before the server is up, or E2E_PASSED in a finally
@@ -235,13 +241,12 @@ describe('the API starts and answers', () => {
     // handler is honest about being unimplemented. What matters for this
     // assertion is that none of them 404, because a route that does not exist
     // cannot be said to have a contract at all.
-    // POST /operators and POST /agents have left this list: they are
-    // implemented, and their real flows are asserted below. This is the
-    // one-at-a-time replacement the file's design promised.
+    // POST /operators, POST /agents and POST /jobs have left this list:
+    // they are implemented, and their real flows are asserted below. This is
+    // the one-at-a-time replacement the file's design promised.
     const declared: Array<[string, () => Promise<Response>]> = [
       ['GET  /agents/:did/card', () => get('/agents/did:abt:test/card')],
       ['GET  /agents/:did/credentials', () => get('/agents/did:abt:test/credentials')],
-      ['POST /jobs', () => post('/jobs')],
       ['POST /jobs/:id/confirm', () => post('/jobs/j1/confirm')],
       ['POST /jobs/:id/pull-request', () => post('/jobs/j1/pull-request')],
       ['POST /jobs/:id/merge', () => post('/jobs/j1/merge')],
@@ -344,6 +349,73 @@ describe('the API starts and answers', () => {
     // 6. An unknown agent is a 404, so the read-back meant something.
     const missing = await get('/agents/did:abt:nobody');
     expect(missing.status).toBe(404);
+  });
+
+  it('opens a job draft from a brief and reads it back', async () => {
+    // The R-28 flow: a buyer writes a brief against a delegated agent and a
+    // repository, and a draft exists afterwards. Fresh wallets throughout -
+    // this block shares only the helpers above with the flows before it.
+
+    const operatorWallet = fromRandom();
+    const agentWallet = fromRandom();
+    const buyerWallet = fromRandom();
+    const credential = await signW3CDelegation(operatorWallet, agentWallet);
+
+    // 1. Register the operator.
+    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-jobs' });
+    expect(op.status).toBe(201);
+
+    // 2. Delegate an agent from it, W3C-signed as in the R-2 flow above.
+    const delegated = await post('/agents', {
+      did: agentWallet.toDid(),
+      operator: operatorWallet.toDid(),
+      delegation: credential,
+      name: 'scout',
+      skills: ['triage'],
+    });
+    expect(delegated.status).toBe(201);
+
+    // 3. Open the draft. brief rides beside briefHash precisely so a third
+    // party holding the response can recompute the hash alone (invariant 2).
+    const draft = await post('/jobs', {
+      buyerDid: buyerWallet.toDid(),
+      agentDid: agentWallet.toDid(),
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug on the checkout page\r\nthen deploy\n  ',
+    });
+    expect(draft.status).toBe(201);
+    const draftBody = (await draft.json()) as Record<string, unknown>;
+    expect(draftBody.status).toBe('draft');
+    expect(String(draftBody.id)).toMatch(/^j-/);
+    expect(typeof draftBody.brief).toBe('string');
+    expect(draftBody.briefHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+
+    // 4. Read back: persistence proven independently of the create response.
+    const read = await get(`/jobs/${String(draftBody.id)}`);
+    expect(read.status).toBe(200);
+    expect(await read.json()).toEqual(draftBody);
+
+    // 5. An unknown agent is a 404 before anything is stored: memory would
+    // accept what Prisma's foreign key rejects, so the route closes the
+    // asymmetry itself rather than letting the driver decide.
+    const stranger = fromRandom();
+    const orphan = await post('/jobs', {
+      buyerDid: buyerWallet.toDid(),
+      agentDid: stranger.toDid(),
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    });
+    expect(orphan.status).toBe(404);
+
+    // 6. A whitespace-only brief is a 400 mapped from createJob's own rule:
+    // the route delegates emptiness to the domain instead of restating it.
+    const empty = await post('/jobs', {
+      buyerDid: buyerWallet.toDid(),
+      agentDid: agentWallet.toDid(),
+      repository: 'buyer/target-repo',
+      brief: '   \n\t ',
+    });
+    expect(empty.status).toBe(400);
   });
 
   it('proves direction one of the GitHub account binding through the DID document', async () => {

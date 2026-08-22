@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 import express, { type Express, type Request, type Response } from 'express';
 
 import { createGithubAdapter } from '../adapters/github/github.js';
@@ -6,11 +8,17 @@ import { createIdentityAdapter } from '../adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter } from '../adapters/identity/types.js';
 import {
   AgentAlreadyExistsError,
+  JobAlreadyExistsError,
   OperatorAlreadyExistsError,
   type AgentRepository,
+  type JobRepository,
   type OperatorRepository,
 } from '../adapters/storage/types.js';
-import { createAgentRepository, createOperatorRepository } from '../adapters/storage/storage.js';
+import {
+  createAgentRepository,
+  createJobRepository,
+  createOperatorRepository,
+} from '../adapters/storage/storage.js';
 import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
 import {
   didDocumentPointsAtGithubAccount,
@@ -24,6 +32,7 @@ import {
 } from '../domain/account-proof.js';
 import { isValidOperatorDid } from '../domain/operator-did.js';
 import type { Operator } from '../domain/operator.js';
+import { createJob, JobError, type Job } from '../domain/job.js';
 
 // Route stubs for the hire loop (MISSION.md, "The hire loop"). Every handler
 // here returns 501 until the domain and adapter layers are wired in: the
@@ -52,6 +61,26 @@ function agentProjection(row: Agent): Record<string, unknown> {
     skills: [...row.skills],
     githubLogin: row.githubLogin,
     proofStatus: row.proofStatus,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+// The Job draft projection is the whole response. Exactly these eight fields,
+// nothing more: tests/api/job-invariant2.test.ts asserts the key set, and a
+// ninth field here would be a contract change. brief rides the response
+// beside briefHash so anyone holding both can recompute the hash with
+// off-the-shelf tools, no call to this service (invariant 2). The transition
+// fields are all null at draft and their routes are still 501, so they stay
+// off until their issues land.
+function jobProjection(row: Job): Record<string, unknown> {
+  return {
+    id: row.id,
+    buyerDid: row.buyerDid,
+    agentDid: row.agentDid,
+    repository: row.repository,
+    brief: row.brief,
+    briefHash: row.briefHash,
+    status: row.status,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -85,6 +114,7 @@ export function createApp(
   agentRepo: AgentRepository = createAgentRepository(),
   identity: IdentityAdapter = createIdentityAdapter(),
   github: GithubAdapter = createGithubAdapter(),
+  jobRepo: JobRepository = createJobRepository(),
 ): Express {
   const app = express();
   app.use(express.json());
@@ -407,7 +437,107 @@ export function createApp(
   app.get('/agents/:agentDid/card', notImplemented);
   app.get('/agents/:agentDid/credentials', notImplemented);
 
-  app.post('/jobs', notImplemented);
+  // R-28 (ENT-4): open a draft job from the buyer's brief. The route owns
+  // only what the domain does not know about: body shape, DID and repository
+  // syntax, and agent existence (a driver asymmetry — Prisma rejects an
+  // unknown agentDid through its foreign key while memory accepts it — so
+  // the check lives here to keep both drivers answering identically).
+  // Everything about the brief itself, including its emptiness and the hash,
+  // is delegated to createJob rather than restated.
+  app.post('/jobs', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const buyerDid = body.buyerDid;
+    const agentDid = body.agentDid;
+    const repository = body.repository;
+    const brief = body.brief;
+
+    if (
+      typeof buyerDid !== 'string' || buyerDid.length === 0 ||
+      typeof agentDid !== 'string' || agentDid.length === 0 ||
+      typeof repository !== 'string' || repository.length === 0 ||
+      typeof brief !== 'string' || brief.length === 0
+    ) {
+      res.status(400).json({
+        error: 'body must be { buyerDid, agentDid, repository, brief }; all are non-empty strings',
+      });
+      return;
+    }
+    if (!isValidOperatorDid(buyerDid) || !isValidOperatorDid(agentDid)) {
+      res.status(400).json({
+        error: 'buyerDid and agentDid must look like did:abt:<suffix>, non-empty suffix, no whitespace',
+      });
+      return;
+    }
+    // owner/name on GitHub (ENT-4), syntactic only: this issue makes no
+    // GitHub calls, so a repo that does not exist surfaces when the PR
+    // route lands, not here.
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(repository)) {
+      res.status(400).json({
+        error: 'repository must be an owner/name pair like buyer/target-repo',
+      });
+      return;
+    }
+
+    let agentRow: Agent | null;
+    try {
+      agentRow = await agentRepo.findByDid(agentDid);
+    } catch (err) {
+      console.error('POST /jobs: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (agentRow === null) {
+      res.status(404).json({
+        error: `agent ${agentDid} is not registered; delegate an agent on this DID before opening a job for it`,
+      });
+      return;
+    }
+
+    const id = 'j-' + randomBytes(8).toString('hex');
+    // The domain owns the brief rule (createJob rejects a brief that is
+    // empty or whitespace-only): the route maps the thrown JobError to 400
+    // and passes its message through, so there is one wording of the rule,
+    // not two.
+    let job: Job;
+    try {
+      job = createJob({ id, buyerDid, agentDid, repository, brief }, new Date());
+    } catch (err) {
+      if (err instanceof JobError) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+    try {
+      const row = await jobRepo.create(job);
+      res.status(201).json(jobProjection(row));
+    } catch (err) {
+      // A duplicate id needs 64 bits of collision to fire and the id was
+      // drawn this request, so this branch is unreachable in practice; it is
+      // kept so the mapping is deterministic should entropy ever shrink.
+      if (err instanceof JobAlreadyExistsError) {
+        res.status(409).json({ error: `job ${id} already exists` });
+        return;
+      }
+      console.error('POST /jobs: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  app.get('/jobs/:jobId', async (req: Request, res: Response) => {
+    try {
+      const row = await jobRepo.findById(String(req.params.jobId));
+      if (row === null) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      res.status(200).json(jobProjection(row));
+    } catch (err) {
+      console.error('GET /jobs/:jobId: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
   app.post('/jobs/:jobId/confirm', notImplemented);
   app.post('/jobs/:jobId/pull-request', notImplemented);
   app.post('/jobs/:jobId/merge', notImplemented);
