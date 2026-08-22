@@ -2,7 +2,12 @@ import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
-import type { AgentRepository, JobRepository, OperatorRepository } from '../../src/adapters/storage/types.js';
+import {
+  JobAlreadyExistsError,
+  type AgentRepository,
+  type JobRepository,
+  type OperatorRepository,
+} from '../../src/adapters/storage/types.js';
 import type { Delegation } from '../../src/domain/agent.js';
 
 // The one agent every job test hires against. It is planted straight into
@@ -248,6 +253,24 @@ describe('app', () => {
     expect(response.status).toBe(400);
   });
 
+  it('returns 400 when buyerDid is an empty string', async () => {
+    // The length conjunct, isolated from the typeof conjunct beside it: ''
+    // is a well-typed string. Delete buyerDid.length === 0 and this input
+    // falls through to isValidOperatorDid, which rejects '' too - same
+    // status, wrong rule - so only the exact shape-guard body pins which
+    // conjunct fired.
+    const response = await postJob(baseUrl, {
+      buyerDid: '',
+      agentDid: AGENT_DID,
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: 'body must be { buyerDid, agentDid, repository, brief }; all are non-empty strings',
+    });
+  });
+
   it('returns 400 when agentDid is not a string (null)', async () => {
     // null.length is a TypeError, not false, so deleting the typeof agentDid
     // conjunct would turn this request into a crashed handler rather than a
@@ -261,6 +284,22 @@ describe('app', () => {
     expect(response.status).toBe(400);
   });
 
+  it('returns 400 when agentDid is an empty string', async () => {
+    // Same isolation as the empty buyerDid: '' passes the typeof conjunct,
+    // so the shape-guard body in the response is the only proof the length
+    // conjunct fired rather than a later check.
+    const response = await postJob(baseUrl, {
+      buyerDid: 'did:abt:buyer-jobs',
+      agentDid: '',
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: 'body must be { buyerDid, agentDid, repository, brief }; all are non-empty strings',
+    });
+  });
+
   it('returns 400 when repository is not a string (number)', async () => {
     // With the typeof repository conjunct deleted, 42 would fall to the
     // owner/name regex, whose .test would coerce it to '42' - no slash - and
@@ -272,6 +311,22 @@ describe('app', () => {
       brief: 'Fix the login bug',
     });
     expect(response.status).toBe(400);
+  });
+
+  it('returns 400 when repository is an empty string', async () => {
+    // '' is well-typed, so this isolates repository.length === 0: without it
+    // the input would fall to the owner/name regex and be rejected there for
+    // a different reason. The shape-guard body names the conjunct that fired.
+    const response = await postJob(baseUrl, {
+      buyerDid: 'did:abt:buyer-jobs',
+      agentDid: AGENT_DID,
+      repository: '',
+      brief: 'Fix the login bug',
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: 'body must be { buyerDid, agentDid, repository, brief }; all are non-empty strings',
+    });
   });
 
   it('returns 400 when brief is not a string (number)', async () => {
@@ -325,6 +380,24 @@ describe('app', () => {
     const response = await postJob(baseUrl, {
       buyerDid: 'did:eth:x',
       agentDid: AGENT_DID,
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: 'buyerDid and agentDid must look like did:abt:<suffix>, non-empty suffix, no whitespace',
+    });
+  });
+
+  it('returns 400 when agentDid is a DID of the wrong method', async () => {
+    // The mirror of the buyerDid case, isolating the second conjunct of the
+    // DID guard: buyerDid is a valid did:abt here, so a 400 with the
+    // DID-guard body can only come from isValidOperatorDid(agentDid). Delete
+    // that conjunct and did:eth:x sails through to the agent lookup, coming
+    // back a 404 instead.
+    const response = await postJob(baseUrl, {
+      buyerDid: 'did:abt:buyer-jobs',
+      agentDid: 'did:eth:x',
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
     });
@@ -547,6 +620,78 @@ describe('app, job storage failures', () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: 'storage unavailable' });
     expect(errorLog).toHaveBeenCalled();
+    errorLog.mockRestore();
+  });
+});
+
+// The 409 mapping on POST /jobs cannot be reached through real storage: the
+// id is drawn fresh each request from 64 bits of entropy (app.ts keeps the
+// branch for the day entropy shrinks). So the collision is scripted - a job
+// repository whose create always reports the row as stored - which pins
+// JobAlreadyExistsError to 409 and keeps the mapping deletable by no one.
+describe('app, job id collision', () => {
+  class DuplicateJobRepository implements JobRepository {
+    async create(): Promise<never> {
+      throw new JobAlreadyExistsError('j-drawn-this-request');
+    }
+    async update(): Promise<null> {
+      return null;
+    }
+    async findById(): Promise<null> {
+      return null;
+    }
+  }
+
+  let server: Server;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    // The route checks agent existence before drawing the id, so this server
+    // needs the agent planted for the request to reach jobRepo.create.
+    const seededAgentRepo = new MemoryAgentRepository();
+    await seededAgentRepo.create({
+      did: AGENT_DID,
+      operatorDid: 'did:abt:op-jobs',
+      delegation: delegationFixture(),
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    server = createApp(
+      new MemoryOperatorRepository(),
+      seededAgentRepo,
+      undefined,
+      undefined,
+      new DuplicateJobRepository(),
+    ).listen(0);
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('expected server to listen on a port');
+    }
+    baseUrl = `http://127.0.0.1:${address.port}`;
+  });
+
+  afterAll(() => {
+    server.close();
+  });
+
+  it('POST /jobs answers 409, not 503, when storage reports the id already stored', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const response = await postJob(baseUrl, {
+      buyerDid: 'did:abt:buyer-jobs',
+      agentDid: AGENT_DID,
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    });
+    expect(response.status).toBe(409);
+    // The body names the id the route drew this request, not the id the
+    // scripted repository threw with: the mapping is deterministic on the
+    // route's own draw.
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toMatch(/^job j-[0-9a-f]{16} already exists$/);
+    // A conflict is not a failure: nothing goes to the error log.
+    expect(errorLog).not.toHaveBeenCalled();
     errorLog.mockRestore();
   });
 });
