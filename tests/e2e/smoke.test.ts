@@ -14,8 +14,8 @@
  * that proves the thing we ship can actually start.
  *
  * WHAT IT ASSERTS, AND WHAT IT REFUSES TO PRETEND.
- * The API is a route surface where the hire-loop handlers still return 501 on
- * purpose. So this test proves what is genuinely true today:
+ * The API is a route surface where the last hire-loop handlers still return
+ * 501 on purpose. So this test proves what is genuinely true today:
  *
  *   - the app boots and binds a port
  *   - /health answers 200 with a body we control
@@ -43,10 +43,14 @@
  *   - confirm works end to end (R-9): each criterion is accepted, confirm
  *     computes specHash from the agreed texts, a stranger recomputes it from
  *     the response alone, and afterwards every editing route refuses the job
+ *   - fork and open the pull request works end to end (R-10): the confirmed
+ *     job walks to submitted, the pull request carries the job id, and the
+ *     recorded github call shows the buyer's repository referenced READ-ONLY
+ *     with the write going to the platform's fork
  *   - an unknown route is still a 404, so the previous assertion means something
  *
- * It does NOT claim the hire flow completes: a draft now walks to confirmed
- * through the criteria exchange and confirm, but pull-request, merge and
+ * It does NOT claim the hire flow completes: a draft now walks to submitted
+ * through the criteria exchange, confirm and the pull request, but merge and
  * review handlers stay 501 until their issues land. As their handlers arrive,
  * the flow assertions below replace those 501 expectations one at a time, and
  * the e2e step floor rises with them.
@@ -69,7 +73,7 @@ import { securityLoader } from '@digitalbazaar/security-document-loader';
 import { fromRandom, type WalletObject } from '@ocap/wallet';
 
 import { createApp } from '../../src/api/app.js';
-import type { Gist, GithubAdapter } from '../../src/adapters/github/types.js';
+import type { ForkAndOpenPullRequestInput, Gist, GithubAdapter } from '../../src/adapters/github/types.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter, SignedPayload } from '../../src/adapters/identity/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
@@ -167,6 +171,11 @@ let proofSigningWallet: WalletObject | null = null;
 // serve them. The fake adapter below is the only file that knows a vendor
 // exists, as with every other adapter in this test.
 const gists = new Map<string, Gist>();
+
+// R-10: what the hire flow asked github to do. The fake records its input so
+// the flow can assert the buyer's repository was referenced READ-ONLY and
+// the write went to the fork this platform created.
+const forkCalls: ForkAndOpenPullRequestInput[] = [];
 const githubAdapter: GithubAdapter = {
   getPullRequest: () => Promise.reject(new NotImplementedError('github', 'getPullRequest')),
   getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
@@ -177,7 +186,12 @@ const githubAdapter: GithubAdapter = {
     }
     return Promise.resolve(gist);
   },
-  forkAndOpenPullRequest: () => Promise.reject(new NotImplementedError('github', 'forkAndOpenPullRequest')),
+  forkAndOpenPullRequest: (input) => {
+    forkCalls.push(input);
+    // Models a fork of buyer/target-repo that THIS platform created - the
+    // owner differs from the source, which is what keeps invariant 1 true.
+    return Promise.resolve({ owner: 'freeagents-platform', repo: 'target-repo', number: 1 });
+  },
 };
 
 const identityAdapter: IdentityAdapter = {
@@ -248,14 +262,13 @@ describe('the API starts and answers', () => {
     // handler is honest about being unimplemented. What matters for this
     // assertion is that none of them 404, because a route that does not exist
     // cannot be said to have a contract at all.
-    // POST /operators, POST /agents, POST /jobs and POST /jobs/:id/confirm
-    // have left this list: they are implemented, and their real flows are
-    // asserted below. This is the one-at-a-time replacement the file's
-    // design promised.
+    // POST /operators, POST /agents, POST /jobs, POST /jobs/:id/confirm and
+    // POST /jobs/:id/pull-request have left this list: they are implemented,
+    // and their real flows are asserted below. This is the one-at-a-time
+    // replacement the file's design promised.
     const declared: Array<[string, () => Promise<Response>]> = [
       ['GET  /agents/:did/card', () => get('/agents/did:abt:test/card')],
       ['GET  /agents/:did/credentials', () => get('/agents/did:abt:test/credentials')],
-      ['POST /jobs/:id/pull-request', () => post('/jobs/j1/pull-request')],
       ['POST /jobs/:id/merge', () => post('/jobs/j1/merge')],
       ['POST /jobs/:id/reviews', () => post('/jobs/j1/reviews')],
     ];
@@ -754,6 +767,76 @@ describe('the API starts and answers', () => {
       (await post(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'sneak in', proposedBy: 'agent' }] })).status,
     ).toBe(409);
     expect((await post(`/jobs/${jobId}/request-changes`)).status).toBe(409);
+  });
+
+  it('forks and opens the pull request carrying the job id (R-10)', async () => {
+    // Fresh wallets throughout, as in every flow above. The walk completes
+    // the first half of the hire loop end to end: a buyer's brief becomes a
+    // submitted job, and the recorded github call shows the buyer's
+    // repository referenced READ-ONLY with the write going to the fork this
+    // platform created (invariant 1), the job id riding the public PR
+    // artifacts (ENT-4.5).
+    const operatorWallet = fromRandom();
+    const agentWallet = fromRandom();
+    const buyerWallet = fromRandom();
+    const credential = await signW3CDelegation(operatorWallet, agentWallet);
+
+    // 1-2. Register and delegate, as in the flows above.
+    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-pr' });
+    expect(op.status).toBe(201);
+    const delegated = await post('/agents', {
+      did: agentWallet.toDid(),
+      operator: operatorWallet.toDid(),
+      delegation: credential,
+      name: 'scout',
+      skills: ['triage'],
+    });
+    expect(delegated.status).toBe(201);
+
+    // 3. Open the draft.
+    const draft = await post('/jobs', {
+      buyerDid: buyerWallet.toDid(),
+      agentDid: agentWallet.toDid(),
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug on the checkout page',
+    });
+    expect(draft.status).toBe(201);
+    const jobId = String(((await draft.json()) as Record<string, unknown>).id);
+
+    // 4-5. Agree the spec: two criteria in, both accepted, confirmed.
+    expect(
+      (
+        await post(`/jobs/${jobId}/criteria`, {
+          criteria: [
+            { text: 'The login bug is fixed', proposedBy: 'agent' },
+            { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
+          ],
+        })
+      ).status,
+    ).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/0/accept`)).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/1/accept`)).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/confirm`)).status).toBe(200);
+
+    // 6. Fork and open the PR: the job lands on submitted with the URL and
+    // timestamp riding beside it.
+    const pr = await post(`/jobs/${jobId}/pull-request`);
+    expect(pr.status).toBe(200);
+    const prBody = (await pr.json()) as Record<string, unknown>;
+    expect(prBody.status).toBe('submitted');
+    expect(String(prBody.pullRequestUrl)).toContain('freeagents-platform');
+    expect(typeof prBody.submittedAt).toBe('string');
+
+    // 7. What github was asked to do: source named read-only is the BUYER's
+    // repo; branch, title and body carry the job id.
+    const call = forkCalls.at(-1) as ForkAndOpenPullRequestInput;
+    expect(call.sourceOwner).toBe('buyer');
+    expect(call.sourceRepo).toBe('target-repo');
+    expect(call.title).toContain(jobId);
+    expect(call.body).toContain(jobId);
+
+    // 8. Locked: posting again conflicts and opens no second PR.
+    expect((await post(`/jobs/${jobId}/pull-request`)).status).toBe(409);
   });
 
   it('still 404s an undeclared route', async () => {

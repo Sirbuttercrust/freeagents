@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 
 import { createGithubAdapter } from '../adapters/github/github.js';
-import type { Gist, GithubAdapter } from '../adapters/github/types.js';
+import type { Gist, GithubAdapter, PullRequestRef } from '../adapters/github/types.js';
 import { createIdentityAdapter } from '../adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter } from '../adapters/identity/types.js';
 import {
@@ -40,12 +40,14 @@ import {
   JobTransitionError,
   proposeCriteria,
   requestChanges,
+  submitPullRequest,
+  validateJobTransition,
   type Job,
 } from '../domain/job.js';
 
-// Route stubs for the hire loop (MISSION.md, "The hire loop"). Every handler
-// here returns 501 until the domain and adapter layers are wired in: the
-// point of this file is the shape of the surface, not its behaviour.
+// The hire-loop routes still honest about being unbuilt (R-11 merge, R-12
+// reviews): they return 501 until their issues land. Everything earlier in
+// the loop now has a real handler.
 function notImplemented(_req: Request, res: Response): void {
   res.status(501).json({ error: 'not implemented' });
 }
@@ -82,7 +84,8 @@ function agentProjection(row: Agent): Record<string, unknown> {
 // only once the exchange has something in it (R-8); confirm (R-9) adds
 // specHash and confirmedAt beside them, so a confirmed job projects the base
 // eight plus criteria, specHash and confirmedAt - a draft still projects
-// exactly the pinned eight keys.
+// exactly the pinned eight keys. Submit (R-10) adds pullRequestUrl and
+// submittedAt the same conditional way: they appear only on a submitted job.
 function jobProjection(row: Job): Record<string, unknown> {
   // Confirm (R-9) sets hash and timestamp together or neither - one domain
   // function writes both - so the pair rides one conditional, and the null
@@ -91,6 +94,13 @@ function jobProjection(row: Job): Record<string, unknown> {
   const confirmation =
     row.confirmedSpecHash !== null && row.confirmedAt !== null
       ? { specHash: row.confirmedSpecHash, confirmedAt: row.confirmedAt.toISOString() }
+      : {};
+  // The same one-writer rule for submit (R-10): submitPullRequest writes both
+  // fields or neither, so both ride one conditional. A confirmed job keeps
+  // exactly the eleven pinned keys.
+  const submission =
+    row.pullRequestUrl !== null && row.submittedAt !== null
+      ? { pullRequestUrl: row.pullRequestUrl, submittedAt: row.submittedAt.toISOString() }
       : {};
   return {
     id: row.id,
@@ -102,6 +112,7 @@ function jobProjection(row: Job): Record<string, unknown> {
     status: row.status,
     ...(row.criteria.length > 0 ? { criteria: row.criteria } : {}),
     ...confirmation,
+    ...submission,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -694,7 +705,97 @@ export function createApp(
     }),
   );
 
-  app.post('/jobs/:jobId/pull-request', notImplemented);
+  // R-10 (ENT-4.3, ENT-4.5): fork the buyer's repository and open the pull
+  // request carrying the job id. The route owns only what the domain cannot
+  // know: splitting the stored owner/name pair, formatting the public
+  // artifacts (branch, title, body), and sequencing - the adapter fires
+  // BEFORE anything persists, because a pull request is an external side
+  // effect no storage rollback can undo.
+  app.post(
+    '/jobs/:jobId/pull-request',
+    forwarded(async (req: Request, res: Response) => {
+      const jobId = String(req.params.jobId);
+
+      let current: Job | null;
+      try {
+        current = await jobRepo.findById(jobId);
+      } catch (err) {
+        console.error('POST /jobs/:jobId/pull-request: storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (current === null) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+
+      // Opening a PR is a public external side effect, so the state machine
+      // is consulted before it can fire at all: a draft or proposed job gets
+      // its 409 without one adapter call. validateJobTransition is pure and
+      // submitPullRequest re-checks, so this duplicates no rule - it only
+      // keeps the side effect on the right side of the gate. Only
+      // JobTransitionError can escape the validator; anything else is a fault
+      // nobody mapped, so it rethrows to the terminal handler as a 500.
+      try {
+        validateJobTransition(current.status, 'submitted');
+      } catch (err) {
+        if (!(err instanceof JobTransitionError)) {
+          throw err;
+        }
+        res.status(409).json({ error: err.message });
+        return;
+      }
+
+      // repository was regex-checked to exactly one slash at POST /jobs time,
+      // so slicing around the single separator always yields both parts -
+      // no array destructuring, whose undefined members strict mode would
+      // otherwise demand a guard for.
+      const slashAt = current.repository.indexOf('/');
+      const sourceOwner = current.repository.slice(0, slashAt);
+      const sourceRepo = current.repository.slice(slashAt + 1);
+      // The title carries the job id where triage sees it first (ENT-4.5),
+      // and the body carries the same hashes the API projects, so anyone
+      // holding the public PR alone can tie it to job and agreed spec
+      // without calling this service (invariant 2) - plus the factual line
+      // about write access, because invariant 1 is part of the claim.
+      const title = `FreeAgents job ${jobId}`;
+      const body = [
+        `Job: ${jobId}`,
+        `Repository: ${current.repository}`,
+        `Brief hash: ${current.briefHash}`,
+        `Spec hash: ${String(current.confirmedSpecHash)}`,
+        '',
+        'This pull request was opened by FreeAgents against a fork it controls; the platform holds no write access to the source repository.',
+      ].join('\n');
+
+      // Any failure here is platform-side unavailability, not caller error:
+      // 503 with the cause logged, nothing recorded - mirroring the
+      // account-proof github leg, so both github-facing routes answer alike.
+      let ref: PullRequestRef;
+      try {
+        ref = await github.forkAndOpenPullRequest({
+          sourceOwner,
+          sourceRepo,
+          branch: `freeagents/${jobId}`,
+          title,
+          body,
+        });
+      } catch (err) {
+        console.error('POST /jobs/:jobId/pull-request: github unavailable', err);
+        res.status(503).json({ error: 'github unavailable' });
+        return;
+      }
+      const pullRequestUrl = `https://github.com/${ref.owner}/${ref.repo}/pull/${ref.number}`;
+
+      // The domain applies its rule and the shared skeleton persists it:
+      // JobError->400, transition->409, vanished row->404, dead storage->503,
+      // exactly like every sibling route after confirm.
+      await runExchange('POST /jobs/:jobId/pull-request', jobId, res, (job) =>
+        submitPullRequest(job, pullRequestUrl, new Date()),
+      );
+    }),
+  );
+
   app.post('/jobs/:jobId/merge', notImplemented);
   app.post('/jobs/:jobId/reviews', notImplemented);
 
