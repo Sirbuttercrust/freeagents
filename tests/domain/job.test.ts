@@ -258,6 +258,20 @@ describe('criteria exchange', () => {
     expect(() => proposeCriteria(job, [{ text: 'fine', proposedBy: 'nobody' }])).toThrow(JobError);
   });
 
+  // The API guard shadows this clause (a numeric text 400s there), so only a
+  // direct call proves it: without the typeof check, .trim() on the impostor
+  // throws TypeError - a 500 - where the domain owes a JobError.
+  it('rejects a non-string criterion text with JobError, not TypeError', () => {
+    const job = draft();
+    const input = [
+      { text: 42 as unknown as string, proposedBy: 'agent' },
+      { text: null as unknown as string, proposedBy: 'buyer' },
+    ];
+
+    expect(() => proposeCriteria(job, input)).toThrow(JobError);
+    expect(() => proposeCriteria(job, input)).not.toThrow(TypeError);
+  });
+
   it('rejects an out-of-range or non-integer accept index', () => {
     const job = proposeCriteria(draft(), proposal());
     expect(() => acceptCriterion(job, -1)).toThrow(JobError);
