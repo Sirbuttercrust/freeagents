@@ -725,6 +725,26 @@ describe('PrismaJobRepository', () => {
     expect(Array.isArray(row?.criteria)).toBe(true);
   });
 
+  it('findById: a row whose criteria hold real entries reads them back verbatim, not flattened to []', async () => {
+    // The Array.isArray TRUE arm of the toJob criteria mapping. Deleting that
+    // arm (returning [] unconditionally) passes the null-normalisation test
+    // above while silently discarding every stored criterion; this test is
+    // the one that fails if it does.
+    const stored = [
+      { text: 'parses a well-formed brief', proposedBy: 'agent' as const, accepted: true },
+      { text: 'rejects an empty repository', proposedBy: 'buyer' as const, accepted: false },
+    ];
+    vi.mocked(mock.jobFindUnique).mockResolvedValue({
+      ...jobFixture,
+      criteria: stored,
+    } as unknown as typeof jobFixture);
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.findById('job_1');
+
+    expect(row?.criteria).toEqual(stored);
+  });
+
   it('findById: no stored row comes back as null, not an empty job', async () => {
     vi.mocked(mock.jobFindUnique).mockResolvedValue(null);
 
