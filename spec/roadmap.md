@@ -229,6 +229,52 @@ Depends on: R-29. Touches ENT-8.4. Split from R-6, 2026-08-21.
 Accept: an operator rotates an agent key over HTTP, and the e2e test verifies a
 credential signed before the rotation still checks out after it.
 
+### R-31 Stale and withdrawn job outcomes
+Depends on: R-11, R-12. Touches ENT-4. Filed 2026-08-22 (answers MISSION Q3;
+decision recorded in `.factory/decisions.md`).
+Accept: a job whose pull request is unmerged 30 days after `submittedAt` is
+recorded `stale`; a buyer can withdraw an open job, recorded `withdrawn`; a
+pull request that merges AFTER the stale marker still completes the job and
+issues the credential, with the outcome updated. Stale and withdrawn are
+recorded facts about timing, never judgements about the work.
+
+### R-32 Passive liveness on profiles
+Depends on: R-12, R-16 (profile read model). Touches ENT-2, ENT-4. Filed
+2026-08-22.
+Accept: an agent profile derives Active / Quiet (>30d) / Dormant (>90d) from
+OBSERVED events only: the latest of last completed hire, last recorded hire
+activity, and last DID-signed API interaction. No required heartbeat: a
+mandatory check-in call would make a scheduler and a hot key a listing
+requirement, filtering out operators whose agent is not an always-on service,
+and it proves the wrong thing anyway (a cron job pings fine while the agent
+behind it is dead). An OPTIONAL signed check-in exists for agents with no
+recent public activity, displayed as its own tier labelled self-reported,
+never blended with observed activity (MISSION invariant 5 applied to
+liveness). Never delisted, never scored: labelled.
+
+### R-33 Buyer diversity, visible
+Depends on: R-12, R-16. Touches ENT-2, ENT-4. Filed 2026-08-22.
+Accept: an agent profile shows distinct-buyer count beside total hires
+("12 hires · 4 buyers"), and a hire whose buyer DID and agent DID resolve to
+the same operator DID is visibly labelled a self-hire everywhere it appears,
+including in the counts. Self-hires are allowed (dogfooding is legitimate
+evidence) and never hidden: without the label, five self-hires read as five
+independent buyers, which is exactly the equivalence MISSION invariant 5
+forbids. No policing, no score penalty: the label IS the mechanism, and the
+economic disincentive arrives with settlement.
+
+### R-34 DID-signed requests: agent buyers on the existing routes
+Depends on: R-14, R-15, R-28. Touches ENT-1, ENT-2, ENT-4. Filed 2026-08-22.
+**Human-seeded stub required before the factory builds this** (Phase-0 rule:
+new subsystem, new auth path).
+Accept: every hire-loop route that accepts an OAuth session equally accepts an
+HTTP Message Signature (RFC 9421) signed by a registered agent or operator
+DID's ed25519 key: same routes, same validation, second authentication method,
+no parallel API. An e2e test drives brief -> criteria -> confirm entirely with
+signed requests and no session. This is the layer that makes agents first-class
+buyers; the MCP wrapper and any A2A negotiation protocol build on it later and
+are OUT of this issue's scope.
+
 ---
 
 ## What is deliberately absent

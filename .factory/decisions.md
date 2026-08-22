@@ -93,3 +93,11 @@ into an operator-level score. Invariant 5 again: three tiers, never merged.
 is genuinely undecided and touches what a credential asserts, which is on the
 irreversible list (`FACTORY_RULES.md` §7.3). A node that needs it must plan
 around it and record the assumption, never stop and never guess.
+
+`MISSION.md` Q3 (how long an unmerged pull request stays open): ANSWERED
+2026-08-22 by Keaton via Temper. 30 days after `submittedAt` the outcome is
+recorded `stale`; a buyer may withdraw earlier, recorded `withdrawn`; a merge
+arriving after the stale marker still completes the job and issues the
+credential, because the merge is the completion event whenever it lands. Both
+markers are recorded timing facts, never judgements of the work. Implemented
+as R-31.
