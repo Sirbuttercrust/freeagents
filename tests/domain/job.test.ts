@@ -40,13 +40,25 @@ const proposal = (): Array<{ text: string; proposedBy: string }> => [
   { text: 'Checkout e2e test passes', proposedBy: 'agent' },
 ];
 
+// A proposal every party has accepted - what confirmSpec requires (ENT-6.2).
+function acceptedProposalJob(overrides: Partial<Job> = {}): Job {
+  return proposedJob({
+    status: 'proposed',
+    criteria: [
+      { text: 'The login bug is fixed', proposedBy: 'agent', accepted: true },
+      { text: 'Checkout e2e test passes', proposedBy: 'buyer', accepted: true },
+    ],
+    ...overrides,
+  });
+}
+
 describe('job state machine', () => {
   it('walks proposed -> confirmed -> submitted -> completed', () => {
     const now = new Date('2026-01-02T00:00:00Z');
 
-    const confirmed = confirmSpec(proposedJob(), 'sha256:spec', now);
+    const confirmed = confirmSpec(acceptedProposalJob(), now);
     expect(confirmed.status).toBe('confirmed');
-    expect(confirmed.confirmedSpecHash).toBe('sha256:spec');
+    expect(confirmed.confirmedSpecHash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(confirmed.confirmedAt).toBe(now);
 
     const submitted = submitPullRequest(confirmed, 'https://github.com/buyer/target-repo/pull/1', now);
@@ -74,8 +86,10 @@ describe('job state machine', () => {
   });
 
   it('rejects confirming a job that is not proposed', () => {
+    // The transition check fires before the content gates, so a confirmed
+    // job rejects with JobTransitionError whatever its criteria hold.
     const job = proposedJob({ status: 'confirmed' });
-    expect(() => confirmSpec(job, 'sha256:spec', new Date())).toThrow(JobTransitionError);
+    expect(() => confirmSpec(job, new Date())).toThrow(JobTransitionError);
   });
 
   it('rejects submitting a pull request before the spec is confirmed', () => {
@@ -168,9 +182,12 @@ describe('createJob', () => {
 
     // proposeCriteria (R-8) and confirmSpec each return a new job object;
     // none of them touches the brief, which is the buyer's verbatim record.
-    const proposed = proposeCriteria({ ...job, status: 'draft' }, proposal());
+    const proposed = acceptCriterion(
+      acceptCriterion(proposeCriteria({ ...job, status: 'draft' }, proposal()), 0),
+      1,
+    );
     expect(proposed.brief).toBe(job.brief);
-    const confirmed = confirmSpec(proposed, 'sha256:spec', now);
+    const confirmed = confirmSpec(proposed, now);
     expect(confirmed.brief).toBe(job.brief);
     expect(submitPullRequest(confirmed, 'https://github.com/buyer/target-repo/pull/1', now).brief).toBe(job.brief);
     expect(completeJob(submitPullRequest(confirmed, 'https://github.com/buyer/target-repo/pull/1', now), { mergeCommit: 'abc123', completedAt: now }).job.brief).toBe(job.brief);
@@ -245,7 +262,8 @@ describe('criteria exchange', () => {
   });
 
   it('rejects proposing on a confirmed job', () => {
-    const confirmed = confirmSpec(proposeCriteria(draft(), proposal()), 'sha256:spec', new Date());
+    const proposed = proposeCriteria(draft(), proposal());
+    const confirmed = confirmSpec(acceptCriterion(acceptCriterion(proposed, 0), 1), new Date());
     expect(() => proposeCriteria(confirmed, proposal())).toThrow(JobTransitionError);
     expect(() => requestChanges(confirmed)).toThrow(JobTransitionError);
     expect(() => acceptCriterion(confirmed, 0)).toThrow(JobTransitionError);
@@ -311,13 +329,108 @@ describe('invariant 2: the brief hash is re-computable off-platform', () => {
 
     expect(job.briefHash).toBe(expected);
 
-    // confirmSpec carries the confirmed spec hash through unchanged, and both
-    // digests are plain sha256:<hex> strings: a GitHub API consumer or W3C
-    // verifier checks them against the text it holds, no round-trip here.
+    // Confirm computes its own digest now (R-9), and the brief hash rides
+    // through unchanged; both digests are plain sha256:<hex> strings: a
+    // GitHub API consumer or W3C verifier checks them against the text it
+    // holds, no round-trip here.
     const now = new Date('2026-01-02T00:00:00Z');
-    const confirmed = confirmSpec({ ...job, status: 'proposed' }, 'sha256:' + createHash('sha256').update('spec').digest('hex'), now);
+    const confirmed = confirmSpec(
+      {
+        ...job,
+        status: 'proposed',
+        criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent', accepted: true }],
+      },
+      now,
+    );
     expect(confirmed.briefHash).toBe(expected);
     expect(confirmed.briefHash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(confirmed.confirmedSpecHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+});
+
+// R-9 (ENT-4.2, ENT-6.2): confirm computes the spec hash itself from the
+// stored criteria and enforces the both-parties acceptance gate. Each gate
+// gets its own failing input, so deleting any single guard fails exactly one
+// test here rather than passing silently.
+describe('confirmSpec (R-9)', () => {
+  const now = new Date('2026-01-02T00:00:00Z');
+
+  it('hashes the JOINED criterion texts through the documented normalisation', () => {
+    // A CRLF inside one text and trailing spaces on another: normalisation
+    // runs over the joined string, so what a stranger reproduces is the
+    // per-line trim of the '\n'-joined texts.
+    const job = acceptedProposalJob({
+      criteria: [
+        { text: 'The login bug is fixed\r\non every page  ', proposedBy: 'agent', accepted: true },
+        { text: 'Checkout e2e test passes\t', proposedBy: 'buyer', accepted: true },
+      ],
+    });
+
+    // The documented serialization (A1), recomputed independently - this test
+    // does not call the hashing module:
+    const specText = job.criteria.map((criterion) => criterion.text).join('\n');
+    let normalised = specText
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map((line) => line.trimEnd())
+      .join('\n');
+    if (normalised.endsWith('\n')) {
+      normalised = normalised.slice(0, -1);
+    }
+    const expected = 'sha256:' + createHash('sha256').update(normalised).digest('hex');
+
+    const confirmed = confirmSpec(job, now);
+    expect(confirmed.confirmedSpecHash).toBe(expected);
+    expect(confirmed.confirmedSpecHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+
+    // Property, not a constant: a different agreement hashes differently.
+    const other = confirmSpec(
+      acceptedProposalJob({
+        criteria: [{ text: 'A different criterion entirely', proposedBy: 'agent', accepted: true }],
+      }),
+      now,
+    );
+    expect(other.confirmedSpecHash).not.toBe(confirmed.confirmedSpecHash);
+  });
+
+  it('rejects confirming with no criteria at all: JobError, not TypeError', () => {
+    expect(() => confirmSpec(proposedJob(), now)).toThrow(JobError);
+    expect(() => confirmSpec(proposedJob(), now)).not.toThrow(TypeError);
+  });
+
+  it('rejects confirming while one criterion of two is still unaccepted', () => {
+    const job = acceptedProposalJob({
+      criteria: [
+        { text: 'The login bug is fixed', proposedBy: 'agent', accepted: true },
+        { text: 'Checkout e2e test passes', proposedBy: 'buyer', accepted: false },
+      ],
+    });
+    expect(() => confirmSpec(job, now)).toThrow(JobError);
+  });
+
+  it('names the outstanding count when nothing was accepted', () => {
+    const job = acceptedProposalJob({
+      criteria: [
+        { text: 'The login bug is fixed', proposedBy: 'agent', accepted: false },
+        { text: 'Checkout e2e test passes', proposedBy: 'buyer', accepted: false },
+      ],
+    });
+    expect(() => confirmSpec(job, now)).toThrow(/outstanding/);
+    expect(() => confirmSpec(job, now)).toThrow(/2 of 2 outstanding/);
+  });
+
+  it('returns a new object and leaves the handed-in job untouched', () => {
+    const job = acceptedProposalJob();
+    const confirmed = confirmSpec(job, now);
+    expect(confirmed).not.toBe(job);
+    expect(job.status).toBe('proposed');
+    expect(job.confirmedSpecHash).toBeNull();
+    expect(job.confirmedAt).toBeNull();
+  });
+
+  it('rejects re-confirming an already confirmed job', () => {
+    const confirmed = confirmSpec(acceptedProposalJob(), now);
+    expect(() => confirmSpec(confirmed, now)).toThrow(JobTransitionError);
   });
 });

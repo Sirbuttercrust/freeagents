@@ -80,10 +80,11 @@ describe('app', () => {
   });
 
   it('returns 501 for hire loop route stubs', async () => {
-    // POST /jobs left this post when R-28 implemented it; the surviving
-    // stubs stay honest, asserted through one of them.
-    const confirmPath = '/jobs/j1/confirm';
-    const response = await fetch(`${baseUrl}${confirmPath}`, { method: 'POST' });
+    // POST /jobs left this post when R-28 implemented it, and
+    // POST /jobs/:id/confirm when R-9 did; the surviving stubs stay honest,
+    // asserted through one of them.
+    const pullRequestPath = '/jobs/j1/pull-request';
+    const response = await fetch(`${baseUrl}${pullRequestPath}`, { method: 'POST' });
     expect(response.status).toBe(501);
   });
 

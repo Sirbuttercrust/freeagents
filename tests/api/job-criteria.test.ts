@@ -18,6 +18,7 @@ import { createApp } from '../../src/api/app.js';
 import { MemoryAgentRepository, MemoryJobRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import {
+  acceptCriterion,
   confirmSpec,
   createJob,
   proposeCriteria,
@@ -260,14 +261,14 @@ describe('job criteria exchange (R-8)', () => {
 
   it('answers 409 when the exchange runs against a job not in the exchange', async () => {
     // A confirmed job's criteria are immutable (D2), so proposing is a
-    // conflict. The job is driven to confirmed through the domain directly,
-    // since the confirm route is R-9 and still 501.
+    // conflict. The row is seeded straight into storage as the fixture for
+    // that state.
     const draft = createJob(
       { id: 'j-conflicted', buyerDid: BUYER_DID, agentDid: AGENT_DID, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
       new Date('2026-01-01T00:00:00Z'),
     );
     const proposedJob: Job = proposeCriteria(draft, firstProposal);
-    await jobRepo.create(confirmSpec(proposedJob, 'sha256:spec', new Date()));
+    await jobRepo.create(confirmSpec(acceptCriterion(acceptCriterion(proposedJob, 0), 1), new Date()));
 
     const proposeOnConfirmed = await post('/jobs/j-conflicted/criteria', { criteria: firstProposal });
     expect(proposeOnConfirmed.status).toBe(409);

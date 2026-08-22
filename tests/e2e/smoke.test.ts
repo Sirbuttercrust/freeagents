@@ -40,13 +40,16 @@
  *     proposes criteria, the buyer requests changes, the agent re-proposes,
  *     all on one job row in status proposed - the id never changes and no
  *     second job is created
+ *   - confirm works end to end (R-9): each criterion is accepted, confirm
+ *     computes specHash from the agreed texts, a stranger recomputes it from
+ *     the response alone, and afterwards every editing route refuses the job
  *   - an unknown route is still a 404, so the previous assertion means something
  *
- * It does NOT claim the hire flow completes: a draft now walks to proposed
- * through the criteria exchange, but confirm, pull-request, merge and review
- * handlers stay 501 until their issues land. As their handlers arrive, the
- * flow assertions below replace those 501 expectations one at a time, and the
- * e2e step floor rises with them.
+ * It does NOT claim the hire flow completes: a draft now walks to confirmed
+ * through the criteria exchange and confirm, but pull-request, merge and
+ * review handlers stay 501 until their issues land. As their handlers arrive,
+ * the flow assertions below replace those 501 expectations one at a time, and
+ * the e2e step floor rises with them.
  *
  * THE MARKERS ARE PRINTED ONLY AFTER THE ASSERTIONS THEY DESCRIBE.
  * Printing APP_STARTED before the server is up, or E2E_PASSED in a finally
@@ -245,13 +248,13 @@ describe('the API starts and answers', () => {
     // handler is honest about being unimplemented. What matters for this
     // assertion is that none of them 404, because a route that does not exist
     // cannot be said to have a contract at all.
-    // POST /operators, POST /agents and POST /jobs have left this list:
-    // they are implemented, and their real flows are asserted below. This is
-    // the one-at-a-time replacement the file's design promised.
+    // POST /operators, POST /agents, POST /jobs and POST /jobs/:id/confirm
+    // have left this list: they are implemented, and their real flows are
+    // asserted below. This is the one-at-a-time replacement the file's
+    // design promised.
     const declared: Array<[string, () => Promise<Response>]> = [
       ['GET  /agents/:did/card', () => get('/agents/did:abt:test/card')],
       ['GET  /agents/:did/credentials', () => get('/agents/did:abt:test/credentials')],
-      ['POST /jobs/:id/confirm', () => post('/jobs/j1/confirm')],
       ['POST /jobs/:id/pull-request', () => post('/jobs/j1/pull-request')],
       ['POST /jobs/:id/merge', () => post('/jobs/j1/merge')],
       ['POST /jobs/:id/reviews', () => post('/jobs/j1/reviews')],
@@ -651,6 +654,106 @@ describe('the API starts and answers', () => {
     expect(read.status).toBe(200);
     const readBack = (await read.json()) as Record<string, unknown>;
     expect(readBack).toEqual({ ...draftBody, status: 'proposed', criteria: againBody.criteria });
+  });
+
+  it('confirms a job on the agreed criteria and locks it (R-9)', async () => {
+    // Fresh wallets throughout, as in every flow above. The walk: propose
+    // two criteria, accept both, confirm, and prove both halves of the
+    // issue's accept line - specHash exists and nothing edits the job after.
+    const operatorWallet = fromRandom();
+    const agentWallet = fromRandom();
+    const buyerWallet = fromRandom();
+    const credential = await signW3CDelegation(operatorWallet, agentWallet);
+
+    // 1-2. Register and delegate, as in the flows above.
+    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-confirm' });
+    expect(op.status).toBe(201);
+    const delegated = await post('/agents', {
+      did: agentWallet.toDid(),
+      operator: operatorWallet.toDid(),
+      delegation: credential,
+      name: 'scout',
+      skills: ['triage'],
+    });
+    expect(delegated.status).toBe(201);
+
+    // 3. Open the draft.
+    const draft = await post('/jobs', {
+      buyerDid: buyerWallet.toDid(),
+      agentDid: agentWallet.toDid(),
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug on the checkout page',
+    });
+    expect(draft.status).toBe(201);
+    const draftBody = (await draft.json()) as Record<string, unknown>;
+    expect(draftBody.status).toBe('draft');
+    const jobId = String(draftBody.id);
+
+    // 4. Propose two criteria and accept each one.
+    // The interior CRLF survives proposeCriteria's trim on purpose: it makes
+    // the stranger's normalisation below load-bearing rather than decorative.
+    expect(
+      (
+        await post(`/jobs/${jobId}/criteria`, {
+          criteria: [
+            { text: 'The login bug is fixed\r\non staging', proposedBy: 'agent' },
+            { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
+          ],
+        })
+      ).status,
+    ).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/0/accept`)).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/1/accept`)).status).toBe(200);
+
+    // 5. Confirm: status flips, specHash appears, confirmedAt rides beside it.
+    const confirmed = await post(`/jobs/${jobId}/confirm`);
+    expect(confirmed.status).toBe(200);
+    const confirmedBody = (await confirmed.json()) as Record<string, unknown>;
+    expect(confirmedBody.status).toBe('confirmed');
+    expect(String(confirmedBody.specHash)).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(typeof confirmedBody.confirmedAt).toBe('string');
+
+    // 6. Read back: base eight + criteria + specHash + confirmedAt, no more.
+    const read = await get(`/jobs/${jobId}`);
+    expect(read.status).toBe(200);
+    const readBack = (await read.json()) as Record<string, unknown>;
+    expect(Object.keys(readBack).sort()).toEqual([
+      'agentDid',
+      'brief',
+      'briefHash',
+      'buyerDid',
+      'confirmedAt',
+      'createdAt',
+      'criteria',
+      'id',
+      'repository',
+      'specHash',
+      'status',
+    ]);
+
+    // 7. A stranger recomputes specHash from this response alone: criteria
+    // texts '\n'-joined, documented normalisation written out here, sha256
+    // with node:crypto. No call to the service, no import of its hashing.
+    const joined = (readBack.criteria as Array<{ text: string }>)
+      .map((criterion) => criterion.text)
+      .join('\n');
+    let normalised = joined
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map((line) => line.trimEnd())
+      .join('\n');
+    if (normalised.endsWith('\n')) {
+      normalised = normalised.slice(0, -1);
+    }
+    const recomputed = 'sha256:' + nodeCrypto.createHash('sha256').update(normalised).digest('hex');
+    expect(recomputed).toBe(readBack.specHash);
+
+    // 8. Locked: proposing and pushback are both conflicts now.
+    expect(
+      (await post(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'sneak in', proposedBy: 'agent' }] })).status,
+    ).toBe(409);
+    expect((await post(`/jobs/${jobId}/request-changes`)).status).toBe(409);
   });
 
   it('still 404s an undeclared route', async () => {

@@ -140,9 +140,29 @@ export function isTerminal(status: JobStatus): boolean {
   return TERMINAL_STATUSES.includes(status);
 }
 
-export function confirmSpec(job: Job, confirmedSpecHash: string, now: Date): Job {
+// Confirm computes specHash itself (ENT-4.2): a caller-supplied digest would
+// let the wire disagree with what was agreed. The gates run after the
+// transition check so wrong-status stays a state conflict, not content
+// feedback (ASSUMPTIONS CONFIRM_GATE_STATUS).
+export function confirmSpec(job: Job, now: Date): Job {
   validateJobTransition(job.status, 'confirmed');
-  return { ...job, status: 'confirmed', confirmedSpecHash, confirmedAt: now };
+  if (job.criteria.length === 0) {
+    throw new JobError('confirm needs at least one acceptance criterion: nothing was agreed');
+  }
+  const outstanding = job.criteria.filter((criterion) => !criterion.accepted).length;
+  if (outstanding > 0) {
+    throw new JobError(
+      `confirm needs every criterion accepted: ${outstanding} of ${job.criteria.length} outstanding`,
+    );
+  }
+  // specHash pins WHAT WAS AGREED: the criteria texts in order, '\n'-joined,
+  // through hashSpec's documented normalisation (\n endings, trailing
+  // whitespace stripped per line, no trailing newline). Anyone holding the
+  // criteria can recompute it with node:crypto alone - invariant 2. The
+  // accepted flags are uniformly true here and proposedBy stays visible in
+  // plaintext, so neither belongs in the digest.
+  const specText = job.criteria.map((criterion) => criterion.text).join('\n');
+  return { ...job, status: 'confirmed', confirmedSpecHash: hashSpec(specText), confirmedAt: now };
 }
 
 export function submitPullRequest(job: Job, pullRequestUrl: string, now: Date): Job {
