@@ -11,6 +11,16 @@ export type JobStatus = 'draft' | 'proposed' | 'confirmed' | 'submitted' | 'comp
 
 const TERMINAL_STATUSES: readonly JobStatus[] = ['completed', 'declined'];
 
+// One acceptance criterion of the exchange R-8 owns (ENT-6). A structured
+// list, not free text (D2): each entry a single checkable sentence, either
+// party may propose, and both must accept before confirm (that gate lives
+// at confirm, R-9).
+export interface Criterion {
+  readonly text: string;
+  readonly proposedBy: 'agent' | 'buyer';
+  readonly accepted: boolean;
+}
+
 export interface Job {
   readonly id: string;
   readonly buyerDid: string;
@@ -20,6 +30,10 @@ export interface Job {
   // party holding it can recompute briefHash without calling this service.
   readonly brief: string;
   readonly briefHash: string;
+  // The acceptance criteria as last proposed (ENT-6). Empty until the
+  // exchange starts; replaced wholesale on every re-propose while proposed;
+  // immutable once confirmed (D2). Raw text only: hashing is confirm's job.
+  readonly criteria: Criterion[];
   readonly confirmedSpecHash: string | null;
   readonly status: JobStatus;
   readonly pullRequestUrl: string | null;
@@ -73,6 +87,7 @@ export function createJob(
     briefHash: hashSpec(input.brief),
     confirmedSpecHash: null,
     status: 'draft',
+    criteria: [],
     pullRequestUrl: null,
     confirmedAt: null,
     submittedAt: null,
@@ -158,4 +173,64 @@ export function completeJob(
 export function decline(job: Job): Job {
   validateJobTransition(job.status, 'declined');
   return { ...job, status: 'declined' };
+}
+
+// The acceptance-criteria exchange R-8 owns (ENT-6, D2). The first propose
+// walks draft -> proposed, the edge the transition table already records;
+// every later one replaces the whole list while staying in proposed.
+export function proposeCriteria(
+  job: Job,
+  input: ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>,
+): Job {
+  if (input.length === 0) {
+    throw new JobError('a proposal needs at least one acceptance criterion');
+  }
+  const criteria: Criterion[] = input.map((criterion) => {
+    if (typeof criterion.text !== 'string' || criterion.text.trim() === '') {
+      throw new JobError('every criterion needs non-empty text: what can be checked against it?');
+    }
+    if (criterion.proposedBy !== 'agent' && criterion.proposedBy !== 'buyer') {
+      throw new JobError('proposedBy must be "agent" or "buyer"');
+    }
+    return { text: criterion.text.trim(), proposedBy: criterion.proposedBy, accepted: false };
+  });
+  if (job.status === 'draft') {
+    validateJobTransition(job.status, 'proposed');
+    return { ...job, status: 'proposed', criteria };
+  }
+  if (job.status === 'proposed') {
+    // proposed -> proposed is not a legal transition, and looping must not
+    // invent one: a re-propose replaces the list in place, same status,
+    // same job. Only the first propose crosses the validator.
+    return { ...job, criteria };
+  }
+  throw new JobTransitionError(job.status, 'propose criteria for');
+}
+
+// The buyer's pushback: every acceptance flag resets, so nothing counts as
+// agreed across a change request. Same id, same status, same texts - the
+// next proposeCriteria replaces the list wholesale.
+export function requestChanges(job: Job): Job {
+  if (job.status !== 'proposed') {
+    throw new JobTransitionError(job.status, 'request changes on');
+  }
+  return {
+    ...job,
+    criteria: job.criteria.map((criterion) => ({ ...criterion, accepted: false })),
+  };
+}
+
+// One party accepts one criterion. Domain-only until confirm (R-9) enforces
+// the both-parties gate; idempotent on an already-accepted entry.
+export function acceptCriterion(job: Job, index: number): Job {
+  if (job.status !== 'proposed') {
+    throw new JobTransitionError(job.status, 'accept a criterion on');
+  }
+  if (!Number.isInteger(index) || index < 0 || index >= job.criteria.length) {
+    throw new JobError(`no criterion at index ${index}`);
+  }
+  return {
+    ...job,
+    criteria: job.criteria.map((criterion, i) => (i === index ? { ...criterion, accepted: true } : criterion)),
+  };
 }
