@@ -3,6 +3,7 @@
 // (prisma) sits beside it without touching callers. Adapters may import
 // domain; never the reverse (CLAUDE.md).
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
+import type { Job } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 
 // Thrown by register when the DID already exists, so the API layer can map
@@ -63,4 +64,22 @@ export interface AgentRepository {
   // Null when the agent is not stored, mirroring updateGithubBinding, so
   // the API maps it to 404 without a second lookup.
   recordKeyRotation(did: string, input: KeyRotationInput): Promise<Agent | null>;
+}
+
+// Thrown by JobRepository.create when the id is already stored, so the API
+// layer maps it to 409 without inspecting error messages.
+export class JobAlreadyExistsError extends Error {
+  constructor(id: string) {
+    super(`job ${id} already exists`);
+    this.name = 'JobAlreadyExistsError';
+  }
+}
+
+export interface JobRepository {
+  // Throws JobAlreadyExistsError when the id is already stored.
+  create(job: Job): Promise<Job>;
+  // Null when the job is not stored, so the API maps it to 404 without
+  // a second lookup.
+  update(job: Job): Promise<Job | null>;
+  findById(id: string): Promise<Job | null>;
 }

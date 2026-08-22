@@ -1,10 +1,13 @@
-// The hire loop as a state machine (MISSION.md, "The hire loop"). A job is
-// proposed from a brief, confirmed once the buyer accepts the agent's
-// acceptance criteria, submitted when the agent opens a pull request, and
-// completed when that pull request merges. Declined is reachable from any
-// non-terminal state: a buyer can walk away, or the agent can pass.
+import { hashSpec } from './hashing.js';
 
-export type JobStatus = 'proposed' | 'confirmed' | 'submitted' | 'completed' | 'declined';
+// The hire loop as a state machine (MISSION.md, "The hire loop"). A job is
+// opened as a draft from the buyer's brief, proposed once the criteria
+// exchange starts, confirmed once the buyer accepts the agent's acceptance
+// criteria, submitted when the agent opens a pull request, and completed when
+// that pull request merges. Declined is reachable from any non-terminal
+// state: a buyer can walk away, or the agent can pass.
+
+export type JobStatus = 'draft' | 'proposed' | 'confirmed' | 'submitted' | 'completed' | 'declined';
 
 const TERMINAL_STATUSES: readonly JobStatus[] = ['completed', 'declined'];
 
@@ -13,6 +16,9 @@ export interface Job {
   readonly buyerDid: string;
   readonly agentDid: string;
   readonly repository: string;
+  // The buyer's own prose for the work (ENT-4). Stored verbatim so a third
+  // party holding it can recompute briefHash without calling this service.
+  readonly brief: string;
   readonly briefHash: string;
   readonly confirmedSpecHash: string | null;
   readonly status: JobStatus;
@@ -31,6 +37,47 @@ export interface CompletedJob {
   readonly agentDid: string;
   readonly mergeCommit: string;
   readonly completedAt: Date;
+}
+
+// User-facing: the input was the buyer's to fix, not a system failure.
+// The API layer (R-28) maps this to 400.
+export class JobError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'JobError';
+  }
+}
+
+// Opens a job in draft from the buyer's brief. The brief is the verifiable
+// fact of this record: briefHash is hashSpec of the brief as supplied, so
+// anyone holding the prose can recompute it with off-the-shelf tools.
+export function createJob(
+  input: {
+    readonly id: string;
+    readonly buyerDid: string;
+    readonly agentDid: string;
+    readonly repository: string;
+    readonly brief: string;
+  },
+  now: Date,
+): Job {
+  if (input.brief.trim() === '') {
+    throw new JobError('a job needs a brief: what should the agent do?');
+  }
+  return {
+    id: input.id,
+    buyerDid: input.buyerDid,
+    agentDid: input.agentDid,
+    repository: input.repository,
+    brief: input.brief,
+    briefHash: hashSpec(input.brief),
+    confirmedSpecHash: null,
+    status: 'draft',
+    pullRequestUrl: null,
+    confirmedAt: null,
+    submittedAt: null,
+    createdAt: now,
+  };
 }
 
 export class JobTransitionError extends Error {
@@ -54,7 +101,10 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
   }
   
   // Valid transitions according to the hire loop
+  // draft -> proposed is walked by the criteria exchange R-8 owns; this
+  // table only records the edge.
   const validTransitions: Record<JobStatus, JobStatus[]> = {
+    draft: ['proposed', 'declined'],
     proposed: ['confirmed', 'declined'],
     confirmed: ['submitted', 'declined'],
     submitted: ['completed', 'declined'],
