@@ -36,12 +36,16 @@
  *     registers, delegates an agent, and a buyer's brief opens a job draft
  *     that reads back identically, with brief and briefHash riding the
  *     response so a third party can recompute the hash without the service
+ *   - the acceptance-criteria exchange works end to end (R-8): the agent
+ *     proposes criteria, the buyer requests changes, the agent re-proposes,
+ *     all on one job row in status proposed - the id never changes and no
+ *     second job is created
  *   - an unknown route is still a 404, so the previous assertion means something
  *
- * It does NOT claim a full hire flow works: the draft exists but nothing
- * walks it toward proposed/confirmed yet, so the confirm, pull-request,
- * merge and review handlers stay 501. As their handlers land, the flow
- * assertions below replace those 501 expectations one at a time, and the
+ * It does NOT claim the hire flow completes: a draft now walks to proposed
+ * through the criteria exchange, but confirm, pull-request, merge and review
+ * handlers stay 501 until their issues land. As their handlers arrive, the
+ * flow assertions below replace those 501 expectations one at a time, and the
  * e2e step floor rises with them.
  *
  * THE MARKERS ARE PRINTED ONLY AFTER THE ASSERTIONS THEY DESCRIBE.
@@ -571,6 +575,82 @@ describe('the API starts and answers', () => {
       gist: 'https://github.com/scout-agent/x',
     });
     expect(badUrl.status).toBe(400);
+  });
+
+  it('exchanges acceptance criteria on one job row, more than once', async () => {
+    // The R-8 flow: propose -> request-changes -> re-propose, the loop
+    // running twice without a second job. Fresh wallets throughout, as in
+    // every flow above.
+    const operatorWallet = fromRandom();
+    const agentWallet = fromRandom();
+    const buyerWallet = fromRandom();
+    const credential = await signW3CDelegation(operatorWallet, agentWallet);
+
+    // 1-2. Register and delegate, as in the flows above.
+    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-criteria' });
+    expect(op.status).toBe(201);
+    const delegated = await post('/agents', {
+      did: agentWallet.toDid(),
+      operator: operatorWallet.toDid(),
+      delegation: credential,
+      name: 'scout',
+      skills: ['triage'],
+    });
+    expect(delegated.status).toBe(201);
+
+    // 3. Open the draft.
+    const draft = await post('/jobs', {
+      buyerDid: buyerWallet.toDid(),
+      agentDid: agentWallet.toDid(),
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug on the checkout page',
+    });
+    expect(draft.status).toBe(201);
+    const draftBody = (await draft.json()) as Record<string, unknown>;
+    expect(draftBody.status).toBe('draft');
+    const jobId = String(draftBody.id);
+
+    // 4. The agent proposes criteria: draft -> proposed, nothing accepted.
+    const proposed = await post(`/jobs/${jobId}/criteria`, {
+      criteria: [
+        { text: 'The login bug is fixed', proposedBy: 'agent' },
+        { text: 'Checkout e2e test passes', proposedBy: 'agent' },
+      ],
+    });
+    expect(proposed.status).toBe(200);
+    const proposedBody = (await proposed.json()) as Record<string, unknown>;
+    expect(proposedBody.id).toBe(jobId);
+    expect(proposedBody.status).toBe('proposed');
+    expect(proposedBody.criteria).toEqual([
+      { text: 'The login bug is fixed', proposedBy: 'agent', accepted: false },
+      { text: 'Checkout e2e test passes', proposedBy: 'agent', accepted: false },
+    ]);
+
+    // 5. The buyer pushes back: still proposed, same id.
+    const pushback = await post(`/jobs/${jobId}/request-changes`, {});
+    expect(pushback.status).toBe(200);
+    const pushbackBody = (await pushback.json()) as Record<string, unknown>;
+    expect(pushbackBody.id).toBe(jobId);
+    expect(pushbackBody.status).toBe('proposed');
+
+    // 6. The agent re-proposes: same row again, list replaced.
+    const again = await post(`/jobs/${jobId}/criteria`, {
+      criteria: [{ text: 'One sharper criterion', proposedBy: 'agent' }],
+    });
+    expect(again.status).toBe(200);
+    const againBody = (await again.json()) as Record<string, unknown>;
+    expect(againBody.id).toBe(jobId);
+    expect(againBody.status).toBe('proposed');
+    expect(againBody.criteria).toEqual([
+      { text: 'One sharper criterion', proposedBy: 'agent', accepted: false },
+    ]);
+
+    // 7. Read back: the stored row carries the last proposal, and every
+    // identity field is still the draft's own - no second job was created.
+    const read = await get(`/jobs/${jobId}`);
+    expect(read.status).toBe(200);
+    const readBack = (await read.json()) as Record<string, unknown>;
+    expect(readBack).toEqual({ ...draftBody, status: 'proposed', criteria: againBody.criteria });
   });
 
   it('still 404s an undeclared route', async () => {

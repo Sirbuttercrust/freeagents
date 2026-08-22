@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
+  acceptCriterion,
   completeJob,
   confirmSpec,
   createJob,
@@ -8,10 +9,12 @@ import {
   isTerminal,
   JobError,
   JobTransitionError,
+  proposeCriteria,
+  requestChanges,
   submitPullRequest,
   validateJobTransition,
 } from '../../src/domain/job.js';
-import type { Job } from '../../src/domain/job.js';
+import type { Criterion, Job } from '../../src/domain/job.js';
 
 function proposedJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -23,6 +26,7 @@ function proposedJob(overrides: Partial<Job> = {}): Job {
     briefHash: 'sha256:brief',
     confirmedSpecHash: null,
     status: 'proposed',
+    criteria: [],
     pullRequestUrl: null,
     confirmedAt: null,
     submittedAt: null,
@@ -30,6 +34,11 @@ function proposedJob(overrides: Partial<Job> = {}): Job {
     ...overrides,
   };
 }
+
+const proposal = (): Array<{ text: string; proposedBy: string }> => [
+  { text: 'The login bug is fixed', proposedBy: 'agent' },
+  { text: 'Checkout e2e test passes', proposedBy: 'agent' },
+];
 
 describe('job state machine', () => {
   it('walks proposed -> confirmed -> submitted -> completed', () => {
@@ -157,14 +166,103 @@ describe('createJob', () => {
 
     expect(decline(job).status).toBe('declined');
 
-    // No proposeCriteria exists yet (R-8 owns the criteria exchange), so the
-    // first transition that returns a new job object is confirmSpec, walked
-    // from the proposed state.
-    const confirmed = confirmSpec({ ...job, status: 'proposed' }, 'sha256:spec', now);
+    // proposeCriteria (R-8) and confirmSpec each return a new job object;
+    // none of them touches the brief, which is the buyer's verbatim record.
+    const proposed = proposeCriteria({ ...job, status: 'draft' }, proposal());
+    expect(proposed.brief).toBe(job.brief);
+    const confirmed = confirmSpec(proposed, 'sha256:spec', now);
     expect(confirmed.brief).toBe(job.brief);
     expect(submitPullRequest(confirmed, 'https://github.com/buyer/target-repo/pull/1', now).brief).toBe(job.brief);
     expect(completeJob(submitPullRequest(confirmed, 'https://github.com/buyer/target-repo/pull/1', now), { mergeCommit: 'abc123', completedAt: now }).job.brief).toBe(job.brief);
     expect(decline(confirmed).brief).toBe(job.brief);
+  });
+});
+
+// The acceptance-criteria exchange R-8 owns (ENT-6, D2): propose walks
+// draft -> proposed once, then loops in place; the buyer's pushback resets
+// acceptances; nothing here mutates the job it was handed.
+describe('criteria exchange', () => {
+  const draft = (): Job => proposedJob({ status: 'draft' });
+
+  it('proposes on a draft: proposed status, trimmed texts, all unaccepted', () => {
+    const job = draft();
+    const input = [
+      { text: '  The login bug is fixed  ', proposedBy: 'agent' },
+      { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
+    ];
+
+    const proposed = proposeCriteria(job, input);
+
+    expect(proposed.status).toBe('proposed');
+    expect(proposed.id).toBe(job.id);
+    expect(proposed.criteria).toEqual([
+      { text: 'The login bug is fixed', proposedBy: 'agent', accepted: false },
+      { text: 'Checkout e2e test passes', proposedBy: 'buyer', accepted: false },
+    ] satisfies Criterion[]);
+  });
+
+  it('propose does not mutate the job it was handed', () => {
+    const job = draft();
+    proposeCriteria(job, proposal());
+    expect(job.status).toBe('draft');
+    expect(job.criteria).toEqual([]);
+  });
+
+  it('re-proposes while proposed: the whole list is replaced, same status and id', () => {
+    const proposed = proposeCriteria(draft(), proposal());
+    const revised = [{ text: 'One sharper criterion', proposedBy: 'agent' }];
+
+    const again = proposeCriteria(proposed, revised);
+
+    expect(again.status).toBe('proposed');
+    expect(again.id).toBe(proposed.id);
+    expect(again.criteria).toEqual([{ text: 'One sharper criterion', proposedBy: 'agent', accepted: false }]);
+  });
+
+  it('request changes resets every acceptance, keeping status, id and texts', () => {
+    let job = proposeCriteria(draft(), proposal());
+    job = acceptCriterion(job, 0);
+    expect(job.criteria[0]?.accepted).toBe(true);
+
+    const pushedBack = requestChanges(job);
+
+    expect(pushedBack.status).toBe('proposed');
+    expect(pushedBack.id).toBe(job.id);
+    expect(pushedBack.criteria).toEqual([
+      { text: 'The login bug is fixed', proposedBy: 'agent', accepted: false },
+      { text: 'Checkout e2e test passes', proposedBy: 'agent', accepted: false },
+    ]);
+  });
+
+  it('acceptCriterion flips exactly one flag, idempotently', () => {
+    let job = proposeCriteria(draft(), proposal());
+
+    job = acceptCriterion(job, 1);
+    expect(job.criteria.map((c) => c.accepted)).toEqual([false, true]);
+
+    const repeat = acceptCriterion(job, 1);
+    expect(repeat.criteria).toEqual(job.criteria);
+  });
+
+  it('rejects proposing on a confirmed job', () => {
+    const confirmed = confirmSpec(proposeCriteria(draft(), proposal()), 'sha256:spec', new Date());
+    expect(() => proposeCriteria(confirmed, proposal())).toThrow(JobTransitionError);
+    expect(() => requestChanges(confirmed)).toThrow(JobTransitionError);
+    expect(() => acceptCriterion(confirmed, 0)).toThrow(JobTransitionError);
+  });
+
+  it('rejects an empty list, whitespace text and a bogus proposer with JobError', () => {
+    const job = draft();
+    expect(() => proposeCriteria(job, [])).toThrow(JobError);
+    expect(() => proposeCriteria(job, [{ text: '   \n\t ', proposedBy: 'agent' }])).toThrow(JobError);
+    expect(() => proposeCriteria(job, [{ text: 'fine', proposedBy: 'nobody' }])).toThrow(JobError);
+  });
+
+  it('rejects an out-of-range or non-integer accept index', () => {
+    const job = proposeCriteria(draft(), proposal());
+    expect(() => acceptCriterion(job, -1)).toThrow(JobError);
+    expect(() => acceptCriterion(job, 2)).toThrow(JobError);
+    expect(() => acceptCriterion(job, 0.5)).toThrow(JobError);
   });
 });
 

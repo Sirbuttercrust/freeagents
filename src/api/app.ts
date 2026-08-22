@@ -32,7 +32,14 @@ import {
 } from '../domain/account-proof.js';
 import { isValidOperatorDid } from '../domain/operator-did.js';
 import type { Operator } from '../domain/operator.js';
-import { createJob, JobError, type Job } from '../domain/job.js';
+import {
+  createJob,
+  JobError,
+  JobTransitionError,
+  proposeCriteria,
+  requestChanges,
+  type Job,
+} from '../domain/job.js';
 
 // Route stubs for the hire loop (MISSION.md, "The hire loop"). Every handler
 // here returns 501 until the domain and adapter layers are wired in: the
@@ -65,13 +72,14 @@ function agentProjection(row: Agent): Record<string, unknown> {
   };
 }
 
-// The Job draft projection is the whole response. Exactly these eight fields,
-// nothing more: tests/api/job-invariant2.test.ts asserts the key set, and a
-// ninth field here would be a contract change. brief rides the response
-// beside briefHash so anyone holding both can recompute the hash with
+// The Job draft projection is the whole response. Exactly these eight fields
+// for a draft, nothing more: tests/api/job-invariant2.test.ts asserts the key
+// set, and a ninth field here would be a contract change. brief rides the
+// response beside briefHash so anyone holding both can recompute the hash with
 // off-the-shelf tools, no call to this service (invariant 2). The transition
 // fields are all null at draft and their routes are still 501, so they stay
-// off until their issues land.
+// off until their issues land. criteria joins only once the exchange has
+// something in it (R-8): a draft projects exactly the pinned eight keys.
 function jobProjection(row: Job): Record<string, unknown> {
   return {
     id: row.id,
@@ -81,6 +89,7 @@ function jobProjection(row: Job): Record<string, unknown> {
     brief: row.brief,
     briefHash: row.briefHash,
     status: row.status,
+    ...(row.criteria.length > 0 ? { criteria: row.criteria } : {}),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -536,6 +545,93 @@ export function createApp(
       console.error('GET /jobs/:jobId: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
+  });
+
+  // R-8's shared skeleton for the criteria exchange: load the job, let the
+  // domain apply its rule, persist through repo.update. The error mapping
+  // mirrors POST /jobs — a bad body or a domain rule is the caller's to fix
+  // (400), an unknown id is 404, a state conflict is 409, and storage trouble
+  // is 503 with the cause in the log, not the body.
+  async function runExchange(label: string, jobId: string, res: Response, apply: (job: Job) => Job): Promise<void> {
+    let current: Job | null;
+    try {
+      current = await jobRepo.findById(jobId);
+    } catch (err) {
+      console.error(`${label}: storage failed`, err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (current === null) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+
+    let updated: Job;
+    try {
+      updated = apply(current);
+    } catch (err) {
+      if (err instanceof JobError) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      if (err instanceof JobTransitionError) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+
+    try {
+      const row = await jobRepo.update(updated);
+      if (row === null) {
+        // The row vanished between the read and the write; the id the caller
+        // named does not resolve either way.
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      res.status(200).json(jobProjection(row));
+    } catch (err) {
+      console.error(`${label}: storage failed`, err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  }
+
+  // The agent proposes acceptance criteria, or re-proposes after pushback
+  // (ENT-6, D2): draft -> proposed on the first call, list replaced in place
+  // while proposed. Emptiness, trimming and the proposer enum are the
+  // domain's rules; only the body shape is checked here.
+  app.post('/jobs/:jobId/criteria', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { criteria?: unknown };
+    const input = body.criteria;
+    const wellFormed =
+      Array.isArray(input) &&
+      input.every(
+        (c) =>
+          typeof c === 'object' &&
+          c !== null &&
+          !Array.isArray(c) &&
+          typeof (c as Record<string, unknown>).text === 'string' &&
+          typeof (c as Record<string, unknown>).proposedBy === 'string',
+      );
+    if (!wellFormed) {
+      res.status(400).json({
+        error:
+          'body must be { criteria: [{ text, proposedBy }] }; text and proposedBy are strings, proposedBy is "agent" or "buyer"',
+      });
+      return;
+    }
+    await runExchange('POST /jobs/:jobId/criteria', String(req.params.jobId), res, (job) =>
+      proposeCriteria(
+        job,
+        input as ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>,
+      ),
+    );
+  });
+
+  // The buyer pushes back: every acceptance resets, the job stays in
+  // proposed, no new row. No body is required.
+  app.post('/jobs/:jobId/request-changes', async (req: Request, res: Response) => {
+    await runExchange('POST /jobs/:jobId/request-changes', String(req.params.jobId), res, requestChanges);
   });
 
   app.post('/jobs/:jobId/confirm', notImplemented);
