@@ -104,7 +104,12 @@ describe('job transition validation', () => {
     const now = new Date('2026-01-02T00:00:00Z');
     
     // Test that confirmSpec works correctly
-    const confirmed = confirmSpec(proposedJob(), 'sha256:spec', now);
+    const confirmed = confirmSpec(
+      proposedJob({
+        criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent', accepted: true }],
+      }),
+      now,
+    );
     expect(confirmed.status).toBe('confirmed');
     
     // Test that submitPullRequest works correctly
@@ -127,7 +132,7 @@ describe('job transition validation', () => {
     const now = new Date('2026-01-02T00:00:00Z');
     
     // Test that confirmSpec rejects invalid transitions
-    expect(() => confirmSpec(proposedJob({ status: 'confirmed' }), 'sha256:spec', now)).toThrow(JobTransitionError);
+    expect(() => confirmSpec(proposedJob({ status: 'confirmed' }), now)).toThrow(JobTransitionError);
     
     // Test that submitPullRequest rejects invalid transitions
     expect(() => submitPullRequest(proposedJob(), 'https://example.com/pr/1', now)).toThrow(JobTransitionError);
