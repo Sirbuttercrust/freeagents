@@ -57,6 +57,36 @@ async function get(path: string): Promise<Response> {
   return fetch(`${baseUrl}${path}`);
 }
 
+// A valid draft row as storage would hold it, for scripting findById.
+function draftRow(id: string): Job {
+  return createJob(
+    { id, buyerDid: BUYER_DID, agentDid: AGENT_DID, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
+    new Date('2026-01-01T00:00:00Z'),
+  );
+}
+
+// The exchange's storage-fault branches need a repository that decides what
+// it returns per call, so each fault gets its own server built around a
+// scripted repo - the same shape as the FailingRead test below.
+async function startWith(jobRepo: JobRepository): Promise<{ server: Server; baseUrl: string }> {
+  const agentRepo = new MemoryAgentRepository();
+  await agentRepo.create({
+    did: AGENT_DID,
+    operatorDid: 'did:abt:op-criteria',
+    delegation: delegationFixture() as never,
+    name: 'scout',
+    skills: ['triage'],
+    githubLogin: null,
+  });
+  const server = createApp(new MemoryOperatorRepository(), agentRepo, undefined, undefined, jobRepo).listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('expected server to listen on a port');
+  }
+  return { server, baseUrl: `http://127.0.0.1:${address.port}` };
+}
+
 const firstProposal = [
   { text: '  The login bug is fixed  ', proposedBy: 'agent' },
   { text: 'Checkout e2e test passes', proposedBy: 'agent' },
@@ -192,6 +222,24 @@ describe('job criteria exchange (R-8)', () => {
     const badProposerShape = await post(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'ok', proposedBy: 9 }] });
     expect(badProposerShape.status).toBe(400);
 
+    // The element guard is a conjunction of five conditions, and each one
+    // gets a named input here. null is typeof "object", so only the c !==
+    // null conjunct rejects it - without that conjunct the request reaches
+    // .text on null and crashes the handler instead of answering 400. A
+    // nested array is an object and non-null, so only !Array.isArray(c)
+    // rejects it. A number fails typeof c === 'object', the guard's first
+    // conjunct.
+    const nullElement = await post(`/jobs/${jobId}/criteria`, { criteria: [null] });
+    expect(nullElement.status).toBe(400);
+
+    const nestedArrayElement = await post(`/jobs/${jobId}/criteria`, {
+      criteria: [[{ text: 'ok', proposedBy: 'agent' }]],
+    });
+    expect(nestedArrayElement.status).toBe(400);
+
+    const numberElement = await post(`/jobs/${jobId}/criteria`, { criteria: [7] });
+    expect(numberElement.status).toBe(400);
+
     // An empty list is well-shaped but fails the domain's own rule, which
     // the route maps to 400 with the domain's wording.
     const emptyList = await post(`/jobs/${jobId}/criteria`, { criteria: [] });
@@ -274,6 +322,113 @@ describe('job criteria exchange (R-8)', () => {
     } finally {
       errorLog.mockRestore();
       await new Promise<void>((resolve) => failingServer.close(() => resolve()));
+    }
+  });
+
+  // The write leg has its own two outcomes, and each gets a scripted repo:
+  // update reporting the row gone is a 404, update throwing is a 503. The
+  // read-fault test above never reaches either, so without these the whole
+  // second half of runExchange could be deleted and every existing test
+  // would stay green.
+  it('answers 404 when the row vanishes between read and update', async () => {
+    class VanishingUpdate implements JobRepository {
+      readonly calls: string[] = [];
+      constructor(private readonly row: Job) {}
+      async create(job: Job): Promise<Job> {
+        return job;
+      }
+      async findById(): Promise<Job> {
+        this.calls.push('findById');
+        return this.row;
+      }
+      async update(): Promise<null> {
+        this.calls.push('update');
+        return null;
+      }
+    }
+    const repo = new VanishingUpdate(draftRow('j-vanish'));
+    const { server: vanishingServer, baseUrl: vanishingUrl } = await startWith(repo);
+    try {
+      const res = await fetch(`${vanishingUrl}/jobs/j-vanish/criteria`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ criteria: firstProposal }),
+      });
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: 'not found' });
+      // Both legs ran: findById found the row, then update reported it gone.
+      // A request for an unknown id stops after findById, so the call log is
+      // what pins this response to the vanished-at-update branch rather than
+      // the unknown-id one - same status, different branch, and deleting
+      // this one changes nothing else observable.
+      expect(repo.calls).toEqual(['findById', 'update']);
+    } finally {
+      await new Promise<void>((resolve) => vanishingServer.close(() => resolve()));
+    }
+  });
+
+  it('answers 503 when update throws after a successful read', async () => {
+    class ThrowingUpdate implements JobRepository {
+      async create(): Promise<never> {
+        throw new Error('db down');
+      }
+      async update(): Promise<never> {
+        throw new Error('db down');
+      }
+      async findById(): Promise<Job> {
+        return draftRow('j-throws');
+      }
+    }
+    const { server: throwingServer, baseUrl: throwingUrl } = await startWith(new ThrowingUpdate());
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await fetch(`${throwingUrl}/jobs/j-throws/criteria`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ criteria: firstProposal }),
+      });
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ error: 'storage unavailable' });
+      // The read succeeded here (the test above faults the read), so this
+      // log entry can only come from the write leg's catch. With both legs
+      // covered, neither catch is deletable by anyone.
+      expect(errorLog).toHaveBeenCalled();
+    } finally {
+      errorLog.mockRestore();
+      await new Promise<void>((resolve) => throwingServer.close(() => resolve()));
+    }
+  });
+
+  // The rethrow for a fault that is neither a JobError nor a
+  // JobTransitionError. A stored row that is not really a Job makes
+  // requestChanges throw a TypeError mapping its criteria, which no route
+  // input could otherwise produce; express 4 cannot route such a rejection
+  // on its own, so the forwarded handler hands it to the terminal error
+  // layer, which answers 500 with nothing of the cause in the body.
+  it('rethrows an unexpected domain fault as a 500 through the error layer', async () => {
+    class CorruptedRow implements JobRepository {
+      async create(): Promise<never> {
+        throw new Error('unreachable');
+      }
+      async update(): Promise<null> {
+        return null;
+      }
+      async findById(): Promise<Job> {
+        return { ...draftRow('j-corrupt'), status: 'proposed', criteria: null } as unknown as Job;
+      }
+    }
+    const { server: corruptedServer, baseUrl: corruptedUrl } = await startWith(new CorruptedRow());
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await fetch(`${corruptedUrl}/jobs/j-corrupt/request-changes`, { method: 'POST' });
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: 'internal error' });
+      // Same terms as every other unmapped fault: cause in the log, not the
+      // body.
+      expect(errorLog).toHaveBeenCalled();
+    } finally {
+      errorLog.mockRestore();
+      await new Promise<void>((resolve) => corruptedServer.close(() => resolve()));
     }
   });
 });

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-import express, { type Express, type Request, type Response } from 'express';
+import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 
 import { createGithubAdapter } from '../adapters/github/github.js';
 import type { Gist, GithubAdapter } from '../adapters/github/types.js';
@@ -547,6 +547,18 @@ export function createApp(
     }
   });
 
+  // Express 4 does not route a rejected promise from an async handler to
+  // its error layer: a rethrow like runExchange's would vanish into an
+  // unhandled rejection and take the whole process down. Forwarding the
+  // rejection here keeps the handler's own mapping untouched (JobError is
+  // still mapped to 400 inside runExchange) while anything unexpected
+  // reaches the terminal handler below as a 500 instead of a crash.
+  function forwarded(fn: (req: Request, res: Response) => Promise<void>) {
+    return (req: Request, res: Response, next: NextFunction): void => {
+      fn(req, res).catch(next);
+    };
+  }
+
   // R-8's shared skeleton for the criteria exchange: load the job, let the
   // domain apply its rule, persist through repo.update. The error mapping
   // mirrors POST /jobs — a bad body or a domain rule is the caller's to fix
@@ -600,44 +612,65 @@ export function createApp(
   // (ENT-6, D2): draft -> proposed on the first call, list replaced in place
   // while proposed. Emptiness, trimming and the proposer enum are the
   // domain's rules; only the body shape is checked here.
-  app.post('/jobs/:jobId/criteria', async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { criteria?: unknown };
-    const input = body.criteria;
-    const wellFormed =
-      Array.isArray(input) &&
-      input.every(
-        (c) =>
-          typeof c === 'object' &&
-          c !== null &&
-          !Array.isArray(c) &&
-          typeof (c as Record<string, unknown>).text === 'string' &&
-          typeof (c as Record<string, unknown>).proposedBy === 'string',
+  app.post(
+    '/jobs/:jobId/criteria',
+    forwarded(async (req: Request, res: Response) => {
+      const body = (req.body ?? {}) as { criteria?: unknown };
+      const input = body.criteria;
+      // The element guard is a conjunction of five conditions: typeof
+      // object, non-null, non-array, string text, string proposedBy. Each
+      // conjunct has its own input in tests/api/job-criteria.test.ts - with
+      // any one deleted, its input either falls through to a later check or
+      // crashes, so a test per conjunct is what makes the guard
+      // non-deletable.
+      const wellFormed =
+        Array.isArray(input) &&
+        input.every(
+          (c) =>
+            typeof c === 'object' &&
+            c !== null &&
+            !Array.isArray(c) &&
+            typeof (c as Record<string, unknown>).text === 'string' &&
+            typeof (c as Record<string, unknown>).proposedBy === 'string',
+        );
+      if (!wellFormed) {
+        res.status(400).json({
+          error:
+            'body must be { criteria: [{ text, proposedBy }] }; text and proposedBy are strings, proposedBy is "agent" or "buyer"',
+        });
+        return;
+      }
+      await runExchange('POST /jobs/:jobId/criteria', String(req.params.jobId), res, (job) =>
+        proposeCriteria(
+          job,
+          input as ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>,
+        ),
       );
-    if (!wellFormed) {
-      res.status(400).json({
-        error:
-          'body must be { criteria: [{ text, proposedBy }] }; text and proposedBy are strings, proposedBy is "agent" or "buyer"',
-      });
-      return;
-    }
-    await runExchange('POST /jobs/:jobId/criteria', String(req.params.jobId), res, (job) =>
-      proposeCriteria(
-        job,
-        input as ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>,
-      ),
-    );
-  });
+    }),
+  );
 
   // The buyer pushes back: every acceptance resets, the job stays in
   // proposed, no new row. No body is required.
-  app.post('/jobs/:jobId/request-changes', async (req: Request, res: Response) => {
-    await runExchange('POST /jobs/:jobId/request-changes', String(req.params.jobId), res, requestChanges);
-  });
+  app.post(
+    '/jobs/:jobId/request-changes',
+    forwarded(async (req: Request, res: Response) => {
+      await runExchange('POST /jobs/:jobId/request-changes', String(req.params.jobId), res, requestChanges);
+    }),
+  );
 
   app.post('/jobs/:jobId/confirm', notImplemented);
   app.post('/jobs/:jobId/pull-request', notImplemented);
   app.post('/jobs/:jobId/merge', notImplemented);
   app.post('/jobs/:jobId/reviews', notImplemented);
+
+  // Terminal error layer: a fault that reached here was not mapped by a
+  // route's own catch, so it is our problem, not the caller's. Same terms as
+  // every storage failure - cause in the log, not the body, so nothing the
+  // process said internally leaks out.
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    console.error('unhandled request failure', err);
+    res.status(500).json({ error: 'internal error' });
+  });
 
   return app;
 }
