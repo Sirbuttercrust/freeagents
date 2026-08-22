@@ -33,6 +33,8 @@ import {
 import { isValidOperatorDid } from '../domain/operator-did.js';
 import type { Operator } from '../domain/operator.js';
 import {
+  acceptCriterion,
+  confirmSpec,
   createJob,
   JobError,
   JobTransitionError,
@@ -76,11 +78,20 @@ function agentProjection(row: Agent): Record<string, unknown> {
 // for a draft, nothing more: tests/api/job-invariant2.test.ts asserts the key
 // set, and a ninth field here would be a contract change. brief rides the
 // response beside briefHash so anyone holding both can recompute the hash with
-// off-the-shelf tools, no call to this service (invariant 2). The transition
-// fields are all null at draft and their routes are still 501, so they stay
-// off until their issues land. criteria joins only once the exchange has
-// something in it (R-8): a draft projects exactly the pinned eight keys.
+// off-the-shelf tools, no call to this service (invariant 2). criteria joins
+// only once the exchange has something in it (R-8); confirm (R-9) adds
+// specHash and confirmedAt beside them, so a confirmed job projects the base
+// eight plus criteria, specHash and confirmedAt - a draft still projects
+// exactly the pinned eight keys.
 function jobProjection(row: Job): Record<string, unknown> {
+  // Confirm (R-9) sets hash and timestamp together or neither - one domain
+  // function writes both - so the pair rides one conditional, and the null
+  // check on confirmedAt is what lets TypeScript see the toISOString call
+  // cannot fire on a draft.
+  const confirmation =
+    row.confirmedSpecHash !== null && row.confirmedAt !== null
+      ? { specHash: row.confirmedSpecHash, confirmedAt: row.confirmedAt.toISOString() }
+      : {};
   return {
     id: row.id,
     buyerDid: row.buyerDid,
@@ -90,6 +101,7 @@ function jobProjection(row: Job): Record<string, unknown> {
     briefHash: row.briefHash,
     status: row.status,
     ...(row.criteria.length > 0 ? { criteria: row.criteria } : {}),
+    ...confirmation,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -658,7 +670,30 @@ export function createApp(
     }),
   );
 
-  app.post('/jobs/:jobId/confirm', notImplemented);
+  // Either party records joint agreement on one criterion (ENT-6.2: one
+  // shared flag, "both parties agreed"). Index comes from the path; NaN,
+  // fractions and out-of-range values reach the domain and come back as 400.
+  app.post(
+    '/jobs/:jobId/criteria/:index/accept',
+    forwarded(async (req: Request, res: Response) => {
+      await runExchange('POST /jobs/:jobId/criteria/:index/accept', String(req.params.jobId), res, (job) =>
+        acceptCriterion(job, Number(req.params.index)),
+      );
+    }),
+  );
+
+  // Confirm (R-9, ENT-4.2): the domain computes specHash from the stored
+  // criteria - no request body reaches it, so the wire cannot disagree with
+  // what was agreed. Body-less like request-changes.
+  app.post(
+    '/jobs/:jobId/confirm',
+    forwarded(async (req: Request, res: Response) => {
+      await runExchange('POST /jobs/:jobId/confirm', String(req.params.jobId), res, (job) =>
+        confirmSpec(job, new Date()),
+      );
+    }),
+  );
+
   app.post('/jobs/:jobId/pull-request', notImplemented);
   app.post('/jobs/:jobId/merge', notImplemented);
   app.post('/jobs/:jobId/reviews', notImplemented);
