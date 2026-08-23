@@ -12,6 +12,7 @@ import { fromRandom, type WalletObject } from '@ocap/wallet';
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
+import { renderAvatar } from '../../src/api/avatar.js';
 import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 
@@ -242,6 +243,11 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       githubLogin: stored?.githubLogin,
       proofStatus: stored?.proofStatus,
       createdAt: stored?.createdAt.toISOString(),
+      // R-21: the avatar joined the contract, derived from the DID at
+      // projection time. This expectation is the pinned key set being
+      // updated as part of the contract change, not a test bent to pass -
+      // the new key is asserted against the same derivation the route uses.
+      avatar: renderAvatar(String(stored?.did)),
     });
 
     // A stranger fetching from the public API can verify with no further
