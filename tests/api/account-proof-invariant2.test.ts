@@ -19,6 +19,7 @@ import {
   gistProofPayload,
   githubAccountUrl,
   parseGistStatement,
+  signatureIsWellFormed,
   statementBindsBinding,
 } from '../../src/domain/account-proof.js';
 
@@ -219,6 +220,10 @@ describe('direction two of the GitHub proof, invariant 2', () => {
       ['the tampered statement', statement.replace(AGENT_DID, 'did:abt:zSomeOtherAgentKeyHashFixture')],
       ['a v2 statement', statement.replace('Version: 1', 'Version: 2')],
       ['a statement without the signature', 'version: 1\ndid: ' + AGENT_DID + '\ngithub: ' + agentUrl + '\n'],
+      // Undecodable garbage in the signature field: a third party's standard
+      // primitive rejects it without throwing, and the platform's decode gate
+      // must reach the same conclusion (issue #45: a 409, not an outage).
+      ['a malformed signature', statement.replace(/signature: .*/, 'signature: @@@@')],
       ['an empty file', ''],
     ];
     for (const [label, content] of cases) {
@@ -226,6 +231,7 @@ describe('direction two of the GitHub proof, invariant 2', () => {
       const platform =
         parsed !== null &&
         statementBindsBinding(parsed, AGENT_DID, HANDLE) &&
+        signatureIsWellFormed(parsed.signature) &&
         nodeCrypto.verify(
           null,
           Buffer.from(gistProofPayload(AGENT_DID, agentUrl), 'utf8'),

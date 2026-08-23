@@ -26,6 +26,7 @@ import {
   githubAccountUrl,
   parseGistStatement,
   parseGistUrl,
+  signatureIsWellFormed,
   statementBindsBinding,
   type GistStatement,
   type GistUrlRef,
@@ -437,6 +438,19 @@ export function createApp(
     if (statement === null || !statementBindsBinding(statement, did, handle)) {
       res.status(409).json({
         error: 'direction two (signed gist): the gist does not hold a well-formed statement binding this agent DID to this account',
+      });
+      return;
+    }
+
+    // A signature the verifier cannot even decode - bad base64, wrong length
+    // for ed25519 - is garbage in the gist, intrinsic to the input: reject it
+    // here, where every other malformed-input path in this route lands,
+    // instead of letting a real verify primitive turn it into what reads as
+    // a platform outage.
+    if (!signatureIsWellFormed(statement.signature)) {
+      res.status(409).json({
+        error:
+          'direction two (signed gist): the signature field is not a well-formed ed25519 signature (base64, 64 bytes)',
       });
       return;
     }
