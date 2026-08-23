@@ -2,6 +2,7 @@
 // alsoKnownAs entry pointing at the agent's GitHub account. This is the
 // behaviour test for the pure decision logic: it fails while
 // src/domain/account-proof.ts does not exist and passes once it does.
+import * as nodeCrypto from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   didDocumentPointsAtGithubAccount,
@@ -9,6 +10,7 @@ import {
   githubAccountUrl,
   parseGistStatement,
   parseGistUrl,
+  signatureIsWellFormed,
   statementBindsBinding,
   type GistStatement,
 } from '../../src/domain/account-proof.js';
@@ -16,6 +18,79 @@ import {
 describe('githubAccountUrl', () => {
   it('builds the account URL from the handle', () => {
     expect(githubAccountUrl('scout-agent')).toBe('https://github.com/scout-agent');
+  });
+});
+
+describe('signatureIsWellFormed', () => {
+  // A real ed25519 signature, derived at run time from a real keypair over
+  // the canonical payload: no memorized vectors anywhere in this block.
+  const keys = nodeCrypto.generateKeyPairSync('ed25519');
+  const genuineSignature = nodeCrypto
+    .sign(
+      null,
+      Buffer.from(gistProofPayload('did:abt:zSigCheck', githubAccountUrl('scout-agent')), 'utf8'),
+      keys.privateKey,
+    )
+    .toString('base64');
+
+  it('accepts a genuine signature derived at run time', () => {
+    expect(signatureIsWellFormed(genuineSignature)).toBe(true);
+    // The documented shape, checked against the value just produced rather
+    // than assumed: 88 characters with the canonical '==' padding.
+    expect(genuineSignature.length).toBe(88);
+    expect(genuineSignature.endsWith('==')).toBe(true);
+  });
+
+  it('accepts every signature the same primitive produces, across payloads', () => {
+    // Property, not a single vector: whatever this machine signs must count
+    // as well-formed, or correct operators would be locked out.
+    for (const payload of ['a', 'b'.repeat(1000), gistProofPayload('did:abt:zX', githubAccountUrl('y'))]) {
+      const signature = nodeCrypto.sign(null, Buffer.from(payload, 'utf8'), keys.privateKey).toString('base64');
+      expect(signatureIsWellFormed(signature), payload.slice(0, 10)).toBe(true);
+    }
+  });
+
+  it('accepts the same signature unpadded', () => {
+    expect(signatureIsWellFormed(genuineSignature.slice(0, -2))).toBe(true);
+  });
+
+  it('rejects the empty string', () => {
+    expect(signatureIsWellFormed('')).toBe(false);
+  });
+
+  it('rejects a non-string, never a throw', () => {
+    const notAString = 42 as unknown as string;
+    expect(signatureIsWellFormed(notAString)).toBe(false);
+  });
+
+  it('rejects a character outside base64, wherever it sits', () => {
+    expect(signatureIsWellFormed('!!!!')).toBe(false);
+    expect(signatureIsWellFormed(`${genuineSignature.slice(0, 40)}!${genuineSignature.slice(41)}`)).toBe(false);
+    expect(signatureIsWellFormed('not a signature')).toBe(false);
+  });
+
+  it('rejects padding that is not at the end', () => {
+    expect(signatureIsWellFormed(`${genuineSignature.slice(0, 40)}=${genuineSignature.slice(41)}`)).toBe(false);
+  });
+
+  it('rejects more than two padding characters', () => {
+    expect(signatureIsWellFormed(`${genuineSignature.slice(0, -3)}===`)).toBe(false);
+  });
+
+  it('rejects a base64 body of an impossible length', () => {
+    // 85 alphabet characters decode as 63 bytes and are not a legal padded
+    // length; either way it is not an ed25519 signature.
+    expect(signatureIsWellFormed('A'.repeat(85))).toBe(false);
+  });
+
+  it('rejects a decodable string that is not 64 bytes', () => {
+    expect(signatureIsWellFormed('c2lnbmF0dXJl')).toBe(false); // decodes to 6 bytes
+    expect(signatureIsWellFormed('A'.repeat(44))).toBe(false); // 33 bytes
+    expect(signatureIsWellFormed('A'.repeat(88))).toBe(false); // 66 bytes
+  });
+
+  it('rejects a genuine signature truncated below 64 bytes', () => {
+    expect(signatureIsWellFormed(genuineSignature.slice(0, 84))).toBe(false);
   });
 });
 
