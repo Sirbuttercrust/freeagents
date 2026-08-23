@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,6 +42,22 @@ const FIXTURE_DIDS = [
   'not a did at all',
   '',
 ];
+
+// Digest byte accessor mirroring the renderer's documented derivation; used
+// to locate fixture inputs that exercise each outcome of a selection.
+const byteOf = (did: string, index: number): number =>
+  createHash('sha256').update(did, 'utf8').digest()[index] ?? 0;
+
+// Deterministically searches a small DID space for an input whose byte at
+// `index` hits `residue` mod `mod`, so every arm of a discrete selection gets
+// a pinned input regardless of what the digest values happen to be.
+const findDidWithByteResidue = (label: string, index: number, residue: number, mod: number): string => {
+  for (let n = 0; n < 10000; n++) {
+    const did = `did:abt:${label}${n.toString(36)}`;
+    if (byteOf(did, index) % mod === residue) return did;
+  }
+  throw new Error(`no ${label} fixture found with byte ${index} ≡ ${residue} mod ${mod}`);
+};
 
 describe('renderAvatar', () => {
   it('is deterministic: every fixture renders identically twice', () => {
@@ -96,5 +113,38 @@ describe('renderAvatar', () => {
     expect(renderAvatar('did:abt:a')).not.toBe(renderAvatar('did:abt:b'));
     expect(renderAvatar('did:abt:z1')).not.toBe(renderAvatar('did:abt:z2'));
     expect(renderAvatar('did:abt:agent')).not.toBe(renderAvatar('did:abt:agemt'));
+  });
+
+  // The two tests below are killing tests for the renderer's discrete
+  // digest-derived selections - the branch points where a deletion or a sign
+  // flip still satisfies every property above (determinism, shape, size,
+  // distinctness all hold for either arm). The expected value is NOT a
+  // fabricated constant: it is recomputed here from the documented mapping
+  // (sha256(did), named byte range, modulo) exactly as the source header
+  // specifies it, so the test encodes the spec independently of the code
+  // under test.
+
+  it('pins the mouth bend to byte 23 parity - both ternary arms are load-bearing', () => {
+    for (const residue of [0, 1] as const) {
+      const did = findDidWithByteResidue(`bend${residue}`, 23, residue, 2);
+      const match = /<path d="M \d+ 38 Q 32 (-?\d+) \d+ 38" stroke=/.exec(renderAvatar(did));
+      expect(match, `no mouth path rendered for ${JSON.stringify(did)}`).not.toBeNull();
+      const controlY = match === null ? NaN : Number(match[1]);
+      // Even byte 23 bends +3 (control point below the line), odd bends -3;
+      // deleting the ternary or flipping either arm fails one residue.
+      expect(controlY - 38, `wrong bend arm for ${did}`).toBe(residue === 0 ? 3 : -3);
+    }
+  });
+
+  it('pins the silhouette anchor count to byte 6 across all three residues', () => {
+    for (const residue of [0, 1, 2] as const) {
+      const did = findDidWithByteResidue(`anchors${residue}`, 6, residue, 3);
+      const outline = /<path d="([^"]+)" fill=/.exec(renderAvatar(did));
+      expect(outline, `no outline path rendered for ${JSON.stringify(did)}`).not.toBeNull();
+      const d = outline === null ? '' : (outline[1] ?? '');
+      // The outline is M followed by one Q segment per anchor point.
+      const segments = (d.match(/ Q /g) ?? []).length;
+      expect(segments, `wrong anchor count for ${did}`).toBe(7 + residue);
+    }
   });
 });
