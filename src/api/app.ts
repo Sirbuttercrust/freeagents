@@ -44,6 +44,7 @@ import {
   validateJobTransition,
   type Job,
 } from '../domain/job.js';
+import { renderAvatar } from './avatar.js';
 
 // The hire-loop routes still honest about being unbuilt (R-11 merge, R-12
 // reviews): they return 501 until their issues land. Everything earlier in
@@ -63,6 +64,14 @@ function operatorProjection(row: Operator): Record<string, unknown> {
   };
 }
 
+// The Agent record projection is the whole response. Exactly these nine
+// fields, nothing more: tests/api/agent-invariant2.test.ts asserts the key
+// set, and a tenth field here would be a contract change. avatar (R-21) is
+// derived at projection time from row.did and rides the base key set
+// unconditionally - every agent has a DID, so there is no state to wait on;
+// conditional-spread style stays reserved for fields a row may lack
+// (jobProjection's confirmation pair). It can never be client-supplied:
+// nothing reads body.avatar anywhere.
 function agentProjection(row: Agent): Record<string, unknown> {
   return {
     did: row.did,
@@ -73,6 +82,7 @@ function agentProjection(row: Agent): Record<string, unknown> {
     githubLogin: row.githubLogin,
     proofStatus: row.proofStatus,
     createdAt: row.createdAt.toISOString(),
+    avatar: renderAvatar(row.did),
   };
 }
 
