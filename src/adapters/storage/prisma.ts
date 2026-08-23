@@ -2,7 +2,7 @@
 // only file in the repository that knows Postgres exists.
 import { Prisma, PrismaClient } from '../../generated/prisma/index.js';
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
-import type { Criterion, Job, JobStatus } from '../../domain/job.js';
+import type { CompletedJob, Criterion, Job, JobStatus } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
 import {
@@ -196,6 +196,8 @@ interface JobRow {
   criteria: unknown;
   status: JobStatus;
   pullRequestUrl: string | null;
+  mergeCommit: string | null;
+  mergedAt: Date | null;
   confirmedAt: Date | null;
   submittedAt: Date | null;
   createdAt: Date;
@@ -218,6 +220,8 @@ export class PrismaJobRepository implements JobRepository {
           criteria: job.criteria,
           status: job.status,
           pullRequestUrl: job.pullRequestUrl,
+          mergeCommit: job.mergeCommit,
+          mergedAt: job.mergedAt,
           confirmedAt: job.confirmedAt,
           submittedAt: job.submittedAt,
           createdAt: job.createdAt,
@@ -270,6 +274,59 @@ export class PrismaJobRepository implements JobRepository {
     const row = await db().job.findUnique({ where: { id } });
     return row === null ? null : toJob(row as unknown as JobRow);
   }
+
+  async complete(job: Job, _completedJob: Omit<CompletedJob, 'id'>): Promise<Job | null> {
+    try {
+      const row = await db().job.update({
+        where: { id: job.id },
+        // The merge columns are written here and nowhere else: update
+        // deliberately omits them, so a non-merge transition can never
+        // clear or forge the observed facts.
+        data: {
+          buyerDid: job.buyerDid,
+          agentDid: job.agentDid,
+          repository: job.repository,
+          brief: job.brief,
+          briefHash: job.briefHash,
+          confirmedSpecHash: job.confirmedSpecHash,
+          criteria: job.criteria,
+          status: job.status,
+          pullRequestUrl: job.pullRequestUrl,
+          mergeCommit: job.mergeCommit,
+          mergedAt: job.mergedAt,
+          confirmedAt: job.confirmedAt,
+          submittedAt: job.submittedAt,
+          createdAt: job.createdAt,
+        } as unknown as Prisma.JobUpdateInput,
+      });
+      return toJob(row as unknown as JobRow);
+    } catch (err) {
+      // P2025 is Prisma's "record to update not found" error code: the
+      // row was gone between the read and the write, and the API layer
+      // maps the null to 404.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  async findCompletedByJobId(id: string): Promise<CompletedJob | null> {
+    const row = await db().job.findUnique({ where: { id } });
+    if (row === null) return null;
+    const job = toJob(row as unknown as JobRow);
+    // A job that never completed has no completed record to read back, so
+    // it is null like an unknown id.
+    if (job.mergeCommit === null || job.mergedAt === null) return null;
+    return {
+      id: job.id,
+      jobId: job.id,
+      buyerDid: job.buyerDid,
+      agentDid: job.agentDid,
+      mergeCommit: job.mergeCommit,
+      completedAt: job.mergedAt,
+    };
+  }
 }
 
 // Every Job field, no omissions: a dropped field here is a silent loss of
@@ -289,6 +346,8 @@ function toJob(row: JobRow): Job {
     criteria: Array.isArray(row.criteria) ? (row.criteria as Criterion[]) : [],
     status: row.status,
     pullRequestUrl: row.pullRequestUrl,
+    mergeCommit: row.mergeCommit,
+    mergedAt: row.mergedAt,
     confirmedAt: row.confirmedAt,
     submittedAt: row.submittedAt,
     createdAt: row.createdAt,

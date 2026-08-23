@@ -527,6 +527,12 @@ describe('app, job storage failures', () => {
     async update(): Promise<never> {
       throw failure;
     }
+    async complete(): Promise<never> {
+      throw failure;
+    }
+    async findCompletedByJobId(): Promise<never> {
+      throw failure;
+    }
     async findById(): Promise<never> {
       throw failure;
     }
@@ -637,6 +643,12 @@ describe('app, job id collision', () => {
       throw new JobAlreadyExistsError('j-drawn-this-request');
     }
     async update(): Promise<null> {
+      return null;
+    }
+    async complete(): Promise<null> {
+      return null;
+    }
+    async findCompletedByJobId(): Promise<null> {
       return null;
     }
     async findById(): Promise<null> {

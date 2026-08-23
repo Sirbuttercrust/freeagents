@@ -84,6 +84,11 @@ model Job {
   criteria          Json?
   status            JobStatus @default(proposed)
   pullRequestUrl    String?
+  // The observed merge facts (ENT-7.1): written only when the pull request
+  // merges, from GitHub's report, never from a party's claim. Nullable:
+  // null until completion.
+  mergeCommit       String?
+  mergedAt          DateTime?
   confirmedAt       DateTime?
   submittedAt       DateTime?
   createdAt         DateTime  @default(now())

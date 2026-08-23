@@ -293,6 +293,12 @@ describe('job criteria exchange (R-8)', () => {
       async update(): Promise<null> {
         return null;
       }
+      async complete(): Promise<null> {
+        return null;
+      }
+      async findCompletedByJobId(): Promise<null> {
+        return null;
+      }
       async findById(): Promise<never> {
         throw new Error('db down');
       }
@@ -346,6 +352,12 @@ describe('job criteria exchange (R-8)', () => {
         this.calls.push('update');
         return null;
       }
+      async complete(): Promise<null> {
+        return null;
+      }
+      async findCompletedByJobId(): Promise<null> {
+        return null;
+      }
     }
     const repo = new VanishingUpdate(draftRow('j-vanish'));
     const { server: vanishingServer, baseUrl: vanishingUrl } = await startWith(repo);
@@ -375,6 +387,12 @@ describe('job criteria exchange (R-8)', () => {
       }
       async update(): Promise<never> {
         throw new Error('db down');
+      }
+      async complete(): Promise<never> {
+        throw new Error('unreachable');
+      }
+      async findCompletedByJobId(): Promise<never> {
+        throw new Error('unreachable');
       }
       async findById(): Promise<Job> {
         return draftRow('j-throws');
@@ -412,6 +430,12 @@ describe('job criteria exchange (R-8)', () => {
         throw new Error('unreachable');
       }
       async update(): Promise<null> {
+        return null;
+      }
+      async complete(): Promise<null> {
+        return null;
+      }
+      async findCompletedByJobId(): Promise<null> {
         return null;
       }
       async findById(): Promise<Job> {
