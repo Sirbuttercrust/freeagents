@@ -176,6 +176,10 @@ const gists = new Map<string, Gist>();
 // the flow can assert the buyer's repository was referenced READ-ONLY and
 // the write went to the fork this platform created.
 const forkCalls: ForkAndOpenPullRequestInput[] = [];
+
+// R-21: avatars served for agents delegated along the way. The first lets a
+// later flow prove a different DID renders differently over the wire.
+const delegatedAvatars: string[] = [];
 const githubAdapter: GithubAdapter = {
   getPullRequest: () => Promise.reject(new NotImplementedError('github', 'getPullRequest')),
   getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
@@ -343,7 +347,19 @@ describe('the API starts and answers', () => {
     // 3. Read back: the same body, field for field.
     const read = await get(`/agents/${agentWallet.toDid()}`);
     expect(read.status).toBe(200);
-    expect(await read.json()).toEqual(createdBody);
+    const readBack = (await read.json()) as Record<string, unknown>;
+    expect(readBack).toEqual(createdBody);
+
+    // 3b. R-21: the avatar rides the base projection, derived at serve time
+    // from the agent DID. Shape-checked on the wire and identical between
+    // create and read-back - determinism over HTTP - then remembered so the
+    // file's NEXT delegated agent can be proven to render differently.
+    const createdAvatar = String(createdBody.avatar);
+    expect(createdAvatar.startsWith('<svg')).toBe(true);
+    expect(createdAvatar).toContain('viewBox');
+    expect(createdAvatar.endsWith('</svg>')).toBe(true);
+    expect(readBack.avatar).toBe(createdAvatar);
+    delegatedAvatars.push(createdAvatar);
 
     // 4. The same agent DID twice is a conflict, not a silent overwrite.
     const dup = await post('/agents', {
@@ -394,6 +410,16 @@ describe('the API starts and answers', () => {
       skills: ['triage'],
     });
     expect(delegated.status).toBe(201);
+    // R-21, wire-level distinctness: this is the file's second delegated
+    // agent, so its served avatar must differ from the first one's - a
+    // different DID cannot render the same avatar.
+    const delegatedBody = (await delegated.json()) as Record<string, unknown>;
+    const draftAgentAvatar = String(delegatedBody.avatar);
+    expect(draftAgentAvatar.startsWith('<svg')).toBe(true);
+    expect(delegatedAvatars, 'two distinct agents rendered the same avatar').not.toContain(
+      draftAgentAvatar,
+    );
+    delegatedAvatars.push(draftAgentAvatar);
 
     // 3. Open the draft. brief rides beside briefHash precisely so a third
     // party holding the response can recompute the hash alone (invariant 2).
