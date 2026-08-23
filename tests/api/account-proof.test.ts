@@ -437,6 +437,42 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
     expect(stored?.proofStatus).toBe('unverified');
   });
 
+  it.each([
+    ['characters outside base64', 'did:abt:zAgentProof11', 'vwx234x', '@@@@'],
+    ['decodable base64 of the wrong length', 'did:abt:zAgentProof12', 'yza345', 'c2lnbmF0dXJl'],
+  ])(
+    '409 direction two: a signature of %s is malformed input, not an outage',
+    async (_label, did, gistId, signature) => {
+      await registerAgent(did);
+      documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+      // The statement is well-formed except the signature field: garbage no
+      // ed25519 library can decode. A real verify primitive throws on it,
+      // which must read as a rejection (409), never as platform unavailability.
+      gists.set(gistId, {
+        id: gistId,
+        owner: 'scout-agent',
+        files: { 'proof.txt': gistStatementContent(did, 'https://github.com/scout-agent', signature) },
+      });
+
+      const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+        handle: 'scout-agent',
+        gist: `https://gist.github.com/scout-agent/${gistId}`,
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as Record<string, unknown>;
+      // The message names what the operator can fix; asserting it also kills
+      // the branch: without the decode check this request falls through to
+      // the verifier and lands on the generic wrong-key message instead.
+      expect(String(body.error)).toContain('direction two (signed gist)');
+      expect(String(body.error)).toContain('well-formed ed25519 signature');
+
+      // The rejected attempt recorded nothing.
+      const stored = await agentRepo.findByDid(did);
+      expect(stored?.githubLogin).toBeNull();
+      expect(stored?.proofStatus).toBe('unverified');
+    },
+  );
+
   it('503: github unavailable (fetching the gist fails)', async () => {
     const did = 'did:abt:zAgentProof10';
     await registerAgent(did);

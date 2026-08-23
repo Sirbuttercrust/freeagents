@@ -101,6 +101,28 @@ export function statementBindsBinding(
   return didDocumentPointsAtGithubAccount([statement.github], handle);
 }
 
+// ed25519 signatures are 64 bytes; base64 encodes those as 86 unpadded
+// characters, or 88 with the canonical '==' padding.
+const ED25519_SIGNATURE_BYTES = 64;
+
+// Total: any value in, one boolean out, never a throw. True exactly when the
+// string is a base64 encoding of exactly 64 bytes - the shape every standard
+// ed25519 library emits for a signature. A real verify primitive throws on a
+// signature it cannot decode, so the API runs this before calling it and
+// maps false to 409 as malformed input, instead of letting garbage in the
+// gist read as a platform outage.
+export function signatureIsWellFormed(signature: string): boolean {
+  if (typeof signature !== 'string') return false;
+  const eq = signature.indexOf('=');
+  const body = eq === -1 ? signature : signature.slice(0, eq);
+  const padding = signature.slice(body.length);
+  if (!/^[A-Za-z0-9+/_-]*$/.test(body)) return false;
+  if (!/^={0,2}$/.test(padding)) return false;
+  // Any body length outside the padding rules encodes no whole number of
+  // bytes here: floor(length * 3 / 4) must be exactly the ed25519 size.
+  return Math.floor((body.length * 3) / 4) === ED25519_SIGNATURE_BYTES;
+}
+
 // Total: any value in, one boolean out, never a throw. A half-built or
 // malformed document is "no", so the API maps false to 409 without
 // inspecting error messages, the same shape as delegationConsistent.
