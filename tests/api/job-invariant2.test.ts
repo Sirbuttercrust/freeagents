@@ -23,8 +23,12 @@ import { securityLoader } from '@digitalbazaar/security-document-loader';
 import { fromRandom, type WalletObject } from '@ocap/wallet';
 
 import { createApp } from '../../src/api/app.js';
-import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import type { GithubAdapter, PullRequestSummary } from '../../src/adapters/github/types.js';
+import { NotImplementedError } from '../../src/adapters/not-implemented.js';
+import { MemoryAgentRepository, MemoryJobRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
+import { createJob, type Job } from '../../src/domain/job.js';
 
 // The ArcBlock wallet's secretKey is seed(32)||public(32) in hex.
 function hexToBytes(h: string): Uint8Array {
@@ -195,5 +199,194 @@ describe('job draft, invariant 2 (R-28): the brief hash is verifiable off-platfo
     expect(asTampered).not.toBe(asStored);
     expect(asStored).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(asTampered).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+});
+
+// Invariant 2 for the outcomes (R-12, ENT-7.2): the absence side. A stranger
+// holding ONLY an outcome response - closed_unmerged or stale - must be able
+// to tell off-platform that no hire is being claimed: the projection carries
+// no mergeCommit and no mergedAt, and the brief hash still recomputes from
+// the brief alone. An outcome that projected merge facts could be read as a
+// verified hire, which is the failure this suite exists to catch.
+describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a hire', () => {
+  let server: Server;
+  let baseUrl: string;
+  const operatorWallet = fromRandom();
+  const agentWallet = fromRandom();
+  const FORK_OWNER = 'freeagents-platform';
+  const FORK_REPO = 'target-repo';
+
+  // The PR state is scripted per leg: the outcome comes from github's own
+  // report, exactly as the merge route requires (ENT-7.1).
+  let prState: PullRequestSummary['state'];
+  const github: GithubAdapter = {
+    getPullRequest: (ref) =>
+      Promise.resolve({
+        ref,
+        state: prState,
+        mergeCommitSha: null,
+        mergedAt: null,
+        headSha: 'head-sha-1',
+      }),
+    getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
+    getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
+    forkAndOpenPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: 1 }),
+  };
+
+  beforeAll(async () => {
+    server = createApp(new MemoryOperatorRepository(), new MemoryAgentRepository(), undefined, github, new MemoryJobRepository()).listen(0);
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('expected server to listen on a port');
+    }
+    baseUrl = `http://127.0.0.1:${address.port}`;
+
+    const reg = await postJson(baseUrl, '/operators', {
+      did: operatorWallet.toDid(),
+      githubLogin: 'operator-outcome-inv2',
+    });
+    expect(reg.status).toBe(201);
+
+    const delegated = await postJson(baseUrl, '/agents', {
+      did: agentWallet.toDid(),
+      operator: operatorWallet.toDid(),
+      delegation: await signW3CDelegation(operatorWallet, agentWallet),
+      name: 'scout',
+      skills: ['triage'],
+    });
+    expect(delegated.status).toBe(201);
+  });
+
+  afterAll(() => {
+    server.close();
+  });
+
+  async function walkToSubmitted(jobId: string): Promise<Record<string, unknown>> {
+    expect(
+      (
+        await postJson(baseUrl, `/jobs/${jobId}/criteria`, {
+          criteria: [
+            { text: 'The login bug is fixed', proposedBy: 'agent' },
+            { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
+          ],
+        })
+      ).status,
+    ).toBe(200);
+    expect((await postJson(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {})).status).toBe(200);
+    expect((await postJson(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {})).status).toBe(200);
+    expect((await postJson(baseUrl, `/jobs/${jobId}/confirm`, {})).status).toBe(200);
+
+    const pr = await postJson(baseUrl, `/jobs/${jobId}/pull-request`, {});
+    expect(pr.status).toBe(200);
+    const prBody = (await pr.json()) as Record<string, unknown>;
+    expect(prBody.status).toBe('submitted');
+    // The deadline rides the submission projection: a string a buyer can
+    // hold against the wall clock, written by the domain 30 days out.
+    expect(typeof prBody.deadline).toBe('string');
+    return prBody;
+  }
+
+  it('a closed_unmerged outcome projects no merge facts, and briefHash still recomputes from it', async () => {
+    const res = await postJson(baseUrl, '/jobs', {
+      buyerDid: operatorWallet.toDid(),
+      agentDid: agentWallet.toDid(),
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug on the checkout page',
+    });
+    expect(res.status).toBe(201);
+    const jobId = String(((await res.json()) as Record<string, unknown>).id);
+    await walkToSubmitted(jobId);
+
+    prState = 'closed';
+    const merge = await postJson(baseUrl, `/jobs/${jobId}/merge`, {});
+    expect(merge.status).toBe(200);
+    const body = (await merge.json()) as Record<string, unknown>;
+    expect(body.status).toBe('closed_unmerged');
+
+    // The absence side, asserted on the response alone: no merge fact is
+    // present at all, not present as null. A response that carried merge
+    // facts would let a stranger read this as a completed hire.
+    expect('mergeCommit' in body).toBe(false);
+    expect('mergedAt' in body).toBe(false);
+    expect('mergeCommit' in (await (await fetch(`${baseUrl}/jobs/${jobId}`)).json() as Record<string, unknown>)).toBe(false);
+
+    // And the response stays self-contained: the brief hash recomputes from
+    // the projected brief with off-the-shelf tools, no call beyond this one.
+    const normalised = String(body.brief).replace(/\s+$/, '');
+    const recomputed = 'sha256:' + createHash('sha256').update(normalised).digest('hex');
+    expect(recomputed).toBe(body.briefHash);
+  });
+
+  it('a stale outcome projects no merge facts either', async () => {
+    // A submitted row whose deadline has already passed: relative to the
+    // wall clock, so the leg holds under any run date. No honest HTTP path
+    // can write this, so it is planted, the way the merge suite scripts its
+    // unreachable rows.
+    const submittedAt = new Date(Date.now() - 31 * 86_400_000);
+    const planted: Job = {
+      ...createJob(
+        {
+          id: 'j-outcome-stale',
+          buyerDid: operatorWallet.toDid(),
+          agentDid: agentWallet.toDid(),
+          repository: 'buyer/target-repo',
+          brief: 'Fix the login bug on the checkout page',
+        },
+        new Date(submittedAt.getTime() - 86_400_000),
+      ),
+      status: 'submitted',
+      pullRequestUrl: `https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/1`,
+      submittedAt,
+      deadline: new Date(submittedAt.getTime() + 30 * 86_400_000),
+    };
+    class PlantedJobRepository implements JobRepository {
+      async create(): Promise<never> {
+        throw new Error('unreachable');
+      }
+      async findById(id: string): Promise<Job | null> {
+        return id === planted.id ? planted : null;
+      }
+      // The recorded outcome resolves: this leg asserts on the projection,
+      // not on what storage did with the row.
+      async update(row: Job): Promise<Job> {
+        return row;
+      }
+      async complete(): Promise<never> {
+        throw new Error('unreachable');
+      }
+      async findCompletedByJobId(): Promise<null> {
+        return null;
+      }
+    }
+    // complete's signature is part of the interface; the parameter types
+    // keep the class honest without the leg ever running it.
+    const repo = new PlantedJobRepository();
+
+    const server2 = createApp(
+      new MemoryOperatorRepository(),
+      new MemoryAgentRepository(),
+      undefined,
+      github,
+      repo,
+    ).listen(0);
+    await new Promise<void>((resolve) => server2.once('listening', resolve));
+    const address = server2.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('expected server to listen on a port');
+    }
+    const base = `http://127.0.0.1:${address.port}`;
+    try {
+      prState = 'open';
+      const merge = await postJson(base, `/jobs/${planted.id}/merge`, {});
+      expect(merge.status).toBe(200);
+      const body = (await merge.json()) as Record<string, unknown>;
+      expect(body.status).toBe('stale');
+      expect(typeof body.deadline).toBe('string');
+      expect('mergeCommit' in body).toBe(false);
+      expect('mergedAt' in body).toBe(false);
+    } finally {
+      server2.close();
+    }
   });
 });

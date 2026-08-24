@@ -41,6 +41,8 @@ import {
   JobError,
   JobTransitionError,
   proposeCriteria,
+  recordClosedUnmerged,
+  recordStale,
   requestChanges,
   submitPullRequest,
   validateJobTransition,
@@ -98,11 +100,14 @@ function agentProjection(row: Agent): Record<string, unknown> {
 // only once the exchange has something in it (R-8); confirm (R-9) adds
 // specHash and confirmedAt beside them, so a confirmed job projects the base
 // eight plus criteria, specHash and confirmedAt - a draft still projects
-// exactly the pinned eight keys. Submit (R-10) adds pullRequestUrl and
-// submittedAt the same conditional way: they appear only on a submitted job.
-// Merge (R-11) adds mergeCommit and mergedAt the same way again: a completed
-// job projects the submitted keyset plus exactly those two, both observed
-// from GitHub rather than asserted (ENT-7.1).
+// exactly the pinned eight keys. Submit (R-10) adds pullRequestUrl,
+// submittedAt and deadline the same conditional way: they appear only on a
+// submitted job and every state after it. Merge (R-11) adds mergeCommit and
+// mergedAt the same way again: a completed job projects the submitted keyset
+// plus exactly those two, both observed from GitHub rather than asserted
+// (ENT-7.1). Outcomes (R-12, ENT-7.2) add nothing: a closed_unmerged or
+// stale job projects the submitted keyset minus nothing and gains no merge
+// facts, so an unhappy outcome can never read as a verified hire.
 function jobProjection(row: Job): Record<string, unknown> {
   // Confirm (R-9) sets hash and timestamp together or neither - one domain
   // function writes both - so the pair rides one conditional, and the null
@@ -112,12 +117,17 @@ function jobProjection(row: Job): Record<string, unknown> {
     row.confirmedSpecHash !== null && row.confirmedAt !== null
       ? { specHash: row.confirmedSpecHash, confirmedAt: row.confirmedAt.toISOString() }
       : {};
-  // The same one-writer rule for submit (R-10): submitPullRequest writes both
-  // fields or neither, so both ride one conditional. A confirmed job keeps
-  // exactly the eleven pinned keys.
+  // The same one-writer rule for submit (R-10): submitPullRequest writes all
+  // three fields or none, so all three ride one conditional. deadline is
+  // null on rows written before R-12, and stays null there - the projection
+  // never invents one. A confirmed job keeps exactly the eleven pinned keys.
   const submission =
     row.pullRequestUrl !== null && row.submittedAt !== null
-      ? { pullRequestUrl: row.pullRequestUrl, submittedAt: row.submittedAt.toISOString() }
+      ? {
+          pullRequestUrl: row.pullRequestUrl,
+          submittedAt: row.submittedAt.toISOString(),
+          deadline: row.deadline === null ? null : row.deadline.toISOString(),
+        }
       : {};
   // The same one-writer rule for merge (R-11): completeJob writes both
   // fields or neither, so both ride one conditional. A completed job keeps
@@ -836,8 +846,11 @@ export function createApp(
 
   // R-11 (ENT-7.1): the merge is observed from GitHub's API, never asserted
   // by either party. The route never trusts a client-supplied state - it
-  // always asks github directly, and a non-merged answer records nothing
-  // and leaves the job submitted.
+  // always asks github directly. A non-merged answer records the outcome it
+  // reports, never hides it (R-12, ENT-7.2): closed-unmerged becomes
+  // closed_unmerged, and an open PR past its deadline becomes stale. Stale
+  // is not terminal - a merge observed after the stale marker still
+  // completes the job (D3 2026-08-22).
   app.post(
     '/jobs/:jobId/merge',
     forwarded(async (req: Request, res: Response) => {
@@ -855,14 +868,24 @@ export function createApp(
         res.status(404).json({ error: 'not found' });
         return;
       }
+      // Captured as a const so the outcome recorder below, an async closure,
+      // sees the narrowed non-null row.
+      const job = current;
 
-      // A known status other than submitted is a conflict before github is
-      // ever asked. A corrupted (non-enum) status is not in this list, so it
-      // falls through and is caught by completeJob's own validator below -
-      // the same contract the pull-request route uses for its
-      // corrupted-status leg.
-      const nonSubmittedStatuses: readonly JobStatus[] = ['draft', 'proposed', 'confirmed', 'completed'];
-      if (nonSubmittedStatuses.includes(current.status)) {
+      // A known status other than submitted or stale is a conflict before
+      // github is ever asked. stale falls through on purpose (D3 2026-08-22):
+      // a merge after the stale marker still completes, so its PR is still
+      // observed. A corrupted (non-enum) status is not in this list either,
+      // so it falls through to completeJob's own validator below - the same
+      // contract the pull-request route uses for its corrupted-status leg.
+      const nonObservationStatuses: readonly JobStatus[] = [
+        'draft',
+        'proposed',
+        'confirmed',
+        'completed',
+        'closed_unmerged',
+      ];
+      if (nonObservationStatuses.includes(current.status)) {
         res.status(409).json({ error: new JobTransitionError(current.status, 'merge').message });
         return;
       }
@@ -895,12 +918,57 @@ export function createApp(
         return;
       }
 
+      // R-12 (ENT-7.2): record the observed outcome, with the same storage
+      // legs as the merged answer below - transition conflict 409, vanished
+      // row 404, dead storage 503 with the cause in the log.
+      const recordOutcome = async (record: (job: Job) => Job): Promise<void> => {
+        let next: Job;
+        try {
+          next = record(job);
+        } catch (err) {
+          // Covers a row whose status moved between the read and here (and,
+          // for the closed leg, a row already recorded stale: stale ->
+          // closed_unmerged is R-31's edge, not this table's).
+          if (err instanceof JobTransitionError) {
+            res.status(409).json({ error: err.message });
+            return;
+          }
+          throw err;
+        }
+        try {
+          const row = await jobRepo.update(next);
+          if (row === null) {
+            // The row vanished between the read and the write.
+            res.status(404).json({ error: 'not found' });
+            return;
+          }
+          res.status(200).json(jobProjection(row));
+        } catch (err) {
+          console.error('POST /jobs/:jobId/merge: storage failed', err);
+          res.status(503).json({ error: 'storage unavailable' });
+        }
+      };
+
       if (summary.state === 'open') {
-        res.status(409).json({ error: 'pull request is open; it has not merged yet' });
+        if (job.status === 'stale') {
+          // Recording stale twice is not a no-op: the outcome is already on
+          // record, so a second open observation is a conflict, not a
+          // rewrite.
+          res.status(409).json({ error: 'the job is already recorded stale and the pull request is still open' });
+          return;
+        }
+        // Lazy detection: this route is the only observation point this
+        // codebase has, so the deadline is checked here rather than by a
+        // scheduler. Pre-R-12 rows carry no deadline and keep the 409.
+        if (job.deadline !== null && Date.now() >= job.deadline.getTime()) {
+          await recordOutcome(recordStale);
+        } else {
+          res.status(409).json({ error: 'pull request is open; it has not merged yet' });
+        }
         return;
       }
       if (summary.state === 'closed') {
-        res.status(409).json({ error: 'pull request is closed without merging; it cannot merge' });
+        await recordOutcome(recordClosedUnmerged);
         return;
       }
 

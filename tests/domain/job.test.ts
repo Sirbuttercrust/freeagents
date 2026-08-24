@@ -10,8 +10,11 @@ import {
   JobError,
   JobTransitionError,
   proposeCriteria,
+  recordClosedUnmerged,
+  recordStale,
   requestChanges,
   submitPullRequest,
+  STALE_AFTER_DAYS,
   validateJobTransition,
 } from '../../src/domain/job.js';
 import type { Criterion, Job } from '../../src/domain/job.js';
@@ -32,6 +35,7 @@ function proposedJob(overrides: Partial<Job> = {}): Job {
     mergedAt: null,
     confirmedAt: null,
     submittedAt: null,
+    deadline: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
   };
@@ -116,13 +120,114 @@ describe('job state machine', () => {
     expect(() => decline(completed)).toThrow(JobTransitionError);
   });
 
-  it('treats completed and declined as terminal, nothing else', () => {
+  it('treats completed, declined and closed_unmerged as terminal; stale is not', () => {
     expect(isTerminal('completed')).toBe(true);
     expect(isTerminal('declined')).toBe(true);
+    expect(isTerminal('closed_unmerged')).toBe(true);
+    expect(isTerminal('stale')).toBe(false);
     expect(isTerminal('draft')).toBe(false);
     expect(isTerminal('proposed')).toBe(false);
     expect(isTerminal('confirmed')).toBe(false);
     expect(isTerminal('submitted')).toBe(false);
+  });
+});
+
+// R-12 (ENT-7.2): non-merge outcomes are recorded, not hidden. The table is
+// the single source of truth, so each new edge gets a direct pin.
+describe('job outcomes (R-12)', () => {
+  const submitted = (): Job =>
+    proposedJob({
+      status: 'submitted',
+      pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1',
+      submittedAt: new Date('2026-02-01T00:00:00Z'),
+      deadline: new Date('2026-03-03T00:00:00Z'),
+      criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent', accepted: true }],
+    });
+
+  it('walks submitted -> closed_unmerged and submitted -> stale', () => {
+    expect(validateJobTransition('submitted', 'closed_unmerged')).toBe('closed_unmerged');
+    expect(validateJobTransition('submitted', 'stale')).toBe('stale');
+  });
+
+  it('stale is not terminal: a merge after the stale marker still completes (D3)', () => {
+    expect(validateJobTransition('stale', 'completed')).toBe('completed');
+    expect(validateJobTransition('stale', 'declined')).toBe('declined');
+  });
+
+  it('closed_unmerged is terminal: nothing transitions out of it', () => {
+    expect(() => validateJobTransition('closed_unmerged', 'completed')).toThrow(JobTransitionError);
+    expect(() => validateJobTransition('closed_unmerged', 'stale')).toThrow(JobTransitionError);
+    expect(() => validateJobTransition('closed_unmerged', 'declined')).toThrow(JobTransitionError);
+  });
+
+  it('an outcome update after stale is not this state machine\'s edge (R-31 owns it)', () => {
+    expect(() => validateJobTransition('stale', 'closed_unmerged')).toThrow(JobTransitionError);
+  });
+
+  it('submitPullRequest writes deadline as submittedAt + 30 days, exactly', () => {
+    const now = new Date('2026-02-01T12:30:00Z');
+    const submitted = submitPullRequest(proposedJob({ status: 'confirmed' }), 'https://github.com/buyer/target-repo/pull/1', now);
+    // STALE_AFTER_DAYS is the D3 value; deriving the expectation from it keeps
+    // the test honest if the constant ever moves, and the ISO pin proves the
+    // offset is applied, not skipped.
+    const expected = new Date(now.getTime() + STALE_AFTER_DAYS * 86_400_000);
+    expect(STALE_AFTER_DAYS).toBe(30);
+    expect(submitted.deadline).not.toBeNull();
+    expect(submitted.deadline!.toISOString()).toBe(expected.toISOString());
+    expect(submitted.submittedAt).toBe(now);
+  });
+
+  it('createJob leaves deadline null until submitted', () => {
+    const job = createJob(
+      { id: 'job_1', buyerDid: 'did:example:buyer', agentDid: 'did:example:agent', repository: 'buyer/target-repo', brief: 'Fix the login bug' },
+      new Date('2026-01-01T00:00:00Z'),
+    );
+    expect(job.deadline).toBeNull();
+  });
+
+  it('recordClosedUnmerged returns a new job, preserves the submission pair and the deadline', () => {
+    const job = submitted();
+    const recorded = recordClosedUnmerged(job);
+    expect(recorded).not.toBe(job);
+    expect(recorded.status).toBe('closed_unmerged');
+    expect(recorded.pullRequestUrl).toBe(job.pullRequestUrl);
+    expect(recorded.submittedAt).toBe(job.submittedAt);
+    expect(recorded.deadline).toBe(job.deadline);
+    expect(recorded.criteria).toEqual(job.criteria);
+    expect(job.status).toBe('submitted');
+  });
+
+  it('recordStale returns a new job, preserves the submission pair and the deadline', () => {
+    const job = submitted();
+    const recorded = recordStale(job);
+    expect(recorded).not.toBe(job);
+    expect(recorded.status).toBe('stale');
+    expect(recorded.pullRequestUrl).toBe(job.pullRequestUrl);
+    expect(recorded.submittedAt).toBe(job.submittedAt);
+    expect(recorded.deadline).toBe(job.deadline);
+    expect(recorded.criteria).toEqual(job.criteria);
+    expect(job.status).toBe('submitted');
+  });
+
+  it('records a closed-unmerged outcome from submitted, and nothing earlier or later', () => {
+    expect(recordClosedUnmerged(submitted()).status).toBe('closed_unmerged');
+    expect(() => recordClosedUnmerged(proposedJob({ status: 'draft' }))).toThrow(JobTransitionError);
+    expect(() => recordClosedUnmerged(proposedJob({ status: 'confirmed' }))).toThrow(JobTransitionError);
+    expect(() => recordClosedUnmerged(proposedJob({ status: 'completed' }))).toThrow(JobTransitionError);
+    expect(() => recordClosedUnmerged(proposedJob({ status: 'stale' }))).toThrow(JobTransitionError);
+    // Re-recording the outcome on an already-observed row is a terminal-state
+    // conflict, not a no-op.
+    expect(() => recordClosedUnmerged(recordClosedUnmerged(submitted()))).toThrow(JobTransitionError);
+  });
+
+  it('records a stale outcome from submitted, and nothing earlier or later', () => {
+    expect(recordStale(submitted()).status).toBe('stale');
+    expect(() => recordStale(proposedJob({ status: 'draft' }))).toThrow(JobTransitionError);
+    expect(() => recordStale(proposedJob({ status: 'confirmed' }))).toThrow(JobTransitionError);
+    expect(() => recordStale(proposedJob({ status: 'completed' }))).toThrow(JobTransitionError);
+    expect(() => recordStale(proposedJob({ status: 'closed_unmerged' }))).toThrow(JobTransitionError);
+    expect(() => recordStale(proposedJob({ status: 'stale' }))).toThrow(JobTransitionError);
+    expect(() => recordStale(recordStale(submitted()))).toThrow(JobTransitionError);
   });
 });
 
