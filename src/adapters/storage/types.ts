@@ -3,7 +3,7 @@
 // (prisma) sits beside it without touching callers. Adapters may import
 // domain; never the reverse (CLAUDE.md).
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
-import type { Job } from '../../domain/job.js';
+import type { CompletedJob, Job } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 
 // Thrown by register when the DID already exists, so the API layer can map
@@ -82,4 +82,6 @@ export interface JobRepository {
   // a second lookup.
   update(job: Job): Promise<Job | null>;
   findById(id: string): Promise<Job | null>;
+  complete(job: Job, completedJob: Omit<CompletedJob, 'id'>): Promise<Job | null>;
+  findCompletedByJobId(id: string): Promise<CompletedJob | null>;
 }

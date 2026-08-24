@@ -347,6 +347,12 @@ describe('job pull-request, faulted legs (R-10)', () => {
       async update(): Promise<never> {
         throw failure;
       }
+      async complete(): Promise<never> {
+        throw failure;
+      }
+      async findCompletedByJobId(): Promise<never> {
+        throw failure;
+      }
       async findById(): Promise<never> {
         throw failure;
       }
@@ -388,6 +394,12 @@ describe('job pull-request, faulted legs (R-10)', () => {
         return row;
       }
       async update(): Promise<null> {
+        return null;
+      }
+      async complete(): Promise<null> {
+        return null;
+      }
+      async findCompletedByJobId(): Promise<null> {
         return null;
       }
     }

@@ -13,6 +13,9 @@ export interface PullRequestSummary {
   readonly ref: PullRequestRef;
   readonly state: 'open' | 'closed' | 'merged';
   readonly mergeCommitSha: string | null;
+  // ENT-7: the merge instant comes from GitHub's API, never asserted by a
+  // party; null while the pull request is unmerged.
+  readonly mergedAt: Date | null;
   readonly headSha: string;
 }
 

@@ -2,7 +2,7 @@
 // mode when DATABASE_URL is unset (see storage.ts). A Map keyed by DID gives the
 // same duplicate-key semantics the database gives through its primary key.
 import type { Agent, ProofStatus } from '../../domain/agent.js';
-import type { Job } from '../../domain/job.js';
+import type { CompletedJob, Job } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
 import {
@@ -126,5 +126,33 @@ export class MemoryJobRepository implements JobRepository {
 
   async findById(id: string): Promise<Job | null> {
     return this.rows.get(id) ?? null;
+  }
+
+  async complete(job: Job, _completedJob: Omit<CompletedJob, 'id'>): Promise<Job | null> {
+    if (!this.rows.has(job.id)) return null;
+    // The completed row is the whole job, so store it exactly like update
+    // stores its argument; the anchor record R-12 persists is not a second
+    // row in this driver. Criteria are deep-copied, not shared with the
+    // caller's input.
+    const row: Job = { ...job, criteria: job.criteria.map((criterion) => ({ ...criterion })) };
+    this.rows.set(job.id, row);
+    return row;
+  }
+
+  async findCompletedByJobId(id: string): Promise<CompletedJob | null> {
+    const row = this.rows.get(id);
+    if (row === undefined) return null;
+    // The completed facts live on the job row in this driver; a job that
+    // never completed has no completed record to read back, so it is null
+    // like an unknown id.
+    if (row.mergeCommit === null || row.mergedAt === null) return null;
+    return {
+      id: row.id,
+      jobId: row.id,
+      buyerDid: row.buyerDid,
+      agentDid: row.agentDid,
+      mergeCommit: row.mergeCommit,
+      completedAt: row.mergedAt,
+    };
   }
 }
