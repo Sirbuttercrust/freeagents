@@ -35,3 +35,12 @@ export function rotationWellFormed(rotation: KeyRotation): boolean {
   if (typeof rotatedAt === 'string') return !Number.isNaN(Date.parse(rotatedAt));
   return false;
 }
+
+// The semantic half (R-30): a rotation supersedes a key with a different
+// one. fromKey === toKey is a no-op the API rejects; the rule lives here
+// rather than in the handler because it states what a rotation means, not
+// what the HTTP surface accepts, and the handler delegates to it the way
+// POST /jobs delegates brief emptiness to createJob.
+export function rotationIsIdentity(fromKey: string, toKey: string): boolean {
+  return fromKey === toKey;
+}

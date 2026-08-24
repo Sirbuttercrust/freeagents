@@ -1,8 +1,13 @@
-// R-29: rotationWellFormed is the structural half of "this rotation record
-// is well formed". Total: any value in, one boolean out, never throws -
-// the same totality delegationConsistent is held to in agent.ts.
+// R-29/R-30: rotationWellFormed is the structural half of "this rotation
+// record is well formed", and rotationIsIdentity is the semantic half the
+// shape rule defers to R-30. Both are total: any value in, one boolean out,
+// never throws - the same totality delegationConsistent is held to in agent.ts.
 import { describe, expect, it } from 'vitest';
-import { rotationWellFormed, type KeyRotation } from '../../src/domain/key-rotation.js';
+import {
+  rotationIsIdentity,
+  rotationWellFormed,
+  type KeyRotation,
+} from '../../src/domain/key-rotation.js';
 
 function rotation(overrides: Partial<KeyRotation> = {}): KeyRotation {
   return {
@@ -58,5 +63,24 @@ describe('rotationWellFormed', () => {
       expect(() => rotationWellFormed(garbage as unknown as KeyRotation)).not.toThrow();
       expect(rotationWellFormed(garbage as unknown as KeyRotation)).toBe(false);
     }
+  });
+});
+
+describe('rotationIsIdentity', () => {
+  it('fromKey === toKey is an identity rotation, the no-op the API rejects', () => {
+    const key = 'did:abt:zKeyHash#zFingerprint';
+    expect(rotationIsIdentity(key, key)).toBe(true);
+  });
+
+  it('different fragments are a real rotation', () => {
+    expect(
+      rotationIsIdentity('did:abt:zKeyHash#zOld', 'did:abt:zKeyHash#zNew'),
+    ).toBe(false);
+  });
+
+  it('the same fragment under a different DID is still different keys', () => {
+    expect(
+      rotationIsIdentity('did:abt:zOld#zSame', 'did:abt:zNew#zSame'),
+    ).toBe(false);
   });
 });

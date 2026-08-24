@@ -248,6 +248,14 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       // updated as part of the contract change, not a test bent to pass -
       // the new key is asserted against the same derivation the route uses.
       avatar: renderAvatar(String(stored?.did)),
+      // R-30: the rotation history joined the contract unconditionally,
+      // empty until a rotation is recorded. Same documented contract
+      // update as the avatar line above.
+      keyRotations: (stored?.keyRotations ?? []).map((r) => ({
+        fromKey: r.fromKey,
+        toKey: r.toKey,
+        rotatedAt: r.rotatedAt.toISOString(),
+      })),
     });
 
     // A stranger fetching from the public API can verify with no further
