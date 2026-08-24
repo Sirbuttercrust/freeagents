@@ -70,6 +70,7 @@ const jobFixture = {
   mergedAt: null,
   confirmedAt: null,
   submittedAt: null,
+  deadline: null,
   createdAt: new Date('2026-01-01T00:00:00Z'),
 } satisfies Job;
 
@@ -607,6 +608,7 @@ describe('PrismaJobRepository', () => {
         'repository',
         'status',
         'submittedAt',
+        'deadline',
       ].sort(),
     );
   });
@@ -668,6 +670,7 @@ describe('PrismaJobRepository', () => {
         pullRequestUrl: updated.pullRequestUrl,
         confirmedAt: updated.confirmedAt,
         submittedAt: updated.submittedAt,
+        deadline: updated.deadline,
         createdAt: updated.createdAt,
       },
     });
@@ -749,6 +752,43 @@ describe('PrismaJobRepository', () => {
     expect(row?.criteria).toEqual(stored);
   });
 
+  // R-12: the driver filters no enum values - an outcome row projects back
+  // unchanged, deadline included.
+  it('findById: a closed_unmerged outcome row reads back unchanged', async () => {
+    const stored = {
+      ...jobFixture,
+      status: 'closed_unmerged' as const,
+      pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1',
+      submittedAt: new Date('2026-01-02T00:00:00Z'),
+      deadline: new Date('2026-02-01T00:00:00Z'),
+    } satisfies Job;
+    vi.mocked(mock.jobFindUnique).mockResolvedValue({ ...stored });
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.findById('job_1');
+
+    expect(row).toEqual(stored);
+    expect(row?.status).toBe('closed_unmerged');
+    expect(row?.deadline).toEqual(new Date('2026-02-01T00:00:00Z'));
+  });
+
+  it('findById: a stale outcome row reads back unchanged', async () => {
+    const stored = {
+      ...jobFixture,
+      status: 'stale' as const,
+      pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1',
+      submittedAt: new Date('2026-01-02T00:00:00Z'),
+      deadline: new Date('2026-02-01T00:00:00Z'),
+    } satisfies Job;
+    vi.mocked(mock.jobFindUnique).mockResolvedValue({ ...stored });
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.findById('job_1');
+
+    expect(row).toEqual(stored);
+    expect(row?.status).toBe('stale');
+  });
+
   it('findById: no stored row comes back as null, not an empty job', async () => {
     vi.mocked(mock.jobFindUnique).mockResolvedValue(null);
 
@@ -801,6 +841,7 @@ describe('PrismaJobRepository', () => {
         mergedAt,
         confirmedAt: completedFixture.confirmedAt,
         submittedAt: completedFixture.submittedAt,
+        deadline: completedFixture.deadline,
         createdAt: completedFixture.createdAt,
       },
     });

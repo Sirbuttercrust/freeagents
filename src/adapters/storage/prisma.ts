@@ -200,6 +200,7 @@ interface JobRow {
   mergedAt: Date | null;
   confirmedAt: Date | null;
   submittedAt: Date | null;
+  deadline: Date | null;
   createdAt: Date;
 }
 
@@ -224,6 +225,7 @@ export class PrismaJobRepository implements JobRepository {
           mergedAt: job.mergedAt,
           confirmedAt: job.confirmedAt,
           submittedAt: job.submittedAt,
+          deadline: job.deadline,
           createdAt: job.createdAt,
         } as unknown as Prisma.JobCreateInput,
       });
@@ -256,6 +258,7 @@ export class PrismaJobRepository implements JobRepository {
           pullRequestUrl: job.pullRequestUrl,
           confirmedAt: job.confirmedAt,
           submittedAt: job.submittedAt,
+          deadline: job.deadline,
           createdAt: job.createdAt,
         } as unknown as Prisma.JobUpdateInput,
       });
@@ -296,6 +299,7 @@ export class PrismaJobRepository implements JobRepository {
           mergedAt: job.mergedAt,
           confirmedAt: job.confirmedAt,
           submittedAt: job.submittedAt,
+          deadline: job.deadline,
           createdAt: job.createdAt,
         } as unknown as Prisma.JobUpdateInput,
       });
@@ -350,6 +354,7 @@ function toJob(row: JobRow): Job {
     mergedAt: row.mergedAt,
     confirmedAt: row.confirmedAt,
     submittedAt: row.submittedAt,
+    deadline: row.deadline,
     createdAt: row.createdAt,
   };
 }

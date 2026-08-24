@@ -205,8 +205,8 @@ describe('job pull-request (R-10)', () => {
     expect(prBody.status).toBe('submitted');
     expect(prBody.pullRequestUrl).toBe(`https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/1`);
     expect(typeof prBody.submittedAt).toBe('string');
-    // A submitted job projects the confirmed eleven plus pullRequestUrl and
-    // submittedAt, and nothing else.
+    // A submitted job projects the confirmed eleven plus pullRequestUrl,
+    // submittedAt and deadline (R-10, R-12), and nothing else.
     expect(Object.keys(prBody).sort()).toEqual([
       'agentDid',
       'brief',
@@ -215,6 +215,7 @@ describe('job pull-request (R-10)', () => {
       'confirmedAt',
       'createdAt',
       'criteria',
+      'deadline',
       'id',
       'pullRequestUrl',
       'repository',
@@ -222,6 +223,9 @@ describe('job pull-request (R-10)', () => {
       'status',
       'submittedAt',
     ]);
+    // The deadline is the one the domain wrote: 30 days out, an ISO string
+    // the buyer can hold against the wall clock.
+    expect(typeof prBody.deadline).toBe('string');
     // Exactly one adapter call so far: the one this walk caused.
     expect(recorded.forkAndOpenPullRequest.length).toBe(1);
   });
@@ -283,10 +287,12 @@ describe('job pull-request (R-10)', () => {
     expect(((await again.json()) as { error: string }).error).toContain('status "submitted"');
     expect(recorded.forkAndOpenPullRequest.length).toBe(before);
 
-    // The submitted row keeps exactly the PR it opened first.
+    // The submitted row keeps exactly the PR it opened first, and the
+    // deadline rides the read-back as the domain wrote it.
     const read = await get(`/jobs/${happyJobId}`);
     const readBack = (await read.json()) as Record<string, unknown>;
     expect(readBack.pullRequestUrl).toBe(`https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/1`);
+    expect(typeof readBack.deadline).toBe('string');
   });
 });
 
