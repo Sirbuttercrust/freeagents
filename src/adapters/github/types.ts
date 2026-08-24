@@ -40,6 +40,17 @@ export interface Gist {
   readonly files: Record<string, string>;
 }
 
+// R-5 (ENT-5.3): a gist that no longer resolves (deleted, renamed) is not a
+// platform outage - it is the fact that the proof no longer stands. The API
+// maps this to the downgrade path and everything else to 503, without
+// inspecting error messages.
+export class GistNotFoundError extends Error {
+  constructor(id: string) {
+    super(`gist ${id} no longer resolves`);
+    this.name = 'GistNotFoundError';
+  }
+}
+
 export interface GithubAdapter {
   getPullRequest(ref: PullRequestRef): Promise<PullRequestSummary>;
   getMergeCommitSignature(ref: PullRequestRef): Promise<CommitSignatureStatus>;
