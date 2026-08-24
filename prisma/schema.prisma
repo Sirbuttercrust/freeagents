@@ -30,6 +30,9 @@ enum JobStatus {
   submitted
   completed
   declined
+  // R-12 (ENT-7.2): non-merge outcomes are recorded, not hidden.
+  closed_unmerged
+  stale
 }
 
 model Operator {
@@ -91,6 +94,10 @@ model Job {
   mergedAt          DateTime?
   confirmedAt       DateTime?
   submittedAt       DateTime?
+  // The instant the pull request goes stale (R-12, D3 2026-08-22): written
+  // by submitPullRequest as submittedAt + 30 days, null until submitted and
+  // for rows written before R-12.
+  deadline          DateTime?
   createdAt         DateTime  @default(now())
 
   agent        Agent         @relation(fields: [agentDid], references: [did])

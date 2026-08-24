@@ -25,7 +25,7 @@ import {
   MemoryOperatorRepository,
 } from '../../src/adapters/storage/memory.js';
 import type { JobRepository } from '../../src/adapters/storage/types.js';
-import { createJob, type Job, type JobStatus } from '../../src/domain/job.js';
+import { createJob, type CompletedJob, type Job, type JobStatus } from '../../src/domain/job.js';
 
 const AGENT_DID = 'did:abt:agent-merge';
 const BUYER_DID = 'did:abt:buyer-merge';
@@ -92,8 +92,10 @@ function rejectingGithub(recorded: RecordedCalls): GithubAdapter {
 // A row already in submitted, with a URL in the exact shape submitPullRequest
 // itself writes, so the route's own regex parses it. Used by the scripted
 // legs below, which script storage or the row directly rather than walking
-// the whole HTTP exchange.
+// the whole HTTP exchange. The deadline is the one submitPullRequest writes
+// (R-12): submittedAt + 30 days.
 function submittedJob(id: string): Job {
+  const submittedAt = new Date('2026-01-02T00:00:00Z');
   return {
     ...createJob(
       { id, buyerDid: BUYER_DID, agentDid: AGENT_DID, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
@@ -101,7 +103,17 @@ function submittedJob(id: string): Job {
     ),
     status: 'submitted',
     pullRequestUrl: `https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/${PR_NUMBER}`,
-    submittedAt: new Date('2026-01-02T00:00:00Z'),
+    submittedAt,
+    deadline: new Date(submittedAt.getTime() + 30 * 86_400_000),
+    // The scripted legs project the full submitted keyset, so the row is
+    // fully confirmed, like the walked jobs: the hash's presence, not its
+    // value, is what the projection asserts.
+    criteria: [
+      { text: 'fixes the login bug', proposedBy: 'agent', accepted: true },
+      { text: 'no new dependencies', proposedBy: 'buyer', accepted: true },
+    ],
+    confirmedSpecHash: 'a'.repeat(64),
+    confirmedAt: new Date('2026-01-01T12:00:00Z'),
   };
 }
 
@@ -163,9 +175,11 @@ async function walkToSubmitted(jobId: string, base: string = baseUrl): Promise<R
   return (await pr.json()) as Record<string, unknown>;
 }
 
-// A completed job projects the submitted keyset plus exactly mergeCommit and
-// mergedAt (app.ts's jobProjection comment pins the same claim).
-const COMPLETED_KEYS = [
+// A submitted job projects the base eight plus criteria, specHash and
+// confirmedAt, then the submit pair (R-10) plus deadline (R-12): one writer
+// per group. A completed job adds exactly mergeCommit and mergedAt (R-11).
+// An outcome job (R-12) projects the submitted keyset and nothing more.
+const SUBMITTED_KEYS = [
   'agentDid',
   'brief',
   'briefHash',
@@ -173,15 +187,15 @@ const COMPLETED_KEYS = [
   'confirmedAt',
   'createdAt',
   'criteria',
+  'deadline',
   'id',
-  'mergeCommit',
-  'mergedAt',
   'pullRequestUrl',
   'repository',
   'specHash',
   'status',
   'submittedAt',
 ];
+const COMPLETED_KEYS = [...SUBMITTED_KEYS, 'mergeCommit', 'mergedAt'].sort();
 
 describe('job merge (R-11)', () => {
   const jobRepo = new MemoryJobRepository();
@@ -273,7 +287,11 @@ describe('job merge, faulted legs (R-11)', () => {
     }
   });
 
-  it('answers 409 with the closed wording when github reports the PR closed unmerged', async () => {
+  // R-12 (ENT-7.2): a closed-unmerged PR is recorded, not hidden. The
+  // outcome projects the submitted keyset, with no merge facts to read it as
+  // a hire (the invariant-2 legs in tests/api/job-invariant2.test.ts pin the
+  // absence half off-platform).
+  it('records closed_unmerged when github reports the PR closed unmerged', async () => {
     const faults = emptyRecordings();
     const scripted = await startWith(new MemoryJobRepository(), closedGithub(faults));
     try {
@@ -281,14 +299,26 @@ describe('job merge, faulted legs (R-11)', () => {
       await walkToSubmitted(jobId, scripted.baseUrl);
 
       const merge = await post(`/jobs/${jobId}/merge`, {}, scripted.baseUrl);
-      expect(merge.status).toBe(409);
-      expect(((await merge.json()) as { error: string }).error).toBe(
-        'pull request is closed without merging; it cannot merge',
-      );
+      expect(merge.status).toBe(200);
+      const body = (await merge.json()) as Record<string, unknown>;
+      expect(body.id).toBe(jobId);
+      expect(body.status).toBe('closed_unmerged');
+      expect(Object.keys(body).sort()).toEqual(SUBMITTED_KEYS);
+      expect(body.mergeCommit).toBeUndefined();
+      expect(body.mergedAt).toBeUndefined();
+      expect(typeof body.deadline).toBe('string');
 
+      // The outcome stays on record: the read-back is the recorded row.
       const read = await get(`/jobs/${jobId}`, scripted.baseUrl);
-      const readBack = (await read.json()) as Record<string, unknown>;
-      expect(readBack.status).toBe('submitted');
+      expect(await read.json()).toEqual(body);
+      expect(faults.getPullRequest.length).toBe(1);
+
+      // Second observation: the terminal state is checked before github is
+      // asked again, and it is a conflict, not a rewrite.
+      const again = await post(`/jobs/${jobId}/merge`, {}, scripted.baseUrl);
+      expect(again.status).toBe(409);
+      expect(((await again.json()) as { error: string }).error).toContain('closed_unmerged');
+      expect(faults.getPullRequest.length).toBe(1);
     } finally {
       await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
     }
@@ -408,6 +438,220 @@ describe('job merge, faulted legs (R-11)', () => {
       expect(errorLog).toHaveBeenCalled();
     } finally {
       errorLog.mockRestore();
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+});
+
+// R-12 (ENT-7.2): the unhappy outcomes, observed at the merge route. The
+// stale legs script storage directly, because no honest HTTP path can write
+// a submitted row with a deadline in the past - submitPullRequest always
+// writes one 30 days out, and the detection is deliberately lazy (A4):
+// this route is the only observation point this codebase has.
+class ScriptedOutcomeRepository implements JobRepository {
+  private row: Job;
+  readonly updateCalls: Job[] = [];
+
+  constructor(
+    row: Job,
+    private readonly updateImpl: (row: Job) => Promise<Job | null>,
+    private readonly completeImpl: (job: Job, anchor: Omit<CompletedJob, 'id'>) => Promise<Job | null>,
+  ) {
+    this.row = row;
+  }
+
+  async create(): Promise<never> {
+    throw new Error('unreachable');
+  }
+
+  async findById(id: string): Promise<Job | null> {
+    return this.row.id === id ? this.row : null;
+  }
+
+  async update(row: Job): Promise<Job | null> {
+    this.updateCalls.push(row);
+    // The row only moves when the write resolves: a write that fails left
+    // nothing on record, the way the 503 leg below asserts.
+    const result = await this.updateImpl(row);
+    if (result !== null) {
+      this.row = result;
+    }
+    return result;
+  }
+
+  async complete(job: Job, anchor: Omit<CompletedJob, 'id'>): Promise<Job | null> {
+    const row = await this.completeImpl(job, anchor);
+    if (row !== null) {
+      this.row = row;
+    }
+    return row;
+  }
+
+  async findCompletedByJobId(): Promise<null> {
+    return null;
+  }
+}
+
+describe('job merge, outcomes (R-12)', () => {
+  // Relative to the wall clock on purpose: the leg must hold under any run
+  // date, and the value is derived, not asserted from memory.
+  const dayInMs = 86_400_000;
+  const pastDeadline = () => new Date(Date.now() - dayInMs);
+
+  it('records stale when github reports the PR open past the deadline', async () => {
+    const faults = emptyRecordings();
+    const row = { ...submittedJob('j-stale'), deadline: pastDeadline() };
+    const repo = new ScriptedOutcomeRepository(
+      row,
+      (r) => Promise.resolve(r),
+      () => Promise.reject(new Error('unreachable')),
+    );
+    const scripted = await startWith(repo, openGithub(faults));
+    try {
+      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      expect(merge.status).toBe(200);
+      const body = (await merge.json()) as Record<string, unknown>;
+      expect(body.id).toBe(row.id);
+      expect(body.status).toBe('stale');
+      expect(Object.keys(body).sort()).toEqual(SUBMITTED_KEYS);
+      expect(typeof body.deadline).toBe('string');
+
+      // The writer is the domain's recordStale, not the route: the row the
+      // route persisted keeps the deadline and moves only the status.
+      expect(repo.updateCalls).toHaveLength(1);
+      expect(repo.updateCalls[0]?.status).toBe('stale');
+      expect(repo.updateCalls[0]?.deadline).toEqual(row.deadline);
+
+      const read = await get(`/jobs/${row.id}`, scripted.baseUrl);
+      expect(await read.json()).toEqual(body);
+      expect(faults.getPullRequest.length).toBe(1);
+    } finally {
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+
+  it('answers 409 on a stale row whose PR is still open, without recording again', async () => {
+    const faults = emptyRecordings();
+    const row: Job = { ...submittedJob('j-stale-open'), status: 'stale', deadline: pastDeadline() };
+    const repo = new ScriptedOutcomeRepository(
+      row,
+      () => Promise.reject(new Error('unreachable')),
+      () => Promise.reject(new Error('unreachable')),
+    );
+    const scripted = await startWith(repo, openGithub(faults));
+    try {
+      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      expect(merge.status).toBe(409);
+      expect(((await merge.json()) as { error: string }).error).toBe(
+        'the job is already recorded stale and the pull request is still open',
+      );
+      expect(repo.updateCalls).toHaveLength(0);
+
+      const read = await get(`/jobs/${row.id}`, scripted.baseUrl);
+      const readBack = (await read.json()) as Record<string, unknown>;
+      expect(readBack.status).toBe('stale');
+    } finally {
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+
+  it('still completes a stale job when github reports the merge (D3 2026-08-22)', async () => {
+    const faults = emptyRecordings();
+    const row: Job = { ...submittedJob('j-stale-merged'), status: 'stale', deadline: pastDeadline() };
+    const repo = new ScriptedOutcomeRepository(
+      row,
+      () => Promise.reject(new Error('unreachable')),
+      (job, anchor) =>
+        Promise.resolve({
+          ...job,
+          status: 'completed' as const,
+          mergeCommit: anchor.mergeCommit,
+          mergedAt: anchor.completedAt,
+        }),
+    );
+    const scripted = await startWith(repo, mergedGithub(faults));
+    try {
+      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      expect(merge.status).toBe(200);
+      const body = (await merge.json()) as Record<string, unknown>;
+      expect(body.status).toBe('completed');
+      expect(body.mergeCommit).toBe(MERGE_SHA);
+      expect(body.mergedAt).toBe(MERGED_AT.toISOString());
+      expect(Object.keys(body).sort()).toEqual(COMPLETED_KEYS);
+    } finally {
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+
+  it('answers 409 with the transition wording when a stale row is observed closed', async () => {
+    // stale -> closed_unmerged is R-31's edge, not this table's: the domain
+    // refuses it and the route maps the refusal, recording nothing.
+    const faults = emptyRecordings();
+    const row: Job = { ...submittedJob('j-stale-closed'), status: 'stale', deadline: pastDeadline() };
+    const repo = new ScriptedOutcomeRepository(
+      row,
+      () => Promise.reject(new Error('unreachable')),
+      () => Promise.reject(new Error('unreachable')),
+    );
+    const scripted = await startWith(repo, closedGithub(faults));
+    try {
+      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      expect(merge.status).toBe(409);
+      const body = (await merge.json()) as { error: string };
+      expect(body.error).toContain('stale');
+      expect(repo.updateCalls).toHaveLength(0);
+
+      const read = await get(`/jobs/${row.id}`, scripted.baseUrl);
+      const readBack = (await read.json()) as Record<string, unknown>;
+      expect(readBack.status).toBe('stale');
+    } finally {
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+
+  it('answers 503 when storage fails to persist the stale record, and logs the cause', async () => {
+    const faults = emptyRecordings();
+    const row = { ...submittedJob('j-stale-503'), deadline: pastDeadline() };
+    const repo = new ScriptedOutcomeRepository(
+      row,
+      () => Promise.reject(new Error('connection refused')),
+      () => Promise.reject(new Error('unreachable')),
+    );
+    const scripted = await startWith(repo, openGithub(faults));
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      expect(merge.status).toBe(503);
+      expect(await merge.json()).toEqual({ error: 'storage unavailable' });
+      expect(errorLog).toHaveBeenCalledWith(
+        'POST /jobs/:jobId/merge: storage failed',
+        expect.any(Error),
+      );
+
+      // Nothing was persisted: the row reads back submitted.
+      const read = await get(`/jobs/${row.id}`, scripted.baseUrl);
+      const readBack = (await read.json()) as Record<string, unknown>;
+      expect(readBack.status).toBe('submitted');
+    } finally {
+      errorLog.mockRestore();
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+
+  it('answers 404 when the row vanishes on the closed record', async () => {
+    const faults = emptyRecordings();
+    const row = submittedJob('j-closed-404');
+    const repo = new ScriptedOutcomeRepository(
+      row,
+      () => Promise.resolve(null),
+      () => Promise.reject(new Error('unreachable')),
+    );
+    const scripted = await startWith(repo, closedGithub(faults));
+    try {
+      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      expect(merge.status).toBe(404);
+      expect(await merge.json()).toEqual({ error: 'not found' });
+    } finally {
       await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
     }
   });

@@ -38,6 +38,7 @@ const jobFixture: Job = {
   mergedAt: null,
   confirmedAt: null,
   submittedAt: null,
+  deadline: null,
   createdAt: new Date('2026-01-01T00:00:00Z'),
 };
 
@@ -154,6 +155,34 @@ describe('MemoryJobRepository', () => {
     const updated = { ...jobFixture, status: 'proposed' as const };
     expect(await repo.update(updated)).toEqual(updated);
     expect(await repo.findById('job_1')).toEqual(updated);
+  });
+
+  // R-12: outcome rows (closed_unmerged, stale) are stored and projected like
+  // any other status; the deadline the submission wrote is untouched by the
+  // outcome update.
+  it('round-trips outcome rows through update with the deadline untouched', async () => {
+    const repo = new MemoryJobRepository();
+    const submitted: Job = {
+      ...jobFixture,
+      status: 'submitted',
+      pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1',
+      submittedAt: new Date('2026-01-02T00:00:00Z'),
+      deadline: new Date('2026-02-01T00:00:00Z'),
+    };
+    await repo.create(jobFixture);
+
+    const closed: Job = { ...submitted, status: 'closed_unmerged' };
+    expect(await repo.update(closed)).toEqual(closed);
+    expect(await repo.findById('job_1')).toEqual(closed);
+    expect((await repo.findById('job_1'))?.deadline).toEqual(submitted.deadline);
+
+    // Re-open the row at submitted for the stale leg, like the state machine
+    // would have done from its own row.
+    await repo.update(submitted);
+    const stale: Job = { ...submitted, status: 'stale' };
+    expect(await repo.update(stale)).toEqual(stale);
+    expect(await repo.findById('job_1')).toEqual(stale);
+    expect((await repo.findById('job_1'))?.deadline).toEqual(submitted.deadline);
   });
 
   it('findById of a missing id is null', async () => {

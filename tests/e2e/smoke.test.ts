@@ -872,6 +872,8 @@ describe('the API starts and answers', () => {
     expect(prBody.status).toBe('submitted');
     expect(String(prBody.pullRequestUrl)).toContain('freeagents-platform');
     expect(typeof prBody.submittedAt).toBe('string');
+    // R-12: the deadline rides the submission, 30 days out from the domain.
+    expect(typeof prBody.deadline).toBe('string');
 
     // 7. What github was asked to do: source named read-only is the BUYER's
     // repo; branch, title and body carry the job id.
@@ -950,6 +952,7 @@ describe('the API starts and answers', () => {
       'confirmedAt',
       'createdAt',
       'criteria',
+      'deadline',
       'id',
       'mergeCommit',
       'mergedAt',

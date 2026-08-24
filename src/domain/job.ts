@@ -7,9 +7,17 @@ import { hashSpec } from './hashing.js';
 // that pull request merges. Declined is reachable from any non-terminal
 // state: a buyer can walk away, or the agent can pass.
 
-export type JobStatus = 'draft' | 'proposed' | 'confirmed' | 'submitted' | 'completed' | 'declined';
+export type JobStatus =
+  | 'draft'
+  | 'proposed'
+  | 'confirmed'
+  | 'submitted'
+  | 'completed'
+  | 'declined'
+  | 'closed_unmerged'
+  | 'stale';
 
-const TERMINAL_STATUSES: readonly JobStatus[] = ['completed', 'declined'];
+const TERMINAL_STATUSES: readonly JobStatus[] = ['completed', 'declined', 'closed_unmerged'];
 
 // One acceptance criterion of the exchange R-8 owns (ENT-6). A structured
 // list, not free text (D2): each entry a single checkable sentence, either
@@ -43,6 +51,10 @@ export interface Job {
   readonly mergedAt: Date | null;
   readonly confirmedAt: Date | null;
   readonly submittedAt: Date | null;
+  // The instant the pull request goes stale (R-12, D3 2026-08-22): written
+  // by submitPullRequest as submittedAt + STALE_AFTER_DAYS, null until
+  // submitted and for rows written before R-12.
+  readonly deadline: Date | null;
   readonly createdAt: Date;
 }
 
@@ -97,6 +109,7 @@ export function createJob(
     mergedAt: null,
     confirmedAt: null,
     submittedAt: null,
+    deadline: null,
     createdAt: now,
   };
 }
@@ -128,7 +141,12 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
     draft: ['proposed', 'declined'],
     proposed: ['confirmed', 'declined'],
     confirmed: ['submitted', 'declined'],
-    submitted: ['completed', 'declined'],
+    // R-12 (ENT-7.2): non-merge outcomes are recorded, not hidden. stale
+    // deliberately has no path to closed_unmerged: an outcome update after
+    // stale is R-31's acceptance text, and until then the table says no.
+    submitted: ['completed', 'closed_unmerged', 'stale', 'declined'],
+    stale: ['completed', 'declined'],
+    closed_unmerged: [],
     completed: [],
     declined: [],
   };
@@ -171,9 +189,38 @@ export function confirmSpec(job: Job, now: Date): Job {
   return { ...job, status: 'confirmed', confirmedSpecHash: hashSpec(specText), confirmedAt: now };
 }
 
+// The instant an unmerged pull request goes stale, in days (D3
+// 2026-08-22: 30 days from submission).
+export const STALE_AFTER_DAYS = 30;
+
 export function submitPullRequest(job: Job, pullRequestUrl: string, now: Date): Job {
   validateJobTransition(job.status, 'submitted');
-  return { ...job, status: 'submitted', pullRequestUrl, submittedAt: now };
+  return {
+    // submittedAt and deadline are one pair with one writer (R-12): the
+    // submission instant and the instant the pull request goes stale.
+    ...job,
+    status: 'submitted',
+    pullRequestUrl,
+    submittedAt: now,
+    deadline: new Date(now.getTime() + STALE_AFTER_DAYS * 86_400_000),
+  };
+}
+
+// Records that the pull request closed without merging (R-12, ENT-7.2):
+// the outcome is recorded, not hidden. No new timestamp: the status IS the
+// outcome; the observation instant is not a third-party-verifiable fact the
+// way mergedAt (GitHub's) is.
+export function recordClosedUnmerged(job: Job): Job {
+  validateJobTransition(job.status, 'closed_unmerged');
+  return { ...job, status: 'closed_unmerged' };
+}
+
+// Records that the pull request went stale past its deadline (R-12, ENT-7.2).
+// Deliberately non-terminal: a merge after the stale marker still completes
+// the job (D3 2026-08-22).
+export function recordStale(job: Job): Job {
+  validateJobTransition(job.status, 'stale');
+  return { ...job, status: 'stale' };
 }
 
 // The only path to a CompletedJob. Its buyerDid and agentDid are copied from
@@ -203,6 +250,7 @@ export function decline(job: Job): Job {
   validateJobTransition(job.status, 'declined');
   return { ...job, status: 'declined' };
 }
+
 
 // The acceptance-criteria exchange R-8 owns (ENT-6, D2). The first propose
 // walks draft -> proposed, the edge the transition table already records;
