@@ -37,6 +37,10 @@ export interface Job {
   readonly confirmedSpecHash: string | null;
   readonly status: JobStatus;
   readonly pullRequestUrl: string | null;
+  // The observed outcome facts (ENT-7.1): written ONLY by completeJob, from
+  // what github reported - never by a party's claim. Null until completion.
+  readonly mergeCommit: string | null;
+  readonly mergedAt: Date | null;
   readonly confirmedAt: Date | null;
   readonly submittedAt: Date | null;
   readonly createdAt: Date;
@@ -89,6 +93,8 @@ export function createJob(
     status: 'draft',
     criteria: [],
     pullRequestUrl: null,
+    mergeCommit: null,
+    mergedAt: null,
     confirmedAt: null,
     submittedAt: null,
     createdAt: now,
@@ -179,7 +185,10 @@ export function completeJob(
 ): { readonly job: Job; readonly completedJob: Omit<CompletedJob, 'id'> } {
   validateJobTransition(job.status, 'completed');
   return {
-    job: { ...job, status: 'completed' },
+    // The merge facts are stamped here and nowhere else, mirroring how
+    // confirmSpec owns confirmedSpecHash/confirmedAt: one writer writes the
+    // pair, so a job's projection can never disagree with its anchor row.
+    job: { ...job, status: 'completed', mergeCommit: input.mergeCommit, mergedAt: input.completedAt },
     completedJob: {
       jobId: job.id,
       buyerDid: job.buyerDid,

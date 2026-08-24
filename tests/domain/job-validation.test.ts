@@ -21,6 +21,8 @@ function proposedJob(overrides: Partial<Job> = {}): Job {
     status: 'proposed',
     criteria: [],
     pullRequestUrl: null,
+    mergeCommit: null,
+    mergedAt: null,
     confirmedAt: null,
     submittedAt: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),

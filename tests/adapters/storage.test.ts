@@ -34,6 +34,8 @@ const jobFixture: Job = {
   status: 'draft',
   criteria: [],
   pullRequestUrl: null,
+  mergeCommit: null,
+  mergedAt: null,
   confirmedAt: null,
   submittedAt: null,
   createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -198,5 +200,66 @@ describe('MemoryJobRepository', () => {
     const read = await repo.findById('job_1');
     expect(read?.criteria).toEqual([]);
     expect(Array.isArray(read?.criteria)).toBe(true);
+  });
+
+  // R-11: complete is the only writer of the observed merge facts, and the
+  // row it stores is the whole completed job.
+  const completedFixture: Job = {
+    ...jobFixture,
+    status: 'completed',
+    mergeCommit: 'merge-abc',
+    mergedAt: new Date('2026-01-03T00:00:00Z'),
+  };
+  const completedAnchor = {
+    jobId: 'job_1',
+    buyerDid: 'did:example:buyer',
+    agentDid: 'did:example:agent',
+    mergeCommit: 'merge-abc',
+    completedAt: new Date('2026-01-03T00:00:00Z'),
+  };
+
+  it('complete stores the completed job and reads back the merge facts exactly', async () => {
+    const repo = new MemoryJobRepository();
+    await repo.create(jobFixture);
+    const input: Job = { ...completedFixture };
+    const stored = await repo.complete(input, completedAnchor);
+    expect(stored).toEqual(completedFixture);
+    expect(stored?.mergeCommit).toBe('merge-abc');
+    expect(stored?.mergedAt).toEqual(completedFixture.mergedAt);
+    expect(await repo.findById('job_1')).toEqual(completedFixture);
+  });
+
+  it('complete of an unknown id is null, like update', async () => {
+    const repo = new MemoryJobRepository();
+    expect(await repo.complete(completedFixture, completedAnchor)).toBeNull();
+  });
+
+  it('findCompletedByJobId reads back the completed row, and null until it completes', async () => {
+    const repo = new MemoryJobRepository();
+    await repo.create(jobFixture);
+    // Not completed yet: the row exists, but there is no completed record.
+    expect(await repo.findCompletedByJobId('job_1')).toBeNull();
+    expect(await repo.findCompletedByJobId('job_missing')).toBeNull();
+    await repo.complete(completedFixture, completedAnchor);
+    // The stored record is the anchor plus the driver-stamped id.
+    expect(await repo.findCompletedByJobId('job_1')).toEqual({
+      id: 'job_1',
+      ...completedAnchor,
+    });
+  });
+
+  it('complete stores a copy: mutating the input afterwards does not leak', async () => {
+    const repo = new MemoryJobRepository();
+    await repo.create(jobFixture);
+    const criteria = [{ text: 'The login bug is fixed', proposedBy: 'agent' as const, accepted: true }];
+    const expected = { ...completedFixture, criteria: [{ ...criteria[0] }] };
+    const input: Job = { ...completedFixture, criteria };
+    await repo.complete(input, completedAnchor);
+    (input as { status: string }).status = 'proposed';
+    (input as { mergeCommit: string | null }).mergeCommit = 'mutated';
+    (criteria[0] as { text: string }).text = 'mutated';
+    // The stored row is a deep copy: the top-level fields and the criteria
+    // entries are all independent of the caller's input.
+    expect(await repo.findById('job_1')).toEqual(expected);
   });
 });

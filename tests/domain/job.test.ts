@@ -28,6 +28,8 @@ function proposedJob(overrides: Partial<Job> = {}): Job {
     status: 'proposed',
     criteria: [],
     pullRequestUrl: null,
+    mergeCommit: null,
+    mergedAt: null,
     confirmedAt: null,
     submittedAt: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -70,6 +72,10 @@ describe('job state machine', () => {
       completedAt: now,
     });
     expect(completed.status).toBe('completed');
+    // The observed facts are stamped on the job by the same writer that
+    // produced the anchor row - the job and the row cannot disagree.
+    expect(completed.mergeCommit).toBe('abc123');
+    expect(completed.mergedAt).toBe(now);
     expect(completedJob).toEqual({
       jobId: 'job_1',
       buyerDid: 'did:example:buyer',
@@ -145,6 +151,8 @@ describe('createJob', () => {
     expect(job.briefHash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(job.confirmedSpecHash).toBeNull();
     expect(job.pullRequestUrl).toBeNull();
+    expect(job.mergeCommit).toBeNull();
+    expect(job.mergedAt).toBeNull();
     expect(job.confirmedAt).toBeNull();
     expect(job.submittedAt).toBeNull();
     expect(job.createdAt).toBe(now);

@@ -66,6 +66,8 @@ const jobFixture = {
   status: 'draft',
   criteria: [] as Array<{ text: string; proposedBy: 'agent' | 'buyer'; accepted: boolean }>,
   pullRequestUrl: null,
+  mergeCommit: null,
+  mergedAt: null,
   confirmedAt: null,
   submittedAt: null,
   createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -599,6 +601,8 @@ describe('PrismaJobRepository', () => {
         'createdAt',
         'criteria',
         'id',
+        'mergeCommit',
+        'mergedAt',
         'pullRequestUrl',
         'repository',
         'status',
@@ -750,6 +754,143 @@ describe('PrismaJobRepository', () => {
 
     const repo = new PrismaJobRepository();
     const row = await repo.findById('job_missing');
+
+    expect(mock.jobFindUnique).toHaveBeenCalledWith({ where: { id: 'job_missing' } });
+    expect(row).toBeNull();
+  });
+
+  // R-11: complete is the only writer of the observed merge facts. update
+  // deliberately omits the two columns, and complete must not.
+  const mergedAt = new Date('2026-01-03T00:00:00Z');
+  const completedFixture = {
+    ...jobFixture,
+    status: 'completed' as const,
+    pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1',
+    mergeCommit: 'merge-abc',
+    mergedAt,
+  } satisfies Job;
+
+  it('complete: sends the full completed payload, including the merge columns, and projects it back', async () => {
+    vi.mocked(mock.jobUpdate).mockResolvedValue({ ...completedFixture });
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.complete(completedFixture, {
+      jobId: 'job_1',
+      buyerDid: 'did:example:buyer',
+      agentDid: 'did:example:agent',
+      mergeCommit: 'merge-abc',
+      completedAt: mergedAt,
+    });
+
+    // The payload is the whole completed row: the update test above pins
+    // the same shape WITHOUT mergeCommit/mergedAt, so the two payloads are
+    // pinned differently by design - only complete writes those columns.
+    expect(mock.jobUpdate).toHaveBeenCalledWith({
+      where: { id: 'job_1' },
+      data: {
+        buyerDid: completedFixture.buyerDid,
+        agentDid: completedFixture.agentDid,
+        repository: completedFixture.repository,
+        brief: completedFixture.brief,
+        briefHash: completedFixture.briefHash,
+        confirmedSpecHash: completedFixture.confirmedSpecHash,
+        criteria: completedFixture.criteria,
+        status: completedFixture.status,
+        pullRequestUrl: completedFixture.pullRequestUrl,
+        mergeCommit: 'merge-abc',
+        mergedAt,
+        confirmedAt: completedFixture.confirmedAt,
+        submittedAt: completedFixture.submittedAt,
+        createdAt: completedFixture.createdAt,
+      },
+    });
+    expect(row).toEqual(completedFixture);
+  });
+
+  it('complete: a P2025 not-found comes back as null, not an error', async () => {
+    vi.mocked(mock.jobUpdate).mockRejectedValue(p2025('job_missing'));
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.complete(completedFixture, {
+      jobId: 'job_1',
+      buyerDid: 'did:example:buyer',
+      agentDid: 'did:example:agent',
+      mergeCommit: 'merge-abc',
+      completedAt: mergedAt,
+    });
+
+    expect(row).toBeNull();
+  });
+
+  it('complete: a non-P2025 Prisma error is rethrown untouched', async () => {
+    const original = p1001();
+    vi.mocked(mock.jobUpdate).mockRejectedValue(original);
+
+    const repo = new PrismaJobRepository();
+    const err = await repo
+      .complete(completedFixture, {
+        jobId: 'job_1',
+        buyerDid: 'did:example:buyer',
+        agentDid: 'did:example:agent',
+        mergeCommit: 'merge-abc',
+        completedAt: mergedAt,
+      })
+      .catch((e: unknown) => e);
+
+    expect(err).toBe(original);
+  });
+
+  it('complete: a non-Prisma error is rethrown untouched', async () => {
+    const original = new Error('disk full');
+    vi.mocked(mock.jobUpdate).mockRejectedValue(original);
+
+    const repo = new PrismaJobRepository();
+    const err = await repo
+      .complete(completedFixture, {
+        jobId: 'job_1',
+        buyerDid: 'did:example:buyer',
+        agentDid: 'did:example:agent',
+        mergeCommit: 'merge-abc',
+        completedAt: mergedAt,
+      })
+      .catch((e: unknown) => e);
+
+    expect(err).toBe(original);
+  });
+
+  it('findCompletedByJobId: a completed row comes back as the completed record', async () => {
+    vi.mocked(mock.jobFindUnique).mockResolvedValue({ ...completedFixture });
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.findCompletedByJobId('job_1');
+
+    expect(mock.jobFindUnique).toHaveBeenCalledWith({ where: { id: 'job_1' } });
+    // The completed record is the anchor shape (no id of its own beyond the
+    // job's), projected from the same row findById reads.
+    expect(row).toEqual({
+      id: 'job_1',
+      jobId: 'job_1',
+      buyerDid: 'did:example:buyer',
+      agentDid: 'did:example:agent',
+      mergeCommit: 'merge-abc',
+      completedAt: mergedAt,
+    });
+  });
+
+  it('findCompletedByJobId: a row that never completed comes back as null', async () => {
+    vi.mocked(mock.jobFindUnique).mockResolvedValue({ ...jobFixture });
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.findCompletedByJobId('job_1');
+
+    expect(row).toBeNull();
+  });
+
+  it('findCompletedByJobId: no stored row comes back as null', async () => {
+    vi.mocked(mock.jobFindUnique).mockResolvedValue(null);
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.findCompletedByJobId('job_missing');
 
     expect(mock.jobFindUnique).toHaveBeenCalledWith({ where: { id: 'job_missing' } });
     expect(row).toBeNull();
