@@ -47,13 +47,18 @@
  *     job walks to submitted, the pull request carries the job id, and the
  *     recorded github call shows the buyer's repository referenced READ-ONLY
  *     with the write going to the platform's fork
+ *   - observing the merge works end to end (R-11, ENT-7.1): the submitted
+ *     job's pull request is asked about directly, a merged report from
+ *     GitHub - never a client assertion - stamps mergeCommit and mergedAt,
+ *     and the completed job is locked against a second merge
  *   - an unknown route is still a 404, so the previous assertion means something
  *
- * It does NOT claim the hire flow completes: a draft now walks to submitted
- * through the criteria exchange, confirm and the pull request, but merge and
- * review handlers stay 501 until their issues land. As their handlers arrive,
- * the flow assertions below replace those 501 expectations one at a time, and
- * the e2e step floor rises with them.
+ * It does NOT claim the hire loop completes end to end for every path: a
+ * draft now walks all the way to completed through the criteria exchange,
+ * confirm, the pull request and its observed merge, but the review handler
+ * stays 501 until its issue lands. As that handler arrives, the flow
+ * assertions below replace its 501 expectation too, and the e2e step floor
+ * rises with it.
  *
  * THE MARKERS ARE PRINTED ONLY AFTER THE ASSERTIONS THEY DESCRIBE.
  * Printing APP_STARTED before the server is up, or E2E_PASSED in a finally
@@ -73,7 +78,7 @@ import { securityLoader } from '@digitalbazaar/security-document-loader';
 import { fromRandom, type WalletObject } from '@ocap/wallet';
 
 import { createApp } from '../../src/api/app.js';
-import type { ForkAndOpenPullRequestInput, Gist, GithubAdapter } from '../../src/adapters/github/types.js';
+import type { ForkAndOpenPullRequestInput, Gist, GithubAdapter, PullRequestRef } from '../../src/adapters/github/types.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter, SignedPayload } from '../../src/adapters/identity/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
@@ -177,11 +182,27 @@ const gists = new Map<string, Gist>();
 // the write went to the fork this platform created.
 const forkCalls: ForkAndOpenPullRequestInput[] = [];
 
+// R-11 (ENT-7.1): what the hire flow asked github about a pull request's
+// merge state. The fake always reports merged, so the flow proves the merge
+// route completes a job from GitHub's own report, never from a client claim.
+const getPullRequestCalls: PullRequestRef[] = [];
+const E2E_MERGE_COMMIT_SHA = 'e2e-merge-sha';
+const E2E_MERGED_AT = new Date('2026-08-20T12:00:00Z');
+
 // R-21: avatars served for agents delegated along the way. The first lets a
 // later flow prove a different DID renders differently over the wire.
 const delegatedAvatars: string[] = [];
 const githubAdapter: GithubAdapter = {
-  getPullRequest: () => Promise.reject(new NotImplementedError('github', 'getPullRequest')),
+  getPullRequest: (ref) => {
+    getPullRequestCalls.push(ref);
+    return Promise.resolve({
+      ref,
+      state: 'merged',
+      mergeCommitSha: E2E_MERGE_COMMIT_SHA,
+      mergedAt: E2E_MERGED_AT,
+      headSha: 'e2e-head-sha',
+    });
+  },
   getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
   getPublicGist: (ref) => {
     const gist = gists.get(ref.id);
@@ -266,14 +287,13 @@ describe('the API starts and answers', () => {
     // handler is honest about being unimplemented. What matters for this
     // assertion is that none of them 404, because a route that does not exist
     // cannot be said to have a contract at all.
-    // POST /operators, POST /agents, POST /jobs, POST /jobs/:id/confirm and
-    // POST /jobs/:id/pull-request have left this list: they are implemented,
-    // and their real flows are asserted below. This is the one-at-a-time
-    // replacement the file's design promised.
+    // POST /operators, POST /agents, POST /jobs, POST /jobs/:id/confirm,
+    // POST /jobs/:id/pull-request and POST /jobs/:id/merge have left this
+    // list: they are implemented, and their real flows are asserted below.
+    // This is the one-at-a-time replacement the file's design promised.
     const declared: Array<[string, () => Promise<Response>]> = [
       ['GET  /agents/:did/card', () => get('/agents/did:abt:test/card')],
       ['GET  /agents/:did/credentials', () => get('/agents/did:abt:test/credentials')],
-      ['POST /jobs/:id/merge', () => post('/jobs/j1/merge')],
       ['POST /jobs/:id/reviews', () => post('/jobs/j1/reviews')],
     ];
 
@@ -863,6 +883,92 @@ describe('the API starts and answers', () => {
 
     // 8. Locked: posting again conflicts and opens no second PR.
     expect((await post(`/jobs/${jobId}/pull-request`)).status).toBe(409);
+  });
+
+  it('observes the merge and completes the job (R-11)', async () => {
+    // Completes the hire loop end to end: the submitted job's pull request
+    // is asked about directly, and only GitHub's own report - never a client
+    // assertion (ENT-7.1) - decides whether the job completes.
+    const operatorWallet = fromRandom();
+    const agentWallet = fromRandom();
+    const buyerWallet = fromRandom();
+    const credential = await signW3CDelegation(operatorWallet, agentWallet);
+
+    // 1-2. Register and delegate, as in the flows above.
+    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-merge' });
+    expect(op.status).toBe(201);
+    const delegated = await post('/agents', {
+      did: agentWallet.toDid(),
+      operator: operatorWallet.toDid(),
+      delegation: credential,
+      name: 'scout',
+      skills: ['triage'],
+    });
+    expect(delegated.status).toBe(201);
+
+    // 3. Open the draft.
+    const draft = await post('/jobs', {
+      buyerDid: buyerWallet.toDid(),
+      agentDid: agentWallet.toDid(),
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug on the checkout page',
+    });
+    expect(draft.status).toBe(201);
+    const jobId = String(((await draft.json()) as Record<string, unknown>).id);
+
+    // 4-6. Agree the spec and open the pull request: confirmed -> submitted.
+    expect(
+      (
+        await post(`/jobs/${jobId}/criteria`, {
+          criteria: [
+            { text: 'The login bug is fixed', proposedBy: 'agent' },
+            { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
+          ],
+        })
+      ).status,
+    ).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/0/accept`)).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/1/accept`)).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/confirm`)).status).toBe(200);
+    const pr = await post(`/jobs/${jobId}/pull-request`);
+    expect(pr.status).toBe(200);
+
+    // 7. Merge: github's own report stamps the completion facts.
+    const before = getPullRequestCalls.length;
+    const merge = await post(`/jobs/${jobId}/merge`);
+    expect(merge.status).toBe(200);
+    const mergeBody = (await merge.json()) as Record<string, unknown>;
+    expect(mergeBody.status).toBe('completed');
+    expect(mergeBody.mergeCommit).toBe(E2E_MERGE_COMMIT_SHA);
+    expect(mergeBody.mergedAt).toBe(E2E_MERGED_AT.toISOString());
+    // The submitted keys, plus exactly mergeCommit and mergedAt.
+    expect(Object.keys(mergeBody).sort()).toEqual([
+      'agentDid',
+      'brief',
+      'briefHash',
+      'buyerDid',
+      'confirmedAt',
+      'createdAt',
+      'criteria',
+      'id',
+      'mergeCommit',
+      'mergedAt',
+      'pullRequestUrl',
+      'repository',
+      'specHash',
+      'status',
+      'submittedAt',
+    ]);
+    expect(getPullRequestCalls.length).toBe(before + 1);
+
+    // 8. Read back: identical to the merge response.
+    const read = await get(`/jobs/${jobId}`);
+    expect(await read.json()).toEqual(mergeBody);
+
+    // 9. Locked: posting again conflicts, and github is not asked again.
+    const secondMerge = await post(`/jobs/${jobId}/merge`);
+    expect(secondMerge.status).toBe(409);
+    expect(getPullRequestCalls.length).toBe(before + 1);
   });
 
   it('still 404s an undeclared route', async () => {

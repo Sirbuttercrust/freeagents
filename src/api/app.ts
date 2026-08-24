@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 
 import { createGithubAdapter } from '../adapters/github/github.js';
-import type { Gist, GithubAdapter, PullRequestRef } from '../adapters/github/types.js';
+import type { Gist, GithubAdapter, PullRequestRef, PullRequestSummary } from '../adapters/github/types.js';
 import { createIdentityAdapter } from '../adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter } from '../adapters/identity/types.js';
 import {
@@ -35,6 +35,7 @@ import { isValidOperatorDid } from '../domain/operator-did.js';
 import type { Operator } from '../domain/operator.js';
 import {
   acceptCriterion,
+  completeJob,
   confirmSpec,
   createJob,
   JobError,
@@ -43,13 +44,15 @@ import {
   requestChanges,
   submitPullRequest,
   validateJobTransition,
+  type CompletedJob,
   type Job,
+  type JobStatus,
 } from '../domain/job.js';
 import { renderAvatar } from './avatar.js';
 
-// The hire-loop routes still honest about being unbuilt (R-11 merge, R-12
-// reviews): they return 501 until their issues land. Everything earlier in
-// the loop now has a real handler.
+// The hire-loop's last stub (R-12 reviews) stays honest about being unbuilt:
+// it returns 501 until its issue lands. Merge (R-11) now has a real handler
+// below; every route before it in the loop already did.
 function notImplemented(_req: Request, res: Response): void {
   res.status(501).json({ error: 'not implemented' });
 }
@@ -97,6 +100,9 @@ function agentProjection(row: Agent): Record<string, unknown> {
 // eight plus criteria, specHash and confirmedAt - a draft still projects
 // exactly the pinned eight keys. Submit (R-10) adds pullRequestUrl and
 // submittedAt the same conditional way: they appear only on a submitted job.
+// Merge (R-11) adds mergeCommit and mergedAt the same way again: a completed
+// job projects the submitted keyset plus exactly those two, both observed
+// from GitHub rather than asserted (ENT-7.1).
 function jobProjection(row: Job): Record<string, unknown> {
   // Confirm (R-9) sets hash and timestamp together or neither - one domain
   // function writes both - so the pair rides one conditional, and the null
@@ -113,6 +119,13 @@ function jobProjection(row: Job): Record<string, unknown> {
     row.pullRequestUrl !== null && row.submittedAt !== null
       ? { pullRequestUrl: row.pullRequestUrl, submittedAt: row.submittedAt.toISOString() }
       : {};
+  // The same one-writer rule for merge (R-11): completeJob writes both
+  // fields or neither, so both ride one conditional. A completed job keeps
+  // exactly the submitted keyset plus these two.
+  const completion =
+    row.mergeCommit !== null && row.mergedAt !== null
+      ? { mergeCommit: row.mergeCommit, mergedAt: row.mergedAt.toISOString() }
+      : {};
   return {
     id: row.id,
     buyerDid: row.buyerDid,
@@ -124,6 +137,7 @@ function jobProjection(row: Job): Record<string, unknown> {
     ...(row.criteria.length > 0 ? { criteria: row.criteria } : {}),
     ...confirmation,
     ...submission,
+    ...completion,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -820,7 +834,116 @@ export function createApp(
     }),
   );
 
-  app.post('/jobs/:jobId/merge', notImplemented);
+  // R-11 (ENT-7.1): the merge is observed from GitHub's API, never asserted
+  // by either party. The route never trusts a client-supplied state - it
+  // always asks github directly, and a non-merged answer records nothing
+  // and leaves the job submitted.
+  app.post(
+    '/jobs/:jobId/merge',
+    forwarded(async (req: Request, res: Response) => {
+      const jobId = String(req.params.jobId);
+
+      let current: Job | null;
+      try {
+        current = await jobRepo.findById(jobId);
+      } catch (err) {
+        console.error('POST /jobs/:jobId/merge: storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (current === null) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+
+      // A known status other than submitted is a conflict before github is
+      // ever asked. A corrupted (non-enum) status is not in this list, so it
+      // falls through and is caught by completeJob's own validator below -
+      // the same contract the pull-request route uses for its
+      // corrupted-status leg.
+      const nonSubmittedStatuses: readonly JobStatus[] = ['draft', 'proposed', 'confirmed', 'completed'];
+      if (nonSubmittedStatuses.includes(current.status)) {
+        res.status(409).json({ error: new JobTransitionError(current.status, 'merge').message });
+        return;
+      }
+
+      // A submitted job always carries a URL in the shape submitPullRequest
+      // itself wrote (R-10); anything else is a corrupted row, not a caller
+      // error, so it reaches the terminal handler as a 500 like the
+      // pull-request route's own corrupted-state leg.
+      const match =
+        current.pullRequestUrl === null
+          ? null
+          : /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/.exec(current.pullRequestUrl);
+      if (match === null) {
+        throw new Error(`job ${jobId} is submitted but pullRequestUrl is missing or malformed`);
+      }
+      const [, owner, repo, prNumber] = match;
+      if (owner === undefined || repo === undefined || prNumber === undefined) {
+        throw new Error(`job ${jobId} is submitted but pullRequestUrl is missing or malformed`);
+      }
+      const ref: PullRequestRef = { owner, repo, number: Number(prNumber) };
+
+      // This is the ENT-7.1 observation itself: the state that decides
+      // whether the job completes comes from github, never from the caller.
+      let summary: PullRequestSummary;
+      try {
+        summary = await github.getPullRequest(ref);
+      } catch (err) {
+        console.error('POST /jobs/:jobId/merge: github unavailable', err);
+        res.status(503).json({ error: 'github unavailable' });
+        return;
+      }
+
+      if (summary.state === 'open') {
+        res.status(409).json({ error: 'pull request is open; it has not merged yet' });
+        return;
+      }
+      if (summary.state === 'closed') {
+        res.status(409).json({ error: 'pull request is closed without merging; it cannot merge' });
+        return;
+      }
+
+      // A merged state with no merge commit sha is an inconsistent github
+      // response, not a caller error: ENT-7 requires the merge commit, so
+      // this is our problem to surface as a 500, not a 409 or 400.
+      if (summary.mergeCommitSha === null) {
+        throw new Error(`github reported job ${jobId}'s pull request merged with no merge commit sha`);
+      }
+
+      let outcome: { readonly job: Job; readonly completedJob: Omit<CompletedJob, 'id'> };
+      try {
+        outcome = completeJob(current, {
+          mergeCommit: summary.mergeCommitSha,
+          // The merge instant is github's fact, not this service's clock
+          // (ENT-7.1); only a github response with no timestamp at all falls
+          // back to observing it now.
+          completedAt: summary.mergedAt ?? new Date(),
+        });
+      } catch (err) {
+        // Covers a job that completed between the read above and here.
+        if (err instanceof JobTransitionError) {
+          res.status(409).json({ error: err.message });
+          return;
+        }
+        throw err;
+      }
+
+      try {
+        const row = await jobRepo.complete(outcome.job, outcome.completedJob);
+        if (row === null) {
+          // The row vanished between the read and the write.
+          res.status(404).json({ error: 'not found' });
+          return;
+        }
+        res.status(200).json(jobProjection(row));
+      } catch (err) {
+        console.error('POST /jobs/:jobId/merge: storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+      }
+    }),
+  );
+
   app.post('/jobs/:jobId/reviews', notImplemented);
 
   // Terminal error layer: a fault that reached here was not mapped by a

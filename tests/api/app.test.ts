@@ -81,11 +81,11 @@ describe('app', () => {
 
   it('returns 501 for hire loop route stubs', async () => {
     // POST /jobs left this post when R-28 implemented it, POST
-    // /jobs/:id/confirm when R-9 did, and POST /jobs/:id/pull-request when
-    // R-10 did; the surviving stubs stay honest, asserted through one of
-    // them.
-    const mergePath = '/jobs/j1/merge';
-    const response = await fetch(`${baseUrl}${mergePath}`, { method: 'POST' });
+    // /jobs/:id/confirm when R-9 did, POST /jobs/:id/pull-request when R-10
+    // did, and POST /jobs/:id/merge when R-11 did; the one surviving stub
+    // stays honest, asserted here.
+    const reviewsPath = '/jobs/j1/reviews';
+    const response = await fetch(`${baseUrl}${reviewsPath}`, { method: 'POST' });
     expect(response.status).toBe(501);
   });
 
