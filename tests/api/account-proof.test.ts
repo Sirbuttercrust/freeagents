@@ -12,6 +12,7 @@ import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
+import { GistNotFoundError } from '../../src/adapters/github/types.js';
 import type { Gist, GithubAdapter } from '../../src/adapters/github/types.js';
 import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 import type { AgentRepository } from '../../src/adapters/storage/types.js';
@@ -111,14 +112,18 @@ function fakeIdentity(
 }
 
 // The only capability under test is getPublicGist; everything else throws
-// NotImplementedError, the same honest shape as the real adapter. An id not
-// in the map rejects, so the route's github-unavailable branch is reachable.
-function fakeGithub(gists: Map<string, Gist>): GithubAdapter {
+// NotImplementedError, the same honest shape as the real adapter. A mapped
+// null is a deleted gist (GistNotFoundError); an id not in the map rejects
+// generically, so the route's github-unavailable branch is reachable.
+function fakeGithub(gists: Map<string, Gist | null>): GithubAdapter {
   return {
     getPullRequest: () => Promise.reject(new NotImplementedError('github', 'getPullRequest')),
     getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
     getPublicGist: (ref) => {
       const gist = gists.get(ref.id);
+      if (gist === null) {
+        return Promise.reject(new GistNotFoundError(ref.id));
+      }
       if (gist === undefined) {
         return Promise.reject(new Error(`gist ${ref.id} not found`));
       }
@@ -143,7 +148,7 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
   const agentRepo = new MemoryAgentRepository();
 
   const documents = new Map<string, DidDocument>();
-  const gists = new Map<string, Gist>();
+  const gists = new Map<string, Gist | null>();
 
   beforeAll(async () => {
     const app = createApp(repo, agentRepo, fakeIdentity(documents), fakeGithub(gists));
@@ -278,6 +283,74 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
     expect(read.status).toBe(200);
     const readBody = (await read.json()) as Record<string, unknown>;
     expect(readBody.proofStatus).toBe('verified');
+  });
+
+  it('200: a re-check whose gist no longer resolves drops a verified binding to unverified (R-5)', async () => {
+    const did = 'did:abt:zAgentProof13';
+    await registerAgent(did);
+    documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+    gists.set('rsv321', {
+      id: 'rsv321',
+      owner: 'scout-agent',
+      files: { 'proof.txt': signedStatementFor(did, 'https://github.com/scout-agent') },
+    });
+
+    const first = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/scout-agent/rsv321',
+    });
+    expect(first.status).toBe(200);
+    let body = (await first.json()) as Record<string, unknown>;
+    expect(body.proofStatus).toBe('verified');
+
+    // The operator deleted the gist; the next check must not read that as an
+    // outage but as the proof no longer standing.
+    gists.set('rsv321', null);
+    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/scout-agent/rsv321',
+    });
+    expect(res.status).toBe(200);
+    body = (await res.json()) as Record<string, unknown>;
+    expect(body.proofStatus).toBe('unverified');
+    // The handle is kept: the claim was made, it no longer holds.
+    expect(body.githubLogin).toBe('scout-agent');
+
+    // Read-back: the downgrade survives the round trip.
+    const read = await fetch(`${baseUrl}/agents/${did}`);
+    expect(read.status).toBe(200);
+    const readBody = (await read.json()) as Record<string, unknown>;
+    expect(readBody.proofStatus).toBe('unverified');
+    expect(readBody.githubLogin).toBe('scout-agent');
+  });
+
+  it('409: a dead-gist re-check of a pending binding records nothing (R-5)', async () => {
+    const did = 'did:abt:zAgentProof14';
+    await registerAgent(did);
+    documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+
+    // Direction one alone: the binding is pending, never verified.
+    const first = await postJson(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent' });
+    expect(first.status).toBe(200);
+    const firstBody = (await first.json()) as Record<string, unknown>;
+    expect(firstBody.proofStatus).toBe('pending');
+
+    // Now the same re-check arrives with a gist that no longer resolves.
+    gists.set('tuv543', null);
+    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/scout-agent/tuv543',
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Record<string, unknown>;
+    // A missing gist is operator-fixable: the message says recreate it.
+    expect(String(body.error)).toContain('direction two (signed gist)');
+    expect(String(body.error)).toContain('recreate');
+
+    // Nothing changed: still pending, same handle.
+    const stored = await agentRepo.findByDid(did);
+    expect(stored?.githubLogin).toBe('scout-agent');
+    expect(stored?.proofStatus).toBe('pending');
   });
 
   it('400: a gist that is not a parseable gist URL', async () => {
@@ -494,7 +567,7 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
 // error, so it is a 503 and records nothing.
 describe('POST /agents/:agentDid/account-proof, identity verification failure', () => {
   const documents = new Map<string, DidDocument>();
-  const gists = new Map<string, Gist>();
+  const gists = new Map<string, Gist | null>();
   const base = new MemoryAgentRepository();
   const app = createApp(
     new MemoryOperatorRepository(),
@@ -544,12 +617,14 @@ describe('POST /agents/:agentDid/account-proof, identity verification failure', 
   });
 });
 
-// The three storage branches of the route, which the real repository never
+// The storage branches of the route, which the real repository never
 // exercises: a failing lookup, a failing update, and an update that reports
-// the agent as not stored even though the lookup succeeded. Each gets its own
-// app with a wrapped repository, the same way the R-1/R-2 tests inject them.
+// the agent as not stored even though the lookup succeeded, on both the
+// normal and the R-5 downgrade write. Each gets its own app with a wrapped
+// repository, the same way the R-1/R-2 tests inject them.
 describe('POST /agents/:agentDid/account-proof, storage branches', () => {
   const documents = new Map<string, DidDocument>();
+  const gists = new Map<string, Gist | null>();
   const base = new MemoryAgentRepository();
 
   function makeApp(overrides: {
@@ -558,7 +633,7 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
       did: string,
       input: { readonly handle: string; readonly status: ProofStatus },
     ) => Promise<Agent | null>;
-  }): Express {
+  } = {}): Express {
     const repo: AgentRepository = {
       create: (input) => base.create(input),
       findByDid: overrides.findByDid ?? ((did) => base.findByDid(did)),
@@ -566,7 +641,7 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
         overrides.updateGithubBinding ?? ((did, input) => base.updateGithubBinding(did, input)),
       recordKeyRotation: (did, input) => base.recordKeyRotation(did, input),
     };
-    return createApp(new MemoryOperatorRepository(), repo, fakeIdentity(documents));
+    return createApp(new MemoryOperatorRepository(), repo, fakeIdentity(documents), fakeGithub(gists));
   }
 
   // A storage failure is a logged operator concern, not output the test
@@ -638,6 +713,85 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
       expect(res.status).toBe(503);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('storage unavailable');
+    });
+  });
+
+  // R-5: the downgrade write has its own storage branches. A dead gist is a
+  // fact, so a failing downgrade write must read as storage unavailability,
+  // not as a github outage, and a write that reports the agent as not stored
+  // is a 404 like the normal path.
+
+  it('503: the downgrade write throws on a dead-gist re-check (R-5)', async () => {
+    const did = 'did:abt:zAgentDowngradeFail';
+    await registerAgent(did);
+    documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+    gists.set('xyz789', {
+      id: 'xyz789',
+      owner: 'scout-agent',
+      files: { 'proof.txt': signedStatementFor(did, 'https://github.com/scout-agent') },
+    });
+
+    // First check verifies the binding, through the same wrapped repository.
+    const app = makeApp();
+    await withApp(app, async (url) => {
+      const res = await postJson(url, `/agents/${did}/account-proof`, {
+        handle: 'scout-agent',
+        gist: 'https://gist.github.com/scout-agent/xyz789',
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.proofStatus).toBe('verified');
+    });
+
+    // The gist is deleted and the downgrade write itself fails.
+    gists.set('xyz789', null);
+    const failingApp = makeApp({
+      updateGithubBinding: () => Promise.reject(new Error('storage down')),
+    });
+    await withApp(failingApp, async (url) => {
+      const res = await postJson(url, `/agents/${did}/account-proof`, {
+        handle: 'scout-agent',
+        gist: 'https://gist.github.com/scout-agent/xyz789',
+      });
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.error).toBe('storage unavailable');
+    });
+  });
+
+  it('404: the downgrade write reports the agent as not stored (R-5)', async () => {
+    const did = 'did:abt:zAgentDowngradeNull';
+    await registerAgent(did);
+    documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
+    gists.set('uvw321', {
+      id: 'uvw321',
+      owner: 'scout-agent',
+      files: { 'proof.txt': signedStatementFor(did, 'https://github.com/scout-agent') },
+    });
+
+    const app = makeApp();
+    await withApp(app, async (url) => {
+      const res = await postJson(url, `/agents/${did}/account-proof`, {
+        handle: 'scout-agent',
+        gist: 'https://gist.github.com/scout-agent/uvw321',
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.proofStatus).toBe('verified');
+    });
+
+    gists.set('uvw321', null);
+    const nullApp = makeApp({
+      updateGithubBinding: () => Promise.resolve(null),
+    });
+    await withApp(nullApp, async (url) => {
+      const res = await postJson(url, `/agents/${did}/account-proof`, {
+        handle: 'scout-agent',
+        gist: 'https://gist.github.com/scout-agent/uvw321',
+      });
+      expect(res.status).toBe(404);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.error).toBe(`agent ${did} is not registered`);
     });
   });
 });

@@ -3,7 +3,13 @@ import { randomBytes } from 'node:crypto';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 
 import { createGithubAdapter } from '../adapters/github/github.js';
-import type { Gist, GithubAdapter, PullRequestRef, PullRequestSummary } from '../adapters/github/types.js';
+import {
+  GistNotFoundError,
+  type Gist,
+  type GithubAdapter,
+  type PullRequestRef,
+  type PullRequestSummary,
+} from '../adapters/github/types.js';
 import { createIdentityAdapter } from '../adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter } from '../adapters/identity/types.js';
 import {
@@ -431,12 +437,45 @@ export function createApp(
     }
 
     // R-4, direction two. Fetching the gist is a public, unauthenticated
-    // read; any failure is a platform-side unavailability, not an operator
-    // error, so it is a 503 and records nothing.
+    // read. A deleted gist (GistNotFoundError) is not a failure at all: it
+    // is the check's answer, handled below. Any other failure is a
+    // platform-side unavailability, not an operator error, so it is a 503
+    // and records nothing.
     let gist: Gist;
     try {
       gist = await github.getPublicGist({ id: gistRef.id });
     } catch (err) {
+      if (err instanceof GistNotFoundError) {
+        // R-5 (ENT-5.3): the gist no longer exists. That is not an outage; it
+        // is the check resolving to "the proof no longer stands". A verified
+        // binding drops to unverified (the handle is kept: the claim was
+        // made, it no longer holds). Anything weaker than verified has
+        // nothing to lose, and a missing gist is operator-fixable, so it is
+        // a 409.
+        if (row.proofStatus === 'verified') {
+          let updated: Agent | null;
+          try {
+            updated = await agentRepo.updateGithubBinding(did, {
+              handle,
+              status: 'unverified',
+            });
+          } catch (storageErr) {
+            console.error('POST /agents/:agentDid/account-proof: storage failed', storageErr);
+            res.status(503).json({ error: 'storage unavailable' });
+            return;
+          }
+          if (updated === null) {
+            res.status(404).json({ error: `agent ${did} is not registered` });
+            return;
+          }
+          res.status(200).json(agentProjection(updated));
+          return;
+        }
+        res.status(409).json({
+          error: 'direction two (signed gist): the gist no longer resolves: recreate it at the published URL',
+        });
+        return;
+      }
       console.error('POST /agents/:agentDid/account-proof: github unavailable', err);
       res.status(503).json({ error: 'github unavailable' });
       return;
