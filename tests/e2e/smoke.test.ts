@@ -32,6 +32,10 @@
  *     as a public gist, and with both directions holding the binding is
  *     verified, with a third party re-checking the signature without the
  *     service
+ *   - the deleted-gist re-check works end to end (R-5): the gist no longer
+ *     resolves, and the next check drops the verified binding to
+ *     unverified, with a third party reading the public gist surface and
+ *     agreeing without the service
  *   - the first half of the hire loop works end to end: an operator
  *     registers, delegates an agent, and a buyer's brief opens a job draft
  *     that reads back identically, with brief and briefHash riding the
@@ -78,7 +82,13 @@ import { securityLoader } from '@digitalbazaar/security-document-loader';
 import { fromRandom, type WalletObject } from '@ocap/wallet';
 
 import { createApp } from '../../src/api/app.js';
-import type { ForkAndOpenPullRequestInput, Gist, GithubAdapter, PullRequestRef } from '../../src/adapters/github/types.js';
+import {
+  GistNotFoundError,
+  type ForkAndOpenPullRequestInput,
+  type Gist,
+  type GithubAdapter,
+  type PullRequestRef,
+} from '../../src/adapters/github/types.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter, SignedPayload } from '../../src/adapters/identity/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
@@ -173,9 +183,10 @@ let accountProofDid: string | null = null;
 let proofSigningWallet: WalletObject | null = null;
 
 // R-4, direction two: the published gists, as the public GitHub API would
-// serve them. The fake adapter below is the only file that knows a vendor
-// exists, as with every other adapter in this test.
-const gists = new Map<string, Gist>();
+// serve them. A mapped null is a deleted gist (R-5). The fake adapter
+// below is the only file that knows a vendor exists, as with every other
+// adapter in this test.
+const gists = new Map<string, Gist | null>();
 
 // R-10: what the hire flow asked github to do. The fake records its input so
 // the flow can assert the buyer's repository was referenced READ-ONLY and
@@ -206,6 +217,9 @@ const githubAdapter: GithubAdapter = {
   getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
   getPublicGist: (ref) => {
     const gist = gists.get(ref.id);
+    if (gist === null) {
+      return Promise.reject(new GistNotFoundError(ref.id));
+    }
     if (gist === undefined) {
       return Promise.reject(new Error(`gist ${ref.id} not found`));
     }
@@ -637,6 +651,32 @@ describe('the API starts and answers', () => {
       gist: 'https://github.com/scout-agent/x',
     });
     expect(badUrl.status).toBe(400);
+
+    // 9. R-5 (ENT-5.3): the operator deletes the gist. The next check with
+    // the same body must not read that as an outage; it is the check's
+    // answer, and a verified binding drops to unverified.
+    gists.set('e2e-proof-gist', null);
+    const recheck = await post(`/agents/${agentWallet.toDid()}/account-proof`, {
+      handle: 'scout-agent',
+      gist: 'https://gist.github.com/scout-agent/e2e-proof-gist',
+    });
+    expect(recheck.status).toBe(200);
+    const recheckBody = (await recheck.json()) as Record<string, unknown>;
+    expect(recheckBody.proofStatus).toBe('unverified');
+    expect(recheckBody.githubLogin).toBe('scout-agent');
+
+    // 10. A third party, reading the public gist surface directly from the
+    // URL form and knowing nothing about this service, finds nothing: the
+    // gist no longer resolves, which agrees with the platform's stored
+    // unverified without any call into the service's decision code.
+    expect(gists.get('e2e-proof-gist')).toBeNull();
+
+    // 11. Read-back: the downgrade survives the round trip, and the handle
+    // is kept - the claim was made, it no longer holds.
+    const downgraded = await get(`/agents/${agentWallet.toDid()}`);
+    const downgradedBody = (await downgraded.json()) as Record<string, unknown>;
+    expect(downgradedBody.proofStatus).toBe('unverified');
+    expect(downgradedBody.githubLogin).toBe('scout-agent');
   });
 
   it('exchanges acceptance criteria on one job row, more than once', async () => {
