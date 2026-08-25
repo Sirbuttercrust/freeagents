@@ -20,15 +20,19 @@ import {
   JobAlreadyExistsError,
   OperatorAlreadyExistsError,
   type AgentRepository,
+  type CredentialRepository,
   type JobRepository,
   type OperatorRepository,
+  type StoredCredential,
 } from '../adapters/storage/types.js';
 import {
   createAgentRepository,
+  createCredentialRepository,
   createJobRepository,
   createOperatorRepository,
 } from '../adapters/storage/storage.js';
 import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
+import { evidenceRecord, type EvidenceItem } from '../domain/profile.js';
 import {
   didDocumentPointsAtGithubAccount,
   gistProofPayload,
@@ -99,6 +103,23 @@ function agentProjection(row: Agent): Record<string, unknown> {
     proofStatus: row.proofStatus,
     createdAt: row.createdAt.toISOString(),
     avatar: renderAvatar(row.did),
+  };
+}
+
+// R-17 (ENT-2.4, invariant 5): the three evidence tiers, each labelled, never
+// summed. The credential document is NOT embedded: invariant 2 says the
+// stored bytes are served verbatim at /v1/credentials/:id and nowhere else,
+// so the profile links to that path and echoes only facts a third party can
+// re-check on GitHub's public API.
+function hireItem(row: StoredCredential): Record<string, unknown> {
+  const subject = row.document.credentialSubject;
+  return {
+    credentialPath: `/v1/credentials/${row.completedJobId}`,
+    jobId: subject.jobId,
+    repository: subject.repository,
+    pullRequestUrl: subject.pullRequestUrl,
+    mergeCommitSha: subject.mergeCommitSha,
+    mergedAt: subject.mergedAt,
   };
 }
 
@@ -193,6 +214,7 @@ export function createApp(
   github: GithubAdapter = createGithubAdapter(),
   jobRepo: JobRepository = createJobRepository(),
   credentials: CredentialsAdapter = createCredentialResolver(),
+  credentialRepo: CredentialRepository = createCredentialRepository(),
 ): Express {
   const app = express();
   app.use(express.json());
@@ -554,6 +576,39 @@ export function createApp(
       res.status(200).json(agentProjection(updated));
     } catch (err) {
       console.error('POST /agents/:agentDid/account-proof: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // R-17 (ENT-2.4, ENT-11.5, invariant 5): the three evidence tiers,
+  // assembled and labelled, never blended into one number. A credential
+  // exists only for a job this platform brokered whose pull request merged
+  // (ENT-8.2, ENT-7.1), so every stored credential is a verified hire.
+  // repositoryPublic is assumed true (ASSUMPTIONS A-R17-3): the model does
+  // not record repository visibility yet, so this is the one line to change
+  // when that fact lands. Prior-work and portfolio contribute no items yet
+  // (A-R17-4): those tiers render as honest zeros.
+  app.get('/agents/:agentDid/profile', async (req: Request, res: Response) => {
+    try {
+      const row = await agentRepo.findByDid(String(req.params.agentDid));
+      if (row === null) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      const credentialRows = await credentialRepo.listBySubjectDid(row.did);
+      const items: EvidenceItem<Record<string, unknown>>[] = credentialRows.map((credentialRow) => ({
+        facts: {
+          platformBrokered: true,
+          pullRequestMerged: true,
+          signedCommit: false,
+          repositoryPublic: true,
+          ownerSubmitted: false,
+        },
+        item: hireItem(credentialRow),
+      }));
+      res.status(200).json({ agent: agentProjection(row), evidence: evidenceRecord(items) });
+    } catch (err) {
+      console.error('GET /agents/:agentDid/profile: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
