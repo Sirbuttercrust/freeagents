@@ -121,6 +121,16 @@ export function credentialLookupKey(id: string): string {
   return id;
 }
 
+// A stored credential plus the key it resolves under. The document alone is
+// not enough for a profile: the resolvable path (R-15,
+// '/v1/credentials/<completedJobId>') is what lets a third party re-check the
+// count without calling us (invariant 2), and that key lives on the row, not
+// in the document.
+export interface StoredCredential {
+  readonly completedJobId: string;
+  readonly document: VerifiableCredential;
+}
+
 // One work-history credential per completed job (ENT-8). The document goes
 // in verbatim: the bytes that verified are the bytes that are stored, so a
 // resolved credential keeps verifying off-platform (invariant 2).
@@ -135,4 +145,8 @@ export interface CredentialRepository {
   // documentId may be the full credential id or its lookup key. Null when
   // no credential carries that id, so the adapter maps it to a 404.
   findByDocumentId(documentId: string): Promise<VerifiableCredential | null>;
+  // R-17: every credential issued to this agent, newest first. Empty array
+  // when the agent has none, never null: an agent with no record has a record
+  // of no hires (ENT-2.4), which is a different thing from a missing agent.
+  listBySubjectDid(subjectDid: string): Promise<readonly StoredCredential[]>;
 }

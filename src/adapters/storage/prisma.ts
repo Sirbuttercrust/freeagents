@@ -17,6 +17,7 @@ import {
   type KeyRotationInput,
   OperatorAlreadyExistsError,
   type OperatorRepository,
+  type StoredCredential,
   credentialLookupKey,
 } from './types.js';
 
@@ -373,6 +374,19 @@ export class PrismaCredentialRepository implements CredentialRepository {
     // The Json column round-trips as unknown; storage does not re-validate
     // (same stance as the delegation column), it serves the stored bytes.
     return row === null ? null : (row.document as unknown as VerifiableCredential);
+  }
+
+  async listBySubjectDid(subjectDid: string): Promise<readonly StoredCredential[]> {
+    const rows = await db().credential.findMany({
+      where: { subjectDid },
+      orderBy: { issuedAt: 'desc' },
+    });
+    return rows.map((row) => ({
+      completedJobId: row.completedJobId,
+      // The Json column round-trips as unknown; storage does not
+      // re-validate, it serves the stored bytes.
+      document: row.document as unknown as VerifiableCredential,
+    }));
   }
 }
 

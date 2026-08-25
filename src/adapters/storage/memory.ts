@@ -17,6 +17,7 @@ import {
   type KeyRotationInput,
   OperatorAlreadyExistsError,
   type OperatorRepository,
+  type StoredCredential,
   credentialLookupKey,
 } from './types.js';
 
@@ -162,7 +163,10 @@ export class MemoryJobRepository implements JobRepository {
 }
 
 export class MemoryCredentialRepository implements CredentialRepository {
-  private readonly rows = new Map<string, VerifiableCredential>();
+  private readonly rows = new Map<
+    string,
+    { completedJobId: string; subjectDid: string; document: VerifiableCredential }
+  >();
 
   async save(input: {
     readonly completedJobId: string;
@@ -178,10 +182,19 @@ export class MemoryCredentialRepository implements CredentialRepository {
     }
     // The document goes in verbatim (the Prisma driver stores it the same
     // way): the bytes that verified are the bytes that are served back.
-    this.rows.set(key, input.document);
+    this.rows.set(key, { completedJobId: key, subjectDid: input.subjectDid, document: input.document });
   }
 
   async findByDocumentId(documentId: string): Promise<VerifiableCredential | null> {
-    return this.rows.get(credentialLookupKey(documentId)) ?? null;
+    return this.rows.get(credentialLookupKey(documentId))?.document ?? null;
+  }
+
+  async listBySubjectDid(subjectDid: string): Promise<readonly StoredCredential[]> {
+    // A Map iterates in insertion order, so reversing the filtered rows
+    // gives newest-first without storing a separate clock.
+    return [...this.rows.values()]
+      .filter((row) => row.subjectDid === subjectDid)
+      .map((row) => ({ completedJobId: row.completedJobId, document: row.document }))
+      .reverse();
   }
 }

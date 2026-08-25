@@ -28,6 +28,7 @@ const mock = vi.hoisted(() => ({
   keyRotationFindMany: vi.fn(),
   credentialCreate: vi.fn(),
   credentialFindUnique: vi.fn(),
+  credentialFindMany: vi.fn(),
 }));
 
 vi.mock('../../src/generated/prisma/index.js', async () => {
@@ -43,7 +44,11 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
       agent = { create: mock.agentCreate, findUnique: mock.agentFindUnique, update: mock.agentUpdate };
       job = { create: mock.jobCreate, findUnique: mock.jobFindUnique, update: mock.jobUpdate };
       keyRotation = { create: mock.keyRotationCreate, findMany: mock.keyRotationFindMany };
-      credential = { create: mock.credentialCreate, findUnique: mock.credentialFindUnique };
+      credential = {
+        create: mock.credentialCreate,
+        findUnique: mock.credentialFindUnique,
+        findMany: mock.credentialFindMany,
+      };
     },
     Prisma: actual.Prisma,
   };
@@ -953,11 +958,13 @@ describe('PrismaCredentialRepository', () => {
   beforeAll(() => {
     vi.mocked(mock.credentialCreate).mockReset();
     vi.mocked(mock.credentialFindUnique).mockReset();
+    vi.mocked(mock.credentialFindMany).mockReset();
   });
 
   afterEach(() => {
     vi.mocked(mock.credentialCreate).mockReset();
     vi.mocked(mock.credentialFindUnique).mockReset();
+    vi.mocked(mock.credentialFindMany).mockReset();
   });
 
   // The credential the driver stores is the full W3C credential (R-15); the
@@ -1110,5 +1117,50 @@ describe('PrismaCredentialRepository', () => {
 
     expect(mock.credentialFindUnique).toHaveBeenCalledWith({ where: { completedJobId: 'job_missing' } });
     expect(row).toBeNull();
+  });
+
+  it('listBySubjectDid: queries by subject, newest first, and maps the Json column through untouched', async () => {
+    const rows = [
+      {
+        id: 'cuid-2',
+        completedJobId: 'job_2',
+        subjectDid: 'did:abt:agent',
+        document: credentialFixture,
+        issuedAt: new Date('2026-01-04T00:00:00Z'),
+      },
+      {
+        id: 'cuid-1',
+        completedJobId: 'job_1',
+        subjectDid: 'did:abt:agent',
+        document: credentialFixture,
+        issuedAt: new Date('2026-01-03T00:00:00Z'),
+      },
+    ];
+    vi.mocked(mock.credentialFindMany).mockResolvedValue(rows);
+
+    const repo = new PrismaCredentialRepository();
+    const result = await repo.listBySubjectDid('did:abt:agent');
+
+    expect(mock.credentialFindMany).toHaveBeenCalledWith({
+      where: { subjectDid: 'did:abt:agent' },
+      orderBy: { issuedAt: 'desc' },
+    });
+    expect(result).toEqual([
+      { completedJobId: 'job_2', document: credentialFixture },
+      { completedJobId: 'job_1', document: credentialFixture },
+    ]);
+  });
+
+  it('listBySubjectDid: no stored credentials come back as an empty array, not null', async () => {
+    vi.mocked(mock.credentialFindMany).mockResolvedValue([]);
+
+    const repo = new PrismaCredentialRepository();
+    const result = await repo.listBySubjectDid('did:abt:nobody');
+
+    expect(mock.credentialFindMany).toHaveBeenCalledWith({
+      where: { subjectDid: 'did:abt:nobody' },
+      orderBy: { issuedAt: 'desc' },
+    });
+    expect(result).toEqual([]);
   });
 });
