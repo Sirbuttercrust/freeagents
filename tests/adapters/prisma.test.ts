@@ -26,6 +26,8 @@ const mock = vi.hoisted(() => ({
   jobUpdate: vi.fn(),
   keyRotationCreate: vi.fn(),
   keyRotationFindMany: vi.fn(),
+  credentialCreate: vi.fn(),
+  credentialFindUnique: vi.fn(),
 }));
 
 vi.mock('../../src/generated/prisma/index.js', async () => {
@@ -41,6 +43,7 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
       agent = { create: mock.agentCreate, findUnique: mock.agentFindUnique, update: mock.agentUpdate };
       job = { create: mock.jobCreate, findUnique: mock.jobFindUnique, update: mock.jobUpdate };
       keyRotation = { create: mock.keyRotationCreate, findMany: mock.keyRotationFindMany };
+      credential = { create: mock.credentialCreate, findUnique: mock.credentialFindUnique };
     },
     Prisma: actual.Prisma,
   };
@@ -48,10 +51,18 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
 
 // Import after the mock is registered: the driver's module-level singleton
 // then captures the stubbed client, and `db()` never opens a database.
-const { PrismaAgentRepository, PrismaJobRepository, PrismaOperatorRepository } =
-  await import('../../src/adapters/storage/prisma.js');
-const { AgentAlreadyExistsError, JobAlreadyExistsError, OperatorAlreadyExistsError } =
-  await import('../../src/adapters/storage/types.js');
+const {
+  PrismaAgentRepository,
+  PrismaCredentialRepository,
+  PrismaJobRepository,
+  PrismaOperatorRepository,
+} = await import('../../src/adapters/storage/prisma.js');
+const {
+  AgentAlreadyExistsError,
+  CredentialAlreadyIssuedError,
+  JobAlreadyExistsError,
+  OperatorAlreadyExistsError,
+} = await import('../../src/adapters/storage/types.js');
 
 // The same input/output pair tests/adapters/storage.test.ts pins the memory
 // driver to: if the two fixtures drift, both tests must be changed together.
@@ -934,6 +945,170 @@ describe('PrismaJobRepository', () => {
     const row = await repo.findCompletedByJobId('job_missing');
 
     expect(mock.jobFindUnique).toHaveBeenCalledWith({ where: { id: 'job_missing' } });
+    expect(row).toBeNull();
+  });
+});
+
+describe('PrismaCredentialRepository', () => {
+  beforeAll(() => {
+    vi.mocked(mock.credentialCreate).mockReset();
+    vi.mocked(mock.credentialFindUnique).mockReset();
+  });
+
+  afterEach(() => {
+    vi.mocked(mock.credentialCreate).mockReset();
+    vi.mocked(mock.credentialFindUnique).mockReset();
+  });
+
+  // The credential the driver stores is the full W3C credential (R-15); the
+  // shaped fixture stands in for the bytes a real issuer signed, the way
+  // delegationFixture does for the agent repository.
+  const credentialFixture = {
+    '@context': ['https://www.w3.org/2018/credentials/v1'],
+    type: ['VerifiableCredential', 'CompletedHireCredential'],
+    issuer: 'did:abt:platform',
+    credentialSubject: {
+      id: 'did:abt:agent',
+      jobId: 'job_1',
+      pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1',
+      mergeCommitSha: '3f8a2c1d9e7b4a5f6c8d0e1f2a3b4c5d6e7f8a9b',
+      mergedAt: '2026-01-03T00:00:00.000Z',
+      diffAdditions: 1,
+      diffDeletions: 1,
+      specHash: 'sha256:spec',
+      filesChanged: 1,
+      repository: 'buyer/target-repo',
+      signedBy: 'did:abt:agent#job_1',
+      buyerDid: 'did:example:buyer',
+    },
+    proof: { type: 'Ed25519Signature2020', proofValue: 'zProof' },
+  };
+
+  it('save: sends the completed job id, the subject, and the verbatim document', async () => {
+    vi.mocked(mock.credentialCreate).mockResolvedValue({ id: 'cuid-1' });
+
+    const repo = new PrismaCredentialRepository();
+    await repo.save({
+      completedJobId: 'job_1',
+      subjectDid: 'did:abt:agent',
+      document: credentialFixture,
+    });
+
+    // The document crosses the wire verbatim: a projection that reshaped it
+    // here would break the proof on the way out, which is exactly what the
+    // invariant-2 tests elsewhere in this suite refuse to allow.
+    expect(mock.credentialCreate).toHaveBeenCalledWith({
+      data: {
+        completedJobId: 'job_1',
+        subjectDid: 'did:abt:agent',
+        document: credentialFixture,
+        issuedAt: expect.any(Date),
+      },
+    });
+  });
+
+  it('save: the storage key is the last path segment of a full credential id', async () => {
+    vi.mocked(mock.credentialCreate).mockResolvedValue({ id: 'cuid-1' });
+
+    const repo = new PrismaCredentialRepository();
+    await repo.save({
+      completedJobId: 'https://platform.example/v1/credentials/job_1',
+      subjectDid: 'did:abt:agent',
+      document: credentialFixture,
+    });
+
+    expect(mock.credentialCreate).toHaveBeenCalledWith({
+      data: {
+        completedJobId: 'job_1',
+        subjectDid: 'did:abt:agent',
+        document: credentialFixture,
+        issuedAt: expect.any(Date),
+      },
+    });
+  });
+
+  it('save: a P2002 unique-constraint failure is the domain duplicate error', async () => {
+    vi.mocked(mock.credentialCreate).mockRejectedValue(p2002('job_1'));
+
+    const repo = new PrismaCredentialRepository();
+    const err = await repo
+      .save({ completedJobId: 'job_1', subjectDid: 'did:abt:agent', document: credentialFixture })
+      .catch((e: unknown) => e);
+
+    // One credential per completed job (invariant 6): the domain error
+    // names the job, the way the operator and agent drivers name their
+    // duplicates.
+    expect(err).toBeInstanceOf(CredentialAlreadyIssuedError);
+    expect((err as Error).message).toContain('job_1');
+    expect((err as Error).name).toBe('CredentialAlreadyIssuedError');
+  });
+
+  it('save: a non-P2002 Prisma error is rethrown untouched', async () => {
+    const original = p1001();
+    vi.mocked(mock.credentialCreate).mockRejectedValue(original);
+
+    const repo = new PrismaCredentialRepository();
+    const err = await repo
+      .save({ completedJobId: 'job_1', subjectDid: 'did:abt:agent', document: credentialFixture })
+      .catch((e: unknown) => e);
+
+    // Same object: a dead database must not be rewritten into a duplicate,
+    // and it must not be swallowed.
+    expect(err).toBe(original);
+    expect(err).not.toBeInstanceOf(CredentialAlreadyIssuedError);
+  });
+
+  it('save: a non-Prisma error is rethrown untouched', async () => {
+    const original = new Error('disk full');
+    vi.mocked(mock.credentialCreate).mockRejectedValue(original);
+
+    const repo = new PrismaCredentialRepository();
+    const err = await repo
+      .save({ completedJobId: 'job_1', subjectDid: 'did:abt:agent', document: credentialFixture })
+      .catch((e: unknown) => e);
+
+    expect(err).toBe(original);
+  });
+
+  it('findByDocumentId: a stored row comes back as the verbatim document', async () => {
+    vi.mocked(mock.credentialFindUnique).mockResolvedValue({
+      id: 'cuid-1',
+      completedJobId: 'job_1',
+      subjectDid: 'did:abt:agent',
+      document: credentialFixture,
+      issuedAt: new Date('2026-01-03T00:00:00Z'),
+    });
+
+    const repo = new PrismaCredentialRepository();
+    const row = await repo.findByDocumentId('job_1');
+
+    expect(mock.credentialFindUnique).toHaveBeenCalledWith({ where: { completedJobId: 'job_1' } });
+    expect(row).toEqual(credentialFixture);
+  });
+
+  it('findByDocumentId: a full credential id resolves through the same key', async () => {
+    vi.mocked(mock.credentialFindUnique).mockResolvedValue({
+      id: 'cuid-1',
+      completedJobId: 'job_1',
+      subjectDid: 'did:abt:agent',
+      document: credentialFixture,
+      issuedAt: new Date('2026-01-03T00:00:00Z'),
+    });
+
+    const repo = new PrismaCredentialRepository();
+    const row = await repo.findByDocumentId('https://platform.example/v1/credentials/job_1');
+
+    expect(mock.credentialFindUnique).toHaveBeenCalledWith({ where: { completedJobId: 'job_1' } });
+    expect(row).toEqual(credentialFixture);
+  });
+
+  it('findByDocumentId: no stored row comes back as null, not an empty document', async () => {
+    vi.mocked(mock.credentialFindUnique).mockResolvedValue(null);
+
+    const repo = new PrismaCredentialRepository();
+    const row = await repo.findByDocumentId('job_missing');
+
+    expect(mock.credentialFindUnique).toHaveBeenCalledWith({ where: { completedJobId: 'job_missing' } });
     expect(row).toBeNull();
   });
 });

@@ -5,15 +5,19 @@ import type { Agent, ProofStatus } from '../../domain/agent.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
+import type { VerifiableCredential } from '../credentials/types.js';
 import {
   AgentAlreadyExistsError,
   type AgentInput,
   type AgentRepository,
+  CredentialAlreadyIssuedError,
+  type CredentialRepository,
   JobAlreadyExistsError,
   type JobRepository,
   type KeyRotationInput,
   OperatorAlreadyExistsError,
   type OperatorRepository,
+  credentialLookupKey,
 } from './types.js';
 
 export class MemoryOperatorRepository implements OperatorRepository {
@@ -154,5 +158,30 @@ export class MemoryJobRepository implements JobRepository {
       mergeCommit: row.mergeCommit,
       completedAt: row.mergedAt,
     };
+  }
+}
+
+export class MemoryCredentialRepository implements CredentialRepository {
+  private readonly rows = new Map<string, VerifiableCredential>();
+
+  async save(input: {
+    readonly completedJobId: string;
+    readonly subjectDid: string;
+    readonly document: VerifiableCredential;
+  }): Promise<void> {
+    const key = credentialLookupKey(input.completedJobId);
+    // Check-then-set is safe here: Node is single-threaded and this method
+    // awaits nothing, so two concurrent saves of one job cannot both pass
+    // the check.
+    if (this.rows.has(key)) {
+      throw new CredentialAlreadyIssuedError(input.completedJobId);
+    }
+    // The document goes in verbatim (the Prisma driver stores it the same
+    // way): the bytes that verified are the bytes that are served back.
+    this.rows.set(key, input.document);
+  }
+
+  async findByDocumentId(documentId: string): Promise<VerifiableCredential | null> {
+    return this.rows.get(credentialLookupKey(documentId)) ?? null;
   }
 }
