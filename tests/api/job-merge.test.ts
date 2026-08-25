@@ -583,27 +583,36 @@ describe('job merge, outcomes (R-12)', () => {
     }
   });
 
-  it('answers 409 with the transition wording when a stale row is observed closed', async () => {
-    // stale -> closed_unmerged is R-31's edge, not this table's: the domain
-    // refuses it and the route maps the refusal, recording nothing.
+  it('records closed_unmerged when a stale row is observed closed (R-31: an outcome update)', async () => {
+    // stale -> closed_unmerged is legal since R-31: an outcome update after
+    // stale, the same closed_unmerged state, no new field.
     const faults = emptyRecordings();
     const row: Job = { ...submittedJob('j-stale-closed'), status: 'stale', deadline: pastDeadline() };
     const repo = new ScriptedOutcomeRepository(
       row,
-      () => Promise.reject(new Error('unreachable')),
-      () => Promise.reject(new Error('unreachable')),
+      (r) => Promise.resolve(r),
+      (job) =>
+        Promise.resolve({
+          ...job,
+          status: 'closed_unmerged' as const,
+        }),
     );
     const scripted = await startWith(repo, closedGithub(faults));
     try {
       const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
-      expect(merge.status).toBe(409);
-      const body = (await merge.json()) as { error: string };
-      expect(body.error).toContain('stale');
-      expect(repo.updateCalls).toHaveLength(0);
+      expect(merge.status).toBe(200);
+      const body = (await merge.json()) as Record<string, unknown>;
+      expect(body.status).toBe('closed_unmerged');
+      expect(Object.keys(body).sort()).toEqual(SUBMITTED_KEYS);
+      expect(typeof body.deadline).toBe('string');
+      expect('mergeCommit' in body).toBe(false);
+      expect('mergedAt' in body).toBe(false);
+      expect(repo.updateCalls).toHaveLength(1);
+      expect(repo.updateCalls[0]?.status).toBe('closed_unmerged');
 
+      // Read-back: the recorded row, not the request.
       const read = await get(`/jobs/${row.id}`, scripted.baseUrl);
-      const readBack = (await read.json()) as Record<string, unknown>;
-      expect(readBack.status).toBe('stale');
+      expect((await read.json()) as Record<string, unknown>).toEqual(body);
     } finally {
       await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
     }

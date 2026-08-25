@@ -5,7 +5,10 @@ import { hashSpec } from './hashing.js';
 // exchange starts, confirmed once the buyer accepts the agent's acceptance
 // criteria, submitted when the agent opens a pull request, and completed when
 // that pull request merges. Declined is reachable from any non-terminal
-// state: a buyer can walk away, or the agent can pass.
+// state: a buyer can walk away, or the agent can pass. Withdrawn is
+// likewise reachable from any non-terminal state (R-31, D3 2026-08-22): a
+// buyer walk-away recorded as a timing fact, and terminal - a withdrawn job
+// has no further outcomes to observe.
 
 export type JobStatus =
   | 'draft'
@@ -15,9 +18,15 @@ export type JobStatus =
   | 'completed'
   | 'declined'
   | 'closed_unmerged'
-  | 'stale';
+  | 'stale'
+  | 'withdrawn';
 
-const TERMINAL_STATUSES: readonly JobStatus[] = ['completed', 'declined', 'closed_unmerged'];
+const TERMINAL_STATUSES: readonly JobStatus[] = [
+  'completed',
+  'declined',
+  'closed_unmerged',
+  'withdrawn',
+];
 
 // One acceptance criterion of the exchange R-8 owns (ENT-6). A structured
 // list, not free text (D2): each entry a single checkable sentence, either
@@ -138,17 +147,18 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
   // draft -> proposed is walked by the criteria exchange R-8 owns; this
   // table only records the edge.
   const validTransitions: Record<JobStatus, JobStatus[]> = {
-    draft: ['proposed', 'declined'],
-    proposed: ['confirmed', 'declined'],
-    confirmed: ['submitted', 'declined'],
-    // R-12 (ENT-7.2): non-merge outcomes are recorded, not hidden. stale
-    // deliberately has no path to closed_unmerged: an outcome update after
-    // stale is R-31's acceptance text, and until then the table says no.
-    submitted: ['completed', 'closed_unmerged', 'stale', 'declined'],
-    stale: ['completed', 'declined'],
+    draft: ['proposed', 'declined', 'withdrawn'],
+    proposed: ['confirmed', 'declined', 'withdrawn'],
+    confirmed: ['submitted', 'declined', 'withdrawn'],
+    // R-12 (ENT-7.2): non-merge outcomes are recorded, not hidden. The
+    // stale -> closed_unmerged edge is legal (R-31): an outcome update
+    // after stale, not a new state.
+    submitted: ['completed', 'closed_unmerged', 'stale', 'declined', 'withdrawn'],
+    stale: ['completed', 'closed_unmerged', 'declined', 'withdrawn'],
     closed_unmerged: [],
     completed: [],
     declined: [],
+    withdrawn: [],
   };
   
   const allowedTransitions = validTransitions[fromStatus];
@@ -221,6 +231,14 @@ export function recordClosedUnmerged(job: Job): Job {
 export function recordStale(job: Job): Job {
   validateJobTransition(job.status, 'stale');
   return { ...job, status: 'stale' };
+}
+
+// Records that the buyer withdrew the job (R-31, D3 2026-08-22): a
+// timing fact, never a judgement of the work. Terminal: a withdrawn
+// job has no further outcomes to observe.
+export function recordWithdrawn(job: Job): Job {
+  validateJobTransition(job.status, 'withdrawn');
+  return { ...job, status: 'withdrawn' };
 }
 
 // The only path to a CompletedJob. Its buyerDid and agentDid are copied from

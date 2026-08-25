@@ -12,6 +12,7 @@ import {
   proposeCriteria,
   recordClosedUnmerged,
   recordStale,
+  recordWithdrawn,
   requestChanges,
   submitPullRequest,
   STALE_AFTER_DAYS,
@@ -120,10 +121,11 @@ describe('job state machine', () => {
     expect(() => decline(completed)).toThrow(JobTransitionError);
   });
 
-  it('treats completed, declined and closed_unmerged as terminal; stale is not', () => {
+  it('treats completed, declined, closed_unmerged and withdrawn as terminal; stale is not', () => {
     expect(isTerminal('completed')).toBe(true);
     expect(isTerminal('declined')).toBe(true);
     expect(isTerminal('closed_unmerged')).toBe(true);
+    expect(isTerminal('withdrawn')).toBe(true);
     expect(isTerminal('stale')).toBe(false);
     expect(isTerminal('draft')).toBe(false);
     expect(isTerminal('proposed')).toBe(false);
@@ -160,8 +162,8 @@ describe('job outcomes (R-12)', () => {
     expect(() => validateJobTransition('closed_unmerged', 'declined')).toThrow(JobTransitionError);
   });
 
-  it('an outcome update after stale is not this state machine\'s edge (R-31 owns it)', () => {
-    expect(() => validateJobTransition('stale', 'closed_unmerged')).toThrow(JobTransitionError);
+  it('an outcome update after stale is legal (R-31 closed the deferred edge)', () => {
+    expect(validateJobTransition('stale', 'closed_unmerged')).toBe('closed_unmerged');
   });
 
   it('submitPullRequest writes deadline as submittedAt + 30 days, exactly', () => {
@@ -209,12 +211,12 @@ describe('job outcomes (R-12)', () => {
     expect(job.status).toBe('submitted');
   });
 
-  it('records a closed-unmerged outcome from submitted, and nothing earlier or later', () => {
+  it('records a closed-unmerged outcome from submitted and stale, and nothing earlier or later', () => {
     expect(recordClosedUnmerged(submitted()).status).toBe('closed_unmerged');
+    expect(recordClosedUnmerged(proposedJob({ status: 'stale' })).status).toBe('closed_unmerged');
     expect(() => recordClosedUnmerged(proposedJob({ status: 'draft' }))).toThrow(JobTransitionError);
     expect(() => recordClosedUnmerged(proposedJob({ status: 'confirmed' }))).toThrow(JobTransitionError);
     expect(() => recordClosedUnmerged(proposedJob({ status: 'completed' }))).toThrow(JobTransitionError);
-    expect(() => recordClosedUnmerged(proposedJob({ status: 'stale' }))).toThrow(JobTransitionError);
     // Re-recording the outcome on an already-observed row is a terminal-state
     // conflict, not a no-op.
     expect(() => recordClosedUnmerged(recordClosedUnmerged(submitted()))).toThrow(JobTransitionError);
@@ -228,6 +230,61 @@ describe('job outcomes (R-12)', () => {
     expect(() => recordStale(proposedJob({ status: 'closed_unmerged' }))).toThrow(JobTransitionError);
     expect(() => recordStale(proposedJob({ status: 'stale' }))).toThrow(JobTransitionError);
     expect(() => recordStale(recordStale(submitted()))).toThrow(JobTransitionError);
+  });
+});
+
+// R-31 (#50, D3 2026-08-22): the buyer withdraws an open job. Withdrawn is
+// a timing fact reachable from every non-terminal state - like declined -
+// and terminal: a withdrawn job has no further outcomes to observe.
+describe('job withdrawn (R-31)', () => {
+  const submitted = (): Job =>
+    proposedJob({
+      status: 'submitted',
+      pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1',
+      submittedAt: new Date('2026-02-01T00:00:00Z'),
+      deadline: new Date('2026-03-03T00:00:00Z'),
+    });
+
+  it('is reachable from every non-terminal state, and nowhere else', () => {
+    expect(validateJobTransition('draft', 'withdrawn')).toBe('withdrawn');
+    expect(validateJobTransition('proposed', 'withdrawn')).toBe('withdrawn');
+    expect(validateJobTransition('confirmed', 'withdrawn')).toBe('withdrawn');
+    expect(validateJobTransition('submitted', 'withdrawn')).toBe('withdrawn');
+    expect(validateJobTransition('stale', 'withdrawn')).toBe('withdrawn');
+    // Terminal states stay closed: no status reaches a withdrawn job.
+    expect(() => validateJobTransition('withdrawn', 'draft')).toThrow(JobTransitionError);
+    expect(() => validateJobTransition('withdrawn', 'proposed')).toThrow(JobTransitionError);
+    expect(() => validateJobTransition('withdrawn', 'confirmed')).toThrow(JobTransitionError);
+    expect(() => validateJobTransition('withdrawn', 'submitted')).toThrow(JobTransitionError);
+    expect(() => validateJobTransition('withdrawn', 'completed')).toThrow(JobTransitionError);
+    expect(() => validateJobTransition('withdrawn', 'declined')).toThrow(JobTransitionError);
+    expect(() => validateJobTransition('withdrawn', 'closed_unmerged')).toThrow(JobTransitionError);
+    expect(() => validateJobTransition('withdrawn', 'stale')).toThrow(JobTransitionError);
+    expect(() => validateJobTransition('withdrawn', 'withdrawn')).toThrow(JobTransitionError);
+  });
+
+  it('recordWithdrawn returns a new job, preserves the submission pair and the deadline', () => {
+    const job = submitted();
+    const recorded = recordWithdrawn(job);
+    expect(recorded).not.toBe(job);
+    expect(recorded.status).toBe('withdrawn');
+    expect(recorded.pullRequestUrl).toBe(job.pullRequestUrl);
+    expect(recorded.submittedAt).toBe(job.submittedAt);
+    expect(recorded.deadline).toBe(job.deadline);
+    expect(recorded.criteria).toEqual(job.criteria);
+    expect(job.status).toBe('submitted');
+  });
+
+  it('records a withdrawn outcome from every non-terminal state, and nothing terminal', () => {
+    expect(recordWithdrawn(submitted()).status).toBe('withdrawn');
+    expect(recordWithdrawn(proposedJob({ status: 'draft' })).status).toBe('withdrawn');
+    expect(recordWithdrawn(proposedJob({ status: 'confirmed' })).status).toBe('withdrawn');
+    expect(recordWithdrawn(proposedJob({ status: 'stale' })).status).toBe('withdrawn');
+    expect(() => recordWithdrawn(proposedJob({ status: 'completed' }))).toThrow(JobTransitionError);
+    expect(() => recordWithdrawn(proposedJob({ status: 'declined' }))).toThrow(JobTransitionError);
+    expect(() => recordWithdrawn(proposedJob({ status: 'closed_unmerged' }))).toThrow(JobTransitionError);
+    // A second withdraw is a terminal-state conflict, not a no-op.
+    expect(() => recordWithdrawn(recordWithdrawn(submitted()))).toThrow(JobTransitionError);
   });
 });
 
