@@ -18,11 +18,19 @@ describe('resolveListenPort', () => {
     expect(resolveListenPort({ BLOCKLET_PORT: '', PORT: '3001' })).toBe(3001);
   });
 
+  it('treats an empty PORT as absent, not zero, and falls back to the default', () => {
+    expect(resolveListenPort({ PORT: '' })).toBe(3000);
+  });
+
   it('throws naming BLOCKLET_PORT when it is not a valid port', () => {
     expect(() => resolveListenPort({ BLOCKLET_PORT: 'not-a-port' })).toThrow(/BLOCKLET_PORT/);
   });
 
   it('throws naming PORT when it is out of range', () => {
     expect(() => resolveListenPort({ PORT: '70000' })).toThrow(/PORT/);
+  });
+
+  it('throws naming PORT when it is negative', () => {
+    expect(() => resolveListenPort({ PORT: '-1' })).toThrow(/PORT/);
   });
 });
