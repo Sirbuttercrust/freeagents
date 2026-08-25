@@ -17,14 +17,19 @@ import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
+import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
+import type { CredentialsAdapter } from '../../src/adapters/credentials/types.js';
 import type { GithubAdapter, PullRequestRef, PullRequestSummary } from '../../src/adapters/github/types.js';
+import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
+import type { IdentityAdapter } from '../../src/adapters/identity/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import {
   MemoryAgentRepository,
+  MemoryCredentialRepository,
   MemoryJobRepository,
   MemoryOperatorRepository,
 } from '../../src/adapters/storage/memory.js';
-import type { JobRepository } from '../../src/adapters/storage/types.js';
+import type { CredentialRepository, JobRepository } from '../../src/adapters/storage/types.js';
 import { createJob, type CompletedJob, type Job, type JobStatus } from '../../src/domain/job.js';
 
 const AGENT_DID = 'did:abt:agent-merge';
@@ -34,6 +39,21 @@ const FORK_REPO = 'target-repo';
 const PR_NUMBER = 7;
 const MERGE_SHA = 'merge-commit-sha-abc123';
 const MERGED_AT = new Date('2026-08-20T12:00:00Z');
+// R-36: a fixed issuer for every server this file builds. The seed is test
+// material, not a secret - it exists only so issuance is deterministic.
+const ISSUER_DID = 'did:abt:platform-merge-test';
+const ISSUER_SEED = new Uint8Array(32).fill(7);
+
+// The cheap fake every merge-completing test needs: a DID document whose
+// verification method is derivable from the DID alone, so the route's
+// signedBy field is predictable.
+function fakeIdentity(): IdentityAdapter {
+  return {
+    ...createIdentityAdapter(),
+    resolveDid: (did: string) =>
+      Promise.resolve({ id: did, controller: null, verificationMethod: [`${did}#key-1`], alsoKnownAs: null }),
+  };
+}
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
   { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
@@ -69,19 +89,46 @@ function fakeGithub(
 
 function mergedGithub(recorded: RecordedCalls): GithubAdapter {
   return fakeGithub(recorded, (ref) =>
-    Promise.resolve({ ref, state: 'merged', mergeCommitSha: MERGE_SHA, mergedAt: MERGED_AT, headSha: 'head-sha-1' }),
+    Promise.resolve({
+      ref,
+      state: 'merged',
+      mergeCommitSha: MERGE_SHA,
+      mergedAt: MERGED_AT,
+      headSha: 'head-sha-1',
+      additions: 412,
+      deletions: 87,
+      filesChanged: 9,
+    }),
   );
 }
 
 function openGithub(recorded: RecordedCalls): GithubAdapter {
   return fakeGithub(recorded, (ref) =>
-    Promise.resolve({ ref, state: 'open', mergeCommitSha: null, mergedAt: null, headSha: 'head-sha-1' }),
+    Promise.resolve({
+      ref,
+      state: 'open',
+      mergeCommitSha: null,
+      mergedAt: null,
+      headSha: 'head-sha-1',
+      additions: 0,
+      deletions: 0,
+      filesChanged: 0,
+    }),
   );
 }
 
 function closedGithub(recorded: RecordedCalls): GithubAdapter {
   return fakeGithub(recorded, (ref) =>
-    Promise.resolve({ ref, state: 'closed', mergeCommitSha: null, mergedAt: null, headSha: 'head-sha-1' }),
+    Promise.resolve({
+      ref,
+      state: 'closed',
+      mergeCommitSha: null,
+      mergedAt: null,
+      headSha: 'head-sha-1',
+      additions: 0,
+      deletions: 0,
+      filesChanged: 0,
+    }),
   );
 }
 
@@ -132,7 +179,15 @@ async function get(path: string, base: string = baseUrl): Promise<Response> {
   return fetch(`${base}${path}`);
 }
 
-async function startWith(repo: JobRepository, github: GithubAdapter): Promise<{ server: Server; baseUrl: string }> {
+async function startWith(
+  repo: JobRepository,
+  github: GithubAdapter,
+  overrides?: {
+    readonly identity?: IdentityAdapter;
+    readonly credentials?: CredentialsAdapter;
+    readonly credentialRepo?: CredentialRepository;
+  },
+): Promise<{ server: Server; baseUrl: string; credentialRepo: CredentialRepository }> {
   const agentRepo = new MemoryAgentRepository();
   await agentRepo.create({
     did: AGENT_DID,
@@ -142,13 +197,25 @@ async function startWith(repo: JobRepository, github: GithubAdapter): Promise<{ 
     skills: ['triage'],
     githubLogin: null,
   });
-  const s = createApp(new MemoryOperatorRepository(), agentRepo, undefined, github, repo).listen(0);
+  const identity = overrides?.identity ?? fakeIdentity();
+  const credentialRepo = overrides?.credentialRepo ?? new MemoryCredentialRepository();
+  const credentials =
+    overrides?.credentials ?? createCredentialsAdapter({ did: ISSUER_DID, seed: ISSUER_SEED }, credentialRepo);
+  const s = createApp(
+    new MemoryOperatorRepository(),
+    agentRepo,
+    identity,
+    github,
+    repo,
+    credentials,
+    credentialRepo,
+  ).listen(0);
   await new Promise<void>((resolve) => s.once('listening', resolve));
   const address = s.address();
   if (address === null || typeof address === 'string') {
     throw new Error('expected server to listen on a port');
   }
-  return { server: s, baseUrl: `http://127.0.0.1:${address.port}` };
+  return { server: s, baseUrl: `http://127.0.0.1:${address.port}`, credentialRepo };
 }
 
 async function openDraft(brief: string, base: string = baseUrl): Promise<string> {
@@ -195,16 +262,17 @@ const SUBMITTED_KEYS = [
   'status',
   'submittedAt',
 ];
-const COMPLETED_KEYS = [...SUBMITTED_KEYS, 'mergeCommit', 'mergedAt'].sort();
+const COMPLETED_KEYS = [...SUBMITTED_KEYS, 'credential', 'mergeCommit', 'mergedAt'].sort();
 
 describe('job merge (R-11)', () => {
   const jobRepo = new MemoryJobRepository();
   const recorded = emptyRecordings();
   // Set by the happy-path walk; the lock test posts that same id again.
   let happyJobId: string;
+  let happyCredentialRepo: CredentialRepository;
 
   beforeAll(async () => {
-    ({ server, baseUrl } = await startWith(jobRepo, mergedGithub(recorded)));
+    ({ server, baseUrl, credentialRepo: happyCredentialRepo } = await startWith(jobRepo, mergedGithub(recorded)));
   });
 
   afterAll(() => {
@@ -225,6 +293,29 @@ describe('job merge (R-11)', () => {
     expect(mergedBody.mergeCommit).toBe(MERGE_SHA);
     expect(mergedBody.mergedAt).toBe(MERGED_AT.toISOString());
     expect(Object.keys(mergedBody).sort()).toEqual(COMPLETED_KEYS);
+
+    // R-36: the merge issues a work-history credential carrying github's own
+    // facts, never a party's claim.
+    const credential = mergedBody.credential as {
+      readonly credentialSubject: Record<string, unknown>;
+      readonly proof: Record<string, unknown>;
+    };
+    expect(credential).toBeTruthy();
+    expect(credential.credentialSubject.jobId).toBe(happyJobId);
+    expect(credential.credentialSubject.mergeCommitSha).toBe(MERGE_SHA);
+    expect(credential.credentialSubject.mergedAt).toBe(MERGED_AT.toISOString());
+    expect(credential.credentialSubject.diffAdditions).toBe(412);
+    expect(credential.credentialSubject.diffDeletions).toBe(87);
+    expect(credential.credentialSubject.filesChanged).toBe(9);
+    expect(credential.credentialSubject.id).toBe(AGENT_DID);
+    expect(credential.credentialSubject.signedBy).toBe(`${AGENT_DID}#key-1`);
+    expect(credential.credentialSubject.repository).toBe('buyer/target-repo');
+    expect(credential.credentialSubject.buyerDid).toBe(BUYER_DID);
+    expect(credential.proof.type).toBe('Ed25519Signature2020');
+
+    // The stored copy is the same bytes the caller received.
+    const stored = await happyCredentialRepo.findByDocumentId(happyJobId);
+    expect(JSON.parse(JSON.stringify(stored))).toEqual(credential);
 
     const read = await get(`/jobs/${happyJobId}`);
     expect(await read.json()).toEqual(mergedBody);

@@ -54,7 +54,8 @@
  *   - observing the merge works end to end (R-11, ENT-7.1): the submitted
  *     job's pull request is asked about directly, a merged report from
  *     GitHub - never a client assertion - stamps mergeCommit and mergedAt,
- *     and the completed job is locked against a second merge
+ *     and the completed job is locked against a second merge; the merge
+ *     also issues, stores and resolves a work-history credential (R-36)
  *   - an unknown route is still a 404, so the previous assertion means something
  *
  * It does NOT claim the hire loop completes end to end for every path: a
@@ -89,7 +90,7 @@ import {
   type GithubAdapter,
   type PullRequestRef,
 } from '../../src/adapters/github/types.js';
-import { createCredentialResolver } from '../../src/adapters/credentials/credentials.js';
+import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter, SignedPayload } from '../../src/adapters/identity/types.js';
@@ -102,8 +103,14 @@ let base: string;
 
 // R-15: the app resolves credentials out of this repository. It is
 // module-scoped because the resolution step saves into it the same way
-// R-13's issuance will, once the platform issuer is wired in.
+// R-36's issuance now does.
 const credentialRepo = new MemoryCredentialRepository();
+
+// R-36: the platform issuer this run signs work-history credentials with. A
+// fresh random seed per run is fine - only the private key derivation
+// matters, never a fixed value.
+const E2E_ISSUER_DID = 'did:abt:e2e-platform-issuer';
+const E2E_ISSUER_SEED = nodeCrypto.randomBytes(32);
 
 /** Counts assertions that exercised the running server over HTTP. */
 let stepsAsserted = 0;
@@ -219,6 +226,9 @@ const githubAdapter: GithubAdapter = {
       mergeCommitSha: E2E_MERGE_COMMIT_SHA,
       mergedAt: E2E_MERGED_AT,
       headSha: 'e2e-head-sha',
+      additions: 31,
+      deletions: 4,
+      filesChanged: 2,
     });
   },
   getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
@@ -280,7 +290,8 @@ beforeAll(async () => {
     identityAdapter,
     githubAdapter,
     undefined,
-    createCredentialResolver(credentialRepo),
+    createCredentialsAdapter({ did: E2E_ISSUER_DID, seed: new Uint8Array(E2E_ISSUER_SEED) }, credentialRepo),
+    credentialRepo,
   );
   server = await new Promise<Server>((resolve, reject) => {
     const s = app.listen(0, '127.0.0.1');
@@ -1000,6 +1011,7 @@ describe('the API starts and answers', () => {
       'buyerDid',
       'confirmedAt',
       'createdAt',
+      'credential',
       'criteria',
       'deadline',
       'id',

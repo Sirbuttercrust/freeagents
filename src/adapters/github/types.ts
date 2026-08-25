@@ -17,6 +17,11 @@ export interface PullRequestSummary {
   // party; null while the pull request is unmerged.
   readonly mergedAt: Date | null;
   readonly headSha: string;
+  // ENT-8 diffSize: the pulls API reports these three on the PR object
+  // itself, so the credential's diff facts are GitHub's, never a party's.
+  readonly additions: number;
+  readonly deletions: number;
+  readonly filesChanged: number;
 }
 
 export interface CommitSignatureStatus {
