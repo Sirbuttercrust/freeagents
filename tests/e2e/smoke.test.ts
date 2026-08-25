@@ -55,7 +55,9 @@
  *     job's pull request is asked about directly, a merged report from
  *     GitHub - never a client assertion - stamps mergeCommit and mergedAt,
  *     and the completed job is locked against a second merge; the merge
- *     also issues, stores and resolves a work-history credential (R-36)
+ *     also issues, stores and resolves a work-history credential, verified
+ *     independently with the off-the-shelf W3C stack (R-36, MISSION Gate 3
+ *     step 7)
  *   - an unknown route is still a 404, so the previous assertion means something
  *
  * It does NOT claim the hire loop completes end to end for every path: a
@@ -1028,6 +1030,49 @@ describe('the API starts and answers', () => {
     // 8. Read back: identical to the merge response.
     const read = await get(`/jobs/${jobId}`);
     expect(await read.json()).toEqual(mergeBody);
+
+    // 7b (R-36, MISSION Gate 3 step 7): the merge also issued a work-history
+    // credential, stored it, and serves it back over the resolvable
+    // credentials route - verified here with the off-the-shelf W3C stack,
+    // not this service's own code.
+    expect(mergeBody.credential).toBeTruthy();
+    const mergeCredential = mergeBody.credential as Record<string, unknown>;
+    const mergeCredentialSubject = mergeCredential.credentialSubject as Record<string, unknown>;
+    expect(mergeCredentialSubject.jobId).toBe(jobId);
+    expect(mergeCredentialSubject.mergeCommitSha).toBe(E2E_MERGE_COMMIT_SHA);
+
+    const resolved = await get(`/v1/credentials/${jobId}`);
+    expect(resolved.status).toBe(200);
+    expect(String(resolved.headers.get('content-type')).includes('application/ld+json')).toBe(true);
+    const resolvedCredential = (await resolved.json()) as Record<string, unknown>;
+    expect(resolvedCredential).toEqual(mergeCredential);
+
+    const proof = resolvedCredential.proof as Record<string, unknown>;
+    const verificationMethod = String(proof.verificationMethod);
+    const fingerprint = verificationMethod.slice(verificationMethod.indexOf('#') + 1);
+    const credentialKey = await Ed25519VerificationKey2020.fromFingerprint({ fingerprint });
+    credentialKey.id = verificationMethod;
+    credentialKey.controller = String(resolvedCredential.issuer);
+
+    const credentialLoader = securityLoader();
+    credentialLoader.addStatic(credentialKey.id, {
+      '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+      ...credentialKey.export({ publicKey: true }),
+    });
+    credentialLoader.addStatic(credentialKey.controller, {
+      '@context': 'https://www.w3.org/ns/did/v1',
+      id: credentialKey.controller,
+      assertionMethod: [credentialKey.id],
+      verificationMethod: [
+        { '@context': 'https://w3id.org/security/suites/ed25519-2020/v1', ...credentialKey.export({ publicKey: true }) },
+      ],
+    });
+    const credentialResult = await vc.verifyCredential({
+      credential: resolvedCredential,
+      suite: new Ed25519Signature2020(),
+      documentLoader: credentialLoader.build(),
+    });
+    expect(credentialResult.verified).toBe(true);
 
     // 9. Locked: posting again conflicts, and github is not asked again.
     const secondMerge = await post(`/jobs/${jobId}/merge`);

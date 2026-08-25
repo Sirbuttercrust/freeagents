@@ -1,142 +1,69 @@
-# Handoff: R-36 / #65 (merge route issues and stores the credential) - Lap A done
+# Handoff: R-36 / #65 (merge route issues and stores the credential) - both laps done
 
-## What was done (Lap A)
+## What was done
 
-Wired credential issuance into the merge route, keeping every existing test
-green.
+**Lap A** wired credential issuance into the merge route (see prior handoff
+content, now superseded by this summary): `PullRequestSummary` gained
+`additions`/`deletions`/`filesChanged`; `POST /jobs/:jobId/merge` issues a
+work-history credential before persisting the completion (so a signing
+failure leaves the job `submitted` and retryable), then persists the job and
+the credential; `GET /jobs/:jobId` attaches the stored credential when one
+exists.
 
-- `src/adapters/github/types.ts`: `PullRequestSummary` gains `additions`,
-  `deletions`, `filesChanged` (ENT-8 diffSize), sourced straight off GitHub's
-  own PR object. Five test literals across `tests/api/job-merge.test.ts`,
-  `tests/api/job-invariant2.test.ts` and `tests/e2e/smoke.test.ts` updated to
-  construct the widened type.
-- `src/api/app.ts`:
-  - `createApp` gains a seventh, defaulted parameter,
-    `credentialRepo: CredentialRepository = createCredentialRepository()`.
-    `credentials` keeps its existing `createCredentialResolver()` default.
-  - `POST /jobs/:jobId/merge`'s merged leg: after `completeJob` succeeds
-    (unchanged, still step one with its 409 mapping), the route resolves the
-    agent DID (503 `identity resolution unavailable` on failure or on a DID
-    document with no verification method), builds a `WorkHistoryClaim` from
-    the job row and github's report, and issues the credential (503
-    `credential issuance unavailable` on failure) - all BEFORE persistence,
-    so a signing failure leaves the job `submitted` and retryable. Only then
-    does `jobRepo.complete(...)` run (unchanged 404/503 mappings), followed
-    by `credentialRepo.save(...)` (409 on `CredentialAlreadyIssuedError`, 503
-    otherwise). The 200 response is `{ ...jobProjection(row), credential }`.
-  - The URL-narrowing step deviates from the plan's exact wording: the plan
-    assumed TypeScript would narrow `pullRequestUrl` to `string` purely from
-    the `match === null` throw on a ternary-derived `match`. It does not -
-    `tsc` reported `string | null` still reaching the claim's
-    `pullRequestUrl` field. Fixed with an explicit
-    `if (pullRequestUrl === null) throw ...` guard before building `match`,
-    which narrows correctly and keeps the same error message and 500
-    mapping. No other behavior changed from what the plan specified.
-  - `GET /jobs/:jobId`: for a job whose `mergeCommit` is not null, attaches
-    the stored credential (`credentialRepo.findByDocumentId(row.id)`) when
-    present; absent (not `null`) when no credential row exists.
-    `jobProjection` itself untouched.
-- Tests:
-  - `tests/api/job-merge.test.ts`: `startWith` gains a third optional
-    `{ identity?, credentials?, credentialRepo? }` argument, defaults to a
-    fake identity (`resolveDid` returns `${did}#key-1`) and a real
-    `createCredentialsAdapter` with a fixed test issuer
-    (`did:abt:platform-merge-test`, seed `new Uint8Array(32).fill(7)`) over a
-    fresh `MemoryCredentialRepository`, and now returns `credentialRepo`
-    alongside `server`/`baseUrl`. `COMPLETED_KEYS` gains `'credential'`. The
-    happy-path test asserts the issued credential's subject fields
-    (jobId/mergeCommitSha/mergedAt/diffAdditions/diffDeletions/filesChanged/
-    id/signedBy/repository/buyerDid), `proof.type`, and that the stored copy
-    (`credentialRepo.findByDocumentId`) round-trips to the same bytes the
-    caller received. No other existing test in the file needed assertion
-    changes - `COMPLETED_KEYS` updating in one place was enough for the
-    other merged-outcome legs (`still completes a stale job...`) to keep
-    passing, since they all reuse that constant.
-  - `tests/e2e/smoke.test.ts`: swapped the app's credentials adapter from
-    `createCredentialResolver(credentialRepo)` to
-    `createCredentialsAdapter({ did: E2E_ISSUER_DID, seed: ... }, credentialRepo)`
-    (module-level issuer DID + `nodeCrypto.randomBytes(32)` seed), and passes
-    `credentialRepo` as `createApp`'s new seventh argument. The merged-key
-    list gains `'credential'` (sorted between `createdAt` and `criteria`).
-    Header comment (step 7) now names R-36. `createCredentialResolver`
-    import replaced (no longer used in this file).
+**Lap B** added the failure legs and the invariant-2 proof:
 
-## Where this stands
+- `tests/api/job-merge.test.ts` (`job merge, faulted legs (R-11)` describe
+  block): five new legs - identity resolution rejects (503, job stays
+  `submitted`, `jobRepo.complete` never called), a resolved DID document with
+  no verification method (503, same retryable-submitted assertion),
+  credential issuance rejects (503, same retryable-submitted assertion),
+  credential storage rejects (503, but the job IS completed - `completed`
+  with no `credential` key on read-back, the residual the route's own
+  comment names), and an already-issued credential on a completed job (409,
+  the job id in the error body). A planted `CompletingRepository` gives the
+  409 leg a known job id before the request, per the plan.
+- `tests/api/job-merge-credential-invariant2.test.ts` (new file): copies
+  `verifyIndependent`/`didFromKey`/`generateKey` verbatim from
+  `tests/adapters/credentials/work-history-invariant2.test.ts` (R-14, no
+  import from `src/adapters/credentials/credentials.ts` in the verification
+  path), starts a real `createApp(...)` with an issuer DID derived from its
+  own key (so the binding check inside `verifyIndependent` accepts it), walks
+  a job draft -> merged over HTTP only, and proves: the merge-issued
+  credential verifies independently; the proof is `Ed25519Signature2020`
+  with a `proofValue` and no `jws`; tampering `mergeCommitSha` or the subject
+  `id` each fail verification; the same document served by
+  `GET /v1/credentials/<jobId>` verifies too; no key-material stems appear in
+  the merge response.
+- `tests/e2e/smoke.test.ts`: after the existing merge read-back assertion
+  (step 8), added step 7b - asserts `mergeBody.credential`'s subject fields,
+  fetches `GET /v1/credentials/${jobId}` (200, `application/ld+json`,
+  deep-equal to `mergeBody.credential`), and verifies the resolved document
+  with the off-the-shelf stack already imported in the file
+  (`Ed25519VerificationKey2020.fromFingerprint`, `securityLoader()`,
+  `vc.verifyCredential`). Header comment (step 7) now names R-36 as MISSION
+  Gate 3 step 7 explicitly.
 
-The scoped gate (`sandboxed.sh python3 harness/ci.py --quick`) is green:
-`TYPECHECK_OK`, `LINT_OK`, `UNIT_PASSED tests=415`, `E2E_PASSED`,
-`E2E_STEPS_ASSERTED=76` - identical to the pre-work baseline (Lap A adds
-assertions to existing tests rather than new test files, so the count did
-not move; Lap B adds the new test files/cases).
+## Deviations from plan.md
 
-## Lap B is required before this branch can pass MISSION Gate 2
-
-Per `plan.md`, Lap B is NOT optional - without it, invariant 2 (a third
-party verifies the merge-issued credential with an off-the-shelf verifier,
-no code of ours in the path) has no test proving it holds for the credential
-that actually comes out of the HTTP merge route. Lap B tasks, verbatim from
-`plan.md`:
-
-**Task B1** - the four failure legs and the absence leg. In
-`tests/api/job-merge.test.ts`'s `job merge, faulted legs (R-11)` describe
-block, using `startWith`'s new overrides: (1) identity resolution fails →
-503, job stays `submitted`, `jobRepo.complete` never called; (2) issuance
-fails → 503, same retryable-submitted assertion; (3) credential storage
-fails → 503, but the job IS completed (`status: 'completed'` with no
-`credential` key on read-back) - the residual the route's comment names; (4)
-already issued → 409 with the job named in the error, via a planted row and
-a pre-loaded `MemoryCredentialRepository`; (5) absence on read - for a
-completed job whose credential row was never written, `'credential' in
-body === false` on `GET /jobs/:jobId`, never `null`.
-
-**Task B2** - the invariant-2 test (MISSION Gate 2; this is not optional).
-New file `tests/api/job-merge-credential-invariant2.test.ts`, mirroring
-`src/api/app.ts`'s merge route. Copy `verifyIndependent`,
-`didFromKey`/`generateKey` verbatim from
-`tests/adapters/credentials/work-history-invariant2.test.ts` (R-14). Walk a
-job draft → merged over HTTP only, assert
-`verifyIndependent(credential)` (parsed off the wire, JSON round-tripped)
-is `true`, `proof.type === 'Ed25519Signature2020'`,
-`typeof proof.proofValue === 'string'`, `proof.jws` undefined. Tamper legs on
-`mergeCommitSha` and `id` each make `verifyIndependent` return `false`. The
-same document served by `GET /v1/credentials/<jobId>` verifies too. No key
-material (privatekey/secretkey/secret/keypair/mnemonic) anywhere in the
-merge response, lowercased.
-
-**Task B3** - Gate 3 step 7 in the e2e smoke test. In
-`tests/e2e/smoke.test.ts`'s existing merge flow (after the read-back
-assertion), assert `mergeBody.credential` is truthy with the right
-`jobId`/`mergeCommitSha`, fetch `GET /v1/credentials/${jobId}` (200,
-`application/ld+json`, deep-equals `mergeBody.credential`), and verify it
-with the off-the-shelf stack (`Ed25519VerificationKey2020.fromFingerprint`,
-`securityLoader()`, `vc.verifyCredential`) already imported in the file.
-Update the file header to name R-36 as MISSION Gate 3 step 7. Then rewrite
-this `HANDOFF.md` to say both laps are done, with the final
-`UNIT_PASSED tests=N` and `E2E_STEPS_ASSERTED=N`.
-
-## What could trip up the next builder
-
-- The `pullRequestUrl` narrowing note above: do not revert to the ternary
-  form from the plan prose, it does not typecheck under this repo's
-  `tsconfig` (no `strictNullChecks`-defeating tricks needed - a plain `if`
-  guard is enough and is what's in the tree now).
-- `startWith`'s new third argument is `{ identity?, credentials?,
-  credentialRepo? }`, all optional, with `exactOptionalPropertyTypes`
-  respected via `??` before use, not spreading a possibly-undefined
-  property. B1's overrides should follow the same pattern.
-- The merge route's identity-resolution 503 leg and the credential-issuance
-  503 leg both need `jobRepo.complete` spied and asserted as never called -
-  that is the ordering property the whole change exists to prove, and it is
-  easy to write a passing test that doesn't actually check it (e.g. only
-  checking the status code).
-- `ISSUER_DID`/`ISSUER_SEED` in `tests/api/job-merge.test.ts` are the
-  defaults `startWith` uses when no override is given; B2's invariant-2 test
-  should NOT reuse `createCredentialsAdapter` from
-  `src/adapters/credentials/credentials.ts` inside its verification helper -
-  only inside the app setup. `verifyIndependent` must not import anything
-  from that module (per plan.md task B2).
+None beyond the one already recorded from Lap A (the `pullRequestUrl`
+narrowing needed an explicit `if` guard, not the plan's ternary form, to
+satisfy `tsc`). Lap B otherwise matches tasks B1/B2/B3 as written, plus one
+addition not explicitly enumerated by the plan: a sixth failure leg (the
+resolved DID document carrying an empty `verificationMethod` array), added
+because `src/api/app.ts`'s merge route has its own `signedBy === undefined`
+branch (mirrored from the account-proof route but a distinct code path in
+this function) that the plan's five listed legs did not otherwise exercise.
 
 ## Gate evidence
 
 Last run: `GATE_OK mode=quick`, `TYPECHECK_OK`, `LINT_OK`,
-`UNIT_PASSED tests=415`, `E2E_PASSED`, `E2E_STEPS_ASSERTED=76`.
+`UNIT_PASSED tests=426`, `E2E_PASSED`, `E2E_STEPS_ASSERTED=77` (up from the
+Lap A baseline of 415 / 76, both rose as required and the floor in
+`.factory/locks/floor.json` was never touched).
+
+## Files changed (both laps, PR total)
+
+`src/adapters/github/types.ts`, `src/api/app.ts`,
+`tests/api/job-merge.test.ts`, `tests/api/job-invariant2.test.ts`,
+`tests/e2e/smoke.test.ts`, `tests/api/job-merge-credential-invariant2.test.ts`
+(new) - six files, matching the plan's fixed file list exactly.
