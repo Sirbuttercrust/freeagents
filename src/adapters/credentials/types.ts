@@ -6,15 +6,18 @@
 // Sources, in order:
 // - the six original fields: the merged pull request's own outcome facts
 // - specHash: ENT-8 / D2, the confirmed spec hash ties the credential to what
-//   was agreed and is recomputable from the criteria text alone
-// - filesChanged, repository, signedBy, buyerDid: the draft spec's wire
-//   fields (ENT-8) for where, by whom, and for whom the merge happened
+//   was agreed and is recomputable from the criteria text alone; nullable
+//   because a job may complete without a confirmed spec (R-35)
+// - diffFiles, repository, signedBy, buyerDid: the draft spec's wire fields
+//   (ENT-8) for where, by whom, and for whom the merge happened
+// - briefHash: ENT-4, the hash of the buyer's own prose
 //
-// Wire choices recorded as assumptions (ASSUMPTIONS A1, A2): the v1
-// credentials context with issuanceDate (not the draft spec's v2 context /
-// validFrom, matching the credential we already issue and prove) and the
-// flat subject shape this interface types (the draft's `hire` nesting is a
-// draft, not a wire we ship).
+// Wire choices recorded as assumptions (ASSUMPTIONS `credential_context`):
+// the spec's v2 credentials context and `validFrom` (R-35 moves off the v1
+// context and `issuanceDate` this adapter previously issued), and the
+// `credentialSubject.hire` nesting the spec's wire shape defines (see
+// `WorkHistoryHire` below). The `@vocab` object still applies under v2: it is
+// a plain JSON-LD term default, not a v1-only construct.
 
 export interface WorkHistoryClaim {
   readonly jobId: string;
@@ -23,10 +26,14 @@ export interface WorkHistoryClaim {
   readonly mergedAt: string;
   readonly diffAdditions: number;
   readonly diffDeletions: number;
-  // ENT-8: the confirmed spec hash (D2).
-  readonly specHash: string;
-  // ENT-8: diffSize.files from the merged pull request.
-  readonly filesChanged: number;
+  // Renamed from filesChanged: the three diff-size inputs now read as one
+  // family, and 'filesChanged' is reserved for the wire name it maps to.
+  readonly diffFiles: number;
+  // ENT-4: the hash of the buyer's own prose. The wire calls it 'brief'.
+  readonly briefHash: string;
+  // Nullable (R-35): a job may complete without a confirmed spec, and the
+  // field is then omitted from the wire rather than sent as null.
+  readonly specHash: string | null;
   // Spec wire: where the merge happened.
   readonly repository: string;
   // Spec wire: the agent verification method that signed the merge commit,
@@ -34,6 +41,26 @@ export interface WorkHistoryClaim {
   readonly signedBy: string;
   // Spec wire ENT-8 'subject' side: who commissioned the work.
   readonly buyerDid: string;
+}
+
+// The 'hire' object exactly as spec/work-history-extension-v1.md:174-200
+// defines it. Separate from WorkHistoryClaim because the wire names are the
+// spec's and the claim names are this service's; jobId is deliberately not
+// carried here (see the note on WorkHistoryClaim.jobId's wire absence in
+// credentials.ts).
+export interface WorkHistoryHire {
+  readonly brief: string;
+  readonly repository: string;
+  readonly pullRequest: string;
+  readonly mergedAt: string;
+  readonly mergeCommit: string;
+  readonly signedBy: string;
+  readonly buyer: string;
+  readonly additions: number;
+  readonly deletions: number;
+  readonly filesChanged: number;
+  // Present only when the job had a confirmed spec.
+  readonly specHash?: string;
 }
 
 // Identity of the credential issuer ("the platform"). The DID suffix is
@@ -46,10 +73,15 @@ export interface CredentialsIssuer {
 }
 
 export interface VerifiableCredential {
-  readonly '@context': readonly string[];
+  readonly '@context': readonly (string | Readonly<Record<string, unknown>>)[];
+  readonly id: string;
   readonly type: readonly string[];
   readonly issuer: string;
-  readonly credentialSubject: WorkHistoryClaim & { readonly id: string };
+  readonly validFrom: string;
+  readonly credentialSubject: {
+    readonly id: string;
+    readonly hire: WorkHistoryHire;
+  };
   // Ed25519Signature2020, a registered proof type, never a vendor-specific
   // one (invariant 2).
   readonly proof: Readonly<Record<string, unknown>>;

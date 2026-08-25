@@ -104,6 +104,7 @@ model Job {
 
   agent        Agent         @relation(fields: [agentDid], references: [did])
   completedJob CompletedJob?
+  credential   Credential?
 
   @@index([agentDid])
   @@index([buyerDid])
@@ -123,8 +124,7 @@ model CompletedJob {
 
   job Job @relation(fields: [jobId], references: [id])
 
-  credential Credential?
-  review     Review?
+  review Review?
 
   // Candidate key a Review's composite foreign key binds against, so the
   // database itself rejects a review whose author or agent does not match
@@ -132,6 +132,11 @@ model CompletedJob {
   @@unique([id, buyerDid, agentDid])
 }
 
+// completedJobId targets Job.id, not CompletedJob.id: neither storage driver
+// ever inserts a CompletedJob row (PrismaJobRepository.complete updates the
+// Job row directly, and findCompletedByJobId derives the completed record
+// from it, returning id: job.id), so a foreign key into CompletedJob could
+// never be satisfied and every credential insert would fail on Postgres.
 model Credential {
   id             String   @id @default(cuid())
   completedJobId String   @unique
@@ -139,8 +144,8 @@ model Credential {
   document       Json
   issuedAt       DateTime @default(now())
 
-  completedJob CompletedJob @relation(fields: [completedJobId], references: [id])
-  subject      Agent        @relation(fields: [subjectDid], references: [did])
+  completedJob Job   @relation(fields: [completedJobId], references: [id], onUpdate: NoAction)
+  subject      Agent @relation(fields: [subjectDid], references: [did])
 
   @@index([subjectDid])
 }

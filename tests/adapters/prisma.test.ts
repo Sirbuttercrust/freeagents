@@ -964,22 +964,26 @@ describe('PrismaCredentialRepository', () => {
   // shaped fixture stands in for the bytes a real issuer signed, the way
   // delegationFixture does for the agent repository.
   const credentialFixture = {
-    '@context': ['https://www.w3.org/2018/credentials/v1'],
+    '@context': ['https://www.w3.org/ns/credentials/v2'],
+    id: 'urn:uuid:00000000-0000-4000-8000-000000000001',
     type: ['VerifiableCredential', 'CompletedHireCredential'],
     issuer: 'did:abt:platform',
+    validFrom: '2026-01-03T00:00:00.000Z',
     credentialSubject: {
       id: 'did:abt:agent',
-      jobId: 'job_1',
-      pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1',
-      mergeCommitSha: '3f8a2c1d9e7b4a5f6c8d0e1f2a3b4c5d6e7f8a9b',
-      mergedAt: '2026-01-03T00:00:00.000Z',
-      diffAdditions: 1,
-      diffDeletions: 1,
-      specHash: 'sha256:spec',
-      filesChanged: 1,
-      repository: 'buyer/target-repo',
-      signedBy: 'did:abt:agent#job_1',
-      buyerDid: 'did:example:buyer',
+      hire: {
+        brief: 'sha256:brief',
+        repository: 'buyer/target-repo',
+        pullRequest: 'https://github.com/buyer/target-repo/pull/1',
+        mergedAt: '2026-01-03T00:00:00.000Z',
+        mergeCommit: '3f8a2c1d9e7b4a5f6c8d0e1f2a3b4c5d6e7f8a9b',
+        signedBy: 'did:abt:agent#job_1',
+        buyer: 'did:example:buyer',
+        additions: 1,
+        deletions: 1,
+        filesChanged: 1,
+        specHash: 'sha256:spec',
+      },
     },
     proof: { type: 'Ed25519Signature2020', proofValue: 'zProof' },
   };

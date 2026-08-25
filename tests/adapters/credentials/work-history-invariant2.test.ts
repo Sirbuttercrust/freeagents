@@ -25,7 +25,7 @@ import {
 } from '../../../src/domain/job.js';
 
 const CONTEXT = [
-  'https://www.w3.org/2018/credentials/v1',
+  'https://www.w3.org/ns/credentials/v2',
   'https://w3id.org/security/suites/ed25519-2020/v1',
   { '@vocab': 'https://freeagents.dev/terms#' },
 ] as const;
@@ -109,6 +109,7 @@ async function verifyIndependent(credential: Record<string, unknown>): Promise<b
 describe('work-history credential, invariant 2 (R-14)', () => {
   let credential: Record<string, unknown>;
   let claim: WorkHistoryClaim;
+  let hire: Record<string, unknown>;
   let agentDid: string;
   let issuerDid: string;
 
@@ -158,7 +159,8 @@ describe('work-history credential, invariant 2 (R-14)', () => {
       mergedAt: completed.completedJob.completedAt.toISOString(),
       diffAdditions: 12,
       diffDeletions: 3,
-      filesChanged: 2,
+      diffFiles: 2,
+      briefHash: completed.job.briefHash,
       specHash: completed.job.confirmedSpecHash as string,
       signedBy: agentVerificationMethod,
       repository: completed.job.repository,
@@ -170,11 +172,29 @@ describe('work-history credential, invariant 2 (R-14)', () => {
       claim,
     );
     credential = issued as unknown as Record<string, unknown>;
+
+    hire = {
+      brief: claim.briefHash,
+      repository: claim.repository,
+      pullRequest: claim.pullRequestUrl,
+      mergedAt: claim.mergedAt,
+      mergeCommit: claim.mergeCommitSha,
+      signedBy: claim.signedBy,
+      buyer: claim.buyerDid,
+      additions: claim.diffAdditions,
+      deletions: claim.diffDeletions,
+      filesChanged: claim.diffFiles,
+      specHash: claim.specHash,
+    };
   });
 
   it('the invariant-2 test: a stranger holding only the JSON verifies it off-platform', async () => {
     const strangerCopy = JSON.parse(JSON.stringify(credential));
     expect(await verifyIndependent(strangerCopy)).toBe(true);
+  });
+
+  it('the wire @context is the W3C v2 credentials context, not v1', async () => {
+    expect(credential['@context']).toEqual([...CONTEXT]);
   });
 
   it('uses the registered Ed25519Signature2020 proof with a proofValue, not the jws regression', async () => {
@@ -189,22 +209,27 @@ describe('work-history credential, invariant 2 (R-14)', () => {
 
   it('attests the completed job: every claim field and the parties round-trip', async () => {
     const subject = credential.credentialSubject as Record<string, unknown>;
+    const hire = subject.hire as Record<string, unknown>;
     expect(subject.id).toBe(agentDid);
-    expect(subject.jobId).toBe(claim.jobId);
-    expect(subject.pullRequestUrl).toBe(claim.pullRequestUrl);
-    expect(subject.mergeCommitSha).toBe(claim.mergeCommitSha);
-    expect(subject.mergedAt).toBe(claim.mergedAt);
-    expect(subject.diffAdditions).toBe(12);
-    expect(subject.diffDeletions).toBe(3);
-    expect(subject.filesChanged).toBe(2);
-    expect(subject.specHash).toBe(claim.specHash);
-    expect(subject.specHash).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(subject.signedBy).toBe(claim.signedBy);
-    expect(subject.repository).toBe(claim.repository);
-    expect(subject.buyerDid).toBe(claim.buyerDid);
+    expect(hire.pullRequest).toBe(claim.pullRequestUrl);
+    expect(hire.mergeCommit).toBe(claim.mergeCommitSha);
+    expect(hire.mergedAt).toBe(claim.mergedAt);
+    expect(hire.additions).toBe(12);
+    expect(hire.deletions).toBe(3);
+    expect(hire.filesChanged).toBe(2);
+    expect(hire.specHash).toBe(claim.specHash);
+    expect(hire.specHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(hire.brief).toBe(claim.briefHash);
+    expect(hire.signedBy).toBe(claim.signedBy);
+    expect(hire.repository).toBe(claim.repository);
+    expect(hire.buyer).toBe(claim.buyerDid);
+    expect(hire.jobId).toBeUndefined();
     expect(credential.issuer).toBe(issuerDid);
     expect(credential.type).toContain('CompletedHireCredential');
     expect(credential.type).toContain('VerifiableCredential');
+    expect(typeof credential.validFrom).toBe('string');
+    expect(credential.validFrom).not.toHaveLength(0);
+    expect(credential.issuanceDate).toBeUndefined();
   });
 
   it('a tampered subject FAILS the independent verifier', async () => {
@@ -217,7 +242,8 @@ describe('work-history credential, invariant 2 (R-14)', () => {
   it('a tampered claim (merge commit) FAILS the independent verifier', async () => {
     const tampered = JSON.parse(JSON.stringify(credential));
     const subject = tampered.credentialSubject as Record<string, unknown>;
-    subject.mergeCommitSha = '0'.repeat(40);
+    const hire = subject.hire as Record<string, unknown>;
+    hire.mergeCommit = '0'.repeat(40);
     expect(await verifyIndependent(tampered)).toBe(false);
   });
 
@@ -237,8 +263,8 @@ describe('work-history credential, invariant 2 (R-14)', () => {
       id: `urn:uuid:${crypto.randomUUID()}`,
       type: ['VerifiableCredential', 'CompletedHireCredential'],
       issuer: issuerDid,
-      issuanceDate: new Date().toISOString(),
-      credentialSubject: { id: agentDid, ...claim },
+      validFrom: new Date().toISOString(),
+      credentialSubject: { id: agentDid, hire },
     };
 
     const loader = securityLoader();
