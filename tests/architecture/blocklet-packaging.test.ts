@@ -32,6 +32,24 @@ function topLevelScalars(source: string): Map<string, string> {
   return scalars;
 }
 
+// Same line-scanner approach as topLevelScalars, but for a top-level key
+// whose value is a block (a list or nested mapping) rather than a scalar:
+// `key:` with nothing after the colon, followed by indented lines up to the
+// next column-0 key.
+function topLevelBlock(source: string, key: string): string {
+  const lines = source.split('\n');
+  const startPattern = new RegExp(`^${key}:[ \\t]*$`);
+  const start = lines.findIndex((line) => startPattern.test(line));
+  if (start === -1) return '';
+  const block: string[] = [];
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i] ?? '';
+    if (/^[A-Za-z]/.test(line)) break;
+    block.push(line);
+  }
+  return block.join('\n');
+}
+
 function listSourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     if (entry.name === 'generated') return [];
@@ -97,5 +115,25 @@ describe('blocklet packaging', () => {
     const files = listSourceFiles(domainDir);
     const offenders = files.filter((file) => /blocklet/i.test(readFileSync(file, 'utf8')));
     expect(offenders, 'invariant 9: src/domain must not mention blocklet in any case').toEqual([]);
+  });
+
+  it('declares an interfaces block that binds the runtime port to BLOCKLET_PORT', () => {
+    const block = topLevelBlock(manifest, 'interfaces');
+    expect(block, 'blocklet.yml is missing an interfaces: block').not.toBe('');
+    expect(block, 'interfaces: must bind port to BLOCKLET_PORT, the only env var runtime.ts reads').toMatch(
+      /port:[ \t]*BLOCKLET_PORT/,
+    );
+    expect(block, 'interfaces: entry is missing a path').toMatch(/path:/);
+    expect(block, 'interfaces: entry is missing a prefix').toMatch(/prefix:/);
+  });
+
+  it('declares environments with a required DATABASE_URL entry', () => {
+    const block = topLevelBlock(manifest, 'environments');
+    expect(block, 'blocklet.yml is missing an environments: block').not.toBe('');
+    expect(
+      block,
+      'environments: must declare DATABASE_URL, the env var src/adapters/storage/storage.ts reads to select the storage driver',
+    ).toMatch(/name:[ \t]*DATABASE_URL/);
+    expect(block, 'the DATABASE_URL entry must be marked required').toMatch(/required:[ \t]*true/);
   });
 });
