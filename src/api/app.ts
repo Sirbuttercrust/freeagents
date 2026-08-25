@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto';
 
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 
+import { createCredentialResolver } from '../adapters/credentials/credentials.js';
+import type { CredentialsAdapter } from '../adapters/credentials/types.js';
 import { createGithubAdapter } from '../adapters/github/github.js';
 import {
   GistNotFoundError,
@@ -14,6 +16,7 @@ import { createIdentityAdapter } from '../adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter } from '../adapters/identity/types.js';
 import {
   AgentAlreadyExistsError,
+  CredentialNotFoundError,
   JobAlreadyExistsError,
   OperatorAlreadyExistsError,
   type AgentRepository,
@@ -188,6 +191,7 @@ export function createApp(
   identity: IdentityAdapter = createIdentityAdapter(),
   github: GithubAdapter = createGithubAdapter(),
   jobRepo: JobRepository = createJobRepository(),
+  credentials: CredentialsAdapter = createCredentialResolver(),
 ): Express {
   const app = express();
   app.use(express.json());
@@ -555,6 +559,27 @@ export function createApp(
 
   app.get('/agents/:agentDid/card', notImplemented);
   app.get('/agents/:agentDid/credentials', notImplemented);
+
+  // R-15 (ENT-8): resolve an issued credential by its stable id. The
+  // credential is a linked-data document, so it is served as
+  // application/ld+json, verbatim from storage, so the proof still verifies
+  // off-platform (invariant 2). No authentication: resolvable is part of
+  // the contract (spec/work-history-extension-v1.md, credentials.endpoint).
+  // Issuance is R-13's wiring; this route serves what it is handed.
+  app.get('/v1/credentials/:credentialId', async (req: Request, res: Response) => {
+    const credentialId = String(req.params.credentialId);
+    try {
+      const document = await credentials.getCredential(credentialId);
+      res.status(200).set('Content-Type', 'application/ld+json').send(JSON.stringify(document));
+    } catch (err) {
+      if (err instanceof CredentialNotFoundError) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      console.error('GET /v1/credentials/:credentialId: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
 
   // R-28 (ENT-4): open a draft job from the buyer's brief. The route owns
   // only what the domain does not know about: body shape, DID and repository

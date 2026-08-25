@@ -2,21 +2,24 @@
 // previously tested: no test ever set or unset the variable, so a change that
 // swapped the two drivers, or deleted the startup warning, would fail nothing.
 import type { Job } from '../../src/domain/job.js';
+import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // The factory reads process.env at call time, so each test sets the variable
 // and restores it afterwards. No database is touched: constructing either
 // repository opens nothing (the Prisma client is created on first query).
-const { createJobRepository, createOperatorRepository } = await import(
-  '../../src/adapters/storage/storage.js'
-);
-const { MemoryJobRepository, MemoryOperatorRepository } = await import(
+const {
+  createCredentialRepository,
+  createJobRepository,
+  createOperatorRepository,
+} = await import('../../src/adapters/storage/storage.js');
+const { MemoryCredentialRepository, MemoryJobRepository, MemoryOperatorRepository } = await import(
   '../../src/adapters/storage/memory.js'
 );
-const { PrismaJobRepository, PrismaOperatorRepository } = await import(
+const { PrismaCredentialRepository, PrismaJobRepository, PrismaOperatorRepository } = await import(
   '../../src/adapters/storage/prisma.js'
 );
-const { JobAlreadyExistsError } = await import(
+const { CredentialAlreadyIssuedError, JobAlreadyExistsError, credentialLookupKey } = await import(
   '../../src/adapters/storage/types.js'
 );
 
@@ -40,6 +43,30 @@ const jobFixture: Job = {
   submittedAt: null,
   deadline: null,
   createdAt: new Date('2026-01-01T00:00:00Z'),
+};
+
+// The credential the driver stores is the full W3C credential (R-15); the
+// storage tests drive the driver's decisions, not the cryptography, so a
+// shaped fixture stands in for the bytes a real issuer signed.
+const credentialFixture: VerifiableCredential = {
+  '@context': ['https://www.w3.org/2018/credentials/v1'],
+  type: ['VerifiableCredential', 'CompletedHireCredential'],
+  issuer: 'did:abt:platform',
+  credentialSubject: {
+    id: 'did:abt:agent',
+    jobId: 'job_1',
+    pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1',
+    mergeCommitSha: '3f8a2c1d9e7b4a5f6c8d0e1f2a3b4c5d6e7f8a9b',
+    mergedAt: '2026-01-03T00:00:00.000Z',
+    diffAdditions: 1,
+    diffDeletions: 1,
+    specHash: 'sha256:spec',
+    filesChanged: 1,
+    repository: 'buyer/target-repo',
+    signedBy: 'did:abt:agent#job_1',
+    buyerDid: 'did:example:buyer',
+  },
+  proof: { type: 'Ed25519Signature2020', proofValue: 'zProof' },
 };
 
 describe('createOperatorRepository', () => {
@@ -133,6 +160,124 @@ describe('createJobRepository', () => {
     delete process.env.DATABASE_URL;
     const repo = createJobRepository();
     expect(repo).toBeInstanceOf(MemoryJobRepository);
+  });
+});
+
+describe('createCredentialRepository', () => {
+  const original = process.env.DATABASE_URL;
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    if (original === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = original;
+    }
+    vi.restoreAllMocks();
+  });
+
+  it('DATABASE_URL set selects the Prisma driver', () => {
+    vi.stubEnv('DATABASE_URL', 'postgresql://user:pass@127.0.0.1:5432/freeagents');
+    const repo = createCredentialRepository();
+    expect(repo).toBeInstanceOf(PrismaCredentialRepository);
+    expect(repo.constructor.name).toBe('PrismaCredentialRepository');
+  });
+
+  it('DATABASE_URL empty selects the in-memory driver, with the loud warning', () => {
+    vi.stubEnv('DATABASE_URL', '');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const repo = createCredentialRepository();
+    expect(repo).toBeInstanceOf(MemoryCredentialRepository);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain('DATABASE_URL');
+    expect(message).toContain('in-memory');
+  });
+
+  it('DATABASE_URL unset selects the in-memory driver, with the loud warning', () => {
+    vi.unstubAllEnvs();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    delete process.env.DATABASE_URL;
+    const repo = createCredentialRepository();
+    expect(repo).toBeInstanceOf(MemoryCredentialRepository);
+  });
+});
+
+describe('credentialLookupKey', () => {
+  it('is the last non-empty path segment of a full credential id', () => {
+    // ENT-8: a credential id is '<base>/v1/credentials/<completedJobId>',
+    // and the completed job id is the storage key.
+    expect(credentialLookupKey('https://platform.example/v1/credentials/job_1')).toBe('job_1');
+    expect(credentialLookupKey('urn:uuid:whatever/v1/credentials/job_2')).toBe('job_2');
+  });
+
+  it('an id with no slash is its own key', () => {
+    expect(credentialLookupKey('job_1')).toBe('job_1');
+  });
+
+  it('trailing slashes do not hide the key', () => {
+    expect(credentialLookupKey('https://platform.example/v1/credentials/job_1/')).toBe('job_1');
+  });
+
+  it('an empty id is its own key', () => {
+    expect(credentialLookupKey('')).toBe('');
+  });
+});
+
+describe('MemoryCredentialRepository', () => {
+  it('save and findByDocumentId round-trip the credential verbatim', async () => {
+    const repo = new MemoryCredentialRepository();
+    await repo.save({
+      completedJobId: 'job_1',
+      subjectDid: 'did:abt:agent',
+      document: credentialFixture,
+    });
+    expect(await repo.findByDocumentId('job_1')).toEqual(credentialFixture);
+    // The full resolvable id (ENT-8) resolves to the same stored document:
+    // the caller does not need to know which form the driver keys on.
+    const fullId = 'https://platform.example/v1/credentials/job_1';
+    expect(await repo.findByDocumentId(fullId)).toEqual(credentialFixture);
+  });
+
+  it('findByDocumentId of an unknown id is null', async () => {
+    const repo = new MemoryCredentialRepository();
+    expect(await repo.findByDocumentId('job_missing')).toBeNull();
+    expect(await repo.findByDocumentId('https://platform.example/v1/credentials/job_missing')).toBeNull();
+  });
+
+  it('a second save for the same completed job is CredentialAlreadyIssuedError', async () => {
+    const repo = new MemoryCredentialRepository();
+    await repo.save({
+      completedJobId: 'job_1',
+      subjectDid: 'did:abt:agent',
+      document: credentialFixture,
+    });
+    // Saving under the full id of the same job is still the same job: the
+    // key is the completed job id, not the string the caller happened to
+    // pass.
+    const err = await repo
+      .save({
+        completedJobId: 'https://platform.example/v1/credentials/job_1',
+        subjectDid: 'did:abt:agent',
+        document: credentialFixture,
+      })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CredentialAlreadyIssuedError);
+    expect((err as Error).name).toBe('CredentialAlreadyIssuedError');
+    // The first document is untouched by the rejected second save.
+    expect(await repo.findByDocumentId('job_1')).toEqual(credentialFixture);
+  });
+
+  it('two different completed jobs store independently', async () => {
+    const repo = new MemoryCredentialRepository();
+    const other: VerifiableCredential = {
+      ...credentialFixture,
+      credentialSubject: { ...credentialFixture.credentialSubject, jobId: 'job_2' },
+    };
+    await repo.save({ completedJobId: 'job_1', subjectDid: 'did:abt:agent', document: credentialFixture });
+    await repo.save({ completedJobId: 'job_2', subjectDid: 'did:abt:agent', document: other });
+    expect(await repo.findByDocumentId('job_1')).toEqual(credentialFixture);
+    expect(await repo.findByDocumentId('job_2')).toEqual(other);
   });
 });
 

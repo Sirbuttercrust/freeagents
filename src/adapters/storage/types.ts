@@ -5,6 +5,7 @@
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
+import type { VerifiableCredential } from '../credentials/types.js';
 
 // Thrown by register when the DID already exists, so the API layer can map
 // it to 409 without inspecting error messages.
@@ -84,4 +85,54 @@ export interface JobRepository {
   findById(id: string): Promise<Job | null>;
   complete(job: Job, completedJob: Omit<CompletedJob, 'id'>): Promise<Job | null>;
   findCompletedByJobId(id: string): Promise<CompletedJob | null>;
+}
+
+// Thrown by CredentialRepository.save when the job already has a credential,
+// so the API layer can map it to 409 without inspecting error messages. One
+// credential per completed job: the completed job id is the unique key.
+export class CredentialAlreadyIssuedError extends Error {
+  constructor(completedJobId: string) {
+    super(`job ${completedJobId} already has a work-history credential`);
+    this.name = 'CredentialAlreadyIssuedError';
+  }
+}
+
+// Thrown by the credentials adapter when no stored credential carries the
+// requested id, so the API layer maps it to 404 without inspecting error
+// messages.
+export class CredentialNotFoundError extends Error {
+  constructor(credentialId: string) {
+    super(`no credential with id ${credentialId}`);
+    this.name = 'CredentialNotFoundError';
+  }
+}
+
+// The lookup key of a credential id: its last non-empty path segment, the
+// completed job id the credential attests. A credential id is
+// '<base>/v1/credentials/<completedJobId>' (ENT-8: stable, resolvable); a
+// caller may hand over the full id or the bare key, and both drivers
+// normalize here in exactly one place. An id with no slash is its own key.
+export function credentialLookupKey(id: string): string {
+  const segments = id.split('/');
+  for (let i = segments.length - 1; i >= 0; i -= 1) {
+    const segment = segments[i];
+    if (segment !== undefined && segment.length > 0) return segment;
+  }
+  return id;
+}
+
+// One work-history credential per completed job (ENT-8). The document goes
+// in verbatim: the bytes that verified are the bytes that are stored, so a
+// resolved credential keeps verifying off-platform (invariant 2).
+export interface CredentialRepository {
+  // Throws CredentialAlreadyIssuedError when the job already has a
+  // credential.
+  save(input: {
+    readonly completedJobId: string;
+    readonly subjectDid: string;
+    readonly document: VerifiableCredential;
+  }): Promise<void>;
+  // documentId may be the full credential id or its lookup key. Null when
+  // no credential carries that id, so the adapter maps it to a 404.
+  findByDocumentId(documentId: string): Promise<VerifiableCredential | null>;
 }

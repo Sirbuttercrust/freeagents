@@ -2,6 +2,7 @@
 // only file in the repository that knows Postgres exists.
 import { Prisma, PrismaClient } from '../../generated/prisma/index.js';
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
+import type { VerifiableCredential } from '../credentials/types.js';
 import type { CompletedJob, Criterion, Job, JobStatus } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
@@ -9,11 +10,14 @@ import {
   AgentAlreadyExistsError,
   type AgentInput,
   type AgentRepository,
+  CredentialAlreadyIssuedError,
+  type CredentialRepository,
   JobAlreadyExistsError,
   type JobRepository,
   type KeyRotationInput,
   OperatorAlreadyExistsError,
   type OperatorRepository,
+  credentialLookupKey,
 } from './types.js';
 
 // The client is created on first use, not at import time: constructing a
@@ -330,6 +334,45 @@ export class PrismaJobRepository implements JobRepository {
       mergeCommit: job.mergeCommit,
       completedAt: job.mergedAt,
     };
+  }
+}
+
+export class PrismaCredentialRepository implements CredentialRepository {
+  async save(input: {
+    readonly completedJobId: string;
+    readonly subjectDid: string;
+    readonly document: VerifiableCredential;
+  }): Promise<void> {
+    try {
+      await db().credential.create({
+        data: {
+          completedJobId: credentialLookupKey(input.completedJobId),
+          subjectDid: input.subjectDid,
+          // The credential goes in verbatim: the Json column stores exactly
+          // the object that verified, so the stored bytes stay verifiable.
+          document: input.document as unknown as Prisma.InputJsonValue,
+          issuedAt: new Date(),
+        },
+      });
+    } catch (err) {
+      // P2002 is Prisma's "unique constraint failed" error code: the only
+      // unique constraint reachable here is completedJobId, so a P2002 from
+      // create() means the job already has a credential, and the API layer
+      // maps the domain error to 409.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new CredentialAlreadyIssuedError(input.completedJobId);
+      }
+      throw err;
+    }
+  }
+
+  async findByDocumentId(documentId: string): Promise<VerifiableCredential | null> {
+    const row = await db().credential.findUnique({
+      where: { completedJobId: credentialLookupKey(documentId) },
+    });
+    // The Json column round-trips as unknown; storage does not re-validate
+    // (same stance as the delegation column), it serves the stored bytes.
+    return row === null ? null : (row.document as unknown as VerifiableCredential);
   }
 }
 

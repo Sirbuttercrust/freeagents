@@ -89,14 +89,21 @@ import {
   type GithubAdapter,
   type PullRequestRef,
 } from '../../src/adapters/github/types.js';
+import { createCredentialResolver } from '../../src/adapters/credentials/credentials.js';
+import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter, SignedPayload } from '../../src/adapters/identity/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
-import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryCredentialRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 
 let server: Server;
 let base: string;
+
+// R-15: the app resolves credentials out of this repository. It is
+// module-scoped because the resolution step saves into it the same way
+// R-13's issuance will, once the platform issuer is wired in.
+const credentialRepo = new MemoryCredentialRepository();
 
 /** Counts assertions that exercised the running server over HTTP. */
 let stepsAsserted = 0;
@@ -272,6 +279,8 @@ beforeAll(async () => {
     new MemoryAgentRepository(),
     identityAdapter,
     githubAdapter,
+    undefined,
+    createCredentialResolver(credentialRepo),
   );
   server = await new Promise<Server>((resolve, reject) => {
     const s = app.listen(0, '127.0.0.1');
@@ -1019,6 +1028,87 @@ describe('the API starts and answers', () => {
     // answered everything, which would make it meaningless.
     const res = await get('/no-such-route');
     expect(res.status).toBe(404);
+  });
+
+  it('resolves an issued credential over HTTP, verbatim and resolvable (R-15)', async () => {
+    // The bytes that verified are the bytes that are stored: a
+    // CompletedHireCredential is signed the same way signW3CDelegation signs
+    // the delegation credential (same suites, same static loader), and it is
+    // handed to the platform's repository the way R-13's issuance will hand
+    // it in, once the platform issuer is wired. The credential id is the
+    // stable resolvable form (ENT-8): this server's own URL plus the job id.
+    const issuerDid = 'did:abt:platform';
+    const subjectDid = 'did:abt:agent-under-test';
+    const seed = nodeCrypto.randomBytes(32);
+    const key = await Ed25519VerificationKey2020.generate({ seed, controller: issuerDid });
+    key.id = `${issuerDid}#${key.publicKeyMultibase}`;
+
+    const credential = {
+      '@context': [
+        'https://www.w3.org/2018/credentials/v1',
+        'https://w3id.org/security/suites/ed25519-2020/v1',
+        { '@vocab': 'https://freeagents.dev/terms#' },
+      ],
+      id: `${base}/v1/credentials/job-cred-1`,
+      type: ['VerifiableCredential', 'CompletedHireCredential'],
+      issuer: issuerDid,
+      issuanceDate: new Date().toISOString(),
+      credentialSubject: {
+        id: subjectDid,
+        jobId: 'job-cred-1',
+        pullRequestUrl: 'https://github.com/buyer/target-repo/pull/42',
+        mergeCommitSha: '3f8a2c1d9e7b4a5f6c8d0e1f2a3b4c5d6e7f8a9b',
+        mergedAt: '2026-08-21T12:00:00.000Z',
+        diffAdditions: 12,
+        diffDeletions: 4,
+        specHash: 'sha256:spec',
+        filesChanged: 1,
+        repository: 'buyer/target-repo',
+        signedBy: issuerDid,
+        buyerDid: 'did:abt:buyer-under-test',
+      },
+    };
+
+    const loader = securityLoader();
+    loader.addStatic(key.id, {
+      '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+      ...key.export({ publicKey: true }),
+    });
+    loader.addStatic(issuerDid, {
+      '@context': 'https://www.w3.org/ns/did/v1',
+      id: issuerDid,
+      assertionMethod: [key.id],
+      verificationMethod: [
+        { '@context': 'https://w3id.org/security/suites/ed25519-2020/v1', ...key.export({ publicKey: true }) },
+      ],
+    });
+
+    const signed = await vc.issue({
+      credential,
+      suite: new Ed25519Signature2020({ key }),
+      documentLoader: loader.build(),
+    });
+    await credentialRepo.save({
+      completedJobId: 'job-cred-1',
+      subjectDid,
+      document: signed as unknown as VerifiableCredential,
+    });
+
+    // Resolving needs no authentication: resolvable is part of the contract.
+    const ok = await get('/v1/credentials/job-cred-1');
+    expect(ok.status).toBe(200);
+    // The credential is a linked-data document, not an API object.
+    expect(String(ok.headers.get('content-type')).includes('application/ld+json')).toBe(true);
+    const body = (await ok.json()) as Record<string, unknown>;
+    expect(body.id).toBe(`${base}/v1/credentials/job-cred-1`);
+    expect((body.credentialSubject as Record<string, unknown>).pullRequestUrl).toBe(
+      'https://github.com/buyer/target-repo/pull/42',
+    );
+    expect((body.proof as Record<string, unknown>).type).toBe('Ed25519Signature2020');
+
+    const missing = await get('/v1/credentials/no-such-credential');
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toEqual({ error: 'not found' });
   });
 
   it('reports the end-to-end step count', () => {
