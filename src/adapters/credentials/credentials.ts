@@ -19,7 +19,7 @@ export function platformIssuerFromEnv(): CredentialsIssuer {
   const did = process.env.FREEAGENTS_PLATFORM_DID ?? DEFAULT_PLATFORM_DID;
   const hex = process.env.FREEAGENTS_PLATFORM_SEED;
   if (hex !== undefined && /^(0x)?[0-9a-f]{64}$/i.test(hex)) {
-    return { did, seed: Uint8Array.from(Buffer.from(hex.replace(/^0x/, ''), 'hex')) };
+    return { did, seed: Uint8Array.from(Buffer.from(hex.replace(/^0x/i, ''), 'hex')) };
   }
   console.warn(
     'credentials: FREEAGENTS_PLATFORM_SEED is not set (or is not 64 hex characters); ' +

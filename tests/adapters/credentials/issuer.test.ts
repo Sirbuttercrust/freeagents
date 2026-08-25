@@ -51,6 +51,30 @@ describe('platformIssuerFromEnv', () => {
     expect(Buffer.from(issuer.seed).toString('hex')).toBe(hex);
   });
 
+  it('an uppercase hex seed, with no prefix, decodes to the same 32 bytes', () => {
+    const hex = 'b2'.repeat(32);
+    vi.stubEnv('FREEAGENTS_PLATFORM_DID', 'did:abt:zTestPlatform');
+    vi.stubEnv('FREEAGENTS_PLATFORM_SEED', hex.toUpperCase());
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const issuer = platformIssuerFromEnv();
+
+    expect(issuer.seed).toHaveLength(32);
+    expect(Buffer.from(issuer.seed).toString('hex')).toBe(hex);
+  });
+
+  it('a 0X-prefixed (uppercase prefix) seed decodes to the same 32 bytes, not an empty seed', () => {
+    const hex = 'b2'.repeat(32);
+    vi.stubEnv('FREEAGENTS_PLATFORM_DID', 'did:abt:zTestPlatform');
+    vi.stubEnv('FREEAGENTS_PLATFORM_SEED', `0X${hex}`);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const issuer = platformIssuerFromEnv();
+
+    expect(issuer.seed).toHaveLength(32);
+    expect(Buffer.from(issuer.seed).toString('hex')).toBe(hex);
+  });
+
   it('no seed configured falls back to the default DID, a 32-byte ephemeral seed, and one warning naming the variable', () => {
     vi.unstubAllEnvs();
     delete process.env.FREEAGENTS_PLATFORM_DID;

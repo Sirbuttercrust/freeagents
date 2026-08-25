@@ -4,7 +4,7 @@
 // undefined or a stubbed document, and the half it does have (resolution)
 // comes back from the repository it was handed, by id or by full credential
 // id, with the null arm mapping to the 404's domain error.
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createCredentialResolver,
@@ -94,6 +94,35 @@ describe('createCredentialResolver (R-15, before R-13 wires the issuer)', () => 
 });
 
 describe('createCredentialsAdapter, the parts R-15 did not touch', () => {
+  const ORIGINAL_DID = process.env.FREEAGENTS_PLATFORM_DID;
+  const ORIGINAL_SEED = process.env.FREEAGENTS_PLATFORM_SEED;
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    if (ORIGINAL_DID === undefined) {
+      delete process.env.FREEAGENTS_PLATFORM_DID;
+    } else {
+      process.env.FREEAGENTS_PLATFORM_DID = ORIGINAL_DID;
+    }
+    if (ORIGINAL_SEED === undefined) {
+      delete process.env.FREEAGENTS_PLATFORM_SEED;
+    } else {
+      process.env.FREEAGENTS_PLATFORM_SEED = ORIGINAL_SEED;
+    }
+  });
+
+  it('called with no issuer, it defaults to the env-derived platform issuer (R-35)', async () => {
+    vi.stubEnv('FREEAGENTS_PLATFORM_DID', 'did:abt:zEnvPlatform');
+    vi.stubEnv('FREEAGENTS_PLATFORM_SEED', 'c3'.repeat(32));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const adapter = createCredentialsAdapter(undefined, new MemoryCredentialRepository());
+    const credential = await adapter.issueWorkHistoryCredential('did:abt:agent', claim);
+
+    expect(credential.issuer).toBe('did:abt:zEnvPlatform');
+  });
+
   it('verification still throws the named capability error (invariant 2 is external)', () => {
     const adapter = createCredentialsAdapter(
       { did: 'did:abt:platform', seed: new Uint8Array(32) },
