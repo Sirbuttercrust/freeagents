@@ -103,3 +103,11 @@ builds/
 report.md
 final-report.md
 *-report.md
+
+# HANDOFF.md is the same species and was missed because it is not called a
+# report. A builder writes it to hand context to the next session, so it
+# QUOTES THE COMMANDS IT RAN - including sandboxed.sh's absolute path - and
+# the checkpoint commit then carried it into branch history, where the publish
+# gate blocked the push (issue 65, 2026-08-25). Scratch that names local
+# tooling is unstageable by policy, not by the builder remembering.
+HANDOFF.md
