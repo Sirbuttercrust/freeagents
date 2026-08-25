@@ -52,6 +52,7 @@ import {
   proposeCriteria,
   recordClosedUnmerged,
   recordStale,
+  recordWithdrawn,
   requestChanges,
   submitPullRequest,
   validateJobTransition,
@@ -817,6 +818,16 @@ export function createApp(
     }),
   );
 
+  // The buyer withdraws an open job (R-31, D3 2026-08-22): recorded
+  // withdrawn, terminal, a timing fact. Body-less like request-changes;
+  // every rule lives in recordWithdrawn, the route only names the label.
+  app.post(
+    '/jobs/:jobId/withdraw',
+    forwarded(async (req: Request, res: Response) => {
+      await runExchange('POST /jobs/:jobId/withdraw', String(req.params.jobId), res, recordWithdrawn);
+    }),
+  );
+
   // R-10 (ENT-4.3, ENT-4.5): fork the buyer's repository and open the pull
   // request carrying the job id. The route owns only what the domain cannot
   // know: splitting the stored owner/name pair, formatting the public
@@ -990,9 +1001,10 @@ export function createApp(
         try {
           next = record(job);
         } catch (err) {
-          // Covers a row whose status moved between the read and here (and,
-          // for the closed leg, a row already recorded stale: stale ->
-          // closed_unmerged is R-31's edge, not this table's).
+          // Covers a row whose status moved between the read and here, or a
+          // terminal row that reached this point (withdrawn is not in the
+          // guard above): the outcome is refused, and the row is left as
+          // found.
           if (err instanceof JobTransitionError) {
             res.status(409).json({ error: err.message });
             return;
