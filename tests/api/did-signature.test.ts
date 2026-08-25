@@ -1,7 +1,7 @@
 // R-34 acceptance, human-seeded 2026-08-23. These MUST fail until
 // src/adapters/identity/http-signature.ts is implemented; that is the point.
 import { describe, it, expect } from 'vitest';
-import { verify, type SigningKeyResolver } from '../../src/adapters/identity/http-signature';
+import { verify, type SigningKeyResolver } from '../../src/adapters/identity/http-signature.js';
 
 describe('DID-signed requests (RFC 9421)', () => {
   const resolver: SigningKeyResolver = async () => ({ publicKeyPem: 'test-key' });
