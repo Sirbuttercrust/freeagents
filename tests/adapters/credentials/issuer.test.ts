@@ -89,6 +89,17 @@ describe('platformIssuerFromEnv', () => {
     expect(String(warn.mock.calls[0]?.[0])).toContain('FREEAGENTS_PLATFORM_SEED');
   });
 
+  it('a configured DID is kept on the ephemeral path too, not overridden by the default', () => {
+    vi.stubEnv('FREEAGENTS_PLATFORM_DID', 'did:abt:zConfiguredButNoSeed');
+    delete process.env.FREEAGENTS_PLATFORM_SEED;
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const issuer = platformIssuerFromEnv();
+
+    expect(issuer.did).toBe('did:abt:zConfiguredButNoSeed');
+    expect(issuer.did).not.toBe('did:abt:freeagents-platform');
+  });
+
   it('two calls without a seed produce different ephemeral seeds', () => {
     vi.unstubAllEnvs();
     delete process.env.FREEAGENTS_PLATFORM_DID;

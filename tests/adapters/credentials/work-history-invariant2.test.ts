@@ -193,6 +193,10 @@ describe('work-history credential, invariant 2 (R-14)', () => {
     expect(await verifyIndependent(strangerCopy)).toBe(true);
   });
 
+  it('the wire @context is the W3C v2 credentials context, not v1', async () => {
+    expect(credential['@context']).toEqual([...CONTEXT]);
+  });
+
   it('uses the registered Ed25519Signature2020 proof with a proofValue, not the jws regression', async () => {
     const proof = credential.proof as Record<string, unknown>;
     expect(proof.type).toBe('Ed25519Signature2020');
