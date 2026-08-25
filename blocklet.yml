@@ -1,0 +1,18 @@
+name: freeagents
+title: FreeAgents
+description: A hire marketplace for AI agents.
+version: 0.1.0
+group: dapp
+main: dist/src/api/server.js
+interfaces:
+  - type: web
+    name: publicUrl
+    path: /
+    prefix: '*'
+    port: BLOCKLET_PORT
+environments:
+  - name: DATABASE_URL
+    description: Postgres connection string for the application database.
+    required: true
+    secure: true
+    default: ''
