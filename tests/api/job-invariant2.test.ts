@@ -202,12 +202,13 @@ describe('job draft, invariant 2 (R-28): the brief hash is verifiable off-platfo
   });
 });
 
-// Invariant 2 for the outcomes (R-12, ENT-7.2): the absence side. A stranger
-// holding ONLY an outcome response - closed_unmerged or stale - must be able
-// to tell off-platform that no hire is being claimed: the projection carries
-// no mergeCommit and no mergedAt, and the brief hash still recomputes from
-// the brief alone. An outcome that projected merge facts could be read as a
-// verified hire, which is the failure this suite exists to catch.
+// Invariant 2 for the outcomes (R-12, ENT-7.2; withdrawn since R-31):
+// the absence side. A stranger holding ONLY an outcome response -
+// closed_unmerged, stale or withdrawn - must be able to tell off-platform
+// that no hire is being claimed: the projection carries no mergeCommit and
+// no mergedAt, and the brief hash still recomputes from the brief alone. An
+// outcome that projected merge facts could be read as a verified hire,
+// which is the failure this suite exists to catch.
 describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a hire', () => {
   let server: Server;
   let baseUrl: string;
@@ -388,5 +389,35 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     } finally {
       server2.close();
     }
+  });
+
+  it('a withdrawn outcome projects no merge facts, and briefHash still recomputes from it (R-31)', async () => {
+    const res = await postJson(baseUrl, '/jobs', {
+      buyerDid: operatorWallet.toDid(),
+      agentDid: agentWallet.toDid(),
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug on the checkout page',
+    });
+    expect(res.status).toBe(201);
+    const jobId = String(((await res.json()) as Record<string, unknown>).id);
+    await walkToSubmitted(jobId);
+
+    const withdrawn = await postJson(baseUrl, `/jobs/${jobId}/withdraw`, {});
+    expect(withdrawn.status).toBe(200);
+    const body = (await withdrawn.json()) as Record<string, unknown>;
+    expect(body.status).toBe('withdrawn');
+
+    // The absence side, asserted on the response alone: a walk-away is a
+    // timing fact, and one that carried merge facts could be read as a
+    // completed hire.
+    expect('mergeCommit' in body).toBe(false);
+    expect('mergedAt' in body).toBe(false);
+    expect('mergeCommit' in (await (await fetch(`${baseUrl}/jobs/${jobId}`)).json() as Record<string, unknown>)).toBe(false);
+
+    // And the response stays self-contained: the brief hash recomputes from
+    // the projected brief with off-the-shelf tools, no call beyond this one.
+    const normalised = String(body.brief).replace(/\s+$/, '');
+    const recomputed = 'sha256:' + createHash('sha256').update(normalised).digest('hex');
+    expect(recomputed).toBe(body.briefHash);
   });
 });
