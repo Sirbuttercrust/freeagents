@@ -22,18 +22,40 @@ const claim: WorkHistoryClaim = {
   mergedAt: '2026-01-03T00:00:00.000Z',
   diffAdditions: 1,
   diffDeletions: 1,
+  diffFiles: 1,
+  briefHash: 'sha256:brief',
   specHash: 'sha256:spec',
-  filesChanged: 1,
   repository: 'buyer/target-repo',
   signedBy: 'did:abt:agent#job-1',
   buyerDid: 'did:example:buyer',
 };
 
+// Used by the specHash-omission pin below: a job that completed without a
+// confirmed spec.
+const claimWithoutSpec: WorkHistoryClaim = { ...claim, specHash: null };
+
 const document: VerifiableCredential = {
-  '@context': ['https://www.w3.org/2018/credentials/v1'],
+  '@context': ['https://www.w3.org/ns/credentials/v2'],
+  id: 'urn:uuid:00000000-0000-4000-8000-000000000000',
   type: ['VerifiableCredential', 'CompletedHireCredential'],
   issuer: 'did:abt:platform',
-  credentialSubject: { ...claim, id: 'did:abt:agent' },
+  validFrom: '2026-01-03T00:00:00.000Z',
+  credentialSubject: {
+    id: 'did:abt:agent',
+    hire: {
+      brief: claim.briefHash,
+      repository: claim.repository,
+      pullRequest: claim.pullRequestUrl,
+      mergedAt: claim.mergedAt,
+      mergeCommit: claim.mergeCommitSha,
+      signedBy: claim.signedBy,
+      buyer: claim.buyerDid,
+      additions: claim.diffAdditions,
+      deletions: claim.diffDeletions,
+      filesChanged: claim.diffFiles,
+      specHash: claim.specHash as string,
+    },
+  },
   proof: { type: 'Ed25519Signature2020', proofValue: 'zProof' },
 };
 
@@ -79,5 +101,20 @@ describe('createCredentialsAdapter, the parts R-15 did not touch', () => {
     );
 
     expect(() => adapter.verifyCredential(document)).toThrowError(NotImplementedError);
+  });
+
+  it('omits specHash from the wire when the claim has none, and includes it when the claim has one', async () => {
+    const adapter = createCredentialsAdapter(
+      { did: 'did:abt:platform', seed: new Uint8Array(32) },
+      new MemoryCredentialRepository(),
+    );
+
+    const withoutSpec = await adapter.issueWorkHistoryCredential('did:abt:agent', claimWithoutSpec);
+    const hireWithoutSpec = withoutSpec.credentialSubject.hire as unknown as Record<string, unknown>;
+    expect('specHash' in hireWithoutSpec).toBe(false);
+
+    const withSpec = await adapter.issueWorkHistoryCredential('did:abt:agent', claim);
+    const hireWithSpec = withSpec.credentialSubject.hire as unknown as Record<string, unknown>;
+    expect('specHash' in hireWithSpec).toBe(true);
   });
 });
