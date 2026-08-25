@@ -86,6 +86,16 @@ credentials.json
 # complete second copy of the project living inside the main checkout.
 .worktrees/
 
+# Factory build OUTPUT, same family as .worktrees/ and missed for the same
+# reason: untracked is not the same as unstageable. builds/ holds per-SHA
+# copies of generated artifacts, including src/generated/prisma, whose
+# generated JS embeds the ABSOLUTE PATH of the machine that ran the generator.
+# src/generated/ is ignored at its own path, but its copy under builds/ was
+# not, so the publish gate correctly BLOCKED the push of factory/issue-64 on
+# 2026-08-25 with four absolute paths carrying a username into a public repo.
+# The gate did its job; this closes the hole it found.
+builds/
+
 # Factory reports are scratch, never deliverables. A build once committed
 # final-report.md to the repo root; it quoted absolute paths while describing
 # its own work and the publish gate blocked the branch. The prompt says to
@@ -93,3 +103,11 @@ credentials.json
 report.md
 final-report.md
 *-report.md
+
+# HANDOFF.md is the same species and was missed because it is not called a
+# report. A builder writes it to hand context to the next session, so it
+# QUOTES THE COMMANDS IT RAN - including sandboxed.sh's absolute path - and
+# the checkpoint commit then carried it into branch history, where the publish
+# gate blocked the push (issue 65, 2026-08-25). Scratch that names local
+# tooling is unstageable by policy, not by the builder remembering.
+HANDOFF.md
