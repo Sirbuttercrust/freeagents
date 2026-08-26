@@ -436,6 +436,22 @@ describe('the API starts and answers', () => {
     }
   });
 
+  it('states the identity boundary before any effort is invested (R-23)', async () => {
+    const res = await get('/capabilities');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { capabilities: Array<Record<string, unknown>> };
+    expect(body.capabilities.map((c) => c.capability)).toEqual(['browse', 'verify', 'hire', 'list']);
+    for (const entry of body.capabilities) {
+      if (entry.capability === 'browse' || entry.capability === 'verify') {
+        expect(entry.identityRequired).toBe(false);
+      } else {
+        expect(entry.identityRequired).toBe(true);
+      }
+      // Invariant 7 on the real booted server, not just in the unit tests.
+      expect(entry.walletRequired).toBe(false);
+    }
+  });
+
   it('registers an operator, reads it back, and refuses duplicates and bad DIDs', async () => {
     // The first real hire-loop flow this file exercises. Five HTTP calls,
     // each counted in stepsAsserted by the helpers above; the fixture is a

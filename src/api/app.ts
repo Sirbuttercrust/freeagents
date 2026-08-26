@@ -28,6 +28,7 @@ import {
   createJobRepository,
   createOperatorRepository,
 } from '../adapters/storage/storage.js';
+import { accessPolicy, type IdentityRequirement } from '../domain/access.js';
 import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
 import {
   didDocumentPointsAtGithubAccount,
@@ -173,6 +174,20 @@ function jobProjection(row: Job): Record<string, unknown> {
   };
 }
 
+// The IdentityRequirement projection is the whole response for one
+// capability row. Exactly these five fields, nothing more:
+// tests/api/capabilities.test.ts asserts the key set, and a sixth field
+// here would be a contract change.
+function capabilityProjection(row: IdentityRequirement): Record<string, unknown> {
+  return {
+    capability: row.capability,
+    identityRequired: row.identityRequired,
+    walletRequired: row.walletRequired,
+    signInMethods: [...row.signInMethods],
+    statement: row.statement,
+  };
+}
+
 // The body carries the W3C Verifiable Credential exactly as produced.
 // This only checks that the fields the service relies on are present and
 // well-typed; the object then passes through untouched, because the bytes
@@ -210,6 +225,16 @@ export function createApp(
 
   app.get('/health', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'ok' });
+  });
+
+  // R-23: the identity boundary, stated before a user invests effort.
+  // Public by construction and permanently so - this is the route that
+  // says what needs sign-in, so requiring sign-in to read it would be
+  // circular. No storage, no adapter, no request input: it cannot 404,
+  // cannot 503, and takes nothing from the caller, so there is nothing
+  // to validate and nothing to leak.
+  app.get('/capabilities', (_req: Request, res: Response) => {
+    res.status(200).json({ capabilities: accessPolicy().map(capabilityProjection) });
   });
 
   app.post('/operators', async (req: Request, res: Response) => {
