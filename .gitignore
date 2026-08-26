@@ -4,6 +4,8 @@ node_modules/
 !.env.example
 dist/
 build/
+# The blocklet CLI writes bundle output here; it is a build artifact, not source.
+.blocklet/
 src/generated/
 .DS_Store
 *.log

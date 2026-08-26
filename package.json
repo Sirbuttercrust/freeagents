@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "tsx watch src/api/server.ts",
     "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/api/server.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
