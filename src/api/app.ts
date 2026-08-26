@@ -60,6 +60,7 @@ import {
   type Job,
   type JobStatus,
 } from '../domain/job.js';
+import { rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
 import { renderAvatar } from './avatar.js';
 
 // The hire-loop's last stub (R-12 reviews) stays honest about being unbuilt:
@@ -80,14 +81,14 @@ function operatorProjection(row: Operator): Record<string, unknown> {
   };
 }
 
-// The Agent record projection is the whole response. Exactly these nine
+// The Agent record projection is the whole response. Exactly these ten
 // fields, nothing more: tests/api/agent-invariant2.test.ts asserts the key
-// set, and a tenth field here would be a contract change. avatar (R-21) is
-// derived at projection time from row.did and rides the base key set
-// unconditionally - every agent has a DID, so there is no state to wait on;
-// conditional-spread style stays reserved for fields a row may lack
-// (jobProjection's confirmation pair). It can never be client-supplied:
-// nothing reads body.avatar anywhere.
+// set, and an eleventh field here would be a contract change. avatar (R-21)
+// and keyRotations (R-30) ride the base key set unconditionally - every agent
+// has a DID and a (possibly empty) rotation history, so there is no state to
+// wait on; conditional-spread style stays reserved for fields a row may lack
+// (jobProjection's confirmation pair). They can never be client-supplied:
+// nothing reads body.avatar or a rotation from any request body anywhere.
 function agentProjection(row: Agent): Record<string, unknown> {
   return {
     did: row.did,
@@ -99,6 +100,16 @@ function agentProjection(row: Agent): Record<string, unknown> {
     proofStatus: row.proofStatus,
     createdAt: row.createdAt.toISOString(),
     avatar: renderAvatar(row.did),
+    // R-30: the rotation history rides the base key set unconditionally,
+    // the same way the avatar does (R-21): every agent has a history, an
+    // empty one before the first rotation, so the key set never changes
+    // shape with state. ENT-8.4's third party resolves the superseded key
+    // from it, and the profile shows the rotation with dates (R-6).
+    keyRotations: row.keyRotations.map((rotation) => ({
+      fromKey: rotation.fromKey,
+      toKey: rotation.toKey,
+      rotatedAt: rotation.rotatedAt.toISOString(),
+    })),
   };
 }
 
@@ -554,6 +565,70 @@ export function createApp(
       res.status(200).json(agentProjection(updated));
     } catch (err) {
       console.error('POST /agents/:agentDid/account-proof: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // R-30 (ENT-8.4): the operator supersedes an agent's key. The route owns
+  // only what the domain does not know about: the body's shape (checked
+  // with R-29's rotationWellFormed, not restated), the agent's existence,
+  // and the error mapping. fromKey === toKey is the no-op R-29's shape rule
+  // defers to this route; it is rejected inline because a one-line equality
+  // is the HTTP surface's call, not a domain rule (the validator's scope
+  // finding on rotationIsIdentity). The record is public identifiers only,
+  // so nothing here touches the identity adapter.
+  app.post('/agents/:agentDid/key-rotation', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+    const body = (req.body ?? {}) as { fromKey?: unknown; toKey?: unknown };
+
+    // rotationWellFormed is total by contract, so the untyped body halves
+    // may be passed straight in; the cast is the call site's honesty mark.
+    if (
+      !rotationWellFormed({
+        fromKey: body.fromKey,
+        toKey: body.toKey,
+        rotatedAt: new Date(),
+      } as KeyRotation)
+    ) {
+      res.status(400).json({
+        error:
+          'body must be { fromKey, toKey }; both are non-empty strings in DID fragment form, did:abt:<suffix>#<fragment>',
+      });
+      return;
+    }
+
+    if ((body.fromKey as string) === (body.toKey as string)) {
+      res.status(400).json({
+        error: 'a rotation supersedes a key with a different one: fromKey and toKey are the same key',
+      });
+      return;
+    }
+
+    let row: Agent | null;
+    try {
+      row = await agentRepo.findByDid(did);
+    } catch (err) {
+      console.error('POST /agents/:agentDid/key-rotation: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (row === null) {
+      res.status(404).json({ error: `agent ${did} is not registered` });
+      return;
+    }
+
+    try {
+      const updated = await agentRepo.recordKeyRotation(did, {
+        fromKey: body.fromKey as string,
+        toKey: body.toKey as string,
+      });
+      if (updated === null) {
+        res.status(404).json({ error: `agent ${did} is not registered` });
+        return;
+      }
+      res.status(200).json(agentProjection(updated));
+    } catch (err) {
+      console.error('POST /agents/:agentDid/key-rotation: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
