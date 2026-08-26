@@ -135,6 +135,18 @@ describe('POST /agents/:agentDid/key-rotation (R-30, ENT-8.4)', () => {
     expect(after).toBe(before);
   });
 
+  it('400: no body at all is a malformed request, not a crash', async () => {
+    // Express leaves req.body undefined when no JSON arrives; the route's
+    // `req.body ?? {}` fallback is the only thing between that and a throw.
+    // This is the one request in the file that sends no content-type and no
+    // payload, so deleting the fallback fails here and nowhere else.
+    const before = (await agentRepo.findByDid(AGENT_DID))?.keyRotations.length ?? 0;
+    const res = await fetch(`${baseUrl}/agents/${AGENT_DID}/key-rotation`, { method: 'POST' });
+    expect(res.status).toBe(400);
+    const after = (await agentRepo.findByDid(AGENT_DID))?.keyRotations.length ?? 0;
+    expect(after).toBe(before);
+  });
+
   it('400: an identity rotation (fromKey === toKey) records nothing', async () => {
     const before = (await agentRepo.findByDid(AGENT_DID))?.keyRotations.length ?? 0;
     const key = `${AGENT_DID}#zSame`;
@@ -241,7 +253,21 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
   });
 
   it('404: the write reports the agent as not stored, after the lookup succeeded', async () => {
+    // findByDid must succeed for the request to reach recordKeyRotation:
+    // with only the empty base repository, the route 404s at the lookup and
+    // the updated === null branch is never executed.
+    const stored: Agent = {
+      did: AGENT_DID,
+      operatorDid: 'did:abt:zOperatorKeyHash',
+      delegation,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+      githubBinding: null,
+      keyRotations: [],
+    } as unknown as Agent;
     const app = makeApp({
+      findByDid: () => Promise.resolve(stored),
       recordKeyRotation: () => Promise.resolve(null),
     });
     await withApp(app, async (url) => {

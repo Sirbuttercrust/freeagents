@@ -60,7 +60,7 @@ import {
   type Job,
   type JobStatus,
 } from '../domain/job.js';
-import { rotationIsIdentity, rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
+import { rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
 import { renderAvatar } from './avatar.js';
 
 // The hire-loop's last stub (R-12 reviews) stays honest about being unbuilt:
@@ -572,9 +572,11 @@ export function createApp(
   // R-30 (ENT-8.4): the operator supersedes an agent's key. The route owns
   // only what the domain does not know about: the body's shape (checked
   // with R-29's rotationWellFormed, not restated), the agent's existence,
-  // and the error mapping. The identity rotation the R-29 shape rule
-  // defers to R-30 is rejected via rotationIsIdentity. The record is
-  // public identifiers only, so nothing here touches the identity adapter.
+  // and the error mapping. fromKey === toKey is the no-op R-29's shape rule
+  // defers to this route; it is rejected inline because a one-line equality
+  // is the HTTP surface's call, not a domain rule (the validator's scope
+  // finding on rotationIsIdentity). The record is public identifiers only,
+  // so nothing here touches the identity adapter.
   app.post('/agents/:agentDid/key-rotation', async (req: Request, res: Response) => {
     const did = String(req.params.agentDid);
     const body = (req.body ?? {}) as { fromKey?: unknown; toKey?: unknown };
@@ -595,7 +597,7 @@ export function createApp(
       return;
     }
 
-    if (rotationIsIdentity(body.fromKey as string, body.toKey as string)) {
+    if ((body.fromKey as string) === (body.toKey as string)) {
       res.status(400).json({
         error: 'a rotation supersedes a key with a different one: fromKey and toKey are the same key',
       });
