@@ -6,6 +6,7 @@ import type { VerifiableCredential } from '../credentials/types.js';
 import type { CompletedJob, Criterion, Job, JobStatus } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
+import { recordSettlementIntent as domainRecordSettlementIntent, type Settlement } from '../../domain/settlement.js';
 import {
   AgentAlreadyExistsError,
   type AgentInput,
@@ -52,6 +53,36 @@ function rotationDb() {
         where: { agentDid: string };
         orderBy: { rotatedAt: 'asc' };
       }): Promise<KeyRotationRow[]>;
+    };
+  };
+}
+
+// The generated client lags the schema: src/generated/ is a gitignored
+// build artifact and this path cannot regenerate it, so the settlement
+// surface is addressed structurally against the schema, not the stale
+// generated types. See the run report for R-26.
+interface SettlementRow {
+  id: string;
+  jobId: string;
+  amount: unknown;
+  currency: string | null;
+  platformFee: unknown;
+  state: 'recorded_intent';
+  recordedAt: Date;
+}
+function settlementDb() {
+  return db() as unknown as {
+    settlement: {
+      create(args: {
+        data: {
+          jobId: string;
+          amount: null;
+          currency: null;
+          platformFee: null;
+          state: 'recorded_intent';
+        };
+      }): Promise<SettlementRow>;
+      findUnique(args: { where: { jobId: string } }): Promise<SettlementRow | null>;
     };
   };
 }
@@ -335,6 +366,27 @@ export class PrismaJobRepository implements JobRepository {
       completedAt: job.mergedAt,
     };
   }
+
+  async recordSettlementIntent(job: Job): Promise<Settlement | null> {
+    // Reading first, not creating blind: an unknown id resolves to null
+    // instead of a foreign-key failure, the read-first stance
+    // recordKeyRotation takes above.
+    const row = await db().job.findUnique({ where: { id: job.id } });
+    if (row === null) return null;
+    const existing = await settlementDb().settlement.findUnique({ where: { jobId: job.id } });
+    if (existing !== null) return toSettlement(existing);
+    // Enforces the completed gate (ENT-9.3); throws SettlementError otherwise.
+    domainRecordSettlementIntent(job);
+    const created = await settlementDb().settlement.create({
+      data: { jobId: job.id, amount: null, currency: null, platformFee: null, state: 'recorded_intent' },
+    });
+    return toSettlement(created);
+  }
+
+  async findSettlementByJobId(jobId: string): Promise<Settlement | null> {
+    const row = await settlementDb().settlement.findUnique({ where: { jobId } });
+    return row === null ? null : toSettlement(row);
+  }
 }
 
 export class PrismaCredentialRepository implements CredentialRepository {
@@ -399,5 +451,20 @@ function toJob(row: JobRow): Job {
     submittedAt: row.submittedAt,
     deadline: row.deadline,
     createdAt: row.createdAt,
+  };
+}
+
+// Every Settlement field, no omissions (the same stance toJob takes above).
+// Decimal columns arrive as a Prisma Decimal object, never a JS number
+// (a JS number cannot hold a decimal amount exactly), so they are mapped
+// through String() rather than trusted as already-a-string.
+function toSettlement(row: SettlementRow): Settlement {
+  return {
+    jobId: row.jobId,
+    amount: row.amount === null || row.amount === undefined ? null : String(row.amount),
+    currency: row.currency,
+    platformFee:
+      row.platformFee === null || row.platformFee === undefined ? null : String(row.platformFee),
+    state: row.state,
   };
 }

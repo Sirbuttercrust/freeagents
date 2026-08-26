@@ -5,6 +5,7 @@
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
+import type { Settlement } from '../../domain/settlement.js';
 import type { VerifiableCredential } from '../credentials/types.js';
 
 // Thrown by register when the DID already exists, so the API layer can map
@@ -85,6 +86,14 @@ export interface JobRepository {
   findById(id: string): Promise<Job | null>;
   complete(job: Job, completedJob: Omit<CompletedJob, 'id'>): Promise<Job | null>;
   findCompletedByJobId(id: string): Promise<CompletedJob | null>;
+  // R-26 (ENT-9): record the intent to settle a completed hire. No amount
+  // argument exists, so this path cannot move money. Null when the job is
+  // not stored, mirroring update(), so the API maps it to 404 without a
+  // second lookup. Idempotent: a second call returns the record already
+  // stored rather than throwing, because a job completes exactly once and a
+  // repeated call carries no new information to conflict with.
+  recordSettlementIntent(job: Job): Promise<Settlement | null>;
+  findSettlementByJobId(jobId: string): Promise<Settlement | null>;
 }
 
 // Thrown by CredentialRepository.save when the job already has a credential,

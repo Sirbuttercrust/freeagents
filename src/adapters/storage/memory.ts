@@ -5,6 +5,7 @@ import type { Agent, ProofStatus } from '../../domain/agent.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
+import { recordSettlementIntent as domainRecordSettlementIntent, type Settlement } from '../../domain/settlement.js';
 import type { VerifiableCredential } from '../credentials/types.js';
 import {
   AgentAlreadyExistsError,
@@ -109,6 +110,7 @@ export class MemoryAgentRepository implements AgentRepository {
 
 export class MemoryJobRepository implements JobRepository {
   private readonly rows = new Map<string, Job>();
+  private readonly settlements = new Map<string, Settlement>();
 
   async create(job: Job): Promise<Job> {
     // Check-then-set is safe here: Node is single-threaded and this method
@@ -158,6 +160,21 @@ export class MemoryJobRepository implements JobRepository {
       mergeCommit: row.mergeCommit,
       completedAt: row.mergedAt,
     };
+  }
+
+  async recordSettlementIntent(job: Job): Promise<Settlement | null> {
+    if (!this.rows.has(job.id)) return null;
+    const existing = this.settlements.get(job.id);
+    if (existing !== undefined) return { ...existing };
+    // Enforces the completed gate (ENT-9.3); throws SettlementError otherwise.
+    const settlement = domainRecordSettlementIntent(job);
+    this.settlements.set(job.id, { ...settlement });
+    return { ...settlement };
+  }
+
+  async findSettlementByJobId(jobId: string): Promise<Settlement | null> {
+    const row = this.settlements.get(jobId);
+    return row === undefined ? null : { ...row };
   }
 }
 

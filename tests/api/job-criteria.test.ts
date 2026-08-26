@@ -302,6 +302,12 @@ describe('job criteria exchange (R-8)', () => {
       async findById(): Promise<never> {
         throw new Error('db down');
       }
+      async recordSettlementIntent(): Promise<null> {
+        return null;
+      }
+      async findSettlementByJobId(): Promise<null> {
+        return null;
+      }
     }
     const failingServer = createApp(
       new MemoryOperatorRepository(),
@@ -358,6 +364,12 @@ describe('job criteria exchange (R-8)', () => {
       async findCompletedByJobId(): Promise<null> {
         return null;
       }
+      async recordSettlementIntent(): Promise<null> {
+        return null;
+      }
+      async findSettlementByJobId(): Promise<null> {
+        return null;
+      }
     }
     const repo = new VanishingUpdate(draftRow('j-vanish'));
     const { server: vanishingServer, baseUrl: vanishingUrl } = await startWith(repo);
@@ -396,6 +408,12 @@ describe('job criteria exchange (R-8)', () => {
       }
       async findById(): Promise<Job> {
         return draftRow('j-throws');
+      }
+      async recordSettlementIntent(): Promise<never> {
+        throw new Error('unreachable');
+      }
+      async findSettlementByJobId(): Promise<never> {
+        throw new Error('unreachable');
       }
     }
     const { server: throwingServer, baseUrl: throwingUrl } = await startWith(new ThrowingUpdate());
@@ -440,6 +458,12 @@ describe('job criteria exchange (R-8)', () => {
       }
       async findById(): Promise<Job> {
         return { ...draftRow('j-corrupt'), status: 'proposed', criteria: null } as unknown as Job;
+      }
+      async recordSettlementIntent(): Promise<null> {
+        return null;
+      }
+      async findSettlementByJobId(): Promise<null> {
+        return null;
       }
     }
     const { server: corruptedServer, baseUrl: corruptedUrl } = await startWith(new CorruptedRow());

@@ -359,6 +359,12 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
       async findCompletedByJobId(): Promise<null> {
         return null;
       }
+      async recordSettlementIntent(): Promise<null> {
+        return null;
+      }
+      async findSettlementByJobId(): Promise<null> {
+        return null;
+      }
     }
     // complete's signature is part of the interface; the parameter types
     // keep the class honest without the leg ever running it.

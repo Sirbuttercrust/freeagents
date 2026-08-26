@@ -88,6 +88,12 @@ class ScriptedRow implements JobRepository {
   async findCompletedByJobId(): Promise<null> {
     return null;
   }
+  async recordSettlementIntent(): Promise<null> {
+    return null;
+  }
+  async findSettlementByJobId(): Promise<null> {
+    return null;
+  }
 }
 
 async function startWith(repo: JobRepository): Promise<{ server: Server; baseUrl: string }> {

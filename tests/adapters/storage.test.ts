@@ -22,6 +22,7 @@ const { PrismaCredentialRepository, PrismaJobRepository, PrismaOperatorRepositor
 const { CredentialAlreadyIssuedError, JobAlreadyExistsError, credentialLookupKey } = await import(
   '../../src/adapters/storage/types.js'
 );
+const { SettlementError } = await import('../../src/domain/settlement.js');
 
 // Shared with tests/adapters/prisma.test.ts: both drivers are pinned to the
 // same input/output pair, so a projection that drops a field fails at least
@@ -442,5 +443,97 @@ describe('MemoryJobRepository', () => {
     // The stored row is a deep copy: the top-level fields and the criteria
     // entries are all independent of the caller's input.
     expect(await repo.findById('job_1')).toEqual(expected);
+  });
+
+  // R-26 (ENT-9): the settlement is a sibling record, reserved space only.
+  describe('settlement', () => {
+    it('recordSettlementIntent on a completed job returns a recorded intent with no money fields set', async () => {
+      const repo = new MemoryJobRepository();
+      await repo.create(jobFixture);
+      await repo.complete(completedFixture, completedAnchor);
+
+      const settlement = await repo.recordSettlementIntent(completedFixture);
+
+      expect(settlement).toEqual({
+        jobId: 'job_1',
+        amount: null,
+        currency: null,
+        platformFee: null,
+        state: 'recorded_intent',
+      });
+    });
+
+    it('findSettlementByJobId reads back an equal record', async () => {
+      const repo = new MemoryJobRepository();
+      await repo.create(jobFixture);
+      await repo.complete(completedFixture, completedAnchor);
+      const recorded = await repo.recordSettlementIntent(completedFixture);
+
+      expect(await repo.findSettlementByJobId('job_1')).toEqual(recorded);
+    });
+
+    it('findSettlementByJobId of an unknown id is null', async () => {
+      const repo = new MemoryJobRepository();
+      expect(await repo.findSettlementByJobId('nope')).toBeNull();
+    });
+
+    it('recordSettlementIntent on a job that was never stored is null', async () => {
+      const repo = new MemoryJobRepository();
+      expect(await repo.recordSettlementIntent(completedFixture)).toBeNull();
+    });
+
+    it('recordSettlementIntent is idempotent: a second call returns an equal record and does not throw', async () => {
+      const repo = new MemoryJobRepository();
+      await repo.create(jobFixture);
+      await repo.complete(completedFixture, completedAnchor);
+
+      const first = await repo.recordSettlementIntent(completedFixture);
+      const second = await repo.recordSettlementIntent(completedFixture);
+
+      expect(second).toEqual(first);
+    });
+
+    // The idempotency check must return the stored record WITHOUT
+    // reconstructing it: a job argument that no longer qualifies (not
+    // completed) proves the branch, because reconstructing would hit the
+    // domain gate and throw SettlementError, while returning the existing
+    // record short-circuits before that gate is ever consulted.
+    it('recordSettlementIntent on an already-recorded job returns the existing record even if the job argument is no longer completed', async () => {
+      const repo = new MemoryJobRepository();
+      await repo.create(jobFixture);
+      await repo.complete(completedFixture, completedAnchor);
+      const first = await repo.recordSettlementIntent(completedFixture);
+
+      const second = await repo.recordSettlementIntent({ ...jobFixture, status: 'proposed' });
+
+      expect(second).toEqual(first);
+    });
+
+    it('recordSettlementIntent stores a copy: mutating the returned record does not leak', async () => {
+      const repo = new MemoryJobRepository();
+      await repo.create(jobFixture);
+      await repo.complete(completedFixture, completedAnchor);
+
+      const recorded = await repo.recordSettlementIntent(completedFixture);
+      (recorded as { currency: string | null }).currency = 'USD';
+
+      expect(await repo.findSettlementByJobId('job_1')).toEqual({
+        jobId: 'job_1',
+        amount: null,
+        currency: null,
+        platformFee: null,
+        state: 'recorded_intent',
+      });
+    });
+
+    it('recordSettlementIntent on a stored but not completed job rejects with SettlementError', async () => {
+      const repo = new MemoryJobRepository();
+      await repo.create(jobFixture);
+
+      const err = await repo.recordSettlementIntent(jobFixture).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(SettlementError);
+      expect((err as Error).name).toBe('SettlementError');
+    });
   });
 });
