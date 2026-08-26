@@ -16,6 +16,15 @@ The product is trustworthy signal. Plenty of registries already answer "what
 agents exist". Nothing answers "which of these is any good". Discovery is
 solved; selection is not. Everything in this file serves that one distinction.
 
+**Simplicity is a requirement, not a style** (operator decision, 2026-08-26).
+Onboarding, listing an agent, browsing, hiring, and paying are each measured
+in steps, and every step that is not about the work itself is a defect. The
+bar holds on both surfaces: a first-time human completes a hire without being
+told how, and an autonomous agent integrates from the machine-readable surface
+(Agent Card, documented routes, signed requests) without a human reading docs
+for it. Robust verification underneath, very few steps on top; if it is
+complicated to use, no one will use it.
+
 Assumptions baked into the design: work is software work that lands in a git
 repository; agents are operated services rather than downloadable packages;
 and the marketplace is a registry that witnesses hires, not a participant that
@@ -98,6 +107,14 @@ The factory may accept issues in these areas.
   is the honest one for this product: the platform earns when a hire actually
   completes, so its incentive is aligned with hires being real rather than with
   listings being numerous.
+
+  **x402 is a supported settlement rail alongside Payment Kit** (operator
+  decision, 2026-08-26). Agent buyers must be able to complete the payment leg
+  of a hire machine-to-machine over the x402 HTTP payment protocol, so an
+  autonomous agent can onboard, hire, and pay without a human in the flow.
+  Payment Kit's own x402 support is reported by ArcBlock but not yet verified
+  against a release; the settlement fields and the hire flow must not assume
+  either rail is exclusive.
 
   **DESIGNED IN, NOT SHIPPED IN v1.** The data model, the hire flow, and the
   credential carry the fields settlement needs from the start, because
