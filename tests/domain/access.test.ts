@@ -48,6 +48,13 @@ describe('capabilityFor', () => {
   it('does not match a concrete URL: it compares route patterns, not resolved paths', () => {
     expect(capabilityFor('GET', '/agents/did:abt:concrete')).toBeNull();
   });
+
+  it('does not match a declared path under the wrong method', () => {
+    // '/agents/:agentDid' is declared, but only under GET (agent.browse).
+    // A method comparison that is dropped would let this fall through to
+    // that entry on path alone.
+    expect(capabilityFor('POST', '/agents/:agentDid')).toBeNull();
+  });
 });
 
 describe('requiresIdentity', () => {
@@ -65,6 +72,13 @@ describe('requiresIdentity', () => {
 
   it('is false for an unknown route', () => {
     expect(requiresIdentity('GET', '/nope')).toBe(false);
+  });
+
+  it('is false for a declared path under the wrong method', () => {
+    // '/jobs' is declared only under POST (job.hire, identified). Dropping
+    // the method comparison inside capabilityFor would let this match on
+    // path alone and report true.
+    expect(requiresIdentity('GET', '/jobs')).toBe(false);
   });
 });
 

@@ -17,7 +17,30 @@ import { ACCESS_NOTICE, CAPABILITIES, capabilityFor, requiresIdentity } from '..
 // other field the route requires is present and well-formed.
 const VALID_BODY_MINUS_IDENTITY: Record<string, Record<string, unknown>> = {
   'operator.register': { githubLogin: 'capabilities-test-operator' },
-  'agent.list': { operator: 'did:abt:capabilities-test-operator', name: 'Capabilities Test Agent', skills: ['coding'] },
+  // agent.list's identityField is 'operator': every other required field,
+  // including delegation, is present and well-formed here, so a 400 below
+  // can only be explained by the missing operator - not by delegation also
+  // being absent (that would prove nothing about operator specifically).
+  'agent.list': {
+    did: 'did:abt:capabilities-test-agent',
+    name: 'Capabilities Test Agent',
+    skills: ['coding'],
+    delegation: {
+      '@context': ['https://www.w3.org/2018/credentials/v1'],
+      id: 'urn:uuid:capabilities-test-delegation',
+      type: ['VerifiableCredential', 'AgentDelegation'],
+      issuer: 'did:abt:capabilities-test-operator',
+      issuanceDate: '2026-01-01T00:00:00Z',
+      credentialSubject: { id: 'did:abt:capabilities-test-agent' },
+      proof: {
+        type: 'Ed25519Signature2020',
+        created: '2026-01-01T00:00:00Z',
+        verificationMethod: 'did:abt:capabilities-test-operator#key-1',
+        proofPurpose: 'assertionMethod',
+        proofValue: 'zfixture-not-verified-here',
+      },
+    },
+  },
   'job.hire': {
     agentDid: 'did:abt:capabilities-test-agent',
     repository: 'buyer/target-repo',
@@ -86,6 +109,33 @@ describe('GET /capabilities', () => {
       expect(typeof parsed.error).toBe('string');
       expect((parsed.error as string).length).toBeGreaterThan(0);
     }
+  });
+
+  it('agent.list: the missing-operator refusal is about operator specifically, not about the also-required delegation', async () => {
+    const withoutOperator = await fetch(`${baseUrl}/agents`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_BODY_MINUS_IDENTITY['agent.list']),
+    });
+    expect(withoutOperator.status).toBe(400);
+
+    // Same body, operator added back but pointing at a DID nobody
+    // registered. If the 400 above were actually caused by the delegation
+    // (or anything else) rather than the missing operator, this would 400
+    // the same way; instead the operator check now passes and the request
+    // fails later, for the unrelated reason that the operator is unknown -
+    // proving operator, not delegation, was the earlier refusal's cause,
+    // and that operator (the lister), not did (the agent being listed), is
+    // the field the declaration means by "the acting party".
+    const withUnregisteredOperator = await fetch(`${baseUrl}/agents`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...VALID_BODY_MINUS_IDENTITY['agent.list'],
+        operator: 'did:abt:capabilities-test-operator-never-registered',
+      }),
+    });
+    expect(withUnregisteredOperator.status).toBe(404);
   });
 
   it('the declaration and the domain helper agree', () => {

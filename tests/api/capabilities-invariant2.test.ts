@@ -78,6 +78,23 @@ describe('GET /capabilities, invariant 2', () => {
     }
   });
 
+  it('serves the declared values verbatim, not just the declared key set', async () => {
+    // tests/api/capabilities-invariant2.test.ts:52 above pins the key set;
+    // this pins the values behind them. capabilityProjection's fields are
+    // exactly Capability's fields, so the served array must equal
+    // CAPABILITIES itself - a swapped method/path, a rewritten reason, or a
+    // wrong identityField would all pass the key-set check and fail here.
+    const server = await listen(createApp());
+    try {
+      const baseUrl = `http://127.0.0.1:${portOf(server)}`;
+      const res = await fetch(`${baseUrl}/capabilities`);
+      const body = (await res.json()) as { capabilities: unknown };
+      expect(body.capabilities).toEqual(CAPABILITIES);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it('the declaration is internally consistent: identityField and access always agree', () => {
     for (const cap of CAPABILITIES) {
       if (cap.access === 'identified') {

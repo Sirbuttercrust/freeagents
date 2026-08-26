@@ -68,8 +68,12 @@ export const CAPABILITIES: readonly Capability[] = [
     method: 'POST',
     path: '/agents',
     access: 'identified',
-    identityField: 'did',
-    reason: 'Listing an agent records who listed it: the request must carry did.',
+    // The acting party is the operator doing the listing, not `did` (the new
+    // agent's own DID, the thing being listed, not who is listing it) - the
+    // same distinction as job.hire's buyerDid naming the buyer, not the agent
+    // being hired.
+    identityField: 'operator',
+    reason: 'Listing an agent records who listed it: the request must carry operator.',
   },
   {
     id: 'job.hire',
