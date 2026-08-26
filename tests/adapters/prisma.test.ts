@@ -947,7 +947,6 @@ describe('PrismaJobRepository', () => {
     expect(mock.jobFindUnique).toHaveBeenCalledWith({ where: { id: 'job_missing' } });
     expect(row).toBeNull();
   });
-
 });
 
 describe('PrismaCredentialRepository', () => {

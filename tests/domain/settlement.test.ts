@@ -58,6 +58,17 @@ describe('recordSettlementIntent', () => {
     expect(() => recordSettlementIntent(job({ status }))).toThrow(new RegExp(status));
   });
 
+  it('names the error "SettlementError", not the generic Error a caller would otherwise see', () => {
+    const err: unknown = (() => {
+      try {
+        recordSettlementIntent(job({ status: 'draft' }));
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect((err as Error).name).toBe('SettlementError');
+  });
+
   it('takes exactly one argument: no overload can accept an amount', () => {
     expect(recordSettlementIntent.length).toBe(1);
   });

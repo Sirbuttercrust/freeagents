@@ -362,12 +362,6 @@ describe('job pull-request, faulted legs (R-10)', () => {
       async findById(): Promise<never> {
         throw failure;
       }
-      async recordSettlementIntent(): Promise<never> {
-        throw failure;
-      }
-      async findSettlementByJobId(): Promise<never> {
-        throw failure;
-      }
     }
     const faults = emptyRecordings();
     const scripted = await startWith(new FailingJobRepository(), recordingFake(faults));
@@ -412,12 +406,6 @@ describe('job pull-request, faulted legs (R-10)', () => {
         return null;
       }
       async findCompletedByJobId(): Promise<null> {
-        return null;
-      }
-      async recordSettlementIntent(): Promise<null> {
-        return null;
-      }
-      async findSettlementByJobId(): Promise<null> {
         return null;
       }
     }

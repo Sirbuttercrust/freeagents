@@ -536,12 +536,6 @@ describe('app, job storage failures', () => {
     async findById(): Promise<never> {
       throw failure;
     }
-    async recordSettlementIntent(): Promise<never> {
-      throw failure;
-    }
-    async findSettlementByJobId(): Promise<never> {
-      throw failure;
-    }
   }
 
   let lookupServer: Server;
@@ -658,12 +652,6 @@ describe('app, job id collision', () => {
       return null;
     }
     async findById(): Promise<null> {
-      return null;
-    }
-    async recordSettlementIntent(): Promise<null> {
-      return null;
-    }
-    async findSettlementByJobId(): Promise<null> {
       return null;
     }
   }

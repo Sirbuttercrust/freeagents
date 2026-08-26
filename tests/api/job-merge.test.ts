@@ -361,12 +361,6 @@ describe('job merge, faulted legs (R-11)', () => {
       async findCompletedByJobId(): Promise<null> {
         return null;
       }
-      async recordSettlementIntent(): Promise<null> {
-        return null;
-      }
-      async findSettlementByJobId(): Promise<null> {
-        return null;
-      }
     }
     const scripted = await startWith(new VanishingCompleteRepository(), mergedGithub(faults));
     try {
@@ -396,12 +390,6 @@ describe('job merge, faulted legs (R-11)', () => {
         throw failure;
       }
       async findCompletedByJobId(): Promise<null> {
-        return null;
-      }
-      async recordSettlementIntent(): Promise<null> {
-        return null;
-      }
-      async findSettlementByJobId(): Promise<null> {
         return null;
       }
     }
@@ -437,12 +425,6 @@ describe('job merge, faulted legs (R-11)', () => {
         throw new Error('unreachable');
       }
       async findCompletedByJobId(): Promise<null> {
-        return null;
-      }
-      async recordSettlementIntent(): Promise<null> {
-        return null;
-      }
-      async findSettlementByJobId(): Promise<null> {
         return null;
       }
     }
@@ -506,14 +488,6 @@ class ScriptedOutcomeRepository implements JobRepository {
   }
 
   async findCompletedByJobId(): Promise<null> {
-    return null;
-  }
-
-  async recordSettlementIntent(): Promise<null> {
-    return null;
-  }
-
-  async findSettlementByJobId(): Promise<null> {
     return null;
   }
 }
