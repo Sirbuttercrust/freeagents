@@ -61,6 +61,7 @@ import {
   type JobStatus,
 } from '../domain/job.js';
 import { rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
+import { ACCESS_NOTICE, CAPABILITIES, type Capability } from '../domain/access.js';
 import { renderAvatar } from './avatar.js';
 
 // The hire-loop's last stub (R-12 reviews) stays honest about being unbuilt:
@@ -78,6 +79,22 @@ function operatorProjection(row: Operator): Record<string, unknown> {
     did: row.did,
     githubLogin: row.githubLogin,
     createdAt: row.createdAt.toISOString(),
+  };
+}
+
+// The Capability projection is the whole response. Exactly these six fields,
+// nothing more: tests/api/capabilities-invariant2.test.ts asserts the key
+// set, and a seventh field here would be a contract change. R-23 states the
+// limit before a user invests effort, so this is read by anyone, signed in
+// or not.
+function capabilityProjection(cap: Capability): Record<string, unknown> {
+  return {
+    id: cap.id,
+    method: cap.method,
+    path: cap.path,
+    access: cap.access,
+    identityField: cap.identityField,
+    reason: cap.reason,
   };
 }
 
@@ -210,6 +227,16 @@ export function createApp(
 
   app.get('/health', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'ok' });
+  });
+
+  // R-23: the identity boundary, stated before a user invests effort. No
+  // storage, no adapter, synchronous, so no forwarded() wrapper and no 503
+  // path applies here.
+  app.get('/capabilities', (_req: Request, res: Response) => {
+    res.status(200).json({
+      notice: ACCESS_NOTICE,
+      capabilities: CAPABILITIES.map(capabilityProjection),
+    });
   });
 
   app.post('/operators', async (req: Request, res: Response) => {
