@@ -136,4 +136,28 @@ describe('blocklet packaging', () => {
     ).toMatch(/name:[ \t]*DATABASE_URL/);
     expect(block, 'the DATABASE_URL entry must be marked required').toMatch(/required:[ \t]*true/);
   });
+
+  it('declares every FREEAGENTS_* env var that src actually reads', () => {
+    // The gap this closes: platformIssuerFromEnv read FREEAGENTS_PLATFORM_DID
+    // and FREEAGENTS_PLATFORM_SEED while environments: declared neither, so a
+    // deployed blocklet silently ran on the ephemeral dev key. Scan src for
+    // reads; each one must appear in the manifest.
+    const block = topLevelBlock(manifest, 'environments');
+    const declared = new Set([...block.matchAll(/name:[ \t]*([A-Z0-9_]+)/g)].map((m) => m[1]));
+    const readVars = new Set<string>();
+    for (const file of listSourceFiles(srcDir)) {
+      const source = readFileSync(file, 'utf8');
+      for (const m of source.matchAll(/process\.env(?:\.|\[['"])(FREEAGENTS_[A-Z0-9_]+)/g)) {
+        if (m[1]) readVars.add(m[1]);
+      }
+      for (const m of source.matchAll(/env\[['"](FREEAGENTS_[A-Z0-9_]+)['"]\]/g)) {
+        if (m[1]) readVars.add(m[1]);
+      }
+    }
+    const undeclared = [...readVars].filter((name) => !declared.has(name)).sort();
+    expect(
+      undeclared,
+      'every FREEAGENTS_* env var read in src must be declared under environments: in blocklet.yml',
+    ).toEqual([]);
+  });
 });

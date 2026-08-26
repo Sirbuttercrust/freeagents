@@ -16,3 +16,13 @@ environments:
     required: true
     secure: true
     default: ''
+  - name: FREEAGENTS_PLATFORM_DID
+    description: DID the platform issues credentials as. Defaults to the built-in development DID.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_PLATFORM_SEED
+    description: 64-hex-character signing seed for platform credential issuance. Unset means an ephemeral dev key whose credentials do not survive a restart.
+    required: false
+    secure: true
+    default: ''
