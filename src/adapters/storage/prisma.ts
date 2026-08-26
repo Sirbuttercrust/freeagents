@@ -374,6 +374,20 @@ export class PrismaCredentialRepository implements CredentialRepository {
     // (same stance as the delegation column), it serves the stored bytes.
     return row === null ? null : (row.document as unknown as VerifiableCredential);
   }
+
+  // The @@index([subjectDid]) on Credential exists for this query. Ordered
+  // by issuedAt then completedJobId so two credentials stamped in the same
+  // millisecond still come back in a fixed order — an unordered profile is
+  // a flaky test and a jumping page.
+  async findBySubjectDid(subjectDid: string): Promise<readonly VerifiableCredential[]> {
+    const rows = await db().credential.findMany({
+      where: { subjectDid },
+      orderBy: [{ issuedAt: 'asc' }, { completedJobId: 'asc' }],
+    });
+    // Same stance as findByDocumentId: the Json column is served, not
+    // re-validated.
+    return rows.map((row) => row.document as unknown as VerifiableCredential);
+  }
 }
 
 // Every Job field, no omissions: a dropped field here is a silent loss of

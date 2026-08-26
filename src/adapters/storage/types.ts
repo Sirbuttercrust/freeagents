@@ -135,4 +135,11 @@ export interface CredentialRepository {
   // documentId may be the full credential id or its lookup key. Null when
   // no credential carries that id, so the adapter maps it to a 404.
   findByDocumentId(documentId: string): Promise<VerifiableCredential | null>;
+  // R-17 (ENT-8): every credential issued to this agent, oldest first, for
+  // the profile's verified-hire tier. Insertion/issuance order in both
+  // drivers so the two answer identically; an empty array for an agent with
+  // no hires, never null — a zero-record agent renders zeros (ENT-2.4), and
+  // an absent tier is not a zero. Prisma serves this from the existing
+  // @@index([subjectDid]) on Credential.
+  findBySubjectDid(subjectDid: string): Promise<readonly VerifiableCredential[]>;
 }

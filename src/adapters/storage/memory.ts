@@ -162,7 +162,9 @@ export class MemoryJobRepository implements JobRepository {
 }
 
 export class MemoryCredentialRepository implements CredentialRepository {
-  private readonly rows = new Map<string, VerifiableCredential>();
+  // The subject rides beside the document because R-17 lists by it. The
+  // document itself is still stored verbatim and served verbatim.
+  private readonly rows = new Map<string, { readonly subjectDid: string; readonly document: VerifiableCredential }>();
 
   async save(input: {
     readonly completedJobId: string;
@@ -178,10 +180,18 @@ export class MemoryCredentialRepository implements CredentialRepository {
     }
     // The document goes in verbatim (the Prisma driver stores it the same
     // way): the bytes that verified are the bytes that are served back.
-    this.rows.set(key, input.document);
+    this.rows.set(key, { subjectDid: input.subjectDid, document: input.document });
   }
 
   async findByDocumentId(documentId: string): Promise<VerifiableCredential | null> {
-    return this.rows.get(credentialLookupKey(documentId)) ?? null;
+    return this.rows.get(credentialLookupKey(documentId))?.document ?? null;
+  }
+
+  // Insertion order is issuance order here (Map preserves it), which is what
+  // the Prisma driver's orderBy reproduces.
+  async findBySubjectDid(subjectDid: string): Promise<readonly VerifiableCredential[]> {
+    return [...this.rows.values()]
+      .filter((row) => row.subjectDid === subjectDid)
+      .map((row) => row.document);
   }
 }

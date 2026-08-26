@@ -286,6 +286,45 @@ describe('MemoryCredentialRepository', () => {
     expect(await repo.findByDocumentId('job_1')).toEqual(credentialFixture);
     expect(await repo.findByDocumentId('job_2')).toEqual(other);
   });
+
+  it('findByDocumentId still round-trips after the internal shape change', async () => {
+    // The map value grew a subjectDid field beside the document; this is the
+    // regression that would catch storing the wrong half of that shape.
+    const repo = new MemoryCredentialRepository();
+    await repo.save({ completedJobId: 'job_1', subjectDid: 'did:abt:agent', document: credentialFixture });
+    expect(await repo.findByDocumentId('job_1')).toEqual(credentialFixture);
+  });
+
+  it('findBySubjectDid returns a subject\'s credentials in save order, verbatim', async () => {
+    const repo = new MemoryCredentialRepository();
+    const second: VerifiableCredential = {
+      ...credentialFixture,
+      credentialSubject: {
+        ...credentialFixture.credentialSubject,
+        hire: { ...credentialFixture.credentialSubject.hire, mergeCommit: '1'.repeat(40) },
+      },
+    };
+    await repo.save({ completedJobId: 'job_1', subjectDid: 'did:abt:agent', document: credentialFixture });
+    await repo.save({ completedJobId: 'job_2', subjectDid: 'did:abt:agent', document: second });
+    expect(await repo.findBySubjectDid('did:abt:agent')).toEqual([credentialFixture, second]);
+  });
+
+  it('findBySubjectDid of a subject with none is an empty array, not null', async () => {
+    const repo = new MemoryCredentialRepository();
+    expect(await repo.findBySubjectDid('did:abt:nobody')).toEqual([]);
+  });
+
+  it('findBySubjectDid does not bleed across subjects', async () => {
+    const repo = new MemoryCredentialRepository();
+    const forB: VerifiableCredential = {
+      ...credentialFixture,
+      credentialSubject: { ...credentialFixture.credentialSubject, id: 'did:abt:b' },
+    };
+    await repo.save({ completedJobId: 'job_1', subjectDid: 'did:abt:a', document: credentialFixture });
+    await repo.save({ completedJobId: 'job_2', subjectDid: 'did:abt:b', document: forB });
+    expect(await repo.findBySubjectDid('did:abt:a')).toEqual([credentialFixture]);
+    expect(await repo.findBySubjectDid('did:abt:b')).toEqual([forB]);
+  });
 });
 
 describe('MemoryJobRepository', () => {

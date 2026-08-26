@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 
 import { createCredentialResolver } from '../adapters/credentials/credentials.js';
-import type { CredentialsAdapter } from '../adapters/credentials/types.js';
+import type { CredentialsAdapter, VerifiableCredential } from '../adapters/credentials/types.js';
 import { createGithubAdapter } from '../adapters/github/github.js';
 import {
   GistNotFoundError,
@@ -20,11 +20,13 @@ import {
   JobAlreadyExistsError,
   OperatorAlreadyExistsError,
   type AgentRepository,
+  type CredentialRepository,
   type JobRepository,
   type OperatorRepository,
 } from '../adapters/storage/types.js';
 import {
   createAgentRepository,
+  createCredentialRepository,
   createJobRepository,
   createOperatorRepository,
 } from '../adapters/storage/storage.js';
@@ -110,6 +112,49 @@ function agentProjection(row: Agent): Record<string, unknown> {
       toKey: rotation.toKey,
       rotatedAt: rotation.rotatedAt.toISOString(),
     })),
+  };
+}
+
+// R-17 (ENT-2.4, MISSION invariants 4 and 5): three evidence tiers, each with
+// its own label, its own count and its own list. There is deliberately no
+// aggregate anywhere in this object — no score, no rating, no trust level, no
+// total, no badge — because invariant 5 forbids presenting the tiers as
+// equivalent or merging them into a single number, and D1/D4 bind the same
+// rule for browse and for operator pages. tests/api/agent-profile.test.ts
+// asserts that absence structurally, not by inspection.
+//
+// verifiedPriorWork (ENT-11) and portfolio (ENT-12) have no domain, storage or
+// API surface yet, so they render as correctly-shaped empty tiers rather than
+// being omitted: the key set never changes with state, the same way
+// agentProjection's keyRotations is present-and-empty for a fresh agent. A
+// zero-record agent therefore renders three zeros and no "new" badge (ENT-2.4).
+function tier(label: string, items: readonly Record<string, unknown>[]): Record<string, unknown> {
+  return { label, count: items.length, items: [...items] };
+}
+
+// One verified hire, as the profile shows it. The credential id is carried so
+// a third party can resolve the credential itself and verify it with an
+// off-the-shelf W3C verifier, with no further call into this service
+// (invariant 2); the four facts beside it are the merge facts the credential
+// already attests, echoed for display only.
+function verifiedHireItem(document: VerifiableCredential): Record<string, unknown> {
+  const hire = document.credentialSubject?.hire;
+  return {
+    credentialId: document.id,
+    repository: hire?.repository ?? null,
+    pullRequest: hire?.pullRequest ?? null,
+    mergedAt: hire?.mergedAt ?? null,
+    mergeCommit: hire?.mergeCommit ?? null,
+  };
+}
+
+function profileProjection(row: Agent, hires: readonly VerifiableCredential[]): Record<string, unknown> {
+  return {
+    did: row.did,
+    name: row.name,
+    verifiedHires: tier('Verified hire', hires.map(verifiedHireItem)),
+    verifiedPriorWork: tier('Verified prior work', []),
+    portfolio: tier('Portfolio claim', []),
   };
 }
 
@@ -204,6 +249,7 @@ export function createApp(
   github: GithubAdapter = createGithubAdapter(),
   jobRepo: JobRepository = createJobRepository(),
   credentials: CredentialsAdapter = createCredentialResolver(),
+  credentialRepo: CredentialRepository = createCredentialRepository(),
 ): Express {
   const app = express();
   app.use(express.json());
@@ -360,6 +406,26 @@ export function createApp(
       res.status(200).json(agentProjection(row));
     } catch (err) {
       console.error('GET /agents/:agentDid: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // R-17 (ENT-2.4, ENT-8): the agent profile as three labelled evidence
+  // tiers. Public, like every read on this surface. Same try/catch/status
+  // contract as GET /agents/:agentDid above: 404 for an unknown agent, 503
+  // with the cause in the log rather than the body when storage is down.
+  app.get('/agents/:agentDid/profile', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+    try {
+      const row = await agentRepo.findByDid(did);
+      if (row === null) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      const hires = await credentialRepo.findBySubjectDid(did);
+      res.status(200).json(profileProjection(row, hires));
+    } catch (err) {
+      console.error('GET /agents/:agentDid/profile: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
