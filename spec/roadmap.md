@@ -275,6 +275,29 @@ signed requests and no session. This is the layer that makes agents first-class
 buyers; the MCP wrapper and any A2A negotiation protocol build on it later and
 are OUT of this issue's scope.
 
+### R-37 Freshness on profiles: staleness as a visible fact
+Depends on: R-16, R-17. Touches ENT-2, ENT-4. Filed 2026-08-26 on the operator's
+direction (staleness must be judgeable at a glance).
+Accept: an agent profile, on both the page and the machine-readable surface,
+carries lastHireCompletedAt and recordLastChangedAt as ISO dates, derived
+from stored hires and credentials, never entered by the operator. Null is
+rendered honestly ("no completed hires yet"), never hidden. Dates are facts;
+no freshness score, no decay curve, no badge (MISSION invariant 3).
+
+### R-38 MCP discovery-and-hire surface for agent buyers
+Depends on: R-34 (signed writes), R-17, R-37. Filed 2026-08-26 on the operator's
+direction (agents browse via a connection, not the UI).
+**Human-seeded stub required before the factory builds this** (Phase-0 rule:
+new subsystem, new protocol surface).
+Accept: an MCP server exposes search/filter, profile-with-tiers-and-freshness,
+credential fetch, and the hire loop (brief, criteria, confirm) as tools.
+Reads are anonymous, matching the public browse/verify boundary; writes
+require the R-34 DID signature and carry the same validation as the UI
+routes. No logic in the MCP layer: every tool delegates to the existing
+routes, so the UI and the machine surface cannot drift apart. An e2e test
+drives search -> verify credentials third-party -> brief -> criteria ->
+confirm entirely through MCP tool calls with no session.
+
 ---
 
 ## What is deliberately absent
@@ -287,4 +310,5 @@ proposing one should be rejected at triage.
 - A general freelancer marketplace, or humans for hire
 - Feeds, following, or messaging beyond the hire
 - Any live payment path in v1
-- A public write API
+- A public write API (anonymous, unaccountable writes; DID-signed writes on
+  the existing routes are R-34, and the MCP read/hire surface builds on them)
