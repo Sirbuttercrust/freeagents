@@ -43,22 +43,3 @@ export function recordSettlementIntent(job: Job): Settlement {
     state: 'recorded_intent',
   };
 }
-
-// Total: any value in, one boolean out, never throws, the stance
-// rotationWellFormed takes in key-rotation.ts.
-export function settlementWellFormed(settlement: Settlement): boolean {
-  if (typeof settlement !== 'object' || settlement === null) return false;
-  const { jobId, amount, currency, platformFee, state } = settlement as {
-    jobId?: unknown;
-    amount?: unknown;
-    currency?: unknown;
-    platformFee?: unknown;
-    state?: unknown;
-  };
-  if (typeof jobId !== 'string' || jobId.length === 0) return false;
-  for (const field of [amount, currency, platformFee]) {
-    if (field !== null && (typeof field !== 'string' || field.length === 0)) return false;
-  }
-  if (state !== 'recorded_intent') return false;
-  return true;
-}

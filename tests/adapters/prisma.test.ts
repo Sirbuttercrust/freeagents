@@ -28,8 +28,6 @@ const mock = vi.hoisted(() => ({
   keyRotationFindMany: vi.fn(),
   credentialCreate: vi.fn(),
   credentialFindUnique: vi.fn(),
-  settlementCreate: vi.fn(),
-  settlementFindUnique: vi.fn(),
 }));
 
 vi.mock('../../src/generated/prisma/index.js', async () => {
@@ -46,7 +44,6 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
       job = { create: mock.jobCreate, findUnique: mock.jobFindUnique, update: mock.jobUpdate };
       keyRotation = { create: mock.keyRotationCreate, findMany: mock.keyRotationFindMany };
       credential = { create: mock.credentialCreate, findUnique: mock.credentialFindUnique };
-      settlement = { create: mock.settlementCreate, findUnique: mock.settlementFindUnique };
     },
     Prisma: actual.Prisma,
   };
@@ -951,153 +948,6 @@ describe('PrismaJobRepository', () => {
     expect(row).toBeNull();
   });
 
-  // R-26 (ENT-9): the settlement is a sibling record, reserved space only.
-  describe('settlement', () => {
-    beforeAll(() => {
-      vi.mocked(mock.settlementCreate).mockReset();
-      vi.mocked(mock.settlementFindUnique).mockReset();
-    });
-
-    afterEach(() => {
-      vi.mocked(mock.settlementCreate).mockReset();
-      vi.mocked(mock.settlementFindUnique).mockReset();
-    });
-
-    it('recordSettlementIntent: a completed job with no existing settlement creates one with no money fields set', async () => {
-      vi.mocked(mock.jobFindUnique).mockResolvedValue({ ...completedFixture });
-      vi.mocked(mock.settlementFindUnique).mockResolvedValue(null);
-      const createdRow = {
-        id: 'settlement-1',
-        jobId: 'job_1',
-        amount: null,
-        currency: null,
-        platformFee: null,
-        state: 'recorded_intent' as const,
-        recordedAt: new Date('2026-01-03T00:00:00Z'),
-      };
-      vi.mocked(mock.settlementCreate).mockResolvedValue(createdRow);
-
-      const repo = new PrismaJobRepository();
-      const settlement = await repo.recordSettlementIntent(completedFixture);
-
-      // The data sent to the database never carries a money value: this is
-      // the test that a money value never reaches the database.
-      expect(mock.settlementCreate).toHaveBeenCalledTimes(1);
-      expect(mock.settlementCreate).toHaveBeenCalledWith({
-        data: { jobId: 'job_1', amount: null, currency: null, platformFee: null, state: 'recorded_intent' },
-      });
-      expect(settlement).toEqual({
-        jobId: 'job_1',
-        amount: null,
-        currency: null,
-        platformFee: null,
-        state: 'recorded_intent',
-      });
-    });
-
-    it('recordSettlementIntent: an unknown job id is null, and no settlement row is created', async () => {
-      vi.mocked(mock.jobFindUnique).mockResolvedValue(null);
-
-      const repo = new PrismaJobRepository();
-      const settlement = await repo.recordSettlementIntent(completedFixture);
-
-      expect(settlement).toBeNull();
-      expect(mock.settlementCreate).not.toHaveBeenCalled();
-    });
-
-    it('recordSettlementIntent: an existing settlement is returned, and no create is called (idempotency)', async () => {
-      vi.mocked(mock.jobFindUnique).mockResolvedValue({ ...completedFixture });
-      const existingRow = {
-        id: 'settlement-1',
-        jobId: 'job_1',
-        amount: null,
-        currency: null,
-        platformFee: null,
-        state: 'recorded_intent' as const,
-        recordedAt: new Date('2026-01-03T00:00:00Z'),
-      };
-      vi.mocked(mock.settlementFindUnique).mockResolvedValue(existingRow);
-
-      const repo = new PrismaJobRepository();
-      const settlement = await repo.recordSettlementIntent(completedFixture);
-
-      expect(settlement).toEqual({
-        jobId: 'job_1',
-        amount: null,
-        currency: null,
-        platformFee: null,
-        state: 'recorded_intent',
-      });
-      expect(mock.settlementCreate).not.toHaveBeenCalled();
-    });
-
-    it('findSettlementByJobId: maps a Decimal-shaped amount through to a string', async () => {
-      vi.mocked(mock.settlementFindUnique).mockResolvedValue({
-        id: 'settlement-1',
-        jobId: 'job_1',
-        amount: { toString: () => '1.50' },
-        currency: 'USD',
-        platformFee: null,
-        state: 'recorded_intent',
-        recordedAt: new Date('2026-01-03T00:00:00Z'),
-      });
-
-      const repo = new PrismaJobRepository();
-      const settlement = await repo.findSettlementByJobId('job_1');
-
-      expect(mock.settlementFindUnique).toHaveBeenCalledWith({ where: { jobId: 'job_1' } });
-      expect(settlement?.amount).toBe('1.50');
-      expect(settlement?.platformFee).toBeNull();
-    });
-
-    // The passthrough arm of the same conversion, on platformFee specifically:
-    // dropping the String() call here would still pass the null-mapping test
-    // above (null stays null either way), so this pins the non-null case.
-    it('findSettlementByJobId: maps a Decimal-shaped platformFee through to a string', async () => {
-      vi.mocked(mock.settlementFindUnique).mockResolvedValue({
-        id: 'settlement-1',
-        jobId: 'job_1',
-        amount: null,
-        currency: 'USD',
-        platformFee: { toString: () => '0.25' },
-        state: 'recorded_intent',
-        recordedAt: new Date('2026-01-03T00:00:00Z'),
-      });
-
-      const repo = new PrismaJobRepository();
-      const settlement = await repo.findSettlementByJobId('job_1');
-
-      expect(settlement?.platformFee).toBe('0.25');
-      expect(settlement?.amount).toBeNull();
-    });
-
-    it('findSettlementByJobId: a null amount maps through to null, not the string "null"', async () => {
-      vi.mocked(mock.settlementFindUnique).mockResolvedValue({
-        id: 'settlement-1',
-        jobId: 'job_1',
-        amount: null,
-        currency: null,
-        platformFee: null,
-        state: 'recorded_intent',
-        recordedAt: new Date('2026-01-03T00:00:00Z'),
-      });
-
-      const repo = new PrismaJobRepository();
-      const settlement = await repo.findSettlementByJobId('job_1');
-
-      expect(settlement?.amount).toBeNull();
-    });
-
-    it('findSettlementByJobId: no stored row comes back as null', async () => {
-      vi.mocked(mock.settlementFindUnique).mockResolvedValue(null);
-
-      const repo = new PrismaJobRepository();
-      const settlement = await repo.findSettlementByJobId('job_missing');
-
-      expect(mock.settlementFindUnique).toHaveBeenCalledWith({ where: { jobId: 'job_missing' } });
-      expect(settlement).toBeNull();
-    });
-  });
 });
 
 describe('PrismaCredentialRepository', () => {
