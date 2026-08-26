@@ -32,6 +32,9 @@
  *     as a public gist, and with both directions holding the binding is
  *     verified, with a third party re-checking the signature without the
  *     service
+ *   - the identity boundary is stated before effort and holds (R-23): the
+ *     capability document reads with no identity, browsing an agent needs
+ *     none, and a hire with no buyer named is refused
  *   - the deleted-gist re-check works end to end (R-5): the gist no longer
  *     resolves, and the next check drops the verified binding to
  *     unverified, with a third party reading the public gist surface and
@@ -412,6 +415,37 @@ describe('the API starts and answers', () => {
 
     // Only now is this true.
     console.log('APP_STARTED');
+  });
+
+  it('states the identity boundary before any effort, and honours it (R-23)', async () => {
+    // Clause 3 of R-23: the limit is stated before a user invests effort, so
+    // it is readable with no identity at all. An agent buyer reads the same
+    // document a person does (MISSION, "The machine surface").
+    const stated = await get('/capabilities');
+    expect(stated.status).toBe(200);
+    const boundary = (await stated.json()) as {
+      notice: string;
+      capabilities: Array<{ id: string; access: string; identityField: string | null }>;
+    };
+    expect(boundary.notice.length).toBeGreaterThan(0);
+
+    // Clause 1: browsing needs no identity. A 404 here is a pass - the
+    // refusal is about the row, not about who asked.
+    const browsed = await get('/agents/did:abt:r23-anonymous-browser');
+    expect([200, 404]).toContain(browsed.status);
+
+    // Clause 2: hiring requires one. The same request with no buyerDid is
+    // refused, and the refusal is exactly what the boundary document said it
+    // would be, so nobody discovers the limit by hitting it.
+    const declared = boundary.capabilities.find((c) => c.id === 'job.hire');
+    expect(declared?.access).toBe('identified');
+    expect(declared?.identityField).toBe('buyerDid');
+    const anonymousHire = await post('/jobs', {
+      agentDid: 'did:abt:r23-agent',
+      repository: 'https://github.com/buyer/target-repo',
+      brief: 'A brief from nobody in particular.',
+    });
+    expect(anonymousHire.status).toBe(400);
   });
 
   it('exposes every declared hire-loop route', async () => {
