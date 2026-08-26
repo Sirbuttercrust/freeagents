@@ -84,6 +84,20 @@ describe('DID-signed requests (RFC 9421)', () => {
     expect(freshResult).toEqual({ did: identity.did });
   });
 
+  it('rejects a signature whose declared alg is not ed25519, even though the bytes verify', async () => {
+    const identity = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
+    const resolver = createDidAbtSigningKeyResolver(async () => true);
+    const targetUri = 'http://127.0.0.1:41234/jobs';
+    // The signature itself is genuinely valid ed25519 over this exact base
+    // (Node signs whatever bytes it is given, regardless of the alg label),
+    // so only the alg guard can be the reason this is refused.
+    const headers = signRequest(identity, 'POST', targetUri, { components: ['@method', '@target-uri'], alg: 'rsa-pss-sha512' });
+
+    const result = await verify({ method: 'POST', targetUri, headers }, resolver);
+
+    expect(result).toBeNull();
+  });
+
   it('createDidAbtSigningKeyResolver rejects a keyid whose key does not derive to the claimed DID', async () => {
     const victim = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
     const attacker = await signingIdentityFromSeed(new Uint8Array(32).fill(9));

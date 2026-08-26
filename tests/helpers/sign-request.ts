@@ -48,6 +48,8 @@ export interface SignRequestOptions {
   readonly components?: readonly string[];
   /** Overrides the `created` parameter, for testing the freshness window. */
   readonly created?: number;
+  /** Overrides the `alg` parameter text, for testing the algorithm guard. The bytes are still signed with ed25519 -- this only changes what the signature-input header claims. */
+  readonly alg?: string;
 }
 
 // Signs a real RFC 9421 request signature. content-digest is always computed
@@ -62,10 +64,11 @@ export function signRequest(
   const body = options.body ?? '';
   const components = options.components ?? DEFAULT_COVERED_COMPONENTS;
   const created = options.created ?? Math.floor(Date.now() / 1000);
+  const alg = options.alg ?? 'ed25519';
   const digest = `sha-256=:${createHash('sha256').update(body).digest('base64')}:`;
 
   const covered = components.map((c) => `"${c}"`).join(' ');
-  const paramsText = `(${covered});keyid="${id.keyid}";alg="ed25519";created=${created}`;
+  const paramsText = `(${covered});keyid="${id.keyid}";alg="${alg}";created=${created}`;
   const lines: string[] = [];
   for (const component of components) {
     if (component === '@method') {

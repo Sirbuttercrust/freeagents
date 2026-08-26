@@ -266,6 +266,58 @@ describe('DID-signed hire-loop routes (R-34)', () => {
     expect(response.status).toBe(403);
   });
 
+  it('refuses a signature that does not cover content-digest, even when the digest header matches the body sent', async () => {
+    const targetUri = `${baseUrl}/jobs`;
+    const body = JSON.stringify({
+      buyerDid: buyer.did,
+      agentDid: agent.did,
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    });
+    // content-digest is still computed correctly for the body actually sent
+    // (so the raw-body match in didSignature would pass), but it is left out
+    // of the covered components -- the signature itself never bound it.
+    const signed = signRequest(buyer, 'POST', targetUri, { body, components: ['@method', '@target-uri'] });
+    const createSpy = vi.spyOn(jobRepo, 'create');
+
+    const response = await fetch(targetUri, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'signature-input': signed['signature-input'],
+        signature: signed.signature,
+        'content-digest': signed['content-digest'],
+      },
+      body,
+    });
+
+    expect(response.status).toBe(401);
+    expect(createSpy).not.toHaveBeenCalled();
+    createSpy.mockRestore();
+  });
+
+  it('falls back to an empty raw body when the request carries none at all, and still matches the digest', async () => {
+    const jobId = await createDraftJob();
+    const targetUri = `${baseUrl}/jobs/${jobId}/request-changes`;
+    // No body and no content-type header: express.json's verify hook never
+    // fires, so rawBody is left unset on the request. stranger is a
+    // registered agent but not a party to this job, so a 403 (rather than a
+    // 401 or a crash) proves the middleware reached the party check --
+    // meaning the digest match against the empty-buffer fallback succeeded.
+    const signed = signRequest(stranger, 'POST', targetUri, {});
+
+    const response = await fetch(targetUri, {
+      method: 'POST',
+      headers: {
+        'signature-input': signed['signature-input'],
+        signature: signed.signature,
+        'content-digest': signed['content-digest'],
+      },
+    });
+
+    expect(response.status).toBe(403);
+  });
+
   it('refuses a half-signed request: Signature-Input present, Signature absent', async () => {
     const targetUri = `${baseUrl}/jobs`;
     const body = JSON.stringify({
