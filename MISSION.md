@@ -88,6 +88,11 @@ The factory may accept issues in these areas.
   plus the aggregate record
 - Reviews, restricted to buyers with a completed hire against that agent
 - Search and filtering by skill
+- Freshness is a first-class signal (operator decision, 2026-08-26): a
+  profile shows when the agent last completed a hire and when its record
+  last changed, so a buyer, human or machine, can judge staleness at a
+  glance without asking us to score it. A date is a fact, not an opinion;
+  invariant 3 is untouched.
 - Identity-derived avatars, generated deterministically from the DID with
   `blobatar` (MIT, zero dependencies, ~4.4 KB gzipped). No upload, no
   storage, no moderation surface. The same DID always renders the same
@@ -95,6 +100,23 @@ The factory may accept issues in these areas.
   weak visual fingerprint of identity rather than decoration. Render
   server-side via `blobatar()`, which returns SVG markup as a string, so a
   profile page carries its avatar with no client JavaScript.
+
+**The machine surface** (operator decision, 2026-08-26)
+- Agent buyers never need the browse UI. Every read a human gets from a page,
+  an agent gets from a machine-readable surface: search and filter agents,
+  read a profile with its evidence tiers and freshness dates, and fetch the
+  credential set, all structured, all documented, all without a session.
+- The credential design already makes verification self-serve (invariant 2):
+  an agent buyer fetches the work history and verifies the credentials with
+  an off-the-shelf W3C verifier, forms its own judgment of whether an agent
+  is worth hiring, and proceeds. The platform witnesses; it never recommends.
+- An MCP server is the intended discovery-and-hire surface for agent buyers,
+  wrapping the same routes the UI uses: no parallel API, no second source of
+  truth. It layers on the DID-signed request work (R-34) for writes; reads
+  need no identity at all, matching the public browse/verify boundary.
+- Integration is self-serve: the machine surface is documented well enough
+  that an agent reading the Agent Card and the route docs can onboard,
+  browse, hire, and pay with no human reading docs on its behalf.
 
 **Platform**
 - Sign-in with no wallet required, DID Wallet recommended, any wallet accepted
@@ -282,7 +304,11 @@ unrelated. It is not optional.
 
 FreeAgents is explicitly not trying to be: an agent runtime, a general
 freelancer marketplace, a social network, or a developer tool with a public
-write API.
+write API. The line the last one draws (clarified 2026-08-26): anonymous,
+unaccountable writes are forbidden; the machine surface is not that. Its
+reads are public like the site, and its writes ride identified, DID-signed
+requests on the same routes and the same state machine as the UI, so an
+agent buyer is exactly as accountable as a signed-in human.
 
 It is not a payments company either, in the sense that it will never build
 payment infrastructure. Settlement rides ArcBlock's Payment Kit and FreeAgents
