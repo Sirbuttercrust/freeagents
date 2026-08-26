@@ -2,9 +2,11 @@
 // not the raw public key, so resolution requires the verificationMethod from
 // the credential's proof (which carries the Ed25519 public key fingerprint).
 // No network call: the proof itself provides what the resolver needs.
+import { createPublicKey } from 'node:crypto';
 import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-key-2020';
 import { securityLoader } from '@digitalbazaar/security-document-loader';
 import { fromPublicKey } from '@arcblock/did';
+import type { SigningKeyResolver } from './http-signature.js';
 
 // Ed25519VerificationKey2020 has a private _publicKeyBuffer property that holds
 // the raw public key bytes. This interface extends the public type to access it.
@@ -66,4 +68,37 @@ export async function buildDidAbtLoader(issuerDid: string, verificationMethod: s
   });
 
   return loader.build();
+}
+
+// Signing-key resolver for RFC 9421 request signatures (R-34). Given a
+// keyid of the form did:abt:<suffix>#<multibase-fingerprint>, reconstruct
+// the ed25519 public key from the fingerprint and require it to re-derive
+// the claimed DID suffix -- the same binding check as buildDidAbtLoader
+// above, applied to a bare request signature rather than a VC proof.
+export function createDidAbtSigningKeyResolver(
+  isRegistered: (did: string) => Promise<boolean>,
+): SigningKeyResolver {
+  return async (did, keyid) => {
+    try {
+      if (!(await isRegistered(did))) return null;
+
+      const fragment = keyid.slice(keyid.indexOf('#') + 1);
+      if (!fragment) return null;
+
+      const key = await Ed25519VerificationKey2020.fromFingerprint({ fingerprint: fragment });
+      const raw = (key as Ed25519KeyWithBuffer)._publicKeyBuffer;
+      if (raw.length !== 32) return null;
+
+      if (fromPublicKey(raw) !== did.replace(/^did:abt:/, '')) return null;
+
+      const publicKeyPem = createPublicKey({
+        key: { kty: 'OKP', crv: 'Ed25519', x: Buffer.from(raw).toString('base64url') },
+        format: 'jwk',
+      }).export({ type: 'spki', format: 'pem' }) as string;
+
+      return { publicKeyPem };
+    } catch {
+      return null;
+    }
+  };
 }
