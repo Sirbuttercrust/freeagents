@@ -39,6 +39,20 @@ describe('platformIssuerFromEnv', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('an EMPTY string DID falls back to the default, never an empty issuer', () => {
+    // Blocklet Server materialises declared env vars, so an unconfigured
+    // deployment delivers '' rather than undefined. The ?? fallback missed
+    // that and issued credentials under an empty issuer DID (PR #71 finding).
+    vi.stubEnv('FREEAGENTS_PLATFORM_DID', '');
+    vi.stubEnv('FREEAGENTS_PLATFORM_SEED', 'a1'.repeat(32));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const issuer = platformIssuerFromEnv();
+
+    expect(issuer.did).not.toBe('');
+    expect(issuer.did).toBe('did:abt:freeagents-platform');
+  });
+
   it('a 0x-prefixed seed decodes to the same 32 bytes', () => {
     const hex = 'b2'.repeat(32);
     vi.stubEnv('FREEAGENTS_PLATFORM_DID', 'did:abt:zTestPlatform');
