@@ -33,4 +33,24 @@ describe('resolveListenPort', () => {
   it('throws naming PORT when it is negative', () => {
     expect(() => resolveListenPort({ PORT: '-1' })).toThrow(/PORT/);
   });
+
+  it('reads process.env when no env is passed', () => {
+    // The default parameter is the production path: server.ts calls
+    // resolveListenPort() bare. Exercise it so the default cannot silently
+    // stop being process.env.
+    const saved = { BLOCKLET_PORT: process.env['BLOCKLET_PORT'], PORT: process.env['PORT'] };
+    try {
+      process.env['BLOCKLET_PORT'] = '8123';
+      delete process.env['PORT'];
+      expect(resolveListenPort()).toBe(8123);
+      delete process.env['BLOCKLET_PORT'];
+      process.env['PORT'] = '3456';
+      expect(resolveListenPort()).toBe(3456);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
 });
