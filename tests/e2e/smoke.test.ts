@@ -36,6 +36,11 @@
  *     resolves, and the next check drops the verified binding to
  *     unverified, with a third party reading the public gist surface and
  *     agreeing without the service
+ *   - key rotation works end to end (R-30, ENT-8.4): an agent signs a
+ *     credential with its own key, the key is rotated over HTTP, the
+ *     rotation shows in the read-back with dates, and the pre-rotation
+ *     credential still verifies with @digitalbazaar/* alone, no call to
+ *     the service
  *   - the first half of the hire loop works end to end: an operator
  *     registers, delegates an agent, and a buyer's brief opens a job draft
  *     that reads back identically, with brief and briefHash riding the
@@ -174,6 +179,110 @@ async function signW3CDelegation(operator: WalletObject, agent: WalletObject): P
 
   const signed = await vc.issue({ credential, suite, documentLoader });
   return signed;
+}
+
+// A credential signed by the agent's OWN key, with the agent DID as issuer:
+// the rotation-era credential ENT-8.4 must keep verifiable. The proof names
+// the signing key in DID fragment form, which is the fragment the rotation
+// record's fromKey must match. Adapted from
+// tests/domain/key-rotation-verification.test.ts.
+async function signWithAgentKey(
+  agent: WalletObject,
+  key: Ed25519VerificationKey2020,
+  operatorDid: string,
+): Promise<Record<string, unknown>> {
+  const agentDid = agent.toDid();
+  key.id = `${agentDid}#${key.publicKeyMultibase}`;
+
+  const suite = new Ed25519Signature2020({ key });
+
+  const credential = {
+    '@context': [
+      'https://www.w3.org/2018/credentials/v1',
+      'https://w3id.org/security/suites/ed25519-2020/v1',
+      { '@vocab': 'https://freeagents.dev/terms#' },
+    ],
+    id: `urn:uuid:${crypto.randomUUID()}`,
+    type: ['VerifiableCredential', DELEGATION_TYPE],
+    issuer: agentDid,
+    issuanceDate: new Date().toISOString(),
+    credentialSubject: { id: agentDid, delegatedBy: operatorDid },
+  };
+
+  const loader = securityLoader();
+  loader.addStatic(key.id, {
+    '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+    ...key.export({ publicKey: true }),
+  });
+  loader.addStatic(agentDid, {
+    '@context': 'https://www.w3.org/ns/did/v1',
+    id: agentDid,
+    assertionMethod: [key.id],
+    verificationMethod: [
+      {
+        '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+        ...key.export({ publicKey: true }),
+      },
+    ],
+  });
+  const documentLoader = loader.build();
+
+  const signed = await vc.issue({ credential, suite, documentLoader });
+  return signed;
+}
+
+// Verify with an independent verifier: given ONLY the credential, resolve
+// the key from proof.verificationMethod's fragment and check the signature
+// with vc.verifyCredential alone, plus the binding check that the key
+// belongs to the claimed issuer DID (derived with @arcblock/did, which only
+// turns a public key into a DID and does not verify the credential).
+// @digitalbazaar/* does the verification: that is what proves third-party
+// verifiability, no call to this service, no private key.
+async function verifyIndependent(credential: Record<string, unknown>): Promise<boolean> {
+  try {
+    const proof = credential.proof as Record<string, unknown>;
+    const verificationMethod = String(proof.verificationMethod);
+    const issuer = String(credential.issuer);
+
+    const hashIndex = verificationMethod.indexOf('#');
+    if (hashIndex === -1) return false;
+    const fingerprint = verificationMethod.slice(hashIndex + 1);
+
+    const key = await Ed25519VerificationKey2020.fromFingerprint({ fingerprint });
+
+    const { fromPublicKey } = await import('@arcblock/did');
+    const keyWithBuffer = key as unknown as { _publicKeyBuffer: Uint8Array };
+    const derivedDidSuffix = fromPublicKey(keyWithBuffer._publicKeyBuffer);
+    const issuerSuffix = issuer.replace(/^did:abt:/, '');
+    if (derivedDidSuffix !== issuerSuffix) return false;
+
+    key.controller = issuer;
+    key.id = verificationMethod;
+
+    const loader = securityLoader();
+    loader.addStatic(key.id, {
+      '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+      ...key.export({ publicKey: true }),
+    });
+    loader.addStatic(issuer, {
+      '@context': 'https://www.w3.org/ns/did/v1',
+      id: issuer,
+      assertionMethod: [key.id],
+      verificationMethod: [
+        {
+          '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+          ...key.export({ publicKey: true }),
+        },
+      ],
+    });
+    const documentLoader = loader.build();
+
+    const suite = new Ed25519Signature2020();
+    const result = await vc.verifyCredential({ credential, suite, documentLoader });
+    return result.verified === true;
+  } catch {
+    return false;
+  }
 }
 
 // R-3, direction one: the real resolveDid throws NotImplementedError until a
@@ -428,6 +537,89 @@ describe('the API starts and answers', () => {
     // 6. An unknown agent is a 404, so the read-back meant something.
     const missing = await get('/agents/did:abt:nobody');
     expect(missing.status).toBe(404);
+  });
+
+  it('rotates an agent key and the pre-rotation credential still verifies off-platform (R-30, ENT-8.4)', async () => {
+    // The ENT-8.4 link, through the HTTP surface. The agent signs a
+    // credential with its own key, the key is rotated over HTTP, the record
+    // names exactly the key the credential's proof uses, and a third party
+    // holding ONLY the credential still verifies it with @digitalbazaar/*
+    // alone (invariant 2). Every get/post below counts in stepsAsserted.
+    const operatorWallet = fromRandom();
+    const agentWallet = fromRandom(); // the OLD key
+    const newWallet = fromRandom(); // the replacement
+    const oldDid = agentWallet.toDid();
+
+    // 1. Register the operator and delegate the agent, as in the R-2 flow.
+    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-rotate' });
+    expect(op.status).toBe(201);
+    const delegation = await signW3CDelegation(operatorWallet, agentWallet);
+    const delegated = await post('/agents', {
+      did: oldDid,
+      operator: operatorWallet.toDid(),
+      delegation,
+      name: 'scout',
+      skills: ['triage'],
+    });
+    expect(delegated.status).toBe(201);
+
+    // 2. Derive the public halves of the old and new keys; the fragments are
+    // what a rotation record stores.
+    const oldKey = await Ed25519VerificationKey2020.generate({
+      seed: hexToBytes(agentWallet.secretKey).slice(0, 32),
+      controller: oldDid,
+    });
+    const oldKeyId = `${oldDid}#${oldKey.publicKeyMultibase}`;
+    const newKey = await Ed25519VerificationKey2020.generate({
+      seed: hexToBytes(newWallet.secretKey).slice(0, 32),
+      controller: newWallet.toDid(),
+    });
+    const newKeyId = `${newWallet.toDid()}#${newKey.publicKeyMultibase}`;
+
+    // 3. The pre-rotation credential, signed by the agent's own key. Sanity:
+    // it verifies before any rotation exists.
+    const credential = await signWithAgentKey(agentWallet, oldKey, operatorWallet.toDid());
+    expect(await verifyIndependent(credential)).toBe(true);
+
+    // 4. Rotate over HTTP.
+    const rotated = await post(`/agents/${oldDid}/key-rotation`, {
+      fromKey: oldKeyId,
+      toKey: newKeyId,
+    });
+    expect(rotated.status).toBe(200);
+    const rotatedBody = (await rotated.json()) as Record<string, unknown>;
+
+    // 5. The ENT-8.4 link, over the wire: the record names exactly the key
+    // the credential's proof uses, so a stranger resolves the old key from
+    // the record alone.
+    const rotation = (rotatedBody.keyRotations as Array<Record<string, unknown>>)[0] as Record<string, unknown>;
+    expect(rotation).toBeDefined();
+    expect(String(rotation.fromKey)).toBe(oldKeyId);
+    expect(String(rotation.fromKey)).toBe(String((credential.proof as Record<string, unknown>).verificationMethod));
+    expect(String(rotation.toKey)).toBe(newKeyId);
+    expect(Number.isNaN(Date.parse(String(rotation.rotatedAt)))).toBe(false);
+
+    // 6. The read-back shows the rotation with dates (R-6's accept line).
+    const read = await get(`/agents/${oldDid}`);
+    expect(read.status).toBe(200);
+    const readBody = (await read.json()) as Record<string, unknown>;
+    const readRotation = (readBody.keyRotations as Array<Record<string, unknown>>)[0] as Record<string, unknown>;
+    expect(readRotation).toBeDefined();
+    expect(String(readRotation.fromKey)).toBe(oldKeyId);
+
+    // 7. Failure cases over the wire: an identity rotation is a 400, and a
+    // well-formed body for an unknown agent is a 404.
+    expect(
+      (await post(`/agents/${oldDid}/key-rotation`, { fromKey: oldKeyId, toKey: oldKeyId })).status,
+    ).toBe(400);
+    expect(
+      (await post('/agents/did:abt:nobody/key-rotation', { fromKey: 'did:abt:nobody#zA', toKey: 'did:abt:nobody#zB' })).status,
+    ).toBe(404);
+
+    // 8. The assertion that earns the test: rotation did not orphan the
+    // credential. A third party holding ONLY the credential still verifies
+    // it after the rotation - no key material, no call to the service.
+    expect(await verifyIndependent(credential)).toBe(true);
   });
 
   it('opens a job draft from a brief and reads it back', async () => {
