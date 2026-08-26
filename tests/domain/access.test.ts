@@ -34,6 +34,24 @@ describe('CAPABILITIES', () => {
       }
     }
   });
+
+  it('pins every declared capability exactly: id, method, path, access, identityField', () => {
+    // Unlike the shape checks above, this pins the literal published
+    // values. Those values are read by callers (e.g. which body field
+    // names the acting party) and by tests/api/capabilities.test.ts's
+    // VALID_BODY_MINUS_IDENTITY fixture, which is keyed by cap.id rather
+    // than derived from cap.identityField - so a wrong identityField value
+    // (or a wrong path, method, or access) would otherwise fail no test.
+    expect(CAPABILITIES.map(({ id, method, path, access, identityField }) => ({ id, method, path, access, identityField }))).toEqual([
+      { id: 'capabilities.read', method: 'GET', path: '/capabilities', access: 'public', identityField: null },
+      { id: 'agent.browse', method: 'GET', path: '/agents/:agentDid', access: 'public', identityField: null },
+      { id: 'operator.browse', method: 'GET', path: '/operators/:did', access: 'public', identityField: null },
+      { id: 'credential.verify', method: 'GET', path: '/v1/credentials/:credentialId', access: 'public', identityField: null },
+      { id: 'operator.register', method: 'POST', path: '/operators', access: 'identified', identityField: 'did' },
+      { id: 'agent.list', method: 'POST', path: '/agents', access: 'identified', identityField: 'operator' },
+      { id: 'job.hire', method: 'POST', path: '/jobs', access: 'identified', identityField: 'buyerDid' },
+    ]);
+  });
 });
 
 describe('capabilityFor', () => {

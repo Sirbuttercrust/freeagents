@@ -87,9 +87,17 @@ describe('GET /capabilities', () => {
     for (const cap of publicGets) {
       const concretePath = cap.path.replace(/:[^/]+/g, 'capabilities-test-placeholder');
       const res = await fetch(`${baseUrl}${concretePath}`);
-      // A 404 is a pass: it proves the refusal is about the row (an unknown
-      // id), not about who asked.
+      // A 404 is a pass only when it comes from the route's own "row not
+      // found" handling (a JSON body): that proves the refusal is about the
+      // row (an unknown id), not about who asked. A path with no matching
+      // route also 404s, but through Express's default handler, which
+      // answers HTML - so a declared path that doesn't correspond to an
+      // actual registered route (a typo like '/agent/:agentDid') still
+      // fails this check instead of passing as a plausible "unknown row".
       expect([401, 403]).not.toContain(res.status);
+      if (res.status === 404) {
+        expect(res.headers.get('content-type')).toContain('application/json');
+      }
     }
   });
 

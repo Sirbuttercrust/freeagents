@@ -78,6 +78,16 @@ describe('GET /capabilities, invariant 2', () => {
     }
   });
 
+  it('holds the exact verification capability id set in place: neither dropped nor silently widened', () => {
+    // The check above only asks properties of whatever ids the array
+    // happens to hold, so deleting an id (or adding an unvetted one) passes
+    // it as long as what remains is still public. This pins the set
+    // itself, so losing agent.browse or credential.verify - the two reads
+    // invariant 2 depends on - fails here even though it would fail
+    // nothing above.
+    expect([...VERIFICATION_CAPABILITY_IDS].sort()).toEqual(['agent.browse', 'credential.verify']);
+  });
+
   it('serves the declared values verbatim, not just the declared key set', async () => {
     // tests/api/capabilities-invariant2.test.ts:52 above pins the key set;
     // this pins the values behind them. capabilityProjection's fields are
