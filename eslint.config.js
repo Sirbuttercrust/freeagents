@@ -30,6 +30,14 @@ export default tseslint.config(
       'spec/**',
       '.factory/**',
       '.worktrees/**',
+      // builds/** holds per-SHA merge-staging copies of the whole tree
+      // (gitignored, like the above). Same failure shape as .worktrees: a
+      // copy of the project at an old SHA cannot satisfy THIS tree's
+      // tsconfig project service, so its files report parsing errors against
+      // main. Measured 2026-08-26: 626/626 lint errors came from
+      // builds/{38b496d,2e6e157}/ while typecheck passed clean -- the gate
+      // was reading archive boxes as source.
+      'builds/**',
     ],
   },
   js.configs.recommended,
