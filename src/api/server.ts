@@ -1,6 +1,7 @@
 import { createApp } from './app.js';
+import { resolveListenPort } from '../adapters/runtime/runtime.js';
 
-const port = Number(process.env['PORT'] ?? 3000);
+const port = resolveListenPort();
 
 createApp().listen(port, () => {
   console.log(`freeagents listening on port ${port}`);

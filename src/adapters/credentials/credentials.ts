@@ -16,7 +16,10 @@ const DEFAULT_PLATFORM_DID = 'did:abt:freeagents-platform';
 // but the credentials it signs will not verify past this process's
 // lifetime, since the seed backing the proof is thrown away on restart.
 export function platformIssuerFromEnv(): CredentialsIssuer {
-  const did = process.env.FREEAGENTS_PLATFORM_DID ?? DEFAULT_PLATFORM_DID;
+  // `||` and not `??`: Blocklet Server materialises every declared env var,
+  // so an unconfigured deployment delivers '' rather than undefined, and the
+  // nullish fallback would issue credentials under an empty issuer DID.
+  const did = process.env.FREEAGENTS_PLATFORM_DID || DEFAULT_PLATFORM_DID;
   const hex = process.env.FREEAGENTS_PLATFORM_SEED;
   if (hex !== undefined && /^(0x)?[0-9a-f]{64}$/i.test(hex)) {
     return { did, seed: Uint8Array.from(Buffer.from(hex.replace(/^0x/i, ''), 'hex')) };
