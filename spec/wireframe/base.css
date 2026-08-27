@@ -277,6 +277,19 @@ body.notes-on .note { display: block; }
 .note b { color: var(--accent-hi); font-weight: 600; }
 .note code { font-family: var(--mono); font-size: 12px; color: var(--fg); }
 
+/* A whole SECTION behind the notes toggle, rather than an inline annotation.
+   The accent left border and tinted background that suit a one paragraph
+   aside become a wall when they wrap several screens' worth of content, so a
+   notewrap keeps the gate and drops the decoration. */
+.notewrap {
+  border-left: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  max-width: none;
+  border-radius: 0;
+}
+
 .notetoggle {
   position: fixed; right: 20px; bottom: 20px; z-index: 60;
   height: 34px; padding: 0 14px;

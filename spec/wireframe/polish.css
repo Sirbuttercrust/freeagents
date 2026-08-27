@@ -297,7 +297,38 @@
 .copybtn.is-done .ico-copy { opacity: 0; transform: scale(0.55); }
 .copybtn.is-done .ico-done { opacity: 1; transform: scale(1); }
 
-/* ================================================================= TOASTS */
+/* ================================================== PROSE REPLACEMENTS
+
+   Components that exist because a paragraph was doing a component's job.
+   The operator, 2026-08-27: a lot of text on many pages is exhausting to
+   read, and anything that can become a component or a diagram should.
+
+   Measured with measure_prose.py, which reads only VISIBLE text (builder
+   notes are behind a toggle and do not count against a screen). */
+
+/* A short list of flat facts, one line each, with a leading glyph that says
+   which KIND of fact it is. Replaces a paragraph that was listing things. */
+.factlist {
+  list-style: none; padding: 0; margin: 0;
+  max-width: 62ch; display: grid; gap: 9px;
+}
+.factlist li {
+  display: flex; align-items: flex-start; gap: 9px;
+  font-size: 14px; color: var(--fg-2); line-height: 1.55;
+}
+.factlist .ico { color: var(--fg-3); margin-top: 3px; flex: none; }
+
+/* An aside with a glyph instead of a heading. One rule, not a box: a border
+   box around every aside is how a calm page becomes a busy one. */
+.callout-sm {
+  display: flex; align-items: flex-start; gap: 9px;
+  border-left: 2px solid var(--line-2);
+  padding-left: 13px;
+  max-width: 62ch;
+}
+.callout-sm .ico { color: var(--fg-3); margin-top: 3px; flex: none; }
+
+/* ================================================================ TOASTS */
 
 /* Confirmation that an action landed, for a wireframe where the action has
    no backend to answer it. Bottom left, clear of the builder-notes toggle at

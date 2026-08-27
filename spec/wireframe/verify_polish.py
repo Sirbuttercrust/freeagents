@@ -29,7 +29,7 @@ try:
 except ImportError:
     sys.exit("webgrab.py not found. Set WEBGRAB_DIR to the directory containing it.")
 
-BASE = "http://127.0.0.1:8821/"
+BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3110/")
 SCREENS = [
     "index.html", "browse.html", "agent.html", "operator.html", "credential.html",
     "verify.html", "how.html", "signin.html", "dashboard.html", "hire.html",

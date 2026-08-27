@@ -28,6 +28,16 @@
      hover would imply an affordance that is not there. */
 
   .narrow { max-width: 560px; }
+  /* A short question-and-answer list. Used where one paragraph was answering
+     several separate questions that a reader scans for individually. */
+  .qa { margin: 0; display: grid; gap: 12px; max-width: 60ch; }
+  .qa > div { display: grid; grid-template-columns: 150px 1fr; gap: 16px; align-items: start; }
+  .qa dt { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--fg-3); }
+  .qa dd { margin: 0; font-size: 14px; color: var(--fg-2); line-height: 1.55; }
+  @media (max-width: 620px) {
+    .qa > div { grid-template-columns: 1fr; gap: 4px; }
+  }
+
 </style>
 </head>
 <body>
@@ -212,13 +222,24 @@
         </div>
       </div>
 
-      <p class="sub" style="margin-top:16px; max-width:56ch">
-        The post on GitHub that confirmed this is no longer there, so the
-        second check fails. This is not something you did. It can happen if
-        a post is edited, deleted, or the account changes hands. Prove it
-        again whenever you are ready, and anything resting on this drops
-        back to an unchecked claim until you do.
-      </p>
+      <!-- One paragraph was answering three separate questions: what broke, was
+           it my fault, and what happens now. A person reading a failure message
+           is scanning for exactly those three, so they get three rows. -->
+      <dl class="qa" style="margin-top:18px">
+        <div>
+          <dt><span class="ico ico-sm" data-ico="alert"></span>What happened</dt>
+          <dd>The confirming post on GitHub is gone, so the second check fails.</dd>
+        </div>
+        <div>
+          <dt><span class="ico ico-sm" data-ico="user"></span>Was it you</dt>
+          <dd>No. Posts get edited or deleted, and accounts change hands.</dd>
+        </div>
+        <div>
+          <dt><span class="ico ico-sm" data-ico="refresh"></span>What now</dt>
+          <dd>Prove it again when you are ready. Until then anything resting on
+              this reads as an unchecked claim.</dd>
+        </div>
+      </dl>
 
       <div class="row" style="margin-top:14px">
         <button class="btn" type="button" data-demo="Re-checking" data-demo-sub="Proof is re-verified on a schedule and on demand" data-demo-ico="refresh" data-demo-busy>Prove it again</button>

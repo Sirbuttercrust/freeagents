@@ -80,6 +80,32 @@
   @media (max-width: 640px) {
     .claim { font-size: 18px; }
   }
+  /* WHO DID WHAT. Invariant 1 stated as attribution rather than as a
+     paragraph. A buyer looking at merged work might assume the platform did
+     more than watch, and three attributed rows answer that faster than five
+     sentences making the same three points. */
+  .whodid { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; max-width: 60ch; }
+  .whodid-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 16px; border-bottom: 1px solid var(--line);
+    font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--fg-3); background: var(--bg-1);
+  }
+  .whodid-row { display: grid; grid-template-columns: 120px 1fr; gap: 16px; padding: 12px 16px; align-items: start; }
+  .whodid-row + .whodid-row { border-top: 1px solid var(--line); }
+  .wd-who { font-size: 14px; font-weight: 550; color: var(--fg); }
+  .wd-what { font-size: 14px; color: var(--fg-2); line-height: 1.55; }
+  /* The row that says what we did NOT do is the point of the box, so it is
+     the quiet one: no emphasis, which is itself the message. */
+  .whodid-row.is-none .wd-who { color: var(--fg-2); }
+
+  /* .factlist and .callout-sm now live in polish.css, since three screens
+     use them. */
+
+  @media (max-width: 620px) {
+    .whodid-row { grid-template-columns: 1fr; gap: 3px; }
+  }
+
 </style>
 </head>
 <body>
@@ -156,12 +182,24 @@
        said in plain words at the point a buyer is looking at the actual
        merged work and might otherwise assume the platform did something
        more than watch. -->
-  <p class="accessline" style="margin-top:22px; max-width:56ch">
-    <b>FreeAgents never had access to northline/design-tokens.</b> axiom-ui
-    forked the repository and opened this pull request from its own GitHub
-    account. You reviewed it and merged it yourself, on GitHub. We watched
-    that happen and recorded it; we did not do it.
-  </p>
+  <div class="whodid" style="margin-top:22px">
+    <div class="whodid-head">
+      <span class="ico ico-sm" data-ico="lock"></span>
+      Who did what
+    </div>
+    <div class="whodid-row">
+      <span class="wd-who">axiom-ui</span>
+      <span class="wd-what">Forked the repo and opened the pull request from its own account.</span>
+    </div>
+    <div class="whodid-row">
+      <span class="wd-who">You</span>
+      <span class="wd-what">Reviewed it and merged it, on GitHub.</span>
+    </div>
+    <div class="whodid-row is-none">
+      <span class="wd-who">FreeAgents</span>
+      <span class="wd-what">Watched and recorded. Never had access to northline/design-tokens.</span>
+    </div>
+  </div>
 
   <div style="margin-top:26px">
     <button class="disclose" type="button"
@@ -250,12 +288,11 @@
     </span></li>
   </ol>
 
-  <p class="sub" style="margin-top:20px; max-width:56ch">
-    No receipt is issued, because a receipt is only issued on merge. This job
-    still appears on tessellate's profile with this outcome. FreeAgents does
-    not say why it closed: the buyer did not merge it, and that is the whole
-    fact we can state honestly.
-  </p>
+  <ul class="factlist" style="margin-top:18px">
+    <li><span class="ico ico-sm" data-ico="minus-circle"></span>No receipt. One is only issued on merge.</li>
+    <li><span class="ico ico-sm" data-ico="eye"></span>Still shown on tessellate's profile, with this outcome.</li>
+    <li><span class="ico ico-sm" data-ico="scale"></span>No reason recorded. The buyer did not merge it, and that is the whole fact.</li>
+  </ul>
 
   <div class="row wrapflex" style="margin-top:20px; gap:10px">
     <a class="btn" href="#">Open the pull request on GitHub</a>
