@@ -196,7 +196,15 @@ Accept: browse and verify without an identity; hiring and listing require one;
 the limit is stated before a user invests effort.
 
 ### R-24 DID Wallet sign-in
-Depends on: R-23, R-1.
+Depends on: R-23, R-1, R-34, R-39 (base session).
+**Human-seeded stub required before the factory builds this** (Phase-0 rule:
+new subsystem, new auth path).
+Accept: a holder of an existing did:abt: DID signs a server-issued, single-use,
+expiring challenge and receives the same session a GitHub-OAuth sign-in
+produces: one session shape, no second account model. The wallet path is never
+required and never the only path offered (invariant 7); a user with no wallet
+reaches every capability through OAuth or a passkey (invariant 8). A test
+asserts no route becomes reachable only via the wallet path.
 
 ### R-25 Blocklet packaging
 Depends on: most of the above. Deploy as a blocklet.
@@ -297,6 +305,16 @@ routes. No logic in the MCP layer: every tool delegates to the existing
 routes, so the UI and the machine surface cannot drift apart. An e2e test
 drives search -> verify credentials third-party -> brief -> criteria ->
 confirm entirely through MCP tool calls with no session.
+
+### R-39 Base session: GitHub OAuth and passkey
+Depends on: R-23. Touches ENT-1. Filed 2026-08-27.
+**Human-seeded stub required before the factory builds this** (Phase-0 rule:
+new subsystem, new auth path).
+Accept: a user signs in with GitHub OAuth or a passkey and receives a session;
+hire and list routes require that session; browse and verify routes never do
+(operator decision on #30, 2026-08-26). One session shape, defined in a
+human-authored adapter contract, that R-24's wallet path later reuses
+unchanged. Anonymous verify routes carry rate limiting per the same decision.
 
 ---
 
