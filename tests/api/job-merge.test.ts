@@ -17,14 +17,19 @@ import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
+import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
+import type { CredentialsAdapter, VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import type { GithubAdapter, PullRequestRef, PullRequestSummary } from '../../src/adapters/github/types.js';
+import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
+import type { DidDocument, IdentityAdapter } from '../../src/adapters/identity/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import {
   MemoryAgentRepository,
+  MemoryCredentialRepository,
   MemoryJobRepository,
   MemoryOperatorRepository,
 } from '../../src/adapters/storage/memory.js';
-import type { JobRepository } from '../../src/adapters/storage/types.js';
+import type { CredentialRepository, JobRepository } from '../../src/adapters/storage/types.js';
 import { createJob, type CompletedJob, type Job, type JobStatus } from '../../src/domain/job.js';
 
 const AGENT_DID = 'did:abt:agent-merge';
@@ -38,6 +43,22 @@ const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
   { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
 ];
+
+// A fixed issuer, so the assertions below read against a known DID. Nothing
+// here verifies a proof - tests/api/job-merge-invariant2.test.ts does that,
+// with an issuer DID derived from its key as the binding check requires.
+const ISSUER_DID = 'did:abt:test-platform-issuer';
+const ISSUER_SEED = new Uint8Array(32).fill(7);
+
+// The real resolveDid throws NotImplementedError, so the merge route's
+// identity leg is exercised through a wrapped adapter, exactly as
+// tests/e2e/smoke.test.ts does.
+function fakeIdentity(
+  resolve: (did: string) => Promise<DidDocument> = (did) =>
+    Promise.resolve({ id: did, controller: null, verificationMethod: [`${did}#key-1`], alsoKnownAs: null }),
+): IdentityAdapter {
+  return { ...createIdentityAdapter(), resolveDid: resolve };
+}
 
 interface RecordedCalls {
   getPullRequest: PullRequestRef[];
@@ -69,19 +90,46 @@ function fakeGithub(
 
 function mergedGithub(recorded: RecordedCalls): GithubAdapter {
   return fakeGithub(recorded, (ref) =>
-    Promise.resolve({ ref, state: 'merged', mergeCommitSha: MERGE_SHA, mergedAt: MERGED_AT, headSha: 'head-sha-1' }),
+    Promise.resolve({
+      ref,
+      state: 'merged',
+      mergeCommitSha: MERGE_SHA,
+      mergedAt: MERGED_AT,
+      headSha: 'head-sha-1',
+      additions: 412,
+      deletions: 87,
+      filesChanged: 9,
+    }),
   );
 }
 
 function openGithub(recorded: RecordedCalls): GithubAdapter {
   return fakeGithub(recorded, (ref) =>
-    Promise.resolve({ ref, state: 'open', mergeCommitSha: null, mergedAt: null, headSha: 'head-sha-1' }),
+    Promise.resolve({
+      ref,
+      state: 'open',
+      mergeCommitSha: null,
+      mergedAt: null,
+      headSha: 'head-sha-1',
+      additions: 0,
+      deletions: 0,
+      filesChanged: 0,
+    }),
   );
 }
 
 function closedGithub(recorded: RecordedCalls): GithubAdapter {
   return fakeGithub(recorded, (ref) =>
-    Promise.resolve({ ref, state: 'closed', mergeCommitSha: null, mergedAt: null, headSha: 'head-sha-1' }),
+    Promise.resolve({
+      ref,
+      state: 'closed',
+      mergeCommitSha: null,
+      mergedAt: null,
+      headSha: 'head-sha-1',
+      additions: 0,
+      deletions: 0,
+      filesChanged: 0,
+    }),
   );
 }
 
@@ -132,7 +180,15 @@ async function get(path: string, base: string = baseUrl): Promise<Response> {
   return fetch(`${base}${path}`);
 }
 
-async function startWith(repo: JobRepository, github: GithubAdapter): Promise<{ server: Server; baseUrl: string }> {
+async function startWith(
+  repo: JobRepository,
+  github: GithubAdapter,
+  extras: {
+    identity?: IdentityAdapter;
+    credentials?: CredentialsAdapter;
+    credentialRepo?: CredentialRepository;
+  } = {},
+): Promise<{ server: Server; baseUrl: string; credentialRepo: CredentialRepository }> {
   const agentRepo = new MemoryAgentRepository();
   await agentRepo.create({
     did: AGENT_DID,
@@ -142,13 +198,25 @@ async function startWith(repo: JobRepository, github: GithubAdapter): Promise<{ 
     skills: ['triage'],
     githubLogin: null,
   });
-  const s = createApp(new MemoryOperatorRepository(), agentRepo, undefined, github, repo).listen(0);
+  const credentialRepo = extras.credentialRepo ?? new MemoryCredentialRepository();
+  const credentials =
+    extras.credentials ?? createCredentialsAdapter({ did: ISSUER_DID, seed: ISSUER_SEED }, credentialRepo);
+  const s = createApp(
+    new MemoryOperatorRepository(),
+    agentRepo,
+    extras.identity ?? fakeIdentity(),
+    github,
+    repo,
+    credentials,
+    undefined,
+    credentialRepo,
+  ).listen(0);
   await new Promise<void>((resolve) => s.once('listening', resolve));
   const address = s.address();
   if (address === null || typeof address === 'string') {
     throw new Error('expected server to listen on a port');
   }
-  return { server: s, baseUrl: `http://127.0.0.1:${address.port}` };
+  return { server: s, baseUrl: `http://127.0.0.1:${address.port}`, credentialRepo };
 }
 
 async function openDraft(brief: string, base: string = baseUrl): Promise<string> {
@@ -196,15 +264,21 @@ const SUBMITTED_KEYS = [
   'submittedAt',
 ];
 const COMPLETED_KEYS = [...SUBMITTED_KEYS, 'mergeCommit', 'mergedAt'].sort();
+// A completed job that also carries a credential (R-36): every merge that
+// actually completes issues one, so this is what the merge response's own
+// key set looks like from here on. COMPLETED_KEYS itself stays - it still
+// describes GET on a completed job with no credential row.
+const COMPLETED_WITH_CREDENTIAL_KEYS = [...COMPLETED_KEYS, 'credential'].sort();
 
 describe('job merge (R-11)', () => {
   const jobRepo = new MemoryJobRepository();
   const recorded = emptyRecordings();
   // Set by the happy-path walk; the lock test posts that same id again.
   let happyJobId: string;
+  let happyCredentialRepo: CredentialRepository;
 
   beforeAll(async () => {
-    ({ server, baseUrl } = await startWith(jobRepo, mergedGithub(recorded)));
+    ({ server, baseUrl, credentialRepo: happyCredentialRepo } = await startWith(jobRepo, mergedGithub(recorded)));
   });
 
   afterAll(() => {
@@ -224,11 +298,33 @@ describe('job merge (R-11)', () => {
     // The values came from github, not this service's clock.
     expect(mergedBody.mergeCommit).toBe(MERGE_SHA);
     expect(mergedBody.mergedAt).toBe(MERGED_AT.toISOString());
-    expect(Object.keys(mergedBody).sort()).toEqual(COMPLETED_KEYS);
+    expect(Object.keys(mergedBody).sort()).toEqual(COMPLETED_WITH_CREDENTIAL_KEYS);
+
+    // R-36: the merge issued a work-history credential, riding the response
+    // as a sibling of the job projection.
+    const credential = mergedBody.credential as Record<string, unknown>;
+    expect(credential.issuer).toBe(ISSUER_DID);
+    const credentialSubject = credential.credentialSubject as Record<string, unknown>;
+    expect(credentialSubject.id).toBe(AGENT_DID);
+    const hire = credentialSubject.hire as Record<string, unknown>;
+    expect(hire.mergeCommit).toBe(MERGE_SHA);
+    expect(hire.additions).toBe(412);
+    expect(hire.deletions).toBe(87);
+    expect(hire.filesChanged).toBe(9);
+    expect(hire.repository).toBe('buyer/target-repo');
+    expect(hire.signedBy).toBe(`${AGENT_DID}#key-1`);
+    expect((credential.proof as Record<string, unknown>).type).toBe('Ed25519Signature2020');
 
     const read = await get(`/jobs/${happyJobId}`);
     expect(await read.json()).toEqual(mergedBody);
     expect(recorded.getPullRequest.length).toBe(1);
+  });
+
+  it('stores the same credential document it returns', async () => {
+    const stored = await happyCredentialRepo.findByDocumentId(happyJobId);
+    const merge = await get(`/jobs/${happyJobId}`);
+    const body = (await merge.json()) as Record<string, unknown>;
+    expect(stored).toEqual(body.credential as VerifiableCredential);
   });
 
   it('answers 409 on an already-completed job, without observing github a second time', async () => {
@@ -258,6 +354,227 @@ describe('job merge (R-11)', () => {
     expect(early.status).toBe(409);
     expect(((await early.json()) as { error: string }).error).toContain('status "draft"');
     expect(recorded.getPullRequest.length).toBe(before);
+  });
+});
+
+// GET /jobs/:jobId's credential field is absent, not null, when no credential
+// row exists for a completed job - a row completed before this lap shipped,
+// or the crash-between-two-writes residual named in the merge route.
+describe('GET /jobs/:jobId, no credential row (R-36)', () => {
+  it('omits the credential field for a completed job with no stored credential', async () => {
+    const repo = new MemoryJobRepository();
+    await repo.create({
+      ...submittedJob('j-no-cred'),
+      status: 'completed',
+      mergeCommit: MERGE_SHA,
+      mergedAt: MERGED_AT,
+    });
+    const scripted = await startWith(repo, mergedGithub(emptyRecordings()));
+    try {
+      const read = await get('/jobs/j-no-cred', scripted.baseUrl);
+      expect(read.status).toBe(200);
+      const body = (await read.json()) as Record<string, unknown>;
+      expect('credential' in body).toBe(false);
+      expect(Object.keys(body).sort()).toEqual(COMPLETED_KEYS);
+    } finally {
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+
+  it('answers 503 when the credential lookup fails, and logs the cause', async () => {
+    const repo = new MemoryJobRepository();
+    await repo.create({
+      ...submittedJob('j-cred-lookup-fails'),
+      status: 'completed',
+      mergeCommit: MERGE_SHA,
+      mergedAt: MERGED_AT,
+    });
+    class ThrowingCredentialRepository implements CredentialRepository {
+      async save(): Promise<never> {
+        throw new Error('unreachable');
+      }
+      async findByDocumentId(): Promise<never> {
+        throw new Error('storage down');
+      }
+    }
+    const scripted = await startWith(repo, mergedGithub(emptyRecordings()), {
+      credentialRepo: new ThrowingCredentialRepository(),
+    });
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const read = await get('/jobs/j-cred-lookup-fails', scripted.baseUrl);
+      expect(read.status).toBe(503);
+      expect(await read.json()).toEqual({ error: 'storage unavailable' });
+      expect(errorLog).toHaveBeenCalled();
+    } finally {
+      errorLog.mockRestore();
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+});
+
+// New 503 legs the credential-issuing merge route introduces: identity
+// resolution, credential issuance, and the credential-repo write. Each runs
+// on its own server, each asserting the body message AND the job's resulting
+// status - the 409/404/open/closed/stale legs above are unchanged and not
+// re-covered here.
+describe('job merge, credential-issuance faulted legs (R-36)', () => {
+  it('answers 503 when identity resolution fails, and leaves the job submitted', async () => {
+    const faults = emptyRecordings();
+    const row = submittedJob('j-identity-fails');
+    const repo = new MemoryJobRepository();
+    await repo.create(row);
+    const scripted = await startWith(repo, mergedGithub(faults), {
+      identity: fakeIdentity(() => Promise.reject(new Error('resolver unavailable'))),
+    });
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      expect(merge.status).toBe(503);
+      expect(await merge.json()).toEqual({ error: 'identity resolution unavailable' });
+      expect(errorLog).toHaveBeenCalled();
+
+      const read = await get(`/jobs/${row.id}`, scripted.baseUrl);
+      expect(((await read.json()) as Record<string, unknown>).status).toBe('submitted');
+      expect(await scripted.credentialRepo.findByDocumentId(row.id)).toBeNull();
+    } finally {
+      errorLog.mockRestore();
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+
+  it('answers 503 when the resolved DID document carries no verification method, and leaves the job submitted', async () => {
+    const faults = emptyRecordings();
+    const row = submittedJob('j-no-verification-method');
+    const repo = new MemoryJobRepository();
+    await repo.create(row);
+    const scripted = await startWith(repo, mergedGithub(faults), {
+      identity: fakeIdentity((did) =>
+        Promise.resolve({ id: did, controller: null, verificationMethod: [], alsoKnownAs: null }),
+      ),
+    });
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      expect(merge.status).toBe(503);
+      expect(await merge.json()).toEqual({ error: 'identity resolution unavailable' });
+      expect(errorLog).toHaveBeenCalled();
+
+      const read = await get(`/jobs/${row.id}`, scripted.baseUrl);
+      expect(((await read.json()) as Record<string, unknown>).status).toBe('submitted');
+    } finally {
+      errorLog.mockRestore();
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+
+  it('answers 503 when credential issuance fails, and leaves the job submitted', async () => {
+    const faults = emptyRecordings();
+    const row = submittedJob('j-issuance-fails');
+    const repo = new MemoryJobRepository();
+    await repo.create(row);
+    const failingCredentials: CredentialsAdapter = {
+      issueWorkHistoryCredential: () => Promise.reject(new Error('signing key unavailable')),
+      verifyCredential: () => Promise.reject(new NotImplementedError('credentials', 'verifyCredential')),
+      getCredential: () => Promise.reject(new NotImplementedError('credentials', 'getCredential')),
+    };
+    const scripted = await startWith(repo, mergedGithub(faults), { credentials: failingCredentials });
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      expect(merge.status).toBe(503);
+      expect(await merge.json()).toEqual({ error: 'credential issuance unavailable' });
+      expect(errorLog).toHaveBeenCalled();
+
+      const read = await get(`/jobs/${row.id}`, scripted.baseUrl);
+      expect(((await read.json()) as Record<string, unknown>).status).toBe('submitted');
+    } finally {
+      errorLog.mockRestore();
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+
+  it('answers 503 when the credential-repo write fails, but the job has already completed (the named residual)', async () => {
+    const faults = emptyRecordings();
+    const row = submittedJob('j-cred-save-fails');
+    const repo = new MemoryJobRepository();
+    await repo.create(row);
+    class SaveFailingCredentialRepository implements CredentialRepository {
+      async save(): Promise<never> {
+        throw new Error('connection refused');
+      }
+      async findByDocumentId(): Promise<null> {
+        return null;
+      }
+    }
+    const scripted = await startWith(repo, mergedGithub(faults), {
+      credentialRepo: new SaveFailingCredentialRepository(),
+    });
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      expect(merge.status).toBe(503);
+      expect(await merge.json()).toEqual({ error: 'storage unavailable' });
+      expect(errorLog).toHaveBeenCalled();
+
+      // Honest about the residual: the job DID complete, even though the
+      // credential write that should have accompanied it failed.
+      const read = await get(`/jobs/${row.id}`, scripted.baseUrl);
+      expect(((await read.json()) as Record<string, unknown>).status).toBe('completed');
+    } finally {
+      errorLog.mockRestore();
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+});
+
+// createApp's own default (undefined credentials, an explicit credentialRepo)
+// is what src/api/app.ts's comment calls credentials_default_shares_repo: the
+// merge route's issuance and the resolve route's lookup must land on the SAME
+// repository, or a caller that hands createApp only a credentialRepo (the
+// shape a real deployment uses) would issue credentials the app can never
+// read back. startWith always passes an explicit credentials adapter, so this
+// exercises the branch startWith's own default papers over.
+describe("createApp's credentials default, no credentials adapter given (R-36)", () => {
+  it('shares state with the given credential repository', async () => {
+    const faults = emptyRecordings();
+    const agentRepo = new MemoryAgentRepository();
+    await agentRepo.create({
+      did: AGENT_DID,
+      operatorDid: 'did:abt:op-merge-default',
+      delegation: { fixture: true } as never,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    const credentialRepo = new MemoryCredentialRepository();
+    const s = createApp(
+      new MemoryOperatorRepository(),
+      agentRepo,
+      fakeIdentity(),
+      mergedGithub(faults),
+      new MemoryJobRepository(),
+      undefined,
+      undefined,
+      credentialRepo,
+    ).listen(0);
+    await new Promise<void>((resolve) => s.once('listening', resolve));
+    const address = s.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('expected server to listen on a port');
+    }
+    const base = `http://127.0.0.1:${address.port}`;
+    try {
+      const jobId = await openDraft('Fix the login bug on the checkout page', base);
+      await walkToSubmitted(jobId, base);
+      const merge = await post(`/jobs/${jobId}/merge`, {}, base);
+      expect(merge.status).toBe(200);
+      const body = (await merge.json()) as Record<string, unknown>;
+      const credential = body.credential as VerifiableCredential;
+      expect(await credentialRepo.findByDocumentId(jobId)).toEqual(credential);
+    } finally {
+      await new Promise<void>((resolve) => s.close(() => resolve()));
+    }
   });
 });
 
@@ -577,7 +894,7 @@ describe('job merge, outcomes (R-12)', () => {
       expect(body.status).toBe('completed');
       expect(body.mergeCommit).toBe(MERGE_SHA);
       expect(body.mergedAt).toBe(MERGED_AT.toISOString());
-      expect(Object.keys(body).sort()).toEqual(COMPLETED_KEYS);
+      expect(Object.keys(body).sort()).toEqual(COMPLETED_WITH_CREDENTIAL_KEYS);
     } finally {
       await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
     }

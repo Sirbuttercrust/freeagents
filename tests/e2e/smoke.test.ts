@@ -63,6 +63,9 @@
  *     job's pull request is asked about directly, a merged report from
  *     GitHub - never a client assertion - stamps mergeCommit and mergedAt,
  *     and the completed job is locked against a second merge
+ *   - the merge issues a work-history credential (R-36, ENT-8): the response
+ *     and the read-back both carry it, and a third party verifies it with
+ *     the off-the-shelf W3C stack alone, no call to this service
  *   - an unknown route is still a 404, so the previous assertion means something
  *
  * It does NOT claim the hire loop completes end to end for every path: a
@@ -97,7 +100,7 @@ import {
   type GithubAdapter,
   type PullRequestRef,
 } from '../../src/adapters/github/types.js';
-import { createCredentialResolver } from '../../src/adapters/credentials/credentials.js';
+import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter, SignedPayload } from '../../src/adapters/identity/types.js';
@@ -112,6 +115,15 @@ let base: string;
 // module-scoped because the resolution step saves into it the same way
 // R-13's issuance will, once the platform issuer is wired in.
 const credentialRepo = new MemoryCredentialRepository();
+
+// The platform issuer for this run: the DID derives from the seed, exactly
+// like every did:abt here, so a stranger holding only the credential can
+// bind the proof's key back to the issuer (invariant 2).
+const platformWallet = fromRandom();
+const platformIssuer = {
+  did: platformWallet.toDid(),
+  seed: hexToBytes(platformWallet.secretKey).slice(0, 32),
+};
 
 /** Counts assertions that exercised the running server over HTTP. */
 let stepsAsserted = 0;
@@ -331,6 +343,9 @@ const githubAdapter: GithubAdapter = {
       mergeCommitSha: E2E_MERGE_COMMIT_SHA,
       mergedAt: E2E_MERGED_AT,
       headSha: 'e2e-head-sha',
+      additions: 128,
+      deletions: 12,
+      filesChanged: 5,
     });
   },
   getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
@@ -392,7 +407,9 @@ beforeAll(async () => {
     identityAdapter,
     githubAdapter,
     undefined,
-    createCredentialResolver(credentialRepo),
+    createCredentialsAdapter(platformIssuer, credentialRepo),
+    undefined,
+    credentialRepo,
   );
   server = await new Promise<Server>((resolve, reject) => {
     const s = app.listen(0, '127.0.0.1');
@@ -1218,7 +1235,7 @@ describe('the API starts and answers', () => {
     expect(mergeBody.status).toBe('completed');
     expect(mergeBody.mergeCommit).toBe(E2E_MERGE_COMMIT_SHA);
     expect(mergeBody.mergedAt).toBe(E2E_MERGED_AT.toISOString());
-    // The submitted keys, plus exactly mergeCommit and mergedAt.
+    // The submitted keys, plus exactly mergeCommit, mergedAt and credential.
     expect(Object.keys(mergeBody).sort()).toEqual([
       'agentDid',
       'brief',
@@ -1226,6 +1243,7 @@ describe('the API starts and answers', () => {
       'buyerDid',
       'confirmedAt',
       'createdAt',
+      'credential',
       'criteria',
       'deadline',
       'id',
@@ -1238,6 +1256,21 @@ describe('the API starts and answers', () => {
       'submittedAt',
     ]);
     expect(getPullRequestCalls.length).toBe(before + 1);
+
+    // Gate 3 step 7 (MISSION.md): the merge issued a credential, and a third
+    // party verifies it with the off-the-shelf W3C stack alone - no adapter,
+    // no call to this service.
+    const issued = mergeBody.credential as Record<string, unknown>;
+    expect(String(issued.issuer)).toBe(platformWallet.toDid());
+    const credentialSubject = issued.credentialSubject as Record<string, unknown>;
+    expect(credentialSubject.id).toBe(agentWallet.toDid());
+    const hire = credentialSubject.hire as Record<string, unknown>;
+    expect(hire.mergeCommit).toBe(E2E_MERGE_COMMIT_SHA);
+    expect(hire.additions).toBe(128);
+    expect(hire.deletions).toBe(12);
+    expect(hire.filesChanged).toBe(5);
+    expect(await verifyIndependent(issued)).toBe(true);
+    console.log('E2E_CREDENTIAL_VERIFIED');
 
     // 8. Read back: identical to the merge response.
     const read = await get(`/jobs/${jobId}`);
