@@ -46,3 +46,33 @@ describe('prisma/schema.prisma, the Credential foreign key repoint (R-35 lap B)'
     expect(matches[0]).not.toMatch(/Credential\[\]/);
   });
 });
+
+describe('prisma/schema.prisma, the settlement fields (R-26, ENT-9)', () => {
+  it('Settlement declares the four money/state columns the issue asks for', () => {
+    const settlement = modelBody('Settlement');
+    expect(settlement).toMatch(/amount\s+Decimal\?/);
+    expect(settlement).toMatch(/currency\s+String\?/);
+    expect(settlement).toMatch(/platformFee\s+Decimal\?/);
+    expect(settlement).toMatch(/state\s+SettlementState/);
+  });
+
+  it('all three money columns are optional: nothing in v1 requires a value', () => {
+    const settlement = modelBody('Settlement');
+    expect(settlement).not.toMatch(/amount\s+Decimal[^?]/);
+    expect(settlement).not.toMatch(/currency\s+String[^?]/);
+    expect(settlement).not.toMatch(/platformFee\s+Decimal[^?]/);
+  });
+
+  it('jobId is unique: one settlement per job', () => {
+    const settlement = modelBody('Settlement');
+    expect(settlement).toMatch(/jobId\s+String\s+@unique/);
+  });
+
+  it('Job declares exactly one Settlement back-relation, as the optional singular form, not a list', () => {
+    const job = modelBody('Job');
+    const matches = job.match(/^\s*\w+\s+Settlement\??\s*$/gm) ?? [];
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toMatch(/Settlement\?\s*$/);
+    expect(matches[0]).not.toMatch(/Settlement\[\]/);
+  });
+});

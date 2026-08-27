@@ -37,6 +37,13 @@ enum JobStatus {
   withdrawn
 }
 
+// ENT-9: v1 records intent and nothing else. Exactly one member, on purpose:
+// a second state is what a transfer would need, so "no transfer" is a
+// property of this enum rather than a rule someone has to remember.
+enum SettlementState {
+  recorded_intent
+}
+
 model Operator {
   did         String   @id
   githubLogin String
@@ -105,6 +112,7 @@ model Job {
   agent        Agent         @relation(fields: [agentDid], references: [did])
   completedJob CompletedJob?
   credential   Credential?
+  settlement   Settlement?
 
   @@index([agentDid])
   @@index([buyerDid])
@@ -168,6 +176,22 @@ model KeyRotation {
   agent Agent @relation(fields: [agentDid], references: [did])
 
   @@index([agentDid])
+}
+
+// R-26 (ENT-9): designed in, not shipped. The money columns exist so
+// settlement does not have to be retrofitted into a completed job record
+// later, and every one of them is nullable because nothing in v1 writes one.
+// One row per job: the fee attaches to a completed hire (ENT-9.3).
+model Settlement {
+  id          String          @id @default(cuid())
+  jobId       String          @unique
+  amount      Decimal?
+  currency    String?
+  platformFee Decimal?
+  state       SettlementState @default(recorded_intent)
+  recordedAt  DateTime        @default(now())
+
+  job Job @relation(fields: [jobId], references: [id])
 }
 
 model Review {
