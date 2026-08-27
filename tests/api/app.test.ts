@@ -518,6 +518,12 @@ describe('app, job storage failures', () => {
     async recordKeyRotation(): Promise<never> {
       throw failure;
     }
+    async reportKeyCompromise(): Promise<never> {
+      throw failure;
+    }
+    async listCompromiseWindows(): Promise<never> {
+      throw failure;
+    }
   }
 
   class FailingJobRepository implements JobRepository {

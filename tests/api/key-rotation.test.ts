@@ -186,6 +186,8 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       updateGithubBinding: (did, input) => base.updateGithubBinding(did, input),
       recordKeyRotation:
         overrides.recordKeyRotation ?? ((did, input) => base.recordKeyRotation(did, input)),
+      reportKeyCompromise: (did, input) => base.reportKeyCompromise(did, input),
+      listCompromiseWindows: (did) => base.listCompromiseWindows(did),
     };
     return createApp(new MemoryOperatorRepository(), repo);
   }
@@ -238,6 +240,8 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       findByDid: (did) => base.findByDid(did),
       updateGithubBinding: (did, input) => base.updateGithubBinding(did, input),
       recordKeyRotation: () => Promise.reject(new Error('db down')),
+      reportKeyCompromise: (did, input) => base.reportKeyCompromise(did, input),
+      listCompromiseWindows: (did) => base.listCompromiseWindows(did),
     };
     const app = createApp(new MemoryOperatorRepository(), repo);
     await withApp(app, async (url) => {

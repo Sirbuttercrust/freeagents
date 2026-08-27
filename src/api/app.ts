@@ -61,6 +61,13 @@ import {
   type JobStatus,
 } from '../domain/job.js';
 import { rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
+import {
+  compromiseWindowWellFormed,
+  credentialDisputed,
+  disputingWindows,
+  type CompromiseWindow,
+  type DisputableCredentialFacts,
+} from '../domain/key-compromise.js';
 import { ACCESS_NOTICE, CAPABILITIES, type Capability } from '../domain/access.js';
 import { renderAvatar } from './avatar.js';
 
@@ -128,6 +135,36 @@ function agentProjection(row: Agent): Record<string, unknown> {
       rotatedAt: rotation.rotatedAt.toISOString(),
     })),
   };
+}
+
+function compromiseWindowProjection(w: CompromiseWindow): Record<string, unknown> {
+  return {
+    key: w.key,
+    from: w.from.toISOString(),
+    to: w.to.toISOString(),
+    reportedAt: w.reportedAt.toISOString(),
+  };
+}
+
+// Shared by the disputed route and the resolve route's header: the facts a
+// compromise window is compared against, read off the signed document
+// itself, never stored.
+function disputableFacts(document: {
+  readonly credentialSubject: { readonly id: string; readonly hire?: { readonly signedBy?: unknown; readonly mergedAt?: unknown } };
+  readonly validFrom?: unknown;
+}): { readonly agentDid: string; readonly facts: DisputableCredentialFacts } {
+  const hireSignedBy = document.credentialSubject.hire?.signedBy;
+  const hireMergedAt = document.credentialSubject.hire?.mergedAt;
+  const signedBy = typeof hireSignedBy === 'string' && hireSignedBy.length > 0 ? hireSignedBy : null;
+  const signedAt = parseDateOrNull(hireMergedAt);
+  const issuedAt = parseDateOrNull(document.validFrom);
+  return { agentDid: document.credentialSubject.id, facts: { signedBy, signedAt, issuedAt } };
+}
+
+function parseDateOrNull(value: unknown): Date | null {
+  if (typeof value !== 'string' || value.length === 0) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 // The Job draft projection is the whole response. Exactly these eight fields
@@ -660,6 +697,85 @@ export function createApp(
     }
   });
 
+  // R-16 (ENT-8, spec/wireframe/keys.html): report a key compromised. The
+  // route owns only what the domain does not know about: the body's shape
+  // (checked with compromiseWindowWellFormed, not restated), the from > to
+  // semantic rule the well-formedness check defers (the same deferral
+  // rotationWellFormed makes for fromKey === toKey, just above), the
+  // agent's existence, and the error mapping. This never touches a
+  // credential: disputed is derived at read time, never stored (Route 3
+  // below), so this route only appends a report.
+  app.post('/agents/:agentDid/key-compromise', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+    const body = (req.body ?? {}) as { key?: unknown; from?: unknown; to?: unknown };
+
+    if (
+      !compromiseWindowWellFormed({
+        key: body.key,
+        from: body.from,
+        to: body.to,
+        reportedAt: new Date(),
+      } as CompromiseWindow)
+    ) {
+      res.status(400).json({
+        error:
+          'body must be { key, from, to }; key is a non-empty string in DID fragment form, did:abt:<suffix>#<fragment>, and from and to are ISO-8601 dates',
+      });
+      return;
+    }
+
+    const from = new Date(String(body.from));
+    const to = new Date(String(body.to));
+    if (from > to) {
+      res.status(400).json({ error: 'a compromise window runs forward: from is after to' });
+      return;
+    }
+
+    let existing: Agent | null;
+    try {
+      existing = await agentRepo.findByDid(did);
+    } catch (err) {
+      console.error('POST /agents/:agentDid/key-compromise: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (existing === null) {
+      res.status(404).json({ error: `agent ${did} is not registered` });
+      return;
+    }
+
+    try {
+      const windows = await agentRepo.reportKeyCompromise(did, { key: body.key as string, from, to });
+      if (windows === null) {
+        res.status(404).json({ error: `agent ${did} is not registered` });
+        return;
+      }
+      res.status(201).json({ agentDid: did, windows: windows.map(compromiseWindowProjection) });
+    } catch (err) {
+      console.error('POST /agents/:agentDid/key-compromise: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // R-16: "the window is visible" -- the read half. Never 404s into an
+  // absent field: an agent with no reports gets windows: [], not a missing
+  // key, so the shape never changes with state (the keyRotations stance,
+  // agentProjection above).
+  app.get('/agents/:agentDid/key-compromise', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+    try {
+      const windows = await agentRepo.listCompromiseWindows(did);
+      if (windows === null) {
+        res.status(404).json({ error: `agent ${did} is not registered` });
+        return;
+      }
+      res.status(200).json({ agentDid: did, windows: windows.map(compromiseWindowProjection) });
+    } catch (err) {
+      console.error('GET /agents/:agentDid/key-compromise: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
   app.get('/agents/:agentDid/card', notImplemented);
   app.get('/agents/:agentDid/credentials', notImplemented);
 
@@ -673,13 +789,60 @@ export function createApp(
     const credentialId = String(req.params.credentialId);
     try {
       const document = await credentials.getCredential(credentialId);
-      res.status(200).set('Content-Type', 'application/ld+json').send(JSON.stringify(document));
+      // R-16: a dispute-status header rides beside the verbatim document,
+      // never inside it (Route 3's comment has the full rationale). This
+      // lookup is wrapped in its own try/catch: a window-lookup failure
+      // must never fail credential resolution, and must never read as
+      // 'clear' -- that would silently trust work signed by a stolen key,
+      // the exact outcome spec/work-history-extension-v1.md:264-266
+      // forbids. 'unknown' is the only safe default on error.
+      let disputeStatus: 'disputed' | 'clear' | 'unknown';
+      try {
+        const { agentDid, facts } = disputableFacts(document);
+        const windows = (await agentRepo.listCompromiseWindows(agentDid)) ?? [];
+        disputeStatus = credentialDisputed(facts, windows) ? 'disputed' : 'clear';
+      } catch (err) {
+        console.error('GET /v1/credentials/:credentialId: dispute lookup failed', err);
+        disputeStatus = 'unknown';
+      }
+      res
+        .status(200)
+        .set('Content-Type', 'application/ld+json')
+        .set('X-FreeAgents-Dispute-Status', disputeStatus)
+        .send(JSON.stringify(document));
     } catch (err) {
       if (err instanceof CredentialNotFoundError) {
         res.status(404).json({ error: 'not found' });
         return;
       }
       console.error('GET /v1/credentials/:credentialId: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // R-16 (ENT-8, spec/wireframe/keys.html): the read-time derivation,
+  // served. disputed: false is a statement about reported windows, not a
+  // verdict on the work (ENT-7.3, keys.html:163) -- the platform never
+  // judges whether the work itself was good, only whether a report exists
+  // that overlaps it. A credential whose subject is not a stored agent
+  // simply has no windows; that is not a 404, the credential still exists.
+  app.get('/v1/credentials/:credentialId/disputed', async (req: Request, res: Response) => {
+    const credentialId = String(req.params.credentialId);
+    try {
+      const document = await credentials.getCredential(credentialId);
+      const { agentDid, facts } = disputableFacts(document);
+      const windows = (await agentRepo.listCompromiseWindows(agentDid)) ?? [];
+      res.status(200).json({
+        credentialId,
+        disputed: credentialDisputed(facts, windows),
+        windows: disputingWindows(facts, windows).map(compromiseWindowProjection),
+      });
+    } catch (err) {
+      if (err instanceof CredentialNotFoundError) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      console.error('GET /v1/credentials/:credentialId/disputed: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });

@@ -5,11 +5,13 @@ import type { Agent, ProofStatus } from '../../domain/agent.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
+import type { CompromiseWindow } from '../../domain/key-compromise.js';
 import type { VerifiableCredential } from '../credentials/types.js';
 import {
   AgentAlreadyExistsError,
   type AgentInput,
   type AgentRepository,
+  type CompromiseReportInput,
   CredentialAlreadyIssuedError,
   type CredentialRepository,
   JobAlreadyExistsError,
@@ -48,6 +50,9 @@ export class MemoryOperatorRepository implements OperatorRepository {
 
 export class MemoryAgentRepository implements AgentRepository {
   private readonly rows = new Map<string, Agent>();
+  // R-16: kept off the Agent row on purpose (types.ts's comment on
+  // reportKeyCompromise), so a second Map, keyed the same way.
+  private readonly compromiseWindows = new Map<string, CompromiseWindow[]>();
 
   async create(input: AgentInput): Promise<Agent> {
     // Check-then-set is safe here: Node is single-threaded and this method
@@ -104,6 +109,30 @@ export class MemoryAgentRepository implements AgentRepository {
     const updated: Agent = { ...row, keyRotations: [...row.keyRotations, rotation] };
     this.rows.set(did, updated);
     return updated;
+  }
+
+  async reportKeyCompromise(
+    did: string,
+    input: CompromiseReportInput,
+  ): Promise<readonly CompromiseWindow[] | null> {
+    if (this.rows.get(did) === undefined) return null;
+    const window: CompromiseWindow = {
+      key: input.key,
+      from: input.from,
+      to: input.to,
+      reportedAt: new Date(),
+    };
+    // Append, never replace: nothing is ever deleted or hidden (the accept
+    // line), same stance as recordKeyRotation.
+    const windows = this.compromiseWindows.get(did) ?? [];
+    windows.push(window);
+    this.compromiseWindows.set(did, windows);
+    return [...windows];
+  }
+
+  async listCompromiseWindows(did: string): Promise<readonly CompromiseWindow[] | null> {
+    if (this.rows.get(did) === undefined) return null;
+    return [...(this.compromiseWindows.get(did) ?? [])];
   }
 }
 

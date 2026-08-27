@@ -72,9 +72,10 @@ model Agent {
 
   operator Operator @relation(fields: [operatorDid], references: [did])
 
-  jobs         Job[]
-  credentials  Credential[]
-  keyRotations KeyRotation[]
+  jobs           Job[]
+  credentials    Credential[]
+  keyRotations   KeyRotation[]
+  keyCompromises KeyCompromise[]
 
   @@index([operatorDid])
   @@index([githubLogin])
@@ -172,6 +173,27 @@ model KeyRotation {
   fromKey   String
   toKey     String
   rotatedAt DateTime @default(now())
+
+  agent Agent @relation(fields: [agentDid], references: [did])
+
+  @@index([agentDid])
+}
+
+// R-16 (ENT-8, spec/wireframe/keys.html): a reported compromise window.
+// Append-only, like KeyRotation and for a stronger reason: a report that
+// could be edited or withdrawn would let an agent with an unflattering
+// record discover, and then un-discover, a compromise. Nothing here marks a
+// credential; the disputed state is DERIVED at read time by comparing this
+// window against a credential's own timestamps (keys.html "Backend
+// consequence"). A stored flag would go stale the moment a window was
+// corrected.
+model KeyCompromise {
+  id         String   @id @default(cuid())
+  agentDid   String
+  key        String
+  from       DateTime
+  to         DateTime
+  reportedAt DateTime @default(now())
 
   agent Agent @relation(fields: [agentDid], references: [did])
 

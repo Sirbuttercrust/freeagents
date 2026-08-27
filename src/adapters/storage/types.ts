@@ -3,6 +3,7 @@
 // (prisma) sits beside it without touching callers. Adapters may import
 // domain; never the reverse (CLAUDE.md).
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
+import type { CompromiseWindow } from '../../domain/key-compromise.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 import type { VerifiableCredential } from '../credentials/types.js';
@@ -50,6 +51,16 @@ export interface KeyRotationInput {
   readonly toKey: string;
 }
 
+// One compromise report, in the shape the API accepts (R-16). The driver
+// stamps reportedAt. Public key identifiers and dates only; no key material,
+// ever, and nothing here names a credential -- which credentials fall inside
+// the window is derived at read time (src/domain/key-compromise.ts).
+export interface CompromiseReportInput {
+  readonly key: string;
+  readonly from: Date;
+  readonly to: Date;
+}
+
 export interface AgentRepository {
   // Throws AgentAlreadyExistsError when the DID is already delegated.
   create(input: AgentInput): Promise<Agent>;
@@ -65,6 +76,17 @@ export interface AgentRepository {
   // Null when the agent is not stored, mirroring updateGithubBinding, so
   // the API maps it to 404 without a second lookup.
   recordKeyRotation(did: string, input: KeyRotationInput): Promise<Agent | null>;
+  // R-16 (ENT-8): append one compromise report. Null when the agent is not
+  // stored, mirroring recordKeyRotation. Returns the agent's full window
+  // history, append-only: the accept line requires the window be visible,
+  // and nothing is ever removed from this list.
+  reportKeyCompromise(
+    did: string,
+    input: CompromiseReportInput,
+  ): Promise<readonly CompromiseWindow[] | null>;
+  // The read half. Null when the agent is not stored; an empty array when
+  // the agent exists and has never reported one.
+  listCompromiseWindows(did: string): Promise<readonly CompromiseWindow[] | null>;
 }
 
 // Thrown by JobRepository.create when the id is already stored, so the API

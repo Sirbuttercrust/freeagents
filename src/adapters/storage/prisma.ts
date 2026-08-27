@@ -6,10 +6,12 @@ import type { VerifiableCredential } from '../credentials/types.js';
 import type { CompletedJob, Criterion, Job, JobStatus } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
+import type { CompromiseWindow } from '../../domain/key-compromise.js';
 import {
   AgentAlreadyExistsError,
   type AgentInput,
   type AgentRepository,
+  type CompromiseReportInput,
   CredentialAlreadyIssuedError,
   type CredentialRepository,
   JobAlreadyExistsError,
@@ -52,6 +54,30 @@ function rotationDb() {
         where: { agentDid: string };
         orderBy: { rotatedAt: 'asc' };
       }): Promise<KeyRotationRow[]>;
+    };
+  };
+}
+
+// Same escape hatch as rotationDb, for the same reason (R-16): the
+// generated client lags the schema and this path cannot regenerate it.
+interface KeyCompromiseRow {
+  id: string;
+  agentDid: string;
+  key: string;
+  from: Date;
+  to: Date;
+  reportedAt: Date;
+}
+function compromiseDb() {
+  return db() as unknown as {
+    keyCompromise: {
+      create(args: {
+        data: { agentDid: string; key: string; from: Date; to: Date; reportedAt: Date };
+      }): Promise<KeyCompromiseRow>;
+      findMany(args: {
+        where: { agentDid: string };
+        orderBy: { reportedAt: 'asc' };
+      }): Promise<KeyCompromiseRow[]>;
     };
   };
 }
@@ -163,6 +189,30 @@ export class PrismaAgentRepository implements AgentRepository {
       }
       throw err;
     }
+  }
+
+  async reportKeyCompromise(
+    did: string,
+    input: CompromiseReportInput,
+  ): Promise<readonly CompromiseWindow[] | null> {
+    // Reading first, not creating blind: an unknown DID resolves to null
+    // instead of a foreign-key failure, mirroring recordKeyRotation.
+    const agent = await db().agent.findUnique({ where: { did } });
+    if (agent === null) return null;
+    await compromiseDb().keyCompromise.create({
+      data: { agentDid: did, key: input.key, from: input.from, to: input.to, reportedAt: new Date() },
+    });
+    return this.listCompromiseWindows(did);
+  }
+
+  async listCompromiseWindows(did: string): Promise<readonly CompromiseWindow[] | null> {
+    const agent = await db().agent.findUnique({ where: { did } });
+    if (agent === null) return null;
+    const rows = await compromiseDb().keyCompromise.findMany({
+      where: { agentDid: did },
+      orderBy: { reportedAt: 'asc' },
+    });
+    return rows.map((r) => ({ key: r.key, from: r.from, to: r.to, reportedAt: r.reportedAt }));
   }
 }
 
