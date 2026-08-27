@@ -327,6 +327,20 @@ describe('job merge (R-11)', () => {
     expect(stored).toEqual(body.credential as VerifiableCredential);
   });
 
+  it('resolves the merge-issued credential by its own id (R-15)', async () => {
+    const merge = await get(`/jobs/${happyJobId}`);
+    const body = (await merge.json()) as Record<string, unknown>;
+    const credential = body.credential as VerifiableCredential;
+
+    // The credential's own id is the address a third party resolves it at
+    // (ENT-8): a path on this same service, not a bare urn:uuid disconnected
+    // from the completed-job lookup key it was actually stored under.
+    const resolved = await get(new URL(credential.id).pathname);
+    expect(resolved.status).toBe(200);
+    expect(String(resolved.headers.get('content-type'))).toContain('application/ld+json');
+    expect(await resolved.json()).toEqual(credential);
+  });
+
   it('answers 409 on an already-completed job, without observing github a second time', async () => {
     const again = await post(`/jobs/${happyJobId}/merge`);
     expect(again.status).toBe(409);
