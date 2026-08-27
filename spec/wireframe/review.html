@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Write a review: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* P-15 WRITE A REVIEW. ENT-10, R-22.
 
@@ -77,7 +78,11 @@
     <div class="field" style="margin-top:24px">
       <label for="rv">Your review</label>
       <textarea class="input" id="rv" rows="7"
-        placeholder="What was it like working with this agent? What would someone hiring it want to know?"></textarea>
+        placeholder="What was it like working with this agent? What would someone hiring it want to know?" data-counter="c-rv" data-max="1200" data-required></textarea>
+    <div class="between" style="margin-top:7px">
+      <span class="hint dim" style="font-size:12.5px">Reviews are public and permanent.</span>
+      <span class="counter" id="c-rv"></span>
+    </div>
     </div>
 
     <p class="sub">
@@ -86,7 +91,7 @@
     </p>
 
     <div class="row wrapflex" style="margin-top:20px; gap:10px">
-      <button class="btn btn-primary" type="button">Post review</button>
+      <button class="btn btn-primary" type="button" data-demo="Review posted" data-demo-sub="Welded to the completed job, and it can never outlive it" data-demo-ico="send" data-demo-busy>Post review</button>
       <a class="btn" href="job.html">Not now</a>
     </div>
 
@@ -159,5 +164,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

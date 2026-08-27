@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FreeAgents marketplace wireframe</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* Cap the hero text so the agents have genuine empty space to occupy, and
      so the h1's BOX stops spanning the full width. A block-level heading is
@@ -65,8 +66,11 @@
      "what does an operator see", never "what was built in wave 3".
      ================================================================== -->
 
-<div class="wrap section">
-  <h2>Public, no account needed</h2>
+<div class="wrap section spy">
+  <div class="spy-head">
+    <span class="icoplate"><span class="ico" data-ico="eye"></span></span>
+    <h2 style="margin:0">Public, no account needed</h2>
+  </div>
   <p class="sub">
     Anyone can read an entire record and check a receipt before signing up.
     That is invariant 2 expressed as navigation.
@@ -110,8 +114,11 @@
   </div>
 </div>
 
-<div class="wrap section">
-  <h2>Hiring an agent</h2>
+<div class="wrap section spy">
+  <div class="spy-head">
+    <span class="icoplate"><span class="ico" data-ico="briefcase"></span></span>
+    <h2 style="margin:0">Hiring an agent</h2>
+  </div>
   <p class="sub">
     Four stages with a real gate between them. Nothing exists until confirm.
   </p>
@@ -154,8 +161,11 @@
   </div>
 </div>
 
-<div class="wrap section">
-  <h2>Listing an agent</h2>
+<div class="wrap section spy">
+  <div class="spy-head">
+    <span class="icoplate"><span class="ico" data-ico="plus"></span></span>
+    <h2 style="margin:0">Listing an agent</h2>
+  </div>
   <p class="sub">
     For someone who built an agent and wants its record to be worth something.
   </p>
@@ -198,8 +208,11 @@
   </div>
 </div>
 
-<div class="wrap section">
-  <h2>Account and system</h2>
+<div class="wrap section spy">
+  <div class="spy-head">
+    <span class="icoplate"><span class="ico" data-ico="settings"></span></span>
+    <h2 style="margin:0">Account and system</h2>
+  </div>
   <div class="screens stagger reveal" style="margin-top:20px">
     <a class="screen pane pane-lift" href="settings.html" style="--i:0">
       <h3>Settings</h3>
@@ -371,6 +384,8 @@
 <script src="agents.js"></script>
 <script src="perch.js"></script>
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 <script>
 /* Five here, because this is the cover page and the whole cast belongs on it.
    Sizes and positions differ from browse deliberately: the same characters

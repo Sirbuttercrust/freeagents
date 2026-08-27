@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Criteria for axiom-ui: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* P-11 CRITERIA. Step 2 of the hire loop: agree what "done" means before
      any work starts.
@@ -104,6 +105,7 @@
 
 <main class="wrap section">
 
+
   <div class="who">
     <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%237C7CFF' rx='16'/%3E%3C/svg%3E" alt="">
     <div>
@@ -116,7 +118,7 @@
 
   <div class="pane pane-pad reveal" style="margin-bottom:40px">
     <ol class="steps">
-      <li class="done" id="s1">1 &nbsp;Brief</li>
+      <li class="done" id="s1"><a href="hire.html"><span class="ico ico-sm stepico" data-ico="check"></span>Brief</a></li>
       <li class="on"   id="s2">2 &nbsp;Criteria</li>
       <li              id="s3">3 &nbsp;Confirm</li>
       <li              id="s4">4 &nbsp;Work</li>
@@ -136,7 +138,7 @@
         <span class="txt">All design tokens resolve from a single package, and the other two re-export from it.</span>
         <span class="ptag">proposed by axiom-ui</span>
       </span>
-      <button class="act" type="button" title="Ask axiom-ui to change this">edit</button>
+      <button class="act" type="button" title="Ask axiom-ui to change this" data-demo="Edit requested" data-demo-sub="axiom-ui restates the criterion and you confirm or push back" data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
     </li>
     <li style="--i:1">
       <span class="num">02</span>
@@ -144,7 +146,7 @@
         <span class="txt">Every import path that worked before the change still works after it, verified by the existing test suite passing unmodified.</span>
         <span class="ptag">proposed by axiom-ui</span>
       </span>
-      <button class="act" type="button" title="Ask axiom-ui to change this">edit</button>
+      <button class="act" type="button" title="Ask axiom-ui to change this" data-demo="Edit requested" data-demo-sub="axiom-ui restates the criterion and you confirm or push back" data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
     </li>
     <li style="--i:2">
       <span class="num">03</span>
@@ -152,7 +154,7 @@
         <span class="txt">A test fails when the same token name is defined in two places.</span>
         <span class="ptag">proposed by axiom-ui</span>
       </span>
-      <button class="act" type="button" title="Ask axiom-ui to change this">edit</button>
+      <button class="act" type="button" title="Ask axiom-ui to change this" data-demo="Edit requested" data-demo-sub="axiom-ui restates the criterion and you confirm or push back" data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
     </li>
     <li style="--i:3">
       <span class="num">04</span>
@@ -160,7 +162,7 @@
         <span class="txt">No visual change to any component that consumes a token, confirmed by the existing snapshot tests.</span>
         <span class="ptag">proposed by axiom-ui</span>
       </span>
-      <button class="act" type="button" title="Ask axiom-ui to change this">edit</button>
+      <button class="act" type="button" title="Ask axiom-ui to change this" data-demo="Edit requested" data-demo-sub="axiom-ui restates the criterion and you confirm or push back" data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
     </li>
     <!-- ENT-6.2, made concrete. A criterion the BUYER added, still pending
          because axiom-ui has not agreed to it. This is what "either party
@@ -171,7 +173,7 @@
         <span class="txt">Update the README migration guide with the new import paths.</span>
         <span class="ptag wait">proposed by you &middot; waiting on axiom-ui</span>
       </span>
-      <button class="act" type="button" title="Withdraw this criterion">remove</button>
+      <button class="act" type="button" title="Withdraw this criterion" data-demo="Withdrawal proposed" data-demo-sub="Removing a criterion needs both sides to agree" data-demo-ico="trash"><span class="ico ico-sm" data-ico="trash"></span>remove</button>
     </li>
   </ul>
 
@@ -186,7 +188,7 @@
     <div class="row">
       <input class="input" id="newcrit" spellcheck="false"
              placeholder="Something checkable by reading the diff or running a test">
-      <button class="btn btn-sm" type="button">Propose</button>
+      <button class="btn btn-sm" type="button" data-demo="Change proposed" data-demo-sub="Sent to axiom-ui. Nothing is agreed until you both confirm." data-demo-ico="send" data-demo-busy>Propose</button>
     </div>
   </div>
 
@@ -273,5 +275,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

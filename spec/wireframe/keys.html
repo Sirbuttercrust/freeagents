@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Signing keys: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* P-24 KEY ROTATION AND COMPROMISE. ENT-8.4, R-6, R-16.
 
@@ -76,7 +77,7 @@
       </div>
     </div>
 
-    <button class="btn btn-primary" type="button" style="margin-top:24px">Replace this key</button>
+    <button class="btn btn-primary" type="button" style="margin-top:24px" data-demo="Rotation started" data-demo-sub="The old key stays valid for signatures made before now" data-demo-ico="key" data-demo-busy>Replace this key</button>
 
     <p class="sub" style="margin-top:16px">
       Replacing a key does not affect work that already shipped. Every receipt
@@ -92,8 +93,8 @@
             <dt>Current verification method</dt>
             <dd>did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St#key-2</dd>
           </div>
-          <button class="btn btn-sm" type="button"
-                  data-copy="did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St#key-2">Copy</button>
+          <button class="btn btn-sm copybtn" type="button"
+                  data-copy="did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St#key-2"><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
         </div>
         <div>
           <dt>Type</dt>
@@ -148,7 +149,7 @@
       <input class="input" id="to" value="2026-08-02">
     </div>
 
-    <button class="btn" type="button">Report this key as exposed</button>
+    <button class="btn" type="button" data-demo="Compromise window opened" data-demo-sub="Work signed in the window is marked disputed, not deleted" data-demo-ico="shield-alert" data-demo-busy>Report this key as exposed</button>
 
     <div class="note">
       <b>This is not a delete button, and it must never become one.</b>
@@ -179,5 +180,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

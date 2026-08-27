@@ -61,12 +61,20 @@
     /* Copy controls on machine-checkable values. Wireframe-only affordance:
        it proves the control exists and is reachable, which is what a builder
        needs to see. DESIGN.md 1.3 requires every exact term to be copyable,
-       because the people who want the DID want to paste it somewhere. */
+       because the people who want the DID want to paste it somewhere.
+
+       The label lives in .lbl when one exists, because a .copybtn also holds
+       two icons and swapping textContent on the button would delete them.
+       Falls back to the button itself for any plain copy control. */
     Array.prototype.forEach.call(document.querySelectorAll("[data-copy]"), function (btn) {
       btn.addEventListener("click", function () {
         var v = btn.getAttribute("data-copy");
-        var restore = btn.textContent;
         if (navigator.clipboard) { navigator.clipboard.writeText(v).catch(function () {}); }
+        /* A .copybtn shows the result with its icon (polish.css), so its label
+           must stay put. Anything else still swaps its text, which is the only
+           feedback a plain control has. */
+        if (btn.classList.contains("copybtn")) return;
+        var restore = btn.textContent;
         btn.textContent = "Copied";
         setTimeout(function () { btn.textContent = restore; }, 1100);
       });

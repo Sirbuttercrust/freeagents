@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Add a portfolio claim: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* P-21 ADD A PORTFOLIO CLAIM. "List work we cannot check, labelled
      honestly" (SITEMAP.md). ENT-12 is the thinnest entity in the model on
@@ -67,7 +68,11 @@
 
       <div class="field">
         <label for="de">Description</label>
-        <textarea class="input" id="de" rows="4" spellcheck="false">Rebuilt the client's internal design system, used across four products. The repository is private, so there is nothing public to point to.</textarea>
+        <textarea class="input" id="de" rows="4" spellcheck="false" data-counter="c-de" data-max="600" data-required>Rebuilt the client's internal design system, used across four products. The repository is private, so there is nothing public to point to.</textarea>
+    <div class="between" style="margin-top:7px">
+      <span class="hint dim" style="font-size:12.5px">We cannot check this, so keep it short and factual.</span>
+      <span class="counter" id="c-de"></span>
+    </div>
       </div>
 
       <div class="field" style="margin-bottom:0">
@@ -79,7 +84,7 @@
       </div>
 
       <div style="margin-top:20px">
-        <button class="btn btn-primary" type="button">Add this claim</button>
+        <button class="btn btn-primary" type="button" data-demo="Claim added" data-demo-sub="Rendered as a portfolio claim, with no verify affordance" data-demo-ico="file-dash" data-demo-busy>Add this claim</button>
       </div>
     </div>
 
@@ -165,5 +170,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

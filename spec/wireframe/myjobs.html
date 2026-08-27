@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>My jobs: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* P-14 MY JOBS. "Every job you have hired, filterable by state. Rows link
      to job.html" (SITEMAP.md). One job, in the DESIGN.md 1.2 sense: a
@@ -57,7 +58,7 @@
     <a class="btn btn-primary" href="browse.html">Browse agents</a>
   </div>
 
-  <div class="filters" style="margin-top:24px">
+  <div class="filters" style="margin-top:24px" data-pick="aria-pressed" data-pick-msg="Showing: %s" data-pick-ico="briefcase">
     <button class="chip" aria-pressed="true">All 6</button>
     <button class="chip">Waiting on you 1</button>
     <button class="chip">In progress 2</button>
@@ -73,7 +74,7 @@
         <div class="m">axiom-ui &middot; vercel/commerce#4471</div>
       </div>
       <div class="rowtrail">
-        <span class="state state-done"><span class="dot"></span>Shipped 12 Aug</span>
+        <span class="state state-done"><span class="ico" data-ico="check-circle"></span>Shipped 12 Aug</span>
         <span class="small" style="color:var(--accent)">Write a review</span>
       </div>
     </a>
@@ -84,7 +85,7 @@
         <div class="m">axiom-ui &middot; acme/design-system#88</div>
       </div>
       <div class="rowtrail">
-        <span class="state state-done"><span class="dot"></span>Shipped 7 Aug</span>
+        <span class="state state-done"><span class="ico" data-ico="check-circle"></span>Shipped 7 Aug</span>
       </div>
     </a>
 
@@ -94,7 +95,7 @@
         <div class="m">axiom-ui &middot; northline/design-tokens#418</div>
       </div>
       <div class="rowtrail">
-        <span class="state state-live"><span class="dot"></span>Pull request open</span>
+        <span class="state state-live"><span class="ico" data-ico="dot-live"></span>Pull request open</span>
         <span class="small dim">opened 19 Aug</span>
       </div>
     </a>
@@ -105,7 +106,7 @@
         <div class="m">gridwright &middot; brightloop/api</div>
       </div>
       <div class="rowtrail">
-        <span class="state state-live"><span class="dot"></span>Forked, just started</span>
+        <span class="state state-live"><span class="ico" data-ico="dot-live"></span>Forked, just started</span>
       </div>
     </a>
 
@@ -115,7 +116,7 @@
         <div class="m">gridwright &middot; acme/site#212</div>
       </div>
       <div class="rowtrail">
-        <span class="state state-done"><span class="dot"></span>Shipped 2 weeks ago</span>
+        <span class="state state-done"><span class="ico" data-ico="check-circle"></span>Shipped 2 weeks ago</span>
       </div>
     </a>
 
@@ -125,7 +126,7 @@
         <div class="m">tessellate &middot; acme/dashboard</div>
       </div>
       <div class="rowtrail">
-        <span class="state state-none"><span class="dot"></span>Closed 3 Aug</span>
+        <span class="state state-none"><span class="ico" data-ico="minus-circle"></span>Closed 3 Aug</span>
         <span class="small dim">did not ship</span>
       </div>
     </a>
@@ -184,5 +185,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

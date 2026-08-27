@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Confirm and hire axiom-ui: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* P-12 CONFIRM. Step 3, the gate. THE JOB EXISTS AFTER THIS AND NOT
      BEFORE (ENT-4.1). Everything on this page is arranged around one fact:
@@ -102,6 +103,7 @@
 
 <main class="wrap section">
 
+
   <div class="who">
     <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%237C7CFF' rx='16'/%3E%3C/svg%3E" alt="">
     <div>
@@ -114,8 +116,8 @@
 
   <div class="pane pane-pad reveal" style="margin-bottom:40px">
     <ol class="steps">
-      <li class="done" id="s1">1 &nbsp;Brief</li>
-      <li class="done" id="s2">2 &nbsp;Criteria</li>
+      <li class="done" id="s1"><a href="hire.html"><span class="ico ico-sm stepico" data-ico="check"></span>Brief</a></li>
+      <li class="done" id="s2"><a href="criteria.html"><span class="ico ico-sm stepico" data-ico="check"></span>Criteria</a></li>
       <li class="on"   id="s3">3 &nbsp;Confirm</li>
       <li              id="s4">4 &nbsp;Work</li>
     </ol>
@@ -170,7 +172,7 @@
   </div>
 
   <div class="row" style="margin-top:28px">
-    <button class="btn btn-primary" type="button" onclick="location.href='job.html'">Confirm and hire</button>
+    <button class="btn btn-primary" type="button" onclick="location.href='job.html'" data-demo="Job created" data-demo-sub="POST /api/jobs, status confirmed. This is the moment it exists." data-demo-ico="briefcase" data-demo-busy>Confirm and hire</button>
     <a class="btn" href="criteria.html">Back to criteria</a>
   </div>
 
@@ -278,5 +280,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

@@ -1,0 +1,558 @@
+/* FreeAgents wireframe: the polish layer.
+
+   Loaded AFTER base.css on every screen. It adds only new class names and a
+   small number of deliberate overrides, so base.css stays the readable
+   statement of the system and this file stays the readable statement of what
+   was added on top.
+
+   THE FOUR RULES IN base.css STILL BIND, and two of them constrain this file
+   more than anything else:
+
+   Rule 3, ONE ACCENT AND IT MEANS ONE THING: we watched this happen. So every
+   hover, focus ring aside, every scroll marker, every active tab, every toast
+   and every press state in here is a NEUTRAL. The scroll spy in particular
+   wanted the accent badly and does not get it, because a section being under
+   the reader's eye is not evidence of anything.
+
+   Rule 4, NOTHING DECORATIVE. Every icon this file styles carries information
+   its neighbouring text does not. See icons.js for the argument per glyph.
+
+   MOTION. Every animated rule sits inside prefers-reduced-motion:
+   no-preference, or is a colour change that needs no gate. base.css ends with
+   a global `* { transition: none }` under reduce, so a reduced-motion visitor
+   gets all of the state and none of the movement. */
+
+:root {
+  --ease-out-q: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-1: .14s;
+  --dur-2: .22s;
+  --dur-3: .38s;
+}
+
+/* ==================================================================== ICONS */
+
+.ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px; height: 16px;
+  color: inherit;
+}
+.ico svg { width: 100%; height: 100%; display: block; }
+
+.ico-sm { width: 13px; height: 13px; }
+.ico-lg { width: 20px; height: 20px; }
+.ico-xl { width: 26px; height: 26px; }
+
+/* An icon in a bounded plate. For a section header or an empty state, where
+   the glyph is the anchor for the eye rather than a modifier on a word. */
+.icoplate {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  color: var(--fg-2);
+  flex: none;
+}
+.icoplate-lg { width: 42px; height: 42px; border-radius: 11px; }
+
+/* The tier icons inherit tier colour from .tier, so the accent stays welded
+   to the one meaning it is allowed to have. */
+.tier .ico { width: 13px; height: 13px; }
+.tier-claim .ico { opacity: .85; }
+
+/* ================================================================== BUTTONS */
+
+/* PRESS FEEDBACK. base.css already dips a button 1px on :active. What it did
+   not have was any sense of the click landing, which is the difference
+   between a control that responds and one that merely moves.
+
+   A ring that expands from the button's own edge and fades. Drawn on a
+   pseudo element so no wrapper is needed and nothing reflows. */
+.btn { position: relative; overflow: hidden; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .btn::after {
+    content: "";
+    position: absolute; inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(circle at var(--px, 50%) var(--py, 50%),
+                rgba(255,255,255,0.5), transparent 55%);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .btn.is-hit::after { animation: btn-hit .5s var(--ease-out-q); }
+  @keyframes btn-hit {
+    0%   { opacity: .3; transform: scale(0.4); }
+    100% { opacity: 0;  transform: scale(2.4); }
+  }
+  /* A primary button is a light fill, so a white ripple is invisible on it.
+     Darken instead, same gesture, opposite direction. */
+  .btn-primary::after {
+    background: radial-gradient(circle at var(--px, 50%) var(--py, 50%),
+                rgba(10,10,22,0.55), transparent 55%);
+  }
+}
+
+/* Icon buttons: square, and the glyph is the whole label, so they carry a
+   title and an aria-label rather than text. */
+.btn-ico {
+  width: 38px; padding: 0; flex: none;
+}
+.btn-ico.btn-sm { width: 32px; }
+
+/* A button that is working. The label holds its width so the row does not
+   jump when the text swaps. */
+.btn[data-busy="true"] { pointer-events: none; color: transparent; }
+.btn[data-busy="true"]::before {
+  content: "";
+  position: absolute; left: 50%; top: 50%;
+  width: 14px; height: 14px; margin: -7px 0 0 -7px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  color: var(--fg-2);
+  animation: spin .62s linear infinite;
+}
+.btn-primary[data-busy="true"]::before { color: var(--accent-fg); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ==================================================================== CHIPS */
+
+/* base.css gives a chip a hover and a pressed state. What was missing is the
+   moment of the toggle: without it, clicking a filter feels like nothing
+   happened and people click twice. */
+.chip { position: relative; transition: background var(--dur-1), border-color var(--dur-1), color var(--dur-1); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .chip:active { transform: scale(0.96); }
+  .chip.is-hit { animation: chip-pop .28s var(--ease-out-q); }
+  @keyframes chip-pop {
+    0%   { transform: scale(0.96); }
+    55%  { transform: scale(1.04); }
+    100% { transform: scale(1); }
+  }
+}
+
+/* The tick that appears inside a selected chip. Width animates from zero so
+   the label slides rather than the chip jumping a whole glyph wider. */
+.chip .ico {
+  width: 0; opacity: 0;
+  transition: width var(--dur-2) var(--ease-out-q), opacity var(--dur-2), margin var(--dur-2) var(--ease-out-q);
+  margin-right: -6px;
+}
+.chip[aria-pressed="true"] .ico { width: 12px; opacity: 1; margin-right: 0; }
+
+/* =============================================================== SCROLL SPY */
+
+/* "Icons highlighting over sections when you scroll over it."
+
+   A section under the reader's eye brightens its own header plate and raises
+   a marker on the left gutter. NEUTRAL ONLY: being read is not evidence, so
+   the accent is not available here. */
+
+.spy { position: relative; }
+
+.spy-head {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 6px;
+}
+.spy-head .icoplate {
+  transition: background var(--dur-3) var(--ease-out-q),
+              border-color var(--dur-3) var(--ease-out-q),
+              color var(--dur-3) var(--ease-out-q),
+              transform var(--dur-3) var(--ease-out-q);
+}
+.spy.is-read .spy-head .icoplate {
+  background: rgba(255,255,255,0.07);
+  border-color: var(--line-2);
+  color: var(--fg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .spy.is-read .spy-head .icoplate { transform: translateY(-1px); }
+}
+
+/* The gutter marker. Sits outside the text column on a wide screen and is
+   suppressed entirely below it, where there is no gutter to sit in. */
+.spy::before {
+  content: "";
+  position: absolute;
+  left: -22px; top: 4px; bottom: 4px;
+  width: 2px; border-radius: 2px;
+  background: var(--fg);
+  opacity: 0;
+  transform: scaleY(0.25);
+  transform-origin: top center;
+  transition: opacity var(--dur-3) var(--ease-out-q), transform var(--dur-3) var(--ease-out-q);
+  pointer-events: none;
+}
+.spy.is-read::before { opacity: 0.22; transform: scaleY(1); }
+
+@media (max-width: 1180px) {
+  .spy::before { display: none; }
+}
+
+/* ================================================================ SECTION Q */
+
+/* A quiet page-id tag, used on the index and section headers. Monospace,
+   because it is a machine handle and should look like one. */
+.qtag {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em;
+  color: var(--fg-3);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+/* ==================================================================== TABS */
+
+/* agent.html shipped a role="tablist" with no script behind it, so the tabs
+   looked interactive and did nothing. That is worse than no tabs. The
+   behaviour is in polish.js; this is the moving underline it needs.
+
+   OPT-IN, because a tablist that already marks selection with a background
+   pill does not need a second marker. Two markers for one state is exactly
+   the kind of redundancy base.css rule 4 exists to stop. Add .tabs-line to
+   the tablist when the underline IS the marker. */
+
+.tabs { position: relative; }
+.tabs button { position: relative; z-index: 1; transition: color var(--dur-1); }
+
+.tabs .tabline {
+  position: absolute;
+  bottom: 0; left: 0;
+  height: 2px; border-radius: 2px;
+  background: var(--fg);
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+}
+.tabs-line .tabline { opacity: .55; }
+@media (prefers-reduced-motion: no-preference) {
+  .tabs .tabline { transition: transform var(--dur-3) var(--ease-out-q), width var(--dur-3) var(--ease-out-q), opacity var(--dur-2); }
+}
+
+/* Panels swap without the page jumping. */
+.tabpanel[hidden] { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .tabpanel.is-swap { animation: tab-in .3s var(--ease-out-q); }
+  @keyframes tab-in {
+    from { opacity: 0; transform: translateY(5px); }
+    to   { opacity: 1; transform: none; }
+  }
+}
+
+/* ================================================================ DISCLOSE */
+
+/* The filter drawer and every other progressive disclosure. base.css toggles
+   the hidden attribute, which is correct and abrupt. This animates the open
+   without animating height (which cannot be composited): a grid row from 0fr
+   to 1fr, baseline in every current engine. */
+.reveal-h { display: grid; grid-template-rows: 0fr; }
+.reveal-h > * { overflow: hidden; min-height: 0; }
+.reveal-h.is-open { grid-template-rows: 1fr; }
+@media (prefers-reduced-motion: no-preference) {
+  .reveal-h { transition: grid-template-rows var(--dur-3) var(--ease-out-q); }
+}
+
+/* A chevron that turns when its disclosure opens. */
+.disclose-ico { transition: transform var(--dur-2) var(--ease-out-q); }
+[aria-expanded="true"] .disclose-ico { transform: rotate(180deg); }
+
+/* =================================================================== ROWS */
+
+/* A row that leads somewhere gets a chevron that steps forward on hover. The
+   chevron is the affordance; without it a row of text gives no sign it is a
+   link until the cursor is already on it. */
+.rowlink { position: relative; }
+.rowlink .go {
+  color: var(--fg-3);
+  transition: transform var(--dur-2) var(--ease-out-q), color var(--dur-2);
+}
+@media (hover: hover) {
+  .rowlink:hover .go { color: var(--fg); }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .rowlink:hover .go { transform: translateX(3px); }
+}
+
+/* ================================================================== COPY */
+
+/* base.css swapped the label to "Copied" and back, which works and moves the
+   row's width around as the word changes length. The icon carries the state
+   change instead: the copy glyph morphs to a tick, the label never moves, and
+   nothing beside it reflows.
+
+   Both icons occupy the same cell, so the swap costs no layout. */
+.copybtn { position: relative; display: inline-flex; align-items: center; gap: 6px; }
+.copybtn .icoslot { position: relative; width: 13px; height: 13px; flex: none; }
+.copybtn .ico-copy,
+.copybtn .ico-done {
+  position: absolute; inset: 0;
+  transition: opacity var(--dur-2), transform var(--dur-2) var(--ease-out-q);
+}
+.copybtn .ico-done { opacity: 0; transform: scale(0.55); color: var(--fg); }
+.copybtn.is-done .ico-copy { opacity: 0; transform: scale(0.55); }
+.copybtn.is-done .ico-done { opacity: 1; transform: scale(1); }
+
+/* ================================================================= TOASTS */
+
+/* Confirmation that an action landed, for a wireframe where the action has
+   no backend to answer it. Bottom left, clear of the builder-notes toggle at
+   bottom right. */
+.toasts {
+  position: fixed; left: 20px; bottom: 20px; z-index: 70;
+  display: flex; flex-direction: column; gap: 8px;
+  pointer-events: none;
+  max-width: min(360px, calc(100vw - 40px));
+}
+.toast {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  padding: 11px 14px;
+  font-size: 13.5px; line-height: 1.5;
+  color: var(--fg);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+}
+.toast .ico { color: var(--fg-2); margin-top: 1px; }
+.toast b { font-weight: 550; }
+.toast span.sub { display: block; color: var(--fg-2); font-size: 12.5px; margin-top: 1px; }
+@media (prefers-reduced-motion: no-preference) {
+  .toast { animation: toast-in .3s var(--ease-out-q); }
+  .toast.is-out { animation: toast-out .24s var(--ease-out-q) forwards; }
+  @keyframes toast-in  { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+  @keyframes toast-out { to { opacity: 0; transform: translateY(4px) scale(.98); } }
+}
+
+/* ================================================================== STATE */
+
+/* base.css gives .state a colour. The icon says which state without relying
+   on colour alone, which is what a colour-blind reader needs and what a
+   screenshot in greyscale proves. */
+.state .ico { width: 13px; height: 13px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* A live job is the one thing on a dashboard that is still moving, so its
+     marker breathes. Slow enough not to nag. */
+  .state-live .ico { animation: live-pulse 2.4s ease-in-out infinite; }
+  @keyframes live-pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+}
+
+/* =============================================================== PROGRESS */
+
+/* The hire flow is four screens long and the wireframe never said where you
+   were in it. A stepper answers that in one line. */
+.stepper { display: flex; align-items: center; gap: 0; margin: 0 0 26px; flex-wrap: wrap; }
+.stepper .st {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--fg-3);
+  padding: 5px 0;
+  text-decoration: none;
+}
+/* A completed step is a link back. It gets a hover so it reads as one. */
+a.st:hover { color: var(--fg); }
+a.st:hover .pip { border-color: var(--fg-3); }
+.stepper .st .pip {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 1px solid var(--line-2);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--fg-3);
+  flex: none;
+  transition: background var(--dur-2), border-color var(--dur-2), color var(--dur-2);
+}
+.stepper .st.done .pip { background: rgba(255,255,255,0.08); border-color: var(--line-2); color: var(--fg); }
+.stepper .st.done { color: var(--fg-2); }
+.stepper .st.now .pip { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+.stepper .st.now { color: var(--fg); font-weight: 530; }
+.stepper .bar { width: 26px; height: 1px; background: var(--line-2); margin: 0 10px; flex: none; }
+
+@media (max-width: 620px) {
+  .stepper .st span.lbl { display: none; }
+  .stepper .bar { width: 14px; margin: 0 6px; }
+  .stepper .st.now span.lbl { display: inline; }
+}
+
+/* ============================================ HIRE FLOW STEPS (.steps)
+
+   hire/criteria/confirm each carry an <ol class="steps"> progress line. It
+   marked the finished steps with a class and nothing else: no way back, and
+   the number of a completed step is the least useful thing it could show.
+
+   A finished step now shows a tick and is a link to the screen it names, so
+   the flow is walkable in both directions. Neutral only: progress through a
+   form is not evidence of anything. */
+.steps li a {
+  display: inline-flex; align-items: center; gap: 7px;
+  color: inherit; text-decoration: none;
+}
+.steps .stepico { color: var(--fg-2); }
+@media (hover: hover) {
+  .steps li a:hover { color: var(--fg); }
+  .steps li a:hover .stepico { color: var(--fg); }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .steps .stepico { transition: color var(--dur-1); }
+}
+
+/* ================================================================== FORMS */
+
+/* A field that knows whether it is valid. Wireframe-level: the point is to
+   show the state exists and where it renders, not to validate anything. */
+.field .hint { font-size: 12.5px; color: var(--fg-3); margin-top: 6px; display: flex; align-items: center; gap: 6px; }
+.field.is-bad .input { border-color: #E4757F; }
+.field.is-bad .hint { color: #E4757F; }
+.field.is-ok .input { border-color: rgba(70,195,154,0.55); }
+
+/* Character budget on a textarea, so a brief does not have to be guessed at. */
+.counter { font-family: var(--mono); font-size: 11.5px; color: var(--fg-3); }
+.counter.is-over { color: #E4757F; }
+
+/* ================================================================ SKELETON */
+
+/* What a list looks like before its data arrives. A wireframe that only ever
+   draws the loaded state hides the screen people actually see first. */
+.skel { background: var(--bg-2); border-radius: 6px; height: 12px; }
+@media (prefers-reduced-motion: no-preference) {
+  .skel {
+    background: linear-gradient(90deg, var(--bg-2) 25%, rgba(255,255,255,0.055) 37%, var(--bg-2) 63%);
+    background-size: 320px 100%;
+    animation: skel 1.3s linear infinite;
+  }
+  @keyframes skel { from { background-position: -160px 0; } to { background-position: 160px 0; } }
+}
+
+/* ================================================================== PANEL */
+
+/* A bordered surface that is NOT a .pane: flat, cheap, and used where a
+   glass panel would be too much furniture for the content inside it. */
+.card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-1);
+  padding: 18px 20px;
+}
+.card-quiet { background: transparent; }
+.card-dash { background: transparent; border-style: dashed; }
+
+/* ================================================================= TOPBAR */
+
+/* The nav gains a hairline and a slight tint once the page has scrolled, so
+   it detaches from the content passing under it. */
+.nav { transition: background var(--dur-3), border-color var(--dur-3); }
+.nav.is-stuck {
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border-bottom-color: var(--line-2);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+}
+
+/* A reading-progress hairline on long screens. Neutral, 2px, and it never
+   competes with content because it lives in the nav's own bottom edge. */
+.nav .prog {
+  position: absolute; left: 0; bottom: -1px; height: 2px;
+  background: var(--fg);
+  opacity: .3;
+  width: 0;
+  pointer-events: none;
+}
+
+/* ============================================================== KEYBOARD */
+
+/* Every screen gets a visible keyboard hint for the one shortcut that
+   matters on it. Cheap, and it signals a product built for repeat use. */
+kbd {
+  font-family: var(--mono); font-size: 11px;
+  border: 1px solid var(--line-2);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 1px 5px;
+  color: var(--fg-2);
+  background: var(--bg-2);
+}
+
+/* ================================================================= MOBILE */
+
+@media (max-width: 760px) {
+  .toasts { left: 12px; right: 12px; bottom: 12px; max-width: none; }
+}
+
+/* TAP TARGETS. The house floor is 44px and the wireframe was built at 38px
+   and 32px, which is comfortable with a mouse and small with a thumb. Raised
+   on touch pointers only, so the desktop proportions are unchanged.
+
+   Measured with verify_polish.py under a real touch profile, which is what
+   found each of these: a width-only check at 320px does NOT match
+   (pointer: coarse) and reports everything as passing. */
+@media (pointer: coarse) {
+  .btn { height: 44px; padding: 0 18px; }
+  .btn-sm { height: 44px; padding: 0 14px; font-size: 14px; }
+  .btn-ico, .btn-ico.btn-sm { width: 44px; }
+  /* 12px padding on a 13px line box lands at 42px, two short of the floor.
+     Set the height directly rather than guessing at padding again. */
+  .chip { min-height: 44px; padding: 0 14px; }
+  .nav .links a { display: inline-flex; align-items: center; min-height: 45px; }
+  /* The brand and the nav action are flex children of .inner, which sets
+     their height, so they need the floor on themselves. */
+  .nav .inner > .btn-sm { min-height: 44px; }
+  .tabs button { min-height: 44px; }
+  .notetoggle { height: 44px; }
+  .sort button, .pager button { min-height: 44px; }
+  .drawer label { padding: 10px 0; }
+
+  /* The brand is a link home on every screen, so it is a real target. */
+  .brand { min-height: 44px; }
+
+  /* Every disclosure trigger: "Show the exact terms", "Show technical
+     details", and the rest. They are the primary way into the detail layer
+     on eleven screens. */
+  .disclose { min-height: 44px; display: inline-flex; align-items: center; }
+
+  /* The avatar menu's items sat at 41px, just under the floor. */
+  .avatardrop a { min-height: 44px; display: flex; align-items: center; }
+
+  /* Standalone back links ("Back to the job", "Back to settings") are
+     navigation, not prose, so they get the floor too. */
+  .backlink { min-height: 44px; display: inline-flex; align-items: center; }
+
+  /* The footer is a row of four standalone links on every screen, and a
+     "See all" or a per-row "Settings" link is a control in a list, not a word
+     inside a sentence. All are real targets.
+
+     Selectors match what the markup actually uses: a bare <footer>, and the
+     .small links that act as row actions. */
+  footer a,
+  .rows .small[href],
+  .between .small[href] {
+    min-height: 44px; display: inline-flex; align-items: center;
+  }
+
+  /* The remaining standalone controls, each found by measurement rather than
+     by eye:
+
+     .more      "More filters", the single control that opens the whole
+                secondary filter drawer on browse.
+     .steps a   a finished hire step, which is the way back through the flow.
+     .meta a    the pull request link on a work-history row. It is the ONLY
+                link in its row and it is the point of the row, so it is a
+                target rather than a word in a sentence.
+     .proof a   the same thing on a browse result and a credential. */
+  .more,
+  .steps li a,
+  .meta a,
+  .proof a,
+  .ident a,
+  .facts dd > a,
+  .lbl > a {
+    min-height: 44px; display: inline-flex; align-items: center;
+  }
+
+  /* Small inline row actions ("edit", "remove" on the criteria list) sit in a
+     dense list, so they take the floor as a hit area with side padding rather
+     than as a taller line that would break the row. */
+  .act { min-height: 44px; display: inline-flex; align-items: center; padding: 0 8px; }
+}

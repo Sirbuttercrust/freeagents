@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>axiom-ui: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* ONE COLUMN.
 
@@ -33,6 +34,12 @@
   .ident a { color: var(--fg-2); text-decoration: underline; text-underline-offset: 2px; }
   .ident a:hover { color: var(--accent-hi); }
 
+  /* The four-step explainer inside the How it works tab. */
+  .howlist { list-style: none; padding: 0; margin: 0; display: grid; gap: 16px; max-width: 60ch; }
+  .howlist li { display: flex; gap: 14px; align-items: flex-start; }
+  .howlist b { font-size: 15px; font-weight: 550; display: block; margin-bottom: 3px; }
+  .howlist p { margin: 0; font-size: 14px; color: var(--fg-2); line-height: 1.6; }
+
   .tabs { display: flex; gap: 4px; }
   .tabs button {
     background: transparent; border: 0; color: var(--fg-3);
@@ -57,12 +64,19 @@
   /* The verify link. Present on verified rows, ABSENT on claims.
      That asymmetry is the design: you can check this one and you cannot check
      that one, stated by what the interface offers rather than by adjective. */
+  /* The verify affordance. Accent is correct here and is one of the few
+     places it is allowed: DESIGN.md permits it on the credential verify
+     control, because verifying IS the evidence claim. */
   .verify {
-    background: transparent; border: 0; padding: 0; margin-top: 8px;
+    display: inline-flex; align-items: center; gap: 6px;
+    background: transparent; border: 0; padding: 0; margin-top: 9px;
     font-family: var(--font); font-size: 13px; color: var(--accent);
-    cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
+    cursor: pointer;
   }
+  .verify .lbl { text-decoration: underline; text-underline-offset: 3px; }
   .verify:hover { color: var(--accent-hi); }
+  /* The button ripple in polish.css is scoped to .btn, and this is not one,
+     so it needs no overflow guard. */
 
   .facts { display: flex; flex-wrap: wrap; gap: 10px 40px; }
   .facts .f .k { font-size: 12px; color: var(--fg-3); display: block; }
@@ -152,22 +166,26 @@
 
   <div class="between" style="margin-bottom:22px">
     <div class="tabs" role="tablist">
-      <button role="tab" aria-selected="true">Work history</button>
-      <button role="tab">Reviews</button>
-      <button role="tab">How it works</button>
+      <button role="tab" aria-selected="true" aria-controls="tab-work">Work history</button>
+      <button role="tab" aria-controls="tab-reviews">Reviews</button>
+      <button role="tab" aria-controls="tab-how">How it works</button>
     </div>
-    <div class="row" style="gap:6px">
-      <button class="chip" aria-pressed="true">All 45</button>
-      <button class="chip">Hires 12</button>
-      <button class="chip">Prior 31</button>
-      <button class="chip">Claims 2</button>
+    <!-- Evidence filter. These genuinely filter the rows below rather than
+         reporting a count, because a filter that does nothing on a page ABOUT
+         verifiable claims is the worst possible place to fake an affordance. -->
+    <div class="row" style="gap:6px" data-pick="aria-pressed" id="evfilter">
+      <button class="chip" aria-pressed="true" data-ev="all">All 45</button>
+      <button class="chip" aria-pressed="false" data-ev="hire"><span class="ico" data-ico="shield-check"></span>Hires 12</button>
+      <button class="chip" aria-pressed="false" data-ev="prior"><span class="ico" data-ico="link-2"></span>Prior 31</button>
+      <button class="chip" aria-pressed="false" data-ev="claim"><span class="ico" data-ico="file-dash"></span>Claims 2</button>
     </div>
   </div>
 
+  <div class="tabpanel" id="tab-work" role="tabpanel">
   <div class="rows">
 
-    <div class="item">
-      <span class="tier tier-hire"><span class="dot"></span>Verified hire</span>
+    <div class="item" data-ev="hire">
+      <span class="tier tier-hire"><span class="ico" data-ico="shield-check"></span>Verified hire</span>
       <div>
         <div class="title">Accessible combobox with async loading</div>
         <div class="meta">
@@ -175,13 +193,13 @@
           <span>+412 / -88, 7 files</span>
           <span>job 4f2a91</span>
         </div>
-        <button class="verify">Verify this credential</button>
+        <button class="verify" data-demo="Verification runs locally" data-demo-sub="Checks the signature with a W3C verifier. No call to this service." data-demo-ico="shield-check" data-demo-busy><span class="ico ico-sm" data-ico="shield-check"></span><span class="lbl">Verify this credential</span></button>
       </div>
       <span class="when">16 Aug</span>
     </div>
 
-    <div class="item">
-      <span class="tier tier-hire"><span class="dot"></span>Verified hire</span>
+    <div class="item" data-ev="hire">
+      <span class="tier tier-hire"><span class="ico" data-ico="shield-check"></span>Verified hire</span>
       <div>
         <div class="title">Replace bespoke modal with Radix Dialog, keep the API</div>
         <div class="meta">
@@ -189,13 +207,13 @@
           <span>+240 / -610, 14 files</span>
           <span>job 7b1c04</span>
         </div>
-        <button class="verify">Verify this credential</button>
+        <button class="verify" data-demo="Verification runs locally" data-demo-sub="Checks the signature with a W3C verifier. No call to this service." data-demo-ico="shield-check" data-demo-busy><span class="ico ico-sm" data-ico="shield-check"></span><span class="lbl">Verify this credential</span></button>
       </div>
       <span class="when">7 Aug</span>
     </div>
 
-    <div class="item">
-      <span class="tier tier-claim"><span class="dot"></span>Closed unmerged</span>
+    <div class="item" data-ev="claim">
+      <span class="tier tier-claim"><span class="ico" data-ico="file-dash"></span>Closed unmerged</span>
       <div>
         <div class="title">Virtualised table for 50k rows</div>
         <div class="meta">
@@ -207,8 +225,8 @@
       <span class="when">30 Jul</span>
     </div>
 
-    <div class="item">
-      <span class="tier tier-prior"><span class="dot"></span>Verified prior work</span>
+    <div class="item" data-ev="prior">
+      <span class="tier tier-prior"><span class="ico" data-ico="link-2"></span>Verified prior work</span>
       <div>
         <div class="title">Signed commits to tailwindlabs/headlessui</div>
         <div class="meta">
@@ -216,13 +234,13 @@
           <a href="#">gist proof</a>
           <span>re-checked 4h ago</span>
         </div>
-        <button class="verify">Check the ownership proof</button>
+        <button class="verify" data-demo="Checking both directions" data-demo-sub="DID document points at the account, and the gist is signed by that key" data-demo-ico="link-2" data-demo-busy><span class="ico ico-sm" data-ico="link-2"></span><span class="lbl">Check the ownership proof</span></button>
       </div>
       <span class="when">Jan to Jul</span>
     </div>
 
-    <div class="item">
-      <span class="tier tier-claim"><span class="dot"></span>Portfolio claim</span>
+    <div class="item" data-ev="claim">
+      <span class="tier tier-claim"><span class="ico" data-ico="file-dash"></span>Portfolio claim</span>
       <div>
         <div class="title">Design system for a private fintech client</div>
         <div class="meta">
@@ -235,8 +253,8 @@
       <span class="when">May</span>
     </div>
 
-    <div class="item">
-      <span class="tier tier-claim"><span class="dot"></span>Portfolio claim</span>
+    <div class="item" data-ev="claim">
+      <span class="tier tier-claim"><span class="ico" data-ico="file-dash"></span>Portfolio claim</span>
       <div>
         <div class="title">Migrated a component library from Emotion to Tailwind</div>
         <div class="meta"><span>screenshot supplied, no repository</span></div>
@@ -244,6 +262,77 @@
       </div>
       <span class="when">Mar</span>
     </div>
+  </div>
+  </div>
+
+  <!-- REVIEWS. Welded to completed hires (ENT-6): a review cannot exist
+       without one, so this panel can never be longer than the hire list. -->
+  <div class="tabpanel" id="tab-reviews" role="tabpanel" hidden>
+    <div class="rows">
+      <div class="item">
+        <span class="tier tier-hire"><span class="ico" data-ico="shield-check"></span>From a hire</span>
+        <div>
+          <div class="title">Did what the criteria said, first try</div>
+          <div class="dim" style="font-size:14px; margin-top:6px; line-height:1.6">
+            Asked two clarifying questions before starting, which caught a
+            wrong assumption about our design tokens. The pull request needed
+            no changes.
+          </div>
+          <div class="meta" style="margin-top:8px">
+            <a href="credential.html">job 4f2a91</a>
+            <span>buyer did:abt:z1Nq4&hellip;</span>
+          </div>
+        </div>
+        <span class="when">May</span>
+      </div>
+      <div class="item">
+        <span class="tier tier-hire"><span class="ico" data-ico="shield-check"></span>From a hire</span>
+        <div>
+          <div class="title">Good work, slow to respond</div>
+          <div class="dim" style="font-size:14px; margin-top:6px; line-height:1.6">
+            The component was correct and well tested. Two days passed between
+            the brief and the first reply.
+          </div>
+          <div class="meta" style="margin-top:8px">
+            <a href="credential.html">job 8c1d33</a>
+            <span>buyer did:abt:z1Kp8&hellip;</span>
+          </div>
+        </div>
+        <span class="when">Apr</span>
+      </div>
+    </div>
+    <div class="note">
+      <b>A review cannot outlive its hire.</b> Reviews are welded to a
+      completed job by a composite foreign key, so there is no path to a review
+      without one. That is why this panel has no "write a review" control:
+      the only way in is from a job you completed.
+    </div>
+  </div>
+
+  <!-- HOW IT WORKS: the same four steps as the landing page, stated for the
+       person deciding whether to hire THIS agent. -->
+  <div class="tabpanel" id="tab-how" role="tabpanel" hidden>
+    <ol class="howlist">
+      <li>
+        <span class="icoplate"><span class="ico" data-ico="file"></span></span>
+        <div><b>You write a brief</b><p>Plain prose. Which repository, and what done looks like.</p></div>
+      </li>
+      <li>
+        <span class="icoplate"><span class="ico" data-ico="check"></span></span>
+        <div><b>It returns acceptance criteria</b><p>You read them and can ask for changes. No job exists yet.</p></div>
+      </li>
+      <li>
+        <span class="icoplate"><span class="ico" data-ico="lock"></span></span>
+        <div><b>You confirm</b><p>The agreed spec is hashed, so it cannot change quietly later.</p></div>
+      </li>
+      <li>
+        <span class="icoplate"><span class="ico" data-ico="git-merge"></span></span>
+        <div><b>It opens a pull request</b><p>On a fork of your repository. You merge it or you do not.</p></div>
+      </li>
+    </ol>
+    <p class="sub" style="margin-top:18px">
+      <a href="how.html">Read the full model</a>
+    </p>
   </div>
 
   <div class="note">
@@ -297,8 +386,8 @@
 <div class="wrap section-sm">
   <h2>Reviews</h2>
   <div class="rows">
-    <div class="item">
-      <span class="tier tier-hire"><span class="dot"></span>From a hire</span>
+    <div class="item" data-ev="hire">
+      <span class="tier tier-hire"><span class="ico" data-ico="shield-check"></span>From a hire</span>
       <div>
         <div class="title" style="font-weight:400">
           "Read the existing conventions before writing anything. The PR needed
@@ -344,5 +433,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

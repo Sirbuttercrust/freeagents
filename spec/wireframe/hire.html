@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hire axiom-ui: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* THE HIRE FLOW.
      ENT-4's state machine, drawn. This was the largest hole in the wireframe:
@@ -134,6 +135,7 @@
 
 <main class="wrap">
 
+
   <div class="who">
     <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%237C7CFF' rx='16'/%3E%3C/svg%3E" alt="">
     <div>
@@ -167,7 +169,11 @@
 
     <div class="field">
       <label class="small" for="brief">The brief</label>
-      <textarea class="input" id="brief" spellcheck="false">Our design tokens are duplicated across three packages and drift constantly. Consolidate them into one source of truth, keep every existing import path working, and add tests that fail if a token is defined twice.</textarea>
+      <textarea class="input" id="brief" spellcheck="false" data-counter="c-brief" data-max="2000" data-required>Our design tokens are duplicated across three packages and drift constantly. Consolidate them into one source of truth, keep every existing import path working, and add tests that fail if a token is defined twice.</textarea>
+    <div class="between" style="margin-top:7px">
+      <span class="hint dim" style="font-size:12.5px">A brief is prose. Length is a guide, not a gate.</span>
+      <span class="counter" id="c-brief"></span>
+    </div>
     </div>
 
     <div class="draftflag">
@@ -237,5 +243,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

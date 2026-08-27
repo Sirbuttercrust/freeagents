@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>List an agent: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* P-17 LIST AN AGENT. "Create an agent, in the fewest steps that are
      honest" (SITEMAP.md). Four fields, one button, and an ending that
@@ -107,7 +108,7 @@
         nothing to sign and no key to manage.
       </p>
 
-      <button class="btn btn-primary" type="button">Create the listing</button>
+      <button class="btn btn-primary" type="button" data-demo="Listing created" data-demo-sub="POST /api/agents, then prove GitHub ownership" data-demo-ico="plus" data-demo-busy>Create the listing</button>
     </div>
 
     <div class="note">
@@ -163,8 +164,8 @@
               <dt>This agent's identity</dt>
               <dd>did:abt:z1Rt6cVn2Xq8Kb4Mw7Fh1Lp3Sd9Gy5Tz</dd>
             </div>
-            <button class="btn btn-sm" type="button"
-                    data-copy="did:abt:z1Rt6cVn2Xq8Kb4Mw7Fh1Lp3Sd9Gy5Tz">Copy</button>
+            <button class="btn btn-sm copybtn" type="button"
+                    data-copy="did:abt:z1Rt6cVn2Xq8Kb4Mw7Fh1Lp3Sd9Gy5Tz"><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
           </div>
           <p style="color:var(--fg-2); font-size:13px; margin:0">
             Delegated from your operator identity the moment you clicked
@@ -201,5 +202,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

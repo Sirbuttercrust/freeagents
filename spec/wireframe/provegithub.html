@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Confirm GitHub: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* P-19 PROVE GITHUB. "Confirm the operator controls a GitHub account, in
      one click" (SITEMAP.md). ENT-5 needs proof in BOTH directions, and
@@ -63,11 +64,11 @@
       <div class="rows stagger" data-reveal>
         <div class="between" style="--i:0">
           <span>Your identity points at github.com/northsound</span>
-          <span class="state state-none"><span class="dot"></span>Not checked yet</span>
+          <span class="state state-none"><span class="ico" data-ico="minus-circle"></span>Not checked yet</span>
         </div>
         <div class="between" style="--i:1">
           <span>github.com/northsound confirms it back</span>
-          <span class="state state-none"><span class="dot"></span>Not checked yet</span>
+          <span class="state state-none"><span class="ico" data-ico="minus-circle"></span>Not checked yet</span>
         </div>
       </div>
 
@@ -76,7 +77,7 @@
         counts as confirmed until we have looked at both.
       </p>
 
-      <button class="btn btn-primary" type="button">Confirm my GitHub account</button>
+      <button class="btn btn-primary" type="button" data-demo="Checking both directions" data-demo-sub="DID document points at the account, gist signed by the key" data-demo-ico="shield-check" data-demo-busy>Confirm my GitHub account</button>
     </div>
 
     <div class="note">
@@ -107,11 +108,11 @@
       <div class="rows stagger" data-reveal>
         <div class="between" style="--i:0">
           <span>Your identity points at github.com/northsound</span>
-          <span class="state state-done"><span class="dot"></span>Checking</span>
+          <span class="state state-done"><span class="ico" data-ico="check-circle"></span>Checking</span>
         </div>
         <div class="between" style="--i:1">
           <span>github.com/northsound confirms it back</span>
-          <span class="state state-done"><span class="dot"></span>Checking</span>
+          <span class="state state-done"><span class="ico" data-ico="check-circle"></span>Checking</span>
         </div>
       </div>
 
@@ -134,11 +135,11 @@
       <div class="rows stagger" data-reveal>
         <div class="between" style="--i:0">
           <span>Your identity points at github.com/northsound</span>
-          <span class="state state-live"><span class="dot"></span>Confirmed</span>
+          <span class="state state-live"><span class="ico" data-ico="dot-live"></span>Confirmed</span>
         </div>
         <div class="between" style="--i:1">
           <span>github.com/northsound confirms it back</span>
-          <span class="state state-live"><span class="dot"></span>Confirmed</span>
+          <span class="state state-live"><span class="ico" data-ico="dot-live"></span>Confirmed</span>
         </div>
       </div>
 
@@ -160,16 +161,16 @@
               <dt>Identity points at account</dt>
               <dd>did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St &#8594; github.com/northsound</dd>
             </div>
-            <button class="btn btn-sm" type="button"
-                    data-copy="did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St">Copy</button>
+            <button class="btn btn-sm copybtn" type="button"
+                    data-copy="did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St"><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
           </div>
           <div class="kv">
             <div>
               <dt>Account confirms back</dt>
               <dd>gist.github.com/northsound/8f2a91d4e7c0b3</dd>
             </div>
-            <button class="btn btn-sm" type="button"
-                    data-copy="https://gist.github.com/northsound/8f2a91d4e7c0b3">Copy</button>
+            <button class="btn btn-sm copybtn" type="button"
+                    data-copy="https://gist.github.com/northsound/8f2a91d4e7c0b3"><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
           </div>
           <p style="color:var(--fg-2); font-size:13px; margin:0">
             A public post on the account, signed with the same key as the
@@ -203,11 +204,11 @@
       <div class="rows stagger" data-reveal>
         <div class="between" style="--i:0">
           <span>Your identity points at github.com/northsound</span>
-          <span class="state state-done"><span class="dot"></span>Still true</span>
+          <span class="state state-done"><span class="ico" data-ico="check-circle"></span>Still true</span>
         </div>
         <div class="between" style="--i:1">
           <span>github.com/northsound confirms it back</span>
-          <span class="state state-none"><span class="dot"></span>No longer found</span>
+          <span class="state state-none"><span class="ico" data-ico="minus-circle"></span>No longer found</span>
         </div>
       </div>
 
@@ -220,7 +221,7 @@
       </p>
 
       <div class="row" style="margin-top:14px">
-        <button class="btn" type="button">Prove it again</button>
+        <button class="btn" type="button" data-demo="Re-checking" data-demo-sub="Proof is re-verified on a schedule and on demand" data-demo-ico="refresh" data-demo-busy>Prove it again</button>
       </div>
     </div>
 
@@ -246,5 +247,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

@@ -35,7 +35,15 @@
   --bg-2:      #141517;
   --fg:        #F7F8F8;
   --fg-2:      #9CA1AA;   /* supporting text, lifted for contrast on 13px */
-  --fg-3:      #666B73;   /* the quietest legible grey */
+  /* The quietest legible grey. Was #666B73, which measured 3.72:1 on --bg and
+     failed WCAG AA on every screen that used it: timestamps, diff sizes, meta
+     lines, the "no hires yet" evidence line. Lifted 2026-08-27 to the smallest
+     value in the same hue that clears 4.5:1 on the LIGHTEST surface it ever
+     sits on (--bg-2), measured on rendered pixels rather than computed CSS.
+     Measured against the worst real surface, which is a .pane fill sampled at
+     rgb(21,22,23) rather than a token value:
+       on --bg 5.15,  on --bg-1 4.96,  on a pane over --bg-2 4.68. */
+  --fg-3:      #7C828C;
   --line:      rgba(255,255,255,0.08);
   --line-2:    rgba(255,255,255,0.16);
   --accent:    #7C7CFF;
@@ -47,7 +55,7 @@
      different KINDS of evidence. A claim is unproven, not bad. */
   --t-hire:  #7C7CFF;
   --t-prior: #F7F8F8;
-  --t-claim: #666B73;
+  --t-claim: #7C828C;
 
   /* The perched agents. Five hues at a deliberately restrained chroma, so
      five characters read as one family rather than a toy. The lead carries
@@ -291,7 +299,13 @@ body.notes-on .notetoggle { background: var(--accent); color: var(--accent-fg); 
   position: absolute; inset: 0;
   pointer-events: none;
   overflow: visible;
-  z-index: 1;
+  /* BELOW content, not above it. The house visibility law: a decorative layer
+     sits under the text and dimmed, and an effect that competes with content
+     is a defect. This was z-index 1 with no counterweight on the content, so
+     an agent flying across the index cards landed on top of the card titles.
+     Caught in a screenshot on 2026-08-27, not by a rule that was being
+     followed in theory. */
+  z-index: 0;
 }
 .perch-layer svg {
   position: absolute; top: 0; left: 0;
@@ -312,8 +326,23 @@ body.notes-on .notetoggle { background: var(--accent); color: var(--accent-fg); 
 
 /* Content sits ABOVE the agents so text is never obscured. House visibility
    law: decorative layers sit below content, and nothing may cover a heading
-   or a control. */
+   or a control.
+
+   TWO RULES ARE NEEDED, and for a long time only the first existed.
+
+   The host rule protects content INSIDE the header box. It does nothing for
+   the rest of the page, because .perch-layer is overflow: visible and an
+   agent's whole job is to fly out of that box and down the page. On the index
+   an agent landed on a screen card's title, several hundred pixels below the
+   host, where no z-index inside the host could reach it.
+
+   The second rule gives every following section its own stacking context
+   above the layer. Proven by verify_agents_below.py, which walks each screen
+   at six scroll positions, and for every agent-over-text overlap asks
+   elementsFromPoint which one the browser actually paints on top. */
 .perch-host > *:not(.perch-layer) { position: relative; z-index: 2; }
+.perch-host ~ *,
+.perch-host ~ * .pane { position: relative; z-index: 2; }
 
 /* The line an agent says when clicked. Reserved height, so the layout does
    not jump when it appears and vanishes. */

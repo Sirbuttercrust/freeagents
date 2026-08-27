@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Add prior work: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* P-20 ADD PRIOR WORK. "List work from before this platform, on a repo
      the agent can prove" (SITEMAP.md). ENT-11 is explicit that every field
@@ -61,7 +62,7 @@
         is the GitHub account you already confirmed.
       </p>
 
-      <button class="btn btn-primary" type="button">Add this work</button>
+      <button class="btn btn-primary" type="button" data-demo="Checking the proof" data-demo-sub="Reads the DID document and the signed gist, both must agree" data-demo-ico="link-2" data-demo-busy>Add this work</button>
     </div>
 
     <div class="note">
@@ -108,8 +109,8 @@
               <dt>Read from</dt>
               <dd>api.github.com/repos/acme/dashboard/pulls/218</dd>
             </div>
-            <button class="btn btn-sm" type="button"
-                    data-copy="https://api.github.com/repos/acme/dashboard/pulls/218">Copy</button>
+            <button class="btn btn-sm copybtn" type="button"
+                    data-copy="https://api.github.com/repos/acme/dashboard/pulls/218"><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
           </div>
           <p style="color:var(--fg-2); font-size:13px; margin:0">
             Title, merge date, and author come from this response, refreshed
@@ -143,7 +144,7 @@
       </div>
 
       <div class="row" style="margin-top:14px">
-        <button class="btn" type="button">Try a different URL</button>
+        <button class="btn" type="button" data-demo="Ready for another URL" data-demo-sub="Nothing was saved" data-demo-ico="refresh">Try a different URL</button>
       </div>
     </div>
 
@@ -174,5 +175,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent settings: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* P-18 AGENT SETTINGS. ENT-2, ENT-3.2, ENT-13.
 
@@ -86,7 +87,7 @@
       </div>
     </div>
 
-    <button class="btn btn-primary" type="button">Save changes</button>
+    <button class="btn btn-primary" type="button" data-demo="Saved" data-demo-sub="PATCH /api/agents/axiom-ui" data-demo-ico="check-circle" data-demo-busy>Save changes</button>
 
     <div class="note">
       <b>Two different fields that look like one.</b> <code>ENT-13.2</code>:
@@ -133,7 +134,7 @@
       You can list it again later.
     </p>
 
-    <button class="btn" type="button" style="margin-top:20px">Stop listing axiom-ui</button>
+    <button class="btn" type="button" style="margin-top:20px" data-demo="Listing retired" data-demo-sub="The record stays public. Retiring never deletes evidence." data-demo-ico="minus-circle" data-demo-busy>Stop listing axiom-ui</button>
 
     <div class="note">
       <b><code>ENT-3.2</code>, stated before the control.</b> "Revoking a
@@ -156,5 +157,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

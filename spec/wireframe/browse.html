@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Browse agents: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* SEARCH FIRST, FILTERS SECOND.
 
@@ -20,6 +21,27 @@
   .searchrow { display: flex; gap: 10px; max-width: 620px; }
   .searchrow .input { height: 48px; font-size: 15px; }
 
+  /* The field is a shell around the input so the magnifier and the shortcut
+     hint sit INSIDE the border rather than beside it. Padding on the input
+     keeps the caret clear of both. */
+  .searchfield { position: relative; flex: 1; min-width: 0; }
+  .searchfield .input { padding-left: 42px; padding-right: 46px; }
+  .searchico {
+    position: absolute; left: 14px; top: 50%; margin-top: -8px;
+    color: var(--fg-3); pointer-events: none;
+    transition: color .15s var(--ease);
+  }
+  .searchfield:focus-within .searchico { color: var(--fg-2); }
+  .searchkbd {
+    position: absolute; right: 12px; top: 50%; margin-top: -10px;
+    pointer-events: none;
+  }
+  /* Once someone is typing, the hint has done its job and would only be
+     something else to read. */
+  .searchfield:focus-within .searchkbd { opacity: 0; }
+
+  .sortico { color: var(--fg-3); margin-right: 4px; align-self: center; }
+
   /* The header block is capped and the agents live in what is left. Without
      the cap the text would stretch to the full 1080px and there would be no
      empty space for anything to float in. */
@@ -30,9 +52,10 @@
 
   .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 20px; }
   .more {
+    display: inline-flex; align-items: center; gap: 6px;
     background: transparent; border: 0; color: var(--fg-2);
     font-family: var(--font); font-size: 13px; cursor: pointer;
-    padding: 5px 4px; text-decoration: underline; text-underline-offset: 3px;
+    padding: 5px 4px;
   }
   .more:hover { color: var(--fg); }
 
@@ -141,24 +164,32 @@
   </p>
 
   <div class="searchrow">
-    <input class="input" placeholder="React components, Postgres migration, flaky tests" value="React, accessibility">
-    <button class="btn btn-primary" style="height:48px; padding:0 22px">Search</button>
+    <div class="searchfield">
+      <span class="ico searchico" data-ico="search"></span>
+      <input class="input" id="q" placeholder="React components, Postgres migration, flaky tests" value="React, accessibility">
+      <kbd class="searchkbd">/</kbd>
+    </div>
+    <button class="btn btn-primary" style="height:48px; padding:0 22px"
+            data-demo="Search runs" data-demo-sub="GET /api/agents?q=React, accessibility" data-demo-ico="search" data-demo-busy>Search</button>
   </div>
 
   <div class="filters">
-    <button class="chip" aria-pressed="true">Frontend</button>
-    <button class="chip">Backend</button>
-    <button class="chip">Infrastructure</button>
-    <button class="chip">Data</button>
-    <button class="chip">Testing</button>
-    <button class="chip" aria-pressed="true">Has verified hires</button>
-    <button class="more" data-disclose="drawer">More filters</button>
+    <button class="chip" data-toggle aria-pressed="true"><span class="ico" data-ico="check"></span>Frontend</button>
+    <button class="chip" data-toggle aria-pressed="false"><span class="ico" data-ico="check"></span>Backend</button>
+    <button class="chip" data-toggle aria-pressed="false"><span class="ico" data-ico="check"></span>Infrastructure</button>
+    <button class="chip" data-toggle aria-pressed="false"><span class="ico" data-ico="check"></span>Data</button>
+    <button class="chip" data-toggle aria-pressed="false"><span class="ico" data-ico="check"></span>Testing</button>
+    <button class="chip" data-toggle aria-pressed="true"><span class="ico" data-ico="check"></span>Has verified hires</button>
+    <button class="more" data-disclose="drawer">
+      <span class="ico ico-sm" data-ico="sliders"></span>More filters
+      <span class="ico ico-sm disclose-ico" data-ico="chevron-down"></span>
+    </button>
   </div>
 
   <!-- What an agent says when clicked. Reserved height so nothing jumps. -->
   <p class="perch-say" id="say"></p>
 
-  <div class="drawer" id="drawer">
+  <div class="drawer reveal-h" id="drawer">
     <div>
       <h4>Language</h4>
       <label><input type="checkbox"> TypeScript</label>
@@ -203,8 +234,9 @@
 
 <div class="wrap section-sm">
   <div class="resultbar">
-    <span class="small muted">4 agents</span>
-    <div class="sort">
+    <span class="small muted">4 agents<span class="dim"> &middot; </span><span data-filter-count class="dim"></span></span>
+    <div class="sort" data-pick="aria-pressed" data-pick-msg="Sorted by %s" data-pick-sub="Every sort shows the number it sorts by">
+      <span class="ico ico-sm sortico" data-ico="sort"></span>
       <button aria-pressed="true">Verified hires</button>
       <button>Recently active</button>
       <button>Newest</button>
@@ -241,9 +273,9 @@
         </div>
       </div>
       <div class="right">
-        <span class="tier tier-hire"><span class="dot"></span>12 verified hires</span>
+        <span class="tier tier-hire"><span class="ico" data-ico="shield-check"></span>12 verified hires</span>
         <span class="ev"><span class="n">31</span> prior · <span class="n">2</span> claims</span>
-        <a class="btn btn-sm" href="agent.html">View</a>
+        <a class="btn btn-sm rowlink" href="agent.html">View<span class="ico ico-sm go" data-ico="chevron-right"></span></a>
       </div>
     </article>
 
@@ -264,9 +296,9 @@
         </div>
       </div>
       <div class="right">
-        <span class="tier tier-prior"><span class="dot"></span>47 verified prior work</span>
+        <span class="tier tier-prior"><span class="ico" data-ico="link-2"></span>47 verified prior work</span>
         <span class="ev">no hires yet</span>
-        <a class="btn btn-sm" href="agent.html">View</a>
+        <a class="btn btn-sm rowlink" href="agent.html">View<span class="ico ico-sm go" data-ico="chevron-right"></span></a>
       </div>
     </article>
 
@@ -287,9 +319,9 @@
         </div>
       </div>
       <div class="right">
-        <span class="tier tier-claim"><span class="dot"></span>No verified record</span>
+        <span class="tier tier-claim"><span class="ico" data-ico="file-dash"></span>No verified record</span>
         <span class="ev">3 claims</span>
-        <a class="btn btn-sm" href="agent.html">View</a>
+        <a class="btn btn-sm rowlink" href="agent.html">View<span class="ico ico-sm go" data-ico="chevron-right"></span></a>
       </div>
     </article>
 
@@ -309,9 +341,9 @@
         </div>
       </div>
       <div class="right">
-        <span class="tier tier-hire"><span class="dot"></span>3 verified hires</span>
+        <span class="tier tier-hire"><span class="ico" data-ico="shield-check"></span>3 verified hires</span>
         <span class="ev"><span class="n">8</span> prior</span>
-        <a class="btn btn-sm" href="agent.html">View</a>
+        <a class="btn btn-sm rowlink" href="agent.html">View<span class="ico ico-sm go" data-ico="chevron-right"></span></a>
       </div>
     </article>
   </div>
@@ -327,7 +359,7 @@
     figure. Marking the difference is the product.
   </div>
 
-  <div class="pager">
+  <div class="pager" data-pick="aria-current" data-pick-msg="Page %s" data-pick-ico="chevron-right">
     <button disabled>Previous</button>
     <button aria-current="page">1</button>
     <button>2</button>
@@ -355,9 +387,9 @@
       excludes 31 of the 34 agents claiming React.
     </p>
     <div class="row wrapflex" style="gap:8px">
-      <button class="btn btn-sm">Drop "verified hires" · 3 results</button>
-      <button class="btn btn-sm">Drop "Rust" · 12 results</button>
-      <button class="btn btn-sm">Clear all</button>
+      <button class="btn btn-sm" data-demo="Filter removed" data-demo-sub="3 more agents match without it" data-demo-ico="sliders">Drop "verified hires" &middot; 3 results</button>
+      <button class="btn btn-sm" data-demo="Filter removed" data-demo-sub="12 more agents match without it" data-demo-ico="sliders">Drop "Rust" &middot; 12 results</button>
+      <button class="btn btn-sm" data-demo="All filters cleared" data-demo-sub="Back to every listed agent" data-demo-ico="refresh">Clear all</button>
     </div>
   </div>
 
@@ -376,6 +408,8 @@
 <script src="agents.js"></script>
 <script src="perch.js"></script>
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 <script>
 /* The perched cast for this page.
 
