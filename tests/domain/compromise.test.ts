@@ -53,6 +53,17 @@ describe('reportWellFormed', () => {
     ).toBe(false);
   });
 
+  it('a parseable date string for since and reportedAt is accepted, not just a Date instance', () => {
+    expect(
+      reportWellFormed(
+        report({
+          since: '2026-08-01T00:00:00.000Z' as unknown as Date,
+          reportedAt: '2026-08-20T00:00:00.000Z' as unknown as Date,
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it('is total on garbage: throws nothing, returns false', () => {
     for (const garbage of [
       null,
@@ -123,6 +134,10 @@ describe('windowContains', () => {
     expect(windowContains(r, new Date('not a date'))).toBe(false);
   });
 
+  it('a parseable signedAt date string is accepted, not just a Date instance', () => {
+    expect(windowContains(r, '2026-08-12T00:00:00.000Z' as unknown as Date)).toBe(true);
+  });
+
   it('a malformed report returns false', () => {
     const inverted = report({
       since: new Date('2026-08-20T00:00:00.000Z'),
@@ -174,5 +189,11 @@ describe('disputedBy', () => {
   it('returns [] for an invalid signedAt, with no throw', () => {
     expect(() => disputedBy([r], 'did:abt:zAbc#zKey', new Date('not a date'))).not.toThrow();
     expect(disputedBy([r], 'did:abt:zAbc#zKey', new Date('not a date'))).toEqual([]);
+  });
+
+  it('a parseable signedAt date string is accepted, not just a Date instance', () => {
+    expect(
+      disputedBy([r], 'did:abt:zAbc#zKey', '2026-08-12T00:00:00.000Z' as unknown as Date),
+    ).toEqual([r]);
   });
 });
