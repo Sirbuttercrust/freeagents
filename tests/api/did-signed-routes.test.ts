@@ -340,4 +340,31 @@ describe('DID-signed hire-loop routes (R-34)', () => {
 
     expect(response.status).toBe(401);
   });
+
+  it('refuses the reverse half-signed request: Signature present, Signature-Input absent', async () => {
+    // The middleware's bypass condition requires BOTH headers absent before it
+    // lets a request through unsigned. Only the Input-without-Signature order
+    // was tested; deleting the second conjunct would let this order skip
+    // verification with no test failing (validator finding, PR #80 lap 3).
+    const targetUri = `${baseUrl}/jobs`;
+    const body = JSON.stringify({
+      buyerDid: buyer.did,
+      agentDid: agent.did,
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    });
+    const signed = signRequest(buyer, 'POST', targetUri, { body });
+
+    const response = await fetch(targetUri, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        signature: signed.signature,
+        'content-digest': signed['content-digest'],
+      },
+      body,
+    });
+
+    expect(response.status).toBe(401);
+  });
 });
