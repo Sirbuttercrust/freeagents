@@ -28,6 +28,8 @@ const mock = vi.hoisted(() => ({
   keyRotationFindMany: vi.fn(),
   credentialCreate: vi.fn(),
   credentialFindUnique: vi.fn(),
+  compromiseReportCreate: vi.fn(),
+  compromiseReportFindMany: vi.fn(),
 }));
 
 vi.mock('../../src/generated/prisma/index.js', async () => {
@@ -44,6 +46,7 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
       job = { create: mock.jobCreate, findUnique: mock.jobFindUnique, update: mock.jobUpdate };
       keyRotation = { create: mock.keyRotationCreate, findMany: mock.keyRotationFindMany };
       credential = { create: mock.credentialCreate, findUnique: mock.credentialFindUnique };
+      compromiseReport = { create: mock.compromiseReportCreate, findMany: mock.compromiseReportFindMany };
     },
     Prisma: actual.Prisma,
   };
@@ -53,6 +56,7 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
 // then captures the stubbed client, and `db()` never opens a database.
 const {
   PrismaAgentRepository,
+  PrismaCompromiseRepository,
   PrismaCredentialRepository,
   PrismaJobRepository,
   PrismaOperatorRepository,
@@ -1114,5 +1118,68 @@ describe('PrismaCredentialRepository', () => {
 
     expect(mock.credentialFindUnique).toHaveBeenCalledWith({ where: { completedJobId: 'job_missing' } });
     expect(row).toBeNull();
+  });
+});
+
+describe('PrismaCompromiseRepository (R-16)', () => {
+  beforeAll(() => {
+    vi.mocked(mock.compromiseReportCreate).mockReset();
+    vi.mocked(mock.compromiseReportFindMany).mockReset();
+  });
+
+  afterEach(() => {
+    vi.mocked(mock.compromiseReportCreate).mockReset();
+    vi.mocked(mock.compromiseReportFindMany).mockReset();
+  });
+
+  it('record: sends the agent DID, key and since, with a driver-stamped reportedAt, and returns the domain shape', async () => {
+    const since = new Date('2026-08-10T00:00:00.000Z');
+    const reportedAt = new Date('2026-08-20T00:00:00.000Z');
+    vi.mocked(mock.compromiseReportCreate).mockResolvedValue({
+      id: 'cr-1',
+      agentDid: 'did:abt:agent-1',
+      key: 'did:abt:zAbc#zKey',
+      since,
+      reportedAt,
+    });
+
+    const repo = new PrismaCompromiseRepository();
+    const row = await repo.record('did:abt:agent-1', { key: 'did:abt:zAbc#zKey', since });
+
+    expect(mock.compromiseReportCreate).toHaveBeenCalledWith({
+      data: {
+        agentDid: 'did:abt:agent-1',
+        key: 'did:abt:zAbc#zKey',
+        since,
+        reportedAt: expect.any(Date),
+      },
+    });
+    expect(row).toEqual({ key: 'did:abt:zAbc#zKey', since, reportedAt });
+  });
+
+  it('listByAgentDid: sends the agent DID and orders by reportedAt ascending, mapping rows to the domain shape', async () => {
+    const since = new Date('2026-08-10T00:00:00.000Z');
+    const reportedAt = new Date('2026-08-20T00:00:00.000Z');
+    vi.mocked(mock.compromiseReportFindMany).mockResolvedValue([
+      { id: 'cr-1', agentDid: 'did:abt:agent-1', key: 'did:abt:zAbc#zKey', since, reportedAt },
+    ]);
+
+    const repo = new PrismaCompromiseRepository();
+    const rows = await repo.listByAgentDid('did:abt:agent-1');
+
+    expect(mock.compromiseReportFindMany).toHaveBeenCalledWith({
+      where: { agentDid: 'did:abt:agent-1' },
+      orderBy: { reportedAt: 'asc' },
+    });
+    expect(rows).toEqual([{ key: 'did:abt:zAbc#zKey', since, reportedAt }]);
+  });
+
+  it('listByAgentDid: no stored rows come back as [], not null or undefined', async () => {
+    vi.mocked(mock.compromiseReportFindMany).mockResolvedValue([]);
+
+    const repo = new PrismaCompromiseRepository();
+    const rows = await repo.listByAgentDid('did:abt:agent-none');
+
+    expect(rows).toEqual([]);
   });
 });

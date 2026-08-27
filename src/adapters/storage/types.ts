@@ -3,6 +3,7 @@
 // (prisma) sits beside it without touching callers. Adapters may import
 // domain; never the reverse (CLAUDE.md).
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
+import type { CompromiseReport } from '../../domain/compromise.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 import type { VerifiableCredential } from '../credentials/types.js';
@@ -65,6 +66,27 @@ export interface AgentRepository {
   // Null when the agent is not stored, mirroring updateGithubBinding, so
   // the API maps it to 404 without a second lookup.
   recordKeyRotation(did: string, input: KeyRotationInput): Promise<Agent | null>;
+}
+
+// One compromise report in the shape the API accepts (R-16). The operator
+// supplies the key and when the window opens; the driver stamps reportedAt,
+// the same way recordKeyRotation stamps rotatedAt. Public key identifiers
+// only, never key material.
+export interface CompromiseReportInput {
+  readonly key: string;
+  readonly since: Date;
+}
+
+// R-16 (ENT-8.4): append-only compromise reports, a side record beside the
+// agent rather than a field on it. Separate from AgentRepository on purpose:
+// the report is never part of an Agent projection, because a disputed marker
+// inside a signed credential would violate ENT-8.3.
+export interface CompromiseRepository {
+  // Append one report. Does not check the agent exists: the API route does
+  // that lookup, the same way the key-rotation route does.
+  record(agentDid: string, input: CompromiseReportInput): Promise<CompromiseReport>;
+  // Every report for an agent, oldest first. Empty array when there are none.
+  listByAgentDid(agentDid: string): Promise<readonly CompromiseReport[]>;
 }
 
 // Thrown by JobRepository.create when the id is already stored, so the API
