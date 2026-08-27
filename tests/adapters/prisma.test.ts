@@ -26,6 +26,8 @@ const mock = vi.hoisted(() => ({
   jobUpdate: vi.fn(),
   keyRotationCreate: vi.fn(),
   keyRotationFindMany: vi.fn(),
+  keyCompromiseCreate: vi.fn(),
+  keyCompromiseFindMany: vi.fn(),
   credentialCreate: vi.fn(),
   credentialFindUnique: vi.fn(),
 }));
@@ -43,6 +45,7 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
       agent = { create: mock.agentCreate, findUnique: mock.agentFindUnique, update: mock.agentUpdate };
       job = { create: mock.jobCreate, findUnique: mock.jobFindUnique, update: mock.jobUpdate };
       keyRotation = { create: mock.keyRotationCreate, findMany: mock.keyRotationFindMany };
+      keyCompromise = { create: mock.keyCompromiseCreate, findMany: mock.keyCompromiseFindMany };
       credential = { create: mock.credentialCreate, findUnique: mock.credentialFindUnique };
     },
     Prisma: actual.Prisma,
@@ -246,6 +249,8 @@ describe('PrismaAgentRepository', () => {
     vi.mocked(mock.agentUpdate).mockReset();
     vi.mocked(mock.keyRotationCreate).mockReset();
     vi.mocked(mock.keyRotationFindMany).mockReset();
+    vi.mocked(mock.keyCompromiseCreate).mockReset();
+    vi.mocked(mock.keyCompromiseFindMany).mockReset();
     // Every read path now goes through agentWithRotations, which always
     // fetches the rotation rows; an agent with no rotations gets none.
     vi.mocked(mock.keyRotationFindMany).mockResolvedValue([]);
@@ -257,6 +262,8 @@ describe('PrismaAgentRepository', () => {
     vi.mocked(mock.agentUpdate).mockReset();
     vi.mocked(mock.keyRotationCreate).mockReset();
     vi.mocked(mock.keyRotationFindMany).mockReset();
+    vi.mocked(mock.keyCompromiseCreate).mockReset();
+    vi.mocked(mock.keyCompromiseFindMany).mockReset();
     vi.mocked(mock.keyRotationFindMany).mockResolvedValue([]);
   });
 
@@ -574,6 +581,104 @@ describe('PrismaAgentRepository', () => {
     });
     expect(row?.keyRotations).toEqual([
       { fromKey: 'did:abt:zOldKey#zOldFingerprint', toKey: 'did:abt:zNewKey#zNewFingerprint', rotatedAt },
+    ]);
+  });
+
+  it('reportKeyCompromise: an agent that was never stored comes back as null, and no compromise row is written', async () => {
+    vi.mocked(mock.agentFindUnique).mockResolvedValue(null);
+
+    const repo = new PrismaAgentRepository();
+    const windows = await repo.reportKeyCompromise('did:abt:agent-none', {
+      key: 'did:abt:agent-none#zK',
+      from: new Date('2026-08-01T00:00:00.000Z'),
+      to: new Date('2026-08-10T00:00:00.000Z'),
+    });
+
+    expect(windows).toBeNull();
+    expect(mock.keyCompromiseCreate).not.toHaveBeenCalled();
+  });
+
+  it('reportKeyCompromise: writes a row with a driver-stamped date, and the row comes back via listCompromiseWindows', async () => {
+    const createdAt = new Date('2026-08-20T05:00:00.000Z');
+    const from = new Date('2026-08-01T00:00:00.000Z');
+    const to = new Date('2026-08-10T00:00:00.000Z');
+    const reportedAt = new Date('2026-08-21T01:00:00.000Z');
+    const newRow = {
+      id: 'kc-1',
+      agentDid: 'did:abt:agent-1',
+      key: 'did:abt:agent-1#zK',
+      from,
+      to,
+      reportedAt,
+    };
+    vi.mocked(mock.agentFindUnique).mockResolvedValue({
+      did: 'did:abt:agent-1',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+      proofStatus: 'unverified',
+      createdAt,
+    });
+    vi.mocked(mock.keyCompromiseCreate).mockResolvedValue(newRow);
+    vi.mocked(mock.keyCompromiseFindMany).mockResolvedValue([newRow]);
+
+    const repo = new PrismaAgentRepository();
+    const windows = await repo.reportKeyCompromise('did:abt:agent-1', {
+      key: 'did:abt:agent-1#zK',
+      from,
+      to,
+    });
+
+    expect(mock.keyCompromiseCreate).toHaveBeenCalledWith({
+      data: {
+        agentDid: 'did:abt:agent-1',
+        key: 'did:abt:agent-1#zK',
+        from,
+        to,
+        reportedAt: expect.any(Date),
+      },
+    });
+    expect(windows).toEqual([{ key: 'did:abt:agent-1#zK', from, to, reportedAt }]);
+  });
+
+  it('listCompromiseWindows: an agent that was never stored comes back as null', async () => {
+    vi.mocked(mock.agentFindUnique).mockResolvedValue(null);
+
+    const repo = new PrismaAgentRepository();
+    const windows = await repo.listCompromiseWindows('did:abt:agent-none');
+
+    expect(windows).toBeNull();
+    expect(mock.keyCompromiseFindMany).not.toHaveBeenCalled();
+  });
+
+  it('listCompromiseWindows: rows are projected in the order the database returns them', async () => {
+    const createdAt = new Date('2026-08-20T05:00:00.000Z');
+    const first = { id: 'kc-1', agentDid: 'did:abt:agent-list', key: 'did:abt:agent-list#zFirst', from: new Date('2026-08-01T00:00:00.000Z'), to: new Date('2026-08-05T00:00:00.000Z'), reportedAt: new Date('2026-08-06T00:00:00.000Z') };
+    const second = { id: 'kc-2', agentDid: 'did:abt:agent-list', key: 'did:abt:agent-list#zSecond', from: new Date('2026-08-07T00:00:00.000Z'), to: new Date('2026-08-09T00:00:00.000Z'), reportedAt: new Date('2026-08-10T00:00:00.000Z') };
+    vi.mocked(mock.agentFindUnique).mockResolvedValue({
+      did: 'did:abt:agent-list',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+      proofStatus: 'unverified',
+      createdAt,
+    });
+    vi.mocked(mock.keyCompromiseFindMany).mockResolvedValue([first, second]);
+
+    const repo = new PrismaAgentRepository();
+    const windows = await repo.listCompromiseWindows('did:abt:agent-list');
+
+    expect(mock.keyCompromiseFindMany).toHaveBeenCalledWith({
+      where: { agentDid: 'did:abt:agent-list' },
+      orderBy: { reportedAt: 'asc' },
+    });
+    expect(windows).toEqual([
+      { key: first.key, from: first.from, to: first.to, reportedAt: first.reportedAt },
+      { key: second.key, from: second.from, to: second.to, reportedAt: second.reportedAt },
     ]);
   });
 });

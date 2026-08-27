@@ -91,6 +91,16 @@ describe('compromiseWindowWellFormed', () => {
       expect(() => compromiseWindowWellFormed(garbage as unknown as CompromiseWindow)).not.toThrow();
     }
   });
+
+  it("rejects a number for from/to (isWellFormedDate's fallthrough: neither a Date nor a string)", () => {
+    expect(compromiseWindowWellFormed(window({ from: 42 as unknown as Date }))).toBe(false);
+    expect(compromiseWindowWellFormed(window({ to: 42 as unknown as Date }))).toBe(false);
+  });
+
+  it("rejects undefined for from/to (isWellFormedDate's fallthrough)", () => {
+    expect(compromiseWindowWellFormed(window({ from: undefined as unknown as Date }))).toBe(false);
+    expect(compromiseWindowWellFormed(window({ to: undefined as unknown as Date }))).toBe(false);
+  });
 });
 
 describe('disputingWindows / credentialDisputed', () => {
@@ -180,5 +190,31 @@ describe('disputingWindows / credentialDisputed', () => {
     const f = facts({ signedBy: w.key, signedAt: new Date('2026-08-05T00:00:00.000Z') });
     expect(() => disputingWindows(f, frozenWindows)).not.toThrow();
     expect(frozenWindows).toEqual([w]);
+  });
+
+  it("signedBy with no '#': not disputed (sameKey's aHash === -1 guard)", () => {
+    const w = window();
+    const f = facts({ signedBy: 'zNoHashAtAll', signedAt: new Date('2026-08-05T00:00:00.000Z') });
+    expect(credentialDisputed(f, [w])).toBe(false);
+  });
+
+  it("window.key with no '#': not disputed (sameKey's bHash === -1 guard)", () => {
+    const w = window({ key: 'did:abt:zAbcNoHash' });
+    const f = facts({ signedBy: 'did:abt:zAbc#key-1', signedAt: new Date('2026-08-05T00:00:00.000Z') });
+    expect(credentialDisputed(f, [w])).toBe(false);
+  });
+
+  it("signedBy is an empty string: not disputed (disputingWindows' facts.signedBy.length === 0 clause)", () => {
+    const w = window();
+    const f = facts({ signedBy: '', signedAt: new Date('2026-08-05T00:00:00.000Z') });
+    expect(credentialDisputed(f, [w])).toBe(false);
+    expect(disputingWindows(f, [w])).toEqual([]);
+  });
+
+  it("a timestamp before window.from: not disputed (inWindow's lower bound)", () => {
+    const w = window();
+    const f = facts({ signedBy: w.key, signedAt: new Date('2026-07-01T00:00:00.000Z') });
+    expect(credentialDisputed(f, [w])).toBe(false);
+    expect(disputingWindows(f, [w])).toEqual([]);
   });
 });

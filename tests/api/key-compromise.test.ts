@@ -14,7 +14,7 @@ import { createCredentialResolver, createCredentialsAdapter } from '../../src/ad
 import { MemoryAgentRepository, MemoryCredentialRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 import type { AgentRepository, CredentialRepository } from '../../src/adapters/storage/types.js';
 import type { Agent, Delegation } from '../../src/domain/agent.js';
-import type { WorkHistoryClaim } from '../../src/adapters/credentials/types.js';
+import type { VerifiableCredential, WorkHistoryClaim } from '../../src/adapters/credentials/types.js';
 
 const AGENT_DID = 'did:abt:zAgentKeyHash';
 const ISSUER_DID = 'did:abt:zPlatformKeyHash';
@@ -483,6 +483,152 @@ describe('key compromise reporting and disputed visibility (R-16)', () => {
         expect(res.headers.get('x-freeagents-dispute-status')).toBe('unknown');
         expect(await res.json()).toEqual(issued);
       });
+    });
+  });
+
+  // disputableFacts and parseDateOrNull are not exported, so their branches
+  // are exercised the same way the routes are: through a document saved
+  // straight into the credential repository. Real issuance
+  // (createCredentialsAdapter) always fills signedBy, mergedAt and validFrom,
+  // so these malformed shapes are unreachable through the production issuer
+  // path and are only reachable from whatever a stored document actually
+  // contains -- the same trust boundary getCredential already crosses.
+  describe('disputableFacts / parseDateOrNull edge branches', () => {
+    const EDGE_AGENT_DID = 'did:abt:zEdgeFactsAgent';
+
+    function baseHire(): Record<string, unknown> {
+      return {
+        brief: 'sha256:brief-edge',
+        repository: 'buyer/repo',
+        pullRequest: 'https://github.com/buyer/repo/pull/1',
+        mergedAt: '2026-08-05T00:00:00.000Z',
+        mergeCommit: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
+        signedBy: `${EDGE_AGENT_DID}#zEdgeKey`,
+        buyer: 'did:abt:zBuyer',
+        additions: 1,
+        deletions: 1,
+        filesChanged: 1,
+      };
+    }
+
+    function hireWithout(...omit: readonly string[]): Record<string, unknown> {
+      const hire = baseHire();
+      for (const key of omit) delete hire[key];
+      return hire;
+    }
+
+    function rawDocument(
+      id: string,
+      subjectDid: string,
+      hire: Record<string, unknown>,
+      validFrom: unknown = '2026-08-06T00:00:00.000Z',
+    ): VerifiableCredential {
+      return {
+        '@context': ['https://www.w3.org/ns/credentials/v2'],
+        id: `urn:uuid:${id}`,
+        type: ['VerifiableCredential', 'CompletedHireCredential'],
+        issuer: ISSUER_DID,
+        validFrom,
+        credentialSubject: { id: subjectDid, hire },
+        proof: { type: 'Ed25519Signature2020', proofValue: 'zMockEdgeProof' },
+      } as unknown as VerifiableCredential;
+    }
+
+    beforeAll(async () => {
+      await agentRepo.create({
+        did: EDGE_AGENT_DID,
+        operatorDid: 'did:abt:zOperatorKeyHash',
+        delegation: { ...delegation, credentialSubject: { id: EDGE_AGENT_DID } },
+        name: 'edge-facts-scout',
+        skills: [],
+        githubLogin: null,
+      });
+      await agentRepo.reportKeyCompromise(EDGE_AGENT_DID, {
+        key: `${EDGE_AGENT_DID}#zEdgeKey`,
+        from: new Date('2026-08-01T00:00:00.000Z'),
+        to: new Date('2026-08-10T00:00:00.000Z'),
+      });
+    });
+
+    it('signedBy absent from hire: disputed false (disputableFacts null branch)', async () => {
+      const hire = hireWithout('signedBy');
+      const jobId = 'job-edge-signedby-absent';
+      await credentialRepo.save({
+        completedJobId: jobId,
+        subjectDid: EDGE_AGENT_DID,
+        document: rawDocument(jobId, EDGE_AGENT_DID, hire),
+      });
+
+      const res = await fetch(`${baseUrl}/v1/credentials/${jobId}/disputed`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { disputed: boolean };
+      expect(body.disputed).toBe(false);
+    });
+
+    it('signedBy is a non-string: disputed false (disputableFacts null branch, the typeof guard)', async () => {
+      const hire = { ...baseHire(), signedBy: 42 };
+      const jobId = 'job-edge-signedby-non-string';
+      await credentialRepo.save({
+        completedJobId: jobId,
+        subjectDid: EDGE_AGENT_DID,
+        document: rawDocument(jobId, EDGE_AGENT_DID, hire),
+      });
+
+      const res = await fetch(`${baseUrl}/v1/credentials/${jobId}/disputed`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { disputed: boolean };
+      expect(body.disputed).toBe(false);
+    });
+
+    it('mergedAt missing, validFrom outside the window: disputed false (parseDateOrNull null return on hire.mergedAt)', async () => {
+      const hire = hireWithout('mergedAt');
+      const jobId = 'job-edge-mergedat-missing';
+      await credentialRepo.save({
+        completedJobId: jobId,
+        subjectDid: EDGE_AGENT_DID,
+        document: rawDocument(jobId, EDGE_AGENT_DID, hire, '2026-09-01T00:00:00.000Z'),
+      });
+
+      const res = await fetch(`${baseUrl}/v1/credentials/${jobId}/disputed`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { disputed: boolean };
+      expect(body.disputed).toBe(false);
+    });
+
+    it('validFrom unparseable, mergedAt outside the window: disputed false (parseDateOrNull null return on document.validFrom)', async () => {
+      const hire = { ...baseHire(), mergedAt: '2026-09-01T00:00:00.000Z' };
+      const jobId = 'job-edge-validfrom-unparseable';
+      await credentialRepo.save({
+        completedJobId: jobId,
+        subjectDid: EDGE_AGENT_DID,
+        document: rawDocument(jobId, EDGE_AGENT_DID, hire, 'not a date'),
+      });
+
+      const res = await fetch(`${baseUrl}/v1/credentials/${jobId}/disputed`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { disputed: boolean };
+      expect(body.disputed).toBe(false);
+    });
+
+    it('the credential subject DID is not a stored agent: 200 with disputed false and clear, not a 404 (the ?? [] fallback on both routes)', async () => {
+      const unstoredAgentDid = 'did:abt:zNeverRegisteredForEdgeFacts';
+      const hire = { ...baseHire(), signedBy: `${unstoredAgentDid}#zK` };
+      const jobId = 'job-edge-unstored-subject';
+      await credentialRepo.save({
+        completedJobId: jobId,
+        subjectDid: unstoredAgentDid,
+        document: rawDocument(jobId, unstoredAgentDid, hire),
+      });
+
+      const disputedRes = await fetch(`${baseUrl}/v1/credentials/${jobId}/disputed`);
+      expect(disputedRes.status).toBe(200);
+      const disputedBody = (await disputedRes.json()) as { disputed: boolean; windows: unknown[] };
+      expect(disputedBody.disputed).toBe(false);
+      expect(disputedBody.windows).toEqual([]);
+
+      const resolveRes = await fetch(`${baseUrl}/v1/credentials/${jobId}`);
+      expect(resolveRes.status).toBe(200);
+      expect(resolveRes.headers.get('x-freeagents-dispute-status')).toBe('clear');
     });
   });
 });
