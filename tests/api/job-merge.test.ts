@@ -395,6 +395,32 @@ describe('GET /jobs/:jobId, no credential row (R-36)', () => {
     }
   });
 
+  it('never looks up a credential for an unmerged job (the mergeCommit guard)', async () => {
+    const repo = new MemoryJobRepository();
+    const row = submittedJob('j-unmerged-no-lookup');
+    await repo.create(row);
+    class ThrowingCredentialRepository implements CredentialRepository {
+      async save(): Promise<never> {
+        throw new Error('unreachable');
+      }
+      async findByDocumentId(): Promise<never> {
+        throw new Error('should never be called for an unmerged job');
+      }
+    }
+    const scripted = await startWith(repo, mergedGithub(emptyRecordings()), {
+      credentialRepo: new ThrowingCredentialRepository(),
+    });
+    try {
+      const read = await get(`/jobs/${row.id}`, scripted.baseUrl);
+      expect(read.status).toBe(200);
+      const body = (await read.json()) as Record<string, unknown>;
+      expect(body.status).toBe('submitted');
+      expect('credential' in body).toBe(false);
+    } finally {
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+
   it('answers 503 when the credential lookup fails, and logs the cause', async () => {
     const repo = new MemoryJobRepository();
     await repo.create({
