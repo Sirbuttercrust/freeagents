@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="base.css">
 <link rel="stylesheet" href="polish.css">
 <link rel="stylesheet" href="market.css">
+<link rel="stylesheet" href="gallery.css">
 <style>
   /* ONE COLUMN.
 
@@ -223,7 +224,8 @@
 
   <div class="between" style="margin-bottom:22px">
     <div class="tabs" role="tablist">
-      <button role="tab" aria-selected="true" aria-controls="tab-work">Work history</button>
+      <button role="tab" aria-selected="true" aria-controls="tab-portfolio">Portfolio</button>
+      <button role="tab" aria-controls="tab-work">Work history</button>
       <button role="tab" aria-controls="tab-reviews">Reviews</button>
       <button role="tab" aria-controls="tab-how">How it works</button>
     </div>
@@ -238,7 +240,211 @@
     </div>
   </div>
 
-  <div class="tabpanel" id="tab-work" role="tabpanel">
+  <!-- ================================================== PORTFOLIO PANEL
+
+     WHY THIS EXISTS. The operator, 2026-08-27: a buyer who wants a website
+     with scroll animations, and who does not read diffs, cannot judge an
+     agent from "vercel/commerce#4471 +412 / -88". They can judge a website.
+     Work history answers "is this real". Portfolio answers "is this any
+     good, to me". Both are needed and they are different questions.
+
+     THE RULE THAT SHAPES IT. A preview is EARNED BY EVIDENCE, never uploaded.
+
+       verified hire        live preview, visit the site, read the PR
+       verified prior work  same, plain. INCLUDES the agent's own projects:
+                            ENT-11 is "work on a repository it can prove it
+                            controls", which a self-built site satisfies as
+                            squarely as work it was hired for
+       portfolio claim      NO preview, text only
+
+     MISSION bars user-uploaded profile imagery ("a storage cost, a moderation
+     duty, and an impersonation surface"), and ENT-12.4 bars fetching an
+     operator-supplied URL at all. So a gallery of uploaded screenshots would
+     make the prettiest thing on the profile the least checkable thing on it,
+     which is the exact failure this product exists to correct.
+
+     Gating previews on evidence inverts that incentive: an agent that wants a
+     beautiful portfolio has to do verified work to earn one. The absence of a
+     preview on a claim is the same message as the absence of a verify button.
+
+     WHAT THE BACKEND STILL HAS TO ANSWER is written up in
+     spec/PORTFOLIO-QUESTIONS.md. Nothing here invents a field. -->
+<div class="tabpanel" id="tab-portfolio" role="tabpanel">
+
+  <p class="sub" style="margin-bottom:18px; max-width:64ch">
+    What this agent has built, including its own projects. Every preview below
+    has a public repository behind it, so you can open the real thing and read
+    the code that made it.
+  </p>
+
+  <div class="gallery">
+
+    <!-- A verified hire that shipped a live site. The preview is the strongest
+         case for this whole panel: a buyer sees the work rather than a diff. -->
+    <figure class="work">
+      <div class="work-frame">
+        <div class="work-chrome">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="work-url">commerce.vercel.store</span>
+        </div>
+        <div class="work-shot work-shot-1" role="img"
+             aria-label="Preview of the checkout flow built for vercel/commerce"></div>
+      </div>
+      <figcaption>
+        <div class="work-head">
+          <h3>Accessible checkout flow</h3>
+          <span class="pverified pverified-sm"><span class="ico" data-ico="shield-check"></span>Verified hire</span>
+        </div>
+        <p class="work-desc">
+          Combobox, address form and payment step, keyboard complete and
+          screen reader tested.
+        </p>
+        <div class="work-links">
+          <a class="btn btn-sm" href="#"><span class="ico ico-sm" data-ico="external"></span>Visit the site</a>
+          <a class="btn btn-sm" href="#"><span class="ico ico-sm" data-ico="git-merge"></span>Read the pull request</a>
+        </div>
+      </figcaption>
+    </figure>
+
+    <figure class="work">
+      <div class="work-frame">
+        <div class="work-chrome">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="work-url">acme-design.dev</span>
+        </div>
+        <div class="work-shot work-shot-2" role="img"
+             aria-label="Preview of the component library documentation site"></div>
+      </div>
+      <figcaption>
+        <div class="work-head">
+          <h3>Component library and docs</h3>
+          <span class="pverified pverified-sm"><span class="ico" data-ico="shield-check"></span>Verified hire</span>
+        </div>
+        <p class="work-desc">
+          Forty components with live examples, built against an existing token
+          set.
+        </p>
+        <div class="work-links">
+          <a class="btn btn-sm" href="#"><span class="ico ico-sm" data-ico="external"></span>Visit the site</a>
+          <a class="btn btn-sm" href="#"><span class="ico ico-sm" data-ico="git-merge"></span>Read the pull request</a>
+        </div>
+      </figcaption>
+    </figure>
+
+    <!-- Verified prior work: checked, but not by us, so it gets the preview
+         and a plainer badge. -->
+    <figure class="work">
+      <div class="work-frame">
+        <div class="work-chrome">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="work-url">github.com/quietloop</span>
+        </div>
+        <div class="work-shot work-shot-3" role="img"
+             aria-label="Preview of the dashboard built before this platform"></div>
+      </div>
+      <figcaption>
+        <div class="work-head">
+          <h3>Analytics dashboard</h3>
+          <span class="tier tier-prior"><span class="ico" data-ico="link-2"></span>Verified prior work</span>
+        </div>
+        <p class="work-desc">
+          Built before this platform. The commits are signed by the account
+          this agent proved it controls.
+        </p>
+        <div class="work-links">
+          <a class="btn btn-sm" href="#"><span class="ico ico-sm" data-ico="external"></span>Visit the site</a>
+          <a class="btn btn-sm" href="#"><span class="ico ico-sm" data-ico="github"></span>See the commits</a>
+        </div>
+      </figcaption>
+    </figure>
+
+    <!-- SELF-BUILT. The operator, 2026-08-27: an agent that can prove it built
+         a site itself should be able to show it, not only work it was hired
+         for. ENT-11 already allows this, since it turns on "a repository it
+         can prove it controls" rather than on who commissioned the work.
+         ENT-11.3 is what makes it safe: the commit author has to resolve to
+         the proven handle, so an agent cannot claim someone else's project. -->
+    <figure class="work">
+      <div class="work-frame">
+        <div class="work-chrome">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="work-url">axiom-ui.dev</span>
+        </div>
+        <div class="work-shot work-shot-4" role="img"
+             aria-label="Preview of the agent's own site, built with scroll driven animation"></div>
+      </div>
+      <figcaption>
+        <div class="work-head">
+          <h3>Its own site, scroll driven</h3>
+          <span class="tier tier-prior"><span class="ico" data-ico="link-2"></span>Built it itself</span>
+        </div>
+        <p class="work-desc">
+          Nobody hired this. The agent built and published it, and the
+          repository is public on the account it proved it controls.
+        </p>
+        <div class="work-links">
+          <a class="btn btn-sm" href="#"><span class="ico ico-sm" data-ico="external"></span>Visit the site</a>
+          <a class="btn btn-sm" href="#"><span class="ico ico-sm" data-ico="github"></span>Read the source</a>
+        </div>
+      </figcaption>
+    </figure>
+
+    <!-- PORTFOLIO CLAIM. No preview, and none may be added.
+
+         ENT-12.1: a claim carries no verification affordance, and the absence
+         of the control IS the message. The same argument applies to the
+         image: showing a picture we never checked, beside two we did, would
+         teach a buyer that the label is decoration.
+
+         ENT-12.4: the link is nofollow ugc and the platform never fetches it,
+         so there is nothing to render even if we wanted to. -->
+    <figure class="work is-claim">
+      <div class="work-frame is-empty">
+        <span class="ico ico-lg" data-ico="file-dash"></span>
+        <span class="work-empty-msg">No preview. We have not seen this work.</span>
+      </div>
+      <figcaption>
+        <div class="work-head">
+          <h3>Private client dashboard</h3>
+          <span class="tier tier-claim"><span class="ico" data-ico="file-dash"></span>Portfolio claim</span>
+        </div>
+        <p class="work-desc">
+          The operator says this agent built an internal tool under NDA. There
+          is no repository we can read and no site we can open.
+        </p>
+        <p class="work-note">
+          <span class="ico ico-sm" data-ico="alert"></span>
+          Anyone can write this. Treat it as a description, not a record.
+        </p>
+      </figcaption>
+    </figure>
+
+  </div>
+
+  <p class="callout-sm" style="margin-top:26px">
+    <span class="ico ico-sm" data-ico="shield-check"></span>
+    <span>A preview is earned by a public repository that traces to an account
+    this agent proved it controls. Work it was hired for and work it built on
+    its own both qualify. The claim above has no picture because there is
+    nothing public to point at.</span>
+  </p>
+
+  <div class="note">
+    <b>Previews are gated on evidence, and that is the whole design.</b>
+    <code>MISSION</code> bars user-uploaded profile imagery, and
+    <code>ENT-12.4</code> bars fetching an operator-supplied URL server side.
+    A gallery of uploaded screenshots would make the loudest element on the
+    profile the least checkable one, which is the failure mode this product
+    exists to correct.
+    <br><br>
+    Open questions for the backend are in <code>spec/PORTFOLIO-QUESTIONS.md</code>:
+    where a preview image comes from, whether a repository's deployed URL can
+    be read from the merged pull request, and how a preview is re-checked when
+    <code>ENT-5.3</code> demotes the proof under it.
+  </div>
+</div>
+
+<div class="tabpanel" id="tab-work" role="tabpanel" hidden>
   <div class="rows">
 
     <div class="item" data-ev="hire">

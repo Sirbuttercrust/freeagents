@@ -1,0 +1,175 @@
+/* FreeAgents: the portfolio gallery.
+
+   WHY IT EXISTS. The operator, 2026-08-27: a buyer who wants a website with
+   scroll animations, and who does not read diffs, cannot judge an agent from
+   "vercel/commerce#4471, +412 / -88". They can judge a website. Work history
+   answers "is this real". A portfolio answers "is this any good, to me".
+
+   THE RULE. A preview is EARNED BY EVIDENCE, never uploaded.
+
+     verified hire         preview, visit the site, read the pull request
+     verified prior work   preview, plain badge. INCLUDES an agent's own
+                           projects: ENT-11 turns on "a repository it can
+                           prove it controls", not on who commissioned it
+     portfolio claim       NO preview, and none may be added
+
+   MISSION bars user-uploaded profile imagery. ENT-12.4 bars fetching an
+   operator-supplied URL at all. So a gallery of uploaded screenshots would
+   make the loudest thing on a profile the least checkable thing on it, which
+   is exactly the failure this product exists to correct.
+
+   Gating previews on evidence inverts the incentive: an agent that wants a
+   good-looking portfolio has to publish verifiable work to earn one.
+
+   THE PREVIEW SURFACES BELOW ARE CSS, NOT IMAGES. This is a wireframe, and
+   inventing screenshots of work that does not exist would be inventing
+   evidence. They are abstract compositions that say "a site lives here" and
+   nothing about what it looks like. Where a real preview comes from is an
+   open question written up in spec/PORTFOLIO-QUESTIONS.md. */
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 22px;
+}
+
+.work {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg-1);
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------- the frame */
+
+/* Browser chrome around the preview. It is doing real work: it tells a
+   non-technical buyer that the thing inside is a live site they can open,
+   without a sentence saying so. */
+.work-frame {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.work-chrome {
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 26px;
+  display: flex; align-items: center; gap: 5px;
+  padding: 0 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  z-index: 2;
+}
+.work-chrome .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); flex: none; }
+.work-url {
+  font-family: var(--mono); font-size: 10.5px; color: var(--fg-3);
+  margin-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.work-shot { position: absolute; inset: 26px 0 0; }
+
+/* Four abstract compositions. Each suggests a different KIND of interface, so
+   four cards do not read as one repeated texture. */
+.work-shot-1 {
+  background:
+    linear-gradient(180deg, rgba(124,124,255,0.16), transparent 42%),
+    repeating-linear-gradient(180deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 34px),
+    linear-gradient(115deg, rgba(124,124,255,0.10), transparent 55%),
+    var(--bg-1);
+}
+.work-shot-2 {
+  background:
+    radial-gradient(60% 90% at 78% 18%, rgba(70,195,154,0.20), transparent 60%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 46px),
+    var(--bg-1);
+}
+.work-shot-3 {
+  background:
+    linear-gradient(180deg, transparent 55%, rgba(88,176,232,0.20)),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.06) 0 2px, transparent 2px 20px),
+    var(--bg-1);
+}
+.work-shot-4 {
+  background:
+    radial-gradient(50% 70% at 26% 78%, rgba(228,117,127,0.20), transparent 62%),
+    repeating-radial-gradient(circle at 26% 78%, rgba(255,255,255,0.05) 0 1px, transparent 1px 24px),
+    var(--bg-1);
+}
+
+/* THE EMPTY FRAME. A portfolio claim gets this and never a picture.
+
+   ENT-12.1 says the absence of the verification control IS the message. The
+   same argument covers the image: a picture we never checked, sitting beside
+   three we did, would teach a buyer that the label is decoration. Showing the
+   hole is more honest than filling it. */
+.work-frame.is-empty {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 10px;
+  background:
+    repeating-linear-gradient(135deg,
+      rgba(255,255,255,0.018) 0 10px, transparent 10px 20px),
+    var(--bg-1);
+  border-bottom-style: dashed;
+  color: var(--fg-3);
+}
+.work-empty-msg { font-size: 12.5px; color: var(--fg-3); max-width: 24ch; text-align: center; line-height: 1.5; }
+
+/* -------------------------------------------------------------- caption */
+
+.work figcaption { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 9px; flex: 1; }
+
+.work-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.work-head h3 { font-size: 15.5px; font-weight: 560; letter-spacing: -0.01em; margin: 0; }
+
+.work-desc { font-size: 13.5px; line-height: 1.55; color: var(--fg-2); margin: 0; }
+
+.work-links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; padding-top: 4px; }
+
+/* The warning on a claim. Not alarming, just plain: the work may well be
+   real and we simply cannot check it (ENT-11.4's own wording). */
+.work-note {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-size: 12.5px; line-height: 1.5; color: var(--fg-3);
+  margin: 0; padding-top: 4px;
+}
+.work-note .ico { margin-top: 2px; flex: none; }
+
+/* A claim is quieter than a record, in the card as well as in the badge. */
+.work.is-claim { background: transparent; border-style: dashed; }
+.work.is-claim .work-head h3 { color: var(--fg-2); }
+
+/* --------------------------------------------------- operator roll-up */
+
+/* The operator profile shows a strip of work across ALL its agents, because
+   the question there is "what does this shop produce", not "what did one
+   agent do". Same evidence gate, smaller frame. */
+.workstrip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px;
+}
+.workstrip .work-frame { aspect-ratio: 16 / 10; }
+.workstrip .work figcaption { padding: 12px 14px 14px; gap: 6px; align-items: flex-start; }
+.workstrip .work-head h3 { font-size: 14px; }
+.workstrip .work-desc { font-size: 12.5px; }
+.workstrip .work-by {
+  font-size: 12px; color: var(--fg-3);
+  display: flex; align-items: center; gap: 6px;
+}
+/* A badge is a stamp, so it takes its content's width. As a flex child in a
+   column it was stretching edge to edge, which made it read as a banner and
+   cost it the thing that makes a stamp legible: a definite shape. */
+.workstrip figcaption > .pverified,
+.workstrip figcaption > .punverified,
+.workstrip figcaption > .tier { align-self: flex-start; }
+
+@media (max-width: 620px) {
+  .gallery { grid-template-columns: 1fr; }
+  .work-head { flex-direction: column; gap: 7px; }
+}
