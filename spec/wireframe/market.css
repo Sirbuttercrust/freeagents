@@ -268,10 +268,27 @@
   gap: 18px;
   align-items: flex-end;
   padding: 0 6px;
-  margin-top: -44px;
+  /* The whole header used to sit at -44px, which dragged the name and its
+     badge up ONTO the banner: half of each element over the banner and half
+     over the page. Reported 2026-08-27 with a screenshot.
+
+     The row is no longer pulled up at all. Only the avatar breaks the banner
+     edge, which is the social-profile convention and the reason the shape
+     reads as an avatar. Everything else starts below the banner, so no text
+     ever straddles a boundary.
+
+     This has to be a margin on the AVATAR rather than on the row: the row is
+     align-items flex-end, so a negative margin on the row lifts the tallest
+     item and every sibling aligned to it. */
+  margin-top: 0;
   position: relative;
   z-index: 1;
 }
+
+/* The avatar alone breaks the banner edge. 34px of a 96px avatar sits over
+   the banner, which is enough to read as overlap and little enough that the
+   face is never cropped by the banner's own rounded corner. */
+.pav { margin-top: -34px; }
 
 .pav {
   width: 96px; height: 96px; flex: none;
@@ -300,17 +317,80 @@
 .pby a:hover { color: var(--fg); }
 .pacts { display: flex; gap: 9px; padding-bottom: 6px; }
 
-/* The verified marker beside a name. Accent, because it is exactly the thing
-   the accent is for. */
+/* ============================================================== BADGES
+
+   THE VERIFIED BADGE IS THE PRODUCT'S ONE CLAIM, SO IT LOOKS LIKE ONE.
+
+   The operator, 2026-08-27: the badge is translucent and feels unimportant.
+   People should glance and know this agent has verified work behind it.
+
+   It was a 12% accent wash with accent text, which measured 4.94:1 and read
+   as a hint. A SOLID accent fill with dark ink measures 5.79:1 and reads as a
+   stamp. Higher contrast and more presence at the same time, which is the
+   rare case where louder is also more accessible.
+
+   This is squarely inside DESIGN.md 2.2: the accent is permitted on a
+   verified hire and its count, and this badge is exactly that. It is not
+   permitted anywhere else, which is why the unverified badge below takes a
+   different colour rather than a paler version of this one. */
+
 .pverified {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12.5px; font-weight: 500;
-  color: var(--accent);
-  background: var(--accent-dim);
-  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
-  padding: 3px 10px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 13px; font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--accent-fg);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 5px 12px 5px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  /* A soft throw of the accent, so the badge sits ON the page rather than in
+     it. Small enough that it never competes with the name beside it. */
+  box-shadow: 0 2px 14px rgba(124,124,255,0.34);
 }
-.pverified .ico { width: 13px; height: 13px; }
+.pverified .ico { width: 15px; height: 15px; }
+
+/* The count carries a hair more weight than the word, because the number is
+   the fact and "verified hires" is the label for it. */
+.pverified b { font-weight: 700; }
+
+/* NOT VERIFIED. A different colour, never a dimmer accent: a paler version of
+   the verified badge would read as "partly verified", and there is no such
+   state. Amber reads as unchecked rather than as failed, which is the honest
+   description. An agent with no record is not a bad agent, it is an unproven
+   one (ENT-2.4).
+
+   Dark ink on a solid amber measures 8.85:1. */
+.punverified {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 13px; font-weight: 600;
+  letter-spacing: -0.005em;
+  color: #1A1206;
+  background: var(--cat-infra);
+  border: 1px solid var(--cat-infra);
+  padding: 5px 12px 5px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: 0 2px 14px rgba(224,162,78,0.26);
+}
+.punverified .ico { width: 15px; height: 15px; }
+
+/* A smaller pair for a card footer or a roster row, same colours so the
+   meaning never changes with the size. */
+.pverified-sm, .punverified-sm {
+  font-size: 11.5px; padding: 3px 9px 3px 7px; gap: 5px;
+  box-shadow: none;
+}
+.pverified-sm .ico, .punverified-sm .ico { width: 12px; height: 12px; }
+
+/* On a card the badge sits in the banner's top right, so evidence status is
+   readable before a single word of the card is. It is the first thing the eye
+   lands on in a grid of twenty. */
+.cardbadge {
+  position: absolute;
+  top: 12px; right: 12px;
+  z-index: 2;
+}
 
 /* ============================================================== STATS */
 
