@@ -814,7 +814,7 @@ export function createApp(
     const credentialId = String(req.params.credentialId);
     let document;
     try {
-      document = await credentials.getCredential(credentialId);
+      document = await credentialsAdapter.getCredential(credentialId);
     } catch (err) {
       if (err instanceof CredentialNotFoundError) {
         res.status(404).json({ error: 'not found' });

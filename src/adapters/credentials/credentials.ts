@@ -95,9 +95,12 @@ export function createCredentialsAdapter(
             additions: claim.diffAdditions,
             deletions: claim.diffDeletions,
             filesChanged: claim.diffFiles,
-            // jobId is deliberately not carried onto the wire: the spec's
-            // hire object holds only publicly checkable facts, and the
-            // internal job id is not one.
+            // jobId is still absent from the hire object: the spec's hire
+            // facts stay publicly checkable ones, and the internal job id
+            // is not one. It rides the wire anyway, as the final path
+            // segment of the credential's own id above, because that
+            // segment is the lookup key GET /v1/credentials/:credentialId
+            // strips it back down to (credentialLookupKey, storage/types.ts).
             ...(claim.specHash === null ? {} : { specHash: claim.specHash }),
           },
         },
