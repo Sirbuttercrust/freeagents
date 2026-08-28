@@ -20,11 +20,13 @@ import {
   JobAlreadyExistsError,
   OperatorAlreadyExistsError,
   type AgentRepository,
+  type CompromiseRepository,
   type JobRepository,
   type OperatorRepository,
 } from '../adapters/storage/types.js';
 import {
   createAgentRepository,
+  createCompromiseRepository,
   createJobRepository,
   createOperatorRepository,
 } from '../adapters/storage/storage.js';
@@ -61,6 +63,11 @@ import {
   type JobStatus,
 } from '../domain/job.js';
 import { rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
+import {
+  disputedBy,
+  reportWellFormed,
+  type CompromiseReport,
+} from '../domain/compromise.js';
 import { ACCESS_NOTICE, CAPABILITIES, type Capability } from '../domain/access.js';
 import { renderAvatar } from './avatar.js';
 
@@ -127,6 +134,17 @@ function agentProjection(row: Agent): Record<string, unknown> {
       toKey: rotation.toKey,
       rotatedAt: rotation.rotatedAt.toISOString(),
     })),
+  };
+}
+
+// R-16: the compromise report projection. Never mixed into agentProjection
+// or a credential document (ENT-8.3): the window is visible on its own
+// routes instead of a field on either.
+function compromiseReportProjection(report: CompromiseReport): Record<string, unknown> {
+  return {
+    key: report.key,
+    since: report.since.toISOString(),
+    reportedAt: report.reportedAt.toISOString(),
   };
 }
 
@@ -221,6 +239,7 @@ export function createApp(
   github: GithubAdapter = createGithubAdapter(),
   jobRepo: JobRepository = createJobRepository(),
   credentials: CredentialsAdapter = createCredentialResolver(),
+  compromiseRepo: CompromiseRepository = createCompromiseRepository(),
 ): Express {
   const app = express();
   app.use(express.json());
@@ -660,6 +679,93 @@ export function createApp(
     }
   });
 
+  // R-16 (ENT-8.4): an operator reports one of the agent's keys compromised.
+  // A side record beside the agent, never a field on it, and never written
+  // into a signed credential (ENT-8.3 forbids a judgement inside the
+  // signature envelope). The route owns the body's shape (checked with
+  // reportWellFormed, not restated) and the one semantic check reportWellFormed
+  // does not make: since must not be in the future.
+  app.post('/agents/:agentDid/compromise-report', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+    const body = (req.body ?? {}) as { key?: unknown; since?: unknown };
+    const since = new Date(String(body.since));
+
+    // Checked ahead of reportWellFormed: that validator's own since <=
+    // reportedAt rule would otherwise catch a future since first (it is
+    // handed reportedAt: new Date() below), and report it with the generic
+    // shape message instead of this more useful one. An unparseable since
+    // has NaN for getTime(), and NaN > anything is false, so this falls
+    // through to reportWellFormed's shape check without a separate guard.
+    if (since.getTime() > Date.now()) {
+      res.status(400).json({ error: 'since must not be in the future' });
+      return;
+    }
+
+    // reportWellFormed is total by contract, so the untyped body halves may
+    // be passed straight in; the cast is the call site's honesty mark.
+    if (
+      !reportWellFormed({
+        key: body.key,
+        since,
+        reportedAt: new Date(),
+      } as CompromiseReport)
+    ) {
+      res.status(400).json({
+        error:
+          'body must be { key, since }; key is a non-empty string in DID fragment form, did:abt:<suffix>#<fragment>, and since is an ISO-8601 instant at or before now',
+      });
+      return;
+    }
+
+    let row: Agent | null;
+    try {
+      row = await agentRepo.findByDid(did);
+    } catch (err) {
+      console.error('POST /agents/:agentDid/compromise-report: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (row === null) {
+      res.status(404).json({ error: `agent ${did} is not registered` });
+      return;
+    }
+
+    try {
+      const report = await compromiseRepo.record(did, { key: body.key as string, since });
+      res.status(201).json(compromiseReportProjection(report));
+    } catch (err) {
+      console.error('POST /agents/:agentDid/compromise-report: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // R-16: "the window is visible". Every report an operator has filed for
+  // this agent, nothing hidden, nothing summarised away.
+  app.get('/agents/:agentDid/compromise-reports', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+
+    let row: Agent | null;
+    try {
+      row = await agentRepo.findByDid(did);
+    } catch (err) {
+      console.error('GET /agents/:agentDid/compromise-reports: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (row === null) {
+      res.status(404).json({ error: `agent ${did} is not registered` });
+      return;
+    }
+
+    try {
+      const reports = await compromiseRepo.listByAgentDid(did);
+      res.status(200).json({ agentDid: did, reports: reports.map(compromiseReportProjection) });
+    } catch (err) {
+      console.error('GET /agents/:agentDid/compromise-reports: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
   app.get('/agents/:agentDid/card', notImplemented);
   app.get('/agents/:agentDid/credentials', notImplemented);
 
@@ -682,6 +788,51 @@ export function createApp(
       console.error('GET /v1/credentials/:credentialId: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
+  });
+
+  // R-16 (ENT-8.4): "marks work signed inside the window as disputed". This
+  // reads the credential; it never rewrites it. The marker lives here, on a
+  // route beside the document, and never inside it: ENT-8.3 forbids a
+  // judgement inside the signature envelope, and invariant 2 requires the
+  // bytes that verified to be the bytes served at
+  // GET /v1/credentials/:credentialId, unchanged by a report ever being filed.
+  app.get('/v1/credentials/:credentialId/status', async (req: Request, res: Response) => {
+    const credentialId = String(req.params.credentialId);
+    let document;
+    try {
+      document = await credentials.getCredential(credentialId);
+    } catch (err) {
+      if (err instanceof CredentialNotFoundError) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      console.error('GET /v1/credentials/:credentialId/status: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+
+    const subject = document.credentialSubject.id;
+    const signedBy = document.credentialSubject.hire.signedBy;
+    const signedAt = document.credentialSubject.hire.mergedAt;
+
+    let reports: readonly CompromiseReport[];
+    try {
+      reports = await compromiseRepo.listByAgentDid(subject);
+    } catch (err) {
+      console.error('GET /v1/credentials/:credentialId/status: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+
+    const windows = disputedBy(reports, signedBy, new Date(signedAt));
+    res.status(200).json({
+      credentialId,
+      subject,
+      signedBy,
+      signedAt,
+      disputed: windows.length > 0,
+      windows: windows.map(compromiseReportProjection),
+    });
   });
 
   // R-28 (ENT-4): open a draft job from the buyer's brief. The route owns

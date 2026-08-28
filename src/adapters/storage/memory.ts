@@ -3,6 +3,7 @@
 // same duplicate-key semantics the database gives through its primary key.
 import type { Agent, ProofStatus } from '../../domain/agent.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
+import type { CompromiseReport } from '../../domain/compromise.js';
 import type { Operator } from '../../domain/operator.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
 import type { VerifiableCredential } from '../credentials/types.js';
@@ -10,6 +11,8 @@ import {
   AgentAlreadyExistsError,
   type AgentInput,
   type AgentRepository,
+  type CompromiseReportInput,
+  type CompromiseRepository,
   CredentialAlreadyIssuedError,
   type CredentialRepository,
   JobAlreadyExistsError,
@@ -104,6 +107,33 @@ export class MemoryAgentRepository implements AgentRepository {
     const updated: Agent = { ...row, keyRotations: [...row.keyRotations, rotation] };
     this.rows.set(did, updated);
     return updated;
+  }
+}
+
+// R-16 (ENT-8.4): append-only compromise reports, keyed by agent DID, the
+// same shape KeyRotation history takes on Agent, but kept as a side record
+// rather than a field: a disputed marker never enters the signed credential
+// (ENT-8.3).
+export class MemoryCompromiseRepository implements CompromiseRepository {
+  private readonly rows = new Map<string, CompromiseReport[]>();
+
+  async record(agentDid: string, input: CompromiseReportInput): Promise<CompromiseReport> {
+    // The driver stamps the time; storage does not re-check well-formedness
+    // (same stance as create: the API layer validates against the domain
+    // rule).
+    const report: CompromiseReport = {
+      key: input.key,
+      since: input.since,
+      reportedAt: new Date(),
+    };
+    const existing = this.rows.get(agentDid) ?? [];
+    // Append, never replace: nothing is deleted or hidden (R-16 accept).
+    this.rows.set(agentDid, [...existing, report]);
+    return report;
+  }
+
+  async listByAgentDid(agentDid: string): Promise<readonly CompromiseReport[]> {
+    return [...(this.rows.get(agentDid) ?? [])];
   }
 }
 
