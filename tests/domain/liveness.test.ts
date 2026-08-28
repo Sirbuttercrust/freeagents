@@ -88,6 +88,23 @@ describe('livenessStatus', () => {
     expect(livenessStatus(activity, NOW)).toBe('active');
   });
 
+  it('pins the threshold values themselves at 30 and 90 days, not just their relative boundaries', () => {
+    expect(QUIET_AFTER_DAYS).toBe(30);
+    expect(DORMANT_AFTER_DAYS).toBe(90);
+  });
+
+  it('an invalid Date (NaN) observed instant is ignored, not treated as a valid observed event', () => {
+    const activity = observed({ lastHireActivityAt: new Date(NaN) });
+    expect(lastObservedAt(activity)).toBeNull();
+    expect(livenessStatus(activity, NOW)).toBe('dormant');
+  });
+
+  it('an unparseable `now` yields active, and does not throw, regardless of how old the activity is', () => {
+    const activity = observed({ lastHireActivityAt: daysAgo(200) });
+    expect(() => livenessStatus(activity, new Date(NaN))).not.toThrow();
+    expect(livenessStatus(activity, new Date(NaN))).toBe('active');
+  });
+
   it('is total: every input yields one of the closed set of statuses, and nothing throws', () => {
     const table: ObservedActivity[] = [
       observed(),
@@ -126,6 +143,18 @@ describe('profileLiveness - the self-reported tier (invariant 5)', () => {
   it('no check-in (null) yields selfReported: null', () => {
     const activity = observed({ lastCompletedHireAt: daysAgo(1) });
     const result = profileLiveness(activity, null, NOW);
+    expect(result.selfReported).toBeNull();
+  });
+
+  it('a verified check-in with checkedInAt: null yields selfReported: null, not a fabricated epoch date', () => {
+    const activity = observed({ lastCompletedHireAt: daysAgo(1) });
+    const result = profileLiveness(activity, { checkedInAt: null, signatureVerified: true }, NOW);
+    expect(result.selfReported).toBeNull();
+  });
+
+  it('a verified check-in with an unparseable checkedInAt yields selfReported: null', () => {
+    const activity = observed({ lastCompletedHireAt: daysAgo(1) });
+    const result = profileLiveness(activity, { checkedInAt: 'not-a-date', signatureVerified: true }, NOW);
     expect(result.selfReported).toBeNull();
   });
 
