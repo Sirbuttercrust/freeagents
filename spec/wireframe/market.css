@@ -1,0 +1,472 @@
+/* FreeAgents: the marketplace layer.
+
+   Profiles and browse. Loaded after polish.css, adds only new class names.
+
+   THE COLOUR PROBLEM, AND HOW IT IS SOLVED WITHOUT BREAKING THE ACCENT RULE
+
+   The operator, 2026-08-27: the marketplace looks dull, bring more colour in,
+   modern crypto marketplace feel, professional and tech forward.
+
+   DESIGN.md 2.2 locks --accent to one meaning: we watched this happen. So
+   colour cannot come from the chrome, or the accent stops meaning anything
+   and the product's core claim goes with it. It comes from two places that
+   carry no evidence claim at all:
+
+   1. IDENTITY HUE. Every agent already has one, derived from its DID by the
+      same hash that picks its avatar (DESIGN.md 2.4: identity, never
+      evidence). A card, a banner and an avatar all take that hue, so the
+      marketplace is coloured BY ITS AGENTS rather than by decoration. Two
+      agents look different because they ARE different, which is the honest
+      version of visual variety.
+
+   2. CATEGORY TINT. Discipline is a fact about what an agent does, not about
+      whether anyone checked it, so a discipline tag can carry colour without
+      colliding with evidence. Five, matching the five filters.
+
+   Neither is ever used to mean verified, featured, promoted, or ranked.
+
+   THE SPACE PROBLEM
+
+   Also asked for: use more of the page, without feeling cluttered. base.css
+   caps the reading column at 1080px because a long line is hard to read. That
+   is right for prose and wrong for a grid of cards, where the constraint is
+   card size rather than line length. So the marketplace opts into a wider
+   measure, and buys the space back as gap rather than as more content. */
+
+:root {
+  /* Discipline tints. Distinct in hue, matched in chroma and value, so no
+     single category shouts louder than another. All five clear 4.5:1 on the
+     page background, measured rather than eyeballed. */
+  --cat-frontend:  #6EA8FF;
+  --cat-backend:   #52C8A0;
+  --cat-infra:     #E0A24E;
+  --cat-data:      #C48BE8;
+  --cat-testing:   #E4757F;
+
+  /* The widest the marketplace grid may go. Prose stays at --w. */
+  --w-wide: 1320px;
+}
+
+.wrap-wide {
+  max-width: var(--w-wide);
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+/* An agent's own hue, set per element as --id-hue. Everything below reads
+   from it, so one inline custom property colours a whole card. */
+.idc { --id-hue: var(--agent-1); }
+
+/* ==================================================== DISCIPLINE TAGS */
+
+.cat {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; font-weight: 500;
+  padding: 3px 10px; border-radius: 999px;
+  color: var(--cat, var(--fg-2));
+  background: color-mix(in srgb, var(--cat, var(--fg-3)) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cat, var(--fg-3)) 26%, transparent);
+  white-space: nowrap;
+}
+.cat-frontend { --cat: var(--cat-frontend); }
+.cat-backend  { --cat: var(--cat-backend); }
+.cat-infra    { --cat: var(--cat-infra); }
+.cat-data     { --cat: var(--cat-data); }
+.cat-testing  { --cat: var(--cat-testing); }
+
+/* A filter chip carrying a category reads in that category's colour once
+   selected, so the rail shows what is on without a legend. */
+.chip.cat-chip[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--cat) 16%, transparent);
+  border-color: color-mix(in srgb, var(--cat) 45%, transparent);
+  color: var(--fg);
+}
+.chip.cat-chip[aria-pressed="true"] .ico { color: var(--cat); }
+
+/* ========================================================= AGENT CARD */
+
+.agrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 18px;
+}
+
+.acard {
+  position: relative;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--bg-1);
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color var(--dur-2) var(--ease-out-q),
+              transform var(--dur-2) var(--ease-out-q),
+              box-shadow var(--dur-2) var(--ease-out-q);
+}
+
+/* The banner is where an agent's identity hue lives. A generated field, not
+   an uploaded image: DESIGN.md 2.4 bars an upload path and this keeps that
+   true while still letting a profile look like its own. */
+.acard-top {
+  position: relative;
+  height: 62px;
+  background:
+    radial-gradient(120% 150% at 18% 0%,
+      color-mix(in srgb, var(--id-hue) 34%, transparent) 0%,
+      transparent 62%),
+    linear-gradient(180deg, var(--bg-2), var(--bg-1));
+  border-bottom: 1px solid var(--line);
+}
+
+/* A quiet grid, so the banner reads as a surface rather than a colour wash.
+   Masked to fade out before it reaches the content below it. */
+.acard-top::after {
+  content: "";
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.05) 1px, transparent 1px);
+  background-size: 26px 26px;
+  -webkit-mask-image: linear-gradient(180deg, #000 10%, transparent 92%);
+          mask-image: linear-gradient(180deg, #000 10%, transparent 92%);
+  pointer-events: none;
+}
+
+.acard-av {
+  position: absolute;
+  left: 20px; bottom: -22px;
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  background: var(--bg-1);
+  border: 3px solid var(--bg-1);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  z-index: 1;
+}
+.acard-av svg { width: 100%; height: 100%; }
+
+.acard-body { padding: 34px 20px 18px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+
+/* The name is the card's link, stretched over the whole card so the entire
+   surface is clickable. The card itself is an <article>, not an <a>: a card
+   holds a pull request link, and an <a> inside an <a> is invalid HTML that
+   browsers repair by splitting the element into fragments. Measured on the
+   first build of this grid: 4 agents rendered as 10 boxes. */
+.acard-name {
+  font-size: 16px; font-weight: 560; letter-spacing: -0.01em;
+  color: var(--fg); text-decoration: none;
+}
+.acard-name::after {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  z-index: 0;
+}
+/* Anything genuinely clickable inside the card sits above that overlay. */
+.acard-proof a, .acard-foot { position: relative; z-index: 1; }
+.acard-op { font-size: 12.5px; color: var(--fg-3); }
+.acard-desc {
+  font-size: 13.5px; line-height: 1.55; color: var(--fg-2);
+  /* Two lines, so a long description cannot make one card taller than the
+     rest of its row and break the grid rhythm. */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.acard-cats { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.acard-foot {
+  margin-top: auto;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  padding: 13px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
+/* The evidence line. Accent only on the verified-hire count, which is the
+   one number on this card that means we watched something happen. */
+.acard-ev { display: flex; align-items: center; gap: 12px; font-size: 12.5px; color: var(--fg-3); }
+.acard-ev .hires { color: var(--accent); font-weight: 550; display: inline-flex; align-items: center; gap: 5px; }
+.acard-ev .hires .ico { width: 13px; height: 13px; }
+.acard-ev .sep { color: var(--line-2); }
+
+/* An agent with nothing verified renders its zeros in the same layout, no
+   badge and no promotional framing. ENT-2.4, and it is a design rule as much
+   as a data one. */
+.acard-ev .none { color: var(--fg-3); }
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .acard:hover { transform: translateY(-3px); }
+}
+@media (hover: hover) {
+  .acard:hover {
+    border-color: color-mix(in srgb, var(--id-hue) 40%, var(--line-2));
+    box-shadow: 0 12px 34px rgba(0,0,0,0.4);
+  }
+}
+.acard:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* ====================================================== PROFILE HEADER */
+
+/* A social-style header: a banner, an avatar breaking its lower edge, the
+   name and the actions. The banner is one of a small set of PRESET fields,
+   never an upload, so the product keeps its promise that there is no image
+   upload path anywhere. */
+
+.phero { position: relative; margin-bottom: 22px; }
+
+.pbanner {
+  height: 168px;
+  border-radius: 18px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(90% 160% at 14% 0%,
+      color-mix(in srgb, var(--id-hue) 40%, transparent) 0%,
+      transparent 60%),
+    linear-gradient(180deg, var(--bg-2), var(--bg-1));
+}
+
+/* PRESET BANNER PATTERNS. Four, plus plain. Each is generated in CSS from
+   the agent's own hue, so an operator picks a STYLE and the colour still
+   comes from the identity. Nothing here is uploaded and nothing is stored
+   beyond a keyword. */
+.pbanner::after {
+  content: "";
+  position: absolute; inset: 0;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(180deg, #000 4%, transparent 88%);
+          mask-image: linear-gradient(180deg, #000 4%, transparent 88%);
+}
+.pbanner[data-pattern="grid"]::after {
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.055) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+.pbanner[data-pattern="dots"]::after {
+  background-image: radial-gradient(rgba(255,255,255,0.10) 1.2px, transparent 1.2px);
+  background-size: 20px 20px;
+}
+.pbanner[data-pattern="rays"]::after {
+  background-image: repeating-linear-gradient(
+    115deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 22px);
+}
+.pbanner[data-pattern="topo"]::after {
+  background-image: repeating-radial-gradient(
+    circle at 20% -10%, rgba(255,255,255,0.055) 0 1px, transparent 1px 26px);
+}
+
+.phead {
+  display: grid;
+  /* The avatar column is sized explicitly. `auto` measured the avatar BEFORE
+     its SVG was painted in, so the column collapsed and the name rendered
+     underneath the face. Caught in a screenshot, 2026-08-27. */
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: flex-end;
+  padding: 0 6px;
+  margin-top: -44px;
+  position: relative;
+  z-index: 1;
+}
+
+.pav {
+  width: 96px; height: 96px; flex: none;
+  border-radius: 26px;
+  background: var(--bg-1);
+  border: 4px solid var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  flex: none;
+}
+.pav svg { width: 100%; height: 100%; }
+
+/* An operator is a different KIND of identity from an agent, so its avatar
+   takes a squarer corner. A person can tell the two apart at a glance without
+   reading a label, which matters on a page that links to both. */
+.pav.is-op { border-radius: 14px; }
+.acard-av.is-op { border-radius: 12px; }
+
+.pmeta { padding-bottom: 6px; min-width: 0; }
+.pname {
+  font-size: 26px; font-weight: 600; letter-spacing: -0.02em;
+  margin: 0 0 4px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.pby { font-size: 13.5px; color: var(--fg-2); }
+.pby a { color: var(--fg-2); text-decoration: underline; text-underline-offset: 3px; }
+.pby a:hover { color: var(--fg); }
+.pacts { display: flex; gap: 9px; padding-bottom: 6px; }
+
+/* The verified marker beside a name. Accent, because it is exactly the thing
+   the accent is for. */
+.pverified {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; font-weight: 500;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  padding: 3px 10px; border-radius: 999px;
+}
+.pverified .ico { width: 13px; height: 13px; }
+
+/* ============================================================== STATS */
+
+/* Three numbers, one per tier, never summed. The row is the visual half of
+   the rule that the tiers stay apart: three separate cells with three
+   separate labels, and no total anywhere. */
+.pstats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  margin: 22px 0;
+}
+.pstat { background: var(--bg-1); padding: 15px 18px; }
+.pstat .k {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--fg-3); margin-bottom: 5px;
+}
+.pstat .v { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; font-family: var(--mono); }
+.pstat.is-hire .v { color: var(--accent); }
+.pstat.is-hire .k .ico { color: var(--accent); }
+.pstat .sub2 { font-size: 12px; color: var(--fg-3); margin-top: 3px; }
+
+/* ======================================================= TWO COLUMN */
+
+/* The profile uses the width it was given: record on the left, the facts and
+   the identity beside it. Collapses to one column early, because two narrow
+   columns are worse than one wide one. */
+.pcols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 34px;
+  align-items: start;
+}
+
+.pside { display: grid; gap: 14px; position: sticky; top: 76px; }
+
+.pbox {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg-1);
+  padding: 16px 18px;
+}
+.pbox h3 {
+  font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--fg-3); margin: 0 0 12px; font-weight: 600;
+}
+.pbox .line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 6px 0; }
+.pbox .line + .line { border-top: 1px solid var(--line); }
+.pbox .line .k { font-size: 13px; color: var(--fg-3); }
+.pbox .line .v { font-size: 13.5px; color: var(--fg); font-family: var(--mono); }
+
+@media (max-width: 1080px) {
+  .pcols { grid-template-columns: 1fr; gap: 26px; }
+  .pside { position: static; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+}
+
+/* ====================================================== APPEARANCE PICKER */
+
+/* What an operator actually gets to choose. The avatar itself is NOT in this
+   list and must never be: it is derived from the DID as an anti-impersonation
+   fingerprint (DESIGN.md 2.4, ENT-2.3). What they choose is the banner
+   treatment, which carries no identity claim at all. */
+
+.picker { display: grid; gap: 18px; }
+.swatches { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.swatch {
+  position: relative;
+  width: 96px; height: 58px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background:
+    radial-gradient(90% 150% at 16% 0%,
+      color-mix(in srgb, var(--id-hue) 40%, transparent) 0%,
+      transparent 62%),
+    linear-gradient(180deg, var(--bg-2), var(--bg-1));
+  cursor: pointer;
+  overflow: hidden;
+  padding: 0;
+  transition: border-color var(--dur-1), transform var(--dur-1) var(--ease-out-q);
+}
+.swatch::after {
+  content: "";
+  position: absolute; inset: 0;
+  -webkit-mask-image: linear-gradient(180deg, #000 10%, transparent 92%);
+          mask-image: linear-gradient(180deg, #000 10%, transparent 92%);
+}
+.swatch[data-pattern="grid"]::after {
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.06) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+.swatch[data-pattern="dots"]::after {
+  background-image: radial-gradient(rgba(255,255,255,0.12) 1px, transparent 1px);
+  background-size: 11px 11px;
+}
+.swatch[data-pattern="rays"]::after {
+  background-image: repeating-linear-gradient(115deg, rgba(255,255,255,0.06) 0 1px, transparent 1px 12px);
+}
+.swatch[data-pattern="topo"]::after {
+  background-image: repeating-radial-gradient(circle at 20% -10%, rgba(255,255,255,0.07) 0 1px, transparent 1px 13px);
+}
+.swatch[aria-pressed="true"] { border-color: var(--fg); }
+.swatch[aria-pressed="true"]::before {
+  content: "";
+  position: absolute; right: 6px; top: 6px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--fg);
+  z-index: 2;
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .swatch:hover { transform: translateY(-2px); }
+}
+.swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.swatch-lbl { font-size: 12px; color: var(--fg-3); margin-top: 6px; text-align: center; display: block; }
+
+/* A live preview of the choice, so an operator sees the result rather than
+   imagining it. */
+.preview-note { font-size: 12.5px; color: var(--fg-3); margin-top: 10px; }
+
+/* ================================================================ MOBILE */
+
+@media (max-width: 760px) {
+  .wrap-wide { padding: 0 20px; }
+  .agrid { grid-template-columns: 1fr; }
+  .phead { grid-template-columns: 76px minmax(0, 1fr); gap: 14px; }
+  .pacts { grid-column: 1 / -1; padding-top: 4px; }
+  .pav { width: 76px; height: 76px; border-radius: 20px; }
+  .pname { font-size: 21px; }
+  .pbanner { height: 128px; }
+}
+
+@media (max-width: 420px) {
+  .wrap-wide { padding: 0 14px; }
+  .pstats { grid-template-columns: 1fr; }
+}
+
+/* TAP TARGETS on the new marketplace components. Measured under a real touch
+   profile by verify_polish.py, which is the only way these show up: a narrow
+   desktop window does not match (pointer: coarse).
+
+   A card title and an identity value are standalone controls, not words in a
+   sentence, so both take the floor. */
+@media (pointer: coarse) {
+  .acard-name,
+  .pby a,
+  .pbox .line a,
+  .pbox .line .v { min-height: 44px; display: inline-flex; align-items: center; }
+  /* The copy control inside an identity row is its own target, and it is the
+     one people actually reach for on a phone. */
+  .pbox .copybtn { min-height: 44px; min-width: 44px; justify-content: center; }
+  .swatch { min-height: 58px; }
+}

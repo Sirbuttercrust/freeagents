@@ -53,7 +53,7 @@ DESKTOP = """(function(){
     var live = b.hasAttribute('data-demo') || b.hasAttribute('data-disclose') ||
                b.hasAttribute('data-copy') || b.hasAttribute('data-toggle') ||
                b.hasAttribute('data-ev') || b.getAttribute('role') === 'tab' ||
-               b.hasAttribute('onclick') ||
+               b.hasAttribute('onclick') || b.hasAttribute('data-pattern') ||
                (b.closest && b.closest('[data-pick]')) || b.disabled;
     if (!live) inert.push((b.textContent||'').trim().slice(0,26));
   }

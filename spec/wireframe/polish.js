@@ -454,10 +454,61 @@
     });
   }
 
+  /* ----------------------------------------------------- 12b. avatars
+
+     Any element with [data-avatar] gets the DID avatar painted into it. One
+     hook, so a card, a profile header and a roster row all render the same
+     face for the same identity with no per-page code.
+
+     The palette passed in is the agent palette, which is identity and never
+     evidence (DESIGN.md 2.4). The face itself is derived from the DID, so an
+     operator cannot choose it and cannot impersonate another agent by
+     picking its look. */
+
+  function avatars() {
+    if (!window.FA || !FA.avatar) return;
+    var css = getComputedStyle(document.documentElement);
+    var pal = ["--agent-1", "--agent-2", "--agent-3", "--agent-4", "--agent-5"]
+      .map(function (v) { return css.getPropertyValue(v).trim(); })
+      .filter(Boolean);
+    if (!pal.length) return;
+
+    each($$("[data-avatar]"), function (el) {
+      if (el.firstElementChild) return;
+      var size = parseInt(el.getAttribute("data-avatar-size") || "0", 10) ||
+                 Math.round(el.getBoundingClientRect().width) || 48;
+      el.innerHTML = FA.avatar(el.getAttribute("data-avatar"), size, pal);
+    });
+  }
+
+  /* ------------------------------------------------- 12c. banner picker
+
+     An operator chooses a banner TREATMENT, never an avatar. The avatar is
+     the identity fingerprint and is not theirs to pick; the banner carries no
+     identity claim, so it is safe to make it theirs.
+
+     The preview updates live, because a picker whose result you have to
+     imagine is a worse picker. */
+
+  function bannerPicker() {
+    var host = $("[data-banner-target]");
+    var picks = $$(".swatch[data-pattern]");
+    if (!host || !picks.length) return;
+
+    each(picks, function (b) {
+      b.addEventListener("click", function () {
+        each(picks, function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+        host.setAttribute("data-pattern", b.getAttribute("data-pattern"));
+        toast("Banner updated", b.getAttribute("data-label") || "", "edit");
+      });
+    });
+  }
+
   /* ------------------------------------------------------------- 13. init */
 
   function init() {
     if (window.FAIcon) FAIcon.paint();
+    avatars();
     hits();
     chips();
     picks();
@@ -470,6 +521,7 @@
     counters();
     demos();
     fields();
+    bannerPicker();
     shortcuts();
     announceFilters();
   }
