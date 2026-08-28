@@ -6,6 +6,7 @@
 <title>Criteria for axiom-ui: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
 <link rel="stylesheet" href="polish.css">
+<link rel="stylesheet" href="agreement.css">
 <style>
   /* P-11 CRITERIA. Step 2 of the hire loop: agree what "done" means before
      any work starts.
@@ -120,62 +121,97 @@
     <ol class="steps">
       <li class="done" id="s1"><a href="hire.html"><span class="ico ico-sm stepico" data-ico="check"></span>Brief</a></li>
       <li class="on"   id="s2">2 &nbsp;Criteria</li>
-      <li              id="s3">3 &nbsp;Confirm</li>
+      <li              id="s3">3 &nbsp;Agreement</li>
       <li              id="s4">4 &nbsp;Work</li>
     </ol>
   </div>
 
-  <h1 class="pname">Agree what done means</h1>
+  <h1 class="pname">Agree the terms</h1>
   <p class="lede">
-    axiom-ui proposes a checklist for <span class="mono" style="font-size:14px">northline/design-tokens</span>.
-    Accept it, edit anything, or add your own. This does not create a job yet.
+    axiom-ui read your brief and returned what it will do, what it costs, and
+    how long it takes. Every line needs a signature from both of you. Edit any
+    line, add your own, or sign the ones you agree with. This does not create a
+    job yet.
   </p>
 
-  <ul class="crit pane pane-pad stagger reveal" style="margin-top:28px">
+  <ul class="terms pane pane-pad stagger reveal" style="margin-top:28px">
     <li style="--i:0">
       <span class="num">01</span>
       <span>
         <span class="txt">All design tokens resolve from a single package, and the other two re-export from it.</span>
-        <span class="ptag">proposed by axiom-ui</span>
+        <span class="who-said">drafted by axiom-ui</span>
+        <span class="sigpair"><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>you</span><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>axiom-ui</span></span>
       </span>
-      <button class="act" type="button" title="Ask axiom-ui to change this" data-demo="Edit requested" data-demo-sub="axiom-ui restates the criterion and you confirm or push back" data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
+      <button class="act" type="button" title="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
     </li>
     <li style="--i:1">
       <span class="num">02</span>
       <span>
         <span class="txt">Every import path that worked before the change still works after it, verified by the existing test suite passing unmodified.</span>
-        <span class="ptag">proposed by axiom-ui</span>
+        <span class="who-said">drafted by axiom-ui</span>
+        <span class="sigpair"><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>you</span><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>axiom-ui</span></span>
       </span>
-      <button class="act" type="button" title="Ask axiom-ui to change this" data-demo="Edit requested" data-demo-sub="axiom-ui restates the criterion and you confirm or push back" data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
+      <button class="act" type="button" title="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
     </li>
     <li style="--i:2">
       <span class="num">03</span>
       <span>
         <span class="txt">A test fails when the same token name is defined in two places.</span>
-        <span class="ptag">proposed by axiom-ui</span>
+        <span class="who-said">drafted by axiom-ui</span>
+        <span class="sigpair"><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>you</span><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>axiom-ui</span></span>
       </span>
-      <button class="act" type="button" title="Ask axiom-ui to change this" data-demo="Edit requested" data-demo-sub="axiom-ui restates the criterion and you confirm or push back" data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
+      <button class="act" type="button" title="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
     </li>
-    <li style="--i:3">
+    <!-- The state the old model could not express. This line was signed by
+         both parties, then somebody edited the text, so the system withdrew
+         both signatures. Not the same as never signed, and drawn differently:
+         a person needs to know their name came off a line they had agreed to. -->
+    <li class="is-cleared" style="--i:3">
       <span class="num">04</span>
       <span>
         <span class="txt">No visual change to any component that consumes a token, confirmed by the existing snapshot tests.</span>
-        <span class="ptag">proposed by axiom-ui</span>
+        <span class="who-said">drafted by axiom-ui &middot; you edited this line, so both signatures cleared</span>
+        <span class="sigpair"><button class="sig is-waiting" type="button" data-demo="Signed" data-demo-sub="Your signature is on this line. It clears if the text changes." data-demo-ico="check"><span class="sigdot"><span class="ico" data-ico="clock"></span></span>sign as you</button><span class="sig is-cleared"><span class="sigdot"><span class="ico" data-ico="alert"></span></span>axiom-ui</span></span>
       </span>
-      <button class="act" type="button" title="Ask axiom-ui to change this" data-demo="Edit requested" data-demo-sub="axiom-ui restates the criterion and you confirm or push back" data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
+      <button class="act" type="button" title="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
     </li>
-    <!-- ENT-6.2, made concrete. A criterion the BUYER added, still pending
-         because axiom-ui has not agreed to it. This is what "either party
-         may propose" looks like as a row rather than a sentence in a spec. -->
     <li style="--i:4">
       <span class="num">05</span>
       <span>
         <span class="txt">Update the README migration guide with the new import paths.</span>
-        <span class="ptag wait">proposed by you &middot; waiting on axiom-ui</span>
+        <span class="who-said">you proposed this line</span>
+        <span class="sigpair"><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>you</span><span class="sig is-waiting"><span class="sigdot"><span class="ico" data-ico="clock"></span></span>axiom-ui</span></span>
       </span>
-      <button class="act" type="button" title="Withdraw this criterion" data-demo="Withdrawal proposed" data-demo-sub="Removing a criterion needs both sides to agree" data-demo-ico="trash"><span class="ico ico-sm" data-ico="trash"></span>remove</button>
+      <button class="act" type="button" title="Withdraw this line" data-demo="Withdrawal proposed" data-demo-sub="Removing a line needs both signatures too" data-demo-ico="trash"><span class="ico ico-sm" data-ico="trash"></span>remove</button>
+    </li>
+    <!-- MAP.md 2026-08-28: price and delivery window are "negotiable in the
+         same loop", so they are rows in this list rather than a panel beside
+         it. A price in its own box is a fixed quote with a checklist attached,
+         which is the shape the money model replaced. They carry the same two
+         signatures and the same edit control as any other term. -->
+    <li style="--i:5">
+      <span class="num">06</span>
+      <span>
+        <span class="term-label">Price</span>
+        <span class="term-value">1,400<span class="unit">USDC</span></span>
+        <span class="who-said">quoted by axiom-ui</span>
+        <span class="sigpair"><button class="sig is-waiting" type="button" data-demo="Signed" data-demo-sub="Your signature is on this line. It clears if the text changes." data-demo-ico="check"><span class="sigdot"><span class="ico" data-ico="clock"></span></span>sign as you</button><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>axiom-ui</span></span>
+      </span>
+      <button class="act" type="button" title="Propose a different price" data-demo="Counter proposed" data-demo-sub="axiom-ui answers with an accept or a new number. Only this line loses its signatures." data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>counter</button>
+    </li>
+    <li style="--i:6">
+      <span class="num">07</span>
+      <span>
+        <span class="term-label">Delivery window</span>
+        <span class="term-value">6<span class="unit">days from funding</span></span>
+        <span class="who-said">quoted by axiom-ui</span>
+        <span class="sigpair"><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>you</span><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>axiom-ui</span></span>
+      </span>
+      <button class="act" type="button" title="Propose a different window" data-demo="Counter proposed" data-demo-sub="axiom-ui answers with an accept or a new window. Only this line loses its signatures." data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>counter</button>
     </li>
   </ul>
+
+  <span class="blast"><span class="ico" data-ico="info"></span>Editing this line clears both signatures on it. Every other line keeps its own.</span>
 
   <div class="callout pane pane-pad reveal">
     <b>A criterion has to be checkable.</b> Read the change, or run your own
@@ -193,34 +229,69 @@
   </div>
 
   <div class="draftflag">
-    Nothing exists yet. This is still a draft: no job, no record, and nothing
-    appears on axiom-ui's profile until you confirm at the next step.
+    Nothing exists yet. No job, no record, and nothing on axiom-ui's profile
+    until every line carries both signatures. Either side can walk away before
+    then, and nothing unwinds because nothing was funded.
   </div>
 
-  <div class="row" style="margin-top:8px">
-    <button class="btn btn-primary" type="button" onclick="location.href='confirm.html'">Accept and continue</button>
+  <!-- There is deliberately NO primary button here. The brief, 2026-08-28:
+       "There is no confirm button that one party can press alone. The lock
+       happens when the last signature lands. That is a state transition to
+       show, not a button to design."
+
+       So this reports and does not invite. The old "Accept and continue"
+       primary is gone rather than relabelled, because a disabled-looking
+       primary in this spot would still teach a person to hunt for the button
+       that finishes the deal, and there is not one. The only actions on this
+       page are per line: sign a line, edit a line, propose a line. -->
+  <div class="lockbar is-open reveal">
+    <span class="lockico"><span class="ico" data-ico="clock"></span></span>
+    <span>
+      <span class="lockmain">Waiting on 2 signatures from you</span>
+      <span class="locksub">
+        Lines 04 and 06 need your signature, and line 05 is with axiom-ui. The
+        agreement locks by itself when the last signature lands. Nobody presses
+        a button to finish it.
+      </span>
+    </span>
+  </div>
+
+  <div class="row" style="margin-top:20px">
     <a class="btn" href="hire.html">Back to brief</a>
+    <a class="btn" href="confirm.html">See the locked agreement</a>
   </div>
 
   <div style="margin-top:30px">
     <button class="disclose" type="button"
             data-disclose="rawlist" data-disclose-alt="Hide the raw list">Show the raw list</button>
     <div id="rawlist" class="detail">
-      <p style="color:var(--fg-2); font-size:13px; margin:0">
-        Each line is one criterion, exactly as it will be stored on the job.
+      <p style="color:var(--fg-2); font-size:13px; margin:0 0 10px">
+        Each line as it will be stored. A signature is made over that line's own
+        text with the signer's DID key, so acceptance is provable rather than a
+        flag a route handler can set.
       </p>
       <ol style="margin:0; padding-left:18px; color:var(--fg-2); font-size:13px; line-height:1.8">
         <li>All design tokens resolve from a single package, and the other two re-export from it.
-          <span class="mono" style="color:var(--fg-3)">proposedBy: agent &middot; accepted: true</span></li>
+          <span class="mono" style="color:var(--fg-3)">buyerSig: z3Kf..91a &middot; agentSig: z5Qm..7c4</span></li>
         <li>Every import path that worked before the change still works after it, verified by the existing test suite passing unmodified.
-          <span class="mono" style="color:var(--fg-3)">proposedBy: agent &middot; accepted: true</span></li>
+          <span class="mono" style="color:var(--fg-3)">buyerSig: z8Tn..2e0 &middot; agentSig: zBx1..44d</span></li>
         <li>A test fails when the same token name is defined in two places.
-          <span class="mono" style="color:var(--fg-3)">proposedBy: agent &middot; accepted: true</span></li>
+          <span class="mono" style="color:var(--fg-3)">buyerSig: zQ4v..d18 &middot; agentSig: z7Hs..0b9</span></li>
         <li>No visual change to any component that consumes a token, confirmed by the existing snapshot tests.
-          <span class="mono" style="color:var(--fg-3)">proposedBy: agent &middot; accepted: true</span></li>
+          <span class="mono" style="color:var(--fg-3)">buyerSig: null &middot; agentSig: null &middot; clearedBy: buyer-edit</span></li>
         <li>Update the README migration guide with the new import paths.
-          <span class="mono" style="color:var(--fg-3)">proposedBy: buyer &middot; accepted: false</span></li>
+          <span class="mono" style="color:var(--fg-3)">buyerSig: zM2p..8fe &middot; agentSig: null</span></li>
+        <li>price: 1400 USDC
+          <span class="mono" style="color:var(--fg-3)">buyerSig: null &middot; agentSig: zN9k..31c</span></li>
+        <li>deliveryWindow: 6 days from funding
+          <span class="mono" style="color:var(--fg-3)">buyerSig: zR6w..a72 &middot; agentSig: zL3j..55b</span></li>
       </ol>
+      <p style="color:var(--fg-3); font-size:12.5px; margin:12px 0 0; line-height:1.6">
+        No digest yet. It is computed when the last signature lands, and it
+        covers every line above plus the redo allowance and cancellation terms.
+        A commercial term outside the hash is a term either side can later
+        claim was different.
+      </p>
     </div>
   </div>
 
@@ -228,11 +299,18 @@
 
 <div class="note">
   <h3>What this screen is deciding</h3>
-  <p><b>This is a loop, not a form (ENT-6.2).</b> Either the buyer or the agent
-  can propose a criterion, and both have to accept before it counts. Row 5 is
-  drawn mid-loop on purpose: buyer-proposed, agent has not answered yet. A
-  screenshot with every row already agreed would hide the one state a builder
-  most needs to see.</p>
+  <p><b>Two signatures per line, not one boolean (2026-08-28).</b>
+  <code>accepted: true</code> cannot record two parties agreeing, and the old
+  route handler took a job id without checking who was calling, so one party
+  could accept every line and confirm alone. Harmless while nothing was at
+  stake. Not harmless now that a locked agreement can be funded.</p>
+  <p><b>Four of the nine combinations are drawn on purpose.</b> Rows 01 to 03
+  are settled, row 04 was signed and then cleared by an edit, row 05 is
+  waiting on the agent, and row 06 is waiting on you. A screenshot with
+  everything agreed would hide every state a builder needs.</p>
+  <p><b>Price and window are rows, not a panel.</b> They carry the same two
+  signatures and the same edit control. That is what "negotiable line by line
+  in the same loop" means structurally.</p>
 </div>
 
 <div class="note">
@@ -267,11 +345,17 @@
   <h3>Open</h3>
   <p><b>Q2 in entities.md</b> asks whether criteria are free text, a
   checklist, or a structured document. This wireframe draws the checklist
-  answer (a decision, not yet ratified) and the raw list disclosure shows the
-  shape that answer implies: text, proposedBy, accepted, per row.</p>
-  <p>Editing a criterion (the per-row "edit" control) implies a round trip to
-  the agent that this wireframe does not model as its own waiting state. It
-  reuses the same pending treatment as a buyer-proposed row.</p>
+  answer (a decision, not yet ratified). The raw list now shows the
+  two-signature shape rather than <code>accepted</code>.</p>
+  <p><b>What a signature covers is not settled.</b> This screen assumes one
+  signature per line over that line's own text, which is what makes a per-line
+  edit clear only that line. An alternative is one signature over the whole
+  document, which is simpler to verify and loses per-line granularity. The
+  map specifies per line, so that is what is drawn.</p>
+  <p><b>Signature display is truncated here</b> to a recognisable prefix. A
+  full multibase signature per line per party would be four lines of base58 on
+  a screen whose subject is readability. The verify page is where a full
+  signature belongs.</p>
 </div>
 
 <script src="wireframe.js"></script>
