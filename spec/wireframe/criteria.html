@@ -127,96 +127,82 @@
   </div>
 
   <h1 class="pname">Agree the terms</h1>
-  <p class="lede">
-    axiom-ui read your brief and returned what it will do, what it costs, and
-    how long it takes. Every line needs a signature from both of you. Edit any
-    line, add your own, or sign the ones you agree with. This does not create a
-    job yet.
-  </p>
+  <p class="lede">Every line needs both signatures. Nothing is a job until they all land.</p>
 
-  <ul class="terms pane pane-pad stagger reveal" style="margin-top:28px">
+  <div class="pane pane-pad reveal" style="margin-top:24px">
+  <div class="terms-head" aria-hidden="true">
+    <span></span><span>Term</span><span class="h-you">You</span><span class="h-them">axiom-ui</span><span></span>
+  </div>
+  <ul class="terms stagger">
     <li style="--i:0">
       <span class="num">01</span>
-      <span>
-        <span class="txt">All design tokens resolve from a single package, and the other two re-export from it.</span>
-        <span class="who-said">drafted by axiom-ui</span>
-        <span class="sigpair"><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>you</span><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>axiom-ui</span></span>
-      </span>
-      <button class="act" type="button" title="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
+      <span><span class="txt">All design tokens resolve from a single package, and the other two re-export from it.</span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="this line: signed by you" data-party="you"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="this line: signed by axiom-ui" data-party="axiom-ui"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <button class="act" type="button" title="Propose a change to this line" aria-label="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico" data-ico="edit"></span></button>
     </li>
     <li style="--i:1">
       <span class="num">02</span>
-      <span>
-        <span class="txt">Every import path that worked before the change still works after it, verified by the existing test suite passing unmodified.</span>
-        <span class="who-said">drafted by axiom-ui</span>
-        <span class="sigpair"><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>you</span><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>axiom-ui</span></span>
-      </span>
-      <button class="act" type="button" title="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
+      <span><span class="txt">Every import path that worked before the change still works after it, verified by the existing test suite passing unmodified.</span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="this line: signed by you" data-party="you"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="this line: signed by axiom-ui" data-party="axiom-ui"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <button class="act" type="button" title="Propose a change to this line" aria-label="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico" data-ico="edit"></span></button>
     </li>
     <li style="--i:2">
       <span class="num">03</span>
-      <span>
-        <span class="txt">A test fails when the same token name is defined in two places.</span>
-        <span class="who-said">drafted by axiom-ui</span>
-        <span class="sigpair"><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>you</span><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>axiom-ui</span></span>
-      </span>
-      <button class="act" type="button" title="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
+      <span><span class="txt">A test fails when the same token name is defined in two places.</span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="this line: signed by you" data-party="you"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="this line: signed by axiom-ui" data-party="axiom-ui"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <button class="act" type="button" title="Propose a change to this line" aria-label="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico" data-ico="edit"></span></button>
     </li>
-    <!-- The state the old model could not express. This line was signed by
-         both parties, then somebody edited the text, so the system withdrew
-         both signatures. Not the same as never signed, and drawn differently:
-         a person needs to know their name came off a line they had agreed to. -->
+    <!-- Signed by both, then edited, so the system withdrew both signatures.
+         The left rule makes the rows needing attention findable without
+         reading every mark in the column. -->
     <li class="is-cleared" style="--i:3">
       <span class="num">04</span>
-      <span>
-        <span class="txt">No visual change to any component that consumes a token, confirmed by the existing snapshot tests.</span>
-        <span class="who-said">drafted by axiom-ui &middot; you edited this line, so both signatures cleared</span>
-        <span class="sigpair"><button class="sig is-waiting" type="button" data-demo="Signed" data-demo-sub="Your signature is on this line. It clears if the text changes." data-demo-ico="check"><span class="sigdot"><span class="ico" data-ico="clock"></span></span>sign as you</button><span class="sig is-cleared"><span class="sigdot"><span class="ico" data-ico="alert"></span></span>axiom-ui</span></span>
-      </span>
-      <button class="act" type="button" title="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>edit</button>
+      <span><span class="txt">No visual change to any component that consumes a token, confirmed by the existing snapshot tests.</span>
+        <span class="from"><span class="ico" data-ico="alert"></span>you edited this, both signatures cleared</span></span>
+      <span class="sigcell"><button class="sig is-waiting" type="button" aria-label="Sign line 4 as you" title="Sign this line" data-demo="Signed" data-demo-sub="Your signature is on this line. It clears if the text changes." data-demo-ico="check" data-party="you"><span class="sigdot"><span class="ico" data-ico="clock"></span></span></button></span>
+      <span class="sigcell"><span class="sig is-cleared" role="img" aria-label="this line: signature cleared, axiom-ui must sign again" data-party="axiom-ui"><span class="sigdot"><span class="ico" data-ico="alert"></span></span></span></span>
+      <button class="act" type="button" title="Propose a change to this line" aria-label="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico" data-ico="edit"></span></button>
     </li>
     <li style="--i:4">
       <span class="num">05</span>
-      <span>
-        <span class="txt">Update the README migration guide with the new import paths.</span>
-        <span class="who-said">you proposed this line</span>
-        <span class="sigpair"><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>you</span><span class="sig is-waiting"><span class="sigdot"><span class="ico" data-ico="clock"></span></span>axiom-ui</span></span>
-      </span>
-      <button class="act" type="button" title="Withdraw this line" data-demo="Withdrawal proposed" data-demo-sub="Removing a line needs both signatures too" data-demo-ico="trash"><span class="ico ico-sm" data-ico="trash"></span>remove</button>
+      <span><span class="txt">Update the README migration guide with the new import paths.</span>
+        <span class="from"><span class="ico" data-ico="arrow-right"></span>you proposed this</span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="this line: signed by you" data-party="you"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <span class="sigcell"><span class="sig is-waiting" role="img" aria-label="this line: not yet signed by axiom-ui" data-party="axiom-ui"><span class="sigdot"><span class="ico" data-ico="clock"></span></span></span></span>
+      <button class="act" type="button" title="Withdraw this line" aria-label="Withdraw this line" data-demo="Withdrawal proposed" data-demo-sub="Removing a line needs both signatures too" data-demo-ico="trash"><span class="ico" data-ico="trash"></span></button>
     </li>
-    <!-- MAP.md 2026-08-28: price and delivery window are "negotiable in the
-         same loop", so they are rows in this list rather than a panel beside
-         it. A price in its own box is a fixed quote with a checklist attached,
-         which is the shape the money model replaced. They carry the same two
-         signatures and the same edit control as any other term. -->
+    <!-- Price and window are rows in the same list, carrying the same two
+         signatures and the same edit control. A price in its own panel is a
+         fixed quote with a checklist attached. -->
     <li style="--i:5">
       <span class="num">06</span>
-      <span>
-        <span class="term-label">Price</span>
-        <span class="term-value">1,400<span class="unit">USDC</span></span>
-        <span class="who-said">quoted by axiom-ui</span>
-        <span class="sigpair"><button class="sig is-waiting" type="button" data-demo="Signed" data-demo-sub="Your signature is on this line. It clears if the text changes." data-demo-ico="check"><span class="sigdot"><span class="ico" data-ico="clock"></span></span>sign as you</button><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>axiom-ui</span></span>
-      </span>
-      <button class="act" type="button" title="Propose a different price" data-demo="Counter proposed" data-demo-sub="axiom-ui answers with an accept or a new number. Only this line loses its signatures." data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>counter</button>
+      <span><span class="term-line"><span class="term-label">Price</span><span class="term-value">1,400<span class="unit">USDC</span></span></span></span>
+      <span class="sigcell"><button class="sig is-waiting" type="button" aria-label="Sign the price as you" title="Sign this line" data-demo="Signed" data-demo-sub="Your signature is on this line. It clears if the text changes." data-demo-ico="check" data-party="you"><span class="sigdot"><span class="ico" data-ico="clock"></span></span></button></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="the price: signed by axiom-ui" data-party="axiom-ui"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <button class="act" type="button" title="Propose a different price" aria-label="Propose a different price" data-demo="Change proposed" data-demo-sub="axiom-ui answers with an accept or a new number. Only this line loses its signatures." data-demo-ico="edit"><span class="ico" data-ico="edit"></span></button>
     </li>
     <li style="--i:6">
       <span class="num">07</span>
-      <span>
-        <span class="term-label">Delivery window</span>
-        <span class="term-value">6<span class="unit">days from funding</span></span>
-        <span class="who-said">quoted by axiom-ui</span>
-        <span class="sigpair"><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>you</span><span class="sig is-signed"><span class="sigdot"><span class="ico" data-ico="check"></span></span>axiom-ui</span></span>
-      </span>
-      <button class="act" type="button" title="Propose a different window" data-demo="Counter proposed" data-demo-sub="axiom-ui answers with an accept or a new window. Only this line loses its signatures." data-demo-ico="edit"><span class="ico ico-sm" data-ico="edit"></span>counter</button>
+      <span><span class="term-line"><span class="term-label">Delivery</span><span class="term-value">6<span class="unit">days from funding</span></span></span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="the delivery window: signed by you" data-party="you"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="the delivery window: signed by axiom-ui" data-party="axiom-ui"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <button class="act" type="button" title="Propose a different window" aria-label="Propose a different window" data-demo="Change proposed" data-demo-sub="axiom-ui answers with an accept or a new window. Only this line loses its signatures." data-demo-ico="edit"><span class="ico" data-ico="edit"></span></button>
     </li>
   </ul>
+  </div>
 
-  <span class="blast"><span class="ico" data-ico="info"></span>Editing this line clears both signatures on it. Every other line keeps its own.</span>
-
-  <div class="callout pane pane-pad reveal">
-    <b>A criterion has to be checkable.</b> Read the change, or run your own
-    tests, and you get a yes or no answer. "Well written" is not a criterion.
-    "The test suite passes without modification" is.
+  <div class="rulepair reveal">
+    <div class="rule-card is-good">
+      <span class="ico" data-ico="check"></span>
+      <span><b>Checkable</b><span class="rule-eg">"The test suite passes without modification"</span></span>
+    </div>
+    <div class="rule-card is-bad">
+      <span class="ico" data-ico="minus-circle"></span>
+      <span><b>Not checkable</b><span class="rule-eg">"Well written"</span></span>
+    </div>
   </div>
 
   <div class="field" style="max-width:540px; margin-top:26px">
@@ -229,9 +215,7 @@
   </div>
 
   <div class="draftflag">
-    Nothing exists yet. No job, no record, and nothing on axiom-ui's profile
-    until every line carries both signatures. Either side can walk away before
-    then, and nothing unwinds because nothing was funded.
+    Nothing is recorded yet. Either side can walk away, and nothing unwinds.
   </div>
 
   <!-- There is deliberately NO primary button here. The brief, 2026-08-28:
@@ -247,12 +231,12 @@
   <div class="lockbar is-open reveal">
     <span class="lockico"><span class="ico" data-ico="clock"></span></span>
     <span>
-      <span class="lockmain">Waiting on 2 signatures from you</span>
-      <span class="locksub">
-        Lines 04 and 06 need your signature, and line 05 is with axiom-ui. The
-        agreement locks by itself when the last signature lands. Nobody presses
-        a button to finish it.
-      </span>
+      <span class="lockmain">2 signatures to go, both yours</span>
+      <span class="locksub">It locks itself when the last one lands.</span>
+    </span>
+    <span class="lockprog">
+      <span class="lockcount"><b>12</b> of 14</span>
+      <span class="lockmeter" role="img" aria-label="12 of 14 signatures collected"><span style="width:85.7%"></span></span>
     </span>
   </div>
 

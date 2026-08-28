@@ -49,6 +49,16 @@
   margin-top: 9px; flex-wrap: wrap;
 }
 
+/* IN THE MATRIX the mark stands alone in its column, so it carries no text
+   label at all. The column header says whose it is. A screen reader still
+   needs the pairing, so every bare mark carries an aria-label naming the party
+   and the state: the label is removed from the pixels, never from the
+   accessibility tree. */
+.sigcell { display: flex; align-items: center; justify-content: center; }
+.sigcell .sig { padding: 0; border: 0; background: none; gap: 0; }
+.sigcell .sig .sigdot { width: 22px; height: 22px; }
+.sigcell .sig .sigdot .ico { width: 11px; height: 11px; }
+
 .sig {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 12px; font-family: var(--mono); letter-spacing: 0.01em;
@@ -109,42 +119,105 @@ button.sig:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px;
    Criteria, price and delivery window in ONE list. MAP.md 2026-08-28: price
    and window are "negotiable in the same loop". A price panel beside a
    criteria list would be a fixed quote with a checklist attached, which is the
-   shape the money model replaced. */
+   shape the money model replaced.
+
+   THE LIST IS A MATRIX, NOT A STACK OF PARAGRAPHS. The operator, 2026-08-28:
+   "a whole lot of reading". Measured: the first build wrote the word "axiom-ui"
+   17 times on one screen, because every row carried its own labelled signature
+   pair. Two parties sign every line, so the party names are a property of the
+   COLUMN, not of the row. They are stated once in a header and each row carries
+   two bare marks under them.
+
+   That converts the page from reading to scanning: a column of marks answers
+   "what is outstanding" in one vertical glance, where a stack of labelled
+   chips forced a left-to-right read of the same two names on every line. */
 
 .terms { list-style: none; padding: 0; margin: 0; }
-.terms > li {
-  display: grid; grid-template-columns: 30px 1fr auto; gap: 12px;
-  align-items: start; padding: 15px 0; border-bottom: 1px solid var(--line);
+
+/* The header names the two signing parties once. It is the only place their
+   names appear in the list. */
+.terms-head {
+  display: grid; grid-template-columns: 30px 1fr 74px 74px 40px; gap: 12px;
+  align-items: center; padding: 0 0 10px;
+  border-bottom: 1px solid var(--line-2);
+  font-size: 11px; font-family: var(--mono); letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--fg-3);
 }
-.terms > li:last-child { border-bottom: 0; padding-bottom: 0; }
-.terms .num { font-family: var(--mono); font-size: 12px; color: var(--fg-3); padding-top: 3px; }
-.terms .txt { font-size: 15px; line-height: 1.5; display: block; color: var(--fg); }
-.terms .who-said { font-size: 12px; color: var(--fg-3); margin-top: 5px; display: block; }
+.terms-head .h-you, .terms-head .h-them { text-align: center; }
+
+.terms > li {
+  display: grid; grid-template-columns: 30px 1fr 74px 74px 40px; gap: 12px;
+  align-items: center; padding: 13px 0; border-bottom: 1px solid var(--line);
+}
+.terms > li:last-child { border-bottom: 0; }
+.terms .num { font-family: var(--mono); font-size: 12px; color: var(--fg-3); }
+.terms .txt { font-size: 14.5px; line-height: 1.45; display: block; color: var(--fg); }
+
+/* Provenance is a single glyph plus nothing. Who drafted a line matters, and
+   it cost 18 characters per row to say in words. An arrow pointing in from
+   the agent side or out from yours says it in one mark, and the header above
+   already establishes which side is which. */
+.terms .from { display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 11.5px; color: var(--fg-3); }
+.terms .from .ico { width: 11px; height: 11px; }
 
 /* A commercial term is still a term, so it sits in the same list under the
-   same rules. It gets a label and a larger value because a number read at a
-   glance is the whole point of putting it in front of somebody, and it gets
-   no border, no box and no tint, because a boxed price row would re-create the
-   separate price panel this list exists to avoid. */
+   same rules. Label and value share one line rather than stacking, because a
+   stacked label was a third row of text on a page already accused of having
+   too much. */
+.terms .term-line { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .terms .term-label {
-  font-size: 12px; font-family: var(--mono); color: var(--fg-3);
-  text-transform: uppercase; letter-spacing: 0.05em; display: block;
-  margin-bottom: 3px;
+  font-size: 11px; font-family: var(--mono); color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: 0.06em;
 }
-.terms .term-value { font-size: 19px; font-weight: 550; color: var(--fg); line-height: 1.25; }
-.terms .term-value .unit { font-size: 13px; font-weight: 450; color: var(--fg-2); margin-left: 2px; }
+.terms .term-value { font-size: 18px; font-weight: 550; color: var(--fg); line-height: 1.2; }
+.terms .term-value .unit { font-size: 12.5px; font-weight: 450; color: var(--fg-2); margin-left: 3px; }
 
 .terms .act {
   font-size: 13px; color: var(--fg-3); background: none; border: 0;
-  cursor: pointer; padding: 2px 6px; display: inline-flex; align-items: center; gap: 5px;
+  cursor: pointer; padding: 4px; display: inline-flex; align-items: center;
+  justify-content: center; border-radius: 7px;
 }
-.terms .act:hover { color: var(--fg); }
+.terms .act:hover { color: var(--fg); background: var(--bg-2); }
+.terms .act .ico { width: 14px; height: 14px; }
 
 /* A row whose signatures were cleared by an edit carries a quiet left rule so
    the rows needing attention are findable in a long list without scrolling
    through every signature pair. A tint across the whole row was tried and
    rejected: it made the settled rows look disabled. */
 .terms > li.is-cleared { border-left: 2px solid var(--sig-open); padding-left: 14px; margin-left: -16px; }
+
+/* ============================================================== RULE PAIR
+
+   A criterion has to be checkable. That was a 188 character paragraph that
+   defined the passing case, then the failing case, then gave one example of
+   each, all in prose. The rule is a CONTRAST, so it draws as two cards side by
+   side and the reader gets it without reading a sentence.
+
+   The bad card is not red. Writing a vague criterion is a normal first draft,
+   not an error state, and colouring it like a failure would make a person feel
+   caught rather than taught. It is simply dimmer, which is the same treatment
+   DESIGN.md 2.3 gives an unverifiable claim. */
+.rulepair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 22px 0; max-width: 620px; }
+.rule-card {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 13px 15px; border-radius: 11px;
+  border: 1px solid var(--line); background: var(--bg-1);
+}
+.rule-card .ico { width: 15px; height: 15px; flex: none; margin-top: 1px; }
+.rule-card b { font-size: 13px; font-weight: 550; display: block; }
+.rule-card .rule-eg {
+  font-size: 12.5px; color: var(--fg-2); display: block; margin-top: 4px;
+  font-family: var(--mono); line-height: 1.45;
+}
+.rule-card.is-good b { color: var(--fg); }
+.rule-card.is-good .ico { color: var(--fg); }
+.rule-card.is-bad { border-style: dashed; background: none; }
+.rule-card.is-bad b { color: var(--fg-2); }
+.rule-card.is-bad .ico, .rule-card.is-bad .rule-eg { color: var(--fg-3); }
+
+@media (max-width: 560px) {
+  .rulepair { grid-template-columns: 1fr; }
+}
 
 /* ============================================================ BLAST RADIUS
 
@@ -222,6 +295,45 @@ button.sig:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px;
 .lockbar .lockico .ico { width: 16px; height: 16px; }
 .lockbar .lockmain { font-size: 14px; color: var(--fg); font-weight: 550; }
 .lockbar .locksub { font-size: 12.5px; color: var(--fg-2); margin-top: 3px; line-height: 1.5; }
+
+/* A COUNT AND A BAR INSTEAD OF A PARAGRAPH.
+
+   The first build explained the outstanding signatures in a sentence naming
+   the row numbers, which is a paragraph doing a progress meter's job and goes
+   stale the moment a signature lands. 14 marks, some filled: that is a
+   fraction, and a fraction draws.
+
+   The bar is a fraction with its denominator visible, never a percentage.
+   DESIGN.md already forbids rendering merge rate as a percentage for the same
+   reason: 12 of 14 is a fact a person can check against the list above it,
+   while 86 percent is a number they have to trust. */
+.lockprog { display: flex; align-items: center; gap: 12px; margin-left: auto; flex: none; }
+.lockcount { font-family: var(--mono); font-size: 13px; color: var(--fg-2); white-space: nowrap; }
+.lockcount b { color: var(--fg); font-weight: 550; }
+.lockmeter {
+  width: 132px; height: 6px; border-radius: 999px;
+  background: var(--bg-2); border: 1px solid var(--line);
+  overflow: hidden; flex: none;
+}
+.lockmeter span {
+  display: block; height: 100%; border-radius: 999px;
+  background: var(--fg-2);
+  transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.lockbar.is-locked .lockmeter span { background: var(--fg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .lockmeter span { transition: none; }
+}
+
+@media (max-width: 720px) {
+  /* The bar itself has to wrap, or the progress block reflows into a parent
+     that is still a single non-wrapping flex line and overflows the viewport.
+     Measured at 320px: .lockprog right edge 415 against a 320 viewport. */
+  .lockbar { flex-wrap: wrap; }
+  .lockprog { margin-left: 0; width: 100%; margin-top: 10px; }
+  .lockmeter { flex: 1; width: auto; min-width: 0; }
+}
 
 /* Open, and waiting on somebody. The useful fact is never "half signed", it is
    WHOSE MOVE IT IS, so that is what the bar leads with. */
@@ -301,10 +413,48 @@ button.sig:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px;
 .redo.is-used .ico { opacity: 0.6; }
 
 @media (max-width: 640px) {
-  .terms > li { grid-template-columns: 26px 1fr; gap: 9px; }
-  /* The edit control moves under the text rather than shrinking, so it keeps
-     its 44px target instead of becoming a hairline in a corner. */
-  .terms > li .act { grid-column: 2; justify-self: start; margin-top: 4px; margin-left: -6px; }
+  /* THE MATRIX STOPS BEING A MATRIX at phone width. Five columns cannot hold
+     at 320px, and squeezing them produces a term column two words wide.
+
+     So the marks drop under the text and take their labels back: the column
+     header is what let them go bare, and without it a lone dot has nothing
+     naming whose it is. This is the one place the party names return, and
+     they earn their space because the header is gone. */
+  .terms-head { display: none; }
+  .terms > li {
+    grid-template-columns: 26px minmax(0, 1fr) 40px;
+    gap: 4px 9px; align-items: start;
+  }
+  /* Every cell is pinned to an explicit track and row. Relying on source order
+     put the price value in the sigcell column at x=242 in a 320 viewport, and
+     let the edit control claim the number's cell so the number overprinted the
+     text. Auto-placement across a 3-column grid with mixed row structures is
+     not worth debugging twice. */
+  .terms > li > .num { grid-column: 1; grid-row: 1; }
+  .terms > li > span:not(.sigcell):not(.num) { grid-column: 2; grid-row: 1; min-width: 0; }
+  .terms > li > .act { grid-column: 3; grid-row: 1; justify-self: end; }
+  /* Both marks share row 2 of the grid, side by side, so a row stays compact
+     instead of growing a line per signature. The first is nudged back into
+     the number's gutter rather than sitting under the text, because the two
+     of them read as one pair and an indent would split them. */
+  .terms > li > .sigcell { grid-row: 2; margin-top: 6px; }
+  .terms > li > .sigcell:nth-of-type(1) { grid-column: 1 / 3; justify-self: start; }
+  .terms > li > .sigcell:nth-of-type(2) { grid-column: 2 / 4; justify-self: start; margin-left: 34px; }
+  .terms .sigcell .sig {
+    padding: 3px 9px 3px 4px; border: 1px solid var(--line);
+    border-radius: 999px; gap: 6px;
+  }
+  .terms .sigcell .sig::after {
+    content: attr(data-party);
+    font-size: 12px; font-family: var(--mono); letter-spacing: 0.01em;
+  }
+  .terms .sigcell .sig.is-signed { background: var(--bg-2); }
+  .terms .sigcell .sig .sigdot { width: 16px; height: 16px; }
+  .terms .sigcell .sig .sigdot .ico { width: 9px; height: 9px; }
+  /* The price label and its value share a line at desktop width. At 320px the
+     label plus "1,400 USDC" measured 325 against a 320 viewport, so the value
+     drops under its label rather than being clipped or shrunk. */
+  .terms .term-line { flex-direction: column; gap: 2px; }
   .lockbar { align-items: flex-start; }
 }
 
