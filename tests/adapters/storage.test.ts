@@ -9,16 +9,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 // and restores it afterwards. No database is touched: constructing either
 // repository opens nothing (the Prisma client is created on first query).
 const {
+  createCompromiseRepository,
   createCredentialRepository,
   createJobRepository,
   createOperatorRepository,
 } = await import('../../src/adapters/storage/storage.js');
-const { MemoryCredentialRepository, MemoryJobRepository, MemoryOperatorRepository } = await import(
-  '../../src/adapters/storage/memory.js'
-);
-const { PrismaCredentialRepository, PrismaJobRepository, PrismaOperatorRepository } = await import(
-  '../../src/adapters/storage/prisma.js'
-);
+const { MemoryCompromiseRepository, MemoryCredentialRepository, MemoryJobRepository, MemoryOperatorRepository } =
+  await import('../../src/adapters/storage/memory.js');
+const { PrismaCompromiseRepository, PrismaCredentialRepository, PrismaJobRepository, PrismaOperatorRepository } =
+  await import('../../src/adapters/storage/prisma.js');
 const { CredentialAlreadyIssuedError, JobAlreadyExistsError, credentialLookupKey } = await import(
   '../../src/adapters/storage/types.js'
 );
@@ -204,6 +203,47 @@ describe('createCredentialRepository', () => {
     delete process.env.DATABASE_URL;
     const repo = createCredentialRepository();
     expect(repo).toBeInstanceOf(MemoryCredentialRepository);
+  });
+});
+
+describe('createCompromiseRepository', () => {
+  const original = process.env.DATABASE_URL;
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    if (original === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = original;
+    }
+    vi.restoreAllMocks();
+  });
+
+  it('DATABASE_URL set selects the Prisma driver', () => {
+    vi.stubEnv('DATABASE_URL', 'postgresql://user:pass@127.0.0.1:5432/freeagents');
+    const repo = createCompromiseRepository();
+    expect(repo).toBeInstanceOf(PrismaCompromiseRepository);
+    expect(repo.constructor.name).toBe('PrismaCompromiseRepository');
+  });
+
+  it('DATABASE_URL empty selects the in-memory driver, with the loud warning', () => {
+    vi.stubEnv('DATABASE_URL', '');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const repo = createCompromiseRepository();
+    expect(repo).toBeInstanceOf(MemoryCompromiseRepository);
+    expect(repo.constructor.name).toBe('MemoryCompromiseRepository');
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain('DATABASE_URL');
+    expect(message).toContain('in-memory');
+  });
+
+  it('DATABASE_URL unset selects the in-memory driver, with the loud warning', () => {
+    vi.unstubAllEnvs();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    delete process.env.DATABASE_URL;
+    const repo = createCompromiseRepository();
+    expect(repo).toBeInstanceOf(MemoryCompromiseRepository);
   });
 });
 

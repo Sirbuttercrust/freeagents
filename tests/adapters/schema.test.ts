@@ -76,3 +76,32 @@ describe('prisma/schema.prisma, the settlement fields (R-26, ENT-9)', () => {
     expect(matches[0]).not.toMatch(/Settlement\[\]/);
   });
 });
+
+describe('prisma/schema.prisma, the compromise report (R-16, ENT-8.4)', () => {
+  it('CompromiseReport declares key, since and reportedAt', () => {
+    const compromiseReport = modelBody('CompromiseReport');
+    expect(compromiseReport).toMatch(/key\s+String/);
+    expect(compromiseReport).toMatch(/since\s+DateTime/);
+    expect(compromiseReport).toMatch(/reportedAt\s+DateTime\s+@default\(now\(\)\)/);
+  });
+
+  it('CompromiseReport relates to Agent on agentDid referencing did', () => {
+    const compromiseReport = modelBody('CompromiseReport');
+    expect(compromiseReport).toMatch(
+      /agent\s+Agent\s+@relation\(fields:\s*\[agentDid\],\s*references:\s*\[did\]/,
+    );
+  });
+
+  it('Agent declares exactly one CompromiseReport back-relation, as the list form, not the optional singular', () => {
+    const agent = modelBody('Agent');
+    const matches = agent.match(/^\s*\w+\s+CompromiseReport(\[\]|\?)\s*$/gm) ?? [];
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toMatch(/CompromiseReport\[\]\s*$/);
+    expect(matches[0]).not.toMatch(/CompromiseReport\?\s*$/);
+  });
+
+  it('declares no update or delete-oriented column: append-only is a property of the schema', () => {
+    const compromiseReport = modelBody('CompromiseReport');
+    expect(compromiseReport).not.toMatch(/deletedAt|revokedAt|withdrawnAt/);
+  });
+});

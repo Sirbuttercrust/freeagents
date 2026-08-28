@@ -2,6 +2,7 @@
 // only file in the repository that knows Postgres exists.
 import { Prisma, PrismaClient } from '../../generated/prisma/index.js';
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
+import type { CompromiseReport } from '../../domain/compromise.js';
 import type { VerifiableCredential } from '../credentials/types.js';
 import type { CompletedJob, Criterion, Job, JobStatus } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
@@ -10,6 +11,8 @@ import {
   AgentAlreadyExistsError,
   type AgentInput,
   type AgentRepository,
+  type CompromiseReportInput,
+  type CompromiseRepository,
   CredentialAlreadyIssuedError,
   type CredentialRepository,
   JobAlreadyExistsError,
@@ -163,6 +166,51 @@ export class PrismaAgentRepository implements AgentRepository {
       }
       throw err;
     }
+  }
+}
+
+// R-16 (ENT-8.4): a compromise report, addressed structurally for the same
+// reason rotationDb() is: the generated client lags the schema, and this
+// path cannot regenerate it.
+interface CompromiseReportRow {
+  id: string;
+  agentDid: string;
+  key: string;
+  since: Date;
+  reportedAt: Date;
+}
+function compromiseDb() {
+  return db() as unknown as {
+    compromiseReport: {
+      create(args: {
+        data: { agentDid: string; key: string; since: Date; reportedAt: Date };
+      }): Promise<CompromiseReportRow>;
+      findMany(args: {
+        where: { agentDid: string };
+        orderBy: { reportedAt: 'asc' };
+      }): Promise<CompromiseReportRow[]>;
+    };
+  };
+}
+
+// R-16 (ENT-8.4): append-only compromise reports, a side record beside the
+// agent rather than a field on it (the same separation KeyRotation keeps
+// from Agent's core columns).
+export class PrismaCompromiseRepository implements CompromiseRepository {
+  async record(agentDid: string, input: CompromiseReportInput): Promise<CompromiseReport> {
+    // Driver stamps the date, matching memory.
+    const row = await compromiseDb().compromiseReport.create({
+      data: { agentDid, key: input.key, since: input.since, reportedAt: new Date() },
+    });
+    return { key: row.key, since: row.since, reportedAt: row.reportedAt };
+  }
+
+  async listByAgentDid(agentDid: string): Promise<readonly CompromiseReport[]> {
+    const rows = await compromiseDb().compromiseReport.findMany({
+      where: { agentDid },
+      orderBy: { reportedAt: 'asc' },
+    });
+    return rows.map((row) => ({ key: row.key, since: row.since, reportedAt: row.reportedAt }));
   }
 }
 

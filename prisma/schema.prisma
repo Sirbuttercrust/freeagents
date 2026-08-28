@@ -72,9 +72,10 @@ model Agent {
 
   operator Operator @relation(fields: [operatorDid], references: [did])
 
-  jobs         Job[]
-  credentials  Credential[]
-  keyRotations KeyRotation[]
+  jobs              Job[]
+  credentials       Credential[]
+  keyRotations      KeyRotation[]
+  compromiseReports CompromiseReport[]
 
   @@index([operatorDid])
   @@index([githubLogin])
@@ -172,6 +173,23 @@ model KeyRotation {
   fromKey   String
   toKey     String
   rotatedAt DateTime @default(now())
+
+  agent Agent @relation(fields: [agentDid], references: [did])
+
+  @@index([agentDid])
+}
+
+// R-16 (ENT-8.4): an operator reports one of the agent's keys compromised
+// from an instant. Append-only, like KeyRotation, and for the same reason:
+// nothing is deleted or hidden, so the window stays visible and work signed
+// inside it can be shown as disputed without amending a signed credential
+// (ENT-8.3 forbids a judgement inside the signature envelope).
+model CompromiseReport {
+  id         String   @id @default(cuid())
+  agentDid   String
+  key        String
+  since      DateTime
+  reportedAt DateTime @default(now())
 
   agent Agent @relation(fields: [agentDid], references: [did])
 
