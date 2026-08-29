@@ -4,21 +4,123 @@
 // factory implements verify() against @arcblock/did).
 //
 // Contract:
-//   verify(req, keyResolver) -> { did } | null
+//   verify(req, keyResolver, options) -> { did } | null
 //   - reads Signature-Input / Signature headers (RFC 9421 field names)
 //   - covers @method, @target-uri, content-digest when present
-//   - resolves the signing key through keyResolver(did) and verifies the
-//     ed25519 signature WITHOUT calling any vendor package from src/api/
+//   - resolves the signing key through keyResolver(did, keyid) and verifies
+//     the ed25519 signature WITHOUT calling any vendor package from src/api/
 //
-// NOT IMPLEMENTED YET on purpose: the failing test names exactly what must
-// exist before this file may pass.
+// verify() is total: every failure path returns null, never throws. This
+// mirrors verifyDelegation (src/adapters/identity/identity.ts) so callers
+// never need a try/catch to tell "not signed" from "signed wrong".
+import { createPublicKey, verify as nodeVerify } from 'node:crypto';
+
+export interface SignedRequestLike {
+  readonly method: string;
+  readonly targetUri: string;
+  readonly headers: Record<string, string | string[] | undefined>;
+}
+
 export interface SigningKeyResolver {
-  (did: string): Promise<{ publicKeyPem: string } | null>;
+  (did: string, keyid: string): Promise<{ publicKeyPem: string } | null>;
+}
+
+export interface VerifyOptions {
+  /** Component identifiers that MUST appear in the covered list. */
+  readonly requiredComponents?: readonly string[];
+  /** Injected clock, for testing the freshness window. */
+  readonly now?: Date;
+}
+
+export const SIGNATURE_MAX_AGE_SECONDS = 300;
+export const REQUIRED_COVERED_COMPONENTS: readonly string[] = ['@method', '@target-uri'];
+
+function lookupHeader(
+  headers: Record<string, string | string[] | undefined>,
+  name: string,
+): string | string[] | undefined {
+  const lower = name.toLowerCase();
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === lower) {
+      return headers[key];
+    }
+  }
+  return undefined;
 }
 
 export async function verify(
-  _headers: Record<string, string | string[] | undefined>,
-  _keyResolver: SigningKeyResolver,
+  req: SignedRequestLike,
+  keyResolver: SigningKeyResolver,
+  options?: VerifyOptions,
 ): Promise<{ did: string } | null> {
-  throw new Error('NOT IMPLEMENTED: see tests/api/did-signature.test.ts');
+  try {
+    const rawSigInput = lookupHeader(req.headers, 'signature-input');
+    const rawSig = lookupHeader(req.headers, 'signature');
+    const sigInputValue = Array.isArray(rawSigInput) ? rawSigInput[0] : rawSigInput;
+    const sigValue = Array.isArray(rawSig) ? rawSig[0] : rawSig;
+    if (!sigInputValue || !sigValue) return null;
+
+    const inputMatch = sigInputValue.trim().match(/^([A-Za-z0-9_-]+)=\((.*?)\)(.*)$/);
+    if (!inputMatch) return null;
+    const label = inputMatch[1] ?? '';
+    const inner = inputMatch[2] ?? '';
+    const rawParams = inputMatch[3] ?? '';
+    const paramsText = `(${inner})${rawParams}`;
+
+    const components = [...inner.matchAll(/"([^"]+)"/g)].map((m) => m[1] ?? '');
+    if (components.length === 0) return null;
+
+    const required = options?.requiredComponents ?? REQUIRED_COVERED_COMPONENTS;
+    if (!required.every((component) => components.includes(component))) return null;
+
+    const keyidMatch = rawParams.match(/;keyid="([^"]*)"/);
+    const keyid = keyidMatch?.[1] ?? '';
+    if (!keyidMatch || !keyid.includes('#')) return null;
+
+    const algMatch = rawParams.match(/;alg="([^"]*)"/);
+    if (algMatch && algMatch[1] !== 'ed25519') return null;
+
+    const createdMatch = rawParams.match(/;created=(\d+)/);
+    if (!createdMatch) return null;
+    const created = Number(createdMatch[1] ?? '');
+    const now = options?.now ?? new Date();
+    if (Math.abs(Math.floor(now.getTime() / 1000) - created) > SIGNATURE_MAX_AGE_SECONDS) return null;
+
+    const did = keyid.slice(0, keyid.indexOf('#'));
+    if (!did) return null;
+
+    const sigMatch = sigValue.match(new RegExp(`(?:^|,)\\s*${label}=:([A-Za-z0-9+/=]+):`));
+    if (!sigMatch) return null;
+    const sig = Buffer.from(sigMatch[1] ?? '', 'base64');
+    if (sig.length !== 64) return null;
+
+    const lines: string[] = [];
+    for (const component of components) {
+      if (component === '@method') {
+        lines.push(`"@method": ${req.method.toUpperCase()}`);
+      } else if (component === '@target-uri') {
+        lines.push(`"@target-uri": ${req.targetUri}`);
+      } else if (component.startsWith('@')) {
+        return null;
+      } else {
+        const headerName = component.toLowerCase();
+        const value = lookupHeader(req.headers, headerName);
+        if (value === undefined) return null;
+        const valueStr = (Array.isArray(value) ? value.join(', ') : value).trim();
+        lines.push(`"${headerName}": ${valueStr}`);
+      }
+    }
+    lines.push(`"@signature-params": ${paramsText}`);
+    const base = lines.join('\n');
+
+    const resolved = await keyResolver(did, keyid);
+    if (resolved === null) return null;
+
+    const key = createPublicKey(resolved.publicKeyPem);
+    if (!nodeVerify(null, Buffer.from(base, 'utf8'), key, sig)) return null;
+
+    return { did };
+  } catch {
+    return null;
+  }
 }

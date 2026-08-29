@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 
@@ -16,6 +16,8 @@ import {
   type PullRequestRef,
   type PullRequestSummary,
 } from '../adapters/github/types.js';
+import { createDidAbtSigningKeyResolver } from '../adapters/identity/did-abt-resolver.js';
+import { verify as verifySignature } from '../adapters/identity/http-signature.js';
 import { createIdentityAdapter } from '../adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter } from '../adapters/identity/types.js';
 import {
@@ -238,6 +240,27 @@ function delegationShape(value: unknown): Delegation | null {
   return value as Delegation;
 }
 
+// R-34: express.json's verify hook is the only point that sees the exact
+// wire bytes before parsing re-serialises them, so it is the only place the
+// content-digest check (the didSignature middleware below) can bind to. It fires only when
+// express.json actually parses a JSON body -- a body-less request leaves
+// rawBody undefined, treated as an empty buffer at the point of use.
+interface RawBodyRequest extends Request {
+  rawBody?: Buffer;
+}
+
+// R-34: the DID a verified request signature named, set by didSignature
+// before next(). Undefined on every route that does not mount it, and on a
+// mounted route when no signature headers were present at all (signing stays
+// optional -- see ASSUMPTIONS SIGNATURE_OPTIONAL).
+interface SignedRequest extends Request {
+  signerDid?: string;
+}
+
+function signerDidOf(req: Request): string | null {
+  return (req as SignedRequest).signerDid ?? null;
+}
+
 export function createApp(
   repo: OperatorRepository = createOperatorRepository(),
   agentRepo: AgentRepository = createAgentRepository(),
@@ -256,7 +279,69 @@ export function createApp(
   // only wrong in dev is the kind that ships.
   const credentialsAdapter = credentials ?? createCredentialsAdapter(undefined, credentialRepo);
   const app = express();
-  app.use(express.json());
+  app.use(
+    express.json({
+      verify: (req, _res, buf) => {
+        (req as RawBodyRequest).rawBody = Buffer.from(buf);
+      },
+    }),
+  );
+
+  // R-34: either an agent or an operator DID may sign (the issue's wording
+  // is "a registered agent or operator DID"). A storage failure inside this
+  // lookup throws, which createDidAbtSigningKeyResolver's own try/catch
+  // turns into null -- an unverifiable signature, not a 500.
+  const signingKeys = createDidAbtSigningKeyResolver(
+    async (did) => (await agentRepo.findByDid(did)) !== null || (await repo.findByDid(did)) !== null,
+  );
+
+  // R-34: adds a second, optional, verifiable identity path alongside the
+  // five hire-loop routes that carry it -- it never replaces a check that
+  // exists today, because none does (no session, cookie or OAuth code
+  // anywhere in src/). Unsigned traffic is untouched; a request that is
+  // signed wrong is refused rather than let through, because a
+  // present-but-invalid signature is worse than none. Wrapped like
+  // forwarded() below, for the same Express-4 reason: a rejected promise
+  // here would otherwise vanish into an unhandled rejection.
+  const didSignature = (req: Request, res: Response, next: NextFunction): void => {
+    void (async () => {
+      // Only a fully unsigned request bypasses verification: absent both
+      // headers, this is unchanged behaviour for every caller that exists
+      // today. Exactly one present falls through to verifySignature below,
+      // which already treats a half-signed request as invalid input (its own
+      // first check is `if (!sigInputValue || !sigValue) return null`) --
+      // restating that check here would just be the same 401 twice.
+      if (req.headers['signature-input'] === undefined && req.headers['signature'] === undefined) {
+        next();
+        return;
+      }
+
+      const targetUri = `${req.protocol}://${req.get('host') ?? ''}${req.originalUrl}`;
+      const result = await verifySignature(
+        { method: req.method, targetUri, headers: req.headers },
+        signingKeys,
+        { requiredComponents: ['@method', '@target-uri', 'content-digest'] },
+      );
+      if (result === null) {
+        res.status(401).json({ error: 'invalid signature' });
+        return;
+      }
+
+      // The adapter verifies the signature bytes; it never sees the body, so
+      // the digest match is this middleware's half -- what binds the body
+      // actually received to the signature that named it as covered.
+      const raw = (req as RawBodyRequest).rawBody ?? Buffer.alloc(0);
+      const want = `sha-256=:${createHash('sha256').update(raw).digest('base64')}:`;
+      const got = req.headers['content-digest'];
+      if (typeof got !== 'string' || got.trim() !== want) {
+        res.status(401).json({ error: 'invalid signature' });
+        return;
+      }
+
+      (req as SignedRequest).signerDid = result.did;
+      next();
+    })().catch(next);
+  };
 
   app.get('/health', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'ok' });
@@ -856,7 +941,7 @@ export function createApp(
   // the check lives here to keep both drivers answering identically).
   // Everything about the brief itself, including its emptiness and the hash,
   // is delegated to createJob rather than restated.
-  app.post('/jobs', async (req: Request, res: Response) => {
+  app.post('/jobs', didSignature, async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const buyerDid = body.buyerDid;
     const agentDid = body.agentDid;
@@ -887,6 +972,14 @@ export function createApp(
       res.status(400).json({
         error: 'repository must be an owner/name pair like buyer/target-repo',
       });
+      return;
+    }
+    // R-34: the same rule access.ts already declares for job.hire
+    // (identityField: 'buyerDid'), cryptographically enforced when a
+    // signature is present. Unsigned callers are unaffected.
+    const signerDid = signerDidOf(req);
+    if (signerDid !== null && signerDid !== buyerDid) {
+      res.status(403).json({ error: 'signature does not match buyerDid' });
       return;
     }
 
@@ -990,7 +1083,13 @@ export function createApp(
   // mirrors POST /jobs — a bad body or a domain rule is the caller's to fix
   // (400), an unknown id is 404, a state conflict is 409, and storage trouble
   // is 503 with the cause in the log, not the body.
-  async function runExchange(label: string, jobId: string, res: Response, apply: (job: Job) => Job): Promise<void> {
+  async function runExchange(
+    label: string,
+    jobId: string,
+    res: Response,
+    apply: (job: Job) => Job,
+    signerDid: string | null = null,
+  ): Promise<void> {
     let current: Job | null;
     try {
       current = await jobRepo.findById(jobId);
@@ -1001,6 +1100,14 @@ export function createApp(
     }
     if (current === null) {
       res.status(404).json({ error: 'not found' });
+      return;
+    }
+    // R-34 party binding: a verified signature must name a party to the job
+    // it is acting on, or it is decoration. Unsigned callers (signerDid ===
+    // null) are unaffected -- this only fires when a signature was actually
+    // presented and verified.
+    if (signerDid !== null && signerDid !== current.buyerDid && signerDid !== current.agentDid) {
+      res.status(403).json({ error: 'signature does not name a party to this job' });
       return;
     }
 
@@ -1040,6 +1147,7 @@ export function createApp(
   // domain's rules; only the body shape is checked here.
   app.post(
     '/jobs/:jobId/criteria',
+    didSignature,
     forwarded(async (req: Request, res: Response) => {
       const body = (req.body ?? {}) as { criteria?: unknown };
       const input = body.criteria;
@@ -1066,11 +1174,16 @@ export function createApp(
         });
         return;
       }
-      await runExchange('POST /jobs/:jobId/criteria', String(req.params.jobId), res, (job) =>
-        proposeCriteria(
-          job,
-          input as ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>,
-        ),
+      await runExchange(
+        'POST /jobs/:jobId/criteria',
+        String(req.params.jobId),
+        res,
+        (job) =>
+          proposeCriteria(
+            job,
+            input as ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>,
+          ),
+        signerDidOf(req),
       );
     }),
   );
@@ -1079,8 +1192,15 @@ export function createApp(
   // proposed, no new row. No body is required.
   app.post(
     '/jobs/:jobId/request-changes',
+    didSignature,
     forwarded(async (req: Request, res: Response) => {
-      await runExchange('POST /jobs/:jobId/request-changes', String(req.params.jobId), res, requestChanges);
+      await runExchange(
+        'POST /jobs/:jobId/request-changes',
+        String(req.params.jobId),
+        res,
+        requestChanges,
+        signerDidOf(req),
+      );
     }),
   );
 
@@ -1089,9 +1209,14 @@ export function createApp(
   // fractions and out-of-range values reach the domain and come back as 400.
   app.post(
     '/jobs/:jobId/criteria/:index/accept',
+    didSignature,
     forwarded(async (req: Request, res: Response) => {
-      await runExchange('POST /jobs/:jobId/criteria/:index/accept', String(req.params.jobId), res, (job) =>
-        acceptCriterion(job, Number(req.params.index)),
+      await runExchange(
+        'POST /jobs/:jobId/criteria/:index/accept',
+        String(req.params.jobId),
+        res,
+        (job) => acceptCriterion(job, Number(req.params.index)),
+        signerDidOf(req),
       );
     }),
   );
@@ -1101,9 +1226,14 @@ export function createApp(
   // what was agreed. Body-less like request-changes.
   app.post(
     '/jobs/:jobId/confirm',
+    didSignature,
     forwarded(async (req: Request, res: Response) => {
-      await runExchange('POST /jobs/:jobId/confirm', String(req.params.jobId), res, (job) =>
-        confirmSpec(job, new Date()),
+      await runExchange(
+        'POST /jobs/:jobId/confirm',
+        String(req.params.jobId),
+        res,
+        (job) => confirmSpec(job, new Date()),
+        signerDidOf(req),
       );
     }),
   );

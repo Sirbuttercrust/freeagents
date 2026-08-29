@@ -107,6 +107,7 @@ import type { DidDocument, IdentityAdapter, SignedPayload } from '../../src/adap
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import { MemoryAgentRepository, MemoryCredentialRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
+import { signRequest, signingIdentityFromSeed, type SigningIdentity } from '../helpers/sign-request.js';
 
 let server: Server;
 let base: string;
@@ -139,6 +140,27 @@ async function post(path: string, body: unknown = {}): Promise<Response> {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
+  });
+  stepsAsserted += 1;
+  return res;
+}
+
+// R-34: the same call as post(), except the request carries a DID signature
+// instead of nothing -- content-type plus the three signature headers, no
+// session, no cookie, no Authorization header, ever.
+async function postSigned(path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
+  const bodyText = JSON.stringify(body);
+  const targetUri = `${base}${path}`;
+  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText });
+  const res = await fetch(targetUri, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+    body: bodyText,
   });
   stepsAsserted += 1;
   return res;
@@ -1368,6 +1390,93 @@ describe('the API starts and answers', () => {
     const missing = await get('/v1/credentials/no-such-credential');
     expect(missing.status).toBe(404);
     expect(await missing.json()).toEqual({ error: 'not found' });
+  });
+
+  it('drives brief -> criteria -> confirm entirely with DID-signed requests and no session (R-34)', async () => {
+    // Fresh wallets throughout, as in every flow above. The buyer's DID
+    // signature is the only identity carried on the four job-scoped calls
+    // below -- no session, no cookie, no Authorization header at any point.
+    const operatorWallet = fromRandom();
+    const agentWallet = fromRandom();
+    const buyerWallet = fromRandom();
+    const credential = await signW3CDelegation(operatorWallet, agentWallet);
+    // Same derivation signW3CDelegation uses at line 146: the ArcBlock
+    // wallet's ed25519 key and this did:abt-bound signing identity are the
+    // same keypair, so buyerIdentity.did equals buyerWallet.toDid().
+    const buyerIdentity = await signingIdentityFromSeed(hexToBytes(buyerWallet.secretKey).slice(0, 32));
+
+    // 1. The agent's operator registers.
+    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-r34' });
+    expect(op.status).toBe(201);
+
+    // 2. The buyer registers too: a signing identity must be a registered
+    // DID for createDidAbtSigningKeyResolver to accept it (R-34).
+    const buyerReg = await post('/operators', { did: buyerIdentity.did, githubLogin: 'buyer-r34' });
+    expect(buyerReg.status).toBe(201);
+
+    // 3. Delegate the agent, unsigned, exactly as every flow above does --
+    // R-34 adds a second identity path, it does not require one everywhere.
+    const delegated = await post('/agents', {
+      did: agentWallet.toDid(),
+      operator: operatorWallet.toDid(),
+      delegation: credential,
+      name: 'scout',
+      skills: ['triage'],
+    });
+    expect(delegated.status).toBe(201);
+
+    // 4. Open the draft, signed by the buyer.
+    const draft = await postSigned(
+      '/jobs',
+      {
+        buyerDid: buyerIdentity.did,
+        agentDid: agentWallet.toDid(),
+        repository: 'buyer/target-repo',
+        brief: 'Fix the login bug on the checkout page',
+      },
+      buyerIdentity,
+    );
+    expect(draft.status).toBe(201);
+    const draftBody = (await draft.json()) as Record<string, unknown>;
+    const jobId = String(draftBody.id);
+
+    // 5. Propose and accept one criterion, signed.
+    const proposed = await postSigned(
+      `/jobs/${jobId}/criteria`,
+      { criteria: [{ text: 'Login works on staging', proposedBy: 'agent' }] },
+      buyerIdentity,
+    );
+    expect(proposed.status).toBe(200);
+
+    // 6. Accept, signed.
+    const accepted = await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyerIdentity);
+    expect(accepted.status).toBe(200);
+
+    // 7. Confirm, signed: the issue's acceptance line.
+    const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity);
+    expect(confirmed.status).toBe(200);
+    const confirmedBody = (await confirmed.json()) as Record<string, unknown>;
+    expect(confirmedBody.status).toBe('confirmed');
+    expect(String(confirmedBody.specHash)).toMatch(/^sha256:[0-9a-f]{64}$/);
+
+    // 8. Read back, unsigned (browsing needs no identity, R-23): the same
+    // confirmed key set the unsigned hire loop above projects.
+    const read = await get(`/jobs/${jobId}`);
+    expect(read.status).toBe(200);
+    const readBack = (await read.json()) as Record<string, unknown>;
+    expect(Object.keys(readBack).sort()).toEqual([
+      'agentDid',
+      'brief',
+      'briefHash',
+      'buyerDid',
+      'confirmedAt',
+      'createdAt',
+      'criteria',
+      'id',
+      'repository',
+      'specHash',
+      'status',
+    ]);
   });
 
   it('reports the end-to-end step count', () => {
