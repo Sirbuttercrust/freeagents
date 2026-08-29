@@ -23,6 +23,7 @@ const mock = vi.hoisted(() => ({
   agentUpdate: vi.fn(),
   jobCreate: vi.fn(),
   jobFindUnique: vi.fn(),
+  jobFindMany: vi.fn(),
   jobUpdate: vi.fn(),
   keyRotationCreate: vi.fn(),
   keyRotationFindMany: vi.fn(),
@@ -43,7 +44,12 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
     PrismaClient: class {
       operator = mock;
       agent = { create: mock.agentCreate, findUnique: mock.agentFindUnique, update: mock.agentUpdate };
-      job = { create: mock.jobCreate, findUnique: mock.jobFindUnique, update: mock.jobUpdate };
+      job = {
+        create: mock.jobCreate,
+        findUnique: mock.jobFindUnique,
+        findMany: mock.jobFindMany,
+        update: mock.jobUpdate,
+      };
       keyRotation = { create: mock.keyRotationCreate, findMany: mock.keyRotationFindMany };
       credential = { create: mock.credentialCreate, findUnique: mock.credentialFindUnique };
       compromiseReport = { create: mock.compromiseReportCreate, findMany: mock.compromiseReportFindMany };
@@ -950,6 +956,50 @@ describe('PrismaJobRepository', () => {
 
     expect(mock.jobFindUnique).toHaveBeenCalledWith({ where: { id: 'job_missing' } });
     expect(row).toBeNull();
+  });
+
+  it('findCompletedByAgent: queries by agentDid, drops unmerged rows, and returns the rest sorted ascending', async () => {
+    const later = { ...completedFixture, id: 'job_1', mergeCommit: 'merge-abc', mergedAt };
+    const earlier = {
+      ...completedFixture,
+      id: 'job_0',
+      mergeCommit: 'merge-earlier',
+      mergedAt: new Date('2026-01-02T00:00:00Z'),
+    };
+    const unmerged = { ...jobFixture, id: 'job_2' };
+    vi.mocked(mock.jobFindMany).mockResolvedValue([later, unmerged, earlier]);
+
+    const repo = new PrismaJobRepository();
+    const rows = await repo.findCompletedByAgent('did:example:agent');
+
+    expect(mock.jobFindMany).toHaveBeenCalledWith({ where: { agentDid: 'did:example:agent' } });
+    expect(rows).toEqual([
+      {
+        id: 'job_0',
+        jobId: 'job_0',
+        buyerDid: 'did:example:buyer',
+        agentDid: 'did:example:agent',
+        mergeCommit: 'merge-earlier',
+        completedAt: earlier.mergedAt,
+      },
+      {
+        id: 'job_1',
+        jobId: 'job_1',
+        buyerDid: 'did:example:buyer',
+        agentDid: 'did:example:agent',
+        mergeCommit: 'merge-abc',
+        completedAt: mergedAt,
+      },
+    ]);
+  });
+
+  it('findCompletedByAgent: no rows comes back as an empty array, not null', async () => {
+    vi.mocked(mock.jobFindMany).mockResolvedValue([]);
+
+    const repo = new PrismaJobRepository();
+    const rows = await repo.findCompletedByAgent('did:example:no-jobs');
+
+    expect(rows).toEqual([]);
   });
 });
 

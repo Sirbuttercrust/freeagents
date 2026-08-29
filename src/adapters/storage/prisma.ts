@@ -383,6 +383,34 @@ export class PrismaJobRepository implements JobRepository {
       completedAt: job.mergedAt,
     };
   }
+
+  async findCompletedByAgent(agentDid: string): Promise<readonly CompletedJob[]> {
+    // Exact DID string match: agentDid is the indexed column and the caller
+    // passes the stored agent DID it just read back from
+    // AgentRepository.findByDid. Suffix reconciliation is the domain layer's
+    // job and applies to the buyer comparison only. Reads the Job table, not
+    // CompletedJob, the same way findCompletedByJobId does.
+    const rows = await db().job.findMany({ where: { agentDid } });
+    const completed: CompletedJob[] = [];
+    for (const row of rows) {
+      const job = toJob(row as unknown as JobRow);
+      // A job that never completed has no completed record to read back, so
+      // it is filtered out here in JS rather than in the where clause: the
+      // same null check findCompletedByJobId makes, without a Prisma
+      // where-type cast.
+      if (job.mergeCommit === null || job.mergedAt === null) continue;
+      completed.push({
+        id: job.id,
+        jobId: job.id,
+        buyerDid: job.buyerDid,
+        agentDid: job.agentDid,
+        mergeCommit: job.mergeCommit,
+        completedAt: job.mergedAt,
+      });
+    }
+    completed.sort((a, b) => a.completedAt.getTime() - b.completedAt.getTime());
+    return completed;
+  }
 }
 
 export class PrismaCredentialRepository implements CredentialRepository {

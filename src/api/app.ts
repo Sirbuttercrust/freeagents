@@ -63,6 +63,7 @@ import {
   type JobStatus,
 } from '../domain/job.js';
 import { rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
+import { buyerDiversity } from '../domain/buyer-diversity.js';
 import {
   disputedBy,
   reportWellFormed,
@@ -762,6 +763,47 @@ export function createApp(
       res.status(200).json({ agentDid: did, reports: reports.map(compromiseReportProjection) });
     } catch (err) {
       console.error('GET /agents/:agentDid/compromise-reports: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // R-33: the agent's hire record. Distinct buyers ride beside total hires and
+  // every row carries its self-hire label, so no reading of this response can
+  // present five self-hires as five independent buyers (MISSION invariant 5).
+  // Its own route rather than a field on agentProjection, the same way the
+  // compromise window is (see compromiseReportProjection): agentProjection is
+  // a pinned ten-key row projection with no storage aggregation in it.
+  app.get('/agents/:agentDid/hires', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+
+    let row: Agent | null;
+    try {
+      row = await agentRepo.findByDid(did);
+    } catch (err) {
+      console.error('GET /agents/:agentDid/hires: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (row === null) {
+      res.status(404).json({ error: `agent ${did} is not registered` });
+      return;
+    }
+
+    // findCompletedByAgent is optional on JobRepository (a hand-rolled stand-in
+    // from an unrelated route's tests may omit it); a driver that cannot
+    // answer this read fails the same way a driver that throws does.
+    if (typeof jobRepo.findCompletedByAgent !== 'function') {
+      console.error('GET /agents/:agentDid/hires: storage does not support findCompletedByAgent');
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+
+    try {
+      const hires = await jobRepo.findCompletedByAgent(row.did);
+      const { counts, entries } = buyerDiversity(hires, row.operatorDid);
+      res.status(200).json({ agentDid: did, counts, entries });
+    } catch (err) {
+      console.error('GET /agents/:agentDid/hires: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
