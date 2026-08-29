@@ -767,6 +767,37 @@ describe('PrismaJobRepository', () => {
     expect(row?.criteria).toEqual(stored);
   });
 
+  it('findById: a job confirmed before the two-party split still loads, legacy accepted criteria mapped to both parties, confirmedSpecHash unchanged', async () => {
+    // A row written before ENT-6.2's two-party split stores the OLD single
+    // `accepted` flag, not acceptedByBuyer/acceptedByAgent. That flag meant
+    // "both parties agreed" per the original ENT-6.2 wording, so normalizeCriterion
+    // must map `accepted: true` to both new flags true, and `accepted: false`
+    // to both false. A pre-change confirmed job must still report its
+    // confirmedSpecHash, since that hash is what a credential attests against.
+    const legacyStored = [
+      { text: 'parses a well-formed brief', proposedBy: 'agent' as const, accepted: true },
+      { text: 'rejects an empty repository', proposedBy: 'buyer' as const, accepted: false },
+    ];
+    const stored = {
+      ...jobFixture,
+      status: 'confirmed' as const,
+      confirmedSpecHash: 'sha256:confirmed-spec',
+      confirmedAt: new Date('2026-01-02T00:00:00Z'),
+      criteria: legacyStored,
+    };
+    vi.mocked(mock.jobFindUnique).mockResolvedValue(stored as unknown as typeof jobFixture);
+
+    const repo = new PrismaJobRepository();
+    const row = await repo.findById('job_1');
+
+    expect(row?.criteria).toEqual([
+      { text: 'parses a well-formed brief', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true },
+      { text: 'rejects an empty repository', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false },
+    ]);
+    expect(row?.confirmedSpecHash).toBe('sha256:confirmed-spec');
+    expect(row?.status).toBe('confirmed');
+  });
+
   // R-12: the driver filters no enum values - an outcome row projects back
   // unchanged, deadline included.
   it('findById: a closed_unmerged outcome row reads back unchanged', async () => {
