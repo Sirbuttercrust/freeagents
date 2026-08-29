@@ -2,8 +2,12 @@ import { randomBytes } from 'node:crypto';
 
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 
-import { createCredentialResolver } from '../adapters/credentials/credentials.js';
-import type { CredentialsAdapter } from '../adapters/credentials/types.js';
+import { createCredentialsAdapter } from '../adapters/credentials/credentials.js';
+import type {
+  CredentialsAdapter,
+  VerifiableCredential,
+  WorkHistoryClaim,
+} from '../adapters/credentials/types.js';
 import { createGithubAdapter } from '../adapters/github/github.js';
 import {
   GistNotFoundError,
@@ -21,12 +25,14 @@ import {
   OperatorAlreadyExistsError,
   type AgentRepository,
   type CompromiseRepository,
+  type CredentialRepository,
   type JobRepository,
   type OperatorRepository,
 } from '../adapters/storage/types.js';
 import {
   createAgentRepository,
   createCompromiseRepository,
+  createCredentialRepository,
   createJobRepository,
   createOperatorRepository,
 } from '../adapters/storage/storage.js';
@@ -238,9 +244,17 @@ export function createApp(
   identity: IdentityAdapter = createIdentityAdapter(),
   github: GithubAdapter = createGithubAdapter(),
   jobRepo: JobRepository = createJobRepository(),
-  credentials: CredentialsAdapter = createCredentialResolver(),
+  credentials: CredentialsAdapter | undefined = undefined,
   compromiseRepo: CompromiseRepository = createCompromiseRepository(),
+  credentialRepo: CredentialRepository = createCredentialRepository(),
 ): Express {
+  // One repository behind both halves of the capability when the caller
+  // supplies neither. createCredentialRepository() hands the memory driver a
+  // fresh Map per call, so defaulting the adapter with its own separate call
+  // would let this route store a credential the resolve route cannot find.
+  // Prisma would never notice; the dev driver would, and a default that is
+  // only wrong in dev is the kind that ships.
+  const credentialsAdapter = credentials ?? createCredentialsAdapter(undefined, credentialRepo);
   const app = express();
   app.use(express.json());
 
@@ -778,7 +792,7 @@ export function createApp(
   app.get('/v1/credentials/:credentialId', async (req: Request, res: Response) => {
     const credentialId = String(req.params.credentialId);
     try {
-      const document = await credentials.getCredential(credentialId);
+      const document = await credentialsAdapter.getCredential(credentialId);
       res.status(200).set('Content-Type', 'application/ld+json').send(JSON.stringify(document));
     } catch (err) {
       if (err instanceof CredentialNotFoundError) {
@@ -800,7 +814,7 @@ export function createApp(
     const credentialId = String(req.params.credentialId);
     let document;
     try {
-      document = await credentials.getCredential(credentialId);
+      document = await credentialsAdapter.getCredential(credentialId);
     } catch (err) {
       if (err instanceof CredentialNotFoundError) {
         res.status(404).json({ error: 'not found' });
@@ -923,17 +937,40 @@ export function createApp(
   });
 
   app.get('/jobs/:jobId', async (req: Request, res: Response) => {
+    let row: Job | null;
     try {
-      const row = await jobRepo.findById(String(req.params.jobId));
-      if (row === null) {
-        res.status(404).json({ error: 'not found' });
-        return;
-      }
-      res.status(200).json(jobProjection(row));
+      row = await jobRepo.findById(String(req.params.jobId));
     } catch (err) {
       console.error('GET /jobs/:jobId: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
+      return;
     }
+    if (row === null) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+    // Only a completed job can carry one, so an unmerged row never pays for
+    // the lookup.
+    if (row.mergeCommit === null) {
+      res.status(200).json(jobProjection(row));
+      return;
+    }
+    let credential: VerifiableCredential | null;
+    try {
+      // The lookup key is the job id: credentialLookupKey takes the last
+      // path segment, and a bare id is its own key - the same key the merge
+      // route saved under.
+      credential = await credentialRepo.findByDocumentId(row.id);
+    } catch (err) {
+      console.error('GET /jobs/:jobId: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    // Absent, never null, when nothing was stored: absence says "there is no
+    // credential", where a null would read as "issued, and empty".
+    res
+      .status(200)
+      .json(credential === null ? jobProjection(row) : { ...jobProjection(row), credential });
   });
 
   // Express 4 does not route a rejected promise from an async handler to
@@ -1222,11 +1259,12 @@ export function createApp(
       // itself wrote (R-10); anything else is a corrupted row, not a caller
       // error, so it reaches the terminal handler as a 500 like the
       // pull-request route's own corrupted-state leg.
+      const pullRequestUrl = current.pullRequestUrl;
       const match =
-        current.pullRequestUrl === null
+        pullRequestUrl === null
           ? null
-          : /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/.exec(current.pullRequestUrl);
-      if (match === null) {
+          : /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/.exec(pullRequestUrl);
+      if (match === null || pullRequestUrl === null) {
         throw new Error(`job ${jobId} is submitted but pullRequestUrl is missing or malformed`);
       }
       const [, owner, repo, prNumber] = match;
@@ -1307,11 +1345,12 @@ export function createApp(
       if (summary.mergeCommitSha === null) {
         throw new Error(`github reported job ${jobId}'s pull request merged with no merge commit sha`);
       }
+      const mergeCommitSha = summary.mergeCommitSha;
 
       let outcome: { readonly job: Job; readonly completedJob: Omit<CompletedJob, 'id'> };
       try {
         outcome = completeJob(current, {
-          mergeCommit: summary.mergeCommitSha,
+          mergeCommit: mergeCommitSha,
           // The merge instant is github's fact, not this service's clock
           // (ENT-7.1); only a github response with no timestamp at all falls
           // back to observing it now.
@@ -1326,18 +1365,85 @@ export function createApp(
         throw err;
       }
 
+      // ENT-8: the credential names the key that signed the merge, so the
+      // agent's verification method is resolved before anything is written.
+      // Same mapping as POST /agents/:agentDid/account-proof: a resolver we
+      // cannot reach is a platform failure, not a caller error, and the job
+      // stays submitted and fully retryable.
+      let signedBy: string;
       try {
-        const row = await jobRepo.complete(outcome.job, outcome.completedJob);
-        if (row === null) {
-          // The row vanished between the read and the write.
-          res.status(404).json({ error: 'not found' });
-          return;
+        const doc = await identity.resolveDid(job.agentDid);
+        const method = doc.verificationMethod[0];
+        if (method === undefined) {
+          throw new Error(`the DID document for ${job.agentDid} carries no verification method`);
         }
-        res.status(200).json(jobProjection(row));
+        signedBy = method;
+      } catch (err) {
+        console.error('POST /jobs/:jobId/merge: identity resolution failed', err);
+        res.status(503).json({ error: 'identity resolution unavailable' });
+        return;
+      }
+
+      // Issuance BEFORE persistence, deliberately: a failed signing leaves
+      // the job submitted and retryable, rather than completing a hire this
+      // platform cannot attest to.
+      const claim: WorkHistoryClaim = {
+        jobId: job.id,
+        repository: job.repository,
+        pullRequestUrl,
+        mergeCommitSha,
+        // GitHub's instant, the same one stamped on the row (ENT-7.1).
+        mergedAt: outcome.completedJob.completedAt.toISOString(),
+        diffAdditions: summary.additions,
+        diffDeletions: summary.deletions,
+        diffFiles: summary.filesChanged,
+        briefHash: job.briefHash,
+        specHash: job.confirmedSpecHash,
+        buyerDid: job.buyerDid,
+        signedBy,
+      };
+      let credential: VerifiableCredential;
+      try {
+        credential = await credentialsAdapter.issueWorkHistoryCredential(job.agentDid, claim);
+      } catch (err) {
+        console.error('POST /jobs/:jobId/merge: credential issuance failed', err);
+        res.status(503).json({ error: 'credential issuance unavailable' });
+        return;
+      }
+
+      let row: Job | null;
+      try {
+        row = await jobRepo.complete(outcome.job, outcome.completedJob);
       } catch (err) {
         console.error('POST /jobs/:jobId/merge: storage failed', err);
         res.status(503).json({ error: 'storage unavailable' });
+        return;
       }
+      if (row === null) {
+        // The row vanished between the read and the write.
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+
+      // Two writes to one driver with no transaction spanning them. The
+      // residual is named rather than hidden: a crash between them leaves a
+      // completed job with no credential, and the retry meets the 409 the
+      // completed status already returns. Nothing is lost - the credential
+      // is re-derivable from the stored job row, github's report and the
+      // platform key - but it is not re-derived automatically.
+      try {
+        await credentialRepo.save({
+          completedJobId: row.id,
+          subjectDid: row.agentDid,
+          document: credential,
+        });
+      } catch (err) {
+        console.error('POST /jobs/:jobId/merge: storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+
+      res.status(200).json({ ...jobProjection(row), credential });
     }),
   );
 
