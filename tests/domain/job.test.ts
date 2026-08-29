@@ -52,8 +52,8 @@ function acceptedProposalJob(overrides: Partial<Job> = {}): Job {
   return proposedJob({
     status: 'proposed',
     criteria: [
-      { text: 'The login bug is fixed', proposedBy: 'agent', accepted: true },
-      { text: 'Checkout e2e test passes', proposedBy: 'buyer', accepted: true },
+      { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true },
+      { text: 'Checkout e2e test passes', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: true },
     ],
     ...overrides,
   });
@@ -143,7 +143,7 @@ describe('job outcomes (R-12)', () => {
       pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1',
       submittedAt: new Date('2026-02-01T00:00:00Z'),
       deadline: new Date('2026-03-03T00:00:00Z'),
-      criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent', accepted: true }],
+      criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
     });
 
   it('walks submitted -> closed_unmerged and submitted -> stale', () => {
@@ -352,10 +352,11 @@ describe('createJob', () => {
 
     // proposeCriteria (R-8) and confirmSpec each return a new job object;
     // none of them touches the brief, which is the buyer's verbatim record.
-    const proposed = acceptCriterion(
-      acceptCriterion(proposeCriteria({ ...job, status: 'draft' }, proposal()), 0),
-      1,
-    );
+    // Both parties must accept before confirm (ENT-6.2), so both accept
+    // calls run against every index.
+    let proposed = proposeCriteria({ ...job, status: 'draft' }, proposal());
+    proposed = acceptCriterion(acceptCriterion(proposed, 0, 'buyer'), 0, 'agent');
+    proposed = acceptCriterion(acceptCriterion(proposed, 1, 'buyer'), 1, 'agent');
     expect(proposed.brief).toBe(job.brief);
     const confirmed = confirmSpec(proposed, now);
     expect(confirmed.brief).toBe(job.brief);
@@ -366,12 +367,13 @@ describe('createJob', () => {
 });
 
 // The acceptance-criteria exchange R-8 owns (ENT-6, D2): propose walks
-// draft -> proposed once, then loops in place; the buyer's pushback resets
-// acceptances; nothing here mutates the job it was handed.
+// draft -> proposed once, then loops in place, diffing against the stored
+// list rather than replacing it wholesale; nothing here mutates the job it
+// was handed.
 describe('criteria exchange', () => {
   const draft = (): Job => proposedJob({ status: 'draft' });
 
-  it('proposes on a draft: proposed status, trimmed texts, all unaccepted', () => {
+  it('proposes on a draft: proposed status, trimmed texts, all unaccepted by both parties', () => {
     const job = draft();
     const input = [
       { text: '  The login bug is fixed  ', proposedBy: 'agent' },
@@ -383,8 +385,8 @@ describe('criteria exchange', () => {
     expect(proposed.status).toBe('proposed');
     expect(proposed.id).toBe(job.id);
     expect(proposed.criteria).toEqual([
-      { text: 'The login bug is fixed', proposedBy: 'agent', accepted: false },
-      { text: 'Checkout e2e test passes', proposedBy: 'buyer', accepted: false },
+      { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
+      { text: 'Checkout e2e test passes', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false },
     ] satisfies Criterion[]);
   });
 
@@ -395,7 +397,7 @@ describe('criteria exchange', () => {
     expect(job.criteria).toEqual([]);
   });
 
-  it('re-proposes while proposed: the whole list is replaced, same status and id', () => {
+  it('re-proposing with entirely new text is a fresh, unaccepted list, same status and id', () => {
     const proposed = proposeCriteria(draft(), proposal());
     const revised = [{ text: 'One sharper criterion', proposedBy: 'agent' }];
 
@@ -403,40 +405,125 @@ describe('criteria exchange', () => {
 
     expect(again.status).toBe('proposed');
     expect(again.id).toBe(proposed.id);
-    expect(again.criteria).toEqual([{ text: 'One sharper criterion', proposedBy: 'agent', accepted: false }]);
+    expect(again.criteria).toEqual([
+      { text: 'One sharper criterion', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
+    ]);
   });
 
-  it('request changes resets every acceptance, keeping status, id and texts', () => {
+  // The brief's explicit call: "editing one line resets only that line".
+  it('revising one criterion resets only that line and leaves the others intact', () => {
     let job = proposeCriteria(draft(), proposal());
-    job = acceptCriterion(job, 0);
-    expect(job.criteria[0]?.accepted).toBe(true);
+    job = acceptCriterion(acceptCriterion(job, 0, 'buyer'), 0, 'agent');
+    job = acceptCriterion(job, 1, 'buyer');
+    expect(job.criteria[0]).toEqual({
+      text: 'The login bug is fixed',
+      proposedBy: 'agent',
+      acceptedByBuyer: true,
+      acceptedByAgent: true,
+    });
+    expect(job.criteria[1]).toEqual({
+      text: 'Checkout e2e test passes',
+      proposedBy: 'agent',
+      acceptedByBuyer: true,
+      acceptedByAgent: false,
+    });
+
+    // Edit line 1's text only; line 0's text is carried through unchanged.
+    const revised = proposeCriteria(job, [
+      { text: 'The login bug is fixed', proposedBy: 'agent' },
+      { text: 'Checkout e2e test passes on every browser', proposedBy: 'agent' },
+    ]);
+
+    // Untouched: the unchanged line keeps its acceptance history exactly.
+    expect(revised.criteria[0]).toEqual({
+      text: 'The login bug is fixed',
+      proposedBy: 'agent',
+      acceptedByBuyer: true,
+      acceptedByAgent: true,
+    });
+    // Reset: the edited line starts fresh for both parties, even though the
+    // buyer had accepted the old wording.
+    expect(revised.criteria[1]).toEqual({
+      text: 'Checkout e2e test passes on every browser',
+      proposedBy: 'agent',
+      acceptedByBuyer: false,
+      acceptedByAgent: false,
+    });
+  });
+
+  it('striking a criterion removes it without touching the acceptance of the ones that remain', () => {
+    let job = proposeCriteria(draft(), proposal());
+    job = acceptCriterion(acceptCriterion(job, 0, 'buyer'), 0, 'agent');
+    job = acceptCriterion(acceptCriterion(job, 1, 'buyer'), 1, 'agent');
+
+    // Only the first line survives the revision; the second is struck.
+    const revised = proposeCriteria(job, [{ text: 'The login bug is fixed', proposedBy: 'agent' }]);
+
+    expect(revised.criteria).toEqual([
+      { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true },
+    ]);
+  });
+
+  it('adding a criterion leaves the existing ones untouched and starts the new one unaccepted', () => {
+    let job = proposeCriteria(draft(), [{ text: 'The login bug is fixed', proposedBy: 'agent' }]);
+    job = acceptCriterion(acceptCriterion(job, 0, 'buyer'), 0, 'agent');
+
+    const revised = proposeCriteria(job, [
+      { text: 'The login bug is fixed', proposedBy: 'agent' },
+      { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
+    ]);
+
+    expect(revised.criteria).toEqual([
+      { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true },
+      { text: 'Checkout e2e test passes', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false },
+    ]);
+  });
+
+  it('requestChanges leaves the criteria and their acceptances untouched, and only validates status', () => {
+    let job = proposeCriteria(draft(), proposal());
+    job = acceptCriterion(job, 0, 'buyer');
+    expect(job.criteria[0]?.acceptedByBuyer).toBe(true);
+    expect(job.criteria[0]?.acceptedByAgent).toBe(false);
 
     const pushedBack = requestChanges(job);
 
     expect(pushedBack.status).toBe('proposed');
     expect(pushedBack.id).toBe(job.id);
-    expect(pushedBack.criteria).toEqual([
-      { text: 'The login bug is fixed', proposedBy: 'agent', accepted: false },
-      { text: 'Checkout e2e test passes', proposedBy: 'agent', accepted: false },
-    ]);
+    expect(pushedBack.criteria).toEqual(job.criteria);
   });
 
-  it('acceptCriterion flips exactly one flag, idempotently', () => {
+  it('acceptCriterion flips only the calling party\'s own flag, idempotently', () => {
     let job = proposeCriteria(draft(), proposal());
 
-    job = acceptCriterion(job, 1);
-    expect(job.criteria.map((c) => c.accepted)).toEqual([false, true]);
+    job = acceptCriterion(job, 1, 'buyer');
+    expect(job.criteria.map((c) => [c.acceptedByBuyer, c.acceptedByAgent])).toEqual([
+      [false, false],
+      [true, false],
+    ]);
 
-    const repeat = acceptCriterion(job, 1);
+    // Idempotent per party: accepting again does not toggle it off, and the
+    // other party's flag is untouched.
+    const repeat = acceptCriterion(job, 1, 'buyer');
     expect(repeat.criteria).toEqual(job.criteria);
+
+    // The other party accepting the same line sets ONLY its own flag.
+    const both = acceptCriterion(job, 1, 'agent');
+    expect(both.criteria[1]).toEqual({
+      text: 'Checkout e2e test passes',
+      proposedBy: 'agent',
+      acceptedByBuyer: true,
+      acceptedByAgent: true,
+    });
   });
 
   it('rejects proposing on a confirmed job', () => {
-    const proposed = proposeCriteria(draft(), proposal());
-    const confirmed = confirmSpec(acceptCriterion(acceptCriterion(proposed, 0), 1), new Date());
+    let proposed = proposeCriteria(draft(), proposal());
+    proposed = acceptCriterion(acceptCriterion(proposed, 0, 'buyer'), 0, 'agent');
+    proposed = acceptCriterion(acceptCriterion(proposed, 1, 'buyer'), 1, 'agent');
+    const confirmed = confirmSpec(proposed, new Date());
     expect(() => proposeCriteria(confirmed, proposal())).toThrow(JobTransitionError);
     expect(() => requestChanges(confirmed)).toThrow(JobTransitionError);
-    expect(() => acceptCriterion(confirmed, 0)).toThrow(JobTransitionError);
+    expect(() => acceptCriterion(confirmed, 0, 'buyer')).toThrow(JobTransitionError);
   });
 
   it('rejects an empty list, whitespace text and a bogus proposer with JobError', () => {
@@ -462,9 +549,9 @@ describe('criteria exchange', () => {
 
   it('rejects an out-of-range or non-integer accept index', () => {
     const job = proposeCriteria(draft(), proposal());
-    expect(() => acceptCriterion(job, -1)).toThrow(JobError);
-    expect(() => acceptCriterion(job, 2)).toThrow(JobError);
-    expect(() => acceptCriterion(job, 0.5)).toThrow(JobError);
+    expect(() => acceptCriterion(job, -1, 'buyer')).toThrow(JobError);
+    expect(() => acceptCriterion(job, 2, 'buyer')).toThrow(JobError);
+    expect(() => acceptCriterion(job, 0.5, 'buyer')).toThrow(JobError);
   });
 });
 
@@ -508,7 +595,7 @@ describe('invariant 2: the brief hash is re-computable off-platform', () => {
       {
         ...job,
         status: 'proposed',
-        criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent', accepted: true }],
+        criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
       },
       now,
     );
@@ -525,14 +612,44 @@ describe('invariant 2: the brief hash is re-computable off-platform', () => {
 describe('confirmSpec (R-9)', () => {
   const now = new Date('2026-01-02T00:00:00Z');
 
+  // ENT-6.2, made real: one flag cannot record two parties agreeing. These
+  // pin the gate this issue exists to add - a caller could delete
+  // acceptedByAgent from the check and only this block would notice.
+  it('refuses confirm when only the buyer accepted every criterion', () => {
+    const job = acceptedProposalJob({
+      criteria: [
+        { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: false },
+        { text: 'Checkout e2e test passes', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: false },
+      ],
+    });
+    expect(() => confirmSpec(job, now)).toThrow(JobError);
+    expect(() => confirmSpec(job, now)).toThrow(/outstanding/);
+  });
+
+  it('refuses confirm when only the agent accepted every criterion', () => {
+    const job = acceptedProposalJob({
+      criteria: [
+        { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: true },
+        { text: 'Checkout e2e test passes', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: true },
+      ],
+    });
+    expect(() => confirmSpec(job, now)).toThrow(JobError);
+  });
+
+  it('succeeds once every criterion carries both parties', () => {
+    const job = acceptedProposalJob();
+    const confirmed = confirmSpec(job, now);
+    expect(confirmed.status).toBe('confirmed');
+  });
+
   it('hashes the JOINED criterion texts through the documented normalisation', () => {
     // A CRLF inside one text and trailing spaces on another: normalisation
     // runs over the joined string, so what a stranger reproduces is the
     // per-line trim of the '\n'-joined texts.
     const job = acceptedProposalJob({
       criteria: [
-        { text: 'The login bug is fixed\r\non every page  ', proposedBy: 'agent', accepted: true },
-        { text: 'Checkout e2e test passes\t', proposedBy: 'buyer', accepted: true },
+        { text: 'The login bug is fixed\r\non every page  ', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true },
+        { text: 'Checkout e2e test passes\t', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: true },
       ],
     });
 
@@ -557,7 +674,7 @@ describe('confirmSpec (R-9)', () => {
     // Property, not a constant: a different agreement hashes differently.
     const other = confirmSpec(
       acceptedProposalJob({
-        criteria: [{ text: 'A different criterion entirely', proposedBy: 'agent', accepted: true }],
+        criteria: [{ text: 'A different criterion entirely', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
       }),
       now,
     );
@@ -572,8 +689,8 @@ describe('confirmSpec (R-9)', () => {
   it('rejects confirming while one criterion of two is still unaccepted', () => {
     const job = acceptedProposalJob({
       criteria: [
-        { text: 'The login bug is fixed', proposedBy: 'agent', accepted: true },
-        { text: 'Checkout e2e test passes', proposedBy: 'buyer', accepted: false },
+        { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true },
+        { text: 'Checkout e2e test passes', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: false },
       ],
     });
     expect(() => confirmSpec(job, now)).toThrow(JobError);
@@ -582,8 +699,8 @@ describe('confirmSpec (R-9)', () => {
   it('names the outstanding count when nothing was accepted', () => {
     const job = acceptedProposalJob({
       criteria: [
-        { text: 'The login bug is fixed', proposedBy: 'agent', accepted: false },
-        { text: 'Checkout e2e test passes', proposedBy: 'buyer', accepted: false },
+        { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
+        { text: 'Checkout e2e test passes', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false },
       ],
     });
     expect(() => confirmSpec(job, now)).toThrow(/outstanding/);

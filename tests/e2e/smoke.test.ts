@@ -135,10 +135,12 @@ async function get(path: string): Promise<Response> {
   return res;
 }
 
-async function post(path: string, body: unknown = {}): Promise<Response> {
+async function post(path: string, body: unknown = {}, callerDid?: string): Promise<Response> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (callerDid !== undefined) headers['x-freeagents-caller-did'] = callerDid;
   const res = await fetch(`${base}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
   stepsAsserted += 1;
@@ -986,39 +988,40 @@ describe('the API starts and answers', () => {
     expect(draftBody.status).toBe('draft');
     const jobId = String(draftBody.id);
 
-    // 4. The agent proposes criteria: draft -> proposed, nothing accepted.
+    // 4. The agent proposes criteria: draft -> proposed, nothing accepted by
+    // either party.
     const proposed = await post(`/jobs/${jobId}/criteria`, {
       criteria: [
         { text: 'The login bug is fixed', proposedBy: 'agent' },
         { text: 'Checkout e2e test passes', proposedBy: 'agent' },
       ],
-    });
+    }, agentWallet.toDid());
     expect(proposed.status).toBe(200);
     const proposedBody = (await proposed.json()) as Record<string, unknown>;
     expect(proposedBody.id).toBe(jobId);
     expect(proposedBody.status).toBe('proposed');
     expect(proposedBody.criteria).toEqual([
-      { text: 'The login bug is fixed', proposedBy: 'agent', accepted: false },
-      { text: 'Checkout e2e test passes', proposedBy: 'agent', accepted: false },
+      { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
+      { text: 'Checkout e2e test passes', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
     ]);
 
     // 5. The buyer pushes back: still proposed, same id.
-    const pushback = await post(`/jobs/${jobId}/request-changes`, {});
+    const pushback = await post(`/jobs/${jobId}/request-changes`, {}, buyerWallet.toDid());
     expect(pushback.status).toBe(200);
     const pushbackBody = (await pushback.json()) as Record<string, unknown>;
     expect(pushbackBody.id).toBe(jobId);
     expect(pushbackBody.status).toBe('proposed');
 
-    // 6. The agent re-proposes: same row again, list replaced.
+    // 6. The agent re-proposes: same row again, list revised.
     const again = await post(`/jobs/${jobId}/criteria`, {
       criteria: [{ text: 'One sharper criterion', proposedBy: 'agent' }],
-    });
+    }, agentWallet.toDid());
     expect(again.status).toBe(200);
     const againBody = (await again.json()) as Record<string, unknown>;
     expect(againBody.id).toBe(jobId);
     expect(againBody.status).toBe('proposed');
     expect(againBody.criteria).toEqual([
-      { text: 'One sharper criterion', proposedBy: 'agent', accepted: false },
+      { text: 'One sharper criterion', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
     ]);
 
     // 7. Read back: the stored row carries the last proposal, and every
@@ -1072,14 +1075,16 @@ describe('the API starts and answers', () => {
             { text: 'The login bug is fixed\r\non staging', proposedBy: 'agent' },
             { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
           ],
-        })
+        }, agentWallet.toDid())
       ).status,
     ).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/0/accept`)).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/1/accept`)).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, buyerWallet.toDid())).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, agentWallet.toDid())).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, buyerWallet.toDid())).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, agentWallet.toDid())).status).toBe(200);
 
     // 5. Confirm: status flips, specHash appears, confirmedAt rides beside it.
-    const confirmed = await post(`/jobs/${jobId}/confirm`);
+    const confirmed = await post(`/jobs/${jobId}/confirm`, {}, buyerWallet.toDid());
     expect(confirmed.status).toBe(200);
     const confirmedBody = (await confirmed.json()) as Record<string, unknown>;
     expect(confirmedBody.status).toBe('confirmed');
@@ -1124,9 +1129,9 @@ describe('the API starts and answers', () => {
 
     // 8. Locked: proposing and pushback are both conflicts now.
     expect(
-      (await post(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'sneak in', proposedBy: 'agent' }] })).status,
+      (await post(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'sneak in', proposedBy: 'agent' }] }, agentWallet.toDid())).status,
     ).toBe(409);
-    expect((await post(`/jobs/${jobId}/request-changes`)).status).toBe(409);
+    expect((await post(`/jobs/${jobId}/request-changes`, {}, buyerWallet.toDid())).status).toBe(409);
   });
 
   it('forks and opens the pull request carrying the job id (R-10)', async () => {
@@ -1163,7 +1168,8 @@ describe('the API starts and answers', () => {
     expect(draft.status).toBe(201);
     const jobId = String(((await draft.json()) as Record<string, unknown>).id);
 
-    // 4-5. Agree the spec: two criteria in, both accepted, confirmed.
+    // 4-5. Agree the spec: two criteria in, both accepted by both parties,
+    // confirmed.
     expect(
       (
         await post(`/jobs/${jobId}/criteria`, {
@@ -1171,12 +1177,14 @@ describe('the API starts and answers', () => {
             { text: 'The login bug is fixed', proposedBy: 'agent' },
             { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
           ],
-        })
+        }, agentWallet.toDid())
       ).status,
     ).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/0/accept`)).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/1/accept`)).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/confirm`)).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, buyerWallet.toDid())).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, agentWallet.toDid())).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, buyerWallet.toDid())).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, agentWallet.toDid())).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/confirm`, {}, buyerWallet.toDid())).status).toBe(200);
 
     // 6. Fork and open the PR: the job lands on submitted with the URL and
     // timestamp riding beside it.
@@ -1240,12 +1248,14 @@ describe('the API starts and answers', () => {
             { text: 'The login bug is fixed', proposedBy: 'agent' },
             { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
           ],
-        })
+        }, agentWallet.toDid())
       ).status,
     ).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/0/accept`)).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/1/accept`)).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/confirm`)).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, buyerWallet.toDid())).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, agentWallet.toDid())).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, buyerWallet.toDid())).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, agentWallet.toDid())).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/confirm`, {}, buyerWallet.toDid())).status).toBe(200);
     const pr = await post(`/jobs/${jobId}/pull-request`);
     expect(pr.status).toBe(200);
 
@@ -1448,9 +1458,12 @@ describe('the API starts and answers', () => {
     );
     expect(proposed.status).toBe(200);
 
-    // 6. Accept, signed.
-    const accepted = await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyerIdentity);
-    expect(accepted.status).toBe(200);
+    // 6. Accept, signed by both parties (ENT-6.2 two-party consent).
+    const acceptedByBuyer = await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyerIdentity);
+    expect(acceptedByBuyer.status).toBe(200);
+    const agentIdentity = await signingIdentityFromSeed(hexToBytes(agentWallet.secretKey).slice(0, 32));
+    const acceptedByAgent = await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity);
+    expect(acceptedByAgent.status).toBe(200);
 
     // 7. Confirm, signed: the issue's acceptance line.
     const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity);

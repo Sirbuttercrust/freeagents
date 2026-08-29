@@ -56,8 +56,8 @@ function plantedJob(id: string, status: JobStatus): Job {
     submittedAt,
     deadline: new Date(submittedAt.getTime() + 30 * 86_400_000),
     criteria: [
-      { text: 'fixes the login bug', proposedBy: 'agent', accepted: true },
-      { text: 'no new dependencies', proposedBy: 'buyer', accepted: true },
+      { text: 'fixes the login bug', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true },
+      { text: 'no new dependencies', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: true },
     ],
     confirmedSpecHash: 'a'.repeat(64),
     confirmedAt: new Date('2026-01-01T12:00:00Z'),

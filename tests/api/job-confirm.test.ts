@@ -13,6 +13,11 @@
 // runExchange's storage-fault legs are NOT re-covered per route:
 // tests/api/job-criteria.test.ts pins each leg of the skeleton these routes
 // share; repeating them here adds lines, not killable mutants.
+//
+// ENT-6.2's caller-identity gate: every exchange call below carries the
+// x-freeagents-caller-did header naming which party is acting, and confirm
+// itself needs BOTH parties to have accepted every criterion before it
+// succeeds.
 import { createHash } from 'node:crypto';
 import type { Server } from 'node:http';
 
@@ -35,6 +40,7 @@ import { createJob, type Job } from '../../src/domain/job.js';
 
 const AGENT_DID = 'did:abt:agent-confirm';
 const BUYER_DID = 'did:abt:buyer-confirm';
+const CALLER_HEADER = 'x-freeagents-caller-did';
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
   { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
@@ -49,10 +55,12 @@ const jobRepo = new MemoryJobRepository();
 // which is the point: one job id, every path tried against it.
 let confirmedJobId: string;
 
-async function post(path: string, body: unknown = {}): Promise<Response> {
+async function post(path: string, body: unknown = {}, callerDid?: string): Promise<Response> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (callerDid !== undefined) headers[CALLER_HEADER] = callerDid;
   return fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -118,7 +126,7 @@ describe('job confirm (R-9)', () => {
     server.close();
   });
 
-  it('walks propose -> accept x2 -> confirm on ONE row and projects the confirmed keys', async () => {
+  it('walks propose -> accept x2 (both parties) -> confirm on ONE row and projects the confirmed keys', async () => {
     const created = await post('/jobs', {
       buyerDid: BUYER_DID,
       agentDid: AGENT_DID,
@@ -129,18 +137,21 @@ describe('job confirm (R-9)', () => {
     const draftBody = (await created.json()) as Record<string, unknown>;
     const jobId = String(draftBody.id);
 
-    expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal })).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, AGENT_DID)).status).toBe(200);
 
-    // Each accept flips exactly its own flag, visible on the wire.
-    const first = await post(`/jobs/${jobId}/criteria/0/accept`);
+    // Each accept flips exactly its own party's flag on its own criterion,
+    // visible on the wire.
+    const first = await post(`/jobs/${jobId}/criteria/0/accept`, {}, BUYER_DID);
     expect(first.status).toBe(200);
     expect(((await first.json()) as Record<string, unknown>).criteria).toEqual([
-      { text: 'The login bug is fixed', proposedBy: 'agent', accepted: true },
-      { text: 'Checkout e2e test passes', proposedBy: 'buyer', accepted: false },
+      { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: false },
+      { text: 'Checkout e2e test passes', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false },
     ]);
-    expect((await post(`/jobs/${jobId}/criteria/1/accept`)).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, AGENT_DID)).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, BUYER_DID)).status).toBe(200);
+    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, AGENT_DID)).status).toBe(200);
 
-    const confirmed = await post(`/jobs/${jobId}/confirm`);
+    const confirmed = await post(`/jobs/${jobId}/confirm`, {}, BUYER_DID);
     expect(confirmed.status).toBe(200);
     const confirmedBody = (await confirmed.json()) as Record<string, unknown>;
     expect(confirmedBody.id).toBe(jobId);
@@ -167,7 +178,7 @@ describe('job confirm (R-9)', () => {
     confirmedJobId = jobId;
   });
 
-  it('answers 400 while a criterion is unaccepted, and for junk accept indexes', async () => {
+  it('answers 400 while a criterion is unaccepted by either party, and for junk accept indexes', async () => {
     const created = await post('/jobs', {
       buyerDid: BUYER_DID,
       agentDid: AGENT_DID,
@@ -175,18 +186,60 @@ describe('job confirm (R-9)', () => {
       brief: 'Another brief',
     });
     const jobId = String(((await created.json()) as Record<string, unknown>).id);
-    await post(`/jobs/${jobId}/criteria`, { criteria: proposal });
-    await post(`/jobs/${jobId}/criteria/0/accept`);
+    await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, AGENT_DID);
+    await post(`/jobs/${jobId}/criteria/0/accept`, {}, BUYER_DID);
+    await post(`/jobs/${jobId}/criteria/0/accept`, {}, AGENT_DID);
+    await post(`/jobs/${jobId}/criteria/1/accept`, {}, BUYER_DID);
+    // Criterion 1 is missing the agent's acceptance.
 
-    const early = await post(`/jobs/${jobId}/confirm`);
+    const early = await post(`/jobs/${jobId}/confirm`, {}, BUYER_DID);
     expect(early.status).toBe(400);
     const body = (await early.json()) as { error: string };
     expect(body.error).toContain('1 of 2 outstanding');
 
     // Out of range reaches the domain and comes back 400...
-    expect((await post(`/jobs/${jobId}/criteria/99/accept`)).status).toBe(400);
+    expect((await post(`/jobs/${jobId}/criteria/99/accept`, {}, BUYER_DID)).status).toBe(400);
     // ...and so does Number('abc') = NaN: the domain's integer guard decides.
-    expect((await post(`/jobs/${jobId}/criteria/abc/accept`)).status).toBe(400);
+    expect((await post(`/jobs/${jobId}/criteria/abc/accept`, {}, BUYER_DID)).status).toBe(400);
+  });
+
+  it('one party accepting every criterion and calling confirm is REFUSED', async () => {
+    const created = await post('/jobs', {
+      buyerDid: BUYER_DID,
+      agentDid: AGENT_DID,
+      repository: 'buyer/target-repo',
+      brief: 'A buyer-only accept attempt',
+    });
+    const jobId = String(((await created.json()) as Record<string, unknown>).id);
+    await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, AGENT_DID);
+    // The buyer alone accepts every criterion.
+    await post(`/jobs/${jobId}/criteria/0/accept`, {}, BUYER_DID);
+    await post(`/jobs/${jobId}/criteria/1/accept`, {}, BUYER_DID);
+
+    const confirm = await post(`/jobs/${jobId}/confirm`, {}, BUYER_DID);
+    expect(confirm.status).toBe(400);
+    const body = (await confirm.json()) as { error: string };
+    expect(body.error).toContain('2 of 2 outstanding');
+
+    const read = await get(`/jobs/${jobId}`);
+    expect(((await read.json()) as Record<string, unknown>).status).toBe('proposed');
+  });
+
+  it('a caller who is neither the buyer nor the agent is refused on every exchange route', async () => {
+    const created = await post('/jobs', {
+      buyerDid: BUYER_DID,
+      agentDid: AGENT_DID,
+      repository: 'buyer/target-repo',
+      brief: 'A stranger tries every route',
+    });
+    const jobId = String(((await created.json()) as Record<string, unknown>).id);
+    const stranger = 'did:abt:not-a-party-to-this-job';
+
+    expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, stranger)).status).toBe(403);
+    await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, AGENT_DID);
+    expect((await post(`/jobs/${jobId}/request-changes`, {}, stranger)).status).toBe(403);
+    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, stranger)).status).toBe(403);
+    expect((await post(`/jobs/${jobId}/confirm`, {}, stranger)).status).toBe(403);
   });
 
   it('answers 409 confirming a fresh draft, and 404 for an unknown id', async () => {
@@ -197,9 +250,9 @@ describe('job confirm (R-9)', () => {
       brief: 'A third brief',
     });
     const jobId = String(((await created.json()) as Record<string, unknown>).id);
-    expect((await post(`/jobs/${jobId}/confirm`)).status).toBe(409);
+    expect((await post(`/jobs/${jobId}/confirm`, {}, BUYER_DID)).status).toBe(409);
 
-    const nowhere = await post('/jobs/j-nowhere/confirm');
+    const nowhere = await post('/jobs/j-nowhere/confirm', {}, BUYER_DID);
     expect(nowhere.status).toBe(404);
     expect(await nowhere.json()).toEqual({ error: 'not found' });
   });
@@ -207,7 +260,10 @@ describe('job confirm (R-9)', () => {
   it('answers 400 when a proposed row somehow holds no criteria', async () => {
     const scripted = await startWith(new ScriptedRow({ ...draftRow('j-empty'), status: 'proposed', criteria: [] }));
     try {
-      const res = await fetch(`${scripted.baseUrl}/jobs/j-empty/confirm`, { method: 'POST' });
+      const res = await fetch(`${scripted.baseUrl}/jobs/j-empty/confirm`, {
+        method: 'POST',
+        headers: { [CALLER_HEADER]: BUYER_DID },
+      });
       expect(res.status).toBe(400);
       expect(((await res.json()) as { error: string }).error).toContain('nothing was agreed');
     } finally {
@@ -217,10 +273,10 @@ describe('job confirm (R-9)', () => {
 
   it('locks the job after confirm: every editing path is a 409, nothing moves', async () => {
     // The issue's accept line, over every editing API path there is.
-    expect((await post(`/jobs/${confirmedJobId}/criteria`, { criteria: proposal })).status).toBe(409);
-    expect((await post(`/jobs/${confirmedJobId}/request-changes`)).status).toBe(409);
-    expect((await post(`/jobs/${confirmedJobId}/criteria/0/accept`)).status).toBe(409);
-    expect((await post(`/jobs/${confirmedJobId}/confirm`)).status).toBe(409);
+    expect((await post(`/jobs/${confirmedJobId}/criteria`, { criteria: proposal }, AGENT_DID)).status).toBe(409);
+    expect((await post(`/jobs/${confirmedJobId}/request-changes`, {}, BUYER_DID)).status).toBe(409);
+    expect((await post(`/jobs/${confirmedJobId}/criteria/0/accept`, {}, BUYER_DID)).status).toBe(409);
+    expect((await post(`/jobs/${confirmedJobId}/confirm`, {}, BUYER_DID)).status).toBe(409);
 
     // And a read proves the row did not budge: same criteria, same digest.
     const read = await get(`/jobs/${confirmedJobId}`);
@@ -228,8 +284,8 @@ describe('job confirm (R-9)', () => {
     const readBack = (await read.json()) as Record<string, unknown>;
     expect(readBack.status).toBe('confirmed');
     expect(readBack.criteria).toEqual([
-      { text: 'The login bug is fixed', proposedBy: 'agent', accepted: true },
-      { text: 'Checkout e2e test passes', proposedBy: 'buyer', accepted: true },
+      { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true },
+      { text: 'Checkout e2e test passes', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: true },
     ]);
     expect(String(readBack.specHash)).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
@@ -285,18 +341,24 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
 
     expect(
       (
-        await post(`/jobs/${jobId}/criteria`, {
-          criteria: [
-            { text: 'The login bug is fixed', proposedBy: 'agent' },
-            { text: 'Checkout e2e passes\r\non staging', proposedBy: 'buyer' },
-          ],
-        })
+        await post(
+          `/jobs/${jobId}/criteria`,
+          {
+            criteria: [
+              { text: 'The login bug is fixed', proposedBy: 'agent' },
+              { text: 'Checkout e2e passes\r\non staging', proposedBy: 'buyer' },
+            ],
+          },
+          agentWallet.toDid(),
+        )
       ).status,
     ).toBe(200);
-    await post(`/jobs/${jobId}/criteria/0/accept`);
-    await post(`/jobs/${jobId}/criteria/1/accept`);
+    await post(`/jobs/${jobId}/criteria/0/accept`, {}, operatorWallet.toDid());
+    await post(`/jobs/${jobId}/criteria/0/accept`, {}, agentWallet.toDid());
+    await post(`/jobs/${jobId}/criteria/1/accept`, {}, operatorWallet.toDid());
+    await post(`/jobs/${jobId}/criteria/1/accept`, {}, agentWallet.toDid());
 
-    const confirmed = await post(`/jobs/${jobId}/confirm`);
+    const confirmed = await post(`/jobs/${jobId}/confirm`, {}, operatorWallet.toDid());
     expect(confirmed.status).toBe(200);
     confirmedBody = (await confirmed.json()) as Record<string, unknown>;
 
