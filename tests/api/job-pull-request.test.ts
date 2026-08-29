@@ -116,10 +116,12 @@ function forkCall(recorded: RecordedCalls, index: number): ForkAndOpenPullReques
 let server: Server;
 let baseUrl: string;
 
-async function post(path: string, body: unknown = {}, base: string = baseUrl): Promise<Response> {
+async function post(path: string, body: unknown = {}, base: string = baseUrl, callerDid?: string): Promise<Response> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (callerDid !== undefined) headers['x-freeagents-caller-did'] = callerDid;
   return fetch(`${base}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -152,11 +154,13 @@ async function startWith(
 
 // One job walked draft -> confirmed over HTTP, returning the confirm body so
 // the specHash a stranger sees can be compared byte for byte.
-async function walkToConfirm(jobId: string): Promise<Record<string, unknown>> {
-  expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal })).status).toBe(200);
-  expect((await post(`/jobs/${jobId}/criteria/0/accept`)).status).toBe(200);
-  expect((await post(`/jobs/${jobId}/criteria/1/accept`)).status).toBe(200);
-  const confirmed = await post(`/jobs/${jobId}/confirm`);
+async function walkToConfirm(jobId: string, base: string = baseUrl): Promise<Record<string, unknown>> {
+  expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, base, AGENT_DID)).status).toBe(200);
+  expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, base, BUYER_DID)).status).toBe(200);
+  expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, base, AGENT_DID)).status).toBe(200);
+  expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, base, BUYER_DID)).status).toBe(200);
+  expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, base, AGENT_DID)).status).toBe(200);
+  const confirmed = await post(`/jobs/${jobId}/confirm`, {}, base, BUYER_DID);
   expect(confirmed.status).toBe(200);
   return (await confirmed.json()) as Record<string, unknown>;
 }
@@ -319,10 +323,12 @@ describe('job pull-request, faulted legs (R-10)', () => {
       );
       expect(created.status).toBe(201);
       const jobId = String(((await created.json()) as Record<string, unknown>).id);
-      expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, scripted.baseUrl)).status).toBe(200);
-      expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, scripted.baseUrl)).status).toBe(200);
-      expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, scripted.baseUrl)).status).toBe(200);
-      expect((await post(`/jobs/${jobId}/confirm`, {}, scripted.baseUrl)).status).toBe(200);
+      expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, scripted.baseUrl, AGENT_DID)).status).toBe(200);
+      expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, scripted.baseUrl, BUYER_DID)).status).toBe(200);
+      expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, scripted.baseUrl, AGENT_DID)).status).toBe(200);
+      expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, scripted.baseUrl, BUYER_DID)).status).toBe(200);
+      expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, scripted.baseUrl, AGENT_DID)).status).toBe(200);
+      expect((await post(`/jobs/${jobId}/confirm`, {}, scripted.baseUrl, BUYER_DID)).status).toBe(200);
 
       const pr = await post(`/jobs/${jobId}/pull-request`, {}, scripted.baseUrl);
       expect(pr.status).toBe(503);

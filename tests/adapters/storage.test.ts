@@ -404,8 +404,8 @@ describe('MemoryJobRepository', () => {
       ...jobFixture,
       status: 'proposed',
       criteria: [
-        { text: 'The login bug is fixed', proposedBy: 'agent', accepted: false },
-        { text: 'Checkout e2e test passes', proposedBy: 'buyer', accepted: true },
+        { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
+        { text: 'Checkout e2e test passes', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: true },
       ],
     };
     await repo.create(jobFixture);
@@ -472,7 +472,7 @@ describe('MemoryJobRepository', () => {
   it('complete stores a copy: mutating the input afterwards does not leak', async () => {
     const repo = new MemoryJobRepository();
     await repo.create(jobFixture);
-    const criteria = [{ text: 'The login bug is fixed', proposedBy: 'agent' as const, accepted: true }];
+    const criteria = [{ text: 'The login bug is fixed', proposedBy: 'agent' as const, acceptedByBuyer: true, acceptedByAgent: true }];
     const expected = { ...completedFixture, criteria: [{ ...criteria[0] }] };
     const input: Job = { ...completedFixture, criteria };
     await repo.complete(input, completedAnchor);

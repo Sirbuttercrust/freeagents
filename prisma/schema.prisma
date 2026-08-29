@@ -93,6 +93,8 @@ model Job {
   confirmedSpecHash String?
   // The acceptance criteria as last proposed (ENT-6, D2): a structured list,
   // exchanged while the job is in "proposed", immutable once confirmed.
+  // Each entry carries acceptedByBuyer and acceptedByAgent independently
+  // (ENT-6.2): a single shared flag cannot record two parties agreeing.
   // Nullable and additive: empty until the exchange starts (R-8).
   criteria          Json?
   status            JobStatus @default(proposed)

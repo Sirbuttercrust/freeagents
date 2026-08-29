@@ -79,7 +79,7 @@ const jobFixture = {
   briefHash: 'sha256:brief',
   confirmedSpecHash: null,
   status: 'draft',
-  criteria: [] as Array<{ text: string; proposedBy: 'agent' | 'buyer'; accepted: boolean }>,
+  criteria: [] as Array<{ text: string; proposedBy: 'agent' | 'buyer'; acceptedByBuyer: boolean; acceptedByAgent: boolean }>,
   pullRequestUrl: null,
   mergeCommit: null,
   mergedAt: null,
@@ -753,8 +753,8 @@ describe('PrismaJobRepository', () => {
     // above while silently discarding every stored criterion; this test is
     // the one that fails if it does.
     const stored = [
-      { text: 'parses a well-formed brief', proposedBy: 'agent' as const, accepted: true },
-      { text: 'rejects an empty repository', proposedBy: 'buyer' as const, accepted: false },
+      { text: 'parses a well-formed brief', proposedBy: 'agent' as const, acceptedByBuyer: true, acceptedByAgent: true },
+      { text: 'rejects an empty repository', proposedBy: 'buyer' as const, acceptedByBuyer: false, acceptedByAgent: false },
     ];
     vi.mocked(mock.jobFindUnique).mockResolvedValue({
       ...jobFixture,

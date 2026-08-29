@@ -101,10 +101,12 @@ const PR_NUMBER = 3;
 const MERGE_SHA = 'inv2-merge-commit-sha';
 const MERGED_AT = new Date('2026-08-25T09:00:00Z');
 
-async function post(base: string, path: string, body: unknown = {}): Promise<Response> {
+async function post(base: string, path: string, body: unknown = {}, callerDid?: string): Promise<Response> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (callerDid !== undefined) headers['x-freeagents-caller-did'] = callerDid;
   return fetch(`${base}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -200,12 +202,14 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
             { text: 'The checkout no longer times out', proposedBy: 'agent' },
             { text: 'Load test passes', proposedBy: 'buyer' },
           ],
-        })
+        }, agentDid)
       ).status,
     ).toBe(200);
-    expect((await post(baseUrl, `/jobs/${jobId}/criteria/0/accept`)).status).toBe(200);
-    expect((await post(baseUrl, `/jobs/${jobId}/criteria/1/accept`)).status).toBe(200);
-    expect((await post(baseUrl, `/jobs/${jobId}/confirm`)).status).toBe(200);
+    expect((await post(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, 'did:abt:buyer-merge-invariant2')).status).toBe(200);
+    expect((await post(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agentDid)).status).toBe(200);
+    expect((await post(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, 'did:abt:buyer-merge-invariant2')).status).toBe(200);
+    expect((await post(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentDid)).status).toBe(200);
+    expect((await post(baseUrl, `/jobs/${jobId}/confirm`, {}, 'did:abt:buyer-merge-invariant2')).status).toBe(200);
     expect((await post(baseUrl, `/jobs/${jobId}/pull-request`)).status).toBe(200);
 
     const merge = await post(baseUrl, `/jobs/${jobId}/merge`);

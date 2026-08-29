@@ -10,6 +10,13 @@
 // contract pinned at tests/api/job-invariant2.test.ts must survive R-8: a
 // draft projects exactly the eight keys, criteria joins only when non-empty,
 // and briefHash keeps its verifiable-brief contract untouched.
+//
+// ENT-6.2's caller-identity gate (see src/api/app.ts's runPartyExchange)
+// applies to every exchange route this file drives except POST /jobs
+// itself: a request that does not name the buyer or agent DID in the
+// x-freeagents-caller-did header is refused before the domain runs. The
+// `post` helper below takes the caller explicitly so each call states, in
+// plain sight, which party it is acting as.
 import type { Server } from 'node:http';
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -27,6 +34,7 @@ import {
 
 const AGENT_DID = 'did:abt:agent-criteria';
 const BUYER_DID = 'did:abt:buyer-criteria';
+const CALLER_HEADER = 'x-freeagents-caller-did';
 
 function delegationFixture(): Record<string, unknown> {
   return {
@@ -46,10 +54,12 @@ function delegationFixture(): Record<string, unknown> {
   };
 }
 
-async function post(path: string, body: unknown): Promise<Response> {
+async function post(path: string, body: unknown, callerDid?: string): Promise<Response> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (callerDid !== undefined) headers[CALLER_HEADER] = callerDid;
   return fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -152,34 +162,34 @@ describe('job criteria exchange (R-8)', () => {
 
     // 2. The agent proposes: draft -> proposed, texts trimmed, nothing
     // accepted yet, same id.
-    const proposed = await post(`/jobs/${jobId}/criteria`, { criteria: firstProposal });
+    const proposed = await post(`/jobs/${jobId}/criteria`, { criteria: firstProposal }, AGENT_DID);
     expect(proposed.status).toBe(200);
     const proposedBody = (await proposed.json()) as Record<string, unknown>;
     expect(proposedBody.id).toBe(jobId);
     expect(proposedBody.status).toBe('proposed');
     expect(proposedBody.criteria).toEqual([
-      { text: 'The login bug is fixed', proposedBy: 'agent', accepted: false },
-      { text: 'Checkout e2e test passes', proposedBy: 'agent', accepted: false },
+      { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
+      { text: 'Checkout e2e test passes', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
     ]);
 
     // 3. The buyer pushes back: still proposed, still the same job.
-    const pushback = await post(`/jobs/${jobId}/request-changes`, {});
+    const pushback = await post(`/jobs/${jobId}/request-changes`, {}, BUYER_DID);
     expect(pushback.status).toBe(200);
     const pushbackBody = (await pushback.json()) as Record<string, unknown>;
     expect(pushbackBody.id).toBe(jobId);
     expect(pushbackBody.status).toBe('proposed');
     expect(pushbackBody.criteria).toEqual(proposedBody.criteria);
 
-    // 4. The agent re-proposes: still proposed, same id, list replaced -
+    // 4. The agent re-proposes: still proposed, same id, list revised -
     // the loop ran twice without creating a job.
-    const again = await post(`/jobs/${jobId}/criteria`, { criteria: revisedProposal });
+    const again = await post(`/jobs/${jobId}/criteria`, { criteria: revisedProposal }, AGENT_DID);
     expect(again.status).toBe(200);
     const againBody = (await again.json()) as Record<string, unknown>;
     expect(againBody.id).toBe(jobId);
     expect(againBody.status).toBe('proposed');
     expect(againBody.criteria).toEqual([
-      { text: 'One sharper criterion', proposedBy: 'agent', accepted: false },
-      { text: 'Deploy notes updated', proposedBy: 'buyer', accepted: false },
+      { text: 'One sharper criterion', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
+      { text: 'Deploy notes updated', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false },
     ]);
 
     // 5. Read-back: every identity field is the draft's own - same id, same
@@ -208,19 +218,19 @@ describe('job criteria exchange (R-8)', () => {
     });
     const jobId = String(((await seed.json()) as Record<string, unknown>).id);
 
-    const missingField = await post(`/jobs/${jobId}/criteria`, {});
+    const missingField = await post(`/jobs/${jobId}/criteria`, {}, AGENT_DID);
     expect(missingField.status).toBe(400);
 
-    const notAnArray = await post(`/jobs/${jobId}/criteria`, { criteria: 'fix it' });
+    const notAnArray = await post(`/jobs/${jobId}/criteria`, { criteria: 'fix it' }, AGENT_DID);
     expect(notAnArray.status).toBe(400);
 
-    const missingText = await post(`/jobs/${jobId}/criteria`, { criteria: [{ proposedBy: 'agent' }] });
+    const missingText = await post(`/jobs/${jobId}/criteria`, { criteria: [{ proposedBy: 'agent' }] }, AGENT_DID);
     expect(missingText.status).toBe(400);
 
-    const numericText = await post(`/jobs/${jobId}/criteria`, { criteria: [{ text: 7, proposedBy: 'agent' }] });
+    const numericText = await post(`/jobs/${jobId}/criteria`, { criteria: [{ text: 7, proposedBy: 'agent' }] }, AGENT_DID);
     expect(numericText.status).toBe(400);
 
-    const badProposerShape = await post(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'ok', proposedBy: 9 }] });
+    const badProposerShape = await post(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'ok', proposedBy: 9 }] }, AGENT_DID);
     expect(badProposerShape.status).toBe(400);
 
     // The element guard is a conjunction of five conditions, and each one
@@ -230,31 +240,54 @@ describe('job criteria exchange (R-8)', () => {
     // nested array is an object and non-null, so only !Array.isArray(c)
     // rejects it. A number fails typeof c === 'object', the guard's first
     // conjunct.
-    const nullElement = await post(`/jobs/${jobId}/criteria`, { criteria: [null] });
+    const nullElement = await post(`/jobs/${jobId}/criteria`, { criteria: [null] }, AGENT_DID);
     expect(nullElement.status).toBe(400);
 
-    const nestedArrayElement = await post(`/jobs/${jobId}/criteria`, {
-      criteria: [[{ text: 'ok', proposedBy: 'agent' }]],
-    });
+    const nestedArrayElement = await post(
+      `/jobs/${jobId}/criteria`,
+      { criteria: [[{ text: 'ok', proposedBy: 'agent' }]] },
+      AGENT_DID,
+    );
     expect(nestedArrayElement.status).toBe(400);
 
-    const numberElement = await post(`/jobs/${jobId}/criteria`, { criteria: [7] });
+    const numberElement = await post(`/jobs/${jobId}/criteria`, { criteria: [7] }, AGENT_DID);
     expect(numberElement.status).toBe(400);
 
     // An empty list is well-shaped but fails the domain's own rule, which
     // the route maps to 400 with the domain's wording.
-    const emptyList = await post(`/jobs/${jobId}/criteria`, { criteria: [] });
+    const emptyList = await post(`/jobs/${jobId}/criteria`, { criteria: [] }, AGENT_DID);
     expect(emptyList.status).toBe(400);
     const body = (await emptyList.json()) as { error: string };
     expect(body.error).toBe('a proposal needs at least one acceptance criterion');
   });
 
+  it('answers 403 when the caller names no party, or a DID that is neither buyer nor agent', async () => {
+    const seed = await post('/jobs', {
+      buyerDid: BUYER_DID,
+      agentDid: AGENT_DID,
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    });
+    const jobId = String(((await seed.json()) as Record<string, unknown>).id);
+
+    const noCaller = await post(`/jobs/${jobId}/criteria`, { criteria: firstProposal });
+    expect(noCaller.status).toBe(403);
+    expect(((await noCaller.json()) as { error: string }).error).toContain('x-freeagents-caller-did');
+
+    const stranger = await post(`/jobs/${jobId}/criteria`, { criteria: firstProposal }, 'did:abt:a-total-stranger');
+    expect(stranger.status).toBe(403);
+
+    // The row did not move: no criteria were recorded by either refusal.
+    const read = await get(`/jobs/${jobId}`);
+    expect(((await read.json()) as Record<string, unknown>).criteria).toBeUndefined();
+  });
+
   it('answers 404 for an unknown job id on both routes', async () => {
-    const propose = await post('/jobs/j-nowhere/criteria', { criteria: firstProposal });
+    const propose = await post('/jobs/j-nowhere/criteria', { criteria: firstProposal }, AGENT_DID);
     expect(propose.status).toBe(404);
     expect(await propose.json()).toEqual({ error: 'not found' });
 
-    const pushback = await post('/jobs/j-nowhere/request-changes', {});
+    const pushback = await post('/jobs/j-nowhere/request-changes', {}, BUYER_DID);
     expect(pushback.status).toBe(404);
     expect(await pushback.json()).toEqual({ error: 'not found' });
   });
@@ -268,9 +301,13 @@ describe('job criteria exchange (R-8)', () => {
       new Date('2026-01-01T00:00:00Z'),
     );
     const proposedJob: Job = proposeCriteria(draft, firstProposal);
-    await jobRepo.create(confirmSpec(acceptCriterion(acceptCriterion(proposedJob, 0), 1), new Date()));
+    let confirmable = acceptCriterion(proposedJob, 0, 'buyer');
+    confirmable = acceptCriterion(confirmable, 0, 'agent');
+    confirmable = acceptCriterion(confirmable, 1, 'buyer');
+    confirmable = acceptCriterion(confirmable, 1, 'agent');
+    await jobRepo.create(confirmSpec(confirmable, new Date()));
 
-    const proposeOnConfirmed = await post('/jobs/j-conflicted/criteria', { criteria: firstProposal });
+    const proposeOnConfirmed = await post('/jobs/j-conflicted/criteria', { criteria: firstProposal }, AGENT_DID);
     expect(proposeOnConfirmed.status).toBe(409);
 
     // A draft has no proposal to push back on: also a conflict.
@@ -281,7 +318,7 @@ describe('job criteria exchange (R-8)', () => {
       brief: 'Another brief',
     });
     const draftId = String(((await draftRow.json()) as Record<string, unknown>).id);
-    const pushbackOnDraft = await post(`/jobs/${draftId}/request-changes`, {});
+    const pushbackOnDraft = await post(`/jobs/${draftId}/request-changes`, {}, BUYER_DID);
     expect(pushbackOnDraft.status).toBe(409);
   });
 
@@ -320,7 +357,7 @@ describe('job criteria exchange (R-8)', () => {
     try {
       const res = await fetch(`http://127.0.0.1:${address.port}/jobs/j-any/criteria`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [CALLER_HEADER]: AGENT_DID },
         body: JSON.stringify({ criteria: firstProposal }),
       });
       expect(res.status).toBe(503);
@@ -364,7 +401,7 @@ describe('job criteria exchange (R-8)', () => {
     try {
       const res = await fetch(`${vanishingUrl}/jobs/j-vanish/criteria`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [CALLER_HEADER]: AGENT_DID },
         body: JSON.stringify({ criteria: firstProposal }),
       });
       expect(res.status).toBe(404);
@@ -403,7 +440,7 @@ describe('job criteria exchange (R-8)', () => {
     try {
       const res = await fetch(`${throwingUrl}/jobs/j-throws/criteria`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [CALLER_HEADER]: AGENT_DID },
         body: JSON.stringify({ criteria: firstProposal }),
       });
       expect(res.status).toBe(503);
@@ -420,10 +457,13 @@ describe('job criteria exchange (R-8)', () => {
 
   // The rethrow for a fault that is neither a JobError nor a
   // JobTransitionError. A stored row that is not really a Job makes
-  // requestChanges throw a TypeError mapping its criteria, which no route
-  // input could otherwise produce; express 4 cannot route such a rejection
-  // on its own, so the forwarded handler hands it to the terminal error
-  // layer, which answers 500 with nothing of the cause in the body.
+  // proposeCriteria throw a TypeError spreading its criteria, which no
+  // route input could otherwise produce; express 4 cannot route such a
+  // rejection on its own, so the forwarded handler hands it to the terminal
+  // error layer, which answers 500 with nothing of the cause in the body.
+  // requestChanges no longer touches criteria at all (it only validates
+  // status), so the witness for this leg moved to the propose route, the
+  // one exchange function that still reads job.criteria unconditionally.
   it('rethrows an unexpected domain fault as a 500 through the error layer', async () => {
     class CorruptedRow implements JobRepository {
       async create(): Promise<never> {
@@ -445,7 +485,11 @@ describe('job criteria exchange (R-8)', () => {
     const { server: corruptedServer, baseUrl: corruptedUrl } = await startWith(new CorruptedRow());
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const res = await fetch(`${corruptedUrl}/jobs/j-corrupt/request-changes`, { method: 'POST' });
+      const res = await fetch(`${corruptedUrl}/jobs/j-corrupt/criteria`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', [CALLER_HEADER]: AGENT_DID },
+        body: JSON.stringify({ criteria: firstProposal }),
+      });
       expect(res.status).toBe(500);
       expect(await res.json()).toEqual({ error: 'internal error' });
       // Same terms as every other unmapped fault: cause in the log, not the
