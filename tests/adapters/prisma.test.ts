@@ -1001,6 +1001,24 @@ describe('PrismaJobRepository', () => {
 
     expect(rows).toEqual([]);
   });
+
+  it('findCompletedByAgent: excludes a row with a mergeCommit but no mergedAt', async () => {
+    vi.mocked(mock.jobFindMany).mockResolvedValue([{ ...jobFixture, mergeCommit: 'merge-abc', mergedAt: null }]);
+
+    const repo = new PrismaJobRepository();
+    const rows = await repo.findCompletedByAgent('did:example:agent');
+
+    expect(rows).toEqual([]);
+  });
+
+  it('findCompletedByAgent: excludes a row with a mergedAt but no mergeCommit', async () => {
+    vi.mocked(mock.jobFindMany).mockResolvedValue([{ ...jobFixture, mergeCommit: null, mergedAt }]);
+
+    const repo = new PrismaJobRepository();
+    const rows = await repo.findCompletedByAgent('did:example:agent');
+
+    expect(rows).toEqual([]);
+  });
 });
 
 describe('PrismaCredentialRepository', () => {

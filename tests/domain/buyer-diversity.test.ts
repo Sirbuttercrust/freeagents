@@ -100,6 +100,43 @@ describe('buyerDiversity', () => {
     expect(result.entries[0]?.selfHire).toBe(false);
   });
 
+  it('is total: a non-array hires argument is treated as no hires, not thrown', () => {
+    const notAnArray = { length: 3 } as unknown as readonly HireFacts[];
+    expect(() => buyerDiversity(notAnArray, null)).not.toThrow();
+    const result = buyerDiversity(notAnArray, null);
+    expect(result.counts).toEqual({ hires: 0, buyers: 0, selfHires: 0, selfHireBuyers: 0 });
+    expect(result.entries).toEqual([]);
+  });
+
+  it('a Date completedAt is rendered as its ISO string, not swallowed like a string', () => {
+    const result = buyerDiversity([hire({ completedAt: new Date('2026-03-04T05:06:07.000Z') })], null);
+    expect(result.entries[0]?.completedAt).toBe('2026-03-04T05:06:07.000Z');
+  });
+
+  it('an invalid Date object for completedAt renders as empty, not "Invalid Date"', () => {
+    const result = buyerDiversity([hire({ completedAt: new Date('not-a-real-date') })], null);
+    expect(result.entries[0]?.completedAt).toBe('');
+  });
+
+  it('a completedAt that is neither a Date nor a string (missing entirely) renders as empty', () => {
+    const missing = [{ jobId: 'job-1', buyerDid: 'did:abt:zBuyer1', agentDid: 'did:abt:zAgent1', mergeCommit: 'abc123' } as unknown as HireFacts];
+    const result = buyerDiversity(missing, null);
+    expect(result.entries[0]?.completedAt).toBe('');
+  });
+
+  it('an empty-string buyerDid is not counted as a distinct buyer', () => {
+    const result = buyerDiversity([hire({ buyerDid: '' })], null);
+    expect(result.counts.hires).toBe(1);
+    expect(result.counts.buyers).toBe(0);
+  });
+
+  it('a non-string buyerDid is not counted as a distinct buyer', () => {
+    const malformed = [{ ...hire(), buyerDid: 12345 } as unknown as HireFacts];
+    const result = buyerDiversity(malformed, null);
+    expect(result.counts.hires).toBe(1);
+    expect(result.counts.buyers).toBe(0);
+  });
+
   it('does not export a blended independentBuyers field', () => {
     const result = buyerDiversity([hire()], null);
     expect('independentBuyers' in result.counts).toBe(false);

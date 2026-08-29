@@ -498,6 +498,20 @@ describe('MemoryJobRepository', () => {
     expect(await repo.findCompletedByAgent('did:example:agent')).toEqual([]);
   });
 
+  it('findCompletedByAgent excludes a job with a mergeCommit but no mergedAt', async () => {
+    const repo = new MemoryJobRepository();
+    await repo.create(jobFixture);
+    await repo.update({ ...jobFixture, mergeCommit: 'merge-abc', mergedAt: null });
+    expect(await repo.findCompletedByAgent('did:example:agent')).toEqual([]);
+  });
+
+  it('findCompletedByAgent excludes a job with a mergedAt but no mergeCommit', async () => {
+    const repo = new MemoryJobRepository();
+    await repo.create(jobFixture);
+    await repo.update({ ...jobFixture, mergeCommit: null, mergedAt: new Date('2026-01-01T00:00:00Z') });
+    expect(await repo.findCompletedByAgent('did:example:agent')).toEqual([]);
+  });
+
   it('findCompletedByAgent includes a completed job with every CompletedJob field populated', async () => {
     const repo = new MemoryJobRepository();
     await repo.create(jobFixture);

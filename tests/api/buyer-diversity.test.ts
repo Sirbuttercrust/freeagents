@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
 import { MemoryAgentRepository, MemoryJobRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
-import type { JobRepository } from '../../src/adapters/storage/types.js';
+import type { AgentRepository, JobRepository } from '../../src/adapters/storage/types.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { Job } from '../../src/domain/job.js';
 
@@ -226,6 +226,21 @@ describe('GET /agents/:agentDid/hires (R-33)', () => {
     };
     const { app, agentRepo } = buildApp(failing);
     await registerAgent(agentRepo, OPERATOR_DID);
+    await withApp(app, async (url) => {
+      const res = await fetch(`${url}/agents/${AGENT_DID}/hires`);
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ error: 'storage unavailable' });
+    });
+  });
+
+  it('503 when the agent repository throws', async () => {
+    const failing: AgentRepository = {
+      create: () => Promise.reject(new Error('unused')),
+      findByDid: () => Promise.reject(new Error('db down')),
+      updateGithubBinding: () => Promise.reject(new Error('unused')),
+      recordKeyRotation: () => Promise.reject(new Error('unused')),
+    };
+    const app = createApp(new MemoryOperatorRepository(), failing, undefined, undefined, new MemoryJobRepository());
     await withApp(app, async (url) => {
       const res = await fetch(`${url}/agents/${AGENT_DID}/hires`);
       expect(res.status).toBe(503);
