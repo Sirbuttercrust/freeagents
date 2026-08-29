@@ -466,18 +466,33 @@
      picking its look. */
 
   function avatars() {
-    if (!window.FA || !FA.avatar) return;
-    var css = getComputedStyle(document.documentElement);
-    var pal = ["--agent-1", "--agent-2", "--agent-3", "--agent-4", "--agent-5"]
-      .map(function (v) { return css.getPropertyValue(v).trim(); })
-      .filter(Boolean);
-    if (!pal.length) return;
+    /* Prefer the swarm generator. FA.avatar is the older engine and stays as
+       a fallback so a page that has not yet loaded swarm.js still renders a
+       face rather than an empty box.
+
+       No palette is passed. DESIGN.md 2.4 says avatars are not from the agent
+       palette, and the swarm derives colour from the DID like everything else
+       about the creature, so the rule now holds by construction. The old call
+       passed the five agent hues in and picked one by hash, which meant an
+       avatar's colour came from a decoration list rather than from identity. */
+    var swarm = window.FASwarm && FASwarm.avatar;
+    if (!swarm && !(window.FA && FA.avatar)) return;
+
+    var pal = null;
+    if (!swarm) {
+      var css = getComputedStyle(document.documentElement);
+      pal = ["--agent-1", "--agent-2", "--agent-3", "--agent-4", "--agent-5"]
+        .map(function (v) { return css.getPropertyValue(v).trim(); })
+        .filter(Boolean);
+      if (!pal.length) return;
+    }
 
     each($$("[data-avatar]"), function (el) {
       if (el.firstElementChild) return;
       var size = parseInt(el.getAttribute("data-avatar-size") || "0", 10) ||
                  Math.round(el.getBoundingClientRect().width) || 48;
-      el.innerHTML = FA.avatar(el.getAttribute("data-avatar"), size, pal);
+      var did = el.getAttribute("data-avatar");
+      el.innerHTML = swarm ? FASwarm.avatar(did, size) : FA.avatar(did, size, pal);
     });
   }
 
