@@ -8,12 +8,14 @@ import { Ed25519Signature2020 } from '@digitalbazaar/ed25519-signature-2020';
 import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-key-2020';
 import { securityLoader } from '@digitalbazaar/security-document-loader';
 import * as vc from '@digitalbazaar/vc';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createCredentialsAdapter } from '../../../src/adapters/credentials/credentials.js';
 import type { CredentialsIssuer, WorkHistoryClaim } from '../../../src/adapters/credentials/types.js';
 import { MemoryCredentialRepository } from '../../../src/adapters/storage/memory.js';
 import { credentialLookupKey } from '../../../src/adapters/storage/types.js';
+
+const ORIGINAL_BASE = process.env.FREEAGENTS_PUBLIC_BASE_URL;
 
 const claim: WorkHistoryClaim = {
   jobId: 'job-r40-roundtrip',
@@ -79,6 +81,24 @@ async function verifyIndependent(credential: Record<string, unknown>): Promise<b
 }
 
 describe('credential id is the resolution handle (R-40)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    if (ORIGINAL_BASE === undefined) {
+      delete process.env.FREEAGENTS_PUBLIC_BASE_URL;
+    } else {
+      process.env.FREEAGENTS_PUBLIC_BASE_URL = ORIGINAL_BASE;
+    }
+  });
+
+  it('omitting the base argument reads FREEAGENTS_PUBLIC_BASE_URL, not a hardcoded literal', async () => {
+    vi.stubEnv('FREEAGENTS_PUBLIC_BASE_URL', 'https://from-env.example');
+    const adapter = createCredentialsAdapter(issuer, new MemoryCredentialRepository());
+
+    const issued = await adapter.issueWorkHistoryCredential('did:abt:agent', claim);
+
+    expect(issued.id).toBe('https://from-env.example/v1/credentials/job-r40-roundtrip');
+  });
+
   it('a credential issued by the real adapter resolves by the id it carries', async () => {
     const repo = new MemoryCredentialRepository();
     const adapter = createCredentialsAdapter(issuer, repo, 'https://credentials.example');
