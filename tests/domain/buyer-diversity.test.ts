@@ -100,6 +100,28 @@ describe('buyerDiversity', () => {
     expect(result.entries[0]?.selfHire).toBe(false);
   });
 
+  it('a row missing jobId, buyerDid, agentDid and mergeCommit renders each as an empty string, not undefined', () => {
+    const malformed = [{ completedAt: 'not a date' } as unknown as HireFacts];
+    const result = buyerDiversity(malformed, null);
+    expect(result.entries[0]).toStrictEqual({
+      jobId: '',
+      buyerDid: '',
+      agentDid: '',
+      mergeCommit: '',
+      completedAt: '',
+      selfHire: false,
+    });
+  });
+
+  it('is total: a null or undefined row in the array does not throw and renders as an all-empty entry', () => {
+    const malformed = [null, undefined] as unknown as readonly HireFacts[];
+    expect(() => buyerDiversity(malformed, null)).not.toThrow();
+    const result = buyerDiversity(malformed, null);
+    expect(result.counts.hires).toBe(2);
+    const emptyEntry = { jobId: '', buyerDid: '', agentDid: '', mergeCommit: '', completedAt: '', selfHire: false };
+    expect(result.entries).toEqual([emptyEntry, emptyEntry]);
+  });
+
   it('is total: a non-array hires argument is treated as no hires, not thrown', () => {
     const notAnArray = { length: 3 } as unknown as readonly HireFacts[];
     expect(() => buyerDiversity(notAnArray, null)).not.toThrow();

@@ -541,6 +541,32 @@ describe('MemoryJobRepository', () => {
     ]);
   });
 
+  it('findCompletedByAgent sorts by completedAt, not by insertion order', async () => {
+    const repo = new MemoryJobRepository();
+    const earlier = {
+      jobId: 'job_2',
+      buyerDid: 'did:example:buyer',
+      agentDid: 'did:example:agent',
+      mergeCommit: 'merge-earlier',
+      completedAt: new Date('2026-01-02T00:00:00Z'),
+    };
+    // The later-completed job (job_1, 2026-01-03) is inserted first, and the
+    // earlier-completed job (job_2, 2026-01-02) is inserted second: Map
+    // insertion order is the reverse of ascending completedAt order, so a
+    // deleted sort would return the rows in insertion order and fail this.
+    await repo.create(jobFixture);
+    await repo.complete(completedFixture, completedAnchor);
+
+    await repo.create({ ...jobFixture, id: 'job_2' });
+    await repo.complete({ ...completedFixture, id: 'job_2', mergeCommit: 'merge-earlier', mergedAt: earlier.completedAt }, earlier);
+
+    const hires = await repo.findCompletedByAgent('did:example:agent');
+    expect(hires).toEqual([
+      { id: 'job_2', ...earlier },
+      { id: 'job_1', ...completedAnchor },
+    ]);
+  });
+
   it('findCompletedByAgent excludes a completed job belonging to a different agent', async () => {
     const repo = new MemoryJobRepository();
     const otherAgentAnchor = { ...completedAnchor, jobId: 'job_3', agentDid: 'did:example:other-agent' };
