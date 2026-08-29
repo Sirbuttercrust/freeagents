@@ -4,10 +4,11 @@
 // process.env around each case so the suite stays order-independent.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { platformIssuerFromEnv } from '../../../src/adapters/credentials/credentials.js';
+import { platformIssuerFromEnv, publicBaseUrlFromEnv } from '../../../src/adapters/credentials/credentials.js';
 
 const ORIGINAL_DID = process.env.FREEAGENTS_PLATFORM_DID;
 const ORIGINAL_SEED = process.env.FREEAGENTS_PLATFORM_SEED;
+const ORIGINAL_BASE = process.env.FREEAGENTS_PUBLIC_BASE_URL;
 
 function restoreVar(name: string, original: string | undefined): void {
   if (original === undefined) {
@@ -159,5 +160,46 @@ describe('platformIssuerFromEnv', () => {
     for (const stem of ['privatekey', 'secretkey', 'mnemonic']) {
       expect(message).not.toContain(stem);
     }
+  });
+});
+
+describe('publicBaseUrlFromEnv', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    restoreVar('FREEAGENTS_PUBLIC_BASE_URL', ORIGINAL_BASE);
+  });
+
+  it('a configured base is used verbatim', () => {
+    vi.stubEnv('FREEAGENTS_PUBLIC_BASE_URL', 'https://credentials.example');
+
+    expect(publicBaseUrlFromEnv()).toBe('https://credentials.example');
+  });
+
+  it('an EMPTY string falls back to the default, never an empty origin', () => {
+    // Same defect PR #71 found on the DID: Blocklet Server materialises
+    // declared env vars, so an unconfigured deployment delivers '' rather
+    // than undefined, and `??` would miss it.
+    vi.stubEnv('FREEAGENTS_PUBLIC_BASE_URL', '');
+
+    expect(publicBaseUrlFromEnv()).toBe('http://localhost:3000');
+  });
+
+  it('unset falls back to the default', () => {
+    vi.unstubAllEnvs();
+    delete process.env.FREEAGENTS_PUBLIC_BASE_URL;
+
+    expect(publicBaseUrlFromEnv()).toBe('http://localhost:3000');
+  });
+
+  it('a trailing slash is stripped, so an id carries one separator', () => {
+    vi.stubEnv('FREEAGENTS_PUBLIC_BASE_URL', 'https://credentials.example/');
+
+    expect(publicBaseUrlFromEnv()).toBe('https://credentials.example');
+  });
+
+  it('a base of nothing but slashes falls back to the default', () => {
+    vi.stubEnv('FREEAGENTS_PUBLIC_BASE_URL', '///');
+
+    expect(publicBaseUrlFromEnv()).toBe('http://localhost:3000');
   });
 });
