@@ -9,12 +9,10 @@ import type { CredentialsAdapter, CredentialsIssuer, VerifiableCredential, WorkH
 
 const CAPABILITY = 'credentials';
 const DEFAULT_PLATFORM_DID = 'did:abt:freeagents-platform';
-// The credential id doubles as its resolvable address (R-15, ENT-8):
-// '<base>/v1/credentials/<completedJobId>', the same shape
-// credentialLookupKey (storage/types.ts) strips back down to the job id it
-// was stored under. A random urn:uuid here would carry no relation to that
-// lookup key, so GET /v1/credentials/:credentialId could never find it.
-const CREDENTIAL_ID_BASE = 'https://freeagents.dev';
+// Generic default, no real deployment hostname in a committed file
+// (invariant 10; CLAUDE.md "This repository is public"). Matches the PORT
+// default the app already ships with.
+const DEFAULT_PUBLIC_BASE_URL = 'http://localhost:3000';
 
 // Mirrors the storage factory's stance (storage.ts:12-17): an unconfigured
 // deployment announces itself rather than pretending to be configured. A
@@ -36,6 +34,19 @@ export function platformIssuerFromEnv(): CredentialsIssuer {
       'a restart. This is a dev/test mode, not production issuance.'
   );
   return { did, seed: crypto.getRandomValues(new Uint8Array(32)) };
+}
+
+// The origin a credential id resolves against. ENT-8 (spec/entities.md:208)
+// requires the id be stable and resolvable, so it has to be rooted at the
+// address a third party can actually reach.
+export function publicBaseUrlFromEnv(): string {
+  // `||` and not `??`, for the same reason platformIssuerFromEnv gives above:
+  // Blocklet Server materialises every declared env var, so an unconfigured
+  // deployment delivers '' rather than undefined, and the nullish fallback
+  // would mint credential ids rooted at the empty string.
+  const configured = (process.env.FREEAGENTS_PUBLIC_BASE_URL || DEFAULT_PUBLIC_BASE_URL).replace(/\/+$/, '');
+  // A base of '/' strips to '', which is the same defect by another route.
+  return configured === '' ? DEFAULT_PUBLIC_BASE_URL : configured;
 }
 
 // The serve half, shared by both factories: resolve a stored credential by
@@ -69,7 +80,12 @@ async function resolveStoredCredential(
 export function createCredentialsAdapter(
   issuer: CredentialsIssuer = platformIssuerFromEnv(),
   credentialRepo: CredentialRepository = createCredentialRepository(),
+  publicBaseUrl: string = publicBaseUrlFromEnv(),
 ): CredentialsAdapter {
+  // Stripped here too, not only inside publicBaseUrlFromEnv's default path:
+  // a caller (a test, a future config source) may pass this argument
+  // directly, and the id must not double its separator either way.
+  const base = publicBaseUrl.replace(/\/+$/, '');
   return {
     async issueWorkHistoryCredential(subjectDid: string, claim: WorkHistoryClaim): Promise<VerifiableCredential> {
       const credential = {
@@ -78,7 +94,18 @@ export function createCredentialsAdapter(
           'https://w3id.org/security/suites/ed25519-2020/v1',
           { '@vocab': 'https://freeagents.dev/terms#' },
         ],
-        id: `${CREDENTIAL_ID_BASE}/v1/credentials/${claim.jobId}`,
+        // R-40: the credential id IS the resolution handle, not a random
+        // nonce. ENT-8 requires it stable and resolvable, and storage keys
+        // every credential on the completed job id (credentialLookupKey,
+        // adapters/storage/types.ts), so the urn:uuid this used to mint
+        // resolved nowhere: GET /v1/credentials/:id answered 404 for a
+        // credential this platform issued itself.
+        //
+        // The job id appears HERE and deliberately NOT in credentialSubject.hire
+        // below. An id is an address and a claim field is an assertion, and only
+        // the second is governed by "publicly checkable facts only". Two fields,
+        // two rules; they are not in conflict.
+        id: `${base}/v1/credentials/${claim.jobId}`,
         type: ['VerifiableCredential', 'CompletedHireCredential'],
         issuer: issuer.did,
         validFrom: new Date().toISOString(),
@@ -95,12 +122,11 @@ export function createCredentialsAdapter(
             additions: claim.diffAdditions,
             deletions: claim.diffDeletions,
             filesChanged: claim.diffFiles,
-            // jobId is still absent from the hire object: the spec's hire
-            // facts stay publicly checkable ones, and the internal job id
-            // is not one. It rides the wire anyway, as the final path
-            // segment of the credential's own id above, because that
-            // segment is the lookup key GET /v1/credentials/:credentialId
-            // strips it back down to (credentialLookupKey, storage/types.ts).
+            // jobId is deliberately not carried onto the wire: the spec's
+            // hire object holds only publicly checkable facts, and the
+            // internal job id is not one. It does appear in the credential's
+            // `id` above, which is the resolution handle ENT-8 requires and a
+            // different field with a different rule (R-40).
             ...(claim.specHash === null ? {} : { specHash: claim.specHash }),
           },
         },

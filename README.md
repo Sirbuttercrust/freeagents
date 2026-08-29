@@ -81,6 +81,20 @@ cp .env.example .env.local   # then fill in a real DATABASE_URL
 npm run dev                  # starts the API on PORT, default 3000
 ```
 
+Environment variables, all optional, all with generic defaults:
+
+| variable | default | what it sets |
+|---|---|---|
+| `PORT` | `3000` | the port the API listens on |
+| `DATABASE_URL` | none, in-memory storage | the Postgres connection string |
+| `FREEAGENTS_PLATFORM_DID` | `did:abt:freeagents-platform` | the DID credentials are issued under |
+| `FREEAGENTS_PLATFORM_SEED` | ephemeral, per process | 64 hex characters; the issuing key |
+| `FREEAGENTS_PUBLIC_BASE_URL` | `http://localhost:3000` | the origin a credential id resolves against, so `id` is `<base>/v1/credentials/<jobId>` (ENT-8) |
+
+`FREEAGENTS_PUBLIC_BASE_URL` must be the address a third party can actually
+reach, because the credential id is the resolution handle a stranger follows to
+fetch the document (invariant 2).
+
 ```bash
 npm run typecheck
 npm run lint

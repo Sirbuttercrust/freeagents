@@ -26,3 +26,8 @@ environments:
     required: false
     secure: true
     default: ''
+  - name: FREEAGENTS_PUBLIC_BASE_URL
+    description: Origin a credential id resolves against. Defaults to the built-in localhost address.
+    required: false
+    secure: false
+    default: ''
