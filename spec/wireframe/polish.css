@@ -555,10 +555,17 @@ kbd {
      inside a sentence. All are real targets.
 
      Selectors match what the markup actually uses: a bare <footer>, and the
-     .small links that act as row actions. */
+     .small links that act as row actions.
+
+     .sechead was added 2026-08-28 with the dashboard flow rail. It is the
+     section header that carries a title, a count and a "See all", and it
+     replaced a plain .between on that page. Renaming the wrapper silently
+     dropped its links out of this rule and verify_polish.py caught all four
+     at 21px. Keep this list in step with any new header wrapper. */
   footer a,
   .rows .small[href],
-  .between .small[href] {
+  .between .small[href],
+  .sechead .small[href] {
     min-height: 44px; display: inline-flex; align-items: center;
   }
 

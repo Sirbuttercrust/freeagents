@@ -316,6 +316,8 @@ something new adds it here first.
 | **detail toggle** | the progressive-disclosure control. Label names what is behind it: "Show technical details". Collapsed by default, every session. 13px, `--fg-2`, no border |
 | **detail panel** | what a toggle reveals. Mono for machine-checkable values, each with a copy control. Never contains an action needed to complete the page's primary job |
 | **plain/exact pair** | a fact shown twice: plain language as the heading, the exact value in mono beneath or behind a toggle. "GitHub account confirmed" over `did:abt:z1Mv4…8kQx` |
+| **flow rail** | the five job states drawn horizontally: brief, criteria, confirmed, pull request, merged. The same states `job.html` draws vertically with dates, so the two screens share one vocabulary. Decorative only: it is `aria-hidden` and the stage is always stated in text beside it. Below 620px the labels drop and the sentence carries it alone |
+| **section head** | a section title, a count, and the way out to the full list. The count earns its space because the heading does not carry it; an icon there would only repeat the word |
 
 ### 5.1 The 44px rule
 
@@ -344,6 +346,36 @@ screen:
 
 Durations: **120ms** for a state change on a control, **240ms** for something
 entering or leaving, **800ms** for a shape morph. Nothing else.
+
+### 6.1 Ambient motion
+
+Almost all motion in this product is a response: a person did something and the
+interface answered. **Ambient motion is motion that runs with nobody touching
+it**, and there is exactly one instance of it, the travelling light on the
+dashboard flow rail. It is permitted only under these rules.
+
+- **It must mean "this is moving without you."** A hired job progresses while
+  the buyer is asleep. That is the one fact on the dashboard a static layout
+  genuinely cannot say, and it is why the rail earns a loop where nothing else
+  does. Motion that only decorates is barred by rule 4 of `base.css`.
+- **It is confined to the one section where something is actually in flight.**
+  A dashboard where four sections all shimmer says nothing at all.
+- **It is never the accent.** `--accent` means "we watched this happen" (2.2).
+  Work in flight has not happened yet, so the light and the pulse are neutral
+  white and only a landed merge may take accent.
+- **The rest state is the design; the loop is the enhancement.** `base.css`
+  ends with `* { animation: none !important }` under reduced motion, so any
+  animation carrying its meaning in keyframes degrades to a frozen first
+  frame. Write it inverted: the plain CSS is the finished, legible state, and
+  the `@keyframes` live only inside `prefers-reduced-motion: no-preference`.
+  With motion off, the light rests against the current node and a standing
+  ring marks it, which still reads as "the work is here".
+- **Transform and opacity only**, on a promoted layer. An ambient loop runs
+  forever, so anything touching layout is a permanent cost on every frame.
+
+Verified by `verify_flow_motion.py`, which samples the transform twice in each
+motion mode. A bound animation that never moves and a stranded invisible
+element both look identical in a screenshot, so neither is checked by eye.
 
 ---
 
