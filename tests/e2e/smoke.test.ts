@@ -1458,9 +1458,12 @@ describe('the API starts and answers', () => {
     );
     expect(proposed.status).toBe(200);
 
-    // 6. Accept, signed.
-    const accepted = await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyerIdentity);
-    expect(accepted.status).toBe(200);
+    // 6. Accept, signed by both parties (ENT-6.2 two-party consent).
+    const acceptedByBuyer = await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyerIdentity);
+    expect(acceptedByBuyer.status).toBe(200);
+    const agentIdentity = await signingIdentityFromSeed(hexToBytes(agentWallet.secretKey).slice(0, 32));
+    const acceptedByAgent = await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity);
+    expect(acceptedByAgent.status).toBe(200);
 
     // 7. Confirm, signed: the issue's acceptance line.
     const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity);
