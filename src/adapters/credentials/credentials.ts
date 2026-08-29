@@ -9,6 +9,12 @@ import type { CredentialsAdapter, CredentialsIssuer, VerifiableCredential, WorkH
 
 const CAPABILITY = 'credentials';
 const DEFAULT_PLATFORM_DID = 'did:abt:freeagents-platform';
+// The credential id doubles as its resolvable address (R-15, ENT-8):
+// '<base>/v1/credentials/<completedJobId>', the same shape
+// credentialLookupKey (storage/types.ts) strips back down to the job id it
+// was stored under. A random urn:uuid here would carry no relation to that
+// lookup key, so GET /v1/credentials/:credentialId could never find it.
+const CREDENTIAL_ID_BASE = 'https://freeagents.dev';
 
 // Mirrors the storage factory's stance (storage.ts:12-17): an unconfigured
 // deployment announces itself rather than pretending to be configured. A
@@ -72,7 +78,7 @@ export function createCredentialsAdapter(
           'https://w3id.org/security/suites/ed25519-2020/v1',
           { '@vocab': 'https://freeagents.dev/terms#' },
         ],
-        id: `urn:uuid:${crypto.randomUUID()}`,
+        id: `${CREDENTIAL_ID_BASE}/v1/credentials/${claim.jobId}`,
         type: ['VerifiableCredential', 'CompletedHireCredential'],
         issuer: issuer.did,
         validFrom: new Date().toISOString(),
@@ -89,9 +95,12 @@ export function createCredentialsAdapter(
             additions: claim.diffAdditions,
             deletions: claim.diffDeletions,
             filesChanged: claim.diffFiles,
-            // jobId is deliberately not carried onto the wire: the spec's
-            // hire object holds only publicly checkable facts, and the
-            // internal job id is not one.
+            // jobId is still absent from the hire object: the spec's hire
+            // facts stay publicly checkable ones, and the internal job id
+            // is not one. It rides the wire anyway, as the final path
+            // segment of the credential's own id above, because that
+            // segment is the lookup key GET /v1/credentials/:credentialId
+            // strips it back down to (credentialLookupKey, storage/types.ts).
             ...(claim.specHash === null ? {} : { specHash: claim.specHash }),
           },
         },
