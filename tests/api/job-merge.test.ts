@@ -410,6 +410,9 @@ describe('GET /jobs/:jobId, no credential row (R-36)', () => {
       async findByDocumentId(): Promise<never> {
         throw new Error('should never be called for an unmerged job');
       }
+      async listBySubjectDid(): Promise<never> {
+        throw new Error('should never be called for an unmerged job');
+      }
     }
     const scripted = await startWith(repo, mergedGithub(emptyRecordings()), {
       credentialRepo: new ThrowingCredentialRepository(),
@@ -438,6 +441,9 @@ describe('GET /jobs/:jobId, no credential row (R-36)', () => {
         throw new Error('unreachable');
       }
       async findByDocumentId(): Promise<never> {
+        throw new Error('storage down');
+      }
+      async listBySubjectDid(): Promise<never> {
         throw new Error('storage down');
       }
     }
@@ -549,6 +555,9 @@ describe('job merge, credential-issuance faulted legs (R-36)', () => {
       }
       async findByDocumentId(): Promise<null> {
         return null;
+      }
+      async listBySubjectDid(): Promise<readonly never[]> {
+        return [];
       }
     }
     const scripted = await startWith(repo, mergedGithub(faults), {

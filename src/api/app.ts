@@ -40,6 +40,7 @@ import {
   createOperatorRepository,
 } from '../adapters/storage/storage.js';
 import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
+import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
 import {
   didDocumentPointsAtGithubAccount,
   gistProofPayload,
@@ -538,13 +539,29 @@ export function createApp(
   // is left alone -- the brief names verify routes specifically, not every
   // public GET.
   app.get('/agents/:agentDid', verifyRateLimiter.middleware, async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
     try {
-      const row = await agentRepo.findByDid(String(req.params.agentDid));
+      const row = await agentRepo.findByDid(did);
       if (row === null) {
         res.status(404).json({ error: 'not found' });
         return;
       }
-      res.status(200).json(agentProjection(row));
+      // R-17 (ENT-8, ENT-2.4): every credential this platform issued to
+      // this agent, paired with the one fact evidenceTier needs beyond
+      // what a merge already proves. Read at response time, never stored
+      // as a tier column, so a private repository can never be relisted
+      // into a verified tier just by not re-checking it.
+      const stored = await credentialRepo.listBySubjectDid(did);
+      const evidence: CredentialEvidence[] = stored.map((entry) => ({
+        credentialId: entry.document.id,
+        repository: entry.document.credentialSubject.hire.repository,
+        pullRequest: entry.document.credentialSubject.hire.pullRequest,
+        mergedAt: entry.document.credentialSubject.hire.mergedAt,
+        mergeCommit: entry.document.credentialSubject.hire.mergeCommit,
+        buyerDid: entry.document.credentialSubject.hire.buyer,
+        repositoryPublic: entry.repositoryPublic,
+      }));
+      res.status(200).json({ ...agentProjection(row), ...agentWorkRecord(evidence) });
     } catch (err) {
       console.error('GET /agents/:agentDid: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });

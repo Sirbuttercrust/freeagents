@@ -152,18 +152,38 @@ export function credentialLookupKey(id: string): string {
   return id;
 }
 
+// One stored work-history credential, plus the one fact evidenceTier needs
+// that never belongs inside the W3C document itself (repositoryPublic):
+// ENT-8.3 forbids a judgement inside the signature envelope, and
+// repository visibility is exactly the kind of platform-observed fact that
+// travels beside the document the same way subjectDid already does.
+export interface StoredCredential {
+  readonly document: VerifiableCredential;
+  readonly repositoryPublic: boolean;
+}
+
 // One work-history credential per completed job (ENT-8). The document goes
 // in verbatim: the bytes that verified are the bytes that are stored, so a
 // resolved credential keeps verifying off-platform (invariant 2).
 export interface CredentialRepository {
   // Throws CredentialAlreadyIssuedError when the job already has a
-  // credential.
+  // credential. repositoryPublic defaults to false when the caller omits
+  // it: an unrecorded visibility fact must never read as verified (R-17,
+  // PR 70's rejected finding), so silence fails closed the same direction
+  // as a private repository would.
   save(input: {
     readonly completedJobId: string;
     readonly subjectDid: string;
     readonly document: VerifiableCredential;
+    readonly repositoryPublic?: boolean;
   }): Promise<void>;
   // documentId may be the full credential id or its lookup key. Null when
   // no credential carries that id, so the adapter maps it to a 404.
   findByDocumentId(documentId: string): Promise<VerifiableCredential | null>;
+  // R-17: every credential issued to this agent DID, oldest first, paired
+  // with the repositoryPublic fact evidenceTier needs. Empty array for an
+  // agent with none, never null and never a throw on an unknown subject:
+  // the profile route renders an honest zero (ENT-2.4) rather than
+  // branching on absence.
+  listBySubjectDid(subjectDid: string): Promise<readonly StoredCredential[]>;
 }

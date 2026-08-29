@@ -29,6 +29,7 @@ const mock = vi.hoisted(() => ({
   keyRotationFindMany: vi.fn(),
   credentialCreate: vi.fn(),
   credentialFindUnique: vi.fn(),
+  credentialFindMany: vi.fn(),
   compromiseReportCreate: vi.fn(),
   compromiseReportFindMany: vi.fn(),
 }));
@@ -51,7 +52,7 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
         update: mock.jobUpdate,
       };
       keyRotation = { create: mock.keyRotationCreate, findMany: mock.keyRotationFindMany };
-      credential = { create: mock.credentialCreate, findUnique: mock.credentialFindUnique };
+      credential = { create: mock.credentialCreate, findUnique: mock.credentialFindUnique, findMany: mock.credentialFindMany };
       compromiseReport = { create: mock.compromiseReportCreate, findMany: mock.compromiseReportFindMany };
     },
     Prisma: actual.Prisma,
@@ -1109,6 +1110,7 @@ describe('PrismaCredentialRepository', () => {
         completedJobId: 'job_1',
         subjectDid: 'did:abt:agent',
         document: credentialFixture,
+        repositoryPublic: false,
         issuedAt: expect.any(Date),
       },
     });
@@ -1129,6 +1131,7 @@ describe('PrismaCredentialRepository', () => {
         completedJobId: 'job_1',
         subjectDid: 'did:abt:agent',
         document: credentialFixture,
+        repositoryPublic: false,
         issuedAt: expect.any(Date),
       },
     });
@@ -1217,6 +1220,41 @@ describe('PrismaCredentialRepository', () => {
 
     expect(mock.credentialFindUnique).toHaveBeenCalledWith({ where: { completedJobId: 'job_missing' } });
     expect(row).toBeNull();
+  });
+
+  it('listBySubjectDid: queries by subject and orders by issuedAt ascending, mapping rows to verbatim documents paired with repositoryPublic', async () => {
+    vi.mocked(mock.credentialFindMany).mockResolvedValue([
+      { id: 'cuid-1', completedJobId: 'job_1', subjectDid: 'did:abt:agent', document: credentialFixture, repositoryPublic: true, issuedAt: new Date('2026-01-03T00:00:00Z') },
+    ]);
+
+    const repo = new PrismaCredentialRepository();
+    const rows = await repo.listBySubjectDid('did:abt:agent');
+
+    expect(mock.credentialFindMany).toHaveBeenCalledWith({
+      where: { subjectDid: 'did:abt:agent' },
+      orderBy: { issuedAt: 'asc' },
+    });
+    expect(rows).toEqual([{ document: credentialFixture, repositoryPublic: true }]);
+  });
+
+  it('listBySubjectDid: a row written before repositoryPublic existed reads back as false, not undefined', async () => {
+    vi.mocked(mock.credentialFindMany).mockResolvedValue([
+      { id: 'cuid-2', completedJobId: 'job_2', subjectDid: 'did:abt:agent', document: credentialFixture, repositoryPublic: null, issuedAt: new Date('2026-01-04T00:00:00Z') },
+    ]);
+
+    const repo = new PrismaCredentialRepository();
+    const rows = await repo.listBySubjectDid('did:abt:agent');
+
+    expect(rows).toEqual([{ document: credentialFixture, repositoryPublic: false }]);
+  });
+
+  it('listBySubjectDid: no stored credentials comes back as an empty array, not null', async () => {
+    vi.mocked(mock.credentialFindMany).mockResolvedValue([]);
+
+    const repo = new PrismaCredentialRepository();
+    const rows = await repo.listBySubjectDid('did:abt:nobody');
+
+    expect(rows).toEqual([]);
   });
 });
 
