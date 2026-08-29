@@ -5,19 +5,23 @@ me with no memory of it. Everything here is checkable with a command.
 
 ## The one thing to know first
 
-**Branch `task/freeagents-money-model`, and it stacks on unmerged work.**
+**Branch `task/dashboard-flow`, and it stacks on unmerged work.**
 
 ```
 git fetch origin
-git checkout task/freeagents-money-model
+git checkout task/dashboard-flow
 ```
 
-It carries seven commits that are not on `main`. Five are the 08-27 polish
-pass, two are the 08-28 money model. `main` is NOT a valid base for this work:
-it has no `polish.css`, no `polish.js`, and none of the six verify gates, so
-the verify commands below would not exist in the tree. `main`'s one extra
-commit `7ccebc2` touches zero wireframe files, so there is no conflict either
-direction.
+It carries eight commits that are not on `main`. Five are the 08-27 polish
+pass, two are the 08-28 money model, and one is the 08-28 dashboard flow rail.
+`main` is NOT a valid base for this work: it has no `polish.css`, no
+`polish.js`, no `flow.css`, and none of the seven verify gates, so the verify
+commands below would not exist in the tree. `main`'s one extra commit `7ccebc2`
+touches zero wireframe files, so there is no conflict either direction.
+
+The dashboard work sits on top of `task/freeagents-money-model` rather than
+beside it, because both touch `DESIGN.md` and a parallel branch would have
+conflicted there for no reason.
 
 Proof is judging a stacked changeset. That is deliberate and it is the reason
 this note exists.
@@ -55,17 +59,23 @@ WEBGRAB_DIR=<dir holding webgrab.py> python3 verify_reduced_motion.py
 WEBGRAB_DIR=<dir holding webgrab.py> python3 verify_agents_below.py
 WEBGRAB_DIR=<dir holding webgrab.py> python3 verify_profile_header.py
 WEBGRAB_DIR=<dir holding webgrab.py> python3 verify_blast_preview.py
+WEBGRAB_DIR=<dir holding webgrab.py> python3 verify_flow_motion.py
 WEBGRAB_DIR=<dir holding webgrab.py> python3 measure_prose.py          # reports, does not gate
 cd ../.. && bash factory/publish_gate.sh .
 ```
 
 Last run, all green: polish PASS (26 screens, 200 icons), reduced motion PASS,
-agents below PASS, profile header PASS, blast preview PASS, publish gate CLEAR
-on 18 checks, contrast 0 genuine failures.
+agents below PASS, profile header PASS, blast preview PASS, flow motion PASS,
+publish gate CLEAR on 18 checks, contrast 0 genuine failures.
 
 `verify_polish.py` is the one that catches the most. It checks every screen at
 320px under a real touch profile for console errors, unpainted icons, inert
 controls, horizontal overflow, and tap targets under 44px.
+
+`verify_flow_motion.py` covers the one thing a screenshot cannot: it samples
+the travelling light's transform twice in each motion mode. A bound animation
+that never moves and an element stranded invisible look identical in a still
+frame, so both are asserted rather than eyeballed.
 
 ## What each layer is for
 
@@ -79,6 +89,7 @@ overridden and `base.css` stays the readable statement of the system.
 | `market.css` | profiles, the browse grid, identity hues, category tints, the two badges |
 | `gallery.css` | the portfolio gallery and its tier gate |
 | `agreement.css` | the two-party signing matrix, price rows, lock meter, floor, redo |
+| `flow.css` | the dashboard job pipeline: the rail, the travelling light, the job row |
 | `icons.js` | 44 glyphs, no dependency and no external request |
 | `agents.js` | the DID-derived avatar engine |
 
