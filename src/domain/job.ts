@@ -28,14 +28,30 @@ const TERMINAL_STATUSES: readonly JobStatus[] = [
   'withdrawn',
 ];
 
+// A party to the hire loop: whoever is doing the accepting. Named apart
+// from Criterion.proposedBy on purpose, even though it takes the same two
+// values - proposedBy records who WROTE a line, acceptedByBuyer /
+// acceptedByAgent record who has AGREED to it, and those are independent
+// facts (the proposer of a line has not thereby accepted it; see
+// proposeCriteria below, which leaves a fresh line unaccepted by both).
+export type Party = 'buyer' | 'agent';
+
 // One acceptance criterion of the exchange R-8 owns (ENT-6). A structured
 // list, not free text (D2): each entry a single checkable sentence, either
-// party may propose, and both must accept before confirm (that gate lives
-// at confirm, R-9).
+// party may propose it, and both must accept before confirm (ENT-6.2). A
+// single accepted flag cannot record two independent parties agreeing, so
+// acceptance is tracked per party; acceptCriterion sets exactly one of
+// these two, never both, and confirmSpec requires both true on every line.
+// Identity here comes from the caller the route layer resolves
+// (src/api/app.ts's runExchange), not from a cryptographic signature over
+// the text: R-34 (DID-signed requests) is where a per-party signature over
+// the criterion text would eventually replace this boolean pair, and that
+// upgrade seam is exactly these two fields.
 export interface Criterion {
   readonly text: string;
   readonly proposedBy: 'agent' | 'buyer';
-  readonly accepted: boolean;
+  readonly acceptedByBuyer: boolean;
+  readonly acceptedByAgent: boolean;
 }
 
 export interface Job {
@@ -177,23 +193,28 @@ export function isTerminal(status: JobStatus): boolean {
 // Confirm computes specHash itself (ENT-4.2): a caller-supplied digest would
 // let the wire disagree with what was agreed. The gates run after the
 // transition check so wrong-status stays a state conflict, not content
-// feedback (ASSUMPTIONS CONFIRM_GATE_STATUS).
+// feedback (ASSUMPTIONS CONFIRM_GATE_STATUS). ENT-6.2's rule, enforced: a
+// criterion counts as agreed only once BOTH acceptedByBuyer and
+// acceptedByAgent are true, so one party accepting every line is refused
+// here exactly like an unaccepted line would be.
 export function confirmSpec(job: Job, now: Date): Job {
   validateJobTransition(job.status, 'confirmed');
   if (job.criteria.length === 0) {
     throw new JobError('confirm needs at least one acceptance criterion: nothing was agreed');
   }
-  const outstanding = job.criteria.filter((criterion) => !criterion.accepted).length;
+  const outstanding = job.criteria.filter(
+    (criterion) => !criterion.acceptedByBuyer || !criterion.acceptedByAgent,
+  ).length;
   if (outstanding > 0) {
     throw new JobError(
-      `confirm needs every criterion accepted: ${outstanding} of ${job.criteria.length} outstanding`,
+      `confirm needs every criterion accepted by both parties: ${outstanding} of ${job.criteria.length} outstanding`,
     );
   }
   // specHash pins WHAT WAS AGREED: the criteria texts in order, '\n'-joined,
   // through hashSpec's documented normalisation (\n endings, trailing
   // whitespace stripped per line, no trailing newline). Anyone holding the
   // criteria can recompute it with node:crypto alone - invariant 2. The
-  // accepted flags are uniformly true here and proposedBy stays visible in
+  // acceptance flags are uniformly true here and proposedBy stays visible in
   // plaintext, so neither belongs in the digest.
   const specText = job.criteria.map((criterion) => criterion.text).join('\n');
   return { ...job, status: 'confirmed', confirmedSpecHash: hashSpec(specText), confirmedAt: now };
@@ -272,7 +293,23 @@ export function decline(job: Job): Job {
 
 // The acceptance-criteria exchange R-8 owns (ENT-6, D2). The first propose
 // walks draft -> proposed, the edge the transition table already records;
-// every later one replaces the whole list while staying in proposed.
+// every later one revises the list while staying in proposed.
+//
+// Re-propose is a DIFF against the stored list, not a wholesale replace
+// (Keaton, 2026-08-29: "editing one line resets only that line"). A new
+// entry is matched against the CURRENT criteria by exact trimmed text: an
+// unchanged line keeps whatever acceptedByBuyer/acceptedByAgent it already
+// carried, because nothing about it changed. A line whose text differs from
+// every current entry - whether it is a genuinely new criterion or an edit
+// of an existing one - has no honest way to tell those two cases apart from
+// the text alone, and BOTH cases mean the parties have not agreed on this
+// exact wording yet, so both start unaccepted by both parties. Removing a
+// criterion (striking it) is simply not carrying its text into the new
+// list; it disappears, and every other line's match (and therefore its
+// acceptance) is untouched, which is the "neighbouring acceptances" this
+// issue asked to be decided. Each stored entry is consumed by at most one
+// match, so two lines with identical text cannot both inherit the same
+// acceptance history.
 export function proposeCriteria(
   job: Job,
   input: ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>,
@@ -280,6 +317,8 @@ export function proposeCriteria(
   if (input.length === 0) {
     throw new JobError('a proposal needs at least one acceptance criterion');
   }
+  const pool = [...job.criteria];
+  const consumed = new Set<number>();
   const criteria: Criterion[] = input.map((criterion) => {
     if (typeof criterion.text !== 'string' || criterion.text.trim() === '') {
       throw new JobError('every criterion needs non-empty text: what can be checked against it?');
@@ -287,7 +326,19 @@ export function proposeCriteria(
     if (criterion.proposedBy !== 'agent' && criterion.proposedBy !== 'buyer') {
       throw new JobError('proposedBy must be "agent" or "buyer"');
     }
-    return { text: criterion.text.trim(), proposedBy: criterion.proposedBy, accepted: false };
+    const text = criterion.text.trim();
+    const matchIndex = pool.findIndex((existing, i) => !consumed.has(i) && existing.text === text);
+    if (matchIndex === -1) {
+      return { text, proposedBy: criterion.proposedBy, acceptedByBuyer: false, acceptedByAgent: false };
+    }
+    consumed.add(matchIndex);
+    const existing = pool[matchIndex];
+    return {
+      text,
+      proposedBy: criterion.proposedBy,
+      acceptedByBuyer: existing?.acceptedByBuyer ?? false,
+      acceptedByAgent: existing?.acceptedByAgent ?? false,
+    };
   });
   if (job.status === 'draft') {
     validateJobTransition(job.status, 'proposed');
@@ -295,29 +346,37 @@ export function proposeCriteria(
   }
   if (job.status === 'proposed') {
     // proposed -> proposed is not a legal transition, and looping must not
-    // invent one: a re-propose replaces the list in place, same status,
+    // invent one: a re-propose revises the list in place, same status,
     // same job. Only the first propose crosses the validator.
     return { ...job, criteria };
   }
   throw new JobTransitionError(job.status, 'propose criteria for');
 }
 
-// The buyer's pushback: every acceptance flag resets, so nothing counts as
-// agreed across a change request. Same id, same status, same texts - the
-// next proposeCriteria replaces the list wholesale.
+// The buyer's pushback: a bodyless signal that carries no criterion text of
+// its own, so it cannot target one line the way a re-propose can. Once
+// editing moved to per-criterion diffing (see proposeCriteria below), a
+// blanket reset here would undo the very thing that change fixes: Keaton's
+// 2026-08-29 review named exactly this - "requestChanges resets every
+// acceptance on the job, which punishes a long spec for a one-word fix".
+// requestChanges therefore does the only honest thing left for a route with
+// no target: it validates the job is still open for negotiation and returns
+// it UNCHANGED. The actual edit, and the actual per-criterion reset, happens
+// when the agent or buyer calls POST /jobs/:jobId/criteria with revised
+// text.
 export function requestChanges(job: Job): Job {
   if (job.status !== 'proposed') {
     throw new JobTransitionError(job.status, 'request changes on');
   }
-  return {
-    ...job,
-    criteria: job.criteria.map((criterion) => ({ ...criterion, accepted: false })),
-  };
+  return job;
 }
 
 // One party accepts one criterion. Domain-only until confirm (R-9) enforces
-// the both-parties gate; idempotent on an already-accepted entry.
-export function acceptCriterion(job: Job, index: number): Job {
+// the both-parties gate (ENT-6.2); idempotent per party on an
+// already-accepted entry, and independent of the OTHER party's flag: the
+// buyer accepting a line the agent already accepted does not touch the
+// agent's flag, and vice versa.
+export function acceptCriterion(job: Job, index: number, party: Party): Job {
   if (job.status !== 'proposed') {
     throw new JobTransitionError(job.status, 'accept a criterion on');
   }
@@ -326,6 +385,11 @@ export function acceptCriterion(job: Job, index: number): Job {
   }
   return {
     ...job,
-    criteria: job.criteria.map((criterion, i) => (i === index ? { ...criterion, accepted: true } : criterion)),
+    criteria: job.criteria.map((criterion, i) => {
+      if (i !== index) return criterion;
+      return party === 'buyer'
+        ? { ...criterion, acceptedByBuyer: true }
+        : { ...criterion, acceptedByAgent: true };
+    }),
   };
 }

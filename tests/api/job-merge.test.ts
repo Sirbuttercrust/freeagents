@@ -157,8 +157,8 @@ function submittedJob(id: string): Job {
     // fully confirmed, like the walked jobs: the hash's presence, not its
     // value, is what the projection asserts.
     criteria: [
-      { text: 'fixes the login bug', proposedBy: 'agent', accepted: true },
-      { text: 'no new dependencies', proposedBy: 'buyer', accepted: true },
+      { text: 'fixes the login bug', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true },
+      { text: 'no new dependencies', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: true },
     ],
     confirmedSpecHash: 'a'.repeat(64),
     confirmedAt: new Date('2026-01-01T12:00:00Z'),
@@ -168,10 +168,12 @@ function submittedJob(id: string): Job {
 let server: Server;
 let baseUrl: string;
 
-async function post(path: string, body: unknown = {}, base: string = baseUrl): Promise<Response> {
+async function post(path: string, body: unknown = {}, base: string = baseUrl, callerDid?: string): Promise<Response> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (callerDid !== undefined) headers['x-freeagents-caller-did'] = callerDid;
   return fetch(`${base}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -234,10 +236,12 @@ async function openDraft(brief: string, base: string = baseUrl): Promise<string>
 // open the pull request. Returns the submitted body so the merge tests can
 // compare against it.
 async function walkToSubmitted(jobId: string, base: string = baseUrl): Promise<Record<string, unknown>> {
-  expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, base)).status).toBe(200);
-  expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, base)).status).toBe(200);
-  expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, base)).status).toBe(200);
-  expect((await post(`/jobs/${jobId}/confirm`, {}, base)).status).toBe(200);
+  expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, base, AGENT_DID)).status).toBe(200);
+  expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, base, BUYER_DID)).status).toBe(200);
+  expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, base, AGENT_DID)).status).toBe(200);
+  expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, base, BUYER_DID)).status).toBe(200);
+  expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, base, AGENT_DID)).status).toBe(200);
+  expect((await post(`/jobs/${jobId}/confirm`, {}, base, BUYER_DID)).status).toBe(200);
   const pr = await post(`/jobs/${jobId}/pull-request`, {}, base);
   expect(pr.status).toBe(200);
   return (await pr.json()) as Record<string, unknown>;

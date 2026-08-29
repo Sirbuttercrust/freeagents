@@ -438,7 +438,7 @@ function toJob(row: JobRow): Job {
     // A row written before the column existed (or a null) is a job with no
     // proposal yet, never a job whose criteria are undefined: every caller
     // may read criteria as an array.
-    criteria: Array.isArray(row.criteria) ? (row.criteria as Criterion[]) : [],
+    criteria: Array.isArray(row.criteria) ? row.criteria.map(normalizeCriterion) : [],
     status: row.status,
     pullRequestUrl: row.pullRequestUrl,
     mergeCommit: row.mergeCommit,
@@ -447,5 +447,26 @@ function toJob(row: JobRow): Job {
     submittedAt: row.submittedAt,
     deadline: row.deadline,
     createdAt: row.createdAt,
+  };
+}
+
+// A row written before this issue's two-party split (a single `accepted`
+// flag rather than acceptedByBuyer/acceptedByAgent) must still load: this
+// is a JSON column, so nothing enforced the new shape on rows written
+// earlier. Its `accepted: true` meant, per the ORIGINAL ENT-6.2 wording,
+// "both parties agreed" (the flag was mis-enforced, not mis-named) - so it
+// maps to both new flags true, and `accepted: false` maps to both false.
+// A row already in the new shape passes through untouched.
+function normalizeCriterion(raw: unknown): Criterion {
+  const c = raw as Record<string, unknown>;
+  if (typeof c.acceptedByBuyer === 'boolean' && typeof c.acceptedByAgent === 'boolean') {
+    return c as unknown as Criterion;
+  }
+  const legacyAccepted = c.accepted === true;
+  return {
+    text: String(c.text),
+    proposedBy: c.proposedBy === 'buyer' ? 'buyer' : 'agent',
+    acceptedByBuyer: legacyAccepted,
+    acceptedByAgent: legacyAccepted,
   };
 }

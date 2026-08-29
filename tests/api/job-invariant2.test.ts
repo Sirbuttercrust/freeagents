@@ -83,10 +83,12 @@ async function signW3CDelegation(operator: WalletObject, agent: WalletObject): P
   return signed;
 }
 
-async function postJson(url: string, path: string, body: unknown): Promise<Response> {
+async function postJson(url: string, path: string, body: unknown, callerDid?: string): Promise<Response> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (callerDid !== undefined) headers['x-freeagents-caller-did'] = callerDid;
   return fetch(`${url}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -274,12 +276,14 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
             { text: 'The login bug is fixed', proposedBy: 'agent' },
             { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
           ],
-        })
+        }, agentWallet.toDid())
       ).status,
     ).toBe(200);
-    expect((await postJson(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {})).status).toBe(200);
-    expect((await postJson(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {})).status).toBe(200);
-    expect((await postJson(baseUrl, `/jobs/${jobId}/confirm`, {})).status).toBe(200);
+    expect((await postJson(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, operatorWallet.toDid())).status).toBe(200);
+    expect((await postJson(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agentWallet.toDid())).status).toBe(200);
+    expect((await postJson(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, operatorWallet.toDid())).status).toBe(200);
+    expect((await postJson(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentWallet.toDid())).status).toBe(200);
+    expect((await postJson(baseUrl, `/jobs/${jobId}/confirm`, {}, operatorWallet.toDid())).status).toBe(200);
 
     const pr = await postJson(baseUrl, `/jobs/${jobId}/pull-request`, {});
     expect(pr.status).toBe(200);

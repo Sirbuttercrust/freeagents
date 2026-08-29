@@ -42,10 +42,12 @@ let stranger: SigningIdentity;
 let unregistered: SigningIdentity;
 let jobRepo: MemoryJobRepository;
 
-async function post(path: string, body: unknown): Promise<Response> {
+async function post(path: string, body: unknown, callerDid?: string): Promise<Response> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (callerDid !== undefined) headers['x-freeagents-caller-did'] = callerDid;
   return fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -138,8 +140,12 @@ describe('DID-signed hire-loop routes (R-34)', () => {
     const proposed = await postSigned(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'Login works', proposedBy: 'agent' }] }, buyer);
     expect(proposed.status).toBe(200);
 
-    const accepted = await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyer);
-    expect(accepted.status).toBe(200);
+    // Two-party consent (ENT-6.2): confirm needs both parties' acceptance,
+    // so both sign their own accept.
+    const acceptedByBuyer = await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyer);
+    expect(acceptedByBuyer.status).toBe(200);
+    const acceptedByAgent = await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agent);
+    expect(acceptedByAgent.status).toBe(200);
 
     const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, buyer);
     expect(confirmed.status).toBe(200);
@@ -148,7 +154,11 @@ describe('DID-signed hire-loop routes (R-34)', () => {
     expect(typeof confirmedBody.specHash).toBe('string');
   });
 
-  it('leaves unsigned traffic untouched: the identical loop with no signature headers', async () => {
+  // ENT-6.2's caller-identity gate applies to every exchange route: without
+  // a verified signature, the caller still has to name its party through
+  // the x-freeagents-caller-did header. "Unsigned" here means no signature
+  // headers, not no identity at all -- that fallback is what this proves.
+  it('leaves unsigned traffic untouched: the identical loop with the caller-did header fallback', async () => {
     const draft = await post('/jobs', {
       buyerDid: buyer.did,
       agentDid: agent.did,
@@ -159,13 +169,19 @@ describe('DID-signed hire-loop routes (R-34)', () => {
     const draftBody = (await draft.json()) as Record<string, unknown>;
     const jobId = String(draftBody.id);
 
-    const proposed = await post(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'Checkout works', proposedBy: 'agent' }] });
+    const proposed = await post(
+      `/jobs/${jobId}/criteria`,
+      { criteria: [{ text: 'Checkout works', proposedBy: 'agent' }] },
+      buyer.did,
+    );
     expect(proposed.status).toBe(200);
 
-    const accepted = await post(`/jobs/${jobId}/criteria/0/accept`, {});
-    expect(accepted.status).toBe(200);
+    const acceptedByBuyer = await post(`/jobs/${jobId}/criteria/0/accept`, {}, buyer.did);
+    expect(acceptedByBuyer.status).toBe(200);
+    const acceptedByAgent = await post(`/jobs/${jobId}/criteria/0/accept`, {}, agent.did);
+    expect(acceptedByAgent.status).toBe(200);
 
-    const confirmed = await post(`/jobs/${jobId}/confirm`, {});
+    const confirmed = await post(`/jobs/${jobId}/confirm`, {}, buyer.did);
     expect(confirmed.status).toBe(200);
     expect(((await confirmed.json()) as Record<string, unknown>).status).toBe('confirmed');
   });
@@ -256,6 +272,35 @@ describe('DID-signed hire-loop routes (R-34)', () => {
     );
 
     expect(response.status).toBe(200);
+  });
+
+  // The design decision this file exists to pin: a verified signature is
+  // authoritative over the x-freeagents-caller-did header. A caller who
+  // signs as one party has no business also claiming, via the header, to
+  // be the other party inside the same request -- that mismatch is refused
+  // rather than resolved by picking either side.
+  it('refuses a request whose verified signature and caller-did header name different parties', async () => {
+    const jobId = await createDraftJob();
+    const bodyText = JSON.stringify({ criteria: [{ text: 'Login works', proposedBy: 'agent' }] });
+    const targetUri = `${baseUrl}/jobs/${jobId}/criteria`;
+    // Signed by the buyer, but the header claims the agent -- both are real
+    // parties to this job, so a header-wins resolution would let this
+    // through as the agent's proposal instead of refusing it.
+    const signed = signRequest(buyer, 'POST', targetUri, { body: bodyText });
+
+    const response = await fetch(targetUri, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'signature-input': signed['signature-input'],
+        signature: signed.signature,
+        'content-digest': signed['content-digest'],
+        'x-freeagents-caller-did': agent.did,
+      },
+      body: bodyText,
+    });
+
+    expect(response.status).toBe(403);
   });
 
   it('refuses a registered stranger driving a job it is not a party to', async () => {

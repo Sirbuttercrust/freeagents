@@ -69,6 +69,7 @@ import {
   type CompletedJob,
   type Job,
   type JobStatus,
+  type Party,
 } from '../domain/job.js';
 import { rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
 import {
@@ -1083,34 +1084,35 @@ export function createApp(
   // mirrors POST /jobs — a bad body or a domain rule is the caller's to fix
   // (400), an unknown id is 404, a state conflict is 409, and storage trouble
   // is 503 with the cause in the log, not the body.
-  async function runExchange(
-    label: string,
-    jobId: string,
-    res: Response,
-    apply: (job: Job) => Job,
-    signerDid: string | null = null,
-  ): Promise<void> {
+  //
+  // Split into a load half and an apply-and-persist half so the caller-
+  // identity gate below (runPartyExchange) can insert itself between the
+  // two without a second jobRepo.findById call: the exchange routes' own
+  // storage-fault tests pin the exact call sequence a route makes, and a
+  // second read would be an observable, untested behaviour change for no
+  // reason.
+  async function loadForExchange(label: string, jobId: string, res: Response): Promise<Job | null> {
     let current: Job | null;
     try {
       current = await jobRepo.findById(jobId);
     } catch (err) {
       console.error(`${label}: storage failed`, err);
       res.status(503).json({ error: 'storage unavailable' });
-      return;
+      return null;
     }
     if (current === null) {
       res.status(404).json({ error: 'not found' });
-      return;
+      return null;
     }
-    // R-34 party binding: a verified signature must name a party to the job
-    // it is acting on, or it is decoration. Unsigned callers (signerDid ===
-    // null) are unaffected -- this only fires when a signature was actually
-    // presented and verified.
-    if (signerDid !== null && signerDid !== current.buyerDid && signerDid !== current.agentDid) {
-      res.status(403).json({ error: 'signature does not name a party to this job' });
-      return;
-    }
+    return current;
+  }
 
+  async function applyAndPersist(
+    label: string,
+    res: Response,
+    current: Job,
+    apply: (job: Job) => Job,
+  ): Promise<void> {
     let updated: Job;
     try {
       updated = apply(current);
@@ -1141,9 +1143,115 @@ export function createApp(
     }
   }
 
+  // R-34 party binding, for the routes outside the ENT-6.2 exchange
+  // (withdraw, pull-request, merge): a verified signature must name a
+  // party to the job it is acting on, or it is decoration. Unsigned
+  // callers (signerDid === null) are unaffected -- this only fires when a
+  // signature was actually presented and verified. None of those routes
+  // are wired to didSignature yet, so signerDid stays null for them today;
+  // the parameter is what a future signed route lands on without a second
+  // rule to write.
+  async function runExchange(
+    label: string,
+    jobId: string,
+    res: Response,
+    apply: (job: Job) => Job,
+    signerDid: string | null = null,
+  ): Promise<void> {
+    const current = await loadForExchange(label, jobId, res);
+    if (current === null) return;
+    if (signerDid !== null && signerDid !== current.buyerDid && signerDid !== current.agentDid) {
+      res.status(403).json({ error: 'signature does not name a party to this job' });
+      return;
+    }
+    await applyAndPersist(label, res, current, apply);
+  }
+
+  // ENT-6.2's caller-identity gate. The brief's defect #2: runExchange never
+  // learned who was calling, so a buyer alone could accept every criterion
+  // and confirm on the agent's behalf. Two ways now exist to answer "who is
+  // calling", and one rule reads them in a fixed order:
+  //
+  // 1. A verified signerDid (R-34's RFC 9421 signature, checked by
+  //    didSignature before this ever runs) is authoritative when present:
+  //    the caller PROVED it holds that DID's key, not merely claimed it.
+  // 2. The x-freeagents-caller-did header is the fallback for callers R-34
+  //    does not cover: the caller states which job party it is, and the
+  //    route checks that DID against the job's OWN buyerDid/agentDid, data
+  //    this service already stores and controls. This proves WHO on the
+  //    job is acting, not that the caller holds that DID's key.
+  //
+  // A verified signature naming a DID the header contradicts is refused,
+  // not resolved in the signature's favor: a caller who can sign as one
+  // party has no business also claiming to be the other inside the same
+  // request, and that mismatch is exactly the impersonation this gate
+  // exists to catch.
+  const CALLER_DID_HEADER = 'x-freeagents-caller-did';
+
+  function callerDidHeader(req: Request): string | null {
+    const raw = req.header(CALLER_DID_HEADER);
+    const trimmed = typeof raw === 'string' ? raw.trim() : '';
+    return trimmed.length === 0 ? null : trimmed;
+  }
+
+  function partyForDid(job: Job, did: string): Party | null {
+    if (did === job.buyerDid) return 'buyer';
+    if (did === job.agentDid) return 'agent';
+    return null;
+  }
+
+  function resolveCallerParty(job: Job, req: Request): Party | null {
+    const callerDid = callerDidHeader(req);
+    if (callerDid === null) return null;
+    return partyForDid(job, callerDid);
+  }
+
+  // The party-aware sibling of runExchange, for the four routes ENT-6.2
+  // binds: propose, request-changes, accept and confirm. A caller who names
+  // no DID, or a DID that is neither this job's buyer nor its agent, is
+  // refused before the domain ever sees the request - a caller impersonating
+  // neither party cannot be a party to what it is trying to change.
+  async function runPartyExchange(
+    label: string,
+    jobId: string,
+    req: Request,
+    res: Response,
+    apply: (job: Job, party: Party) => Job,
+  ): Promise<void> {
+    const current = await loadForExchange(label, jobId, res);
+    if (current === null) return;
+
+    const signerDid = signerDidOf(req);
+    if (signerDid !== null) {
+      const signedParty = partyForDid(current, signerDid);
+      if (signedParty === null) {
+        res.status(403).json({ error: 'signature does not name a party to this job' });
+        return;
+      }
+      const headerDid = callerDidHeader(req);
+      if (headerDid !== null && headerDid !== signerDid) {
+        res.status(403).json({
+          error: `${CALLER_DID_HEADER} header does not match the verified request signature`,
+        });
+        return;
+      }
+      await applyAndPersist(label, res, current, (job) => apply(job, signedParty));
+      return;
+    }
+
+    const party = resolveCallerParty(current, req);
+    if (party === null) {
+      res.status(403).json({
+        error: `caller must identify as this job's buyer or agent via the ${CALLER_DID_HEADER} header`,
+      });
+      return;
+    }
+    await applyAndPersist(label, res, current, (job) => apply(job, party));
+  }
+
   // The agent proposes acceptance criteria, or re-proposes after pushback
-  // (ENT-6, D2): draft -> proposed on the first call, list replaced in place
-  // while proposed. Emptiness, trimming and the proposer enum are the
+  // (ENT-6, D2): draft -> proposed on the first call, the list revised in
+  // place while proposed. Emptiness, trimming and the proposer enum are the
   // domain's rules; only the body shape is checked here.
   app.post(
     '/jobs/:jobId/criteria',
@@ -1174,66 +1282,65 @@ export function createApp(
         });
         return;
       }
-      await runExchange(
-        'POST /jobs/:jobId/criteria',
-        String(req.params.jobId),
-        res,
-        (job) =>
-          proposeCriteria(
-            job,
-            input as ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>,
-          ),
-        signerDidOf(req),
+      await runPartyExchange('POST /jobs/:jobId/criteria', String(req.params.jobId), req, res, (job) =>
+        proposeCriteria(
+          job,
+          input as ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>,
+        ),
       );
     }),
   );
 
-  // The buyer pushes back: every acceptance resets, the job stays in
-  // proposed, no new row. No body is required.
+  // The other side pushes back: the job stays in proposed, no new row.
+  // requestChanges no longer resets acceptances itself (that would undo the
+  // per-criterion reset proposeCriteria's diff now performs); it only
+  // confirms the job is still open for negotiation. No body is required.
   app.post(
     '/jobs/:jobId/request-changes',
     didSignature,
     forwarded(async (req: Request, res: Response) => {
-      await runExchange(
+      await runPartyExchange(
         'POST /jobs/:jobId/request-changes',
         String(req.params.jobId),
+        req,
         res,
         requestChanges,
-        signerDidOf(req),
       );
     }),
   );
 
-  // Either party records joint agreement on one criterion (ENT-6.2: one
-  // shared flag, "both parties agreed"). Index comes from the path; NaN,
+  // Either party records ITS OWN agreement on one criterion (ENT-6.2: two
+  // independent flags, not one shared one). Index comes from the path; NaN,
   // fractions and out-of-range values reach the domain and come back as 400.
+  // Which party accepted comes from the caller-identity gate, never from the
+  // request body: a buyer could otherwise accept on the agent's behalf by
+  // simply claiming to be it.
   app.post(
     '/jobs/:jobId/criteria/:index/accept',
     didSignature,
     forwarded(async (req: Request, res: Response) => {
-      await runExchange(
+      await runPartyExchange(
         'POST /jobs/:jobId/criteria/:index/accept',
         String(req.params.jobId),
+        req,
         res,
-        (job) => acceptCriterion(job, Number(req.params.index)),
-        signerDidOf(req),
+        (job, party) => acceptCriterion(job, Number(req.params.index), party),
       );
     }),
   );
 
   // Confirm (R-9, ENT-4.2): the domain computes specHash from the stored
   // criteria - no request body reaches it, so the wire cannot disagree with
-  // what was agreed. Body-less like request-changes.
+  // what was agreed. Body-less like request-changes. The caller-identity
+  // gate still applies (ENT-6.2): confirm is itself an exchange action, and
+  // the gate this whole issue exists to close is that a single party could
+  // call this route and lock in an agreement the other side never made.
   app.post(
     '/jobs/:jobId/confirm',
     didSignature,
     forwarded(async (req: Request, res: Response) => {
-      await runExchange(
-        'POST /jobs/:jobId/confirm',
-        String(req.params.jobId),
-        res,
-        (job) => confirmSpec(job, new Date()),
-        signerDidOf(req),
+      await runPartyExchange('POST /jobs/:jobId/confirm', String(req.params.jobId), req, res, (job) =>
+        confirmSpec(job, new Date()),
       );
     }),
   );

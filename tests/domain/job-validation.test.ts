@@ -109,7 +109,7 @@ describe('job transition validation', () => {
     // Test that confirmSpec works correctly
     const confirmed = confirmSpec(
       proposedJob({
-        criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent', accepted: true }],
+        criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
       }),
       now,
     );

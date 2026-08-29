@@ -165,13 +165,20 @@ One acceptance condition, agreed before the job exists.
 |---|---|---|
 | `text` | string | what must be true |
 | `proposedBy` | enum | `agent` or `buyer` |
-| `accepted` | boolean | both parties agreed |
+| `acceptedByBuyer` | boolean | the buyer has agreed to this line |
+| `acceptedByAgent` | boolean | the agent has agreed to this line |
 
 **Rules**
 
 - **ENT-6.1** A criterion should be checkable by looking at the diff or running
   the buyer's own tests. "Well written" is not a criterion.
-- **ENT-6.2** Either party may propose. Both must accept before confirm.
+- **ENT-6.2** Either party may propose. Both must accept before confirm,
+  enforced at the domain level: `acceptedByBuyer` and `acceptedByAgent` are
+  independent flags, each set only by that party's own call, and
+  `confirmSpec` refuses unless every criterion carries both. A route-level
+  gate checks the caller's DID against the job's `buyerDid`/`agentDid`
+  before either flag can be set (see `spec/roadmap.md` R-34 for the
+  eventual signed-request upgrade to that gate).
 
 ---
 
