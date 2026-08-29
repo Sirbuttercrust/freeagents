@@ -16,7 +16,7 @@ import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
-import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
+import { createCredentialsAdapter, publicBaseUrlFromEnv } from '../../src/adapters/credentials/credentials.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import type { DidDocument, IdentityAdapter } from '../../src/adapters/identity/types.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
@@ -134,13 +134,18 @@ afterAll(async () => {
 describe('credential id resolvability (ENT-8, R-15)', () => {
   it('resolves a merge-issued credential at the path its own id names', async () => {
     // The id the merge route stamped on the document, exactly as issued -
-    // no test-side reconstruction of the URL.
-    expect(issuedCredential.id).toBe(`https://freeagents.dev/v1/credentials/${JOB_ID}`);
+    // no test-side reconstruction of the URL. The origin comes from
+    // publicBaseUrlFromEnv (R-40), so this asserts against the configured
+    // base rather than a hardcoded hostname: the point being pinned is the
+    // '<base>/v1/credentials/<jobId>' SHAPE, which is what
+    // credentialLookupKey strips back to the job id, and not any one
+    // deployment's address.
+    expect(issuedCredential.id).toBe(`${publicBaseUrlFromEnv()}/v1/credentials/${JOB_ID}`);
 
-    // issuedCredential.id carries a fixed host (CREDENTIAL_ID_BASE), not
-    // this test server's ephemeral port, so the request goes to baseUrl
-    // plus the id's own path - the same relationship a real client has to
-    // reconstruct from CREDENTIAL_ID_BASE plus the id it was handed.
+    // issuedCredential.id carries the configured base, not this test
+    // server's ephemeral port, so the request goes to baseUrl plus the id's
+    // own path - the same relationship a real client has when it resolves
+    // an id it was handed.
     const res = await fetch(`${baseUrl}${new URL(issuedCredential.id).pathname}`);
     expect(res.status).toBe(200);
     expect(String(res.headers.get('content-type'))).toContain('application/ld+json');
