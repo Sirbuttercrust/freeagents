@@ -12,12 +12,14 @@ git fetch origin
 git checkout task/dashboard-flow
 ```
 
-It carries eight commits that are not on `main`. Five are the 08-27 polish
-pass, two are the 08-28 money model, and one is the 08-28 dashboard flow rail.
-`main` is NOT a valid base for this work: it has no `polish.css`, no
-`polish.js`, no `flow.css`, and none of the seven verify gates, so the verify
-commands below would not exist in the tree. `main`'s one extra commit `7ccebc2`
-touches zero wireframe files, so there is no conflict either direction.
+It carries ten commits that are not on `main`, confirmed with
+`git rev-list --count main..HEAD`. Six are the 08-27 polish and marketplace
+pass, two are the 08-28 money model, and two are the 08-28 dashboard flow
+rail and this note. `main` is NOT a valid base for this work: it has no
+`polish.css`, no `polish.js`, no `flow.css`, and none of the seven verify
+gates, so the verify commands below would not exist in the tree. `main`'s one
+extra commit `7ccebc2` touches zero wireframe files, so there is no conflict
+either direction.
 
 The dashboard work sits on top of `task/freeagents-money-model` rather than
 beside it, because both touch `DESIGN.md` and a parallel branch would have
