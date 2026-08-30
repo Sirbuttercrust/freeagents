@@ -46,13 +46,31 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ['eslint.config.js', 'vitest.config.ts'],
+          allowDefaultProject: ['eslint.config.js', 'vitest.config.ts', 'scripts/*.mjs'],
         },
         tsconfigRootDir: import.meta.dirname,
       },
     },
     rules: {
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    },
+  },
+
+  // BUILD SCRIPTS. Node modules under scripts/, run by npm rather than
+  // imported by the app, so tsconfig does not cover them. Still linted
+  // rather than ignored: `npm run build` calls them, and a typo in a build
+  // script breaks the deploy just as thoroughly as one in a route.
+  //
+  // Globals declared inline for the same reason as elsewhere in this file:
+  // the `globals` package is not a dependency of this repo.
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        URL: 'readonly',
+      },
     },
   },
 );
