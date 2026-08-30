@@ -107,6 +107,15 @@ export interface JobRepository {
   findById(id: string): Promise<Job | null>;
   complete(job: Job, completedJob: Omit<CompletedJob, 'id'>): Promise<Job | null>;
   findCompletedByJobId(id: string): Promise<CompletedJob | null>;
+  // R-33: every completed hire for one agent, oldest first (completedAt
+  // ascending). Empty array when the agent has none, never null: a zero
+  // record renders as a zero, not as an absent one (decision D1). Optional
+  // so the hand-rolled JobRepository stand-ins in the job-lifecycle route
+  // tests (which never touch hire history) are not forced to grow a method
+  // they are never asked to call. Both real drivers (memory.ts, prisma.ts)
+  // always implement it; the /hires route treats a stand-in that omits it
+  // as storage-unavailable, the same 503 an actual outage produces.
+  findCompletedByAgent?(agentDid: string): Promise<readonly CompletedJob[]>;
 }
 
 // Thrown by CredentialRepository.save when the job already has a credential,

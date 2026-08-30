@@ -483,4 +483,96 @@ describe('MemoryJobRepository', () => {
     // entries are all independent of the caller's input.
     expect(await repo.findById('job_1')).toEqual(expected);
   });
+
+  // R-33: the hire-record read. An agent with no jobs at all gets [], not
+  // null, the same "zero renders as zero" decision findCompletedByJobId's
+  // null-until-complete case makes for one job.
+  it('findCompletedByAgent is empty for an agent with no jobs', async () => {
+    const repo = new MemoryJobRepository();
+    expect(await repo.findCompletedByAgent('did:example:agent')).toEqual([]);
+  });
+
+  it('findCompletedByAgent excludes a created-but-unmerged job', async () => {
+    const repo = new MemoryJobRepository();
+    await repo.create(jobFixture);
+    expect(await repo.findCompletedByAgent('did:example:agent')).toEqual([]);
+  });
+
+  it('findCompletedByAgent excludes a job with a mergeCommit but no mergedAt', async () => {
+    const repo = new MemoryJobRepository();
+    await repo.create(jobFixture);
+    await repo.update({ ...jobFixture, mergeCommit: 'merge-abc', mergedAt: null });
+    expect(await repo.findCompletedByAgent('did:example:agent')).toEqual([]);
+  });
+
+  it('findCompletedByAgent excludes a job with a mergedAt but no mergeCommit', async () => {
+    const repo = new MemoryJobRepository();
+    await repo.create(jobFixture);
+    await repo.update({ ...jobFixture, mergeCommit: null, mergedAt: new Date('2026-01-01T00:00:00Z') });
+    expect(await repo.findCompletedByAgent('did:example:agent')).toEqual([]);
+  });
+
+  it('findCompletedByAgent includes a completed job with every CompletedJob field populated', async () => {
+    const repo = new MemoryJobRepository();
+    await repo.create(jobFixture);
+    await repo.complete(completedFixture, completedAnchor);
+    expect(await repo.findCompletedByAgent('did:example:agent')).toEqual([{ id: 'job_1', ...completedAnchor }]);
+  });
+
+  it('findCompletedByAgent returns two completed jobs for the same agent in ascending completedAt order', async () => {
+    const repo = new MemoryJobRepository();
+    const earlier = {
+      jobId: 'job_2',
+      buyerDid: 'did:example:buyer',
+      agentDid: 'did:example:agent',
+      mergeCommit: 'merge-earlier',
+      completedAt: new Date('2026-01-02T00:00:00Z'),
+    };
+    await repo.create({ ...jobFixture, id: 'job_2' });
+    await repo.complete({ ...completedFixture, id: 'job_2', mergeCommit: 'merge-earlier', mergedAt: earlier.completedAt }, earlier);
+
+    await repo.create(jobFixture);
+    await repo.complete(completedFixture, completedAnchor);
+
+    const hires = await repo.findCompletedByAgent('did:example:agent');
+    expect(hires).toEqual([
+      { id: 'job_2', ...earlier },
+      { id: 'job_1', ...completedAnchor },
+    ]);
+  });
+
+  it('findCompletedByAgent sorts by completedAt, not by insertion order', async () => {
+    const repo = new MemoryJobRepository();
+    const earlier = {
+      jobId: 'job_2',
+      buyerDid: 'did:example:buyer',
+      agentDid: 'did:example:agent',
+      mergeCommit: 'merge-earlier',
+      completedAt: new Date('2026-01-02T00:00:00Z'),
+    };
+    // The later-completed job (job_1, 2026-01-03) is inserted first, and the
+    // earlier-completed job (job_2, 2026-01-02) is inserted second: Map
+    // insertion order is the reverse of ascending completedAt order, so a
+    // deleted sort would return the rows in insertion order and fail this.
+    await repo.create(jobFixture);
+    await repo.complete(completedFixture, completedAnchor);
+
+    await repo.create({ ...jobFixture, id: 'job_2' });
+    await repo.complete({ ...completedFixture, id: 'job_2', mergeCommit: 'merge-earlier', mergedAt: earlier.completedAt }, earlier);
+
+    const hires = await repo.findCompletedByAgent('did:example:agent');
+    expect(hires).toEqual([
+      { id: 'job_2', ...earlier },
+      { id: 'job_1', ...completedAnchor },
+    ]);
+  });
+
+  it('findCompletedByAgent excludes a completed job belonging to a different agent', async () => {
+    const repo = new MemoryJobRepository();
+    const otherAgentAnchor = { ...completedAnchor, jobId: 'job_3', agentDid: 'did:example:other-agent' };
+    await repo.create({ ...jobFixture, id: 'job_3', agentDid: 'did:example:other-agent' });
+    await repo.complete({ ...completedFixture, id: 'job_3', agentDid: 'did:example:other-agent' }, otherAgentAnchor);
+
+    expect(await repo.findCompletedByAgent('did:example:agent')).toEqual([]);
+  });
 });
