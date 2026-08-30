@@ -40,6 +40,9 @@
     A.setTextById("lede", "");
     A.showById("load-error", true);
     A.setTextById("load-error-detail", detail);
+    /* Same rule as the agent page: the identity row is filled in by render
+       and by nothing else, so on this path it holds placeholders only. */
+    A.showById("ident", false);
     document.title = "Operator not found: FreeAgents";
   }
 

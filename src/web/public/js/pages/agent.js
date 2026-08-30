@@ -70,6 +70,12 @@
     A.showById("load-error", true);
     A.setTextById("load-error-detail", detail);
     A.showById("history-empty", false);
+    /* The identity row is filled in by renderAgent and by nothing else, so
+       on this path it holds only its own placeholders. Left up, it reads as
+       a permanent "operator loading" under a heading that already said the
+       agent does not exist: a claim that we are still working when we have
+       finished and failed. */
+    A.showById("ident", false);
     document.title = "Agent not found: FreeAgents";
   }
 

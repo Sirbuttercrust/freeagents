@@ -50,6 +50,16 @@
 
   function observe(el, onSeen, threshold) {
     if (REDUCED) { onSeen(); return; }
+    /* No observer, no waiting. Every caller below has ALREADY put its
+       element into the pre-animation state by the time it gets here: rise()
+       has emptied the element and rebuilt it as hidden word spans, and
+       settle() has replaced the line with a single space. If constructing
+       the observer throws, that state is where the element stays, so the
+       headline is blank for good and init() abandons every element after
+       it. Falling through to the finished state costs the entrance and
+       keeps the words, which is the same trade the reduced-motion branch
+       above already makes. */
+    if (typeof IntersectionObserver !== "function") { onSeen(); return; }
     var io = new IntersectionObserver(function (entries) {
       for (var i = 0; i < entries.length; i++) {
         if (entries[i].isIntersecting) {

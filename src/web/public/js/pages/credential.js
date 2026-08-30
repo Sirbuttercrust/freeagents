@@ -49,6 +49,13 @@
     A.setTextById("state-label", "No receipt here");
     A.showById("load-error", true);
     A.setTextById("load-error-detail", detail);
+    /* The actions belong to a receipt. Without one there is nothing to
+       check, nothing to download, and no agent to go and see, so the row
+       goes away rather than offering three controls that lead nowhere.
+       It is hidden in the markup already; this says so on the path that
+       matters, so a later edit cannot make it visible by accident. */
+    A.showById("actions", false);
+    A.showById("facts", false);
     document.title = "Receipt not found: FreeAgents";
   }
 

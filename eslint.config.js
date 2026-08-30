@@ -56,6 +56,32 @@ export default tseslint.config(
     },
   },
   {
+    // THE DOM IS NOW IN SCOPE FOR EVERY FILE, AND SERVER CODE MUST NOT USE IT.
+    //
+    // tests/web/render.test.ts drives jsdom, so @types/jsdom is a dependency,
+    // and its base.d.ts opens with `/// <reference lib="dom" />`. A lib
+    // reference is program-wide: from the moment it landed, `document`,
+    // `window` and `localStorage` type-check inside express route handlers,
+    // where they are all undefined at runtime.
+    //
+    // The typecheck used to catch that and now cannot, so the guard moves
+    // here. Scoped to server TypeScript: the browser scripts under
+    // src/web/public/js are real DOM code and are configured separately at
+    // the end of this file.
+    files: ['src/**/*.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'document', message: 'Server code has no DOM. This types as valid only because @types/jsdom pulls lib.dom in for the test suite.' },
+        { name: 'window', message: 'Server code has no DOM. This types as valid only because @types/jsdom pulls lib.dom in for the test suite.' },
+        { name: 'navigator', message: 'Server code has no DOM. This types as valid only because @types/jsdom pulls lib.dom in for the test suite.' },
+        { name: 'localStorage', message: 'Server code has no DOM. This types as valid only because @types/jsdom pulls lib.dom in for the test suite.' },
+        { name: 'sessionStorage', message: 'Server code has no DOM. This types as valid only because @types/jsdom pulls lib.dom in for the test suite.' },
+        { name: 'alert', message: 'Server code has no DOM. This types as valid only because @types/jsdom pulls lib.dom in for the test suite.' },
+      ],
+    },
+  },
+  {
     // THE BROWSER SCRIPTS ARE LINTED, JUST NOT BY THE TYPE-AWARE PARSER.
     //
     // src/web/public/js/** is plain browser JavaScript served as static

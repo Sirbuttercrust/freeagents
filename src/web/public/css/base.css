@@ -27,6 +27,21 @@
 * { box-sizing: border-box; }
 html { background: var(--bg); }
 
+/* THE `hidden` ATTRIBUTE HAS TO ACTUALLY HIDE.
+   `hidden` is only a `display: none` in the user-agent stylesheet, so it
+   loses to any author rule that sets `display` on the same element. Every
+   hidden container on these pages carries a class that does exactly that
+   (`.row` is flex, `.ident` is flex, `.btn` is inline-flex), so without this
+   line those elements are marked hidden and painted anyway.
+   That is not a cosmetic bug. The elements it affects are the ones a page
+   hides BECAUSE IT HAS NOTHING TRUE TO PUT IN THEM: a receipt that does not
+   exist still offered "Download the record", and an agent that was never
+   registered still showed "operator loading" for good. A control that states
+   no fact is the failure this whole surface exists to avoid.
+   `!important` rather than higher specificity, because the author rule can
+   be an inline style and there is no specificity that beats one. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--bg);

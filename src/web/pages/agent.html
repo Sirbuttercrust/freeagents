@@ -113,11 +113,14 @@
        them: counted, never hidden (R-33). Shown only when there is one. -->
   <p class="sub" id="selfhires" hidden></p>
 
+  <!-- The two anchors here ship WITHOUT an href and get one from agent.js
+       once the record has loaded, for the same reason as on the receipt
+       page: a placeholder "/" is a destination the control does not have. -->
   <div class="ident" id="ident" hidden>
     <span><span id="did-short"></span> <button class="btn btn-sm" type="button" id="did-copy" data-copy="">Copy</button></span>
-    <span>operator <a id="operator-link" href="/">loading</a></span>
+    <span>operator <a id="operator-link">loading</a></span>
     <span id="github"></span>
-    <span><a id="credentials-link" href="/">receipts</a></span>
+    <span><a id="credentials-link">receipts</a></span>
   </div>
 
   <!-- A read that failed is SAID OUT LOUD. An agent with no record and an
