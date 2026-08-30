@@ -82,6 +82,7 @@ import {
 } from '../domain/compromise.js';
 import { ACCESS_NOTICE, CAPABILITIES, type Capability } from '../domain/access.js';
 import { SIGN_IN_METHODS, type SignInMethod } from '../domain/sign-in-methods.js';
+import { createWebSurface, type WebSurface } from '../web/static.js';
 import { renderAvatar } from './avatar.js';
 
 // The hire-loop's last stub (R-12 reviews) stays honest about being unbuilt:
@@ -297,6 +298,7 @@ export function createApp(
   // integration; a scraper hits it fast. Injectable so tests can pin a
   // small limit instead of hammering a live app hundreds of times.
   verifyRateLimiter: RateLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 }),
+  web: WebSurface = createWebSurface(),
 ): Express {
   // One repository behind both halves of the capability when the caller
   // supplies neither. createCredentialRepository() hands the memory driver a
@@ -373,6 +375,13 @@ export function createApp(
   app.get('/health', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'ok' });
   });
+
+  // The public web surface, mounted BEFORE every API route. Order is the
+  // mechanism: three page paths are also API paths, and the page handler
+  // hands the request straight on unless the caller explicitly asked for
+  // text/html. An API client's behaviour is unchanged by a single byte;
+  // see src/web/static.ts for why the split is by Accept and nothing else.
+  web.mountPages(app);
 
   // R-23: the identity boundary, stated before a user invests effort. No
   // storage, no adapter, synchronous, so no forwarded() wrapper and no 503
@@ -1791,6 +1800,12 @@ export function createApp(
   );
 
   app.post('/jobs/:jobId/reviews', notImplemented);
+
+  // Unmatched paths, after every API route has had its chance. A browser
+  // gets the 404 page; every other caller gets the same JSON body the API
+  // uses for a missing record, because answering a JSON client with a web
+  // page would be a worse lie than the 404 itself.
+  web.mountFallback(app);
 
   // Terminal error layer: a fault that reached here was not mapped by a
   // route's own catch, so it is our problem, not the caller's. Same terms as

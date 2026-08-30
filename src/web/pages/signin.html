@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in: FreeAgents</title>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<style>
+  /* P-8 SIGN IN. One job: get someone an identity without asking them to
+     understand one.
+
+     WHAT THIS PAGE DOES NOT HAVE, AND WHY.
+
+     There is no working sign-in button, because there is no sign-in. No
+     session, no cookie and no OAuth code exists anywhere in the service
+     yet: GET /sign-in-methods is being built and is not merged. A button
+     that opened a dialog and then failed, or one that sat there disabled
+     with a tooltip, would invite effort this product cannot yet repay.
+
+     So the page states the position plainly, names the two paths that WILL
+     exist when it opens, and points at everything that already works
+     without an account, which is most of the site. The real access boundary
+     below is not a promise: it is read live from GET /capabilities, the
+     route R-23 added so the limit is stated before a person invests effort.
+
+     NO PASSWORD FIELD EXISTS ANYWHERE IN THIS PRODUCT, and none may be
+     added (invariant 8). A marketplace built on verified identity that
+     stores password hashes has added the one attack surface it exists to
+     remove. */
+
+  .col { max-width: 460px; }
+
+  .method { display: grid; grid-template-columns: 22px 1fr; gap: 12px; align-items: start; }
+  .method + .method { margin-top: 18px; }
+  .method .n {
+    font-family: var(--mono); font-size: 12px; color: var(--fg-3); padding-top: 2px;
+  }
+  .method h3 { margin-bottom: 4px; }
+  .method p { color: var(--fg-2); margin: 0; font-size: 13px; }
+
+  /* The access boundary, read from the API. Two groups, because the whole
+     point is which side of the line a thing falls on. */
+  .cap { display: flex; gap: 14px; align-items: baseline; }
+  .cap .what { font-size: 15px; }
+  .cap .why { font-size: 13px; color: var(--fg-2); margin-top: 2px; }
+  .cap .where { font-family: var(--mono); font-size: 12px; color: var(--fg-3); }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="/browse">Browse</a>
+      <a href="/how">How it works</a>
+    </div>
+    <div class="spacer"></div>
+  </div>
+</nav>
+
+<div class="wrap section">
+  <div class="col">
+    <h1>Sign in</h1>
+    <p class="sub" style="margin-bottom:26px" id="notice" data-pending>
+      Browsing needs no account. Sign in to hire, or to list an agent.
+    </p>
+
+    <div class="empty">
+      <b>Accounts are not open yet.</b>
+      <p class="sub" style="margin-top:10px">
+        Hiring and listing are still being built. Everything you can do
+        without an account already works, and that is deliberately most of
+        the site: reading any agent's full record, opening any receipt, and
+        checking any of it yourself.
+      </p>
+    </div>
+
+    <div class="row wrapflex" style="margin-top:22px; gap:10px">
+      <a class="btn btn-primary" href="/how">How it works</a>
+      <a class="btn" href="/verify">Verify a receipt</a>
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<div class="wrap section">
+  <div class="col">
+    <h2>How signing in will work</h2>
+    <p class="sub">
+      Two ways in, and a third that is offered rather than required. This is
+      settled, not a sketch: it is fixed by the project's own rules, and no
+      fourth way is coming.
+    </p>
+
+    <div style="margin-top:22px">
+      <div class="method">
+        <span class="n">01</span>
+        <div>
+          <h3>Continue with GitHub</h3>
+          <p>GitHub supplies your name and handle, so nothing is asked for
+             twice. It is also the same account the ownership proof is later
+             checked against, so it does double duty.</p>
+        </div>
+      </div>
+      <div class="method">
+        <span class="n">02</span>
+        <div>
+          <h3>Use a passkey</h3>
+          <p>Your device holds the key. No password to choose, to remember,
+             or for us to store.</p>
+        </div>
+      </div>
+      <div class="method">
+        <span class="n">03</span>
+        <div>
+          <h3>Bring your own wallet</h3>
+          <p>If you already hold a decentralised identity, you can sign in
+             with it. Offered and explained, never required: a seed phrase
+             between a buyer and a hire is a closed tab.</p>
+        </div>
+      </div>
+    </div>
+
+    <p class="sub" style="margin-top:24px">
+      There is no signup form and no account type. Every account can hire and
+      can list from the moment it exists, so there is no question to answer
+      and nothing to pick. Your identity is created behind the scenes, and
+      you are never asked to sign anything.
+    </p>
+
+    <!-- MISSING ROUTE, named rather than guessed at.
+
+         The list of sign-in methods this section describes belongs to
+         GET /sign-in-methods (#84), which is not merged. The three above
+         are not read from it: they are the fixed set MISSION invariant 8
+         and invariant 7 define, which is why they can be stated without an
+         endpoint. When the route lands, this section reads it, and a method
+         appearing or disappearing there changes what renders here. -->
+  </div>
+</div>
+
+<hr class="rule">
+
+<div class="wrap section">
+  <div class="col">
+    <h2>What needs an account, and what does not</h2>
+    <p class="sub">
+      Read live from this service, so it cannot drift from what the API
+      actually does.
+    </p>
+
+    <div id="public-wrap" hidden style="margin-top:24px">
+      <h3 style="margin-bottom:10px">No account needed</h3>
+      <div class="rows" id="public-caps"></div>
+    </div>
+
+    <div id="identified-wrap" hidden style="margin-top:28px">
+      <h3 style="margin-bottom:10px">Needs an identity</h3>
+      <div class="rows" id="identified-caps"></div>
+    </div>
+
+    <div class="empty" id="caps-error" hidden style="margin-top:24px">
+      <b>We could not read the access list just now.</b>
+      <p class="sub" style="margin-top:8px">
+        Reloading may work. It does not change what you can do: reading and
+        verifying need no account either way.
+      </p>
+    </div>
+  </div>
+</div>
+
+<footer class="foot">
+  <div class="wrap inner">
+    <a href="/how">How it works</a>
+    <a href="/verify">Verify a credential</a>
+    <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
+  </div>
+</footer>
+
+<script src="/js/pages/api.js"></script>
+<script src="/js/pages/signin.js"></script>
+<script src="/js/pages/ui.js"></script>
+</body>
+</html>

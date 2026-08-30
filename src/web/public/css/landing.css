@@ -1,0 +1,548 @@
+/* The landing page: layout, hero, diagrams.
+
+   Consumes tokens.css and defines no colour of its own. The wireframe this
+   came from carried four switchable palettes and a live switcher; production
+   ships the one that was chosen, the tokens are the normative set in
+   DESIGN.md 2.1, and the switcher is gone with the rest of the wireframe
+   chrome.
+
+   THE ACCENT RULE BINDS HERE TOO. DESIGN.md 2.2: the accent means "we
+   watched this happen" and marks nothing else. On this page it appears on
+   exactly three things: the merge step in the flow diagram, the merge arrow
+   and box in the fork map, and the verified-hire tier. Every other node,
+   rail and label is a neutral. A diagram reaching for the accent because a
+   node looked flat would break the one claim the product is selling.
+
+   THE LINE GRAMMAR, taught once in the fork map and reused after:
+     solid line  = a fact we watched
+     dashed line = a claim nobody checked
+   Learning it at the fork map means the evidence tiers read without a
+   legend. */
+
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: inherit; text-decoration: none; }
+.wrap { max-width: var(--w); margin: 0 auto; padding: 0 32px; }
+
+/* ------------------------------------------------------------------ type
+   The display scale is the marketing surface's own, and it is scoped to
+   this file so it can never leak into an application screen. Hierarchy
+   comes from size, weight and space, never from colour and never from
+   boxes, which is the whole answer to "too busy". */
+
+h1 {
+  font-size: clamp(34px, 4.7vw, 55px);
+  line-height: 1.05;
+  letter-spacing: -0.033em;
+  font-weight: 540;
+  margin: 0 0 20px;
+}
+h2 { font-size: 21px; line-height: 1.25; letter-spacing: -0.02em; font-weight: 540; margin: 0 0 10px; }
+h3 { font-size: 15px; letter-spacing: -0.01em; font-weight: 540; margin: 0 0 5px; }
+p  { margin: 0 0 16px; }
+
+.lede { font-size: 17px; color: var(--fg-2); line-height: 1.6; margin: 0 0 30px; max-width: 44ch; }
+.sub  { font-size: 15px; color: var(--fg-2); max-width: 58ch; margin: 0 0 36px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+
+.eyebrow {
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.11em; text-transform: uppercase;
+  color: var(--fg-3); margin: 0 0 16px;
+}
+
+/* --------------------------------------------------------------- buttons
+   One button system across the whole product: solid accent primary,
+   hairline ghost secondary, and no third variant anywhere. Same shape and
+   same sizes as base.css so the two surfaces read as one site. */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 40px; padding: 0 17px;
+  border-radius: var(--r);
+  border: 1px solid var(--line-2);
+  background: transparent; color: var(--fg);
+  font-family: var(--font); font-size: 15px; font-weight: 500;
+  cursor: pointer;
+  transition: background .12s var(--ease), border-color .12s var(--ease);
+  white-space: nowrap;
+}
+.btn:hover { background: var(--bg-1); border-color: var(--fg-3); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 560; }
+.btn-primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); color: var(--accent-fg); }
+.btn-sm { min-height: 32px; padding: 0 13px; font-size: 13px; }
+
+a:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ------------------------------------------------------------------ nav */
+
+.nav {
+  height: 60px; border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 40;
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  backdrop-filter: blur(12px);
+}
+.nav .inner { display: flex; align-items: center; gap: 26px; height: 100%; }
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 560; font-size: 15px; letter-spacing: -0.02em; }
+.brand .mark { width: 19px; height: 19px; display: block; }
+.nav .links { display: flex; gap: 20px; font-size: 15px; color: var(--fg-2); }
+.nav .links a { transition: color .12s var(--ease); }
+.nav .links a:hover { color: var(--fg); }
+.spacer { flex: 1; }
+
+/* --------------------------------------------------------------- sections
+   Generous vertical rhythm, one hairline between sections, nothing else. */
+
+section { padding: 88px 0; }
+.rule { border-top: 1px solid var(--line); }
+
+/* ------------------------------------------------------------------ hero
+   The video is a decorative layer and obeys the visibility law: it sits
+   below everything, is dimmed, and carries a scrim so the headline clears
+   contrast against the BRIGHTEST frame of the loop, not the average. */
+
+.hero { position: relative; overflow: hidden; padding: 96px 0 104px; }
+
+.hero-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.hero-bg video {
+  width: 100%; height: 100%; object-fit: cover;
+  opacity: 0.42;
+  filter: grayscale(1) contrast(1.05);
+}
+/* Scrim: dark at the left where the headline lives, clearing toward the
+   right so the wave is still legible behind the agents. */
+.hero-bg::after {
+  content: ""; position: absolute; inset: 0;
+  background:
+    linear-gradient(90deg, var(--bg) 12%, color-mix(in srgb, var(--bg) 55%, transparent) 52%, transparent 88%),
+    linear-gradient(180deg, var(--bg) 0%, transparent 22%, transparent 74%, var(--bg) 100%);
+}
+.hero-inner { position: relative; z-index: 2; display: grid; grid-template-columns: 1.08fr 0.92fr; gap: 36px; align-items: center; }
+.hero-cta { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* The hero cluster is an empty box. The agents are not its children: they
+   live in the fixed overlays below and read this box's live rect to know
+   where to perch. That is what lets them leave it. */
+.blobfield { position: relative; height: 320px; }
+
+/* ----------------------------------------------------------- the flock
+   Two fixed, full-viewport overlays. Everything the agents do happens in
+   viewport coordinates, so a landed agent tracking its anchor and a flying
+   agent crossing the screen use the same space.
+
+   z-index 1 sits under page content, z-index 30 sits over it and under the
+   nav. The layer element itself is pointer-transparent so it never blankets
+   the page; only the agent shapes are hit targets. */
+.agent-layer { position: fixed; inset: 0; pointer-events: none; overflow: visible; }
+.agent-layer.back { z-index: 1; }
+.agent-layer.front { z-index: 30; }
+.agent-layer .dust { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.agent-layer svg { pointer-events: none; }
+/* Compositor promotion, and it is load-bearing rather than an optimisation.
+   The agents are positioned at fractional pixels every frame. Without an own
+   layer the browser re-rasters the SVG at a new sub-pixel phase each frame,
+   which is the blur that made whole-pixel rounding look like the safer
+   option. With a layer the fractional translate is applied to an already
+   rasterised texture by the GPU, which is both smooth and cheaper.
+   backface-visibility pins the layer on WebKit, which otherwise drops the
+   promotion for an element it decides is cheap to repaint. */
+.agent-layer svg[viewBox] {
+  will-change: transform;
+  backface-visibility: hidden;
+  transform-origin: 50% 50%;
+}
+.agent-layer svg[data-hit] { pointer-events: auto; }
+
+/* Page content sits above the back layer. Without this the back agents would
+   render on top of body copy, which is the exact thing the visibility law
+   forbids. */
+.nav, .wrap, .foot { position: relative; z-index: 10; }
+.nav { z-index: 40; }
+
+/* ----------------------------------------------------------- diagrams */
+
+.dg { --rail: var(--line-2); }
+
+/* An SVG stroke that draws itself when its container reveals. --len is set
+   per path to that path's own length, rounded up. */
+.dg-draw {
+  stroke-dasharray: var(--len, 240);
+  stroke-dashoffset: var(--len, 240);
+  transition: stroke-dashoffset 1.15s var(--ease-out) 0.12s;
+}
+.fade-in .dg-draw { stroke-dashoffset: 0; }
+
+.dg-cap { fill: var(--fg-2); font-size: 11px; font-family: var(--mono); letter-spacing: 0.04em; }
+.dg-cap-on { fill: var(--accent); }
+
+/* ------------------------------------------------------------ 1. the flow */
+
+.flow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  position: relative;
+  margin: 34px 0 0;
+}
+
+/* The rail runs behind the nodes, one continuous hairline, so four steps
+   read as one process rather than four cards. */
+.flow::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  top: 25px;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0,
+    var(--line-2) 6%,
+    var(--line-2) 94%,
+    transparent 100%);
+}
+
+.flow-step { position: relative; padding: 0 22px 0 0; }
+
+.flow-node {
+  position: relative;
+  width: 50px; height: 50px;
+  border-radius: 13px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--fg-2);
+  margin-bottom: 17px;
+}
+.flow-node svg { width: 21px; height: 21px; display: block; }
+
+/* Step 4 is the completion event and the only step the platform actually
+   witnesses, so it is the only one that may carry the accent. */
+.flow-step.is-merge .flow-node {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--bg-1);
+  box-shadow: 0 0 0 4px var(--accent-dim);
+}
+
+.flow-n {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-3);
+  letter-spacing: 0.06em;
+  display: block;
+  margin-bottom: 7px;
+}
+.flow-step h3 {
+  font-size: 15px;
+  font-weight: 530;
+  letter-spacing: -0.01em;
+  margin: 0 0 6px;
+  color: var(--fg);
+}
+.flow-step p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-2);
+  margin: 0;
+  max-width: 25ch;
+}
+
+/* ------------------------------------------------- 2. the fork boundary map
+   The single most important diagram on the page. Invariant 1 says the
+   platform never takes write access, and a sentence claiming that is worth
+   far less than a picture where the only line crossing back into the buyer's
+   repository is one the buyer opens themselves. */
+
+.forkmap {
+  margin-top: 40px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: radial-gradient(120% 140% at 50% 0%, var(--bg-1) 0%, var(--bg) 70%);
+  overflow: hidden;
+}
+
+.forkmap-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--fg-2);
+}
+.forkmap-head .lock { width: 13px; height: 13px; color: var(--fg-2); flex: none; }
+
+.forkmap-body { padding: 26px 22px 22px; }
+
+/* SVG text scales with the viewBox, so an unconstrained diagram stretched to
+   a 1000px container renders its 13px labels at roughly 21px and shouts over
+   the body copy beside it. Cap it near its design width and centre it. */
+.forkmap svg.wire { width: 100%; max-width: 620px; margin: 0 auto; height: auto; display: block; }
+
+.forkmap-foot {
+  border-top: 1px solid var(--line);
+  padding: 13px 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-2);
+}
+.forkmap-foot b { color: var(--fg-2); font-weight: 500; }
+
+.wire .box { fill: var(--bg-1); stroke: var(--line-2); stroke-width: 1; }
+.wire .t-title { fill: var(--fg); font-size: 13px; font-weight: 500; }
+.wire .t-sub { fill: var(--fg-2); font-size: 11px; font-family: var(--mono); }
+.wire .arrow { stroke: var(--fg-2); stroke-width: 1.25; fill: none; }
+.wire .arrow-on { stroke: var(--accent); stroke-width: 1.5; fill: none; }
+.wire .head { fill: var(--fg-2); }
+.wire .head-on { fill: var(--accent); }
+.wire .ico { stroke: var(--fg-2); stroke-width: 1.4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.wire .merge-box { fill: var(--accent-dim); stroke: var(--accent); stroke-width: 1; }
+.wire .t-title-on { fill: var(--accent); font-size: 13px; font-weight: 500; }
+
+/* ------------------------------------------------------- 3. evidence tiers */
+
+.proof { display: grid; gap: 14px; margin-top: 30px; }
+
+.tier {
+  display: grid;
+  grid-template-columns: 210px 1fr 190px;
+  gap: 26px;
+  align-items: center;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--bg-1);
+}
+
+/* Only the verified hire may carry the accent. The other two are
+   deliberately quieter, and the portfolio claim is quieter still: DESIGN.md
+   1.1, the ABSENCE of emphasis is the message. */
+.tier.t1 { border-color: var(--accent); background: linear-gradient(180deg, var(--accent-dim), transparent 60%), var(--bg-1); }
+.tier.t3 { background: transparent; border-style: dashed; border-color: var(--line); }
+
+.tier-name { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 530; color: var(--fg); }
+.tier-name .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--fg-3); }
+.tier.t1 .tier-name .dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.tier.t3 .tier-name { color: var(--fg-2); }
+
+.tier-say { font-size: 13px; line-height: 1.6; color: var(--fg-2); margin: 5px 0 0; max-width: 34ch; }
+
+/* Same scaling trap as the fork map, milder because the grid column is
+   narrower. 400px is the chain's design width. */
+.tier-chain { width: 100%; max-width: 400px; height: auto; display: block; }
+.chain .n { fill: var(--bg-2); stroke: var(--line-2); stroke-width: 1; }
+.chain .n-on { fill: var(--accent-dim); stroke: var(--accent); stroke-width: 1; }
+.chain .n-dash { fill: none; stroke: var(--fg-3); stroke-width: 1; stroke-dasharray: 3 3; }
+.chain .l { stroke: var(--fg-2); stroke-width: 1.25; fill: none; }
+.chain .l-on { stroke: var(--accent); stroke-width: 1.4; fill: none; }
+.chain .lbl { fill: var(--fg-2); font-size: 11px; font-family: var(--mono); letter-spacing: 0.02em; }
+.chain .lbl-on { fill: var(--accent); font-size: 11px; font-family: var(--mono); letter-spacing: 0.02em; }
+.chain .gl { stroke: var(--fg-2); stroke-width: 1.3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.chain .gl-on { stroke: var(--accent); stroke-width: 1.3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.chain .head { fill: var(--fg-2); }
+
+.forge {
+  text-align: right;
+  font-size: 13px;
+  color: var(--fg-2);
+  line-height: 1.5;
+}
+.forge span { display: block; font-family: var(--mono); font-size: 11px; color: var(--fg-2); letter-spacing: 0.05em; margin-bottom: 3px; }
+.forge b { color: var(--fg-2); font-weight: 530; font-size: 13px; }
+.tier.t1 .forge b { color: var(--fg); }
+
+/* --------------------------------------------------------------- 4. limits */
+
+.limits {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 26px;
+  list-style: none;
+  padding: 0;
+}
+
+.limit {
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 18px 18px 17px;
+  background: var(--bg-1);
+}
+.limit-top { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+.limit-ico {
+  width: 30px; height: 30px; border-radius: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--fg-2);
+  flex: none;
+}
+.limit-ico svg { width: 15px; height: 15px; display: block; }
+.limit h3 { font-size: 15px; font-weight: 530; color: var(--fg); margin: 0; letter-spacing: -0.01em; }
+.limit p { font-size: 13px; line-height: 1.6; color: var(--fg-2); margin: 0; }
+
+/* ----------------------------------------------------------------- empty
+   Zeros render as zeros (ENT-2.4). No "new" badge, no promotional framing,
+   no reordering to hide the space. */
+
+.empty {
+  border: 1px dashed var(--line-2); border-radius: var(--r);
+  padding: 26px; color: var(--fg-2); font-size: 15px; max-width: 52ch;
+}
+.empty b { color: var(--fg); font-weight: 500; }
+
+/* ---------------------------------------------------------------- footer */
+
+.foot { padding: 40px 0 56px; border-top: 1px solid var(--line); color: var(--fg-2); font-size: 13px; }
+/* The flock's last perch anchors to this box's live rect, so it needs real
+   height even when the link row is one line tall. Reserved rather than
+   discovered, so the agents do not land on the page edge at narrow widths. */
+#foot-inner { min-height: 130px; }
+.foot .links { display: flex; flex-wrap: wrap; gap: 22px; }
+.foot a { min-height: 44px; display: inline-flex; align-items: center; }
+.foot a:hover { color: var(--fg); }
+
+/* ------------------------------------------------------------ responsive */
+
+@media (max-width: 900px) {
+  .hero-inner { grid-template-columns: 1fr; }
+  .blobfield { height: 220px; order: -1; }
+  .tier { grid-template-columns: 1fr; gap: 16px; }
+  .tier-chain { max-width: 320px; }
+  .forge { text-align: left; }
+  .limits { grid-template-columns: 1fr; }
+  .flow { grid-template-columns: 1fr 1fr; gap: 30px 0; }
+  .flow::before { display: none; }
+  .nav .links { display: none; }
+  section { padding: 60px 0; }
+  /* 5.3 MB is not a phone download. Gradient only below this width. */
+  .hero-bg video { display: none; }
+}
+
+@media (max-width: 560px) {
+  .flow { grid-template-columns: 1fr; gap: 26px; }
+  .flow-step { padding-right: 0; }
+  .flow-step p { max-width: none; }
+  .forkmap-body { padding: 18px 12px 14px; }
+}
+
+@media (max-width: 420px) {
+  .wrap { padding: 0 14px; }
+  .hero { padding: 56px 0 64px; }
+  .blobfield { height: 170px; }
+  .tier { padding: 16px 14px; }
+  .limit { padding: 15px 14px; }
+  .empty { padding: 18px 16px; }
+  .mono { overflow-wrap: anywhere; }
+}
+
+/* ------------------------------------------------------- THE 44px FLOOR
+   DESIGN.md 5.1: every interactive target is at least 44 x 44px.
+
+   THE GATE IS WIDTH, NOT POINTER TYPE. `@media (pointer: coarse)` alone is
+   correct about real phones and useless as a check: a 320px viewport driven
+   by a headless browser reports a FINE pointer, so the rule never fires and
+   the floor cannot fail. Measured 2026-08-30 at 320px, the landing page's
+   buttons came back 143 x 40 and 126 x 40, and the footer's GitHub link
+   41.2px wide. Desktop keeps the proportions already approved by eye;
+   nothing above 760px moves. */
+@media (max-width: 760px), (pointer: coarse) {
+  .btn { min-height: 44px; height: auto; padding: 0 19px; }
+  .btn-sm { min-height: 44px; height: auto; padding: 0 16px; font-size: 14px; }
+  .nav .links { gap: 4px; }
+  .nav .links a {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 44px; min-width: 44px; padding: 0 8px;
+  }
+  .brand { min-height: 44px; }
+  .foot .links { gap: 8px 6px; }
+  .foot a { min-height: 44px; min-width: 44px; padding: 0 8px; justify-content: center; }
+}
+
+/* ------------------------------------------------------- text reveals
+   The classes here are the whole contract with reveal.js: it splits the
+   text and toggles `-in`, CSS does the motion. Keeping the motion in CSS
+   means the compositor runs it and the main thread stays free for the
+   flock. */
+
+:root {
+  --rise-dur: 0.72s;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Each word sits in a clipping box, so it rises out of nothing rather than
+   sliding in from somewhere visible. The box is inline-block with bottom
+   alignment, which is what keeps a multi-line heading on its baseline. */
+.rise-clip {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+.rise-word {
+  display: inline-block;
+  white-space: nowrap;
+  transform: translateY(108%);
+  opacity: 0;
+  transition:
+    transform var(--rise-dur) var(--ease-out),
+    opacity var(--rise-dur) var(--ease-out);
+}
+/* `will-change` only while the reveal is armed. Leaving it on permanently
+   holds a compositor layer per word for the life of the page, and a headline
+   is a lot of words. */
+.rise-ready .rise-word { will-change: transform, opacity; }
+.rise-in .rise-word { transform: translateY(0); opacity: 1; }
+.rise-in { will-change: auto; }
+
+/* Block reveal, for things that should not be split into words. */
+.fade-ready {
+  opacity: 0;
+  transform: translateY(14px);
+  transition:
+    opacity 0.66s var(--ease-out),
+    transform 0.66s var(--ease-out);
+}
+.fade-in { opacity: 1; transform: translateY(0); }
+
+/* A hairline that draws itself in from the left. */
+.draw-ready {
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 1.05s var(--ease-out);
+}
+.draw-in { transform: scaleX(1); }
+
+/* The scramble line is monospace and fixed width, so resolving characters do
+   not reflow the sentence around them. */
+[data-settle] {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--mono);
+}
+
+/* REDUCED MOTION ENDS ON THE FINISHED STATE, never on a frozen mid-frame.
+   Every reveal resolves, the video is dropped rather than paused, and the
+   diagram strokes are drawn. */
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+  .rise-word { transform: none; opacity: 1; }
+  .fade-ready { opacity: 1; transform: none; }
+  .draw-ready { transform: scaleX(1); }
+  .dg-draw { stroke-dashoffset: 0; }
+  .hero-bg video { display: none; }
+}

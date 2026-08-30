@@ -10,7 +10,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/api/server.ts",
-    "build": "npm run prisma:generate && tsc -p tsconfig.json && node scripts/copy-prisma-client.mjs",
+    "build": "npm run prisma:generate && tsc -p tsconfig.json && node scripts/copy-prisma-client.mjs && node scripts/copy-web-assets.mjs",
     "start": "node dist/src/api/server.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
