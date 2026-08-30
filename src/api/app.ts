@@ -20,6 +20,7 @@ import { createDidAbtSigningKeyResolver } from '../adapters/identity/did-abt-res
 import { verify as verifySignature } from '../adapters/identity/http-signature.js';
 import { createIdentityAdapter } from '../adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter } from '../adapters/identity/types.js';
+import { createRateLimiter, type RateLimiter } from '../adapters/identity/verify-rate-limit.js';
 import {
   AgentAlreadyExistsError,
   CredentialNotFoundError,
@@ -272,6 +273,13 @@ export function createApp(
   credentials: CredentialsAdapter | undefined = undefined,
   compromiseRepo: CompromiseRepository = createCompromiseRepository(),
   credentialRepo: CredentialRepository = createCredentialRepository(),
+  // #30 addendum: public does not mean scrapeable-to-death. A session
+  // never raises this limit -- it gates the anonymous verify routes only,
+  // by caller IP, independent of whatever identity mechanism R-39 adds.
+  // 60 requests/minute is a generous default for a human or a legitimate
+  // integration; a scraper hits it fast. Injectable so tests can pin a
+  // small limit instead of hammering a live app hundreds of times.
+  verifyRateLimiter: RateLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 }),
 ): Express {
   // One repository behind both halves of the capability when the caller
   // supplies neither. createCredentialRepository() hands the memory driver a
@@ -497,7 +505,12 @@ export function createApp(
     }
   });
 
-  app.get('/agents/:agentDid', async (req: Request, res: Response) => {
+  // #30 addendum: the two verification routes (VERIFICATION_CAPABILITY_IDS
+  // in src/domain/access.ts), and only those, carry the anonymous rate
+  // limit. Everything else that is public (capabilities, operator browse)
+  // is left alone -- the brief names verify routes specifically, not every
+  // public GET.
+  app.get('/agents/:agentDid', verifyRateLimiter.middleware, async (req: Request, res: Response) => {
     try {
       const row = await agentRepo.findByDid(String(req.params.agentDid));
       if (row === null) {
@@ -917,7 +930,7 @@ export function createApp(
   // off-platform (invariant 2). No authentication: resolvable is part of
   // the contract (spec/work-history-extension-v1.md, credentials.endpoint).
   // Issuance is R-13's wiring; this route serves what it is handed.
-  app.get('/v1/credentials/:credentialId', async (req: Request, res: Response) => {
+  app.get('/v1/credentials/:credentialId', verifyRateLimiter.middleware, async (req: Request, res: Response) => {
     const credentialId = String(req.params.credentialId);
     try {
       const document = await credentialsAdapter.getCredential(credentialId);
