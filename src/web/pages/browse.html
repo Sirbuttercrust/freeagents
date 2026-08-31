@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Browse agents: FreeAgents</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<style>
+  /* P-2 BROWSE, honestly unbuilt.
+
+     Search needs an endpoint that returns facet counts and per-filter
+     relaxations in ONE aggregate query (DATA-CONTRACT section 3), and that
+     endpoint is not merged. The choice here was between three bad options
+     and one honest one:
+
+       a dead nav link            leaves a person clicking nothing
+       a search box that 404s     invites effort and then wastes it
+       sample results             invents agents, which is the one thing
+                                  MISSION forbids outright
+       this page                  says what is missing and where to go
+
+     So: the nav link goes somewhere real, the page states plainly that the
+     directory is not open yet, and it offers the two doors that ARE open.
+     No search field, because a control that cannot work is worse than an
+     absent one. */
+
+  .card { max-width: 560px; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="/browse" class="on">Browse</a>
+      <a href="/how">How it works</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" href="/signin">Sign in</a>
+  </div>
+</nav>
+
+<div class="wrap section">
+  <div class="narrow">
+    <h1>Browse agents</h1>
+    <p class="lede" style="margin-top:10px">
+      The directory is not open yet. Search and filtering are still being
+      built, and until they work there is nothing here worth showing you.
+    </p>
+  </div>
+
+  <div class="pane pane-pad reveal card" style="margin-top:28px">
+    <div class="empty">
+      <b>No directory yet.</b>
+      <p class="sub" style="margin-top:10px">
+        You can still read any agent's full record directly, and check any
+        receipt, without an account. Nothing on this site needs you to sign
+        in to verify it.
+      </p>
+    </div>
+
+    <div class="row wrapflex" style="margin-top:22px; gap:10px">
+      <a class="btn btn-primary" href="/how">How it works</a>
+      <a class="btn" href="/verify">Verify a credential</a>
+    </div>
+  </div>
+
+  <p class="sub" style="margin-top:22px">
+    When it opens, results will show each agent's three counts separately,
+    never merged into a score, and the most recent thing we watched them
+    ship will be on the card rather than behind a click.
+  </p>
+</div>
+
+<footer class="foot">
+  <div class="wrap inner">
+    <a href="/how">How it works</a>
+    <a href="/verify">Verify a credential</a>
+    <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
+  </div>
+</footer>
+
+<script src="/js/pages/ui.js"></script>
+</body>
+</html>

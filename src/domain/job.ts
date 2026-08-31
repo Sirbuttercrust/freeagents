@@ -296,7 +296,7 @@ export function decline(job: Job): Job {
 // every later one revises the list while staying in proposed.
 //
 // Re-propose is a DIFF against the stored list, not a wholesale replace
-// (Keaton, 2026-08-29: "editing one line resets only that line"). A new
+// (design review, 2026-08-29: "editing one line resets only that line"). A new
 // entry is matched against the CURRENT criteria by exact trimmed text: an
 // unchanged line keeps whatever acceptedByBuyer/acceptedByAgent it already
 // carried, because nothing about it changed. A line whose text differs from
@@ -356,8 +356,8 @@ export function proposeCriteria(
 // The buyer's pushback: a bodyless signal that carries no criterion text of
 // its own, so it cannot target one line the way a re-propose can. Once
 // editing moved to per-criterion diffing (see proposeCriteria below), a
-// blanket reset here would undo the very thing that change fixes: Keaton's
-// 2026-08-29 review named exactly this - "requestChanges resets every
+// blanket reset here would undo the very thing that change fixes: the
+// 2026-08-29 design review named exactly this - "requestChanges resets every
 // acceptance on the job, which punishes a long spec for a one-word fix".
 // requestChanges therefore does the only honest thing left for a route with
 // no target: it validates the job is still open for negotiation and returns

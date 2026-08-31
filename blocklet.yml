@@ -31,3 +31,8 @@ environments:
     required: false
     secure: false
     default: ''
+  - name: FREEAGENTS_SOURCE_URL
+    description: Repository this deployment's source lives in. Renders the footer's source and licence links. Unset means both links are omitted rather than pointed at a guess.
+    required: false
+    secure: false
+    default: ''

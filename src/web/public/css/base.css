@@ -1,0 +1,517 @@
+/* The marketplace pages: shared component styles.
+
+   Ported from the wireframe's base.css with the wireframe apparatus removed.
+   What is gone, and why: the builder-notes block and its toggle (annotations
+   for the factory, never product), and the perched-agent layer (the animated
+   agents live on the landing page only).
+
+   FOUR RULES, applied everywhere. Each removes a category of clutter rather
+   than shrinking it.
+
+   1. SPACE INSTEAD OF LINES. A border is a permanent mark separating two
+      things forever; a gap does the same work and leaves nothing behind.
+      What survives: the one line under the header, and the rows of a list
+      where alignment genuinely needs a guide.
+
+   2. THREE TYPE SIZES IN THE BODY, not seven. A page with seven sizes makes
+      the eye re-measure at every paragraph, and that re-measuring is what
+      "busy" feels like.
+
+   3. ONE ACCENT, AND IT MEANS ONE THING: we watched this happen. Never
+      "featured", never "new", never a button that just wants attention.
+
+   4. NOTHING DECORATIVE. No card shadows on static text, no gradients, no
+      icon repeating the adjacent word.
+*/
+
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+
+/* THE `hidden` ATTRIBUTE HAS TO ACTUALLY HIDE.
+   `hidden` is only a `display: none` in the user-agent stylesheet, so it
+   loses to any author rule that sets `display` on the same element. Every
+   hidden container on these pages carries a class that does exactly that
+   (`.row` is flex, `.ident` is flex, `.btn` is inline-flex), so without this
+   line those elements are marked hidden and painted anyway.
+   That is not a cosmetic bug. The elements it affects are the ones a page
+   hides BECAUSE IT HAS NOTHING TRUE TO PUT IN THEM: a receipt that does not
+   exist still offered "Download the record", and an agent that was never
+   registered still showed "operator loading" for good. A control that states
+   no fact is the failure this whole surface exists to avoid.
+   `!important` rather than higher specificity, because the author rule can
+   be an inline style and there is no specificity that beats one. */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: inherit; text-decoration: none; }
+
+.wrap { max-width: var(--w); margin: 0 auto; padding: 0 32px; }
+
+/* Generous and CONSISTENT vertical rhythm. Every major block is separated by
+   the same distance, so the eye learns the spacing once. */
+.section { padding: 56px 0; }
+.section-sm { padding: 34px 0; }
+
+h1 {
+  font-size: 28px; line-height: 1.15; letter-spacing: -0.03em;
+  font-weight: 560; margin: 0 0 12px;
+}
+h2 {
+  font-size: 20px; letter-spacing: -0.02em; font-weight: 550;
+  margin: 0 0 18px;
+}
+h3 { font-size: 15px; letter-spacing: -0.01em; font-weight: 550; margin: 0; }
+p  { margin: 0 0 16px; }
+p:last-child { margin-bottom: 0; }
+
+/* One reading measure, used everywhere. Long lines are the other half of
+   "hard to read", and no amount of white space fixes them. */
+.lede { font-size: 15px; color: var(--fg-2); max-width: 56ch; }
+.sub  { font-size: 13px; color: var(--fg-2); max-width: 62ch; }
+
+.mono { font-family: var(--mono); font-size: 12px; }
+.muted { color: var(--fg-2); }
+.dim { color: var(--fg-3); }
+.small { font-size: 13px; }
+.narrow { max-width: 640px; }
+
+/* Content a script fills in. It carries the supporting colour until real
+   text lands, so a half-loaded page never reads as a stated fact. */
+[data-pending] { color: var(--fg-2); }
+
+/* ------------------------------------------------------------------ nav
+   Four destinations at most and one action (SITEMAP section 2). */
+
+.nav {
+  height: 60px;
+  position: sticky; top: 0; z-index: 40;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.nav .inner { display: flex; align-items: center; gap: 28px; height: 100%; }
+.brand {
+  display: flex; align-items: center; gap: 9px;
+  font-weight: 560; font-size: 15px; letter-spacing: -0.02em;
+}
+.brand .mark { width: 17px; height: 17px; border-radius: 50%; background: var(--accent); display: block; }
+.nav .links { display: flex; gap: 22px; font-size: 15px; color: var(--fg-2); }
+.nav .links a:hover { color: var(--fg); }
+.nav .links a.on { color: var(--fg); }
+.spacer { flex: 1; }
+
+/* -------------------------------------------------------------- buttons
+   Two only: primary and quiet. A third tier of button is a decision nobody
+   can make consistently, and it shows up as visual noise. */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 40px; padding: 0 16px;
+  border-radius: var(--r); border: 1px solid var(--line-2);
+  background: transparent; color: var(--fg);
+  font-family: var(--font); font-size: 15px; font-weight: 500;
+  cursor: pointer;
+  transition: background .12s var(--ease), border-color .12s var(--ease), transform .12s var(--ease);
+  white-space: nowrap;
+}
+.btn:hover { background: var(--bg-1); border-color: var(--fg-3); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 560; }
+.btn-primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+.btn-sm { min-height: 32px; padding: 0 12px; font-size: 13px; }
+.btn-block { width: 100%; }
+@media (prefers-reduced-motion: no-preference) {
+  .btn:active { transform: translateY(1px); }
+}
+
+/* ---------------------------------------------------------------- input */
+
+.input {
+  min-height: 40px; width: 100%; padding: 0 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  color: var(--fg); font-family: var(--font); font-size: 15px;
+}
+.input::placeholder { color: var(--fg-3); }
+.input:focus { outline: none; border-color: var(--accent); }
+.field { margin-bottom: 18px; }
+.field label { display: block; font-size: 13px; color: var(--fg-2); margin-bottom: 6px; }
+
+/* ----------------------------------------------------------------- tier
+   Text and a dot. No pill, no border, no background.
+
+   Boxing every tier label puts a rectangle around the single most repeated
+   element on the site: once per card, six times per profile. Colour plus a
+   dot carries it, and removing the box removes more visual noise than any
+   other single change. */
+
+.tier {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 500; white-space: nowrap;
+}
+.tier .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex: none; }
+.tier-hire  { color: var(--t-hire); }
+.tier-prior { color: var(--t-prior); }
+.tier-claim { color: var(--t-claim); }
+
+/* --------------------------------------------------------------- skills
+   Self-asserted (ENT-2.2), so they must never look verified. Plain text,
+   separated by a middot. A bordered chip would read as a credential. */
+.skills { font-size: 13px; color: var(--fg-2); }
+.skills span::after { content: "  ·  "; color: var(--fg-3); }
+.skills span:last-child::after { content: ""; }
+
+/* ---------------------------------------------------------------- chips */
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--fg-2);
+  min-height: 44px; padding: 5px 14px; border-radius: 999px;
+  border: 1px solid var(--line); background: transparent;
+  cursor: pointer; white-space: nowrap; font-family: var(--font);
+}
+.chip:hover { color: var(--fg); border-color: var(--line-2); }
+.chip[aria-pressed="true"] { background: var(--accent-dim); border-color: var(--accent); color: var(--fg); }
+
+/* ---------------------------------------------------------------- lists
+   One hairline between rows. The hairline earns its place here because rows
+   of similar shape need a guide for the eye to track across; a gap alone
+   would let long rows merge. */
+.rows > * { padding: 20px 0; border-top: 1px solid var(--line); }
+.rows > *:first-child { border-top: 0; }
+
+/* --------------------------------------------------------------- empty
+   States what is absent and offers the widest single relaxation. Never
+   apologises, never invents. Zeros render as zeros (ENT-2.4). */
+.empty { color: var(--fg-2); font-size: 15px; padding: 4px 0; }
+.empty b { color: var(--fg); font-weight: 550; }
+
+/* ------------------------------------------------------------- helpers */
+.row { display: flex; align-items: center; gap: 10px; }
+.row-t { display: flex; align-items: flex-start; gap: 10px; }
+.between { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.wrapflex { flex-wrap: wrap; }
+.stack-sm > * + * { margin-top: 8px; }
+.stack > * + * { margin-top: 16px; }
+.stack-lg > * + * { margin-top: 32px; }
+.rule { height: 1px; background: var(--line); border: 0; margin: 0; }
+.center { text-align: center; }
+
+/* ------------------------------------------------- progressive disclosure
+   DESIGN 4.2. The control that carries "plain language on the surface,
+   precision underneath".
+
+   THREE PROPERTIES THAT ARE NOT NEGOTIABLE:
+
+   1. The label NAMES what is behind it. "Show technical details", never
+      "More". A person should never expand something to find out what it was.
+   2. Collapsed on every load, every session. Remembering the expansion means
+      a returning person is greeted with the dense screen this exists to
+      avoid, which is the opposite of the intent.
+   3. What it reveals is never required to take the page's primary action.
+
+   Deliberately quiet: 13px, no border, no button chrome. It is an offer, not
+   a call to action, and dressing it up would make every screen look like it
+   has two primary actions. */
+
+.disclose {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--font); font-size: 13px; color: var(--fg-2);
+  background: none; border: 0; padding: 11px 0; cursor: pointer;
+  min-height: 44px;
+}
+.disclose:hover { color: var(--fg); }
+.disclose::before {
+  content: ""; width: 0; height: 0; flex: none;
+  border-left: 4px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform .12s var(--ease);
+}
+.disclose[aria-expanded="true"]::before { transform: rotate(90deg); }
+
+/* The panel a disclosure reveals. Inset rather than raised: it is detail
+   BENEATH the thing above it, and a raised card would compete with the
+   content it explains. */
+.detail {
+  background: var(--bg-1);
+  border-radius: var(--r);
+  padding: 16px 18px;
+  margin-top: 4px;
+  font-size: 13px;
+  max-width: 68ch;
+}
+.detail > * + * { margin-top: 12px; }
+.detail dt { font-size: 12px; color: var(--fg-3); margin-bottom: 3px; }
+.detail dd { margin: 0; font-family: var(--mono); font-size: 12px; color: var(--fg-2); overflow-wrap: anywhere; }
+.detail pre {
+  margin: 0; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-family: var(--mono); font-size: 12px; color: var(--fg-2); line-height: 1.65;
+}
+
+/* A machine-checkable value with a copy control. The plain-language label
+   sits above; this is the exact term underneath (DESIGN 1.3). */
+.kv { display: flex; align-items: flex-start; gap: 12px; justify-content: space-between; }
+.kv .btn-sm { flex: none; }
+
+/* A copyable command line. One command per block, so each has its own copy
+   control rather than one button copying three lines at once. */
+.cmd { display: flex; align-items: flex-start; gap: 10px; justify-content: space-between; }
+.cmd pre {
+  margin: 0; padding: 12px 14px; background: var(--bg-2); border-radius: var(--r);
+  font-family: var(--mono); font-size: 12px; color: var(--fg-2); overflow-x: auto;
+  flex: 1; white-space: pre;
+}
+
+/* --------------------------------------------------------- status lines
+   A fact about state, not a badge. No pill, no fill: those read as awards
+   and this product does not award anything (DESIGN 9). */
+.state { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; }
+.state .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+.state-live { color: var(--accent); }
+.state-done { color: var(--fg-2); }
+.state-none { color: var(--fg-3); }
+
+/* ---------------------------------------------------------- step rail
+   Numbered stages for a sequence with a real gate between them. Never for a
+   long form split up to look shorter (DESIGN 4.2). */
+.steps { display: flex; gap: 22px; font-size: 13px; flex-wrap: wrap; }
+.steps span { color: var(--fg-3); }
+.steps span.done { color: var(--fg-2); }
+.steps span.now { color: var(--fg); font-weight: 550; }
+.steps b { font-family: var(--mono); font-size: 12px; margin-right: 6px; font-weight: 400; }
+
+/* ------------------------------------------------------------- .pane
+   A glass surface for a section or a card.
+
+   WHY THERE IS NO REAL LIQUID GLASS HERE. A true displacement filter used as
+   a backdrop filter is Chrome-only and re-rasterises whenever the shape
+   changes, so four of five visitors would see a flat grey box and the fifth
+   a stutter. What actually reads as glass on a near-black page is three
+   things stacked: a translucent fill that lets the page tint through, a
+   hairline rim BRIGHTER AT THE TOP than the bottom, which is what an edge
+   catching light does, and one inset top highlight. Blur is the smallest
+   contributor and the most expensive, so it stays modest.
+
+   THE BACKDROP-ROOT TRAP. Any ancestor with opacity below 1, a filter, a
+   mask, a clip-path or a mix-blend-mode becomes a backdrop root and silently
+   truncates backdrop-filter inside it. A pane inside a fading wrapper looks
+   flat and the blur gets blamed. */
+.pane {
+  position: relative;
+  background: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.028));
+  border-radius: 14px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.05),
+    0 1px 2px rgba(0,0,0,0.35),
+    0 8px 24px -12px rgba(0,0,0,0.6);
+  backdrop-filter: blur(10px) saturate(1.15);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+}
+.pane::before {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.11) 38%, rgba(255,255,255,0.04));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask-composite: exclude;
+  pointer-events: none;
+}
+.pane > * { position: relative; }
+.pane-pad { padding: 22px 24px; }
+
+/* ------------------------------------------------------------- .glow
+   One soft radial behind a hero heading, at most once per page. Bounded to
+   its own box rather than the viewport: a 100vw/100vh radial re-rasterises
+   on every viewport change, including the mobile URL bar collapsing, which
+   is a repaint on a gesture people make constantly. */
+.glow { position: relative; }
+.glow::before {
+  content: "";
+  position: absolute;
+  left: -10%; top: -60%;
+  width: 70%; height: 220%;
+  background: radial-gradient(closest-side, var(--accent-dim), transparent 70%);
+  filter: blur(30px);
+  pointer-events: none;
+  z-index: 0;
+}
+.glow > * { position: relative; z-index: 1; }
+
+/* ----------------------------------------------------------- .reveal
+   Scroll-in. THE FINISHED STATE IS THE CSS DEFAULT, always.
+
+   CSS scroll-driven animation (animation-timeline: view()) is not baseline,
+   so this is IntersectionObserver plus one class. Because the default is the
+   finished state, a page with JS off, a crawler, a reader mode and a
+   reduced-motion visitor all get complete content. The hidden state only
+   exists after JS has confirmed it can also remove it. */
+@media (prefers-reduced-motion: no-preference) {
+  .js-reveal .reveal { opacity: 0; transform: translateY(10px); }
+  .js-reveal .reveal.is-in {
+    opacity: 1;
+    transform: none;
+    transition: opacity .24s var(--ease), transform .24s var(--ease);
+  }
+  .js-reveal .stagger > * { opacity: 0; transform: translateY(8px); }
+  .js-reveal .stagger.is-in > * {
+    opacity: 1;
+    transform: none;
+    transition: opacity .24s var(--ease), transform .24s var(--ease);
+    transition-delay: calc(min(var(--i, 0), 6) * 45ms);
+  }
+}
+
+/* A row that navigates somewhere. Quiet at rest, definite on hover. Colour
+   and background only, so nothing reflows. */
+.linkrow { transition: background .12s var(--ease), color .12s var(--ease); border-radius: 10px; }
+@media (hover: hover) {
+  .linkrow:hover { background: rgba(255,255,255,0.035); }
+}
+
+/* Focus is visible on every interactive element, and it is the accent, one
+   of the four things the accent is allowed to be (DESIGN 2.2). */
+a:focus-visible, button:focus-visible, .chip:focus-visible, .disclose:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ------------------------------------------------------------- footer */
+.foot { border-top: 1px solid var(--line); margin-top: 12px; }
+.foot .inner {
+  display: flex; flex-wrap: wrap; gap: 22px;
+  padding-top: 24px; padding-bottom: 40px;
+  font-size: 13px; color: var(--fg-2);
+}
+.foot a { min-height: 44px; display: inline-flex; align-items: center; }
+.foot a:hover { color: var(--fg); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+@media (max-width: 760px) {
+  .wrap { padding: 0 20px; }
+  .section { padding: 40px 0; }
+  .nav .links { gap: 16px; font-size: 13px; }
+}
+
+/* ------------------------------------------------------------ 320px
+   THE NARROWEST REAL PHONE. Horizontal overflow is not cosmetic: it makes
+   the whole document scroll sideways, so every tap lands slightly off and
+   the page feels broken in a way most people cannot name. */
+@media (max-width: 420px) {
+  .wrap { padding: 0 14px; }
+
+  .nav .inner { gap: 12px; }
+  .nav .links { gap: 4px; font-size: 13px; min-width: 0; }
+  /* The nav links keep their words on one line. Without this "How it works"
+     breaks across three lines inside its 44px tap box at 320px, which
+     stretches the bar and reads as broken rather than as compact. */
+  .nav .links a { white-space: nowrap; }
+  .nav .btn-sm { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+
+  /* Rows WRAP rather than stack. Stacking was the first fix and it was
+     wrong: a .row also holds the evidence filter chips on the agent
+     profile, and four full-width stacked chips is a menu, not a filter.
+     Wrapping fixes the overflow without changing what a row means. */
+  .row { flex-wrap: wrap; }
+
+  /* `.between` puts two groups at opposite ends of one line. At 320px there
+     is no line long enough for two groups, so it stacks: wrapping the row
+     was necessary and not sufficient, because its PARENT was the thing
+     refusing to give it a narrower box. */
+  .between { flex-wrap: wrap; gap: 12px; }
+  .between > * { min-width: 0; }
+  .tabs { flex-wrap: wrap; }
+
+  .skills, .chips, .filters { flex-wrap: wrap; }
+
+  /* A long DID or hash must break rather than widen the page. */
+  .mono, .hashline, .ident, .detail dd { overflow-wrap: anywhere; }
+
+  .cmd { flex-wrap: wrap; }
+  .cmd pre { width: 100%; flex: none; }
+}
+
+/* ------------------------------------------------------- THE 44px FLOOR
+   DESIGN.md 5.1: every interactive target is at least 44 x 44px.
+
+   THE GATE IS WIDTH, NOT POINTER TYPE, AND THAT IS THE WHOLE FIX.
+
+   This block used to read `@media (pointer: coarse)` alone. That is correct
+   about real phones and useless as a check: a 320px viewport driven by a
+   headless browser reports a FINE pointer, so the rule never fired and the
+   floor could not fail. Measured 2026-08-30 at 320px: the nav links came
+   back 43.8 x 21.4, the primary button 143 x 40, the copy buttons 57.8 x 32,
+   the search field 292 x 40. Thirteen targets under the floor on the verify
+   page alone, none of them reported by a rule that could not run.
+
+   So the floor now fires on a phone-shaped VIEWPORT as well as on a coarse
+   pointer. Desktop keeps the 40px and 32px proportions DESIGN.md 5 specifies
+   and that were approved by eye; nothing above 760px moves.
+
+   Width matters as much as height. A footer link reading "GitHub" is 41.2px
+   wide, which is a target a thumb misses, so the inline links get horizontal
+   padding and their container's gap shrinks to match. The visual spacing is
+   unchanged; the touch area is not. */
+@media (max-width: 760px), (pointer: coarse) {
+  .btn { min-height: 44px; }
+  .btn-sm { min-height: 44px; padding: 0 16px; font-size: 14px; }
+  .input { min-height: 44px; }
+  textarea.input { min-height: 44px; }
+
+  /* An inline link that is its own tap target. `padding` widens the touch
+     area, and the reduced `gap` on the parent keeps the layout looking the
+     same as it did. */
+  .nav .links { gap: 4px; }
+  .nav .links a {
+    display: inline-flex; align-items: center;
+    min-height: 44px; min-width: 44px;
+    padding: 0 8px; justify-content: center;
+  }
+  .brand { min-height: 44px; }
+
+  .foot .inner { gap: 8px 6px; }
+  .foot a { min-height: 44px; min-width: 44px; padding: 0 8px; justify-content: center; }
+
+  /* LINKS INSIDE PROSE AND METADATA.
+     A link in a 12px identity strip renders 14px tall, and a repository name
+     in a work-history row 19.8px: both are real destinations and both are
+     targets a thumb misses. They cannot be given a min-height without
+     breaking the line box they sit in, so they get vertical padding and a
+     negative margin of the same size. The text stays exactly where it was
+     and the hit box grows around it, which is what the rule is actually
+     asking for. The parent gets extra row-gap so two padded links on
+     adjacent lines do not overlap.
+
+     Measured 2026-08-30 at 320px: this is what took the agent profile from
+     three failures to zero, and the credential page from two to zero. */
+  .ident, .item .meta { row-gap: 18px; }
+  .ident a,
+  .item .meta a,
+  .item .title a,
+  .facts dd a,
+  .detail a,
+  .empty a,
+  .lede a,
+  .sub a {
+    display: inline-block;
+    padding: 15px 6px;
+    margin: -15px -6px;
+  }
+}
+

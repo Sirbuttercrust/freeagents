@@ -1,0 +1,65 @@
+/* The token set. spec/wireframe/DESIGN.md sections 2.1, 2.4, 3.1 and 4.
+   Every colour, family and step in the product is here and nowhere else.
+
+   DESIGN.md 2.1: "No screen may introduce a hex value. A colour that is not
+   in this table does not exist in the product." Both stylesheets that follow
+   (base.css for the marketplace pages, landing.css for the marketing page)
+   consume these and define no colour of their own.
+
+   Dark only. There is no light theme in v1 and no token reserved for one,
+   because adding it later is a change to this file rather than a rewrite of
+   every screen. */
+
+:root {
+  /* Surfaces and text */
+  --bg:         #08090A;
+  --bg-1:       #0E0F11;
+  --bg-2:       #141517;
+  --fg:         #F7F8F8;
+  --fg-2:       #9CA1AA;   /* supporting text, labels, metadata */
+  /* The quietest legible grey: portfolio claims, metadata, step numbers.
+     LIFTED from #666B73 on 2026-08-30. DESIGN.md 2.5 calls this the tightest
+     pair in the system and says outright that if a measurement fails, the
+     fix is to lift the token rather than leave it. It failed: measured
+     against real rendered pixels it came out at 3.72:1 on --bg and 3.38:1
+     on a pane, against a 4.5 floor for text under 24px. This value measures
+     5.23:1 on --bg and 4.76:1 on the lightest pane surface, and it stays a
+     clear step below --fg-2, so the three-tier read is unchanged. */
+  --fg-3:       #7E838C;
+  --line:       rgba(255,255,255,0.08);
+  --line-2:     rgba(255,255,255,0.16);
+
+  /* The accent means "we watched this happen" and nothing else (DESIGN 2.2).
+     Permitted on: a verified hire row and its links, the credential verify
+     affordance, the one primary action on a page, and a focus ring. */
+  --accent:     #7C7CFF;
+  --accent-hi:  #9A9AFF;
+  --accent-fg:  #0A0A16;
+  --accent-dim: rgba(124,124,255,0.12);
+
+  /* The three evidence tiers (DESIGN 2.3). Not a grading scale: these are
+     different KINDS of evidence, and a claim is unproven rather than bad. */
+  --t-hire:     var(--accent);
+  --t-prior:    var(--fg);
+  --t-claim:    var(--fg-3);
+
+  /* The animated agents (DESIGN 2.4). Identity, never meaning about
+     evidence. An avatar is derived from a DID and uses none of these. */
+  --agent-1:    #7C7CFF;
+  --agent-2:    #58B0E8;
+  --agent-3:    #46C39A;
+  --agent-4:    #E0A24E;
+  --agent-5:    #E4757F;
+  --eye:        var(--bg);
+
+  --font: "Geist", -apple-system, "Inter", "Helvetica Neue", sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", Menlo, monospace;
+
+  --w: 1080px;   /* content width, DESIGN 4 */
+  --r: 8px;
+
+  /* One easing for the whole product, so it has one sense of timing rather
+     than three. Durations are fixed by DESIGN 6: 120ms for a control's state
+     change, 240ms for something entering or leaving, 800ms for a morph. */
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
