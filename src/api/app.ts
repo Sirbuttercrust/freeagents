@@ -552,15 +552,14 @@ export function createApp(
   // R-20 (D1, ENT-2.2): the browse listing. GET /agents/:agentDid above
   // reads one agent's own record; this reads every listed agent as browse
   // cards, sorted and filtered per D1/Q1. Widens the same read agent-work-
-  // record.ts already assembles, rather than a parallel endpoint.
+  // record.ts already assembles, rather than a parallel endpoint. The card's
+  // buyerCount is derived by toBrowseCard itself from the verified-hire tier
+  // alone (src/domain/browse.ts), so this route no longer reads job history
+  // at all: a job-repository read here is exactly how the tier-blind
+  // buyerCount defect shipped (Proof, t_698205aa, summary-contradicts-tier).
   app.get('/agents', async (req: Request, res: Response) => {
     if (typeof agentRepo.listAll !== 'function') {
       console.error('GET /agents: storage does not support listAll');
-      res.status(503).json({ error: 'storage unavailable' });
-      return;
-    }
-    if (typeof jobRepo.findCompletedByAgent !== 'function') {
-      console.error('GET /agents: storage does not support findCompletedByAgent');
       res.status(503).json({ error: 'storage unavailable' });
       return;
     }
@@ -583,13 +582,7 @@ export function createApp(
             repositoryPublic: entry.repositoryPublic,
           }));
           const record = agentWorkRecord(evidence);
-          // R-33's buyer-diversity count, riding beside the verified count
-          // (item 3): the same distinct-buyer computation the /hires route
-          // already serves, driven from the agent's real completed hires,
-          // never a guess derived from the credential count.
-          const hires = (await jobRepo.findCompletedByAgent?.(row.did)) ?? [];
-          const { counts } = buyerDiversity(hires, row.operatorDid);
-          return toBrowseCard(row, record, counts.buyers);
+          return toBrowseCard(row, record);
         }),
       );
 

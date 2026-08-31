@@ -1,10 +1,11 @@
 // R-20 (ENT-2.2, D1): GET /agents, the browse listing. Assembles R-17's
-// three-tier work record (agent-work-record.ts) and PR 89's buyer-diversity
-// count (buyer-diversity.ts) into browse cards (domain/browse.ts), the same
-// "route delegates, domain decides" split GET /agents/:agentDid already
-// keeps. No parallel endpoint: this widens the one list-shaped read the
-// page needs, the way R-17 widened GET /agents/:agentDid rather than adding
-// a second route.
+// three-tier work record (agent-work-record.ts) into browse cards
+// (domain/browse.ts), the same "route delegates, domain decides" split
+// GET /agents/:agentDid already keeps. No parallel endpoint: this widens
+// the one list-shaped read the page needs, the way R-17 widened
+// GET /agents/:agentDid rather than adding a second route. buyerCount is
+// derived by toBrowseCard itself from the verified-hire tier alone, so this
+// route (and this test file) never reads job history.
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Express } from 'express';
@@ -20,7 +21,6 @@ import {
 import type { AgentRepository, JobRepository } from '../../src/adapters/storage/types.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
-import type { Job } from '../../src/domain/job.js';
 
 const OPERATOR_DID = 'did:abt:zBrowseOperator';
 
@@ -72,39 +72,6 @@ function credentialDoc(
     },
     proof: { type: 'Ed25519Signature2020', proofValue: 'zProof' },
   };
-}
-
-function jobFixture(overrides: Partial<Job> & { id: string; agentDid: string; buyerDid: string }): Job {
-  return {
-    repository: 'buyer/target-repo',
-    brief: 'Fix the checkout flow',
-    briefHash: 'sha256:brief',
-    confirmedSpecHash: null,
-    status: 'draft',
-    criteria: [],
-    pullRequestUrl: null,
-    mergeCommit: null,
-    mergedAt: null,
-    confirmedAt: null,
-    submittedAt: null,
-    deadline: null,
-    createdAt: new Date('2026-08-01T00:00:00Z'),
-    ...overrides,
-  };
-}
-
-async function complete(
-  jobRepo: MemoryJobRepository,
-  id: string,
-  agentDid: string,
-  buyerDid: string,
-  mergeCommit: string,
-  completedAt: Date,
-): Promise<void> {
-  const draft = jobFixture({ id, agentDid, buyerDid });
-  await jobRepo.create(draft);
-  const completedJob: Job = { ...draft, status: 'completed', mergeCommit, mergedAt: completedAt };
-  await jobRepo.complete(completedJob, { jobId: id, buyerDid, agentDid, mergeCommit, completedAt });
 }
 
 function listen(app: Express): Promise<Server> {
@@ -317,7 +284,7 @@ describe('GET /agents (R-20 browse)', () => {
   });
 
   it('buyer diversity rides the verified count: "N verified hires, M buyers"', async () => {
-    const { app, agentRepo, credentialRepo, jobRepo } = buildApp();
+    const { app, agentRepo, credentialRepo } = buildApp();
     await registerAgent(agentRepo, 'did:abt:zBuyers', 'buyers', []);
     await credentialRepo.save({
       completedJobId: 'job-b1',
@@ -331,8 +298,6 @@ describe('GET /agents (R-20 browse)', () => {
       document: credentialDoc('https://platform.example/v1/credentials/job-b2', 'did:abt:zBuyers', 'c-b2', '2026-08-02T00:00:00.000Z', 'did:example:buyer-b'),
       repositoryPublic: true,
     });
-    await complete(jobRepo, 'job-b1', 'did:abt:zBuyers', 'did:example:buyer-a', 'c-b1', new Date('2026-08-01T00:00:00Z'));
-    await complete(jobRepo, 'job-b2', 'did:abt:zBuyers', 'did:example:buyer-b', 'c-b2', new Date('2026-08-02T00:00:00Z'));
 
     await withApp(app, async (url) => {
       const res = await fetch(`${url}/agents`);
@@ -340,6 +305,44 @@ describe('GET /agents (R-20 browse)', () => {
       const card = body.agents[0];
       expect(card?.verifiedHireCount).toBe(2);
       expect(card?.buyerCount).toBe(2);
+    });
+  });
+
+  // Proof's exact reproduction (t_698205aa, summary-contradicts-tier): an
+  // agent with one PUBLIC merge (buyer-a, verified) and two PRIVATE merges
+  // (buyers b and c, portfolio) used to render "1 verified hire, 3 buyers"
+  // because buyerCount was computed over every completed job regardless of
+  // tier. It must now render "1 verified hire, 1 buyer": buyerCount rides
+  // the same population as verifiedHireCount.
+  it('an agent with public and private merges never shows a buyer count wider than its verified-hire population', async () => {
+    const { app, agentRepo, credentialRepo } = buildApp();
+    await registerAgent(agentRepo, 'did:abt:zDivergentApi', 'divergent', []);
+    await credentialRepo.save({
+      completedJobId: 'job-public',
+      subjectDid: 'did:abt:zDivergentApi',
+      document: credentialDoc('https://platform.example/v1/credentials/job-public', 'did:abt:zDivergentApi', 'c-public', '2026-08-01T00:00:00.000Z', 'did:example:buyer-a'),
+      repositoryPublic: true,
+    });
+    await credentialRepo.save({
+      completedJobId: 'job-private-1',
+      subjectDid: 'did:abt:zDivergentApi',
+      document: credentialDoc('https://platform.example/v1/credentials/job-private-1', 'did:abt:zDivergentApi', 'c-private-1', '2026-08-02T00:00:00.000Z', 'did:example:buyer-b'),
+      repositoryPublic: false,
+    });
+    await credentialRepo.save({
+      completedJobId: 'job-private-2',
+      subjectDid: 'did:abt:zDivergentApi',
+      document: credentialDoc('https://platform.example/v1/credentials/job-private-2', 'did:abt:zDivergentApi', 'c-private-2', '2026-08-03T00:00:00.000Z', 'did:example:buyer-c'),
+      repositoryPublic: false,
+    });
+
+    await withApp(app, async (url) => {
+      const res = await fetch(`${url}/agents`);
+      const body = (await res.json()) as { agents: Array<{ verifiedHireCount: number; portfolioCount: number; buyerCount: number }> };
+      const card = body.agents[0];
+      expect(card?.verifiedHireCount).toBe(1);
+      expect(card?.portfolioCount).toBe(2);
+      expect(card?.buyerCount).toBe(1);
     });
   });
 
@@ -394,26 +397,71 @@ describe('GET /agents (R-20 browse)', () => {
     });
   });
 
+  // Proof (t_698205aa, defect no-blend-sweep-vacuous): the original fixture
+  // here was 1 verified hire (implicitly 1 buyer) and 1 portfolio item, so
+  // tierCounts [1, 0, 1] made forbiddenSums {1, 2} and buyerCount 1 (now
+  // derived structurally by toBrowseCard) collided with its own sum. Because
+  // verifiedPriorWorkCount is 0 for every agent in this codebase today
+  // (agentWorkRecord never populates it yet), verifiedHireCount + 0 is
+  // always in the forbidden set, so a genuinely non-blended buyerCount must
+  // be LESS than verifiedHireCount to avoid a false collision. This fixture
+  // uses three verified hires from two distinct buyers (buyerCount 2, not
+  // 3) plus one portfolio item, so the forbidden set {1, 3, 4} cannot
+  // coincidentally catch buyerCount and the sweep is exercised for real.
   it('a structural sweep: no numeric field on the response is derived from more than one tier', async () => {
     const { app, agentRepo, credentialRepo } = buildApp();
     await registerAgent(agentRepo, 'did:abt:zStructural', 'structural', ['triage']);
     await credentialRepo.save({
-      completedJobId: 'job-structural-hire',
+      completedJobId: 'job-structural-hire-1',
       subjectDid: 'did:abt:zStructural',
-      document: credentialDoc('https://platform.example/v1/credentials/job-structural-hire', 'did:abt:zStructural', 'c-structural', '2026-08-01T00:00:00.000Z'),
+      document: credentialDoc(
+        'https://platform.example/v1/credentials/job-structural-hire-1',
+        'did:abt:zStructural',
+        'c-structural-1',
+        '2026-08-01T00:00:00.000Z',
+        'did:example:buyer-x',
+      ),
+      repositoryPublic: true,
+    });
+    await credentialRepo.save({
+      completedJobId: 'job-structural-hire-2',
+      subjectDid: 'did:abt:zStructural',
+      document: credentialDoc(
+        'https://platform.example/v1/credentials/job-structural-hire-2',
+        'did:abt:zStructural',
+        'c-structural-2',
+        '2026-08-02T00:00:00.000Z',
+        'did:example:buyer-x',
+      ),
+      repositoryPublic: true,
+    });
+    await credentialRepo.save({
+      completedJobId: 'job-structural-hire-3',
+      subjectDid: 'did:abt:zStructural',
+      document: credentialDoc(
+        'https://platform.example/v1/credentials/job-structural-hire-3',
+        'did:abt:zStructural',
+        'c-structural-3',
+        '2026-08-03T00:00:00.000Z',
+        'did:example:buyer-y',
+      ),
       repositoryPublic: true,
     });
     await credentialRepo.save({
       completedJobId: 'job-structural-portfolio',
       subjectDid: 'did:abt:zStructural',
-      document: credentialDoc('https://platform.example/v1/credentials/job-structural-portfolio', 'did:abt:zStructural', 'c-structural-2', '2026-08-02T00:00:00.000Z'),
+      document: credentialDoc('https://platform.example/v1/credentials/job-structural-portfolio', 'did:abt:zStructural', 'c-structural-4', '2026-08-04T00:00:00.000Z'),
       repositoryPublic: false,
     });
 
     await withApp(app, async (url) => {
       const res = await fetch(`${url}/agents`);
       const body = (await res.json()) as { agents: Array<Record<string, unknown>> };
-      const card = body.agents[0] as { verifiedHireCount: number; verifiedPriorWorkCount: number; portfolioCount: number };
+      const card = body.agents[0] as { verifiedHireCount: number; verifiedPriorWorkCount: number; portfolioCount: number; buyerCount: number };
+      expect(card.verifiedHireCount).toBe(3);
+      expect(card.portfolioCount).toBe(1);
+      expect(card.buyerCount).toBe(2);
+
       const tierCounts = [card.verifiedHireCount, card.verifiedPriorWorkCount, card.portfolioCount];
       const forbiddenSums = new Set<number>();
       for (let i = 0; i < tierCounts.length; i += 1) {
@@ -423,6 +471,7 @@ describe('GET /agents (R-20 browse)', () => {
       }
       forbiddenSums.add(tierCounts.reduce((a, b) => a + b, 0));
       forbiddenSums.delete(0);
+      expect(forbiddenSums).toEqual(new Set([3, 4, 1]));
 
       function numericFields(value: unknown, path: string): Array<{ path: string; value: number }> {
         if (typeof value === 'number') return [{ path, value }];
@@ -444,6 +493,71 @@ describe('GET /agents (R-20 browse)', () => {
         if (['verifiedHireCount', 'verifiedPriorWorkCount', 'portfolioCount'].includes(path)) continue;
         expect(forbiddenSums.has(value), `field '${path}' = ${value} equals a sum of two tiers' counts`).toBe(false);
       }
+    });
+  });
+
+  // Positive control, same fixture and forbidden-sum set as the test above:
+  // proves the sweep instrument itself catches a genuinely blended field
+  // (Proof's reproduction added combinedEvidence and both sweeps went red).
+  it('mutation proof: a card carrying a field that sums two tier counts is caught by the sweep', async () => {
+    const { app, agentRepo, credentialRepo } = buildApp();
+    await registerAgent(agentRepo, 'did:abt:zStructuralMutant', 'structural-mutant', ['triage']);
+    await credentialRepo.save({
+      completedJobId: 'job-mutant-hire-1',
+      subjectDid: 'did:abt:zStructuralMutant',
+      document: credentialDoc('https://platform.example/v1/credentials/job-mutant-hire-1', 'did:abt:zStructuralMutant', 'c-mutant-1', '2026-08-01T00:00:00.000Z', 'did:example:buyer-x'),
+      repositoryPublic: true,
+    });
+    await credentialRepo.save({
+      completedJobId: 'job-mutant-hire-2',
+      subjectDid: 'did:abt:zStructuralMutant',
+      document: credentialDoc('https://platform.example/v1/credentials/job-mutant-hire-2', 'did:abt:zStructuralMutant', 'c-mutant-2', '2026-08-02T00:00:00.000Z', 'did:example:buyer-x'),
+      repositoryPublic: true,
+    });
+    await credentialRepo.save({
+      completedJobId: 'job-mutant-hire-3',
+      subjectDid: 'did:abt:zStructuralMutant',
+      document: credentialDoc('https://platform.example/v1/credentials/job-mutant-hire-3', 'did:abt:zStructuralMutant', 'c-mutant-3', '2026-08-03T00:00:00.000Z', 'did:example:buyer-y'),
+      repositoryPublic: true,
+    });
+    await credentialRepo.save({
+      completedJobId: 'job-mutant-portfolio',
+      subjectDid: 'did:abt:zStructuralMutant',
+      document: credentialDoc('https://platform.example/v1/credentials/job-mutant-portfolio', 'did:abt:zStructuralMutant', 'c-mutant-4', '2026-08-04T00:00:00.000Z'),
+      repositoryPublic: false,
+    });
+
+    await withApp(app, async (url) => {
+      const res = await fetch(`${url}/agents`);
+      const body = (await res.json()) as { agents: Array<Record<string, unknown>> };
+      const card = body.agents[0] as { verifiedHireCount: number; verifiedPriorWorkCount: number; portfolioCount: number };
+      const tierCounts = [card.verifiedHireCount, card.verifiedPriorWorkCount, card.portfolioCount];
+      const forbiddenSums = new Set<number>();
+      for (let i = 0; i < tierCounts.length; i += 1) {
+        for (let j = i + 1; j < tierCounts.length; j += 1) {
+          forbiddenSums.add((tierCounts[i] ?? 0) + (tierCounts[j] ?? 0));
+        }
+      }
+      forbiddenSums.add(tierCounts.reduce((a, b) => a + b, 0));
+      forbiddenSums.delete(0);
+
+      const mutated = { ...card, combinedEvidence: card.verifiedHireCount + card.portfolioCount };
+      const offenders: string[] = [];
+      function numericFields(value: unknown, path: string): Array<{ path: string; value: number }> {
+        if (typeof value === 'number') return [{ path, value }];
+        if (Array.isArray(value)) return value.flatMap((entry, i) => numericFields(entry, `${path}[${i}]`));
+        if (value !== null && typeof value === 'object') {
+          return Object.entries(value as Record<string, unknown>).flatMap(([key, entry]) =>
+            numericFields(entry, path === '' ? key : `${path}.${key}`),
+          );
+        }
+        return [];
+      }
+      for (const { path, value } of numericFields(mutated, '')) {
+        if (['verifiedHireCount', 'verifiedPriorWorkCount', 'portfolioCount'].includes(path)) continue;
+        if (forbiddenSums.has(value)) offenders.push(path);
+      }
+      expect(offenders).toContain('combinedEvidence');
     });
   });
 
@@ -479,7 +593,12 @@ describe('GET /agents (R-20 browse)', () => {
     });
   });
 
-  it('503 when the job repository does not implement findCompletedByAgent', async () => {
+  // Now that toBrowseCard derives buyerCount from the verified-hire tier
+  // alone (never from job history), GET /agents no longer reads the job
+  // repository at all. A driver missing findCompletedByAgent entirely --
+  // the exact stub that used to 503 this route -- must succeed, proving
+  // the dependency is genuinely gone rather than just softened.
+  it('succeeds even when the job repository does not implement findCompletedByAgent, because browse no longer reads job history', async () => {
     const stubJobRepo: JobRepository = {
       create: () => Promise.reject(new Error('unused')),
       update: () => Promise.reject(new Error('unused')),
@@ -493,8 +612,10 @@ describe('GET /agents (R-20 browse)', () => {
     const app = createApp(new MemoryOperatorRepository(), agentRepo, undefined, undefined, stubJobRepo);
     await withApp(app, async (url) => {
       const res = await fetch(`${url}/agents`);
-      expect(res.status).toBe(503);
-      expect(await res.json()).toEqual({ error: 'storage unavailable' });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { agents: Array<{ did: string; buyerCount: number }> };
+      expect(body.agents.map((a) => a.did)).toEqual(['did:abt:zNoHiresRoute']);
+      expect(body.agents[0]?.buyerCount).toBe(0);
     });
   });
 });

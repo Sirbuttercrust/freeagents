@@ -60,8 +60,12 @@ describe('toBrowseCard', () => {
         skills: ['triage', 'typescript'],
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
       },
-      workRecord({ verifiedHires: [hireItem(), hireItem({ credentialId: 'x2', mergeCommit: 'c2' })] }),
-      2,
+      workRecord({
+        verifiedHires: [
+          hireItem({ credentialId: 'x1', mergeCommit: 'c1', buyerDid: 'did:example:buyer-a' }),
+          hireItem({ credentialId: 'x2', mergeCommit: 'c2', buyerDid: 'did:example:buyer-b' }),
+        ],
+      }),
     );
 
     expect(card.verifiedHireCount).toBe(2);
@@ -77,7 +81,6 @@ describe('toBrowseCard', () => {
     const card = toBrowseCard(
       { did: 'did:abt:zColdAgent', name: 'blank', skills: [], createdAt: new Date('2026-02-01T00:00:00.000Z') },
       workRecord(),
-      0,
     );
 
     expect(card.verifiedHireCount).toBe(0);
@@ -98,18 +101,71 @@ describe('toBrowseCard', () => {
         ],
         portfolio: [hireItem({ mergedAt: '2026-12-31T00:00:00.000Z', mergeCommit: 'd' })],
       }),
-      1,
     );
 
     expect(card.lastVerifiedAt).toBe('2026-03-09T00:00:00.000Z');
+  });
+
+  // Proof (t_698205aa, defect summary-contradicts-tier): buyerCount used to
+  // be handed in from a tier-blind buyerDiversity() call over EVERY
+  // completed job, so an agent with one public and two private merges
+  // rendered "1 verified hire, 3 buyers" while its own profile page said
+  // "1 verified hire, from 1 buyer." toBrowseCard now derives buyerCount
+  // itself, from record.verifiedHires alone, so a caller can no longer hand
+  // it a number drawn from a wider population than the tier it rides beside.
+  it('buyerCount is the distinct-buyer count over verified hires ONLY, never a wider population', () => {
+    const card = toBrowseCard(
+      { did: 'did:abt:zDivergent', name: 'divergent', skills: [], createdAt: new Date('2026-01-01T00:00:00.000Z') },
+      workRecord({
+        // One verified hire, buyer-a.
+        verifiedHires: [hireItem({ mergeCommit: 'public-1', buyerDid: 'did:example:buyer-a' })],
+        // Two portfolio items (private-repo merges), buyers b and c. These
+        // are real hires this platform brokered, just not verified-tier
+        // ones, and their buyers must never inflate the card's buyer count.
+        portfolio: [
+          hireItem({ mergeCommit: 'private-1', buyerDid: 'did:example:buyer-b' }),
+          hireItem({ mergeCommit: 'private-2', buyerDid: 'did:example:buyer-c' }),
+        ],
+      }),
+    );
+
+    expect(card.verifiedHireCount).toBe(1);
+    // The exact reproduction Proof used: 1 verified hire must ride beside
+    // 1 buyer, never 3.
+    expect(card.buyerCount).toBe(1);
+  });
+
+  it('buyerCount reconciles wallet-form and registry-form DIDs as one buyer, matching the profile page', () => {
+    const card = toBrowseCard(
+      { did: 'did:abt:zSameBuyerForms', name: 'same-buyer', skills: [], createdAt: new Date('2026-01-01T00:00:00.000Z') },
+      workRecord({
+        verifiedHires: [
+          hireItem({ mergeCommit: 'a', buyerDid: 'zSameBuyer' }),
+          hireItem({ mergeCommit: 'b', buyerDid: 'did:abt:zSameBuyer' }),
+        ],
+      }),
+    );
+
+    expect(card.verifiedHireCount).toBe(2);
+    expect(card.buyerCount).toBe(1);
+  });
+
+  it('an empty-string or non-string buyerDid on a verified hire is not counted as a distinct buyer', () => {
+    const card = toBrowseCard(
+      { did: 'did:abt:zNoBuyer', name: 'no-buyer', skills: [], createdAt: new Date('2026-01-01T00:00:00.000Z') },
+      workRecord({ verifiedHires: [hireItem({ mergeCommit: 'a', buyerDid: '' })] }),
+    );
+
+    expect(card.verifiedHireCount).toBe(1);
+    expect(card.buyerCount).toBe(0);
   });
 });
 
 describe('filterBySkill', () => {
   const cards: BrowseCard[] = [
-    toBrowseCard({ did: 'did:abt:a', name: 'a', skills: ['triage'], createdAt: new Date() }, workRecord(), 0),
-    toBrowseCard({ did: 'did:abt:b', name: 'b', skills: ['TypeScript'], createdAt: new Date() }, workRecord(), 0),
-    toBrowseCard({ did: 'did:abt:c', name: 'c', skills: ['triage', 'refactoring'], createdAt: new Date() }, workRecord(), 0),
+    toBrowseCard({ did: 'did:abt:a', name: 'a', skills: ['triage'], createdAt: new Date() }, workRecord()),
+    toBrowseCard({ did: 'did:abt:b', name: 'b', skills: ['TypeScript'], createdAt: new Date() }, workRecord()),
+    toBrowseCard({ did: 'did:abt:c', name: 'c', skills: ['triage', 'refactoring'], createdAt: new Date() }, workRecord()),
   ];
 
   it('keeps only cards carrying the skill, case-insensitively', () => {
@@ -130,7 +186,14 @@ describe('filterBySkill', () => {
 });
 
 describe('sortBrowseCards', () => {
-  function card(did: string, verifiedHireCount: number, createdAt: string, lastVerifiedAt: string | null): BrowseCard {
+  function card(
+    did: string,
+    verifiedHireCount: number,
+    createdAt: string,
+    lastVerifiedAt: string | null,
+    verifiedPriorWorkCount = 0,
+    portfolioCount = 0,
+  ): BrowseCard {
     return {
       did,
       name: did,
@@ -138,8 +201,8 @@ describe('sortBrowseCards', () => {
       createdAt,
       lastVerifiedAt,
       verifiedHireCount,
-      verifiedPriorWorkCount: 0,
-      portfolioCount: 0,
+      verifiedPriorWorkCount,
+      portfolioCount,
       buyerCount: 0,
     };
   }
@@ -154,7 +217,7 @@ describe('sortBrowseCards', () => {
     expect(sorted.map((c) => c.did)).toEqual(['did:abt:high', 'did:abt:mid', 'did:abt:low']);
   });
 
-  it('default order ranks on verifiedHireCount alone, not a blend with another tier (mutation guard)', () => {
+  it('default order ranks on verifiedHireCount alone, not a blend with portfolioCount (mutation guard)', () => {
     // 'fewerHiresMorePortfolio' has fewer verified hires than 'moreHires'
     // but enough extra portfolioCount that a blended sum
     // (verifiedHireCount + portfolioCount) would rank it FIRST. A correct,
@@ -165,6 +228,24 @@ describe('sortBrowseCards', () => {
     ];
     const sorted = sortBrowseCards(cards, 'verified-hires');
     expect(sorted.map((c) => c.did)).toEqual(['did:abt:moreHires', 'did:abt:fewerHiresMorePortfolio']);
+  });
+
+  // Proof (t_698205aa, defect sort-mutation-guard-too-weak): the guard above
+  // only exercises a hire+portfolio blend, and its fixture pins
+  // verifiedPriorWorkCount to 0 on every card, so a comparator blended with
+  // verifiedPriorWorkCount instead (Proof's own mutation:
+  // (b.verifiedHireCount + b.verifiedPriorWorkCount) - (a...)) was invisible
+  // to it -- the full suite stayed green. This fixture makes
+  // verifiedPriorWorkCount the one that would flip the order under that
+  // exact blend, so sortBrowseCards's real comparator (verifiedHireCount
+  // alone) is what this test actually exercises.
+  it('default order ranks on verifiedHireCount alone, not a blend with verifiedPriorWorkCount (mutation guard)', () => {
+    const cards: BrowseCard[] = [
+      card('did:abt:moreHires', 5, '2026-01-01T00:00:00.000Z', null, 0),
+      card('did:abt:fewerHiresMorePriorWork', 2, '2026-01-01T00:00:00.000Z', null, 10),
+    ];
+    const sorted = sortBrowseCards(cards, 'verified-hires');
+    expect(sorted.map((c) => c.did)).toEqual(['did:abt:moreHires', 'did:abt:fewerHiresMorePriorWork']);
   });
 
   it('recently-listed: descending by createdAt', () => {
@@ -224,21 +305,7 @@ describe('toBrowseCard: structural no-blend sweep', () => {
     return [];
   }
 
-  it('no field on the card equals a sum of two tier counts', () => {
-    const card = toBrowseCard(
-      { did: 'did:abt:zSweep', name: 'sweep', skills: [], createdAt: new Date('2026-01-01T00:00:00.000Z') },
-      workRecord({
-        verifiedHires: [hireItem({ mergeCommit: 'a' }), hireItem({ mergeCommit: 'b' })],
-        portfolio: [hireItem({ mergeCommit: 'c' })],
-      }),
-      // buyerCount deliberately picked so it does not coincidentally equal
-      // any pairwise sum of the tier counts (0, 2, 1): 2+0=2, 2+1=3, 0+1=1,
-      // 2+0+1=3. 7 is outside that set, so a genuine collision would still
-      // be caught while this fixture's own value is not a false positive.
-      7,
-    );
-
-    const tierCounts = [card.verifiedHireCount, card.verifiedPriorWorkCount, card.portfolioCount];
+  function forbiddenSumsFor(tierCounts: readonly number[]): Set<number> {
     const forbiddenSums = new Set<number>();
     for (let i = 0; i < tierCounts.length; i += 1) {
       for (let j = i + 1; j < tierCounts.length; j += 1) {
@@ -247,10 +314,72 @@ describe('toBrowseCard: structural no-blend sweep', () => {
     }
     forbiddenSums.add(tierCounts.reduce((a, b) => a + b, 0));
     forbiddenSums.delete(0);
+    return forbiddenSums;
+  }
+
+  // Proof (t_698205aa, defect no-blend-sweep-vacuous) reproduced the sweep
+  // code verbatim against a reachable state (1 public, 2 private, 3
+  // distinct buyers) and it reported offenders ["buyerCount=3"], because
+  // the shipped fixture picked a buyerCount value (7) that was deliberately
+  // outside the forbidden set. This fixture's buyerCount is no longer a
+  // caller-supplied value at all -- toBrowseCard derives it -- so the
+  // reachable state IS the fixture: three verified hires from a single
+  // buyer (buyerCount 1) plus two portfolio items, chosen so 1 does not
+  // coincidentally collide with a forbidden sum of {3, 5, 2}, which is what
+  // makes this a real check rather than a fixture picked to dodge one.
+  it('no field on the card equals a sum of two tier counts', () => {
+    const card = toBrowseCard(
+      { did: 'did:abt:zSweep', name: 'sweep', skills: [], createdAt: new Date('2026-01-01T00:00:00.000Z') },
+      workRecord({
+        verifiedHires: [
+          hireItem({ mergeCommit: 'a', buyerDid: 'did:example:buyer-shared' }),
+          hireItem({ mergeCommit: 'b', buyerDid: 'did:example:buyer-shared' }),
+          hireItem({ mergeCommit: 'c', buyerDid: 'did:example:buyer-shared' }),
+        ],
+        portfolio: [hireItem({ mergeCommit: 'd' }), hireItem({ mergeCommit: 'e' })],
+      }),
+    );
+
+    expect(card.verifiedHireCount).toBe(3);
+    expect(card.portfolioCount).toBe(2);
+    expect(card.buyerCount).toBe(1);
+
+    const tierCounts = [card.verifiedHireCount, card.verifiedPriorWorkCount, card.portfolioCount];
+    const forbiddenSums = forbiddenSumsFor(tierCounts);
+    expect(forbiddenSums).toEqual(new Set([3, 5, 2]));
 
     for (const { path, value } of numericFields(card, '')) {
       if (['verifiedHireCount', 'verifiedPriorWorkCount', 'portfolioCount'].includes(path)) continue;
       expect(forbiddenSums.has(value), `field '${path}' = ${value} equals a sum of two tiers' counts`).toBe(false);
     }
+  });
+
+  // Positive control (mirrors Proof's reproduction with an injected
+  // combinedEvidence field): the sweep instrument itself must catch a
+  // genuinely blended field. Run against the SAME card and forbidden-sum
+  // set as the test above, so this proves the sweep bites on the resident
+  // shape, not only on a fixture built to be caught.
+  it('mutation proof: injecting a field that sums two tier counts is caught by the sweep', () => {
+    const card = toBrowseCard(
+      { did: 'did:abt:zSweepMutant', name: 'sweep-mutant', skills: [], createdAt: new Date('2026-01-01T00:00:00.000Z') },
+      workRecord({
+        verifiedHires: [
+          hireItem({ mergeCommit: 'a', buyerDid: 'did:example:buyer-shared' }),
+          hireItem({ mergeCommit: 'b', buyerDid: 'did:example:buyer-shared' }),
+          hireItem({ mergeCommit: 'c', buyerDid: 'did:example:buyer-shared' }),
+        ],
+        portfolio: [hireItem({ mergeCommit: 'd' }), hireItem({ mergeCommit: 'e' })],
+      }),
+    );
+    const tierCounts = [card.verifiedHireCount, card.verifiedPriorWorkCount, card.portfolioCount];
+    const forbiddenSums = forbiddenSumsFor(tierCounts);
+
+    const mutated = { ...card, combinedEvidence: card.verifiedHireCount + card.portfolioCount };
+    const offenders: string[] = [];
+    for (const { path, value } of numericFields(mutated, '')) {
+      if (['verifiedHireCount', 'verifiedPriorWorkCount', 'portfolioCount'].includes(path)) continue;
+      if (forbiddenSums.has(value)) offenders.push(path);
+    }
+    expect(offenders).toContain('combinedEvidence');
   });
 });

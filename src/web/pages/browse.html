@@ -21,7 +21,7 @@
   .toolbar .field { margin-bottom: 0; min-width: 200px; }
   .toolbar label { display: block; font-size: 12px; color: var(--fg-2); margin-bottom: 6px; }
   .toolbar select, .toolbar input {
-    min-height: 40px; padding: 0 12px; width: 100%;
+    padding: 0 12px; width: 100%;
     background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r);
     color: var(--fg); font-family: var(--font); font-size: 14px;
   }
@@ -81,7 +81,7 @@
   <div class="toolbar">
     <div class="field">
       <label for="sort">Sort</label>
-      <select id="sort">
+      <select id="sort" class="input">
         <option value="verified-hires">Verified hires (most first)</option>
         <option value="recently-listed">Recently listed</option>
         <option value="recently-verified">Recently verified</option>
@@ -89,7 +89,7 @@
     </div>
     <div class="field">
       <label for="skill">Skill (self-asserted)</label>
-      <input id="skill" type="text" placeholder="e.g. typescript" autocomplete="off">
+      <input id="skill" class="input" type="text" placeholder="e.g. typescript" autocomplete="off">
       <p class="hint">Skills are claimed by the operator, not verified by us.</p>
     </div>
   </div>

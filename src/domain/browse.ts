@@ -10,6 +10,7 @@
 // ships are the three D1/Q1 named. An unknown value falls back to the
 // default rather than erroring or inventing a fourth.
 import type { AgentWorkRecord } from './agent-work-record.js';
+import { didSuffix } from './agent.js';
 
 export type BrowseSort = 'verified-hires' | 'recently-listed' | 'recently-verified';
 
@@ -58,18 +59,41 @@ export interface BrowseCard {
   readonly portfolioCount: number;
   // PR 89's buyer-diversity count, riding beside the verified count where it
   // exists (R-20 item 3): "12 verified hires, 9 buyers" never implies a
-  // breadth the record does not have, because it is the SAME distinct-buyer
-  // count buyerDiversity() computes from the agent's real hires, not a
-  // derived guess.
+  // breadth the record does not have, because it is computed from the SAME
+  // verifiedHires array as verifiedHireCount, below, never from a wider
+  // population (Proof's summary-contradicts-tier finding: a caller-supplied
+  // buyerCount drawn from every completed job, tier-blind).
   readonly buyerCount: number;
 }
 
-// Assembles one card from three independently-sourced facts: the agent row,
-// its R-17 work record (agent-work-record.ts, itself never blended), and the
-// buyer count buyerDiversity() already computed (buyer-diversity.ts). No
-// field here is a sum, average, or ratio across tiers; each count is read
-// off exactly one array.
-export function toBrowseCard(agent: BrowseAgentFacts, record: AgentWorkRecord, buyerCount: number): BrowseCard {
+// Distinct buyers, counted over the verified-hire tier ONLY. This is the
+// same computation the agent profile page makes over its own
+// agent.verifiedHires array (src/web/public/js/pages/agent.js,
+// renderSummary): a buyerDid is reconciled to its registry key with
+// didSuffix (the wallet-form/registry-form split, same reconciliation
+// buyer-diversity.ts uses), so one buyer in two forms never counts as two.
+// Reading only the verified-hire array, never a wider job-history read, is
+// what keeps this number equal to what the profile page's own summary
+// sentence says for the same agent.
+function verifiedHireBuyerCount(record: AgentWorkRecord): number {
+  const distinctBuyerKeys = new Set<string>();
+  for (const hire of record.verifiedHires) {
+    if (typeof hire.buyerDid === 'string' && hire.buyerDid !== '') {
+      distinctBuyerKeys.add(didSuffix(hire.buyerDid));
+    }
+  }
+  return distinctBuyerKeys.size;
+}
+
+// Assembles one card from two independently-sourced facts: the agent row,
+// and its R-17 work record (agent-work-record.ts, itself never blended).
+// buyerCount is derived here, from record.verifiedHires alone, rather than
+// accepted as a caller-supplied number: that is what makes it impossible
+// for a caller to hand this function a buyer count drawn from a wider
+// population than the verified-hire count it rides beside. No field here
+// is a sum, average, or ratio across tiers; each count is read off exactly
+// one array.
+export function toBrowseCard(agent: BrowseAgentFacts, record: AgentWorkRecord): BrowseCard {
   const lastVerifiedAt = record.verifiedHires.reduce<string | null>((latest, hire) => {
     const ms = Date.parse(hire.mergedAt);
     if (Number.isNaN(ms)) return latest;
@@ -86,7 +110,7 @@ export function toBrowseCard(agent: BrowseAgentFacts, record: AgentWorkRecord, b
     verifiedHireCount: record.verifiedHires.length,
     verifiedPriorWorkCount: record.verifiedPriorWork.length,
     portfolioCount: record.portfolio.length,
-    buyerCount,
+    buyerCount: verifiedHireBuyerCount(record),
   };
 }
 
