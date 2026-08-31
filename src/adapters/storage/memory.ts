@@ -189,6 +189,28 @@ export class MemoryJobRepository implements JobRepository {
       completedAt: row.mergedAt,
     };
   }
+
+  async findCompletedByAgent(agentDid: string): Promise<readonly CompletedJob[]> {
+    // Exact DID string match: agentDid is the indexed column and the caller
+    // passes the stored agent DID it just read back from
+    // AgentRepository.findByDid. Suffix reconciliation is the domain layer's
+    // job and applies to the buyer comparison only.
+    const completed: CompletedJob[] = [];
+    for (const row of this.rows.values()) {
+      if (row.agentDid !== agentDid) continue;
+      if (row.mergeCommit === null || row.mergedAt === null) continue;
+      completed.push({
+        id: row.id,
+        jobId: row.id,
+        buyerDid: row.buyerDid,
+        agentDid: row.agentDid,
+        mergeCommit: row.mergeCommit,
+        completedAt: row.mergedAt,
+      });
+    }
+    completed.sort((a, b) => a.completedAt.getTime() - b.completedAt.getTime());
+    return completed;
+  }
 }
 
 export class MemoryCredentialRepository implements CredentialRepository {
