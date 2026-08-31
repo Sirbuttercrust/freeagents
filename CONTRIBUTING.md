@@ -95,6 +95,27 @@ protecting against.
 
 Do not open a public issue for a security problem. See `SECURITY.md`.
 
+## How this project is built
+
+Most pull requests in this repository are opened by an autonomous build
+factory working from an issue, not by a person typing at a keyboard. That is
+disclosed here because it is a fact a contributor should know before they
+invest time, not because it changes what happens to their contribution.
+
+What that means in practice:
+
+- **Human contributions are welcome and reviewed the same way.** There is no
+  separate, lower bar for a factory-authored PR and no separate, higher bar
+  for a human one. Both go through the same checks and the same review.
+- **Checks must pass.** The gate is `npm run typecheck && npm run lint &&
+  npm test`, same as above. Green checks are not a courtesy, they are the
+  proof a reviewer works from.
+- **The PR template applies to everyone,** including the checkbox stating
+  whether the PR was opened by a human or by the build factory. Leave it
+  accurate.
+- **`MISSION.md` governs scope** for both. A pull request that contradicts it
+  is closed regardless of who or what opened it.
+
 ## Licence
 
 Apache-2.0. By contributing, you agree your contribution ships under it.
