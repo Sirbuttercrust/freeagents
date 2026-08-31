@@ -79,6 +79,7 @@ import {
   type CompromiseReport,
 } from '../domain/compromise.js';
 import { ACCESS_NOTICE, CAPABILITIES, type Capability } from '../domain/access.js';
+import { SIGN_IN_METHODS, type SignInMethod } from '../domain/sign-in-methods.js';
 import { renderAvatar } from './avatar.js';
 
 // The hire-loop's last stub (R-12 reviews) stays honest about being unbuilt:
@@ -112,6 +113,21 @@ function capabilityProjection(cap: Capability): Record<string, unknown> {
     access: cap.access,
     identityField: cap.identityField,
     reason: cap.reason,
+  };
+}
+
+// The SignInMethod projection is the whole response. Exactly these five
+// fields, nothing more: tests/api/sign-in-methods.test.ts asserts the key
+// set, and a sixth field here would be a contract change. Issue 84 states
+// which methods exist before a user invests effort, so this is read by
+// anyone, signed in or not.
+function signInMethodProjection(method: SignInMethod): Record<string, unknown> {
+  return {
+    id: method.id,
+    label: method.label,
+    required: method.required,
+    walletBased: method.walletBased,
+    reason: method.reason,
   };
 }
 
@@ -356,6 +372,17 @@ export function createApp(
     res.status(200).json({
       notice: ACCESS_NOTICE,
       capabilities: CAPABILITIES.map(capabilityProjection),
+    });
+  });
+
+  // Issue 84: the sign-in methods a user may choose, stated before a user
+  // invests effort. This route authenticates nobody: no session, no OAuth,
+  // no passkey, no middleware. No storage, no adapter, synchronous, so no
+  // forwarded() wrapper and no 503 path applies here, the same as
+  // GET /capabilities above.
+  app.get('/sign-in-methods', (_req: Request, res: Response) => {
+    res.status(200).json({
+      methods: SIGN_IN_METHODS.map(signInMethodProjection),
     });
   });
 
