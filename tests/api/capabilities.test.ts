@@ -78,7 +78,7 @@ describe('GET /capabilities', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { notice: string; capabilities: unknown[] };
     expect(body.notice).toBe(ACCESS_NOTICE);
-    expect(body.capabilities).toHaveLength(7);
+    expect(body.capabilities).toHaveLength(8);
   });
 
   it('every declared public GET answers a caller with no identity', async () => {

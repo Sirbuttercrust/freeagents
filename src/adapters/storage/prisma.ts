@@ -134,6 +134,26 @@ export class PrismaAgentRepository implements AgentRepository {
     return agentWithRotations(did);
   }
 
+  async listAll(): Promise<readonly Agent[]> {
+    const rows = await db().agent.findMany({ orderBy: { createdAt: 'asc' } });
+    // Every read path returns an Agent with its rotation history attached
+    // (ENT-8.4); listAll fetches each agent's rotations the same way
+    // agentWithRotations does for a single lookup, rather than inventing a
+    // second shape for the list case.
+    return Promise.all(
+      rows.map(async (row) => {
+        const rotationRows = await rotationDb().keyRotation.findMany({
+          where: { agentDid: row.did },
+          orderBy: { rotatedAt: 'asc' },
+        });
+        return toAgent(
+          row,
+          rotationRows.map((r) => ({ fromKey: r.fromKey, toKey: r.toKey, rotatedAt: r.rotatedAt })),
+        );
+      }),
+    );
+  }
+
   async recordKeyRotation(did: string, input: KeyRotationInput): Promise<Agent | null> {
     // Reading first, not updating: an unknown DID resolves to null instead
     // of a P2025 from update, and the rotation row is only written after
