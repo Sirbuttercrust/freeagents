@@ -23,6 +23,13 @@ export interface PullRequestSummary {
   readonly additions: number;
   readonly deletions: number;
   readonly filesChanged: number;
+  // MISSION invariant 4: the pulls API reports the base repository's
+  // visibility on the same PR object (base.repo.private, inverted). This is
+  // the one fact evidenceTier needs beyond a merge to decide verified-hire
+  // versus portfolio, and it comes from GitHub's own report for the same
+  // reason additions/deletions/filesChanged do above: never counted or
+  // asserted by this service or by either party.
+  readonly repositoryPublic: boolean;
 }
 
 export interface CommitSignatureStatus {

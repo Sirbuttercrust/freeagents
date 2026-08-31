@@ -20,6 +20,7 @@ import {
   type KeyRotationInput,
   OperatorAlreadyExistsError,
   type OperatorRepository,
+  type StoredCredential,
   credentialLookupKey,
 } from './types.js';
 
@@ -418,6 +419,7 @@ export class PrismaCredentialRepository implements CredentialRepository {
     readonly completedJobId: string;
     readonly subjectDid: string;
     readonly document: VerifiableCredential;
+    readonly repositoryPublic?: boolean;
   }): Promise<void> {
     try {
       await db().credential.create({
@@ -427,6 +429,10 @@ export class PrismaCredentialRepository implements CredentialRepository {
           // The credential goes in verbatim: the Json column stores exactly
           // the object that verified, so the stored bytes stay verifiable.
           document: input.document as unknown as Prisma.InputJsonValue,
+          // An unrecorded visibility fact must never read as verified
+          // (R-17, PR 70's rejected finding), so an omitted caller value
+          // fails closed the same direction a private repository would.
+          repositoryPublic: input.repositoryPublic ?? false,
           issuedAt: new Date(),
         },
       });
@@ -449,6 +455,23 @@ export class PrismaCredentialRepository implements CredentialRepository {
     // The Json column round-trips as unknown; storage does not re-validate
     // (same stance as the delegation column), it serves the stored bytes.
     return row === null ? null : (row.document as unknown as VerifiableCredential);
+  }
+
+  async listBySubjectDid(subjectDid: string): Promise<readonly StoredCredential[]> {
+    const rows = await db().credential.findMany({
+      where: { subjectDid },
+      orderBy: { issuedAt: 'asc' },
+    });
+    // Verbatim documents, same stance as findByDocumentId: the bytes that
+    // verified are the bytes served back, oldest first (R-17: the only
+    // order both drivers can produce identically, since the memory driver
+    // has no timestamp column to sort by). A row written before this
+    // column existed reads back null, which the pair maps to false, not
+    // undefined: an unrecorded visibility fact must never read as verified.
+    return rows.map((row) => ({
+      document: row.document as unknown as VerifiableCredential,
+      repositoryPublic: row.repositoryPublic ?? false,
+    }));
   }
 }
 

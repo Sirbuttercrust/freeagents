@@ -370,6 +370,7 @@ const githubAdapter: GithubAdapter = {
       additions: 128,
       deletions: 12,
       filesChanged: 5,
+      repositoryPublic: true,
     });
   },
   getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
@@ -571,11 +572,19 @@ describe('the API starts and answers', () => {
     expect(createdBody.operatorDid).toBe(operatorWallet.toDid());
     expect(createdBody.delegation).toEqual(credential);
 
-    // 3. Read back: the same body, field for field.
+    // 3. Read back: the same body, field for field, plus R-17's three-tier
+    // work record, which only GET carries (the POST response is the
+    // create result, not the profile view). A fresh delegation has issued
+    // no credentials yet, so all three tiers are empty (ENT-2.4).
     const read = await get(`/agents/${agentWallet.toDid()}`);
     expect(read.status).toBe(200);
     const readBack = (await read.json()) as Record<string, unknown>;
-    expect(readBack).toEqual(createdBody);
+    expect(readBack).toEqual({
+      ...createdBody,
+      verifiedHires: [],
+      verifiedPriorWork: [],
+      portfolio: [],
+    });
 
     // 3b. R-21: the avatar rides the base projection, derived at serve time
     // from the agent DID. Shape-checked on the wire and identical between
