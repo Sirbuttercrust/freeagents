@@ -12,6 +12,7 @@
 // Proving the empty case is not a special layout means proving it against
 // a real full profile, not describing what a full profile ought to do.
 import type { Server } from 'node:http';
+import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import { JSDOM, VirtualConsole } from 'jsdom';
@@ -31,6 +32,9 @@ const OPERATOR_DID = 'did:abt:zR18Operator';
 const COLD_DID = 'did:abt:zR18ColdAgent';
 const FULL_DID = 'did:abt:zR18FullAgent';
 const PRIVATE_ONLY_DID = 'did:abt:zR18PrivateOnlyAgent';
+const TWO_FORM_DID = 'did:abt:zR18TwoFormAgent';
+const TWO_FORM_BUYER_SHORT = 'zR18TwoFormBuyer';
+const TWO_FORM_BUYER_LONG = `did:abt:${TWO_FORM_BUYER_SHORT}`;
 
 function delegation(agentDid: string): Delegation {
   return {
@@ -50,7 +54,13 @@ function delegation(agentDid: string): Delegation {
   };
 }
 
-function credentialDoc(id: string, subjectDid: string, repository: string): VerifiableCredential {
+function credentialDoc(
+  id: string,
+  subjectDid: string,
+  repository: string,
+  mergeCommit = 'r18cafe',
+  buyerDid = 'did:example:r18-buyer',
+): VerifiableCredential {
   return {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
     id,
@@ -64,9 +74,9 @@ function credentialDoc(id: string, subjectDid: string, repository: string): Veri
         repository,
         pullRequest: `https://github.com/${repository}/pull/1`,
         mergedAt: '2026-08-30T00:00:00.000Z',
-        mergeCommit: 'r18cafe',
+        mergeCommit,
         signedBy: `${subjectDid}#key-1`,
-        buyer: 'did:example:r18-buyer',
+        buyer: buyerDid,
         additions: 10,
         deletions: 2,
         filesChanged: 1,
@@ -196,6 +206,70 @@ beforeAll(async () => {
     repositoryPublic: false,
   });
 
+  await agentRepo.create({
+    did: TWO_FORM_DID,
+    operatorDid: OPERATOR_DID,
+    delegation: delegation(TWO_FORM_DID),
+    name: 'two-form-buyer-agent',
+    skills: [],
+    githubLogin: null,
+  });
+
+  // Two completed, publicly-visible hires, both verified: the SAME buyer
+  // recorded under both DID forms across the two jobs (src/domain/agent.ts:
+  // didSuffix, "z..." and "did:abt:z..." name the same key). The API's own
+  // buyer-diversity read (buyer-diversity.ts:93-95, didSuffix reconciliation)
+  // resolves this to one distinct buyer. The page must agree.
+  const twoFormDraftA = jobFixture({ id: 'r18-job-twoform-a', agentDid: TWO_FORM_DID, buyerDid: TWO_FORM_BUYER_LONG });
+  await jobRepo.create(twoFormDraftA);
+  await jobRepo.complete(
+    { ...twoFormDraftA, status: 'completed', mergeCommit: 'r18twoforma', mergedAt: new Date('2026-08-30T00:00:00Z') },
+    {
+      jobId: twoFormDraftA.id,
+      buyerDid: TWO_FORM_BUYER_LONG,
+      agentDid: TWO_FORM_DID,
+      mergeCommit: 'r18twoforma',
+      completedAt: new Date('2026-08-30T00:00:00Z'),
+    },
+  );
+  await credentialRepo.save({
+    completedJobId: 'r18-job-twoform-a',
+    subjectDid: TWO_FORM_DID,
+    document: credentialDoc(
+      'https://platform.example/v1/credentials/r18-job-twoform-a',
+      TWO_FORM_DID,
+      'buyer/r18-twoform-a',
+      'r18twoforma',
+      TWO_FORM_BUYER_LONG,
+    ),
+    repositoryPublic: true,
+  });
+
+  const twoFormDraftB = jobFixture({ id: 'r18-job-twoform-b', agentDid: TWO_FORM_DID, buyerDid: TWO_FORM_BUYER_SHORT });
+  await jobRepo.create(twoFormDraftB);
+  await jobRepo.complete(
+    { ...twoFormDraftB, status: 'completed', mergeCommit: 'r18twoformb', mergedAt: new Date('2026-08-30T00:00:00Z') },
+    {
+      jobId: twoFormDraftB.id,
+      buyerDid: TWO_FORM_BUYER_SHORT,
+      agentDid: TWO_FORM_DID,
+      mergeCommit: 'r18twoformb',
+      completedAt: new Date('2026-08-30T00:00:00Z'),
+    },
+  );
+  await credentialRepo.save({
+    completedJobId: 'r18-job-twoform-b',
+    subjectDid: TWO_FORM_DID,
+    document: credentialDoc(
+      'https://platform.example/v1/credentials/r18-job-twoform-b',
+      TWO_FORM_DID,
+      'buyer/r18-twoform-b',
+      'r18twoformb',
+      TWO_FORM_BUYER_SHORT,
+    ),
+    repositoryPublic: true,
+  });
+
   const app = createApp(undefined, agentRepo, undefined, undefined, jobRepo, undefined, undefined, credentialRepo);
   server = app.listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -207,18 +281,22 @@ afterAll(async () => {
 });
 
 async function render(path: string): Promise<Document> {
+  return renderFrom(baseUrl, path);
+}
+
+async function renderFrom(fromBaseUrl: string, path: string): Promise<Document> {
   const virtualConsole = new VirtualConsole();
   const failures: string[] = [];
   virtualConsole.on('jsdomError', (error: Error) => failures.push(error.message));
 
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await fetch(`${fromBaseUrl}${path}`, {
     headers: { Accept: 'text/html,application/xhtml+xml' },
   });
   expect(response.status, `unexpected status for ${path}`).toBe(200);
   const markup = await response.text();
 
   const dom = new JSDOM(markup, {
-    url: `${baseUrl}${path}`,
+    url: `${fromBaseUrl}${path}`,
     runScripts: 'dangerously',
     resources: 'usable',
     pretendToBeVisual: true,
@@ -226,7 +304,7 @@ async function render(path: string): Promise<Document> {
     beforeParse(window) {
       Object.defineProperty(window, 'fetch', {
         writable: true,
-        value: (input: string, init?: RequestInit) => fetch(new URL(input, baseUrl), init),
+        value: (input: string, init?: RequestInit) => fetch(new URL(input, fromBaseUrl), init),
       });
     },
   });
@@ -240,6 +318,41 @@ async function render(path: string): Promise<Document> {
   if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
 
   return dom.window.document;
+}
+
+// A second server that proxies every request to the real one EXCEPT
+// GET /agents/:did/hires, which it answers with the API's own storage
+// error shape (503 {"error":"storage unavailable"}, src/api/app.ts:973).
+// This is the only way to exercise "the /hires read failed" from outside
+// the page script: the real server always answers it because the memory
+// repositories never fail.
+async function startFailingHiresServer(): Promise<{ baseUrl: string; close: () => Promise<void> }> {
+  const realPort = (server.address() as AddressInfo).port;
+
+  const proxy = http.createServer((req, res) => {
+    if (req.url !== undefined && /\/agents\/[^/]+\/hires$/.test(req.url)) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'storage unavailable' }));
+      return;
+    }
+
+    const upstream = http.request(
+      { hostname: '127.0.0.1', port: realPort, path: req.url, method: req.method, headers: req.headers },
+      (upstreamRes) => {
+        res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+        upstreamRes.pipe(res);
+      },
+    );
+    req.pipe(upstream);
+  });
+
+  await new Promise<void>((resolve) => proxy.listen(0, resolve));
+  const proxyBaseUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
+
+  return {
+    baseUrl: proxyBaseUrl,
+    close: () => new Promise<void>((resolve) => proxy.close(() => resolve())),
+  };
 }
 
 // The three section heading ids, in the order a full profile has always
@@ -383,5 +496,53 @@ describe('an agent whose only credential demoted to portfolio (private-repo merg
     const summary = document.getElementById('summary')?.textContent ?? '';
     expect(summary).toContain('0 verified hires');
     expect(summary).not.toMatch(/^1 verified hire\b/);
+  });
+});
+
+// A hire's buyerDid can arrive in wallet form (z...) or registry form
+// (did:abt:z...); both name the same key (src/domain/agent.ts:33-37). The
+// API's own buyer-diversity read reconciles them with didSuffix before
+// counting distinct buyers (buyer-diversity.ts:93-95) specifically so one
+// buyer in two forms is not read as two (MISSION invariant 5). The page's
+// headline sentence has to apply the same reconciliation, or it tells a
+// buyer this agent has served more independent clients than it has.
+describe('an agent whose one buyer is recorded under two DID forms', () => {
+  it('counts one buyer in the headline sentence, not two', async () => {
+    const document = await render(`/agents/${TWO_FORM_DID}`);
+
+    expect(document.getElementById('history')?.children.length).toBe(2);
+
+    const summary = document.getElementById('summary')?.textContent ?? '';
+    expect(summary).toContain('2 verified hires,');
+    expect(summary).toContain('from 1 buyer.');
+    expect(summary).not.toContain('2 separate buyers');
+  });
+});
+
+// api.js states this as rule 1 for every page: a failed read is said out
+// loud, never rendered as an empty record, because an agent with nothing
+// and an agent whose record could not be loaded must never look the same.
+// The verified-hire count in the headline can still come from the R-17
+// tier array (that fact does not depend on /hires), but the self-hire
+// label depends on /hires, and when that read fails, the page must not
+// present the absence of a self-hire label as the fact that there is none.
+describe('an agent whose self-hire read fails', () => {
+  it('does not present a self-hire-free summary as fact when /hires cannot be read', async () => {
+    const proxy = await startFailingHiresServer();
+    try {
+      const document = await renderFrom(proxy.baseUrl, `/agents/${FULL_DID}`);
+
+      const summary = document.getElementById('summary')?.textContent ?? '';
+      const notice = document.getElementById('selfhires-error')?.textContent ?? '';
+
+      // The verified-hire count still stands on its own tier fact.
+      expect(summary).toContain('1 verified hire,');
+      // But nothing on the page may claim, one way or the other, how many
+      // of those were self-hires: that fact is unresolved, not zero.
+      expect(document.getElementById('selfhires')?.hidden).toBe(true);
+      expect(notice.toLowerCase()).toContain('could not be read');
+    } finally {
+      await proxy.close();
+    }
   });
 });
