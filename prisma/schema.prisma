@@ -153,6 +153,12 @@ model Credential {
   completedJobId String   @unique
   subjectDid     String
   document       Json
+  // R-17: the one fact evidenceTier needs that never belongs inside the
+  // signed document (ENT-8.3 forbids a judgement inside the signature
+  // envelope). Nullable with an application-level false default so an
+  // existing row written before this column existed reads back as
+  // unverified rather than crashing a migration or silently promoting.
+  repositoryPublic Boolean?
   issuedAt       DateTime @default(now())
 
   completedJob Job   @relation(fields: [completedJobId], references: [id], onUpdate: NoAction)

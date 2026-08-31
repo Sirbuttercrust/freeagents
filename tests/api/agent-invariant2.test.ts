@@ -256,6 +256,12 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
         toKey: r.toKey,
         rotatedAt: r.rotatedAt.toISOString(),
       })),
+      // R-17: the three-tier work record joined the contract, computed at
+      // read time. This agent has no issued credentials, so every tier
+      // renders empty (ENT-2.4), not absent.
+      verifiedHires: [],
+      verifiedPriorWork: [],
+      portfolio: [],
     });
 
     // A stranger fetching from the public API can verify with no further

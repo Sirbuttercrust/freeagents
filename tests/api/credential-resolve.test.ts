@@ -159,6 +159,9 @@ describe('GET /v1/credentials/:credentialId', () => {
       findByDocumentId: () => {
         throw new Error('storage down');
       },
+      listBySubjectDid: () => {
+        throw new Error('storage down');
+      },
     };
     const app = createApp(
       undefined,

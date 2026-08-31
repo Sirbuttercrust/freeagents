@@ -15,6 +15,7 @@ import {
   type CompromiseRepository,
   CredentialAlreadyIssuedError,
   type CredentialRepository,
+  type StoredCredential,
   JobAlreadyExistsError,
   type JobRepository,
   type KeyRotationInput,
@@ -213,13 +214,24 @@ export class MemoryJobRepository implements JobRepository {
   }
 }
 
+// Each stored row carries its subjectDid and repositoryPublic beside the
+// document, so listBySubjectDid can filter and answer evidenceTier's
+// question without parsing the credential shape (a pre-R-35 row may not
+// even nest credentialSubject.hire the current way).
+interface CredentialRow {
+  readonly subjectDid: string;
+  readonly document: VerifiableCredential;
+  readonly repositoryPublic: boolean;
+}
+
 export class MemoryCredentialRepository implements CredentialRepository {
-  private readonly rows = new Map<string, VerifiableCredential>();
+  private readonly rows = new Map<string, CredentialRow>();
 
   async save(input: {
     readonly completedJobId: string;
     readonly subjectDid: string;
     readonly document: VerifiableCredential;
+    readonly repositoryPublic?: boolean;
   }): Promise<void> {
     const key = credentialLookupKey(input.completedJobId);
     // Check-then-set is safe here: Node is single-threaded and this method
@@ -230,10 +242,24 @@ export class MemoryCredentialRepository implements CredentialRepository {
     }
     // The document goes in verbatim (the Prisma driver stores it the same
     // way): the bytes that verified are the bytes that are served back.
-    this.rows.set(key, input.document);
+    // repositoryPublic defaults to false: an unrecorded visibility fact
+    // must never read as verified.
+    this.rows.set(key, {
+      subjectDid: input.subjectDid,
+      document: input.document,
+      repositoryPublic: input.repositoryPublic ?? false,
+    });
   }
 
   async findByDocumentId(documentId: string): Promise<VerifiableCredential | null> {
-    return this.rows.get(credentialLookupKey(documentId)) ?? null;
+    return this.rows.get(credentialLookupKey(documentId))?.document ?? null;
+  }
+
+  async listBySubjectDid(subjectDid: string): Promise<readonly StoredCredential[]> {
+    // Map iteration order is insertion order (the JS spec guarantees it),
+    // so filtering here is already oldest-first with no extra sort.
+    return [...this.rows.values()]
+      .filter((row) => row.subjectDid === subjectDid)
+      .map((row) => ({ document: row.document, repositoryPublic: row.repositoryPublic }));
   }
 }

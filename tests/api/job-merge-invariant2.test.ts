@@ -158,6 +158,7 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
           additions: 55,
           deletions: 6,
           filesChanged: 3,
+          repositoryPublic: true,
         }),
       getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
       getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
