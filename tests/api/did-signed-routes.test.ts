@@ -154,36 +154,48 @@ describe('DID-signed hire-loop routes (R-34)', () => {
     expect(typeof confirmedBody.specHash).toBe('string');
   });
 
-  // ENT-6.2's caller-identity gate applies to every exchange route: without
-  // a verified signature, the caller still has to name its party through
-  // the x-freeagents-caller-did header. "Unsigned" here means no signature
-  // headers, not no identity at all -- that fallback is what this proves.
-  it('leaves unsigned traffic untouched: the identical loop with the caller-did header fallback', async () => {
-    const draft = await post('/jobs', {
-      buyerDid: buyer.did,
-      agentDid: agent.did,
-      repository: 'buyer/target-repo',
-      brief: 'Fix the checkout bug',
-    });
-    expect(draft.status).toBe(201);
-    const draftBody = (await draft.json()) as Record<string, unknown>;
-    const jobId = String(draftBody.id);
+  // ENT-6.2's caller-identity gate now requires a verified signature on
+  // every one of the four exchange routes: possession of the party's key,
+  // not a claim naming it. An unsigned request never reaches the domain.
+  it('refuses an unsigned request on each of the four exchange routes with 401', async () => {
+    const jobId = await createDraftJob();
 
-    const proposed = await post(
+    const propose = await post(`/jobs/${jobId}/criteria`, {
+      criteria: [{ text: 'Checkout works', proposedBy: 'agent' }],
+    });
+    expect(propose.status).toBe(401);
+    expect(((await propose.json()) as { error: string }).error).toContain('R-34');
+
+    // Sign the proposal so the remaining three routes have something to act on.
+    await postSigned(
+      `/jobs/${jobId}/criteria`,
+      { criteria: [{ text: 'Checkout works', proposedBy: 'agent' }] },
+      buyer,
+    );
+
+    const requestChanges = await post(`/jobs/${jobId}/request-changes`, {});
+    expect(requestChanges.status).toBe(401);
+
+    const accept = await post(`/jobs/${jobId}/criteria/0/accept`, {});
+    expect(accept.status).toBe(401);
+
+    const confirm = await post(`/jobs/${jobId}/confirm`, {});
+    expect(confirm.status).toBe(401);
+  });
+
+  // The retired header names a party but proves nothing -- it is inert, not
+  // a fallback identity path. A request that carries it without a verified
+  // signature is refused exactly like one that carries no header at all.
+  it('leaves the retired x-freeagents-caller-did header inert: present but unsigned is still 401', async () => {
+    const jobId = await createDraftJob();
+
+    const response = await post(
       `/jobs/${jobId}/criteria`,
       { criteria: [{ text: 'Checkout works', proposedBy: 'agent' }] },
       buyer.did,
     );
-    expect(proposed.status).toBe(200);
 
-    const acceptedByBuyer = await post(`/jobs/${jobId}/criteria/0/accept`, {}, buyer.did);
-    expect(acceptedByBuyer.status).toBe(200);
-    const acceptedByAgent = await post(`/jobs/${jobId}/criteria/0/accept`, {}, agent.did);
-    expect(acceptedByAgent.status).toBe(200);
-
-    const confirmed = await post(`/jobs/${jobId}/confirm`, {}, buyer.did);
-    expect(confirmed.status).toBe(200);
-    expect(((await confirmed.json()) as Record<string, unknown>).status).toBe('confirmed');
+    expect(response.status).toBe(401);
   });
 
   it('refuses a tampered body: signed for one body, sent with another', async () => {
@@ -274,18 +286,18 @@ describe('DID-signed hire-loop routes (R-34)', () => {
     expect(response.status).toBe(200);
   });
 
-  // The design decision this file exists to pin: a verified signature is
-  // authoritative over the x-freeagents-caller-did header. A caller who
-  // signs as one party has no business also claiming, via the header, to
-  // be the other party inside the same request -- that mismatch is refused
-  // rather than resolved by picking either side.
-  it('refuses a request whose verified signature and caller-did header name different parties', async () => {
+  // The retired header is fully inert now, even when a verified signature
+  // is present: a caller who signs as one party gains nothing by also
+  // sending the header naming a different party, because nothing reads it.
+  // The signed party's identity governs, exactly as if the header were
+  // absent -- this is the header's dead-code status made observable.
+  it('ignores the retired header entirely, even naming a different party than the verified signature', async () => {
     const jobId = await createDraftJob();
     const bodyText = JSON.stringify({ criteria: [{ text: 'Login works', proposedBy: 'agent' }] });
     const targetUri = `${baseUrl}/jobs/${jobId}/criteria`;
-    // Signed by the buyer, but the header claims the agent -- both are real
-    // parties to this job, so a header-wins resolution would let this
-    // through as the agent's proposal instead of refusing it.
+    // Signed by the buyer; the header claims the agent. If the header were
+    // read at all, this would 403 (mismatch) or apply as the agent's
+    // proposal. Neither happens: it is dead weight on the wire.
     const signed = signRequest(buyer, 'POST', targetUri, { body: bodyText });
 
     const response = await fetch(targetUri, {
@@ -300,7 +312,7 @@ describe('DID-signed hire-loop routes (R-34)', () => {
       body: bodyText,
     });
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(200);
   });
 
   it('refuses a registered stranger driving a job it is not a party to', async () => {

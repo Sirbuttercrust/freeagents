@@ -107,7 +107,7 @@ import type { DidDocument, IdentityAdapter, SignedPayload } from '../../src/adap
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import { MemoryAgentRepository, MemoryCredentialRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
-import { signRequest, signingIdentityFromSeed, type SigningIdentity } from '../helpers/sign-request.js';
+import { signRequest, signingIdentityFromSeed, signingIdentityFromWallet, type SigningIdentity } from '../helpers/sign-request.js';
 
 let server: Server;
 let base: string;
@@ -135,12 +135,10 @@ async function get(path: string): Promise<Response> {
   return res;
 }
 
-async function post(path: string, body: unknown = {}, callerDid?: string): Promise<Response> {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (callerDid !== undefined) headers['x-freeagents-caller-did'] = callerDid;
+async function post(path: string, body: unknown = {}): Promise<Response> {
   const res = await fetch(`${base}${path}`, {
     method: 'POST',
-    headers,
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
   stepsAsserted += 1;
@@ -971,11 +969,17 @@ describe('the API starts and answers', () => {
     const operatorWallet = fromRandom();
     const agentWallet = fromRandom();
     const buyerWallet = fromRandom();
+    const agentIdentity = await signingIdentityFromWallet(agentWallet);
+    const buyerIdentity = await signingIdentityFromWallet(buyerWallet);
     const credential = await signW3CDelegation(operatorWallet, agentWallet);
 
     // 1-2. Register and delegate, as in the flows above.
     const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-criteria' });
     expect(op.status).toBe(201);
+    // The buyer must be registered too: a verified signature requires the
+    // DID behind it to resolve, and the buyer is not the job's operator.
+    const buyerReg = await post('/operators', { did: buyerWallet.toDid(), githubLogin: 'buyer-criteria' });
+    expect(buyerReg.status).toBe(201);
     const delegated = await post('/agents', {
       did: agentWallet.toDid(),
       operator: operatorWallet.toDid(),
@@ -999,12 +1003,12 @@ describe('the API starts and answers', () => {
 
     // 4. The agent proposes criteria: draft -> proposed, nothing accepted by
     // either party.
-    const proposed = await post(`/jobs/${jobId}/criteria`, {
+    const proposed = await postSigned(`/jobs/${jobId}/criteria`, {
       criteria: [
         { text: 'The login bug is fixed', proposedBy: 'agent' },
         { text: 'Checkout e2e test passes', proposedBy: 'agent' },
       ],
-    }, agentWallet.toDid());
+    }, agentIdentity);
     expect(proposed.status).toBe(200);
     const proposedBody = (await proposed.json()) as Record<string, unknown>;
     expect(proposedBody.id).toBe(jobId);
@@ -1015,16 +1019,16 @@ describe('the API starts and answers', () => {
     ]);
 
     // 5. The buyer pushes back: still proposed, same id.
-    const pushback = await post(`/jobs/${jobId}/request-changes`, {}, buyerWallet.toDid());
+    const pushback = await postSigned(`/jobs/${jobId}/request-changes`, {}, buyerIdentity);
     expect(pushback.status).toBe(200);
     const pushbackBody = (await pushback.json()) as Record<string, unknown>;
     expect(pushbackBody.id).toBe(jobId);
     expect(pushbackBody.status).toBe('proposed');
 
     // 6. The agent re-proposes: same row again, list revised.
-    const again = await post(`/jobs/${jobId}/criteria`, {
+    const again = await postSigned(`/jobs/${jobId}/criteria`, {
       criteria: [{ text: 'One sharper criterion', proposedBy: 'agent' }],
-    }, agentWallet.toDid());
+    }, agentIdentity);
     expect(again.status).toBe(200);
     const againBody = (await again.json()) as Record<string, unknown>;
     expect(againBody.id).toBe(jobId);
@@ -1048,11 +1052,15 @@ describe('the API starts and answers', () => {
     const operatorWallet = fromRandom();
     const agentWallet = fromRandom();
     const buyerWallet = fromRandom();
+    const agentIdentity = await signingIdentityFromWallet(agentWallet);
+    const buyerIdentity = await signingIdentityFromWallet(buyerWallet);
     const credential = await signW3CDelegation(operatorWallet, agentWallet);
 
     // 1-2. Register and delegate, as in the flows above.
     const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-confirm' });
     expect(op.status).toBe(201);
+    const buyerReg = await post('/operators', { did: buyerWallet.toDid(), githubLogin: 'buyer-confirm' });
+    expect(buyerReg.status).toBe(201);
     const delegated = await post('/agents', {
       did: agentWallet.toDid(),
       operator: operatorWallet.toDid(),
@@ -1079,21 +1087,21 @@ describe('the API starts and answers', () => {
     // the stranger's normalisation below load-bearing rather than decorative.
     expect(
       (
-        await post(`/jobs/${jobId}/criteria`, {
+        await postSigned(`/jobs/${jobId}/criteria`, {
           criteria: [
             { text: 'The login bug is fixed\r\non staging', proposedBy: 'agent' },
             { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
           ],
-        }, agentWallet.toDid())
+        }, agentIdentity)
       ).status,
     ).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, buyerWallet.toDid())).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, agentWallet.toDid())).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, buyerWallet.toDid())).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, agentWallet.toDid())).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
 
     // 5. Confirm: status flips, specHash appears, confirmedAt rides beside it.
-    const confirmed = await post(`/jobs/${jobId}/confirm`, {}, buyerWallet.toDid());
+    const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity);
     expect(confirmed.status).toBe(200);
     const confirmedBody = (await confirmed.json()) as Record<string, unknown>;
     expect(confirmedBody.status).toBe('confirmed');
@@ -1138,9 +1146,9 @@ describe('the API starts and answers', () => {
 
     // 8. Locked: proposing and pushback are both conflicts now.
     expect(
-      (await post(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'sneak in', proposedBy: 'agent' }] }, agentWallet.toDid())).status,
+      (await postSigned(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'sneak in', proposedBy: 'agent' }] }, agentIdentity)).status,
     ).toBe(409);
-    expect((await post(`/jobs/${jobId}/request-changes`, {}, buyerWallet.toDid())).status).toBe(409);
+    expect((await postSigned(`/jobs/${jobId}/request-changes`, {}, buyerIdentity)).status).toBe(409);
   });
 
   it('forks and opens the pull request carrying the job id (R-10)', async () => {
@@ -1153,11 +1161,15 @@ describe('the API starts and answers', () => {
     const operatorWallet = fromRandom();
     const agentWallet = fromRandom();
     const buyerWallet = fromRandom();
+    const agentIdentity = await signingIdentityFromWallet(agentWallet);
+    const buyerIdentity = await signingIdentityFromWallet(buyerWallet);
     const credential = await signW3CDelegation(operatorWallet, agentWallet);
 
     // 1-2. Register and delegate, as in the flows above.
     const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-pr' });
     expect(op.status).toBe(201);
+    const buyerReg = await post('/operators', { did: buyerWallet.toDid(), githubLogin: 'buyer-pr' });
+    expect(buyerReg.status).toBe(201);
     const delegated = await post('/agents', {
       did: agentWallet.toDid(),
       operator: operatorWallet.toDid(),
@@ -1181,19 +1193,19 @@ describe('the API starts and answers', () => {
     // confirmed.
     expect(
       (
-        await post(`/jobs/${jobId}/criteria`, {
+        await postSigned(`/jobs/${jobId}/criteria`, {
           criteria: [
             { text: 'The login bug is fixed', proposedBy: 'agent' },
             { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
           ],
-        }, agentWallet.toDid())
+        }, agentIdentity)
       ).status,
     ).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, buyerWallet.toDid())).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, agentWallet.toDid())).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, buyerWallet.toDid())).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, agentWallet.toDid())).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/confirm`, {}, buyerWallet.toDid())).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
 
     // 6. Fork and open the PR: the job lands on submitted with the URL and
     // timestamp riding beside it.
@@ -1225,11 +1237,15 @@ describe('the API starts and answers', () => {
     const operatorWallet = fromRandom();
     const agentWallet = fromRandom();
     const buyerWallet = fromRandom();
+    const agentIdentity = await signingIdentityFromWallet(agentWallet);
+    const buyerIdentity = await signingIdentityFromWallet(buyerWallet);
     const credential = await signW3CDelegation(operatorWallet, agentWallet);
 
     // 1-2. Register and delegate, as in the flows above.
     const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-merge' });
     expect(op.status).toBe(201);
+    const buyerReg = await post('/operators', { did: buyerWallet.toDid(), githubLogin: 'buyer-merge' });
+    expect(buyerReg.status).toBe(201);
     const delegated = await post('/agents', {
       did: agentWallet.toDid(),
       operator: operatorWallet.toDid(),
@@ -1252,19 +1268,19 @@ describe('the API starts and answers', () => {
     // 4-6. Agree the spec and open the pull request: confirmed -> submitted.
     expect(
       (
-        await post(`/jobs/${jobId}/criteria`, {
+        await postSigned(`/jobs/${jobId}/criteria`, {
           criteria: [
             { text: 'The login bug is fixed', proposedBy: 'agent' },
             { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
           ],
-        }, agentWallet.toDid())
+        }, agentIdentity)
       ).status,
     ).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, buyerWallet.toDid())).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, agentWallet.toDid())).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, buyerWallet.toDid())).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, agentWallet.toDid())).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/confirm`, {}, buyerWallet.toDid())).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
     const pr = await post(`/jobs/${jobId}/pull-request`);
     expect(pr.status).toBe(200);
 

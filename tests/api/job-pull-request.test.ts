@@ -37,9 +37,10 @@ import {
 } from '../../src/adapters/storage/memory.js';
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { createJob, type Job, type JobStatus } from '../../src/domain/job.js';
+import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
-const AGENT_DID = 'did:abt:agent-pr';
-const BUYER_DID = 'did:abt:buyer-pr';
+let buyer: SigningIdentity;
+let agent: SigningIdentity;
 const FORK_OWNER = 'freeagents-platform';
 const FORK_REPO = 'target-repo';
 const proposal = [
@@ -116,13 +117,27 @@ function forkCall(recorded: RecordedCalls, index: number): ForkAndOpenPullReques
 let server: Server;
 let baseUrl: string;
 
-async function post(path: string, body: unknown = {}, base: string = baseUrl, callerDid?: string): Promise<Response> {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (callerDid !== undefined) headers['x-freeagents-caller-did'] = callerDid;
+async function post(path: string, body: unknown = {}, base: string = baseUrl): Promise<Response> {
   return fetch(`${base}${path}`, {
     method: 'POST',
-    headers,
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
+  });
+}
+
+async function postSigned(path: string, body: unknown, identity: SigningIdentity, base: string = baseUrl): Promise<Response> {
+  const bodyText = JSON.stringify(body);
+  const targetUri = `${base}${path}`;
+  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText });
+  return fetch(targetUri, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+    body: bodyText,
   });
 }
 
@@ -136,14 +151,16 @@ async function startWith(
 ): Promise<{ server: Server; baseUrl: string }> {
   const agentRepo = new MemoryAgentRepository();
   await agentRepo.create({
-    did: AGENT_DID,
+    did: agent.did,
     operatorDid: 'did:abt:op-pr',
     delegation: { fixture: true } as never,
     name: 'scout',
     skills: ['triage'],
     githubLogin: null,
   });
-  const s = createApp(new MemoryOperatorRepository(), agentRepo, undefined, github, repo).listen(0);
+  const operatorRepo = new MemoryOperatorRepository();
+  await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-pr-scripted' });
+  const s = createApp(operatorRepo, agentRepo, undefined, github, repo).listen(0);
   await new Promise<void>((resolve) => s.once('listening', resolve));
   const address = s.address();
   if (address === null || typeof address === 'string') {
@@ -155,23 +172,23 @@ async function startWith(
 // One job walked draft -> confirmed over HTTP, returning the confirm body so
 // the specHash a stranger sees can be compared byte for byte.
 async function walkToConfirm(jobId: string, base: string = baseUrl): Promise<Record<string, unknown>> {
-  expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, base, AGENT_DID)).status).toBe(200);
-  expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, base, BUYER_DID)).status).toBe(200);
-  expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, base, AGENT_DID)).status).toBe(200);
-  expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, base, BUYER_DID)).status).toBe(200);
-  expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, base, AGENT_DID)).status).toBe(200);
-  const confirmed = await post(`/jobs/${jobId}/confirm`, {}, base, BUYER_DID);
+  expect((await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal }, agent, base)).status).toBe(200);
+  expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyer, base)).status).toBe(200);
+  expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agent, base)).status).toBe(200);
+  expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyer, base)).status).toBe(200);
+  expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agent, base)).status).toBe(200);
+  const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, buyer, base);
   expect(confirmed.status).toBe(200);
   return (await confirmed.json()) as Record<string, unknown>;
 }
 
-async function openDraft(brief: string): Promise<{ jobId: string; briefHash: unknown }> {
+async function openDraft(brief: string, base: string = baseUrl): Promise<{ jobId: string; briefHash: unknown }> {
   const created = await post('/jobs', {
-    buyerDid: BUYER_DID,
-    agentDid: AGENT_DID,
+    buyerDid: buyer.did,
+    agentDid: agent.did,
     repository: 'buyer/target-repo',
     brief,
-  });
+  }, base);
   expect(created.status).toBe(201);
   const body = (await created.json()) as Record<string, unknown>;
   return { jobId: String(body.id), briefHash: body.briefHash };
@@ -187,6 +204,8 @@ describe('job pull-request (R-10)', () => {
   let happySpecHash: unknown;
 
   beforeAll(async () => {
+    buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(81));
+    agent = await signingIdentityFromSeed(new Uint8Array(32).fill(82));
     ({ server, baseUrl } = await startWith(jobRepo, recordingFake(recorded)));
   });
 
@@ -314,8 +333,8 @@ describe('job pull-request, faulted legs (R-10)', () => {
       const created = await post(
         '/jobs',
         {
-          buyerDid: BUYER_DID,
-          agentDid: AGENT_DID,
+          buyerDid: buyer.did,
+          agentDid: agent.did,
           repository: 'buyer/target-repo',
           brief: 'A job whose PR will fail',
         },
@@ -323,12 +342,12 @@ describe('job pull-request, faulted legs (R-10)', () => {
       );
       expect(created.status).toBe(201);
       const jobId = String(((await created.json()) as Record<string, unknown>).id);
-      expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, scripted.baseUrl, AGENT_DID)).status).toBe(200);
-      expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, scripted.baseUrl, BUYER_DID)).status).toBe(200);
-      expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, scripted.baseUrl, AGENT_DID)).status).toBe(200);
-      expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, scripted.baseUrl, BUYER_DID)).status).toBe(200);
-      expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, scripted.baseUrl, AGENT_DID)).status).toBe(200);
-      expect((await post(`/jobs/${jobId}/confirm`, {}, scripted.baseUrl, BUYER_DID)).status).toBe(200);
+      expect((await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal }, agent, scripted.baseUrl)).status).toBe(200);
+      expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyer, scripted.baseUrl)).status).toBe(200);
+      expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agent, scripted.baseUrl)).status).toBe(200);
+      expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyer, scripted.baseUrl)).status).toBe(200);
+      expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agent, scripted.baseUrl)).status).toBe(200);
+      expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyer, scripted.baseUrl)).status).toBe(200);
 
       const pr = await post(`/jobs/${jobId}/pull-request`, {}, scripted.baseUrl);
       expect(pr.status).toBe(503);
@@ -393,7 +412,7 @@ describe('job pull-request, faulted legs (R-10)', () => {
     // than answer a client error or reach the adapter.
     const row: Job = {
       ...createJob(
-        { id: 'j-corrupt', buyerDid: BUYER_DID, agentDid: AGENT_DID, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
+        { id: 'j-corrupt', buyerDid: buyer.did, agentDid: agent.did, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
         new Date('2026-01-01T00:00:00Z'),
       ),
       status: 'corrupted' as JobStatus,
@@ -514,6 +533,3 @@ describe('pull-request, invariant 1 and Gate 2 (R-10)', () => {
     expect(call.body).toContain('holds no write access');
   });
 });
-
-
-
