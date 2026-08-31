@@ -46,12 +46,14 @@ import { delegationConsistent, type Agent, type Delegation } from '../domain/age
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
 import { lastHireCompletedAt, recordLastChangedAt } from '../domain/freshness.js';
 import {
+  DEFAULT_BROWSE_SORT,
   filterBySkill,
   resolveBrowseSort,
   sortBrowseCards,
   toBrowseCard,
   type BrowseCard,
 } from '../domain/browse.js';
+import { operatorAggregate } from '../domain/operator-roster.js';
 import {
   didDocumentPointsAtGithubAccount,
   gistProofPayload,
@@ -485,6 +487,73 @@ export function createApp(
       res.status(200).json(operatorProjection(row));
     } catch (err) {
       console.error('GET /operators/:did: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // R-19 (D4, ENT-1.2): the operator roster. ANCHOR: an operator page is the
+  // sum of who they run, never a score for the operator. Widens the same
+  // browse-card assembly R-20 built (toBrowseCard, agentWorkRecord), so a
+  // roster row and a browse card can never drift for the same agent; the
+  // aggregate is derived structurally from those same rows
+  // (operatorAggregate, src/domain/operator-roster.ts), three separate
+  // tier totals, never a caller-supplied number and never a blended score.
+  app.get('/operators/:did/agents', async (req: Request, res: Response) => {
+    const operatorDid = String(req.params.did);
+
+    let operatorRow: Operator | null;
+    try {
+      operatorRow = await repo.findByDid(operatorDid);
+    } catch (err) {
+      console.error('GET /operators/:did/agents: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (operatorRow === null) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+
+    if (typeof agentRepo.listAll !== 'function') {
+      console.error('GET /operators/:did/agents: storage does not support listAll');
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+
+    try {
+      const rows = await agentRepo.listAll();
+      const ownAgents = rows.filter((row) => row.operatorDid === operatorDid);
+      const unsorted: BrowseCard[] = await Promise.all(
+        ownAgents.map(async (row) => {
+          const stored = await credentialRepo.listBySubjectDid(row.did);
+          const evidence: CredentialEvidence[] = stored.map((entry) => ({
+            credentialId: entry.document.id,
+            repository: entry.document.credentialSubject.hire.repository,
+            pullRequest: entry.document.credentialSubject.hire.pullRequest,
+            mergedAt: entry.document.credentialSubject.hire.mergedAt,
+            mergeCommit: entry.document.credentialSubject.hire.mergeCommit,
+            buyerDid: entry.document.credentialSubject.hire.buyer,
+            repositoryPublic: entry.repositoryPublic,
+          }));
+          const record = agentWorkRecord(evidence);
+          return toBrowseCard(row, record);
+        }),
+      );
+      // D1's default order, the same rule browse defaults to: verified
+      // hires, descending. The roster carries no separate sort surface of
+      // its own (D4 draws that line at ten-plus agents, handled client-side
+      // in operator.js), so the one order this route ever returns is the
+      // platform's one honest default, reusing browse's own sort function
+      // rather than a second ordering rule for the same rows.
+      const cards = sortBrowseCards(unsorted, DEFAULT_BROWSE_SORT);
+
+      res.status(200).json({
+        operatorDid,
+        agents: cards,
+        aggregate: operatorAggregate(cards),
+      });
+    } catch (err) {
+      console.error('GET /operators/:did/agents: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });

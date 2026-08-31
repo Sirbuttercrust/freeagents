@@ -1,19 +1,24 @@
 /* P-4 operator profile: read the record and render it.
 
-   ONE PUBLIC ROUTE, and it serves exactly three fields:
+   The identity strip fetches GET /operators/:did (did, githubLogin,
+   createdAt), pinned by tests/api/operator-invariant2.test.ts. The roster
+   below it fetches GET /operators/:did/agents (R-19, D4): every agent
+   delegated from this operator, as browse-shaped rows, plus a per-tier
+   aggregate.
 
-     GET /operators/:did  ->  { did, githubLogin, createdAt }
+   ANCHOR: an operator page is the sum of who they run, never a score for
+   the operator. The roster rows are the page; the aggregate is a summary
+   line under them, never a headline that buries the agents it came from.
 
-   That key set is pinned by tests/api/operator-invariant2.test.ts, so this
-   page renders those three and nothing else. The agent list, the aggregate
-   hire count and the merge fraction the wireframe drew all need a route
-   that does not exist; agent.html's section says so in the page rather than
-   filling the space with a zero we have not checked. */
+   ONE LAYOUT, NO BRANCHING (D4). A roster table that gains sort and filter
+   controls only above ten agents; a single-agent operator sees the same
+   table with one row. There is no second layout for the small case. */
 
 (function () {
   "use strict";
 
   var A = window.FAApi;
+  var ROSTER_CONTROL_THRESHOLD = 10;
 
   function start() {
     var did = A.idFromPath();
@@ -32,6 +37,7 @@
         return;
       }
       render(result.value);
+      loadRoster(did);
     });
   }
 
@@ -85,6 +91,126 @@
   function setCopy(id, value) {
     var btn = A.el(id);
     if (btn && typeof value === "string") btn.setAttribute("data-copy", value);
+  }
+
+  /* --------------------------------------------------------- the roster */
+
+  function loadRoster(did) {
+    A.get("/operators/" + encodeURIComponent(did) + "/agents").then(function (result) {
+      if (result.state !== "ok") {
+        renderRosterFailure();
+        return;
+      }
+      renderRoster(result.value);
+    });
+  }
+
+  function renderRosterFailure() {
+    A.showById("roster-empty", true);
+    A.setTextById("roster-summary", "");
+    var empty = A.el("roster-empty");
+    if (empty) {
+      var b = empty.querySelector("b");
+      var p = empty.querySelector(".sub");
+      if (b) b.textContent = "The roster could not be read just now.";
+      if (p) p.textContent = "Reloading may work.";
+    }
+  }
+
+  function renderRoster(body) {
+    var agents = Array.isArray(body.agents) ? body.agents : [];
+    var host = A.el("roster-cards");
+    if (host) {
+      host.textContent = "";
+      agents.forEach(function (agent) {
+        host.appendChild(rosterRow(agent));
+      });
+    }
+
+    A.showById("roster-empty", agents.length === 0);
+
+    /* D4: controls appear only above ten agents. Below that the table
+       renders plain, one layout either way. */
+    A.showById("roster-controls", agents.length > ROSTER_CONTROL_THRESHOLD);
+
+    renderSummary(body.aggregate);
+  }
+
+  function renderSummary(aggregate) {
+    var totals = aggregate && typeof aggregate === "object" ? aggregate : {};
+    var hires = numberOr(totals.totalVerifiedHireCount);
+    var prior = numberOr(totals.totalVerifiedPriorWorkCount);
+    var portfolio = numberOr(totals.totalPortfolioCount);
+
+    /* Three separately labelled totals, one sentence, never combined into
+       one number (MISSION invariant 5). This is a summary of the rows
+       above it, not a verdict on the operator. */
+    A.setTextById(
+      "roster-summary",
+      "Across every agent listed here: " +
+        A.plural(hires, "verified hire", "verified hires") + ", " +
+        A.plural(prior, "verified prior work", "verified prior work") + ", " +
+        A.plural(portfolio, "portfolio claim", "portfolio claims") + "."
+    );
+  }
+
+  function rosterRow(agent) {
+    var row = document.createElement("div");
+    row.className = "card-row";
+    row.setAttribute("data-agent-row", agent.did);
+
+    var body = document.createElement("div");
+
+    var name = document.createElement("a");
+    name.className = "name-link";
+    name.setAttribute("href", "/agents/" + encodeURIComponent(agent.did));
+    name.textContent = typeof agent.name === "string" && agent.name !== "" ? agent.name : A.shortDid(agent.did);
+    body.appendChild(name);
+
+    /* THE EVIDENCE ROW. Same three separately labelled counts a browse
+       card carries, read the same way (src/domain/browse.ts's toBrowseCard,
+       shared by both the browse route and this roster route), so a row
+       here and the same agent's browse card can never drift apart. */
+    var evidence = document.createElement("div");
+    evidence.className = "evidence-row";
+
+    var hireSpan = document.createElement("span");
+    var hireCount = document.createElement("span");
+    hireCount.className = "count";
+    hireCount.textContent = A.plural(numberOr(agent.verifiedHireCount), "verified hire", "verified hires");
+    hireSpan.appendChild(hireCount);
+    if (numberOr(agent.verifiedHireCount) > 0) {
+      var buyers = document.createElement("span");
+      buyers.className = "buyers";
+      buyers.textContent = ", " + A.plural(numberOr(agent.buyerCount), "buyer", "buyers");
+      hireSpan.appendChild(buyers);
+    }
+    evidence.appendChild(hireSpan);
+
+    var priorSpan = document.createElement("span");
+    priorSpan.textContent = A.plural(numberOr(agent.verifiedPriorWorkCount), "verified prior work", "verified prior work");
+    evidence.appendChild(priorSpan);
+
+    var portfolioSpan = document.createElement("span");
+    portfolioSpan.textContent = A.plural(numberOr(agent.portfolioCount), "portfolio claim", "portfolio claims");
+    evidence.appendChild(portfolioSpan);
+
+    body.appendChild(evidence);
+
+    var skills = Array.isArray(agent.skills) ? agent.skills.filter(function (s) { return typeof s === "string" && s !== ""; }) : [];
+    if (skills.length > 0) {
+      var skillsRow = document.createElement("div");
+      skillsRow.className = "skills";
+      skillsRow.textContent = skills.join("  \u00b7  ");
+      body.appendChild(skillsRow);
+    }
+
+    row.appendChild(body);
+    return row;
+  }
+
+  function numberOr(value) {
+    return typeof value === "number" && !isNaN(value) ? value : 0;
   }
 
   if (document.readyState === "loading") {

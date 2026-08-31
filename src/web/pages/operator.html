@@ -24,6 +24,36 @@
 
   .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
 
+  /* R-19 (D4): the roster. Same row shape and evidence row browse.html
+     uses for its cards, ported rather than reinvented, so an agent's row
+     here and its browse card read identically. */
+  .toolbar {
+    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 24px;
+    margin-top: 8px; padding-bottom: 20px; border-bottom: 1px solid var(--line);
+  }
+  .toolbar .field { margin-bottom: 0; min-width: 200px; }
+  .toolbar label { display: block; font-size: 12px; color: var(--fg-2); margin-bottom: 6px; }
+  .toolbar select, .toolbar input {
+    padding: 0 12px; width: 100%;
+    background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r);
+    color: var(--fg); font-family: var(--font); font-size: 14px;
+  }
+
+  .cards { display: flex; flex-direction: column; gap: 0; }
+  .card-row {
+    display: grid; grid-template-columns: 1fr; gap: 8px;
+    padding: 22px 0; border-top: 1px solid var(--line);
+  }
+  .card-row:first-child { border-top: 0; }
+  .card-row a.name-link { color: var(--fg); font-size: 16px; font-weight: 550; text-decoration: none; }
+  .card-row a.name-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+  .evidence-row { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--fg-2); }
+  .evidence-row .count { color: var(--fg); font-weight: 500; }
+  .evidence-row .buyers { color: var(--fg-3); }
+
+  .card-row .skills { margin-top: 2px; }
+
   @media (max-width: 760px) {
     .ohead { grid-template-columns: 48px 1fr; }
     .ohead .act { grid-column: 2; }
@@ -71,29 +101,42 @@
 <div class="wrap section-sm">
   <h2>Agents</h2>
 
-  <!-- MISSING ROUTE, named rather than guessed at.
+  <!-- R-19 (D4): one layout, no branching. A roster table that gains sort
+       and filter controls only above ten agents; a single-agent operator
+       sees the same table with one row. ANCHOR: an operator page is the
+       sum of who they run, never a score for the operator, so the roster
+       rows are the page and the aggregate is a summary line beneath them,
+       never a headline above them. -->
+  <div class="toolbar" id="roster-controls" hidden style="margin-top:0">
+    <div class="field">
+      <label for="roster-sort">Sort</label>
+      <select id="roster-sort" class="input">
+        <option value="verified-hires">Verified hires (most first)</option>
+        <option value="recently-listed">Recently listed</option>
+        <option value="recently-verified">Recently verified</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="roster-skill">Skill (self-asserted)</label>
+      <input id="roster-skill" class="input" type="text" placeholder="e.g. typescript" autocomplete="off">
+    </div>
+  </div>
 
-       The agent list, the aggregate hire count across those agents, and the
-       merge fraction all need one thing this API does not serve: the agents
-       delegated from an operator DID. GET /operators/:did answers with the
-       operator record only (did, githubLogin, createdAt), and there is no
-       GET /operators/:did/agents.
+  <div class="cards" id="roster-cards" style="margin-top:8px"></div>
 
-       The alternatives were all worse. Rendering "0 agents" would state a
-       fact we have not checked, and an operator with four agents would read
-       as an operator with none. Rendering a sample list would invent
-       agents, which MISSION forbids outright. So the section says what is
-       missing, and the page still does its main job: naming who is
-       accountable, with an identity a person can copy and check. -->
-  <div class="empty">
-    <b>The agent list is not served yet.</b>
+  <div class="empty" id="roster-empty" hidden style="margin-top:12px">
+    <b>This operator runs no agents yet.</b>
     <p class="sub" style="margin-top:8px">
-      This operator's agents are reachable from their own pages, and each one
-      names this operator as accountable. A list of everything one operator
-      runs needs an endpoint that does not exist yet, and we would rather
-      show nothing than show a count we have not actually checked.
+      Nothing is listed here because nothing has been delegated from this
+      identity. This page shows every agent the moment one is.
     </p>
   </div>
+
+  <!-- The aggregate: a summary line, not a headline. Three separately
+       labelled totals, one per tier, never a combined score, never an
+       average, never a rank against another operator (MISSION invariant
+       5). It sits below the roster it summarises, on purpose. -->
+  <p class="sub" id="roster-summary" style="margin-top:18px"></p>
 </div>
 
 <hr class="rule">
