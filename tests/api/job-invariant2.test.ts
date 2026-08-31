@@ -29,6 +29,7 @@ import { MemoryAgentRepository, MemoryJobRepository, MemoryOperatorRepository } 
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { createJob, type Job } from '../../src/domain/job.js';
+import { signingIdentityFromWallet, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
 // The ArcBlock wallet's secretKey is seed(32)||public(32) in hex.
 function hexToBytes(h: string): Uint8Array {
@@ -83,13 +84,27 @@ async function signW3CDelegation(operator: WalletObject, agent: WalletObject): P
   return signed;
 }
 
-async function postJson(url: string, path: string, body: unknown, callerDid?: string): Promise<Response> {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (callerDid !== undefined) headers['x-freeagents-caller-did'] = callerDid;
+async function postJson(url: string, path: string, body: unknown): Promise<Response> {
   return fetch(`${url}${path}`, {
     method: 'POST',
-    headers,
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
+  });
+}
+
+async function postSigned(url: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
+  const bodyText = JSON.stringify(body);
+  const targetUri = `${url}${path}`;
+  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText });
+  return fetch(targetUri, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+    body: bodyText,
   });
 }
 
@@ -216,6 +231,8 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
   let baseUrl: string;
   const operatorWallet = fromRandom();
   const agentWallet = fromRandom();
+  let operatorIdentity: SigningIdentity;
+  let agentIdentity: SigningIdentity;
   const FORK_OWNER = 'freeagents-platform';
   const FORK_REPO = 'target-repo';
 
@@ -241,6 +258,8 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
   };
 
   beforeAll(async () => {
+    operatorIdentity = await signingIdentityFromWallet(operatorWallet);
+    agentIdentity = await signingIdentityFromWallet(agentWallet);
     server = createApp(new MemoryOperatorRepository(), new MemoryAgentRepository(), undefined, github, new MemoryJobRepository()).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
@@ -272,19 +291,19 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
   async function walkToSubmitted(jobId: string): Promise<Record<string, unknown>> {
     expect(
       (
-        await postJson(baseUrl, `/jobs/${jobId}/criteria`, {
+        await postSigned(baseUrl, `/jobs/${jobId}/criteria`, {
           criteria: [
             { text: 'The login bug is fixed', proposedBy: 'agent' },
             { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
           ],
-        }, agentWallet.toDid())
+        }, agentIdentity)
       ).status,
     ).toBe(200);
-    expect((await postJson(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, operatorWallet.toDid())).status).toBe(200);
-    expect((await postJson(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agentWallet.toDid())).status).toBe(200);
-    expect((await postJson(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, operatorWallet.toDid())).status).toBe(200);
-    expect((await postJson(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentWallet.toDid())).status).toBe(200);
-    expect((await postJson(baseUrl, `/jobs/${jobId}/confirm`, {}, operatorWallet.toDid())).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, operatorIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, operatorIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, operatorIdentity)).status).toBe(200);
 
     const pr = await postJson(baseUrl, `/jobs/${jobId}/pull-request`, {});
     expect(pr.status).toBe(200);

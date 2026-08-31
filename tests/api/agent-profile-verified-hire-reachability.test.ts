@@ -27,6 +27,7 @@ import {
   MemoryJobRepository,
   MemoryOperatorRepository,
 } from '../../src/adapters/storage/memory.js';
+import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
 const ISSUER_DID = 'did:abt:test-platform-issuer-reachability';
 const ISSUER_SEED = new Uint8Array(32).fill(3);
@@ -68,7 +69,11 @@ function scriptedGithub(repositoryPublic: boolean): GithubAdapter {
   };
 }
 
-async function startWith(github: GithubAdapter, agentDid: string): Promise<{ server: Server; baseUrl: string }> {
+async function startWith(
+  github: GithubAdapter,
+  agentDid: string,
+  buyerDid: string,
+): Promise<{ server: Server; baseUrl: string }> {
   const agentRepo = new MemoryAgentRepository();
   await agentRepo.create({
     did: agentDid,
@@ -78,10 +83,12 @@ async function startWith(github: GithubAdapter, agentDid: string): Promise<{ ser
     skills: ['triage'],
     githubLogin: null,
   });
+  const operatorRepo = new MemoryOperatorRepository();
+  await operatorRepo.register({ did: buyerDid, githubLogin: 'buyer-reachability' });
   const credentialRepo = new MemoryCredentialRepository();
   const credentials = createCredentialsAdapter({ did: ISSUER_DID, seed: ISSUER_SEED }, credentialRepo);
   const app = createApp(
-    new MemoryOperatorRepository(),
+    operatorRepo,
     agentRepo,
     fakeIdentity(),
     github,
@@ -99,22 +106,40 @@ async function startWith(github: GithubAdapter, agentDid: string): Promise<{ ser
   return { server, baseUrl: `http://127.0.0.1:${(address as AddressInfo).port}` };
 }
 
-async function post(baseUrl: string, path: string, body: unknown = {}, callerDid?: string): Promise<Response> {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (callerDid !== undefined) headers['x-freeagents-caller-did'] = callerDid;
-  return fetch(`${baseUrl}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
+async function post(baseUrl: string, path: string, body: unknown = {}): Promise<Response> {
+  return fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+async function postSigned(baseUrl: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
+  const bodyText = JSON.stringify(body);
+  const targetUri = `${baseUrl}${path}`;
+  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText });
+  return fetch(targetUri, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+    body: bodyText,
+  });
 }
 
 // Walks one job all the way to a merged credential, over HTTP, exactly as a
 // real buyer and agent would. Returns the merge response body.
 async function walkToMerge(
   baseUrl: string,
-  agentDid: string,
-  buyerDid: string,
+  agent: SigningIdentity,
+  buyer: SigningIdentity,
 ): Promise<Record<string, unknown>> {
   const draft = await post(baseUrl, '/jobs', {
-    buyerDid,
-    agentDid,
+    buyerDid: buyer.did,
+    agentDid: agent.did,
     repository: 'buyer/target-repo',
     brief: 'Fix the checkout timeout',
   });
@@ -123,22 +148,22 @@ async function walkToMerge(
 
   expect(
     (
-      await post(
+      await postSigned(
         baseUrl,
         `/jobs/${jobId}/criteria`,
         { criteria: [
           { text: 'The checkout no longer times out', proposedBy: 'agent' },
           { text: 'Load test passes', proposedBy: 'buyer' },
         ] },
-        agentDid,
+        agent,
       )
     ).status,
   ).toBe(200);
-  expect((await post(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, buyerDid)).status).toBe(200);
-  expect((await post(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agentDid)).status).toBe(200);
-  expect((await post(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyerDid)).status).toBe(200);
-  expect((await post(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentDid)).status).toBe(200);
-  expect((await post(baseUrl, `/jobs/${jobId}/confirm`, {}, buyerDid)).status).toBe(200);
+  expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, buyer)).status).toBe(200);
+  expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agent)).status).toBe(200);
+  expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyer)).status).toBe(200);
+  expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agent)).status).toBe(200);
+  expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyer)).status).toBe(200);
   expect((await post(baseUrl, `/jobs/${jobId}/pull-request`)).status).toBe(200);
 
   const merge = await post(baseUrl, `/jobs/${jobId}/merge`);
@@ -148,14 +173,14 @@ async function walkToMerge(
 
 describe('GET /agents/:agentDid, verified-hire reachability from a REAL merge (R-17 proof gate finding)', () => {
   it('a platform-brokered merge into a PUBLIC repository reaches verifiedHires, driven through the real merge route', async () => {
-    const agentDid = 'did:abt:agent-reachability-public';
-    const buyerDid = 'did:abt:buyer-reachability-public';
-    const { server, baseUrl } = await startWith(scriptedGithub(true), agentDid);
+    const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(101));
+    const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(102));
+    const { server, baseUrl } = await startWith(scriptedGithub(true), agent.did, buyer.did);
     try {
-      const mergeBody = await walkToMerge(baseUrl, agentDid, buyerDid);
+      const mergeBody = await walkToMerge(baseUrl, agent, buyer);
       const credential = mergeBody.credential as Record<string, unknown>;
 
-      const profile = await fetch(`${baseUrl}/agents/${agentDid}`);
+      const profile = await fetch(`${baseUrl}/agents/${agent.did}`);
       expect(profile.status).toBe(200);
       const body = (await profile.json()) as Record<string, unknown>;
 
@@ -166,7 +191,7 @@ describe('GET /agents/:agentDid, verified-hire reachability from a REAL merge (R
           pullRequest: `https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/${PR_NUMBER}`,
           mergedAt: MERGED_AT.toISOString(),
           mergeCommit: MERGE_SHA,
-          buyerDid,
+          buyerDid: buyer.did,
         },
       ]);
       expect(body.portfolio).toEqual([]);
@@ -176,13 +201,13 @@ describe('GET /agents/:agentDid, verified-hire reachability from a REAL merge (R
   });
 
   it('a platform-brokered merge into a PRIVATE repository does not reach verifiedHires, driven through the real merge route', async () => {
-    const agentDid = 'did:abt:agent-reachability-private';
-    const buyerDid = 'did:abt:buyer-reachability-private';
-    const { server, baseUrl } = await startWith(scriptedGithub(false), agentDid);
+    const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(103));
+    const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(104));
+    const { server, baseUrl } = await startWith(scriptedGithub(false), agent.did, buyer.did);
     try {
-      await walkToMerge(baseUrl, agentDid, buyerDid);
+      await walkToMerge(baseUrl, agent, buyer);
 
-      const profile = await fetch(`${baseUrl}/agents/${agentDid}`);
+      const profile = await fetch(`${baseUrl}/agents/${agent.did}`);
       expect(profile.status).toBe(200);
       const body = (await profile.json()) as Record<string, unknown>;
 

@@ -30,6 +30,26 @@ export async function signingIdentityFromSeed(seed: Uint8Array): Promise<Signing
   return { did, keyid, privateKey };
 }
 
+// An ArcBlock wallet already carries its own DID (operator and agent DIDs
+// throughout the suite are wallet DIDs, not derived from a seed the same
+// way did:abt agent DIDs are). Its secretKey is seed(32)||public(32) in
+// hex, so the first 32 bytes are the same seed signingIdentityFromSeed
+// would take, but the DID here comes from the wallet itself rather than
+// being re-derived, since @ocap/wallet's DID encoding is not guaranteed to
+// match @arcblock/did's fromPublicKey for every wallet type.
+export async function signingIdentityFromWallet(wallet: {
+  readonly secretKey: string;
+  toDid(): string;
+}): Promise<SigningIdentity> {
+  const did = wallet.toDid();
+  const seed = Uint8Array.from(Buffer.from(wallet.secretKey.replace(/^0x/, ''), 'hex')).slice(0, 32);
+  const key = await Ed25519VerificationKey2020.generate({ seed, controller: did });
+  const keyid = `${did}#${key.publicKeyMultibase}`;
+  const pkcs8 = Buffer.concat([PKCS8_ED25519_PREFIX, Buffer.from(seed)]);
+  const privateKey = createPrivateKey({ key: pkcs8, format: 'der', type: 'pkcs8' });
+  return { did, keyid, privateKey };
+}
+
 // The set src/api/app.ts's didSignature middleware requires: binding the
 // method, the exact URI and the body (via content-digest) into one signature.
 export const DEFAULT_COVERED_COMPONENTS: readonly string[] = ['@method', '@target-uri', 'content-digest'];
