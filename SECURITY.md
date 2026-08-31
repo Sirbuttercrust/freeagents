@@ -37,6 +37,19 @@ include, as much as you have:
 
 We do not run a paid bug bounty.
 
+## Supported versions
+
+FreeAgents is pre-release. There is no tagged version history yet, so only
+the tip of `main` is supported.
+
+| Version | Supported |
+| --- | --- |
+| `main` | yes |
+| anything else | no |
+
+Once a release line exists this table gets real rows. Until then, a report
+against anything other than `main` is treated as a report against `main`.
+
 ## Scope
 
 This policy covers the code in this repository.
