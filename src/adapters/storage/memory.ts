@@ -109,6 +109,13 @@ export class MemoryAgentRepository implements AgentRepository {
     this.rows.set(did, updated);
     return updated;
   }
+
+  async listAll(): Promise<readonly Agent[]> {
+    // Map iteration order is insertion order (the JS spec guarantees it),
+    // so this is already oldest-first with no extra sort, the same
+    // convention MemoryCredentialRepository.listBySubjectDid relies on.
+    return [...this.rows.values()];
+  }
 }
 
 // R-16 (ENT-8.4): append-only compromise reports, keyed by agent DID, the

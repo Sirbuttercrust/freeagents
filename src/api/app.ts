@@ -42,6 +42,13 @@ import {
 import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
 import {
+  filterBySkill,
+  resolveBrowseSort,
+  sortBrowseCards,
+  toBrowseCard,
+  type BrowseCard,
+} from '../domain/browse.js';
+import {
   didDocumentPointsAtGithubAccount,
   gistProofPayload,
   githubAccountUrl,
@@ -538,6 +545,52 @@ export function createApp(
         return;
       }
       console.error('POST /agents: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // R-20 (D1, ENT-2.2): the browse listing. GET /agents/:agentDid above
+  // reads one agent's own record; this reads every listed agent as browse
+  // cards, sorted and filtered per D1/Q1. Widens the same read agent-work-
+  // record.ts already assembles, rather than a parallel endpoint. The card's
+  // buyerCount is derived by toBrowseCard itself from the verified-hire tier
+  // alone (src/domain/browse.ts), so this route no longer reads job history
+  // at all: a job-repository read here is exactly how the tier-blind
+  // buyerCount defect shipped (Proof, t_698205aa, summary-contradicts-tier).
+  app.get('/agents', async (req: Request, res: Response) => {
+    if (typeof agentRepo.listAll !== 'function') {
+      console.error('GET /agents: storage does not support listAll');
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+
+    const sort = resolveBrowseSort(req.query.sort);
+    const skillFilter = typeof req.query.skill === 'string' ? req.query.skill : null;
+
+    try {
+      const rows = await agentRepo.listAll();
+      const cards: BrowseCard[] = await Promise.all(
+        rows.map(async (row) => {
+          const stored = await credentialRepo.listBySubjectDid(row.did);
+          const evidence: CredentialEvidence[] = stored.map((entry) => ({
+            credentialId: entry.document.id,
+            repository: entry.document.credentialSubject.hire.repository,
+            pullRequest: entry.document.credentialSubject.hire.pullRequest,
+            mergedAt: entry.document.credentialSubject.hire.mergedAt,
+            mergeCommit: entry.document.credentialSubject.hire.mergeCommit,
+            buyerDid: entry.document.credentialSubject.hire.buyer,
+            repositoryPublic: entry.repositoryPublic,
+          }));
+          const record = agentWorkRecord(evidence);
+          return toBrowseCard(row, record);
+        }),
+      );
+
+      const filtered = filterBySkill(cards, skillFilter);
+      const sorted = sortBrowseCards(filtered, sort);
+      res.status(200).json({ sort, agents: sorted });
+    } catch (err) {
+      console.error('GET /agents: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });

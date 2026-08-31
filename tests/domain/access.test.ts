@@ -45,6 +45,7 @@ describe('CAPABILITIES', () => {
     expect(CAPABILITIES.map(({ id, method, path, access, identityField }) => ({ id, method, path, access, identityField }))).toEqual([
       { id: 'capabilities.read', method: 'GET', path: '/capabilities', access: 'public', identityField: null },
       { id: 'agent.browse', method: 'GET', path: '/agents/:agentDid', access: 'public', identityField: null },
+      { id: 'agent.browse.list', method: 'GET', path: '/agents', access: 'public', identityField: null },
       { id: 'operator.browse', method: 'GET', path: '/operators/:did', access: 'public', identityField: null },
       { id: 'credential.verify', method: 'GET', path: '/v1/credentials/:credentialId', access: 'public', identityField: null },
       { id: 'operator.register', method: 'POST', path: '/operators', access: 'identified', identityField: 'did' },

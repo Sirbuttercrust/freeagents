@@ -20,6 +20,7 @@ const mock = vi.hoisted(() => ({
   findUnique: vi.fn(),
   agentCreate: vi.fn(),
   agentFindUnique: vi.fn(),
+  agentFindMany: vi.fn(),
   agentUpdate: vi.fn(),
   jobCreate: vi.fn(),
   jobFindUnique: vi.fn(),
@@ -44,7 +45,7 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
   return {
     PrismaClient: class {
       operator = mock;
-      agent = { create: mock.agentCreate, findUnique: mock.agentFindUnique, update: mock.agentUpdate };
+      agent = { create: mock.agentCreate, findUnique: mock.agentFindUnique, findMany: mock.agentFindMany, update: mock.agentUpdate };
       job = {
         create: mock.jobCreate,
         findUnique: mock.jobFindUnique,
@@ -254,6 +255,7 @@ describe('PrismaAgentRepository', () => {
   beforeAll(() => {
     vi.mocked(mock.agentCreate).mockReset();
     vi.mocked(mock.agentFindUnique).mockReset();
+    vi.mocked(mock.agentFindMany).mockReset();
     vi.mocked(mock.agentUpdate).mockReset();
     vi.mocked(mock.keyRotationCreate).mockReset();
     vi.mocked(mock.keyRotationFindMany).mockReset();
@@ -265,6 +267,7 @@ describe('PrismaAgentRepository', () => {
   afterEach(() => {
     vi.mocked(mock.agentCreate).mockReset();
     vi.mocked(mock.agentFindUnique).mockReset();
+    vi.mocked(mock.agentFindMany).mockReset();
     vi.mocked(mock.agentUpdate).mockReset();
     vi.mocked(mock.keyRotationCreate).mockReset();
     vi.mocked(mock.keyRotationFindMany).mockReset();
@@ -417,6 +420,50 @@ describe('PrismaAgentRepository', () => {
 
     expect(mock.agentFindUnique).toHaveBeenCalledWith({ where: { did: 'did:abt:agent-none' } });
     expect(row).toBeNull();
+  });
+
+  // R-20: browse needs every listed agent, oldest first, each carrying its
+  // rotation history like every other read path.
+  it('listAll: every stored row comes back as the agent projection, oldest first', async () => {
+    const createdAt = new Date('2026-08-20T05:00:00.000Z');
+    vi.mocked(mock.agentFindMany).mockResolvedValue([
+      {
+        did: 'did:abt:agent-first',
+        operatorDid: 'did:abt:op-1',
+        delegation: delegationFixture,
+        name: 'scout',
+        skills: ['triage'],
+        githubLogin: null,
+        proofStatus: 'unverified',
+        createdAt,
+      },
+      {
+        did: 'did:abt:agent-second',
+        operatorDid: 'did:abt:op-1',
+        delegation: delegationFixture,
+        name: 'scout-2',
+        skills: ['coding'],
+        githubLogin: null,
+        proofStatus: 'unverified',
+        createdAt,
+      },
+    ]);
+
+    const repo = new PrismaAgentRepository();
+    const rows = await repo.listAll();
+
+    expect(mock.agentFindMany).toHaveBeenCalledWith({ orderBy: { createdAt: 'asc' } });
+    expect(rows.map((r) => r.did)).toEqual(['did:abt:agent-first', 'did:abt:agent-second']);
+    expect(rows[0]?.keyRotations).toEqual([]);
+  });
+
+  it('listAll: no stored rows comes back as an empty array, not null', async () => {
+    vi.mocked(mock.agentFindMany).mockResolvedValue([]);
+
+    const repo = new PrismaAgentRepository();
+    const rows = await repo.listAll();
+
+    expect(rows).toEqual([]);
   });
 
   it('updateGithubBinding: an updated row comes back as the agent projection', async () => {

@@ -104,6 +104,26 @@ describe('MemoryAgentRepository.recordKeyRotation', () => {
   });
 });
 
+// R-20: browse needs every listed agent. listAll is oldest-first (insertion
+// order, the same convention MemoryCredentialRepository.listBySubjectDid
+// already uses), and empty for a store with none, never null: a zero
+// listing renders as a zero, not as an absence (ENT-2.4, D1).
+describe('MemoryAgentRepository.listAll', () => {
+  it('is empty for a store with no agents', async () => {
+    const repo = new MemoryAgentRepository();
+    expect(await repo.listAll()).toEqual([]);
+  });
+
+  it('returns every registered agent, oldest first', async () => {
+    const repo = new MemoryAgentRepository();
+    await register(repo, 'did:abt:zAgentFirst');
+    await register(repo, 'did:abt:zAgentSecond');
+
+    const rows = await repo.listAll();
+    expect(rows.map((r) => r.did)).toEqual(['did:abt:zAgentFirst', 'did:abt:zAgentSecond']);
+  });
+});
+
 describe('MemoryAgentRepository.updateGithubBinding', () => {
   it('returns null for an unregistered DID', async () => {
     const repo = new MemoryAgentRepository();

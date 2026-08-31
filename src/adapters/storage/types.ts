@@ -66,6 +66,13 @@ export interface AgentRepository {
   // Null when the agent is not stored, mirroring updateGithubBinding, so
   // the API maps it to 404 without a second lookup.
   recordKeyRotation(did: string, input: KeyRotationInput): Promise<Agent | null>;
+  // R-20: every listed agent, oldest first. Empty for a store with none,
+  // never null (D1, ENT-2.4: a zero listing is a zero, not an absence).
+  // Optional, mirroring JobRepository.findCompletedByAgent's stance: a
+  // hand-rolled stand-in from an unrelated route's tests may omit it, and
+  // the browse route treats an omitting driver as storage-unavailable, the
+  // same 503 an actual outage produces.
+  listAll?(): Promise<readonly Agent[]>;
 }
 
 // One compromise report in the shape the API accepts (R-16). The operator

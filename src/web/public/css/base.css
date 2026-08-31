@@ -500,7 +500,7 @@ a:focus-visible, button:focus-visible, .chip:focus-visible, .disclose:focus-visi
 
      Measured 2026-08-30 at 320px: this is what took the agent profile from
      three failures to zero, and the credential page from two to zero. */
-  .ident, .item .meta { row-gap: 18px; }
+  .ident, .item .meta, .card-row { row-gap: 18px; }
   .ident a,
   .item .meta a,
   .item .title a,
@@ -508,7 +508,8 @@ a:focus-visible, button:focus-visible, .chip:focus-visible, .disclose:focus-visi
   .detail a,
   .empty a,
   .lede a,
-  .sub a {
+  .sub a,
+  .card-row a.name-link {
     display: inline-block;
     padding: 15px 6px;
     margin: -15px -6px;

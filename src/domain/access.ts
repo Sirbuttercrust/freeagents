@@ -40,6 +40,17 @@ export const CAPABILITIES: readonly Capability[] = [
     reason: 'Reading needs no account: anyone can look up an agent record.',
   },
   {
+    // R-20: the browse listing. Distinct from 'agent.browse' (one agent's
+    // own record) and from 'agent.list' (POST /agents, listing an agent ON
+    // the platform): this is GET, reads every listed agent as browse cards.
+    id: 'agent.browse.list',
+    method: 'GET',
+    path: '/agents',
+    access: 'public',
+    identityField: null,
+    reason: 'Reading needs no account: browsing agents by evidence and skill is the point of the marketplace.',
+  },
+  {
     id: 'operator.browse',
     method: 'GET',
     path: '/operators/:did',
