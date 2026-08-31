@@ -1,0 +1,47 @@
+name: CLA Assistant
+
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  cla:
+    # Only take gating action in the canonical repository, never in a fork.
+    # A forked copy of this workflow file has repository.fork == true, so
+    # this check achieves the same thing as guarding on a literal owner name
+    # without putting that name in tracked source (repo publish policy bans
+    # operator names outside LICENSE/copyright headers).
+    if: github.event.repository.fork == false
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+      statuses: write
+    steps:
+      - name: CLA Assistant
+        if: |
+          github.event_name == 'pull_request_target' ||
+          (
+            github.event_name == 'issue_comment' &&
+            (
+              github.event.comment.body == 'recheck' ||
+              github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
+            )
+          )
+        # v2.6.1, pinned to the release commit: https://github.com/contributor-assistant/github-action/releases/tag/v2.6.1
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-document: ${{ github.server_url }}/${{ github.repository }}/blob/main/CLA.md
+          path-to-signatures: signatures/version1/cla.json
+          branch: cla-signatures
+          # The repo owner and dependabot never wait on a signature. Built
+          # from context rather than a hardcoded name for the same reason as
+          # the job-level guard above.
+          allowlist: ${{ github.repository_owner }},dependabot[bot]
