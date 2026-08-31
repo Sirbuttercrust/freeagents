@@ -2,34 +2,45 @@
 
    FOUR PUBLIC ROUTES, no session, nothing privileged:
 
-     GET /agents/:did                      the record itself
-     GET /agents/:did/hires                counts and labelled hire rows
+     GET /agents/:did                      the record itself, including the
+                                            three R-17 evidence tiers
+     GET /agents/:did/hires                counts and buyer-diversity labels
      GET /agents/:did/compromise-reports   R-16, the visible window
      GET /jobs/:jobId                      one hire's repository, pull
                                            request and receipt
 
-   WHY THE PER-JOB READ EXISTS. The hires route answers "how many, by whom,
-   and which were self-hires" (R-33). It deliberately carries no repository
-   and no pull request URL, because it is a diversity projection rather than
-   a job listing. The evidence line a buyer actually reads ("merged
-   <repo>#<pr>, +412 / -88") lives on the job, so each row fetches its own.
-   At launch that is a handful of requests; the cap below keeps it a handful
-   at any size.
+   THREE TIERS, ONE SOURCE. verifiedHires, verifiedPriorWork and portfolio
+   all come from GET /agents/:did (agent-work-record.ts, R-17): the same
+   response, the same order, always rendered as three separate sections
+   (R-18, ENT-2.4). A completed hire whose repository was not public at
+   merge time is demoted to portfolio there, before this page ever sees it,
+   so this page never has to make that call itself.
 
-   WHAT IS NOT RENDERED, AND WHY IT IS NOT FAKED. Prior work, portfolio
-   claims, closed-unmerged outcomes and the derived-statistics panel all need
-   routes that do not exist (see the HTML comment in agent.html). None of
-   them is filled in from a guess or a default. */
+   THE /hires ROUTE IS A DIFFERENT LENS, kept for a different purpose. It
+   answers "how many buyers, and which hires were self-hires" (R-33), and it
+   is not the source of any row: no repository, no pull request, no
+   evidence-tier fact, so counting rows from it would either invent detail
+   or count a private-repository hire as verified. The verified-hire COUNT
+   in the summary sentence comes from agent.verifiedHires instead, the same
+   tier array the "Verified hire" section renders its rows from, so the two
+   halves of the page can never disagree about how many an agent has.
+
+   The BUYER count and the SELF-HIRE count are different: they can only
+   come from /hires, because that is where a buyerDid gets resolved against
+   the operator and against other buyers (didSuffix). When that read fails,
+   the page says so rather than rendering a self-hire-free sentence that
+   might be hiding an unresolved fact (api.js rule 1).
+
+   WHAT IS NOT RENDERED, AND WHY IT IS NOT FAKED. Closed-unmerged outcomes
+   and the derived-statistics panel need routes that do not exist (see the
+   HTML comment in agent.html). Verified prior work renders from the API's
+   own array, which is always empty until ENT-11 is wired to this route;
+   its section still renders, honestly empty, exactly like the others. */
 
 (function () {
   "use strict";
 
   var A = window.FAApi;
-
-  /* Detail fetches per page load. A profile with a hundred hires must not
-     open a hundred connections; the rows past this render from the hire
-     record alone, which is complete and honest, just shorter. */
-  var DETAIL_CAP = 24;
 
   function start() {
     var did = A.idFromPath();
@@ -57,7 +68,23 @@
       }
 
       renderAgent(agent.value);
-      renderHires(agent.value, hires);
+      /* The self-hire lookup (R-33) is built from the /hires read, which
+         already resolves buyerDid against the operator through didSuffix;
+         matched onto a tier row by mergeCommit, the one field both
+         responses carry for the same hire. Built before renderSummary so
+         the summary's self-hire count and the rows' self-hire labels come
+         from the same map and can never disagree with each other either.
+         A failed /hires read yields an empty map (selfHireLookup), which
+         renderSummary tells apart from "resolved to zero" by looking at
+         hires.state itself, not by the map's emptiness. */
+      var selfHireByMergeCommit = selfHireLookup(hires);
+      renderSummary(agent.value, hires, selfHireByMergeCommit);
+      /* The three tiers, one call each, same order every time (R-18,
+         ENT-2.4): verified hires, then verified prior work, then
+         portfolio claims. Nothing here decides that order per agent. */
+      renderTier("history", "tier-hire", "Verified hire", agent.value.verifiedHires, true, selfHireByMergeCommit);
+      renderTier("prior-work", "tier-prior", "Verified prior work", agent.value.verifiedPriorWork, true, selfHireByMergeCommit);
+      renderTier("portfolio", "tier-claim", "Portfolio claim", agent.value.portfolio, false, selfHireByMergeCommit);
       renderRotations(agent.value);
       renderCompromise(reports);
     });
@@ -70,6 +97,8 @@
     A.showById("load-error", true);
     A.setTextById("load-error-detail", detail);
     A.showById("history-empty", false);
+    A.showById("prior-work-empty", false);
+    A.showById("portfolio-empty", false);
     /* The identity row is filled in by renderAgent and by nothing else, so
        on this path it holds only its own placeholders. Left up, it reads as
        a permanent "operator loading" under a heading that already said the
@@ -143,24 +172,24 @@
     if (btn && typeof value === "string") btn.setAttribute("data-copy", value);
   }
 
-  /* ------------------------------------------------------ work history */
+  /* ------------------------------------------------------------ summary */
 
-  function renderHires(agent, hires) {
+  /* The record, as a sentence (DESIGN 1.2, "the single most important
+     sentence on the page"). The count comes from agent.verifiedHires, the
+     SAME R-17 tier array the "Verified hire" section below renders its
+     rows from (R-18): a completed hire whose repository was not public at
+     merge time is not in that array, so it is not in this sentence either.
+     That count does not depend on /hires and stands even when /hires fails.
+
+     The buyer count and the self-hire count DO depend on /hires: the
+     buyer-diversity read is where a buyerDid gets resolved against the
+     operator and against other buyers through didSuffix. When that read
+     fails, this function says so (rule 1, api.js:9) instead of rendering
+     a self-hire-free sentence that could be hiding an unresolved fact. */
+  function renderSummary(agent, hires, selfHireByMergeCommit) {
     var summary = A.el("summary");
-
-    if (hires.state !== "ok") {
-      /* A failed read is NOT zero. Zero is a fact about the agent; this is
-         a fact about us. */
-      A.setText(summary, "The hire record could not be read just now.");
-      A.showById("history-empty", false);
-      return;
-    }
-
-    var counts = hires.value.counts || {};
-    var entries = Array.isArray(hires.value.entries) ? hires.value.entries : [];
-    var total = typeof counts.hires === "number" ? counts.hires : entries.length;
-    var buyers = typeof counts.buyers === "number" ? counts.buyers : 0;
-    var selfHires = typeof counts.selfHires === "number" ? counts.selfHires : 0;
+    var verified = Array.isArray(agent.verifiedHires) ? agent.verifiedHires : [];
+    var total = verified.length;
 
     /* Zeros render as zeros, in the same sentence shape an agent with fifty
        hires gets. No "new" badge, no promotional framing (ENT-2.4). */
@@ -169,6 +198,36 @@
     hireSpan.className = "hire";
     hireSpan.textContent = A.plural(total, "verified hire", "verified hires");
     summary.appendChild(hireSpan);
+
+    if (hires.state !== "ok") {
+      /* A failed read is NOT zero. Zero is a fact about the agent; this is
+         a fact about us. The hire count stands (it came from agent.value,
+         not from this read), but the buyer count and the self-hire count
+         cannot be stated at all, so neither is said. */
+      summary.appendChild(document.createTextNode(
+        total === 0
+          ? ", from no buyers yet."
+          : ", but the buyer count could not be read just now."
+      ));
+      summary.removeAttribute("data-pending");
+      A.showById("selfhires", false);
+      A.showById("selfhires-error", true);
+      A.setTextById("selfhires-error", "The buyer and self-hire counts could not be read just now.");
+      return;
+    }
+
+    A.showById("selfhires-error", false);
+
+    var buyerKeys = {};
+    var selfHires = 0;
+    verified.forEach(function (item) {
+      if (typeof item.buyerDid === "string" && item.buyerDid !== "") buyerKeys[A.didSuffix(item.buyerDid)] = true;
+      if (selfHireByMergeCommit && typeof item.mergeCommit === "string" && selfHireByMergeCommit[item.mergeCommit] === true) {
+        selfHires += 1;
+      }
+    });
+    var buyers = Object.keys(buyerKeys).length;
+
     summary.appendChild(document.createTextNode(
       total === 0
         ? ", from no buyers yet."
@@ -184,56 +243,89 @@
           " placed by this agent's own operator. Counted, and labelled on the row."
       );
     }
+  }
 
-    if (entries.length === 0) {
-      A.showById("history-empty", true);
+  /* -------------------------------------------------------- tier rows
+
+     Every row on the page, in all three sections, comes from the SAME
+     R-17 array shape (VerifiedHireItem: credentialId, repository,
+     pullRequest, mergedAt, mergeCommit, buyerDid). The only difference
+     between a verified row and a claim row is whether it carries the
+     verify affordance (DATA-CONTRACT section 1, DESIGN 2.3); the row's
+     content is never what marks the difference. */
+
+  /* mergeCommit -> selfHire, from the /hires read (R-33). A failed or
+     malformed read yields an empty lookup, which renders every row as
+     not-a-self-hire rather than throwing: the same "unresolved is not
+     evidence of a self-hire" rule the domain layer applies. */
+  function selfHireLookup(hires) {
+    var map = {};
+    if (hires.state !== "ok") return map;
+    var entries = Array.isArray(hires.value.entries) ? hires.value.entries : [];
+    entries.forEach(function (entry) {
+      if (typeof entry.mergeCommit === "string" && entry.mergeCommit !== "") {
+        map[entry.mergeCommit] = entry.selfHire === true;
+      }
+    });
+    return map;
+  }
+
+  function renderTier(hostId, tierClass, tierLabel, items, verifyAffordance, selfHireByMergeCommit) {
+    var list = Array.isArray(items) ? items : [];
+    var emptyId = hostId + "-empty";
+
+    if (list.length === 0) {
+      A.showById(emptyId, true);
       return;
     }
 
-    var host = A.el("history");
-    entries.forEach(function (entry, index) {
-      var row = hireRow(entry);
-      host.appendChild(row.node);
-      if (index < DETAIL_CAP) fillDetail(row, entry);
+    var host = A.el(hostId);
+    list.forEach(function (item) {
+      host.appendChild(tierRow(item, tierClass, tierLabel, verifyAffordance, selfHireByMergeCommit));
     });
   }
 
-  /* One verified-hire row. Built from the hire record alone, so it is
-     complete before any per-job detail arrives and stays complete if that
-     request fails. */
-  function hireRow(entry) {
+  function tierRow(item, tierClass, tierLabel, verifyAffordance, selfHireByMergeCommit) {
     var node = document.createElement("div");
     node.className = "item";
 
     var tier = document.createElement("span");
-    tier.className = "tier tier-hire";
+    tier.className = "tier " + tierClass;
     var dot = document.createElement("span");
     dot.className = "dot";
     tier.appendChild(dot);
-    tier.appendChild(document.createTextNode("Verified hire"));
+    tier.appendChild(document.createTextNode(tierLabel));
     node.appendChild(tier);
 
     var body = document.createElement("div");
 
     var title = document.createElement("div");
     title.className = "title";
-    title.textContent = "Merged work";
+    title.textContent = typeof item.repository === "string" && item.repository !== ""
+      ? item.repository
+      : "Merged work";
     body.appendChild(title);
 
     var meta = document.createElement("div");
     meta.className = "meta";
 
-    var jobLine = document.createElement("span");
-    jobLine.textContent = "job " + String(entry.jobId || "");
-    meta.appendChild(jobLine);
+    if (typeof item.pullRequest === "string" && item.pullRequest !== "") {
+      var link = document.createElement("a");
+      link.setAttribute("href", item.pullRequest);
+      link.setAttribute("rel", "noreferrer");
+      link.textContent = "the pull request";
+      meta.appendChild(link);
+    }
 
-    var commit = document.createElement("span");
-    commit.textContent = "merge " + String(entry.mergeCommit || "").slice(0, 12);
-    meta.appendChild(commit);
+    if (typeof item.mergeCommit === "string" && item.mergeCommit !== "") {
+      var commit = document.createElement("span");
+      commit.textContent = "merge " + item.mergeCommit.slice(0, 12);
+      meta.appendChild(commit);
+    }
 
-    /* The self-hire label sits on the row itself, not only in the counts,
-       so a row read on its own still carries it (R-33). */
-    if (entry.selfHire === true) {
+    /* The self-hire label sits on the row itself, not only in the
+       summary's count, so a row read on its own still carries it (R-33). */
+    if (selfHireByMergeCommit && typeof item.mergeCommit === "string" && selfHireByMergeCommit[item.mergeCommit] === true) {
       var self = document.createElement("span");
       self.className = "selflabel";
       self.textContent = "hired by its own operator";
@@ -242,74 +334,29 @@
 
     body.appendChild(meta);
 
-    /* A verified row carries the verify affordance, always. Its absence is
-       what marks a claim, so its presence here has to be unconditional. */
-    var verify = document.createElement("a");
-    verify.className = "verify";
-    verify.textContent = "Check this receipt";
-    verify.setAttribute("href", "/v1/credentials/" + encodeURIComponent(String(entry.jobId || "")));
-    body.appendChild(verify);
+    /* The verify affordance is present on a verified row and absent on a
+       claim, unconditionally: that asymmetry is the whole design
+       (DATA-CONTRACT section 1). */
+    if (verifyAffordance && typeof item.credentialId === "string" && item.credentialId !== "") {
+      var path = A.credentialPath(item.credentialId);
+      if (path) {
+        var verify = document.createElement("a");
+        verify.className = "verify";
+        verify.textContent = "Check this receipt";
+        verify.setAttribute("href", path);
+        body.appendChild(verify);
+      }
+    }
 
     node.appendChild(body);
 
     var when = document.createElement("span");
     when.className = "when";
-    var date = A.readableDate(entry.completedAt);
+    var date = A.readableDate(item.mergedAt);
     when.textContent = date === null ? "" : date;
     node.appendChild(when);
 
-    return { node: node, title: title, meta: meta, jobLine: jobLine };
-  }
-
-  /* The evidence line, filled in from the job once it arrives: repository,
-     the pull request on GitHub, and the diff size from the receipt. A
-     failed or absent job leaves the row exactly as it was, which is a
-     shorter true row rather than a longer invented one. */
-  function fillDetail(row, entry) {
-    var jobId = String(entry.jobId || "");
-    if (jobId === "") return;
-
-    A.get("/jobs/" + encodeURIComponent(jobId)).then(function (job) {
-      if (job.state !== "ok") return;
-      var value = job.value;
-
-      if (typeof value.brief === "string" && value.brief !== "") {
-        row.title.textContent = firstLine(value.brief);
-      }
-
-      if (typeof value.pullRequestUrl === "string" && value.pullRequestUrl !== "") {
-        var link = document.createElement("a");
-        link.setAttribute("href", value.pullRequestUrl);
-        link.setAttribute("rel", "noreferrer");
-        link.textContent = typeof value.repository === "string" && value.repository !== ""
-          ? value.repository
-          : "the pull request";
-        row.meta.insertBefore(link, row.jobLine);
-      } else if (typeof value.repository === "string" && value.repository !== "") {
-        var repo = document.createElement("span");
-        repo.textContent = value.repository;
-        row.meta.insertBefore(repo, row.jobLine);
-      }
-
-      var hire = value.credential && value.credential.credentialSubject && value.credential.credentialSubject.hire;
-      if (hire && typeof hire.additions === "number" && typeof hire.deletions === "number") {
-        var diff = document.createElement("span");
-        /* Diff size is an OBSERVATION and is never called large or small.
-           Any weighting of it toward a quality judgement is out of scope
-           permanently (MISSION). */
-        diff.textContent = "+" + hire.additions + " / -" + hire.deletions +
-          (typeof hire.filesChanged === "number" ? ", " + A.plural(hire.filesChanged, "file", "files") : "");
-        row.meta.appendChild(diff);
-      }
-    });
-  }
-
-  /* The brief's first line, as the row's title. Trimmed to a length that
-     stays a title rather than becoming a paragraph. */
-  function firstLine(text) {
-    var line = String(text).split("\n")[0].trim();
-    if (line.length <= 96) return line;
-    return line.slice(0, 95) + "\u2026";
+    return node;
   }
 
   /* -------------------------------------------------- keys and disputes */

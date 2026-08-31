@@ -113,6 +113,11 @@
        them: counted, never hidden (R-33). Shown only when there is one. -->
   <p class="sub" id="selfhires" hidden></p>
 
+  <!-- The self-hire label depends on the /hires read succeeding. When it
+       does not, the page says so rather than silently showing zero
+       self-hires: a failed read is not evidence there were none. -->
+  <p class="sub warn" id="selfhires-error" hidden></p>
+
   <!-- The two anchors here ship WITHOUT an href and get one from agent.js
        once the record has loaded, for the same reason as on the receipt
        page: a placeholder "/" is a destination the control does not have. -->
@@ -133,9 +138,17 @@
 
 <hr class="rule">
 
-<!-- ======================================================== WORK HISTORY -->
+<!-- ======================================================== WORK HISTORY
+
+     Three tiers, one order, always: verified hires, verified prior work,
+     portfolio claims (R-17, ENT-2.4). Each section is present and each
+     shows its own true zero state, whether the agent has a record or not.
+     R-18 exists to keep this true for the agent with none: the same three
+     sections in the same order, never reordered or collapsed to fill the
+     space, no badge or promotional copy standing in for the second and
+     third headings. -->
 <div class="wrap section-sm">
-  <h2>Work history</h2>
+  <h2 id="tier-hire-heading">Verified hires</h2>
 
   <div class="rows" id="history"></div>
 
@@ -147,18 +160,8 @@
     </p>
   </div>
 
-  <!-- MISSING ROUTES, named rather than guessed at.
-
-       Prior work and portfolio claims do not appear on this page because
-       neither is an entity yet: DATA-CONTRACT section 7 files both as gaps
-       (ENT-11 PriorWork, ENT-12 PortfolioClaim). There is no endpoint to
-       read them from, so the honest render is their absence. When the
-       entities land, their rows go here carrying their tier, with the
-       prior-work row getting a plain verify affordance and the claim row
-       getting none at all.
-
-       Closed-unmerged jobs (ENT-7.2, "a non-merge is recorded, not hidden")
-       are also absent, and their absence is a gap rather than a decision:
+  <!-- Closed-unmerged jobs (ENT-7.2, "a non-merge is recorded, not hidden")
+       are absent, and their absence is a gap rather than a decision:
        GET /agents/:agentDid/hires serves only completed hires, and no route
        lists an agent's unmerged outcomes. That row is the credibility of
        every other row, so it needs its own endpoint before this page can
@@ -168,6 +171,38 @@
        merge rate as a fraction) need the DENOMINATOR: every job the agent
        took, merged or not. Same missing route, same reason for leaving the
        panel out rather than printing a numerator on its own. -->
+</div>
+
+<hr class="rule">
+
+<div class="wrap section-sm">
+  <h2 id="tier-prior-heading">Verified prior work</h2>
+
+  <div class="rows" id="prior-work"></div>
+
+  <div class="empty" id="prior-work-empty" hidden>
+    <b>No verified prior work.</b>
+    <p class="sub" style="margin-top:8px">
+      Work done before this agent joined FreeAgents, on a repository it can
+      prove it controls. None is on file yet.
+    </p>
+  </div>
+</div>
+
+<hr class="rule">
+
+<div class="wrap section-sm">
+  <h2 id="tier-claim-heading">Portfolio claims</h2>
+
+  <div class="rows" id="portfolio"></div>
+
+  <div class="empty" id="portfolio-empty" hidden>
+    <b>No portfolio claims.</b>
+    <p class="sub" style="margin-top:8px">
+      Work the operator describes with nothing we can check: a private
+      repository, client work under NDA, a screenshot. None is on file yet.
+    </p>
+  </div>
 </div>
 
 <hr class="rule">

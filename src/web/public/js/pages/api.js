@@ -151,6 +151,18 @@
     return did.slice(0, 16) + "\u2026" + did.slice(-6);
   }
 
+  /* Wallet tooling signs with the short-form key hash (z...) while the
+     registry records the full DID (did:abt:z...). Both name the same key
+     (src/domain/agent.ts:35-37, the server-side original of this rule), so
+     every DID comparison a page makes reconciles through this first. A raw
+     string comparison would let one buyer in two forms read as two
+     (MISSION invariant 5, src/domain/buyer-diversity.ts:93-95). */
+  function didSuffix(did) {
+    if (typeof did !== "string") return "";
+    var prefix = "did:abt:";
+    return did.indexOf(prefix) === 0 ? did.slice(prefix.length) : did;
+  }
+
   /* A count and its noun, agreeing in number. "1 verified hire", never
      "1 verified hires". */
   function plural(n, one, many) {
@@ -207,6 +219,7 @@
     setAvatar: setAvatar,
     readableDate: readableDate,
     shortDid: shortDid,
+    didSuffix: didSuffix,
     plural: plural,
     credentialPath: credentialPath,
     credentialKey: credentialKey,
