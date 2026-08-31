@@ -30,6 +30,7 @@ import type { Job } from '../../src/domain/job.js';
 const OPERATOR_DID = 'did:abt:zR18Operator';
 const COLD_DID = 'did:abt:zR18ColdAgent';
 const FULL_DID = 'did:abt:zR18FullAgent';
+const PRIVATE_ONLY_DID = 'did:abt:zR18PrivateOnlyAgent';
 
 function delegation(agentDid: string): Delegation {
   return {
@@ -160,6 +161,38 @@ beforeAll(async () => {
     completedJobId: 'r18-job-private',
     subjectDid: FULL_DID,
     document: credentialDoc('https://platform.example/v1/credentials/r18-job-private', FULL_DID, 'buyer/r18-private'),
+    repositoryPublic: false,
+  });
+
+  await agentRepo.create({
+    did: PRIVATE_ONLY_DID,
+    operatorDid: OPERATOR_DID,
+    delegation: delegation(PRIVATE_ONLY_DID),
+    name: 'private-only-agent',
+    skills: [],
+    githubLogin: null,
+  });
+
+  // One completed hire, merged, but into a PRIVATE repository: the only
+  // credential this agent has demotes to portfolio (evidenceTier,
+  // invariant 4), so this agent has zero verified hires by the R-17
+  // contract even though it has one completed job.
+  const privateOnlyDraft = jobFixture({ id: 'r18-job-private-only', agentDid: PRIVATE_ONLY_DID });
+  await jobRepo.create(privateOnlyDraft);
+  await jobRepo.complete(
+    { ...privateOnlyDraft, status: 'completed', mergeCommit: 'r18private', mergedAt: new Date('2026-08-30T00:00:00Z') },
+    {
+      jobId: privateOnlyDraft.id,
+      buyerDid: privateOnlyDraft.buyerDid,
+      agentDid: PRIVATE_ONLY_DID,
+      mergeCommit: 'r18private',
+      completedAt: new Date('2026-08-30T00:00:00Z'),
+    },
+  );
+  await credentialRepo.save({
+    completedJobId: 'r18-job-private-only',
+    subjectDid: PRIVATE_ONLY_DID,
+    document: credentialDoc('https://platform.example/v1/credentials/r18-job-private-only', PRIVATE_ONLY_DID, 'buyer/r18-private-only'),
     repositoryPublic: false,
   });
 
@@ -316,5 +349,39 @@ describe('an agent WITH a record renders the same shape (contrast case)', () => 
 
     const portfolioRow = document.getElementById('portfolio')?.firstElementChild;
     expect(portfolioRow?.querySelector('.verify')).toBeNull();
+  });
+
+  // The headline sentence (DESIGN 1.2, "the single most important sentence
+  // on the page") must count the same thing the rows below it show, or the
+  // page tells a buyer two different stories about the same agent. The one
+  // real verified hire here is the fixture's ground truth for that count.
+  it('counts the headline against the tier the rows come from, not the untiered completed-job total', async () => {
+    const document = await render(`/agents/${FULL_DID}`);
+    const summary = document.getElementById('summary')?.textContent ?? '';
+    const verifiedHireRows = document.getElementById('history')?.children.length ?? -1;
+
+    expect(verifiedHireRows).toBe(1);
+    expect(summary).toContain('1 verified hire,');
+    expect(summary).not.toContain('2 verified hires');
+  });
+});
+
+// A hire that completed but merged into a private repository carries no
+// verified-hire tier fact (evidenceTier, invariant 4): the agent has one
+// completed job and zero verified hires. The rows already know this
+// (R-18's own row fix). The headline sentence has to agree with them, or a
+// buyer reading only the summary is told this agent has a verified hire it
+// does not have, which is the anchor's failure mode by another name.
+describe('an agent whose only credential demoted to portfolio (private-repo merge)', () => {
+  it('does not claim a verified hire in the headline sentence', async () => {
+    const document = await render(`/agents/${PRIVATE_ONLY_DID}`);
+
+    expect(document.getElementById('history')?.children.length).toBe(0);
+    expect(document.getElementById('history-empty')?.hidden).toBe(false);
+    expect(document.getElementById('portfolio')?.children.length).toBe(1);
+
+    const summary = document.getElementById('summary')?.textContent ?? '';
+    expect(summary).toContain('0 verified hires');
+    expect(summary).not.toMatch(/^1 verified hire\b/);
   });
 });

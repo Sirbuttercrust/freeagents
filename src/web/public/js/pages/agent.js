@@ -17,11 +17,16 @@
    so this page never has to make that call itself.
 
    THE /hires ROUTE IS A DIFFERENT LENS, kept for a different purpose. It
-   answers "how many, by whom, and which were self-hires" (R-33) for the
-   summary sentence and its buyer-diversity note. It is not the source of
-   any row: it carries no repository, no pull request, and no evidence-tier
-   fact, so building rows from it would either invent detail or mislabel a
-   private-repository hire as verified.
+   answers "how many, by whom, and which were self-hires" (R-33), and the
+   only thing it feeds this page is the self-hire label matched onto a row
+   or the summary by mergeCommit. It is not the source of any row, and as
+   of this card it is not the source of the summary's count either: it
+   carries no repository, no pull request, and no evidence-tier fact, so
+   counting from it would either invent detail or count a private-repository
+   hire as verified. The summary sentence counts agent.verifiedHires, the
+   same tier array the "Verified hire" section renders its rows from, so
+   the two halves of the page can never disagree about how many an agent
+   has.
 
    WHAT IS NOT RENDERED, AND WHY IT IS NOT FAKED. Closed-unmerged outcomes
    and the derived-statistics panel need routes that do not exist (see the
@@ -60,15 +65,17 @@
       }
 
       renderAgent(agent.value);
-      renderSummary(hires);
+      /* The self-hire lookup (R-33) is built from the /hires read, which
+         already resolves buyerDid against the operator through didSuffix;
+         matched onto a tier row by mergeCommit, the one field both
+         responses carry for the same hire. Built before renderSummary so
+         the summary's self-hire count and the rows' self-hire labels come
+         from the same map and can never disagree with each other either. */
+      var selfHireByMergeCommit = selfHireLookup(hires);
+      renderSummary(agent.value, selfHireByMergeCommit);
       /* The three tiers, one call each, same order every time (R-18,
          ENT-2.4): verified hires, then verified prior work, then
-         portfolio claims. Nothing here decides that order per agent. The
-         self-hire lookup (R-33) is built from the /hires read, which
-         already resolves buyerDid against the operator through
-         didSuffix; matched onto a tier row by mergeCommit, the one field
-         both responses carry for the same hire. */
-      var selfHireByMergeCommit = selfHireLookup(hires);
+         portfolio claims. Nothing here decides that order per agent. */
       renderTier("history", "tier-hire", "Verified hire", agent.value.verifiedHires, true, selfHireByMergeCommit);
       renderTier("prior-work", "tier-prior", "Verified prior work", agent.value.verifiedPriorWork, true, selfHireByMergeCommit);
       renderTier("portfolio", "tier-claim", "Portfolio claim", agent.value.portfolio, false, selfHireByMergeCommit);
@@ -162,23 +169,27 @@
   /* ------------------------------------------------------------ summary */
 
   /* The record, as a sentence (DESIGN 1.2, "the single most important
-     sentence on the page"). Counts and the self-hire note come from the
-     buyer-diversity read (R-33); the row lists beneath it come from the
-     tier arrays rendered separately by renderTier. */
-  function renderSummary(hires) {
+     sentence on the page"). The count comes from agent.verifiedHires, the
+     SAME R-17 tier array the "Verified hire" section below renders its
+     rows from (R-18): a completed hire whose repository was not public at
+     merge time is not in that array, so it is not in this sentence either.
+     The buyer-diversity read (R-33) still supplies the self-hire label,
+     matched onto a tier row by mergeCommit through selfHireByMergeCommit,
+     the same map renderTier uses for the rows' own labels. */
+  function renderSummary(agent, selfHireByMergeCommit) {
     var summary = A.el("summary");
+    var verified = Array.isArray(agent.verifiedHires) ? agent.verifiedHires : [];
+    var total = verified.length;
 
-    if (hires.state !== "ok") {
-      /* A failed read is NOT zero. Zero is a fact about the agent; this is
-         a fact about us. */
-      A.setText(summary, "The hire record could not be read just now.");
-      return;
-    }
-
-    var counts = hires.value.counts || {};
-    var total = typeof counts.hires === "number" ? counts.hires : 0;
-    var buyers = typeof counts.buyers === "number" ? counts.buyers : 0;
-    var selfHires = typeof counts.selfHires === "number" ? counts.selfHires : 0;
+    var buyerKeys = {};
+    var selfHires = 0;
+    verified.forEach(function (item) {
+      if (typeof item.buyerDid === "string" && item.buyerDid !== "") buyerKeys[item.buyerDid] = true;
+      if (selfHireByMergeCommit && typeof item.mergeCommit === "string" && selfHireByMergeCommit[item.mergeCommit] === true) {
+        selfHires += 1;
+      }
+    });
+    var buyers = Object.keys(buyerKeys).length;
 
     /* Zeros render as zeros, in the same sentence shape an agent with fifty
        hires gets. No "new" badge, no promotional framing (ENT-2.4). */
