@@ -119,3 +119,11 @@ What that means in practice:
 ## Licence
 
 Apache-2.0. By contributing, you agree your contribution ships under it.
+
+## Signing the CLA
+
+On your first pull request, a bot asks you to confirm you have read and agree
+to `CLA.md` by posting a comment. This happens once per contributor, not on
+every pull request, and it does not apply to the factory's own PRs. It exists
+so the project's licensing stays unambiguous if a contribution ever needs to
+be traced back to a corporate source or the project is relicensed later.
