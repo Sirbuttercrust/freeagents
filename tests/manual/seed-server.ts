@@ -35,6 +35,8 @@ function stubbedGithub(): GithubAdapter {
         additions: 412,
         deletions: 88,
         filesChanged: 7,
+        // R-17: GitHub reports base repo visibility; the seed repo is public.
+        repositoryPublic: true,
       }),
     getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
     getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),

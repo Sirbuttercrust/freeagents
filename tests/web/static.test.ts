@@ -344,6 +344,10 @@ describe('the source links are configured, never hardcoded', () => {
       undefined,
       undefined,
       undefined,
+      // Position 9 is the verify-route rate limiter main added; the web
+      // surface rides behind it at position 10. Passing undefined keeps the
+      // limiter at its default, which these tests never trip.
+      undefined,
       surface,
     );
     return new Promise((resolve, reject) => {
