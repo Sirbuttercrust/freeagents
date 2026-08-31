@@ -1277,48 +1277,24 @@ export function createApp(
 
   // ENT-6.2's caller-identity gate. The brief's defect #2: runExchange never
   // learned who was calling, so a buyer alone could accept every criterion
-  // and confirm on the agent's behalf. Two ways now exist to answer "who is
-  // calling", and one rule reads them in a fixed order:
-  //
-  // 1. A verified signerDid (R-34's RFC 9421 signature, checked by
-  //    didSignature before this ever runs) is authoritative when present:
-  //    the caller PROVED it holds that DID's key, not merely claimed it.
-  // 2. The x-freeagents-caller-did header is the fallback for callers R-34
-  //    does not cover: the caller states which job party it is, and the
-  //    route checks that DID against the job's OWN buyerDid/agentDid, data
-  //    this service already stores and controls. This proves WHO on the
-  //    job is acting, not that the caller holds that DID's key.
-  //
-  // A verified signature naming a DID the header contradicts is refused,
-  // not resolved in the signature's favor: a caller who can sign as one
-  // party has no business also claiming to be the other inside the same
-  // request, and that mismatch is exactly the impersonation this gate
-  // exists to catch.
-  const CALLER_DID_HEADER = 'x-freeagents-caller-did';
-
-  function callerDidHeader(req: Request): string | null {
-    const raw = req.header(CALLER_DID_HEADER);
-    const trimmed = typeof raw === 'string' ? raw.trim() : '';
-    return trimmed.length === 0 ? null : trimmed;
-  }
-
+  // and confirm on the agent's behalf. R-34 closed the identity question for
+  // good: a party to a job proves it is that party by possession of the
+  // party's key, not by naming it. A header naming a party used to answer
+  // that same question by assertion, as an interim seam while R-34 had not
+  // yet landed on these routes; it has, so the header is gone. A verified
+  // signerDid is the only source of identity here now.
   function partyForDid(job: Job, did: string): Party | null {
     if (did === job.buyerDid) return 'buyer';
     if (did === job.agentDid) return 'agent';
     return null;
   }
 
-  function resolveCallerParty(job: Job, req: Request): Party | null {
-    const callerDid = callerDidHeader(req);
-    if (callerDid === null) return null;
-    return partyForDid(job, callerDid);
-  }
-
   // The party-aware sibling of runExchange, for the four routes ENT-6.2
-  // binds: propose, request-changes, accept and confirm. A caller who names
-  // no DID, or a DID that is neither this job's buyer nor its agent, is
-  // refused before the domain ever sees the request - a caller impersonating
-  // neither party cannot be a party to what it is trying to change.
+  // binds: propose, request-changes, accept and confirm. No verified
+  // signature at all is refused before the domain ever sees the request
+  // (401: sign the request per R-34). A verified signature naming neither
+  // party is refused too (403): proving you hold a key does not make you a
+  // party to this particular job.
   async function runPartyExchange(
     label: string,
     jobId: string,
@@ -1330,31 +1306,18 @@ export function createApp(
     if (current === null) return;
 
     const signerDid = signerDidOf(req);
-    if (signerDid !== null) {
-      const signedParty = partyForDid(current, signerDid);
-      if (signedParty === null) {
-        res.status(403).json({ error: 'signature does not name a party to this job' });
-        return;
-      }
-      const headerDid = callerDidHeader(req);
-      if (headerDid !== null && headerDid !== signerDid) {
-        res.status(403).json({
-          error: `${CALLER_DID_HEADER} header does not match the verified request signature`,
-        });
-        return;
-      }
-      await applyAndPersist(label, res, current, (job) => apply(job, signedParty));
-      return;
-    }
-
-    const party = resolveCallerParty(current, req);
-    if (party === null) {
-      res.status(403).json({
-        error: `caller must identify as this job's buyer or agent via the ${CALLER_DID_HEADER} header`,
+    if (signerDid === null) {
+      res.status(401).json({
+        error: 'this route requires a verified request signature (R-34); sign the request naming this job\'s buyer or agent DID',
       });
       return;
     }
-    await applyAndPersist(label, res, current, (job) => apply(job, party));
+    const signedParty = partyForDid(current, signerDid);
+    if (signedParty === null) {
+      res.status(403).json({ error: 'signature does not name a party to this job' });
+      return;
+    }
+    await applyAndPersist(label, res, current, (job) => apply(job, signedParty));
   }
 
   // The agent proposes acceptance criteria, or re-proposes after pushback

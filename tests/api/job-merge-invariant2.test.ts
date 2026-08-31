@@ -27,6 +27,7 @@ import {
   MemoryJobRepository,
   MemoryOperatorRepository,
 } from '../../src/adapters/storage/memory.js';
+import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
 // The did:abt suffix derives from the public key, exactly like agent DIDs, so
 // the proof's verification method binds back to the DID without any lookup in
@@ -101,13 +102,27 @@ const PR_NUMBER = 3;
 const MERGE_SHA = 'inv2-merge-commit-sha';
 const MERGED_AT = new Date('2026-08-25T09:00:00Z');
 
-async function post(base: string, path: string, body: unknown = {}, callerDid?: string): Promise<Response> {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (callerDid !== undefined) headers['x-freeagents-caller-did'] = callerDid;
+async function post(base: string, path: string, body: unknown = {}): Promise<Response> {
   return fetch(`${base}${path}`, {
     method: 'POST',
-    headers,
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
+  });
+}
+
+async function postSigned(base: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
+  const bodyText = JSON.stringify(body);
+  const targetUri = `${base}${path}`;
+  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText });
+  return fetch(targetUri, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+    body: bodyText,
   });
 }
 
@@ -128,8 +143,15 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
     const issuerKey = await generateKey(issuerSeed);
     issuerDid = issuerKey.controller;
 
-    const agentKey = await generateKey(crypto.getRandomValues(new Uint8Array(32)));
-    agentDid = agentKey.controller;
+    // The agent's signing identity and its registered delegation DID must be
+    // the same key: the merge route resolves the agent by agentDid, and the
+    // exchange routes' party binding accepts only a signature naming that
+    // same DID, so one seed drives both.
+    const agentSeed = crypto.getRandomValues(new Uint8Array(32));
+    const agentIdentity = await signingIdentityFromSeed(agentSeed);
+    agentDid = agentIdentity.did;
+    const buyerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(94));
+    const buyerDid = buyerIdentity.did;
 
     const agentRepo = new MemoryAgentRepository();
     await agentRepo.create({
@@ -167,9 +189,11 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
 
     const credentialRepo = new MemoryCredentialRepository();
     const credentials = createCredentialsAdapter({ did: issuerDid, seed: issuerSeed }, credentialRepo);
+    const operatorRepo = new MemoryOperatorRepository();
+    await operatorRepo.register({ did: buyerDid, githubLogin: 'buyer-merge-invariant2' });
 
     const s = createApp(
-      new MemoryOperatorRepository(),
+      operatorRepo,
       agentRepo,
       identity,
       github,
@@ -188,7 +212,7 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
 
     // Walk one job over HTTP, all the way to merge.
     const draft = await post(baseUrl, '/jobs', {
-      buyerDid: 'did:abt:buyer-merge-invariant2',
+      buyerDid,
       agentDid,
       repository: 'buyer/target-repo',
       brief: 'Fix the checkout timeout',
@@ -198,19 +222,19 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
 
     expect(
       (
-        await post(baseUrl, `/jobs/${jobId}/criteria`, {
+        await postSigned(baseUrl, `/jobs/${jobId}/criteria`, {
           criteria: [
             { text: 'The checkout no longer times out', proposedBy: 'agent' },
             { text: 'Load test passes', proposedBy: 'buyer' },
           ],
-        }, agentDid)
+        }, agentIdentity)
       ).status,
     ).toBe(200);
-    expect((await post(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, 'did:abt:buyer-merge-invariant2')).status).toBe(200);
-    expect((await post(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agentDid)).status).toBe(200);
-    expect((await post(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, 'did:abt:buyer-merge-invariant2')).status).toBe(200);
-    expect((await post(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentDid)).status).toBe(200);
-    expect((await post(baseUrl, `/jobs/${jobId}/confirm`, {}, 'did:abt:buyer-merge-invariant2')).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
     expect((await post(baseUrl, `/jobs/${jobId}/pull-request`)).status).toBe(200);
 
     const merge = await post(baseUrl, `/jobs/${jobId}/merge`);

@@ -14,11 +14,17 @@ import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-
 import { Ed25519Signature2020 } from '@digitalbazaar/ed25519-signature-2020';
 import * as vc from '@digitalbazaar/vc';
 import { securityLoader } from '@digitalbazaar/security-document-loader';
+import { signRequest, signingIdentityFromSeed, type SigningIdentity } from '../helpers/sign-request.js';
 
 const BASE = process.env['SEED_BASE'] ?? 'http://127.0.0.1:3141';
 
 const OPERATOR_SEED = new Uint8Array(32).fill(11);
 const AGENT_SEED = new Uint8Array(32).fill(22);
+// The buyer used to ride a fixed placeholder DID with no key behind it,
+// which worked only because the caller-did header let a request assert
+// identity by naming it. R-34 requires possession of the key that DID
+// names, so the buyer now needs a real signing identity too.
+const BUYER_SEED = new Uint8Array(32).fill(33);
 
 async function keyFor(seed: Uint8Array, controller: string) {
   const key = await Ed25519VerificationKey2020.generate({ seed, controller });
@@ -26,10 +32,30 @@ async function keyFor(seed: Uint8Array, controller: string) {
   return key;
 }
 
-async function post(path: string, body: unknown, caller?: string): Promise<Response> {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (caller !== undefined) headers['x-freeagents-caller-did'] = caller;
-  return fetch(`${BASE}${path}`, { method: 'POST', headers, body: JSON.stringify(body ?? {}) });
+async function post(path: string, body: unknown): Promise<Response> {
+  return fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
+// Every exchange route now requires a verified request signature (R-34):
+// the party proves it holds the DID's key, rather than merely naming it.
+async function postSigned(path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
+  const bodyText = JSON.stringify(body ?? {});
+  const targetUri = `${BASE}${path}`;
+  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText });
+  return fetch(targetUri, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+    body: bodyText,
+  });
 }
 
 async function expectOk(label: string, res: Response): Promise<Record<string, unknown>> {
@@ -52,16 +78,15 @@ async function main(): Promise<void> {
   // fails verification with a signature error that reads like a key
   // mismatch. Learned the hard way: the multibase version returned
   // "the signature does not check out against the operator key".
-  const { fromPublicKey } = await import('@arcblock/did');
-  const opProbe = await Ed25519VerificationKey2020.generate({ seed: OPERATOR_SEED, controller: 'urn:probe' });
-  const agentProbe = await Ed25519VerificationKey2020.generate({ seed: AGENT_SEED, controller: 'urn:probe' });
-  const opBuffer = (opProbe as unknown as { _publicKeyBuffer: Uint8Array })._publicKeyBuffer;
-  const agentBuffer = (agentProbe as unknown as { _publicKeyBuffer: Uint8Array })._publicKeyBuffer;
-  const operatorDid = `did:abt:${fromPublicKey(opBuffer)}`;
-  const agentDid = `did:abt:${fromPublicKey(agentBuffer)}`;
-  const buyerDid = 'did:abt:zBuyerSeedExample000000000000001';
+  const operatorIdentity = await signingIdentityFromSeed(OPERATOR_SEED);
+  const agentIdentity = await signingIdentityFromSeed(AGENT_SEED);
+  const buyerIdentity = await signingIdentityFromSeed(BUYER_SEED);
+  const operatorDid = operatorIdentity.did;
+  const agentDid = agentIdentity.did;
+  const buyerDid = buyerIdentity.did;
 
   await expectOk('operator', await post('/operators', { did: operatorDid, githubLogin: 'northsound' }));
+  await expectOk('buyer as operator', await post('/operators', { did: buyerDid, githubLogin: 'northsound-buyer' }));
 
   const opKey = await keyFor(OPERATOR_SEED, operatorDid);
   const suite = new Ed25519Signature2020({ key: opKey });
@@ -121,7 +146,7 @@ async function main(): Promise<void> {
 
   await expectOk(
     'criteria',
-    await post(
+    await postSigned(
       `/jobs/${jobId}/criteria`,
       {
         criteria: [
@@ -129,17 +154,17 @@ async function main(): Promise<void> {
           { text: 'Keyboard navigation matches the WAI-ARIA combobox pattern', proposedBy: 'agent' },
         ],
       },
-      agentDid,
+      agentIdentity,
     ),
   );
 
   for (const index of [0, 1]) {
-    await expectOk(`accept ${index} buyer`, await post(`/jobs/${jobId}/criteria/${index}/accept`, {}, buyerDid));
-    await expectOk(`accept ${index} agent`, await post(`/jobs/${jobId}/criteria/${index}/accept`, {}, agentDid));
+    await expectOk(`accept ${index} buyer`, await postSigned(`/jobs/${jobId}/criteria/${index}/accept`, {}, buyerIdentity));
+    await expectOk(`accept ${index} agent`, await postSigned(`/jobs/${jobId}/criteria/${index}/accept`, {}, agentIdentity));
   }
 
-  await expectOk('confirm', await post(`/jobs/${jobId}/confirm`, {}, buyerDid));
-  await expectOk('pull-request', await post(`/jobs/${jobId}/pull-request`, {}, agentDid));
+  await expectOk('confirm', await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity));
+  await expectOk('pull-request', await post(`/jobs/${jobId}/pull-request`, {}));
   const merged = await expectOk('merge', await post(`/jobs/${jobId}/merge`, {}));
 
   const credential = merged['credential'] as { id?: string } | undefined;

@@ -31,9 +31,12 @@ import {
 } from '../../src/adapters/storage/memory.js';
 import type { CredentialRepository, JobRepository } from '../../src/adapters/storage/types.js';
 import { createJob, type CompletedJob, type Job, type JobStatus } from '../../src/domain/job.js';
+import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
-const AGENT_DID = 'did:abt:agent-merge';
-const BUYER_DID = 'did:abt:buyer-merge';
+const agentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(91));
+const buyerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(92));
+const AGENT_DID = agentIdentity.did;
+const BUYER_DID = buyerIdentity.did;
 const FORK_OWNER = 'freeagents-platform';
 const FORK_REPO = 'target-repo';
 const PR_NUMBER = 7;
@@ -171,13 +174,27 @@ function submittedJob(id: string): Job {
 let server: Server;
 let baseUrl: string;
 
-async function post(path: string, body: unknown = {}, base: string = baseUrl, callerDid?: string): Promise<Response> {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (callerDid !== undefined) headers['x-freeagents-caller-did'] = callerDid;
+async function post(path: string, body: unknown = {}, base: string = baseUrl): Promise<Response> {
   return fetch(`${base}${path}`, {
     method: 'POST',
-    headers,
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
+  });
+}
+
+async function postSigned(path: string, body: unknown, identity: SigningIdentity, base: string = baseUrl): Promise<Response> {
+  const bodyText = JSON.stringify(body);
+  const targetUri = `${base}${path}`;
+  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText });
+  return fetch(targetUri, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+    body: bodyText,
   });
 }
 
@@ -206,8 +223,10 @@ async function startWith(
   const credentialRepo = extras.credentialRepo ?? new MemoryCredentialRepository();
   const credentials =
     extras.credentials ?? createCredentialsAdapter({ did: ISSUER_DID, seed: ISSUER_SEED }, credentialRepo);
+  const operatorRepo = new MemoryOperatorRepository();
+  await operatorRepo.register({ did: BUYER_DID, githubLogin: 'buyer-merge-scripted' });
   const s = createApp(
-    new MemoryOperatorRepository(),
+    operatorRepo,
     agentRepo,
     extras.identity ?? fakeIdentity(),
     github,
@@ -239,12 +258,12 @@ async function openDraft(brief: string, base: string = baseUrl): Promise<string>
 // open the pull request. Returns the submitted body so the merge tests can
 // compare against it.
 async function walkToSubmitted(jobId: string, base: string = baseUrl): Promise<Record<string, unknown>> {
-  expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, base, AGENT_DID)).status).toBe(200);
-  expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, base, BUYER_DID)).status).toBe(200);
-  expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, base, AGENT_DID)).status).toBe(200);
-  expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, base, BUYER_DID)).status).toBe(200);
-  expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, base, AGENT_DID)).status).toBe(200);
-  expect((await post(`/jobs/${jobId}/confirm`, {}, base, BUYER_DID)).status).toBe(200);
+  expect((await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal }, agentIdentity, base)).status).toBe(200);
+  expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyerIdentity, base)).status).toBe(200);
+  expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity, base)).status).toBe(200);
+  expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity, base)).status).toBe(200);
+  expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity, base)).status).toBe(200);
+  expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity, base)).status).toBe(200);
   const pr = await post(`/jobs/${jobId}/pull-request`, {}, base);
   expect(pr.status).toBe(200);
   return (await pr.json()) as Record<string, unknown>;
@@ -604,8 +623,10 @@ describe("createApp's credentials default, no credentials adapter given (R-36)",
       githubLogin: null,
     });
     const credentialRepo = new MemoryCredentialRepository();
+    const operatorRepo = new MemoryOperatorRepository();
+    await operatorRepo.register({ did: BUYER_DID, githubLogin: 'buyer-merge-default' });
     const s = createApp(
-      new MemoryOperatorRepository(),
+      operatorRepo,
       agentRepo,
       fakeIdentity(),
       mergedGithub(faults),

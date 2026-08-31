@@ -13,10 +13,10 @@
 //
 // ENT-6.2's caller-identity gate (see src/api/app.ts's runPartyExchange)
 // applies to every exchange route this file drives except POST /jobs
-// itself: a request that does not name the buyer or agent DID in the
-// x-freeagents-caller-did header is refused before the domain runs. The
-// `post` helper below takes the caller explicitly so each call states, in
-// plain sight, which party it is acting as.
+// itself: a request with no verified request signature (R-34) is refused
+// before the domain ever runs, and a verified signature naming neither
+// party is refused too. The `postSigned` helper below signs each call as
+// the party it claims to be, in plain sight.
 import type { Server } from 'node:http';
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -31,37 +31,52 @@ import {
   proposeCriteria,
   type Job,
 } from '../../src/domain/job.js';
+import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
-const AGENT_DID = 'did:abt:agent-criteria';
-const BUYER_DID = 'did:abt:buyer-criteria';
-const CALLER_HEADER = 'x-freeagents-caller-did';
-
-function delegationFixture(): Record<string, unknown> {
+function delegationFixture(agentDid: string): Record<string, unknown> {
   return {
     '@context': ['https://www.w3.org/2018/credentials/v1'],
     id: 'urn:uuid:delegation-for-criteria',
     type: ['VerifiableCredential', 'AgentDelegation'],
     issuer: 'did:abt:op-criteria',
     issuanceDate: '2026-01-01T00:00:00Z',
-    credentialSubject: { id: AGENT_DID },
+    credentialSubject: { id: agentDid },
     proof: {
       type: 'Ed25519Signature2020',
       created: '2026-01-01T00:00:00Z',
-      verificationMethod: `${AGENT_DID}#key-1`,
+      verificationMethod: `${agentDid}#key-1`,
       proofPurpose: 'assertionMethod',
       proofValue: 'zfixture-not-verified-here',
     },
   };
 }
 
-async function post(path: string, body: unknown, callerDid?: string): Promise<Response> {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (callerDid !== undefined) headers[CALLER_HEADER] = callerDid;
+async function post(path: string, body: unknown): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers,
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+async function postSignedTo(base: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
+  const bodyText = JSON.stringify(body);
+  const targetUri = `${base}${path}`;
+  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText });
+  return fetch(targetUri, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+    body: bodyText,
+  });
+}
+
+async function postSigned(path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
+  return postSignedTo(baseUrl, path, body, identity);
 }
 
 async function get(path: string): Promise<Response> {
@@ -71,20 +86,22 @@ async function get(path: string): Promise<Response> {
 // A valid draft row as storage would hold it, for scripting findById.
 function draftRow(id: string): Job {
   return createJob(
-    { id, buyerDid: BUYER_DID, agentDid: AGENT_DID, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
+    { id, buyerDid: buyer.did, agentDid: agent.did, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
     new Date('2026-01-01T00:00:00Z'),
   );
 }
 
 // The exchange's storage-fault branches need a repository that decides what
 // it returns per call, so each fault gets its own server built around a
-// scripted repo - the same shape as the FailingRead test below.
+// scripted repo - the same shape as the FailingRead test below. The
+// scripted server's own agentRepo carries the same agent identity, so a
+// signed request from it still verifies.
 async function startWith(jobRepo: JobRepository): Promise<{ server: Server; baseUrl: string }> {
   const agentRepo = new MemoryAgentRepository();
   await agentRepo.create({
-    did: AGENT_DID,
+    did: agent.did,
     operatorDid: 'did:abt:op-criteria',
-    delegation: delegationFixture() as never,
+    delegation: delegationFixture(agent.did) as never,
     name: 'scout',
     skills: ['triage'],
     githubLogin: null,
@@ -109,20 +126,40 @@ const revisedProposal = [
 
 let server: Server;
 let baseUrl: string;
+let buyer: SigningIdentity;
+let agent: SigningIdentity;
+// A registered agent DID that is not a party to any job this file creates:
+// the fixture for "signature verifies but names the wrong party".
+let stranger: SigningIdentity;
 const jobRepo = new MemoryJobRepository();
 
 describe('job criteria exchange (R-8)', () => {
   beforeAll(async () => {
+    buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(61));
+    agent = await signingIdentityFromSeed(new Uint8Array(32).fill(62));
+    stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(63));
+
+    const operatorRepo = new MemoryOperatorRepository();
+    await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-criteria' });
+
     const agentRepo = new MemoryAgentRepository();
     await agentRepo.create({
-      did: AGENT_DID,
+      did: agent.did,
       operatorDid: 'did:abt:op-criteria',
-      delegation: delegationFixture() as never,
+      delegation: delegationFixture(agent.did) as never,
       name: 'scout',
       skills: ['triage'],
       githubLogin: null,
     });
-    server = createApp(new MemoryOperatorRepository(), agentRepo, undefined, undefined, jobRepo).listen(0);
+    await agentRepo.create({
+      did: stranger.did,
+      operatorDid: 'did:abt:op-criteria',
+      delegation: delegationFixture(stranger.did) as never,
+      name: 'stranger',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    server = createApp(operatorRepo, agentRepo, undefined, undefined, jobRepo).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
@@ -140,8 +177,8 @@ describe('job criteria exchange (R-8)', () => {
 
     // 1. The draft opens with exactly the pinned eight-key projection.
     const draft = await post('/jobs', {
-      buyerDid: BUYER_DID,
-      agentDid: AGENT_DID,
+      buyerDid: buyer.did,
+      agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug on the checkout page',
     });
@@ -162,7 +199,7 @@ describe('job criteria exchange (R-8)', () => {
 
     // 2. The agent proposes: draft -> proposed, texts trimmed, nothing
     // accepted yet, same id.
-    const proposed = await post(`/jobs/${jobId}/criteria`, { criteria: firstProposal }, AGENT_DID);
+    const proposed = await postSigned(`/jobs/${jobId}/criteria`, { criteria: firstProposal }, agent);
     expect(proposed.status).toBe(200);
     const proposedBody = (await proposed.json()) as Record<string, unknown>;
     expect(proposedBody.id).toBe(jobId);
@@ -173,7 +210,7 @@ describe('job criteria exchange (R-8)', () => {
     ]);
 
     // 3. The buyer pushes back: still proposed, still the same job.
-    const pushback = await post(`/jobs/${jobId}/request-changes`, {}, BUYER_DID);
+    const pushback = await postSigned(`/jobs/${jobId}/request-changes`, {}, buyer);
     expect(pushback.status).toBe(200);
     const pushbackBody = (await pushback.json()) as Record<string, unknown>;
     expect(pushbackBody.id).toBe(jobId);
@@ -182,7 +219,7 @@ describe('job criteria exchange (R-8)', () => {
 
     // 4. The agent re-proposes: still proposed, same id, list revised -
     // the loop ran twice without creating a job.
-    const again = await post(`/jobs/${jobId}/criteria`, { criteria: revisedProposal }, AGENT_DID);
+    const again = await postSigned(`/jobs/${jobId}/criteria`, { criteria: revisedProposal }, agent);
     expect(again.status).toBe(200);
     const againBody = (await again.json()) as Record<string, unknown>;
     expect(againBody.id).toBe(jobId);
@@ -211,26 +248,26 @@ describe('job criteria exchange (R-8)', () => {
 
   it('rejects a malformed body with 400', async () => {
     const seed = await post('/jobs', {
-      buyerDid: BUYER_DID,
-      agentDid: AGENT_DID,
+      buyerDid: buyer.did,
+      agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
     });
     const jobId = String(((await seed.json()) as Record<string, unknown>).id);
 
-    const missingField = await post(`/jobs/${jobId}/criteria`, {}, AGENT_DID);
+    const missingField = await postSigned(`/jobs/${jobId}/criteria`, {}, agent);
     expect(missingField.status).toBe(400);
 
-    const notAnArray = await post(`/jobs/${jobId}/criteria`, { criteria: 'fix it' }, AGENT_DID);
+    const notAnArray = await postSigned(`/jobs/${jobId}/criteria`, { criteria: 'fix it' }, agent);
     expect(notAnArray.status).toBe(400);
 
-    const missingText = await post(`/jobs/${jobId}/criteria`, { criteria: [{ proposedBy: 'agent' }] }, AGENT_DID);
+    const missingText = await postSigned(`/jobs/${jobId}/criteria`, { criteria: [{ proposedBy: 'agent' }] }, agent);
     expect(missingText.status).toBe(400);
 
-    const numericText = await post(`/jobs/${jobId}/criteria`, { criteria: [{ text: 7, proposedBy: 'agent' }] }, AGENT_DID);
+    const numericText = await postSigned(`/jobs/${jobId}/criteria`, { criteria: [{ text: 7, proposedBy: 'agent' }] }, agent);
     expect(numericText.status).toBe(400);
 
-    const badProposerShape = await post(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'ok', proposedBy: 9 }] }, AGENT_DID);
+    const badProposerShape = await postSigned(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'ok', proposedBy: 9 }] }, agent);
     expect(badProposerShape.status).toBe(400);
 
     // The element guard is a conjunction of five conditions, and each one
@@ -240,42 +277,42 @@ describe('job criteria exchange (R-8)', () => {
     // nested array is an object and non-null, so only !Array.isArray(c)
     // rejects it. A number fails typeof c === 'object', the guard's first
     // conjunct.
-    const nullElement = await post(`/jobs/${jobId}/criteria`, { criteria: [null] }, AGENT_DID);
+    const nullElement = await postSigned(`/jobs/${jobId}/criteria`, { criteria: [null] }, agent);
     expect(nullElement.status).toBe(400);
 
-    const nestedArrayElement = await post(
+    const nestedArrayElement = await postSigned(
       `/jobs/${jobId}/criteria`,
       { criteria: [[{ text: 'ok', proposedBy: 'agent' }]] },
-      AGENT_DID,
+      agent,
     );
     expect(nestedArrayElement.status).toBe(400);
 
-    const numberElement = await post(`/jobs/${jobId}/criteria`, { criteria: [7] }, AGENT_DID);
+    const numberElement = await postSigned(`/jobs/${jobId}/criteria`, { criteria: [7] }, agent);
     expect(numberElement.status).toBe(400);
 
     // An empty list is well-shaped but fails the domain's own rule, which
     // the route maps to 400 with the domain's wording.
-    const emptyList = await post(`/jobs/${jobId}/criteria`, { criteria: [] }, AGENT_DID);
+    const emptyList = await postSigned(`/jobs/${jobId}/criteria`, { criteria: [] }, agent);
     expect(emptyList.status).toBe(400);
     const body = (await emptyList.json()) as { error: string };
     expect(body.error).toBe('a proposal needs at least one acceptance criterion');
   });
 
-  it('answers 403 when the caller names no party, or a DID that is neither buyer nor agent', async () => {
+  it('answers 401 with no signature at all, and 403 for a signed stranger', async () => {
     const seed = await post('/jobs', {
-      buyerDid: BUYER_DID,
-      agentDid: AGENT_DID,
+      buyerDid: buyer.did,
+      agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
     });
     const jobId = String(((await seed.json()) as Record<string, unknown>).id);
 
-    const noCaller = await post(`/jobs/${jobId}/criteria`, { criteria: firstProposal });
-    expect(noCaller.status).toBe(403);
-    expect(((await noCaller.json()) as { error: string }).error).toContain('x-freeagents-caller-did');
+    const noSignature = await post(`/jobs/${jobId}/criteria`, { criteria: firstProposal });
+    expect(noSignature.status).toBe(401);
+    expect(((await noSignature.json()) as { error: string }).error).toContain('R-34');
 
-    const stranger = await post(`/jobs/${jobId}/criteria`, { criteria: firstProposal }, 'did:abt:a-total-stranger');
-    expect(stranger.status).toBe(403);
+    const strangerResponse = await postSigned(`/jobs/${jobId}/criteria`, { criteria: firstProposal }, stranger);
+    expect(strangerResponse.status).toBe(403);
 
     // The row did not move: no criteria were recorded by either refusal.
     const read = await get(`/jobs/${jobId}`);
@@ -283,11 +320,11 @@ describe('job criteria exchange (R-8)', () => {
   });
 
   it('answers 404 for an unknown job id on both routes', async () => {
-    const propose = await post('/jobs/j-nowhere/criteria', { criteria: firstProposal }, AGENT_DID);
+    const propose = await postSigned('/jobs/j-nowhere/criteria', { criteria: firstProposal }, agent);
     expect(propose.status).toBe(404);
     expect(await propose.json()).toEqual({ error: 'not found' });
 
-    const pushback = await post('/jobs/j-nowhere/request-changes', {}, BUYER_DID);
+    const pushback = await postSigned('/jobs/j-nowhere/request-changes', {}, buyer);
     expect(pushback.status).toBe(404);
     expect(await pushback.json()).toEqual({ error: 'not found' });
   });
@@ -297,7 +334,7 @@ describe('job criteria exchange (R-8)', () => {
     // conflict. The row is seeded straight into storage as the fixture for
     // that state.
     const draft = createJob(
-      { id: 'j-conflicted', buyerDid: BUYER_DID, agentDid: AGENT_DID, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
+      { id: 'j-conflicted', buyerDid: buyer.did, agentDid: agent.did, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
       new Date('2026-01-01T00:00:00Z'),
     );
     const proposedJob: Job = proposeCriteria(draft, firstProposal);
@@ -307,18 +344,18 @@ describe('job criteria exchange (R-8)', () => {
     confirmable = acceptCriterion(confirmable, 1, 'agent');
     await jobRepo.create(confirmSpec(confirmable, new Date()));
 
-    const proposeOnConfirmed = await post('/jobs/j-conflicted/criteria', { criteria: firstProposal }, AGENT_DID);
+    const proposeOnConfirmed = await postSigned('/jobs/j-conflicted/criteria', { criteria: firstProposal }, agent);
     expect(proposeOnConfirmed.status).toBe(409);
 
     // A draft has no proposal to push back on: also a conflict.
-    const draftRow = await post('/jobs', {
-      buyerDid: BUYER_DID,
-      agentDid: AGENT_DID,
+    const draftRowRes = await post('/jobs', {
+      buyerDid: buyer.did,
+      agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'Another brief',
     });
-    const draftId = String(((await draftRow.json()) as Record<string, unknown>).id);
-    const pushbackOnDraft = await post(`/jobs/${draftId}/request-changes`, {}, BUYER_DID);
+    const draftId = String(((await draftRowRes.json()) as Record<string, unknown>).id);
+    const pushbackOnDraft = await postSigned(`/jobs/${draftId}/request-changes`, {}, buyer);
     expect(pushbackOnDraft.status).toBe(409);
   });
 
@@ -340,9 +377,18 @@ describe('job criteria exchange (R-8)', () => {
         throw new Error('db down');
       }
     }
+    const failingAgentRepo = new MemoryAgentRepository();
+    await failingAgentRepo.create({
+      did: agent.did,
+      operatorDid: 'did:abt:op-criteria',
+      delegation: delegationFixture(agent.did) as never,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
     const failingServer = createApp(
       new MemoryOperatorRepository(),
-      new MemoryAgentRepository(),
+      failingAgentRepo,
       undefined,
       undefined,
       new FailingRead(),
@@ -355,11 +401,7 @@ describe('job criteria exchange (R-8)', () => {
 
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const res = await fetch(`http://127.0.0.1:${address.port}/jobs/j-any/criteria`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', [CALLER_HEADER]: AGENT_DID },
-        body: JSON.stringify({ criteria: firstProposal }),
-      });
+      const res = await postSignedTo(`http://127.0.0.1:${address.port}`, '/jobs/j-any/criteria', { criteria: firstProposal }, agent);
       expect(res.status).toBe(503);
       expect(await res.json()).toEqual({ error: 'storage unavailable' });
       expect(errorLog).toHaveBeenCalled();
@@ -399,11 +441,7 @@ describe('job criteria exchange (R-8)', () => {
     const repo = new VanishingUpdate(draftRow('j-vanish'));
     const { server: vanishingServer, baseUrl: vanishingUrl } = await startWith(repo);
     try {
-      const res = await fetch(`${vanishingUrl}/jobs/j-vanish/criteria`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', [CALLER_HEADER]: AGENT_DID },
-        body: JSON.stringify({ criteria: firstProposal }),
-      });
+      const res = await postSignedTo(vanishingUrl, '/jobs/j-vanish/criteria', { criteria: firstProposal }, agent);
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({ error: 'not found' });
       // Both legs ran: findById found the row, then update reported it gone.
@@ -438,11 +476,7 @@ describe('job criteria exchange (R-8)', () => {
     const { server: throwingServer, baseUrl: throwingUrl } = await startWith(new ThrowingUpdate());
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const res = await fetch(`${throwingUrl}/jobs/j-throws/criteria`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', [CALLER_HEADER]: AGENT_DID },
-        body: JSON.stringify({ criteria: firstProposal }),
-      });
+      const res = await postSignedTo(throwingUrl, '/jobs/j-throws/criteria', { criteria: firstProposal }, agent);
       expect(res.status).toBe(503);
       expect(await res.json()).toEqual({ error: 'storage unavailable' });
       // The read succeeded here (the test above faults the read), so this
@@ -485,11 +519,7 @@ describe('job criteria exchange (R-8)', () => {
     const { server: corruptedServer, baseUrl: corruptedUrl } = await startWith(new CorruptedRow());
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const res = await fetch(`${corruptedUrl}/jobs/j-corrupt/criteria`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', [CALLER_HEADER]: AGENT_DID },
-        body: JSON.stringify({ criteria: firstProposal }),
-      });
+      const res = await postSignedTo(corruptedUrl, '/jobs/j-corrupt/criteria', { criteria: firstProposal }, agent);
       expect(res.status).toBe(500);
       expect(await res.json()).toEqual({ error: 'internal error' });
       // Same terms as every other unmapped fault: cause in the log, not the

@@ -14,8 +14,8 @@
 // tests/api/job-criteria.test.ts pins each leg of the skeleton these routes
 // share; repeating them here adds lines, not killable mutants.
 //
-// ENT-6.2's caller-identity gate: every exchange call below carries the
-// x-freeagents-caller-did header naming which party is acting, and confirm
+// ENT-6.2's caller-identity gate: every exchange call below carries a
+// verified request signature (R-34) naming the party acting, and confirm
 // itself needs BOTH parties to have accepted every criterion before it
 // succeeds.
 import { createHash } from 'node:crypto';
@@ -37,32 +37,69 @@ import {
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { createJob, type Job } from '../../src/domain/job.js';
+import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
-const AGENT_DID = 'did:abt:agent-confirm';
-const BUYER_DID = 'did:abt:buyer-confirm';
-const CALLER_HEADER = 'x-freeagents-caller-did';
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
   { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
 ];
+
+function delegationFixture(agentDid: string): Record<string, unknown> {
+  return {
+    '@context': ['https://www.w3.org/2018/credentials/v1'],
+    id: 'urn:uuid:delegation-for-confirm',
+    type: ['VerifiableCredential', 'AgentDelegation'],
+    issuer: 'did:abt:op-confirm',
+    issuanceDate: '2026-01-01T00:00:00Z',
+    credentialSubject: { id: agentDid },
+    proof: {
+      type: 'Ed25519Signature2020',
+      created: '2026-01-01T00:00:00Z',
+      verificationMethod: `${agentDid}#key-1`,
+      proofPurpose: 'assertionMethod',
+      proofValue: 'zfixture-not-verified-here',
+    },
+  };
+}
 
 // Rebound by each describe's beforeAll; suites inside one file run in order,
 // so handing the helpers below to whichever suite is current is safe.
 let server: Server;
 let baseUrl: string;
 const jobRepo = new MemoryJobRepository();
+let buyer: SigningIdentity;
+let agent: SigningIdentity;
+let stranger: SigningIdentity;
 // Set by the happy-path walk; the lock test edits that same row afterwards,
 // which is the point: one job id, every path tried against it.
 let confirmedJobId: string;
 
-async function post(path: string, body: unknown = {}, callerDid?: string): Promise<Response> {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (callerDid !== undefined) headers[CALLER_HEADER] = callerDid;
+async function post(path: string, body: unknown = {}): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers,
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+async function postSignedTo(base: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
+  const bodyText = JSON.stringify(body);
+  const targetUri = `${base}${path}`;
+  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText });
+  return fetch(targetUri, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+    body: bodyText,
+  });
+}
+
+async function postSigned(path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
+  return postSignedTo(baseUrl, path, body, identity);
 }
 
 async function get(path: string): Promise<Response> {
@@ -71,7 +108,7 @@ async function get(path: string): Promise<Response> {
 
 function draftRow(id: string): Job {
   return createJob(
-    { id, buyerDid: BUYER_DID, agentDid: AGENT_DID, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
+    { id, buyerDid: buyer.did, agentDid: agent.did, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
     new Date('2026-01-01T00:00:00Z'),
   );
 }
@@ -101,14 +138,16 @@ class ScriptedRow implements JobRepository {
 async function startWith(repo: JobRepository): Promise<{ server: Server; baseUrl: string }> {
   const agentRepo = new MemoryAgentRepository();
   await agentRepo.create({
-    did: AGENT_DID,
+    did: agent.did,
     operatorDid: 'did:abt:op-confirm',
-    delegation: { fixture: true } as never,
+    delegation: delegationFixture(agent.did) as never,
     name: 'scout',
     skills: ['triage'],
     githubLogin: null,
   });
-  const s = createApp(new MemoryOperatorRepository(), agentRepo, undefined, undefined, repo).listen(0);
+  const operatorRepo = new MemoryOperatorRepository();
+  await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-confirm-scripted' });
+  const s = createApp(operatorRepo, agentRepo, undefined, undefined, repo).listen(0);
   await new Promise<void>((resolve) => s.once('listening', resolve));
   const address = s.address();
   if (address === null || typeof address === 'string') {
@@ -119,7 +158,36 @@ async function startWith(repo: JobRepository): Promise<{ server: Server; baseUrl
 
 describe('job confirm (R-9)', () => {
   beforeAll(async () => {
-    ({ server, baseUrl } = await startWith(jobRepo));
+    buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(71));
+    agent = await signingIdentityFromSeed(new Uint8Array(32).fill(72));
+    stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(73));
+
+    const operatorRepo = new MemoryOperatorRepository();
+    await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-confirm' });
+    const agentRepo = new MemoryAgentRepository();
+    await agentRepo.create({
+      did: agent.did,
+      operatorDid: 'did:abt:op-confirm',
+      delegation: delegationFixture(agent.did) as never,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    await agentRepo.create({
+      did: stranger.did,
+      operatorDid: 'did:abt:op-confirm',
+      delegation: delegationFixture(stranger.did) as never,
+      name: 'stranger',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    server = createApp(operatorRepo, agentRepo, undefined, undefined, jobRepo).listen(0);
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('expected server to listen on a port');
+    }
+    baseUrl = `http://127.0.0.1:${address.port}`;
   });
 
   afterAll(() => {
@@ -128,8 +196,8 @@ describe('job confirm (R-9)', () => {
 
   it('walks propose -> accept x2 (both parties) -> confirm on ONE row and projects the confirmed keys', async () => {
     const created = await post('/jobs', {
-      buyerDid: BUYER_DID,
-      agentDid: AGENT_DID,
+      buyerDid: buyer.did,
+      agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug on the checkout page',
     });
@@ -137,21 +205,21 @@ describe('job confirm (R-9)', () => {
     const draftBody = (await created.json()) as Record<string, unknown>;
     const jobId = String(draftBody.id);
 
-    expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, AGENT_DID)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal }, agent)).status).toBe(200);
 
     // Each accept flips exactly its own party's flag on its own criterion,
     // visible on the wire.
-    const first = await post(`/jobs/${jobId}/criteria/0/accept`, {}, BUYER_DID);
+    const first = await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyer);
     expect(first.status).toBe(200);
     expect(((await first.json()) as Record<string, unknown>).criteria).toEqual([
       { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: false },
       { text: 'Checkout e2e test passes', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false },
     ]);
-    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, AGENT_DID)).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, BUYER_DID)).status).toBe(200);
-    expect((await post(`/jobs/${jobId}/criteria/1/accept`, {}, AGENT_DID)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agent)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyer)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agent)).status).toBe(200);
 
-    const confirmed = await post(`/jobs/${jobId}/confirm`, {}, BUYER_DID);
+    const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, buyer);
     expect(confirmed.status).toBe(200);
     const confirmedBody = (await confirmed.json()) as Record<string, unknown>;
     expect(confirmedBody.id).toBe(jobId);
@@ -180,43 +248,43 @@ describe('job confirm (R-9)', () => {
 
   it('answers 400 while a criterion is unaccepted by either party, and for junk accept indexes', async () => {
     const created = await post('/jobs', {
-      buyerDid: BUYER_DID,
-      agentDid: AGENT_DID,
+      buyerDid: buyer.did,
+      agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'Another brief',
     });
     const jobId = String(((await created.json()) as Record<string, unknown>).id);
-    await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, AGENT_DID);
-    await post(`/jobs/${jobId}/criteria/0/accept`, {}, BUYER_DID);
-    await post(`/jobs/${jobId}/criteria/0/accept`, {}, AGENT_DID);
-    await post(`/jobs/${jobId}/criteria/1/accept`, {}, BUYER_DID);
+    await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal }, agent);
+    await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyer);
+    await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agent);
+    await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyer);
     // Criterion 1 is missing the agent's acceptance.
 
-    const early = await post(`/jobs/${jobId}/confirm`, {}, BUYER_DID);
+    const early = await postSigned(`/jobs/${jobId}/confirm`, {}, buyer);
     expect(early.status).toBe(400);
     const body = (await early.json()) as { error: string };
     expect(body.error).toContain('1 of 2 outstanding');
 
     // Out of range reaches the domain and comes back 400...
-    expect((await post(`/jobs/${jobId}/criteria/99/accept`, {}, BUYER_DID)).status).toBe(400);
+    expect((await postSigned(`/jobs/${jobId}/criteria/99/accept`, {}, buyer)).status).toBe(400);
     // ...and so does Number('abc') = NaN: the domain's integer guard decides.
-    expect((await post(`/jobs/${jobId}/criteria/abc/accept`, {}, BUYER_DID)).status).toBe(400);
+    expect((await postSigned(`/jobs/${jobId}/criteria/abc/accept`, {}, buyer)).status).toBe(400);
   });
 
   it('one party accepting every criterion and calling confirm is REFUSED', async () => {
     const created = await post('/jobs', {
-      buyerDid: BUYER_DID,
-      agentDid: AGENT_DID,
+      buyerDid: buyer.did,
+      agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'A buyer-only accept attempt',
     });
     const jobId = String(((await created.json()) as Record<string, unknown>).id);
-    await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, AGENT_DID);
+    await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal }, agent);
     // The buyer alone accepts every criterion.
-    await post(`/jobs/${jobId}/criteria/0/accept`, {}, BUYER_DID);
-    await post(`/jobs/${jobId}/criteria/1/accept`, {}, BUYER_DID);
+    await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyer);
+    await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyer);
 
-    const confirm = await post(`/jobs/${jobId}/confirm`, {}, BUYER_DID);
+    const confirm = await postSigned(`/jobs/${jobId}/confirm`, {}, buyer);
     expect(confirm.status).toBe(400);
     const body = (await confirm.json()) as { error: string };
     expect(body.error).toContain('2 of 2 outstanding');
@@ -225,34 +293,37 @@ describe('job confirm (R-9)', () => {
     expect(((await read.json()) as Record<string, unknown>).status).toBe('proposed');
   });
 
-  it('a caller who is neither the buyer nor the agent is refused on every exchange route', async () => {
+  it('a caller with no signature at all is refused 401, and a signed stranger is refused 403, on every exchange route', async () => {
     const created = await post('/jobs', {
-      buyerDid: BUYER_DID,
-      agentDid: AGENT_DID,
+      buyerDid: buyer.did,
+      agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'A stranger tries every route',
     });
     const jobId = String(((await created.json()) as Record<string, unknown>).id);
-    const stranger = 'did:abt:not-a-party-to-this-job';
 
-    expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, stranger)).status).toBe(403);
-    await post(`/jobs/${jobId}/criteria`, { criteria: proposal }, AGENT_DID);
-    expect((await post(`/jobs/${jobId}/request-changes`, {}, stranger)).status).toBe(403);
-    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {}, stranger)).status).toBe(403);
-    expect((await post(`/jobs/${jobId}/confirm`, {}, stranger)).status).toBe(403);
+    expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal })).status).toBe(401);
+    expect((await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal }, stranger)).status).toBe(403);
+    await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal }, agent);
+    expect((await post(`/jobs/${jobId}/request-changes`, {})).status).toBe(401);
+    expect((await postSigned(`/jobs/${jobId}/request-changes`, {}, stranger)).status).toBe(403);
+    expect((await post(`/jobs/${jobId}/criteria/0/accept`, {})).status).toBe(401);
+    expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, stranger)).status).toBe(403);
+    expect((await post(`/jobs/${jobId}/confirm`, {})).status).toBe(401);
+    expect((await postSigned(`/jobs/${jobId}/confirm`, {}, stranger)).status).toBe(403);
   });
 
   it('answers 409 confirming a fresh draft, and 404 for an unknown id', async () => {
     const created = await post('/jobs', {
-      buyerDid: BUYER_DID,
-      agentDid: AGENT_DID,
+      buyerDid: buyer.did,
+      agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'A third brief',
     });
     const jobId = String(((await created.json()) as Record<string, unknown>).id);
-    expect((await post(`/jobs/${jobId}/confirm`, {}, BUYER_DID)).status).toBe(409);
+    expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyer)).status).toBe(409);
 
-    const nowhere = await post('/jobs/j-nowhere/confirm', {}, BUYER_DID);
+    const nowhere = await postSigned('/jobs/j-nowhere/confirm', {}, buyer);
     expect(nowhere.status).toBe(404);
     expect(await nowhere.json()).toEqual({ error: 'not found' });
   });
@@ -260,10 +331,7 @@ describe('job confirm (R-9)', () => {
   it('answers 400 when a proposed row somehow holds no criteria', async () => {
     const scripted = await startWith(new ScriptedRow({ ...draftRow('j-empty'), status: 'proposed', criteria: [] }));
     try {
-      const res = await fetch(`${scripted.baseUrl}/jobs/j-empty/confirm`, {
-        method: 'POST',
-        headers: { [CALLER_HEADER]: BUYER_DID },
-      });
+      const res = await postSignedTo(scripted.baseUrl, '/jobs/j-empty/confirm', {}, buyer);
       expect(res.status).toBe(400);
       expect(((await res.json()) as { error: string }).error).toContain('nothing was agreed');
     } finally {
@@ -273,10 +341,10 @@ describe('job confirm (R-9)', () => {
 
   it('locks the job after confirm: every editing path is a 409, nothing moves', async () => {
     // The issue's accept line, over every editing API path there is.
-    expect((await post(`/jobs/${confirmedJobId}/criteria`, { criteria: proposal }, AGENT_DID)).status).toBe(409);
-    expect((await post(`/jobs/${confirmedJobId}/request-changes`, {}, BUYER_DID)).status).toBe(409);
-    expect((await post(`/jobs/${confirmedJobId}/criteria/0/accept`, {}, BUYER_DID)).status).toBe(409);
-    expect((await post(`/jobs/${confirmedJobId}/confirm`, {}, BUYER_DID)).status).toBe(409);
+    expect((await postSigned(`/jobs/${confirmedJobId}/criteria`, { criteria: proposal }, agent)).status).toBe(409);
+    expect((await postSigned(`/jobs/${confirmedJobId}/request-changes`, {}, buyer)).status).toBe(409);
+    expect((await postSigned(`/jobs/${confirmedJobId}/criteria/0/accept`, {}, buyer)).status).toBe(409);
+    expect((await postSigned(`/jobs/${confirmedJobId}/confirm`, {}, buyer)).status).toBe(409);
 
     // And a read proves the row did not budge: same criteria, same digest.
     const read = await get(`/jobs/${confirmedJobId}`);
@@ -339,9 +407,25 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
     expect(created.status).toBe(201);
     const jobId = String(((await created.json()) as Record<string, unknown>).id);
 
+    const walletSigningIdentity = async (wallet: WalletObject): Promise<SigningIdentity> => {
+      const seed = hexToBytes(wallet.secretKey).slice(0, 32);
+      const key = await Ed25519VerificationKey2020.generate({ seed, controller: wallet.toDid() });
+      const keyid = `${wallet.toDid()}#${key.publicKeyMultibase}`;
+      const pkcs8Prefix = Buffer.from('302e020100300506032b657004220420', 'hex');
+      const { createPrivateKey } = await import('node:crypto');
+      const privateKey = createPrivateKey({
+        key: Buffer.concat([pkcs8Prefix, Buffer.from(seed)]),
+        format: 'der',
+        type: 'pkcs8',
+      });
+      return { did: wallet.toDid(), keyid, privateKey };
+    };
+    const operatorIdentity = await walletSigningIdentity(operatorWallet);
+    const agentIdentity = await walletSigningIdentity(agentWallet);
+
     expect(
       (
-        await post(
+        await postSigned(
           `/jobs/${jobId}/criteria`,
           {
             criteria: [
@@ -349,16 +433,16 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
               { text: 'Checkout e2e passes\r\non staging', proposedBy: 'buyer' },
             ],
           },
-          agentWallet.toDid(),
+          agentIdentity,
         )
       ).status,
     ).toBe(200);
-    await post(`/jobs/${jobId}/criteria/0/accept`, {}, operatorWallet.toDid());
-    await post(`/jobs/${jobId}/criteria/0/accept`, {}, agentWallet.toDid());
-    await post(`/jobs/${jobId}/criteria/1/accept`, {}, operatorWallet.toDid());
-    await post(`/jobs/${jobId}/criteria/1/accept`, {}, agentWallet.toDid());
+    await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, operatorIdentity);
+    await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity);
+    await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, operatorIdentity);
+    await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity);
 
-    const confirmed = await post(`/jobs/${jobId}/confirm`, {}, operatorWallet.toDid());
+    const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, operatorIdentity);
     expect(confirmed.status).toBe(200);
     confirmedBody = (await confirmed.json()) as Record<string, unknown>;
 
