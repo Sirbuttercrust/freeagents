@@ -1772,6 +1772,13 @@ export function createApp(
           completedJobId: row.id,
           subjectDid: row.agentDid,
           document: credential,
+          // R-17 (invariant 4, proof gate finding): the one fact
+          // evidenceTier needs beyond the merge itself, read off github's own
+          // report on the same PR object the merge commit came from. Before
+          // this line no writer ever passed the field, so every real hire
+          // defaulted to the fail-closed false and could never reach
+          // verified-hire, no matter how public the repository actually was.
+          repositoryPublic: summary.repositoryPublic,
         });
       } catch (err) {
         console.error('POST /jobs/:jobId/merge: storage failed', err);

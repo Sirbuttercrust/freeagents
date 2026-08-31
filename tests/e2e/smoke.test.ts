@@ -370,6 +370,7 @@ const githubAdapter: GithubAdapter = {
       additions: 128,
       deletions: 12,
       filesChanged: 5,
+      repositoryPublic: true,
     });
   },
   getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),

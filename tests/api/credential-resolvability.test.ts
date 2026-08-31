@@ -53,6 +53,7 @@ function mergedGithub(): GithubAdapter {
         additions: 5,
         deletions: 1,
         filesChanged: 1,
+        repositoryPublic: true,
       }),
     getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
     getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),

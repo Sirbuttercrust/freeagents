@@ -233,6 +233,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
         additions: 0,
         deletions: 0,
         filesChanged: 0,
+        repositoryPublic: true,
       }),
     getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
     getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),

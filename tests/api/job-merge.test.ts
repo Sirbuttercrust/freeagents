@@ -99,6 +99,7 @@ function mergedGithub(recorded: RecordedCalls): GithubAdapter {
       additions: 412,
       deletions: 87,
       filesChanged: 9,
+      repositoryPublic: true,
     }),
   );
 }
@@ -114,6 +115,7 @@ function openGithub(recorded: RecordedCalls): GithubAdapter {
       additions: 0,
       deletions: 0,
       filesChanged: 0,
+      repositoryPublic: true,
     }),
   );
 }
@@ -129,6 +131,7 @@ function closedGithub(recorded: RecordedCalls): GithubAdapter {
       additions: 0,
       deletions: 0,
       filesChanged: 0,
+      repositoryPublic: true,
     }),
   );
 }
