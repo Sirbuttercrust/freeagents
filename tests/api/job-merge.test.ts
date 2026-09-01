@@ -286,7 +286,7 @@ async function walkToSubmitted(jobId: string, base: string = baseUrl): Promise<R
   expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, buyerIdentity, base)).status).toBe(200);
   expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agentIdentity, base)).status).toBe(200);
   expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity, base)).status).toBe(200);
-  const pr = await post(`/jobs/${jobId}/pull-request`, {}, base);
+  const pr = await postSigned(`/jobs/${jobId}/pull-request`, {}, agentIdentity, base);
   expect(pr.status).toBe(200);
   return (await pr.json()) as Record<string, unknown>;
 }
@@ -338,7 +338,7 @@ describe('job merge (R-11)', () => {
     const submittedBody = await walkToSubmitted(happyJobId);
     expect(submittedBody.status).toBe('submitted');
 
-    const merge = await post(`/jobs/${happyJobId}/merge`);
+    const merge = await postSigned(`/jobs/${happyJobId}/merge`, {}, buyerIdentity);
     expect(merge.status).toBe(200);
     const mergedBody = (await merge.json()) as Record<string, unknown>;
     expect(mergedBody.id).toBe(happyJobId);
@@ -390,7 +390,7 @@ describe('job merge (R-11)', () => {
   });
 
   it('answers 409 on an already-completed job, without observing github a second time', async () => {
-    const again = await post(`/jobs/${happyJobId}/merge`);
+    const again = await postSigned(`/jobs/${happyJobId}/merge`, {}, buyerIdentity);
     expect(again.status).toBe(409);
     // The terminal state is checked before github is asked again: the count
     // stays at the one call the happy-path walk made.
@@ -412,7 +412,7 @@ describe('job merge (R-11)', () => {
     const draftId = await openDraft('A draft nobody confirmed');
     const before = recorded.getPullRequest.length;
 
-    const early = await post(`/jobs/${draftId}/merge`);
+    const early = await postSigned(`/jobs/${draftId}/merge`, {}, buyerIdentity);
     expect(early.status).toBe(409);
     expect(((await early.json()) as { error: string }).error).toContain('status "draft"');
     expect(recorded.getPullRequest.length).toBe(before);
@@ -523,7 +523,7 @@ describe('job merge, credential-issuance faulted legs (R-36)', () => {
     });
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(503);
       expect(await merge.json()).toEqual({ error: 'identity resolution unavailable' });
       expect(errorLog).toHaveBeenCalled();
@@ -549,7 +549,7 @@ describe('job merge, credential-issuance faulted legs (R-36)', () => {
     });
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(503);
       expect(await merge.json()).toEqual({ error: 'identity resolution unavailable' });
       expect(errorLog).toHaveBeenCalled();
@@ -575,7 +575,7 @@ describe('job merge, credential-issuance faulted legs (R-36)', () => {
     const scripted = await startWith(repo, mergedGithub(faults), { credentials: failingCredentials });
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(503);
       expect(await merge.json()).toEqual({ error: 'credential issuance unavailable' });
       expect(errorLog).toHaveBeenCalled();
@@ -609,7 +609,7 @@ describe('job merge, credential-issuance faulted legs (R-36)', () => {
     });
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(503);
       expect(await merge.json()).toEqual({ error: 'storage unavailable' });
       expect(errorLog).toHaveBeenCalled();
@@ -671,7 +671,7 @@ describe("createApp's credentials default, no credentials adapter given (R-36)",
     try {
       const jobId = await openDraft('Fix the login bug on the checkout page', base);
       await walkToSubmitted(jobId, base);
-      const merge = await post(`/jobs/${jobId}/merge`, {}, base);
+      const merge = await postSigned(`/jobs/${jobId}/merge`, {}, buyerIdentity, base);
       expect(merge.status).toBe(200);
       const body = (await merge.json()) as Record<string, unknown>;
       const credential = body.credential as VerifiableCredential;
@@ -694,7 +694,7 @@ describe('job merge, faulted legs (R-11)', () => {
       const submittedBody = await walkToSubmitted(jobId, scripted.baseUrl);
       expect(submittedBody.status).toBe('submitted');
 
-      const merge = await post(`/jobs/${jobId}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${jobId}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(409);
       expect(((await merge.json()) as { error: string }).error).toBe('pull request is open; it has not merged yet');
 
@@ -719,7 +719,7 @@ describe('job merge, faulted legs (R-11)', () => {
       const jobId = await openDraft('A PR that was closed unmerged', scripted.baseUrl);
       await walkToSubmitted(jobId, scripted.baseUrl);
 
-      const merge = await post(`/jobs/${jobId}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${jobId}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(200);
       const body = (await merge.json()) as Record<string, unknown>;
       expect(body.id).toBe(jobId);
@@ -736,7 +736,7 @@ describe('job merge, faulted legs (R-11)', () => {
 
       // Second observation: the terminal state is checked before github is
       // asked again, and it is a conflict, not a rewrite.
-      const again = await post(`/jobs/${jobId}/merge`, {}, scripted.baseUrl);
+      const again = await postSigned(`/jobs/${jobId}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(again.status).toBe(409);
       expect(((await again.json()) as { error: string }).error).toContain('closed_unmerged');
       expect(faults.getPullRequest.length).toBe(1);
@@ -753,7 +753,7 @@ describe('job merge, faulted legs (R-11)', () => {
       const jobId = await openDraft('A PR github cannot be reached for', scripted.baseUrl);
       await walkToSubmitted(jobId, scripted.baseUrl);
 
-      const merge = await post(`/jobs/${jobId}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${jobId}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(503);
       expect(await merge.json()).toEqual({ error: 'github unavailable' });
       expect(errorLog).toHaveBeenCalled();
@@ -785,7 +785,7 @@ describe('job merge, faulted legs (R-11)', () => {
     }
     const scripted = await startWith(new VanishingCompleteRepository(), mergedGithub(faults));
     try {
-      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(404);
       expect(await merge.json()).toEqual({ error: 'not found' });
     } finally {
@@ -817,7 +817,7 @@ describe('job merge, faulted legs (R-11)', () => {
     const scripted = await startWith(new ThrowingCompleteRepository(), mergedGithub(faults));
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(503);
       expect(await merge.json()).toEqual({ error: 'storage unavailable' });
       expect(errorLog).toHaveBeenCalled();
@@ -853,7 +853,7 @@ describe('job merge, faulted legs (R-11)', () => {
     const scripted = await startWith(new ScriptedRow(), mergedGithub(faults));
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(500);
       expect(await merge.json()).toEqual({ error: 'internal error' });
       expect(errorLog).toHaveBeenCalled();
@@ -929,7 +929,7 @@ describe('job merge, outcomes (R-12)', () => {
     );
     const scripted = await startWith(repo, openGithub(faults));
     try {
-      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(200);
       const body = (await merge.json()) as Record<string, unknown>;
       expect(body.id).toBe(row.id);
@@ -961,7 +961,7 @@ describe('job merge, outcomes (R-12)', () => {
     );
     const scripted = await startWith(repo, openGithub(faults));
     try {
-      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(409);
       expect(((await merge.json()) as { error: string }).error).toBe(
         'the job is already recorded stale and the pull request is still open',
@@ -992,7 +992,7 @@ describe('job merge, outcomes (R-12)', () => {
     );
     const scripted = await startWith(repo, mergedGithub(faults));
     try {
-      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(200);
       const body = (await merge.json()) as Record<string, unknown>;
       expect(body.status).toBe('completed');
@@ -1020,7 +1020,7 @@ describe('job merge, outcomes (R-12)', () => {
     );
     const scripted = await startWith(repo, closedGithub(faults));
     try {
-      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(200);
       const body = (await merge.json()) as Record<string, unknown>;
       expect(body.status).toBe('closed_unmerged');
@@ -1050,7 +1050,7 @@ describe('job merge, outcomes (R-12)', () => {
     const scripted = await startWith(repo, openGithub(faults));
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(503);
       expect(await merge.json()).toEqual({ error: 'storage unavailable' });
       expect(errorLog).toHaveBeenCalledWith(
@@ -1078,7 +1078,7 @@ describe('job merge, outcomes (R-12)', () => {
     );
     const scripted = await startWith(repo, closedGithub(faults));
     try {
-      const merge = await post(`/jobs/${row.id}/merge`, {}, scripted.baseUrl);
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(404);
       expect(await merge.json()).toEqual({ error: 'not found' });
     } finally {
