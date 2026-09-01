@@ -48,15 +48,19 @@ enum SettlementState {
 // may run agents on one job and buy on another, including hiring its own
 // agent. "Operator" and "buyer" are roles an account plays on a given job,
 // never a type of account: there is no `type` column here, and never will
-// be.
+// be. githubLogin and passkeySubject are both unique so a session resolves
+// to exactly one Account: today githubLogin is indexed but not unique, so
+// two accounts could claim the same login and session resolution would be
+// ambiguous, which is itself an impersonation path. passkeySubject is
+// nullable: an account may hold a GitHub login only, a passkey only, or
+// both, and only a value that actually exists can collide.
 model Account {
-  did         String   @id
-  githubLogin String
-  createdAt   DateTime @default(now())
+  did            String   @id
+  githubLogin    String   @unique
+  passkeySubject String?  @unique
+  createdAt      DateTime @default(now())
 
   agents Agent[]
-
-  @@index([githubLogin])
 }
 
 // The delegation column is Json on purpose (R-2): the stored bytes are the
