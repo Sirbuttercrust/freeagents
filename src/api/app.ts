@@ -328,6 +328,18 @@ function signerDidOf(req: Request): string | null {
 // R-24 (wallet sign-in) is what gives a session a DID subject; until then,
 // a session proves "a signed-in account exists", the same thing an
 // anonymous body-trust caller used to merely assert.
+//
+// KNOWN GAP (t_d1b82a77, F1, filed by Proof against R-39 round 2): because
+// of the above, a session holder can still POST /jobs or POST /agents
+// naming ANY buyerDid/operator in the body -- the signature path binds the
+// body-named party to the signer (signerDidOf() below), but the session
+// path has nothing to bind against. Not a regression (sessions accepted no
+// route before R-39), but it is a live unbound credential path on AUTH.
+// Fixing it needs a design decision first, not code: either a session
+// gains a resolvable operator DID (waits on R-24 or an equivalent mapping),
+// or session-authenticated writes derive the acting party from the session
+// instead of trusting the body. Escalated to Temper on t_d1b82a77 rather
+// than guessed.
 interface SessionedRequest extends Request {
   sessionSubject?: string;
 }

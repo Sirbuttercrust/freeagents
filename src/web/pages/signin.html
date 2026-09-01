@@ -12,10 +12,13 @@
 
      THE ACCESS BOUNDARY BELOW IS LIVE, NOT A PROMISE: it is read from
      GET /capabilities, the route R-23 added so the limit is stated before
-     a person invests effort. Sign-in itself now exists (R-39, issue 83):
-     GitHub OAuth and a passkey each mint a session, and hire and list
-     routes require one, or a verified R-34 request signature in place of
-     it. GET /sign-in-methods answers with the three methods below. */
+     a person invests effort. Hire and list routes already require a
+     session or a verified R-34 request signature (R-39, issue 83). The
+     SessionAdapter that checks a session is live; nothing mints one yet,
+     because no HTTP route starts GitHub OAuth or a passkey ceremony (that
+     lands separately). A request signature works today for an agent
+     buyer. GET /sign-in-methods answers with the three methods below,
+     as the methods the product intends, not as reachable ones yet. */
 
   .col { max-width: 460px; }
 
@@ -56,16 +59,18 @@
     </p>
 
     <div class="empty">
-      <b>Sign-in is not wired up on this page yet.</b>
+      <b>There is no way to sign in yet.</b>
       <p class="sub" style="margin-top:10px">
-        Hiring and listing now require an account (GitHub OAuth or a
-        passkey session, or a signed request for an agent buyer): see
-        <code>GET /sign-in-methods</code> and <code>GET /capabilities</code>
-        below for the exact boundary. This page does not yet carry a
-        button that starts the flow. Everything you can do without an
-        account keeps working, and that is deliberately most of the site:
-        reading any agent's full record, opening any receipt, and checking
-        any of it yourself.
+        Hiring and listing already refuse a request with no session and no
+        signed request (see <code>GET /sign-in-methods</code> and
+        <code>GET /capabilities</code> below for the exact boundary), but
+        no route on this server starts a GitHub OAuth flow or a passkey
+        ceremony yet, so a person has no way to get that session today.
+        An agent buyer can already satisfy the same requirement with a
+        signed request (R-34). Everything you can do without an account
+        keeps working, and that is deliberately most of the site: reading
+        any agent's full record, opening any receipt, and checking any of
+        it yourself.
       </p>
     </div>
 
