@@ -16,9 +16,10 @@ import type { Server } from 'node:http';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import { fakeGitHubConfig, fakeGitHubFetch, failingGitHubFetch, mintSessionToken } from '../helpers/session-fixtures.js';
 import { createPasskeyFixture } from '../helpers/webauthn-fixtures.js';
+import { signingIdentityFromSeed, signRequest } from '../helpers/sign-request.js';
 import { createApp } from '../../src/api/app.js';
 import { createRateLimiter } from '../../src/adapters/identity/verify-rate-limit.js';
-import { MemoryAgentRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
 
 function delegationFixture(agentDid: string): Delegation {
@@ -235,6 +236,107 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
     expect(withSession.status).not.toBe(401);
   });
 
+  it('refuses a signature naming an operator different from the one who signed, with 403', async () => {
+    // Proof (t_8b63ee9e, D2/credential-not-bound-to-party): the signature
+    // path on POST /agents never called signerDidOf(), so a registered
+    // operator could sign a body naming a DIFFERENT operator DID and still
+    // get 201 -- the same party-binding rule POST /jobs already enforces
+    // for buyerDid was simply missing here. Both operators are registered
+    // (so the 404 unregistered-operator check cannot explain a refusal);
+    // only the signer/operator mismatch can.
+    const signer = await signingIdentityFromSeed(new Uint8Array(32).fill(61));
+    const victim = await signingIdentityFromSeed(new Uint8Array(32).fill(62));
+    const operatorRepo = new MemoryOperatorRepository();
+    await operatorRepo.register({ did: signer.did, githubLogin: 'signer-operator' });
+    await operatorRepo.register({ did: victim.did, githubLogin: 'victim-operator' });
+
+    const baseUrl = await listen(createApp(operatorRepo));
+    const agentDid = 'did:abt:session-forged-listed-agent';
+    const body = {
+      did: agentDid,
+      operator: victim.did,
+      delegation: delegationFixture(agentDid),
+      name: 'scout',
+      skills: ['triage'],
+    };
+    const bodyText = JSON.stringify(body);
+    const targetUri = `${baseUrl}/agents`;
+    const signed = signRequest(signer, 'POST', targetUri, { body: bodyText });
+
+    const response = await fetch(targetUri, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'signature-input': signed['signature-input'],
+        signature: signed.signature,
+        'content-digest': signed['content-digest'],
+      },
+      body: bodyText,
+    });
+
+    expect(response.status).toBe(403);
+  });
+
+  it('refuses an invalid signature outright, even when a live session is also present', async () => {
+    // Proof (t_8b63ee9e, D3): requireSessionOrSignature's own comment says
+    // an invalid signature is "refused outright... rather than silently
+    // falling back to a session check that might also fail". Mutation
+    // proof at t_80cd7d4e found that swapping the early return for a
+    // fall-through to the session check left the FULL SUITE GREEN --
+    // meaning no test actually exercised "signature present but invalid,
+    // AND a live session is also on the request". This one does: the
+    // signature bytes are corrupted (present, well-formed headers, wrong
+    // signature value) while a genuinely live session token rides along.
+    // If the early return were ever weakened to a fall-through, this test
+    // is what would catch it going from 401 to 201.
+    const real = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'octo-cat', id: 909 }),
+    });
+    const token = await mintSessionToken(real);
+    const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(71));
+
+    const agentRepo = new MemoryAgentRepository();
+    const agentDid = 'did:abt:session-invalid-sig-agent';
+    await agentRepo.create({
+      did: agentDid,
+      operatorDid: 'did:abt:op-session-invalid-sig',
+      delegation: delegationFixture(agentDid),
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    const baseUrl = await listen(createApp(undefined, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, real));
+
+    const jobBody = {
+      buyerDid: buyer.did,
+      agentDid,
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    };
+    const bodyText = JSON.stringify(jobBody);
+    const targetUri = `${baseUrl}/jobs`;
+    const signed = signRequest(buyer, 'POST', targetUri, { body: bodyText });
+    // Corrupt the signature value itself: well-formed Signature-Input and
+    // Content-Digest, but the signature no longer verifies against either.
+    const corruptedSignature = signed.signature.slice(0, -8) + 'AAAAAAAA:';
+
+    const response = await fetch(targetUri, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'signature-input': signed['signature-input'],
+        signature: corruptedSignature,
+        'content-digest': signed['content-digest'],
+        authorization: `Bearer ${token}`,
+      },
+      body: bodyText,
+    });
+
+    expect(response.status).toBe(401);
+    expect(((await response.json()) as { error: string }).error).toContain('invalid signature');
+  });
+
   it('a hire-loop route returns 401 for an expired or a merely malformed bearer token, never an anonymous fallthrough', async () => {
     // A gated route must refuse an invalid credential exactly as it refuses
     // an absent one -- 401 either way, never treated as if no Authorization
@@ -304,6 +406,25 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
       body: JSON.stringify(jobBody),
     });
     expect(malformed.status).toBe(401);
+  });
+
+  it('a fresh deployment can onboard its first operator with no session and no signature', async () => {
+    // Proof (t_8b63ee9e, D1/bootstrap-deadlock): createApp() with EVERY
+    // default is exactly what src/api/server.ts runs. POST /operators is
+    // account CREATION (issue 83's anchor names hire and list, not
+    // registration), and a route that mints the only credential a caller
+    // could later present cannot itself demand one -- gating it made a
+    // fresh deployment unable to onboard anyone at all. No session
+    // adapter, no agent repository, no operator repository: the exact
+    // shape a first boot has.
+    const baseUrl = await listen(createApp());
+
+    const anonymous = await fetch(`${baseUrl}/operators`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ did: 'did:abt:bootstrap-first-operator', githubLogin: 'bootstrap-first-operator' }),
+    });
+    expect(anonymous.status).toBe(201);
   });
 
   it('browse and verify routes succeed with no session and no account', async () => {

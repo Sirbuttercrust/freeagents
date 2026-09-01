@@ -428,12 +428,15 @@ export function createApp(
   }
 
   // R-39 follow-up (issue 83): hire and list routes (the identified set in
-  // src/domain/access.ts -- POST /operators, POST /agents, POST /jobs)
-  // require EITHER a live session OR a verified R-34 signature naming a
-  // party. Neither is a fallback dressed up as the other: both are
-  // first-class, checked independently, and either alone is sufficient
-  // (anchor: "A session is required exactly where an account is required").
-  // A present-but-invalid signature is refused outright, the same stance
+  // src/domain/access.ts -- POST /agents, POST /jobs) require EITHER a live
+  // session OR a verified R-34 signature naming a party. Neither is a
+  // fallback dressed up as the other: both are first-class, checked
+  // independently, and either alone is sufficient (anchor: "A session is
+  // required exactly where an account is required"). POST /operators does
+  // NOT use this gate: registering an operator is how an account is
+  // created, not an action an account performs, so it cannot itself demand
+  // one -- see D1/bootstrap-deadlock below on the route itself. A
+  // present-but-invalid signature is refused outright, the same stance
   // didSignature takes, rather than silently falling back to a session
   // check that might also fail -- two wrongs reading as one 401 would hide
   // which credential was actually rejected. Only when no signature was
@@ -503,7 +506,20 @@ export function createApp(
     });
   });
 
-  app.post('/operators', requireSessionOrSignature, async (req: Request, res: Response) => {
+  // R-39 follow-up (issue 83, D1/bootstrap-deadlock): registering an
+  // operator is account CREATION, not an action an existing account
+  // performs. The issue's own anchor names hire and list, and access.ts's
+  // own doc comment says 'identified' means "body must name the acting
+  // party", not "must authenticate" -- registration is how a party comes
+  // to exist, so it cannot be conditioned on a credential that itself
+  // presupposes one. Gating this route was proved (t_8b63ee9e) to deadlock
+  // every fresh deployment: no route mints a session before an operator
+  // exists, and the signing-key resolver only accepts an already-registered
+  // DID, so a self-signed request from a brand-new operator would ALSO be
+  // refused. The identityField in access.ts ('did') is still the acting
+  // party's own claim, checked below the same way it always was; only the
+  // session-or-signature gate in front of it is gone.
+  app.post('/operators', async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as { did?: unknown; githubLogin?: unknown };
     const did = body.did;
     const githubLogin = body.githubLogin;
@@ -579,6 +595,18 @@ export function createApp(
       res.status(400).json({
         error: 'did and operator must look like did:abt:<suffix>, non-empty suffix, no whitespace',
       });
+      return;
+    }
+    // R-34/D2 (t_8b63ee9e, credential-not-bound-to-party): the same rule
+    // access.ts declares for agent.list (identityField: 'operator'),
+    // cryptographically enforced when a signature is present -- the same
+    // pattern POST /jobs already applies to buyerDid. Unsigned callers
+    // (bare session, no signature) are unaffected; only a signer who names
+    // an operator different from themselves is refused, before the body
+    // is trusted to name anyone at all.
+    const signerDid = signerDidOf(req);
+    if (signerDid !== null && signerDid !== operator) {
+      res.status(403).json({ error: 'signature does not match operator' });
       return;
     }
     const proof = delegationShape(body.delegation);
