@@ -66,3 +66,8 @@ environments:
     required: false
     secure: false
     default: ''
+  - name: FREEAGENTS_GITHUB_TOKEN
+    description: Personal access token for the platform's GitHub account, used by the real github adapter (fork, pull request, gist, merge observation). public_repo scope is sufficient; see src/adapters/github/github.ts for the exact call list. Unset means the adapter fails closed with 503 rather than calling the GitHub API unauthenticated.
+    required: false
+    secure: true
+    default: ''

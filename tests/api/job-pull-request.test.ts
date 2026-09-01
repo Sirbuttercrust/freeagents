@@ -7,12 +7,13 @@
 // tests can assert what the route asked github to do - and that the target
 // was the fork this platform created, never the buyer's repo.
 //
-// The repo holds no token concept yet (no credential handling exists; the
-// real adapter is still a stub), so "the token has no write permission on
-// the target" is proven at the adapter boundary: the interface exposes
-// exactly four methods, only forkAndOpenPullRequest mutates, its input names
-// no repository to write to, and the recorded calls aim at the fork. That
-// proof lives in the second describe.
+// The repo holds no token concept beyond FREEAGENTS_GITHUB_TOKEN (the real
+// adapter, src/adapters/github/github.ts, is real now; unconfigured is the
+// only way it fails closed), so "the token has no write permission on the
+// target" is proven at the adapter boundary: the interface exposes exactly
+// four methods, only forkAndOpenPullRequest mutates, its input names no
+// repository to write to, and the recorded calls aim at the fork. That proof
+// lives in the second describe.
 //
 // runExchange's storage-fault legs are NOT re-covered per route:
 // tests/api/job-criteria.test.ts pins each leg of the skeleton these routes
@@ -505,24 +506,38 @@ describe('pull-request, invariant 1 and Gate 2 (R-10)', () => {
     server.close();
   });
 
-  it('the adapter surface offers reads plus exactly one fork-and-PR action', () => {
+  it('the adapter surface offers reads plus exactly one fork-and-PR action', async () => {
     // The whole interface, enumerated: there is no method that pushes a
     // branch to an arbitrary target, no method that edits someone else's
     // repository - by construction of the type, not by discipline.
-    const real = createGithubAdapter();
-    expect(Object.keys(real).sort()).toEqual([
-      'forkAndOpenPullRequest',
-      'getMergeCommitSignature',
-      'getPublicGist',
-      'getPullRequest',
-    ]);
-    // Every method except forkAndOpenPullRequest is still an honest stub
-    // against the real adapter. The stubs throw synchronously, so the
-    // assertion wraps the call itself rather than awaiting a rejection.
-    const ref: PullRequestRef = { owner: 'o', repo: 'r', number: 1 };
-    expect(() => real.getPullRequest(ref)).toThrow(NotImplementedError);
-    expect(() => real.getMergeCommitSignature(ref)).toThrow(NotImplementedError);
-    expect(() => real.getPublicGist({ id: 'x' })).toThrow(NotImplementedError);
+    const originalToken = process.env.FREEAGENTS_GITHUB_TOKEN;
+    delete process.env.FREEAGENTS_GITHUB_TOKEN;
+    try {
+      const real = createGithubAdapter();
+      expect(Object.keys(real).sort()).toEqual([
+        'forkAndOpenPullRequest',
+        'getMergeCommitSignature',
+        'getPublicGist',
+        'getPullRequest',
+      ]);
+      // getMergeCommitSignature has no caller on main yet (this card's own
+      // scope: "may stay NotImplementedError if nothing on main calls it
+      // yet; do not build ahead of need"), so it still throws synchronously,
+      // the same shape as every other honest stub in this codebase.
+      const ref: PullRequestRef = { owner: 'o', repo: 'r', number: 1 };
+      expect(() => real.getMergeCommitSignature(ref)).toThrow(NotImplementedError);
+      // getPullRequest and getPublicGist are real against the GitHub REST
+      // API now (this card's scope). With no FREEAGENTS_GITHUB_TOKEN
+      // configured they fail closed - the same honest "unconfigured
+      // deployment announces itself" shape every other adapter factory in
+      // this codebase uses (storage.ts, credentials.ts) - which surfaces as
+      // an async rejection, not a synchronous throw.
+      await expect(real.getPullRequest(ref)).rejects.toThrow();
+      await expect(real.getPublicGist({ id: 'x' })).rejects.toThrow();
+    } finally {
+      if (originalToken === undefined) delete process.env.FREEAGENTS_GITHUB_TOKEN;
+      else process.env.FREEAGENTS_GITHUB_TOKEN = originalToken;
+    }
 
     // And this route used none of them: it read nothing from github, it
     // only asked for the fork.
