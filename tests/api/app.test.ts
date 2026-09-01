@@ -9,6 +9,8 @@ import {
   type OperatorRepository,
 } from '../../src/adapters/storage/types.js';
 import type { Delegation } from '../../src/domain/agent.js';
+import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
+import type { SessionAdapter } from '../../src/adapters/identity/session.js';
 
 // The one agent every job test hires against. It is planted straight into
 // the memory repository rather than walked through POST /agents, because
@@ -35,10 +37,18 @@ function delegationFixture(): Delegation {
   };
 }
 
-async function postJob(baseUrl: string, body: Record<string, unknown>): Promise<Response> {
+// R-39 follow-up (issue 83): every gated-route call in this file rides a
+// live session token, minted once per describe block against that block's
+// own session adapter. postJob defaults to carrying it; a handful of tests
+// deliberately omit it to prove the 401 refusal, and do so explicitly.
+async function postJob(
+  baseUrl: string,
+  body: Record<string, unknown>,
+  authHeader: Record<string, string> = {},
+): Promise<Response> {
   return fetch(`${baseUrl}/jobs`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...authHeader },
     body: JSON.stringify(body),
   });
 }
@@ -50,6 +60,8 @@ describe('app', () => {
   let baseUrl: string;
   const repo = new MemoryOperatorRepository();
   const agentRepo = new MemoryAgentRepository();
+  const sessionAdapter: SessionAdapter = testSessionAdapter();
+  let authHeader: Record<string, string>;
 
   beforeAll(async () => {
     await agentRepo.create({
@@ -60,13 +72,28 @@ describe('app', () => {
       skills: ['triage'],
       githubLogin: null,
     });
-    server = createApp(repo, agentRepo).listen(0);
+    server = createApp(
+      repo,
+      agentRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    ).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
       throw new Error('expected server to listen on a port');
     }
     baseUrl = `http://127.0.0.1:${address.port}`;
+    const token = await mintSessionToken(sessionAdapter);
+    authHeader = { authorization: `Bearer ${token}` };
   });
 
   afterAll(() => {
@@ -95,7 +122,7 @@ describe('app', () => {
   it('registers an operator and reads it back with the same body', async () => {
     const created = await fetch(`${baseUrl}/operators`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-1', githubLogin: 'operator-api-1' }),
     });
     expect(created.status).toBe(201);
@@ -115,7 +142,7 @@ describe('app', () => {
   it('returns 400 for a DID of the wrong method', async () => {
     const response = await fetch(`${baseUrl}/operators`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:eth:api-2', githubLogin: 'operator-api-2' }),
     });
     expect(response.status).toBe(400);
@@ -124,7 +151,7 @@ describe('app', () => {
   it('returns 400 when githubLogin is missing', async () => {
     const response = await fetch(`${baseUrl}/operators`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-3' }),
     });
     expect(response.status).toBe(400);
@@ -139,7 +166,7 @@ describe('app', () => {
   it('returns 400 when did is not a string (number)', async () => {
     const response = await fetch(`${baseUrl}/operators`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 42, githubLogin: 'operator-api-4' }),
     });
     expect(response.status).toBe(400);
@@ -148,7 +175,7 @@ describe('app', () => {
   it('returns 400 when did is not a string (null)', async () => {
     const response = await fetch(`${baseUrl}/operators`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: null, githubLogin: 'operator-api-5' }),
     });
     expect(response.status).toBe(400);
@@ -160,7 +187,7 @@ describe('app', () => {
     // be a 400, but for a different reason with a different body.
     const response = await fetch(`${baseUrl}/operators`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: '', githubLogin: 'operator-api-6' }),
     });
     expect(response.status).toBe(400);
@@ -174,7 +201,7 @@ describe('app', () => {
     // its checks, so a 400 can only come from the login side of the guard.
     const response = await fetch(`${baseUrl}/operators`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-7', githubLogin: 42 }),
     });
     expect(response.status).toBe(400);
@@ -183,7 +210,7 @@ describe('app', () => {
   it('returns 400 when githubLogin is empty', async () => {
     const response = await fetch(`${baseUrl}/operators`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-8', githubLogin: '' }),
     });
     expect(response.status).toBe(400);
@@ -195,14 +222,14 @@ describe('app', () => {
   it('returns 409 when the same DID is registered twice', async () => {
     const first = await fetch(`${baseUrl}/operators`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-dup', githubLogin: 'operator-api-dup' }),
     });
     expect(first.status).toBe(201);
 
     const second = await fetch(`${baseUrl}/operators`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-dup', githubLogin: 'operator-api-dup' }),
     });
     expect(second.status).toBe(409);
@@ -227,7 +254,7 @@ describe('app', () => {
       agentDid: AGENT_DID,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug on the checkout page',
-    });
+    }, authHeader);
     expect(created.status).toBe(201);
     const body = (await created.json()) as Record<string, unknown>;
     expect(Object.keys(body).sort()).toEqual([
@@ -254,7 +281,7 @@ describe('app', () => {
       agentDid: AGENT_DID,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
-    });
+    }, authHeader);
     expect(response.status).toBe(400);
   });
 
@@ -269,7 +296,7 @@ describe('app', () => {
       agentDid: AGENT_DID,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
-    });
+    }, authHeader);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
       error: 'body must be { buyerDid, agentDid, repository, brief }; all are non-empty strings',
@@ -285,7 +312,7 @@ describe('app', () => {
       agentDid: null,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
-    });
+    }, authHeader);
     expect(response.status).toBe(400);
   });
 
@@ -298,7 +325,7 @@ describe('app', () => {
       agentDid: '',
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
-    });
+    }, authHeader);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
       error: 'body must be { buyerDid, agentDid, repository, brief }; all are non-empty strings',
@@ -314,7 +341,7 @@ describe('app', () => {
       agentDid: AGENT_DID,
       repository: 42,
       brief: 'Fix the login bug',
-    });
+    }, authHeader);
     expect(response.status).toBe(400);
   });
 
@@ -327,7 +354,7 @@ describe('app', () => {
       agentDid: AGENT_DID,
       repository: '',
       brief: 'Fix the login bug',
-    });
+    }, authHeader);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
       error: 'body must be { buyerDid, agentDid, repository, brief }; all are non-empty strings',
@@ -343,7 +370,7 @@ describe('app', () => {
       agentDid: AGENT_DID,
       repository: 'buyer/target-repo',
       brief: 42,
-    });
+    }, authHeader);
     expect(response.status).toBe(400);
   });
 
@@ -353,7 +380,7 @@ describe('app', () => {
       agentDid: AGENT_DID,
       repository: 'buyer/target-repo',
       brief: '',
-    });
+    }, authHeader);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
       error: 'body must be { buyerDid, agentDid, repository, brief }; all are non-empty strings',
@@ -372,7 +399,7 @@ describe('app', () => {
       agentDid: AGENT_DID,
       repository: 'buyer/target-repo',
       brief: '   \n\t ',
-    });
+    }, authHeader);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
       error: 'a job needs a brief: what should the agent do?',
@@ -387,7 +414,7 @@ describe('app', () => {
       agentDid: AGENT_DID,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
-    });
+    }, authHeader);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
       error: 'buyerDid and agentDid must look like did:abt:<suffix>, non-empty suffix, no whitespace',
@@ -405,7 +432,7 @@ describe('app', () => {
       agentDid: 'did:eth:x',
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
-    });
+    }, authHeader);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
       error: 'buyerDid and agentDid must look like did:abt:<suffix>, non-empty suffix, no whitespace',
@@ -421,7 +448,7 @@ describe('app', () => {
       agentDid: AGENT_DID,
       repository: 'not-a-repo',
       brief: 'Fix the login bug',
-    });
+    }, authHeader);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
       error: 'repository must be an owner/name pair like buyer/target-repo',
@@ -437,7 +464,7 @@ describe('app', () => {
       agentDid: 'did:abt:no-such-agent',
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
-    });
+    }, authHeader);
     expect(response.status).toBe(404);
     expect(((await response.json()) as { error: string }).error).toContain('did:abt:no-such-agent');
   });
@@ -460,15 +487,32 @@ describe('app, storage failures', () => {
 
   let server: Server;
   let baseUrl: string;
+  let authHeader: Record<string, string>;
 
   beforeAll(async () => {
-    server = createApp(new FailingRepository()).listen(0);
+    const sessionAdapter = testSessionAdapter();
+    server = createApp(
+      new FailingRepository(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    ).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
       throw new Error('expected server to listen on a port');
     }
     baseUrl = `http://127.0.0.1:${address.port}`;
+    const token = await mintSessionToken(sessionAdapter);
+    authHeader = { authorization: `Bearer ${token}` };
   });
 
   afterAll(() => {
@@ -479,7 +523,7 @@ describe('app, storage failures', () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     const response = await fetch(`${baseUrl}/operators`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-down', githubLogin: 'operator-api-down' }),
     });
     expect(response.status).toBe(503);
@@ -547,6 +591,7 @@ describe('app, job storage failures', () => {
   let lookupUrl: string;
   let createUrl: string;
   let readUrl: string;
+  let authHeader: Record<string, string>;
 
   beforeAll(async () => {
     // The write-fault server needs an agent that EXISTS, so its healthy
@@ -560,6 +605,7 @@ describe('app, job storage failures', () => {
       skills: ['triage'],
       githubLogin: null,
     });
+    const sessionAdapter = testSessionAdapter();
 
     const start = async (app: ReturnType<typeof createApp>): Promise<[Server, string]> => {
       const s = app.listen(0);
@@ -574,7 +620,20 @@ describe('app, job storage failures', () => {
     [lookupServer, lookupUrl] = await start(
       // undefined keeps the defaulted identity/github parameters; only the
       // agent repository is faulted.
-      createApp(new MemoryOperatorRepository(), new FailingAgentLookup()),
+      createApp(
+        new MemoryOperatorRepository(),
+        new FailingAgentLookup(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        sessionAdapter,
+      ),
     );
     [createServer, createUrl] = await start(
       createApp(
@@ -583,11 +642,20 @@ describe('app, job storage failures', () => {
         undefined,
         undefined,
         new FailingJobRepository(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        sessionAdapter,
       ),
     );
     [readServer, readUrl] = await start(
       createApp(new MemoryOperatorRepository(), new MemoryAgentRepository(), undefined, undefined, new FailingJobRepository()),
     );
+    const token = await mintSessionToken(sessionAdapter);
+    authHeader = { authorization: `Bearer ${token}` };
   });
 
   afterAll(() => {
@@ -603,7 +671,7 @@ describe('app, job storage failures', () => {
       agentDid: AGENT_DID,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
-    });
+    }, authHeader);
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: 'storage unavailable' });
     errorLog.mockRestore();
@@ -616,7 +684,7 @@ describe('app, job storage failures', () => {
       agentDid: AGENT_DID,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
-    });
+    }, authHeader);
     expect(response.status).toBe(503);
     // The body is exactly this pair of words: what the database said stays
     // in the log.
@@ -661,6 +729,7 @@ describe('app, job id collision', () => {
 
   let server: Server;
   let baseUrl: string;
+  let authHeader: Record<string, string>;
 
   beforeAll(async () => {
     // The route checks agent existence before drawing the id, so this server
@@ -674,12 +743,20 @@ describe('app, job id collision', () => {
       skills: ['triage'],
       githubLogin: null,
     });
+    const sessionAdapter = testSessionAdapter();
     server = createApp(
       new MemoryOperatorRepository(),
       seededAgentRepo,
       undefined,
       undefined,
       new DuplicateJobRepository(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
     ).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
@@ -687,6 +764,8 @@ describe('app, job id collision', () => {
       throw new Error('expected server to listen on a port');
     }
     baseUrl = `http://127.0.0.1:${address.port}`;
+    const token = await mintSessionToken(sessionAdapter);
+    authHeader = { authorization: `Bearer ${token}` };
   });
 
   afterAll(() => {
@@ -700,7 +779,7 @@ describe('app, job id collision', () => {
       agentDid: AGENT_DID,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
-    });
+    }, authHeader);
     expect(response.status).toBe(409);
     // The body names the id the route drew this request, not the id the
     // scripted repository threw with: the mapping is deterministic on the
@@ -720,6 +799,7 @@ describe('app, job id collision', () => {
 describe('app, default storage parameter', () => {
   let server: Server;
   let baseUrl: string;
+  let authHeader: Record<string, string>;
 
   beforeAll(async () => {
     // DATABASE_URL unset: the factory announces the in-memory choice and the
@@ -727,7 +807,25 @@ describe('app, default storage parameter', () => {
     const originalUrl = process.env.DATABASE_URL;
     delete process.env.DATABASE_URL;
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    server = createApp().listen(0);
+    // Every storage parameter stays defaulted (undefined); only the session
+    // adapter is injected, because the real default (sessionAdapterFromEnv)
+    // exercises GitHub OAuth against real network config this test suite
+    // deliberately never provides (CLAUDE.md: no network calls in tests).
+    const sessionAdapter = testSessionAdapter();
+    server = createApp(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    ).listen(0);
     warn.mockRestore();
     if (originalUrl !== undefined) {
       process.env.DATABASE_URL = originalUrl;
@@ -738,6 +836,8 @@ describe('app, default storage parameter', () => {
       throw new Error('expected server to listen on a port');
     }
     baseUrl = `http://127.0.0.1:${address.port}`;
+    const token = await mintSessionToken(sessionAdapter);
+    authHeader = { authorization: `Bearer ${token}` };
   });
 
   afterAll(() => {
@@ -747,7 +847,7 @@ describe('app, default storage parameter', () => {
   it('boots without an injected repository and serves the operator flow', async () => {
     const created = await fetch(`${baseUrl}/operators`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:default-1', githubLogin: 'operator-default-1' }),
     });
     expect(created.status).toBe(201);
@@ -774,7 +874,7 @@ describe('app, default storage parameter', () => {
       agentDid: 'did:abt:no-such-agent',
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
-    });
+    }, authHeader);
     expect(noAgent.status).toBe(404);
   });
 });
