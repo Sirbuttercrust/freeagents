@@ -11,6 +11,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
 import { ACCESS_NOTICE, CAPABILITIES, capabilityFor, requiresIdentity } from '../../src/domain/access.js';
+import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
+import type { SessionAdapter } from '../../src/adapters/identity/session.js';
 
 // A valid body for each identified capability, minus its own identityField,
 // so the test isolates what the missing identityField alone does. Every
@@ -61,10 +63,30 @@ function portOf(srv: Server): number {
 describe('GET /capabilities', () => {
   let server: Server;
   let baseUrl: string;
+  let sessionAdapter: SessionAdapter;
+  let authHeader: Record<string, string>;
 
   beforeAll(async () => {
-    server = await listen(createApp());
+    sessionAdapter = testSessionAdapter();
+    server = await listen(
+      createApp(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        sessionAdapter,
+      ),
+    );
     baseUrl = `http://127.0.0.1:${portOf(server)}`;
+    const token = await mintSessionToken(sessionAdapter);
+    authHeader = { authorization: `Bearer ${token}` };
   });
 
   afterAll(() => {
@@ -109,7 +131,7 @@ describe('GET /capabilities', () => {
       expect(body, `no fixture body registered for ${cap.id}`).toBeDefined();
       const res = await fetch(`${baseUrl}${cap.path}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...authHeader },
         body: JSON.stringify(body),
       });
       expect(res.status, `${cap.id} should refuse a body missing ${cap.identityField}`).toBe(400);
@@ -122,7 +144,7 @@ describe('GET /capabilities', () => {
   it('agent.list: the missing-operator refusal is about operator specifically, not about the also-required delegation', async () => {
     const withoutOperator = await fetch(`${baseUrl}/agents`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify(VALID_BODY_MINUS_IDENTITY['agent.list']),
     });
     expect(withoutOperator.status).toBe(400);
@@ -137,7 +159,7 @@ describe('GET /capabilities', () => {
     // the field the declaration means by "the acting party".
     const withUnregisteredOperator = await fetch(`${baseUrl}/agents`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({
         ...VALID_BODY_MINUS_IDENTITY['agent.list'],
         operator: 'did:abt:capabilities-test-operator-never-registered',

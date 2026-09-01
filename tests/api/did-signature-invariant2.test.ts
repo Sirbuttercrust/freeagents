@@ -17,6 +17,7 @@ import { createApp } from '../../src/api/app.js';
 import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 const AGENT_DID = 'did:abt:agent-sig-invariant2';
 
@@ -130,10 +131,24 @@ describe('DID-signed requests, invariant 2 (R-34): third-party verifiability', (
     });
     const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(41));
     await repo.register({ did: buyer.did, githubLogin: 'buyer-sig-invariant2' });
+    const sessionAdapter = testSessionAdapter();
 
     let server: Server | undefined;
     try {
-      server = createApp(repo, agentRepo).listen(0);
+      server = createApp(
+        repo,
+        agentRepo,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        sessionAdapter,
+      ).listen(0);
       await new Promise<void>((resolve) => server?.once('listening', resolve));
       const address = server.address();
       if (address === null || typeof address === 'string') {
@@ -142,14 +157,19 @@ describe('DID-signed requests, invariant 2 (R-34): third-party verifiability', (
       const baseUrl = `http://127.0.0.1:${address.port}`;
 
       const unsignedBody = JSON.stringify({
-        buyerDid: 'did:abt:unsigned-buyer',
+        buyerDid: 'did:abt:session-buyer',
         agentDid: AGENT_DID,
         repository: 'buyer/target-repo',
         brief: 'Unsigned draft',
       });
+      // "Unsigned" here means authenticated via a session rather than an
+      // R-34 signature: proving the OTHER accepted identity path (R-39)
+      // leaves the same no-leak guarantee, now that POST /jobs refuses a
+      // caller with neither.
+      const token = await mintSessionToken(sessionAdapter);
       const unsigned = await fetch(`${baseUrl}/jobs`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
         body: unsignedBody,
       });
       expect(unsigned.status).toBe(201);

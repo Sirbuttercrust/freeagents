@@ -15,6 +15,7 @@ import { createApp } from '../../src/api/app.js';
 import { renderAvatar } from '../../src/api/avatar.js';
 import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
+import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 // Names that would mean key material leaked into storage. Matched by
 // substring. The delegation's own public keys in the proof metadata are the
@@ -153,10 +154,15 @@ async function verifyIndependent(credential: Record<string, unknown>): Promise<b
   }
 }
 
-async function postJson(baseUrl: string, path: string, body: unknown): Promise<Response> {
+async function postJson(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+  authHeader: Record<string, string> = {},
+): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...authHeader },
     body: JSON.stringify(body),
   });
 }
@@ -168,16 +174,33 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
   const agentRepo = new MemoryAgentRepository();
   const operator = fromRandom();
   const agent = fromRandom();
+  const sessionAdapter = testSessionAdapter();
+  let authHeader: Record<string, string>;
 
   beforeAll(async () => {
-    server = createApp(repo, agentRepo).listen(0);
+    server = createApp(
+      repo,
+      agentRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    ).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
       throw new Error('expected server to listen on a port');
     }
     baseUrl = `http://127.0.0.1:${address.port}`;
-    const reg = await postJson(baseUrl, '/operators', { did: operator.toDid(), githubLogin: 'operator-inv2' });
+    const token = await mintSessionToken(sessionAdapter);
+    authHeader = { authorization: `Bearer ${token}` };
+    const reg = await postJson(baseUrl, '/operators', { did: operator.toDid(), githubLogin: 'operator-inv2' }, authHeader);
     expect(reg.status).toBe(201);
   });
 
@@ -193,7 +216,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       delegation: credential,
       name: 'scout',
       skills: ['triage'],
-    });
+    }, authHeader);
     expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.did).toBe(agent.toDid());
@@ -305,7 +328,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       delegation: broken,
       name: 'impostor',
       skills: ['triage'],
-    });
+    }, authHeader);
     expect(res.status).toBe(400);
   });
 
@@ -319,7 +342,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       delegation: credential,
       name: 'forged',
       skills: ['triage'],
-    });
+    }, authHeader);
     expect(res.status).toBe(400);
   });
 
@@ -384,7 +407,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       delegation: forged,
       name: 'totally-legit',
       skills: ['triage'],
-    });
+    }, authHeader);
 
     // The service MUST reject this with 400 (not 201).
     expect(res.status).toBe(400);
@@ -407,7 +430,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       delegation: credential,
       name: 'orphan',
       skills: ['triage'],
-    });
+    }, authHeader);
     expect(res.status).toBe(404);
   });
 
@@ -419,7 +442,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       delegation: credential,
       name: 'scout again',
       skills: ['triage'],
-    });
+    }, authHeader);
     expect(res.status).toBe(409);
   });
 
@@ -429,7 +452,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       operator: operator.toDid(),
       name: 'no proof',
       skills: ['triage'],
-    });
+    }, authHeader);
     expect(missingDelegation.status).toBe(400);
 
     const badSkills = await postJson(baseUrl, '/agents', {
@@ -438,7 +461,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       delegation: 'not an object',
       name: 'bad skills',
       skills: [],
-    });
+    }, authHeader);
     expect(badSkills.status).toBe(400);
   });
 

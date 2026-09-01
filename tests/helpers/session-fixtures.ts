@@ -2,6 +2,9 @@
 // OAuth token/user endpoint pair, driven entirely through an injected
 // fetchImpl so the test suite makes no real network call (CLAUDE.md, and
 // this brief's "no network calls in the test suite").
+import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
+import type { SessionAdapter } from '../../src/adapters/identity/session.js';
+
 export interface FakeGitHubUser {
   readonly login: string;
   readonly id: number;
@@ -49,4 +52,34 @@ export function fakeGitHubConfig(): { readonly clientId: string; readonly client
     clientSecret: 'test-client-secret',
     redirectUri: 'http://localhost:3000/auth/github/callback',
   };
+}
+
+// R-39 follow-up (issue 83, route enforcement): a ready-to-use session
+// adapter plus a helper that mints a real, live bearer token through the
+// same GitHub OAuth round trip session.test.ts exercises. Shared by every
+// route test that needs a live session header rather than a fake one, so
+// the token a test presents is one the adapter's own getSession() actually
+// resolves, not a hand-typed string.
+export function testSessionAdapter(): SessionAdapter {
+  return createSessionAdapter({
+    github: fakeGitHubConfig(),
+    fetchImpl: fakeGitHubFetch({ login: 'test-session-user', id: Math.floor(Math.random() * 1_000_000) }),
+  });
+}
+
+export async function mintSessionToken(adapter: SessionAdapter): Promise<string> {
+  const start = await adapter.beginGitHubOAuth();
+  const session = await adapter.completeGitHubOAuth({ code: 'test-code', state: start.state });
+  if (session === null) {
+    throw new Error('mintSessionToken: completeGitHubOAuth unexpectedly returned null');
+  }
+  return session.token;
+}
+
+// The header shape every gated-route test needs: Authorization: Bearer
+// <token>, from a session the SAME adapter instance passed into createApp
+// will resolve.
+export async function sessionHeader(adapter: SessionAdapter): Promise<{ readonly authorization: string }> {
+  const token = await mintSessionToken(adapter);
+  return { authorization: `Bearer ${token}` };
 }

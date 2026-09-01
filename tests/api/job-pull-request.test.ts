@@ -38,6 +38,7 @@ import {
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { createJob, type Job, type JobStatus } from '../../src/domain/job.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 let buyer: SigningIdentity;
 let agent: SigningIdentity;
@@ -116,11 +117,17 @@ function forkCall(recorded: RecordedCalls, index: number): ForkAndOpenPullReques
 // so handing the helpers below to whichever suite is current is safe.
 let server: Server;
 let baseUrl: string;
+let authHeader: Record<string, string> = {};
 
-async function post(path: string, body: unknown = {}, base: string = baseUrl): Promise<Response> {
+async function post(
+  path: string,
+  body: unknown = {},
+  base: string = baseUrl,
+  header: Record<string, string> = authHeader,
+): Promise<Response> {
   return fetch(`${base}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...header },
     body: JSON.stringify(body),
   });
 }
@@ -148,7 +155,7 @@ async function get(path: string, base: string = baseUrl): Promise<Response> {
 async function startWith(
   repo: JobRepository,
   github: GithubAdapter,
-): Promise<{ server: Server; baseUrl: string }> {
+): Promise<{ server: Server; baseUrl: string; authHeader: Record<string, string> }> {
   const agentRepo = new MemoryAgentRepository();
   await agentRepo.create({
     did: agent.did,
@@ -160,13 +167,31 @@ async function startWith(
   });
   const operatorRepo = new MemoryOperatorRepository();
   await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-pr-scripted' });
-  const s = createApp(operatorRepo, agentRepo, undefined, github, repo).listen(0);
+  const sessionAdapter = testSessionAdapter();
+  const s = createApp(
+    operatorRepo,
+    agentRepo,
+    undefined,
+    github,
+    repo,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    sessionAdapter,
+  ).listen(0);
   await new Promise<void>((resolve) => s.once('listening', resolve));
   const address = s.address();
   if (address === null || typeof address === 'string') {
     throw new Error('expected server to listen on a port');
   }
-  return { server: s, baseUrl: `http://127.0.0.1:${address.port}` };
+  return {
+    server: s,
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    authHeader: { authorization: `Bearer ${await mintSessionToken(sessionAdapter)}` },
+  };
 }
 
 // One job walked draft -> confirmed over HTTP, returning the confirm body so
@@ -182,13 +207,17 @@ async function walkToConfirm(jobId: string, base: string = baseUrl): Promise<Rec
   return (await confirmed.json()) as Record<string, unknown>;
 }
 
-async function openDraft(brief: string, base: string = baseUrl): Promise<{ jobId: string; briefHash: unknown }> {
+async function openDraft(
+  brief: string,
+  base: string = baseUrl,
+  header: Record<string, string> = authHeader,
+): Promise<{ jobId: string; briefHash: unknown }> {
   const created = await post('/jobs', {
     buyerDid: buyer.did,
     agentDid: agent.did,
     repository: 'buyer/target-repo',
     brief,
-  }, base);
+  }, base, header);
   expect(created.status).toBe(201);
   const body = (await created.json()) as Record<string, unknown>;
   return { jobId: String(body.id), briefHash: body.briefHash };
@@ -206,7 +235,7 @@ describe('job pull-request (R-10)', () => {
   beforeAll(async () => {
     buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(81));
     agent = await signingIdentityFromSeed(new Uint8Array(32).fill(82));
-    ({ server, baseUrl } = await startWith(jobRepo, recordingFake(recorded)));
+    ({ server, baseUrl, authHeader } = await startWith(jobRepo, recordingFake(recorded)));
   });
 
   afterAll(() => {
@@ -339,6 +368,7 @@ describe('job pull-request, faulted legs (R-10)', () => {
           brief: 'A job whose PR will fail',
         },
         scripted.baseUrl,
+        scripted.authHeader,
       );
       expect(created.status).toBe(201);
       const jobId = String(((await created.json()) as Record<string, unknown>).id);
@@ -461,7 +491,7 @@ describe('pull-request, invariant 1 and Gate 2 (R-10)', () => {
   let call: ForkAndOpenPullRequestInput;
 
   beforeAll(async () => {
-    ({ server, baseUrl } = await startWith(new MemoryJobRepository(), recordingFake(recorded)));
+    ({ server, baseUrl, authHeader } = await startWith(new MemoryJobRepository(), recordingFake(recorded)));
     const { jobId, briefHash } = await openDraft('Fix the login bug');
     prJobId = jobId;
     prBriefHash = briefHash;

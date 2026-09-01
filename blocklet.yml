@@ -36,3 +36,33 @@ environments:
     required: false
     secure: false
     default: ''
+  - name: FREEAGENTS_GITHUB_CLIENT_ID
+    description: GitHub OAuth App client id, for sign-in (R-39). Unset means the sign-in flow fails closed rather than exchanging against an empty client.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_GITHUB_CLIENT_SECRET
+    description: GitHub OAuth App client secret, for sign-in (R-39). Unset means the sign-in flow fails closed rather than exchanging against an empty secret.
+    required: false
+    secure: true
+    default: ''
+  - name: FREEAGENTS_GITHUB_REDIRECT_URI
+    description: Callback URL registered with the GitHub OAuth App. Defaults to the built-in localhost address.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_PASSKEY_RP_ID
+    description: WebAuthn relying party id (usually the deployment's hostname). Unset disables passkey sign-in; GitHub OAuth is unaffected.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_PASSKEY_RP_NAME
+    description: WebAuthn relying party display name shown by the browser's passkey prompt. Defaults to FreeAgents.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_PASSKEY_ORIGIN
+    description: Expected WebAuthn origin. Defaults to https:// plus the relying party id.
+    required: false
+    secure: false
+    default: ''

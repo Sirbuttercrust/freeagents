@@ -72,12 +72,11 @@ async function postSigned(path: string, body: unknown, identity: SigningIdentity
 }
 
 async function createDraftJob(): Promise<string> {
-  const draft = await post('/jobs', {
-    buyerDid: buyer.did,
-    agentDid: agent.did,
-    repository: 'buyer/target-repo',
-    brief: 'Fix the login bug',
-  });
+  const draft = await postSigned(
+    '/jobs',
+    { buyerDid: buyer.did, agentDid: agent.did, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
+    buyer,
+  );
   const body = (await draft.json()) as Record<string, unknown>;
   return String(body.id);
 }

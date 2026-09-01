@@ -9,6 +9,7 @@ import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 // The exact field set the service is allowed to keep, from the Operator domain
 // record: no field beyond this set, so one copy verifies against the other.
@@ -37,14 +38,31 @@ describe('operator registration, invariant 2', () => {
   let server: Server;
   let baseUrl: string;
   const repo = new MemoryOperatorRepository();
+  let authHeader: Record<string, string>;
   beforeAll(async () => {
-    server = createApp(repo).listen(0);
+    const sessionAdapter = testSessionAdapter();
+    server = createApp(
+      repo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    ).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
       throw new Error('expected server to listen on a port');
     }
     baseUrl = `http://127.0.0.1:${address.port}`;
+    const token = await mintSessionToken(sessionAdapter);
+    authHeader = { authorization: `Bearer ${token}` };
   });
 
   afterAll(() => {
@@ -59,7 +77,7 @@ describe('operator registration, invariant 2', () => {
     const login = 'operator-inv2';
     const created = await fetch(`${baseUrl}/operators`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did, githubLogin: login }),
     });
     expect(created.status).toBe(201);
@@ -83,7 +101,7 @@ describe('operator registration, invariant 2', () => {
     const did = 'did:abt:op-fields';
     await fetch(`${baseUrl}/operators`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did, githubLogin: 'operator-fields' }),
     });
     const stored = await repo.findByDid(did);
@@ -102,7 +120,7 @@ describe('operator registration, invariant 2', () => {
     const did = 'did:abt:op-keydrop';
     const res = await fetch(`${baseUrl}/operators`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({
         did,
         githubLogin: 'operator-keydrop',
