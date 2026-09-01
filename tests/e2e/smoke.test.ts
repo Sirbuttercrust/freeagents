@@ -489,18 +489,20 @@ describe('the API starts and answers', () => {
   });
 
   it('exposes every declared hire-loop route', async () => {
-    // A 501 here is the CORRECT current answer: the route exists and its
-    // handler is honest about being unimplemented. What matters for this
-    // assertion is that none of them 404, because a route that does not exist
-    // cannot be said to have a contract at all.
+    // A 501 here is the CORRECT current answer for the routes still in this
+    // list: the route exists and its handler is honest about being
+    // unimplemented. What matters for this assertion is that none of them
+    // 404, because a route that does not exist cannot be said to have a
+    // contract at all.
     // POST /operators, POST /agents, POST /jobs, POST /jobs/:id/confirm,
-    // POST /jobs/:id/pull-request and POST /jobs/:id/merge have left this
-    // list: they are implemented, and their real flows are asserted below.
-    // This is the one-at-a-time replacement the file's design promised.
+    // POST /jobs/:id/pull-request, POST /jobs/:id/merge and
+    // POST /jobs/:id/reviews have left this list: they are implemented,
+    // driven end to end over HTTP by their own dedicated suites
+    // (tests/api/job-reviews.test.ts for reviews). This is the
+    // one-at-a-time replacement the file's design promised.
     const declared: Array<[string, () => Promise<Response>]> = [
       ['GET  /agents/:did/card', () => get('/agents/did:abt:test/card')],
       ['GET  /agents/:did/credentials', () => get('/agents/did:abt:test/credentials')],
-      ['POST /jobs/:id/reviews', () => post('/jobs/j1/reviews')],
     ];
 
     for (const [label, call] of declared) {

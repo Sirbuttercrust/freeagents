@@ -105,3 +105,32 @@ describe('prisma/schema.prisma, the compromise report (R-16, ENT-8.4)', () => {
     expect(compromiseReport).not.toMatch(/deletedAt|revokedAt|withdrawnAt/);
   });
 });
+
+describe('prisma/schema.prisma, the review model (R-22, ENT-10, issue 29)', () => {
+  it("Review's relation targets Job, not CompletedJob (same repoint as Credential, R-35 lap B)", () => {
+    const review = modelBody('Review');
+    expect(review).toMatch(/completedJob\s+Job\s+@relation\(fields:\s*\[completedJobId\],\s*references:\s*\[id\]/);
+    expect(review).not.toMatch(/completedJob\s+CompletedJob\s+@relation/);
+  });
+
+  it('completedJobId is @unique: one review per completed job', () => {
+    const review = modelBody('Review');
+    expect(review).toMatch(/completedJobId\s+String\s+@unique/);
+  });
+
+  it('declares authorDid, agentDid and text, and no rating or score column anywhere (ENT-10.2)', () => {
+    const review = modelBody('Review');
+    expect(review).toMatch(/authorDid\s+String/);
+    expect(review).toMatch(/agentDid\s+String/);
+    expect(review).toMatch(/text\s+String/);
+    expect(review).not.toMatch(/rating|score|stars?\b/i);
+  });
+
+  it('Job declares exactly one Review back-relation, as the optional singular form, not a list', () => {
+    const job = modelBody('Job');
+    const matches = job.match(/^\s*\w+\s+Review\??\s*$/gm) ?? [];
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toMatch(/Review\?\s*$/);
+    expect(matches[0]).not.toMatch(/Review\[\]/);
+  });
+});

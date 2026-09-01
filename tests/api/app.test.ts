@@ -79,14 +79,17 @@ describe('app', () => {
     expect(await response.json()).toEqual({ status: 'ok' });
   });
 
-  it('returns 501 for hire loop route stubs', async () => {
-    // POST /jobs left this post when R-28 implemented it, POST
-    // /jobs/:id/confirm when R-9 did, POST /jobs/:id/pull-request when R-10
-    // did, and POST /jobs/:id/merge when R-11 did; the one surviving stub
-    // stays honest, asserted here.
+  it('POST /jobs/:id/reviews is a real route, not the retired 501 stub (R-22)', async () => {
+    // Every hire-loop stub POST /jobs left this post when R-28 implemented
+    // it, POST /jobs/:id/confirm when R-9 did, POST /jobs/:id/pull-request
+    // when R-10 did, POST /jobs/:id/merge when R-11 did, and POST
+    // /jobs/:id/reviews when R-22 did. None of the six routes answers 501
+    // any more; a signed request with no body reaches the real handler and
+    // is refused for a real reason (400: the body is missing agentDid and
+    // text), never the generic "not implemented" body.
     const reviewsPath = '/jobs/j1/reviews';
     const response = await fetch(`${baseUrl}${reviewsPath}`, { method: 'POST' });
-    expect(response.status).toBe(501);
+    expect(response.status).not.toBe(501);
   });
 
   it('registers an operator and reads it back with the same body', async () => {

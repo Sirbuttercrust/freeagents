@@ -52,11 +52,13 @@
     Promise.all([
       A.get("/agents/" + encodeURIComponent(did)),
       A.get("/agents/" + encodeURIComponent(did) + "/hires"),
-      A.get("/agents/" + encodeURIComponent(did) + "/compromise-reports")
+      A.get("/agents/" + encodeURIComponent(did) + "/compromise-reports"),
+      A.get("/agents/" + encodeURIComponent(did) + "/reviews")
     ]).then(function (results) {
       var agent = results[0];
       var hires = results[1];
       var reports = results[2];
+      var reviews = results[3];
 
       if (agent.state === "absent") {
         failLoad("No agent is listed under that identity.");
@@ -87,6 +89,7 @@
       renderTier("portfolio", "tier-claim", "Portfolio claim", agent.value.portfolio, false, selfHireByMergeCommit);
       renderRotations(agent.value);
       renderCompromise(reports);
+      renderReviews(reviews);
     });
   }
 
@@ -99,6 +102,7 @@
     A.showById("history-empty", false);
     A.showById("prior-work-empty", false);
     A.showById("portfolio-empty", false);
+    A.showById("reviews-empty", false);
     /* The identity row is filled in by renderAgent and by nothing else, so
        on this path it holds only its own placeholders. Left up, it reads as
        a permanent "operator loading" under a heading that already said the
@@ -429,6 +433,50 @@
       key.style.color = "var(--fg-3)";
       key.textContent = String(report.key || "");
       row.appendChild(key);
+
+      host.appendChild(row);
+    });
+  }
+
+  /* ENT-10, R-22: reviews are buyer opinion, never platform verification,
+     and the copy on the page says so (the section heading's own <p class="sub">
+     already carries "opinion" and "not platform verification" from the
+     server-rendered HTML). This function only fills the rows: no rating,
+     no score, text plus who wrote it plus which job it came from. */
+  function renderReviews(reviews) {
+    if (reviews.state !== "ok") return;
+    var list = Array.isArray(reviews.value.reviews) ? reviews.value.reviews : [];
+    if (list.length === 0) {
+      A.showById("reviews-empty", true);
+      return;
+    }
+
+    var host = A.el("reviews");
+    list.forEach(function (review) {
+      var row = document.createElement("div");
+      row.className = "item";
+
+      var body = document.createElement("div");
+
+      var text = document.createElement("div");
+      text.className = "title";
+      text.textContent = typeof review.text === "string" ? review.text : "";
+      body.appendChild(text);
+
+      var meta = document.createElement("div");
+      meta.className = "meta";
+      var author = document.createElement("span");
+      author.textContent = "by " + A.shortDid(review.authorDid);
+      meta.appendChild(author);
+      body.appendChild(meta);
+
+      row.appendChild(body);
+
+      var when = document.createElement("span");
+      when.className = "when";
+      var date = A.readableDate(review.createdAt);
+      when.textContent = date === null ? "" : date;
+      row.appendChild(when);
 
       host.appendChild(row);
     });

@@ -26,11 +26,13 @@ import {
   CredentialNotFoundError,
   JobAlreadyExistsError,
   OperatorAlreadyExistsError,
+  ReviewAlreadyExistsError,
   type AgentRepository,
   type CompromiseRepository,
   type CredentialRepository,
   type JobRepository,
   type OperatorRepository,
+  type ReviewRepository,
 } from '../adapters/storage/types.js';
 import {
   createAgentRepository,
@@ -38,6 +40,7 @@ import {
   createCredentialRepository,
   createJobRepository,
   createOperatorRepository,
+  createReviewRepository,
 } from '../adapters/storage/storage.js';
 import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
@@ -87,6 +90,15 @@ import {
   reportWellFormed,
   type CompromiseReport,
 } from '../domain/compromise.js';
+import {
+  assertReviewEligible,
+  buildReview,
+  JobNotReviewableError,
+  reviewTextWellFormed,
+  ReviewAgentMismatchError,
+  ReviewerNotBuyerError,
+  type Review,
+} from '../domain/review.js';
 import { ACCESS_NOTICE, CAPABILITIES, type Capability } from '../domain/access.js';
 import { SIGN_IN_METHODS, type SignInMethod } from '../domain/sign-in-methods.js';
 import { createWebSurface, type WebSurface } from '../web/static.js';
@@ -181,6 +193,21 @@ function compromiseReportProjection(report: CompromiseReport): Record<string, un
     key: report.key,
     since: report.since.toISOString(),
     reportedAt: report.reportedAt.toISOString(),
+  };
+}
+
+// R-22 (ENT-10): the review projection. Exactly these five fields, nothing
+// more, and no numeric field anywhere (ENT-10.2): text, attributed to the
+// buyer DID, tied to the job it came from. Never mixed into agentProjection,
+// a browse card, or a credential document, for the same separation
+// compromiseReportProjection keeps.
+function reviewProjection(review: Review): Record<string, unknown> {
+  return {
+    jobId: review.jobId,
+    authorDid: review.authorDid,
+    agentDid: review.agentDid,
+    text: review.text,
+    createdAt: review.createdAt.toISOString(),
   };
 }
 
@@ -306,6 +333,7 @@ export function createApp(
   // small limit instead of hammering a live app hundreds of times.
   verifyRateLimiter: RateLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 }),
   web: WebSurface = createWebSurface(),
+  reviewRepo: ReviewRepository = createReviewRepository(),
 ): Express {
   // One repository behind both halves of the capability when the caller
   // supplies neither. createCredentialRepository() hands the memory driver a
@@ -982,6 +1010,34 @@ export function createApp(
       res.status(200).json({ agentDid: did, reports: reports.map(compromiseReportProjection) });
     } catch (err) {
       console.error('GET /agents/:agentDid/compromise-reports: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // R-22 (ENT-10, issue 29): reviews are public to read, restricted to
+  // write. Every review filed for this agent, no aggregate, no rating, the
+  // same "the window is visible" stance compromise-reports takes above.
+  app.get('/agents/:agentDid/reviews', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+
+    let row: Agent | null;
+    try {
+      row = await agentRepo.findByDid(did);
+    } catch (err) {
+      console.error('GET /agents/:agentDid/reviews: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (row === null) {
+      res.status(404).json({ error: `agent ${did} is not registered` });
+      return;
+    }
+
+    try {
+      const reviews = await reviewRepo.listByAgentDid(did);
+      res.status(200).json({ agentDid: did, reviews: reviews.map(reviewProjection) });
+    } catch (err) {
+      console.error('GET /agents/:agentDid/reviews: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
@@ -1815,7 +1871,100 @@ export function createApp(
     }),
   );
 
-  app.post('/jobs/:jobId/reviews', notImplemented);
+  // R-22 (ENT-10, issue 29): the review write. Replaces the 501 stub. Every
+  // refusal rule the card names lives here or in the domain functions it
+  // calls, never restated twice:
+  //   1. Eligibility is proven, not claimed (assertReviewEligible reads the
+  //      job record: completed status, exact buyer, exact agent).
+  //   2. Never blended with evidence (R-17's tier machinery never imports
+  //      this route or src/domain/review.ts; see the structural no-blend
+  //      test in tests/domain/agent-work-record.test.ts's sibling for
+  //      reviews).
+  //   3. No numeric field anywhere (buildReview's return type has nowhere
+  //      to put one).
+  //   4. One review per completed hire (ReviewRepository.save's unique
+  //      constraint, mapped to 409 below).
+  //   5. Caller identity comes from a verified R-34 signature, never a
+  //      body field: signerDidOf(req) is the only source of authorDid.
+  app.post(
+    '/jobs/:jobId/reviews',
+    didSignature,
+    forwarded(async (req: Request, res: Response) => {
+      const jobId = String(req.params.jobId);
+      const body = (req.body ?? {}) as { agentDid?: unknown; text?: unknown };
+      const agentDid = body.agentDid;
+
+      if (typeof agentDid !== 'string' || agentDid.length === 0 || !reviewTextWellFormed(body.text)) {
+        res.status(400).json({
+          error: 'body must be { agentDid, text }; agentDid a non-empty string, text a non-empty string',
+        });
+        return;
+      }
+      const text = body.text as string;
+
+      // Rule 5: identity comes from the verified signature, never a body
+      // field. No signature at all is refused before the job is even
+      // loaded, the same way runPartyExchange refuses an unsigned exchange
+      // call.
+      const signerDid = signerDidOf(req);
+      if (signerDid === null) {
+        res.status(401).json({
+          error: 'this route requires a verified request signature (R-34); sign the request as the buyer on this job',
+        });
+        return;
+      }
+
+      let job: Job | null;
+      try {
+        job = await jobRepo.findById(jobId);
+      } catch (err) {
+        console.error('POST /jobs/:jobId/reviews: storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (job === null) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+
+      // Rule 1: the check reads the job record; it never trusts the
+      // request. claimedIdentity.buyerDid is the PROVEN signerDid, not a
+      // body field, and claimedIdentity.agentDid is what the caller named,
+      // checked against the job's own agentDid rather than reconciled to
+      // it.
+      try {
+        assertReviewEligible(job, { buyerDid: signerDid, agentDid });
+      } catch (err) {
+        if (err instanceof JobNotReviewableError) {
+          res.status(409).json({ error: err.message });
+          return;
+        }
+        if (err instanceof ReviewerNotBuyerError) {
+          res.status(403).json({ error: err.message });
+          return;
+        }
+        if (err instanceof ReviewAgentMismatchError) {
+          res.status(409).json({ error: err.message });
+          return;
+        }
+        throw err;
+      }
+
+      const review = buildReview(job, { authorDid: signerDid, text }, new Date());
+      try {
+        await reviewRepo.save(review);
+      } catch (err) {
+        if (err instanceof ReviewAlreadyExistsError) {
+          res.status(409).json({ error: err.message });
+          return;
+        }
+        console.error('POST /jobs/:jobId/reviews: storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      res.status(201).json(reviewProjection(review));
+    }),
+  );
 
   // Unmatched paths, after every API route has had its chance. A browser
   // gets the 404 page; every other caller gets the same JSON body the API

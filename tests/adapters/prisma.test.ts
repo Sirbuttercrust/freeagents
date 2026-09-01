@@ -33,6 +33,8 @@ const mock = vi.hoisted(() => ({
   credentialFindMany: vi.fn(),
   compromiseReportCreate: vi.fn(),
   compromiseReportFindMany: vi.fn(),
+  reviewCreate: vi.fn(),
+  reviewFindMany: vi.fn(),
 }));
 
 vi.mock('../../src/generated/prisma/index.js', async () => {
@@ -55,6 +57,7 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
       keyRotation = { create: mock.keyRotationCreate, findMany: mock.keyRotationFindMany };
       credential = { create: mock.credentialCreate, findUnique: mock.credentialFindUnique, findMany: mock.credentialFindMany };
       compromiseReport = { create: mock.compromiseReportCreate, findMany: mock.compromiseReportFindMany };
+      review = { create: mock.reviewCreate, findMany: mock.reviewFindMany };
     },
     Prisma: actual.Prisma,
   };
@@ -68,12 +71,14 @@ const {
   PrismaCredentialRepository,
   PrismaJobRepository,
   PrismaOperatorRepository,
+  PrismaReviewRepository,
 } = await import('../../src/adapters/storage/prisma.js');
 const {
   AgentAlreadyExistsError,
   CredentialAlreadyIssuedError,
   JobAlreadyExistsError,
   OperatorAlreadyExistsError,
+  ReviewAlreadyExistsError,
 } = await import('../../src/adapters/storage/types.js');
 
 // The same input/output pair tests/adapters/storage.test.ts pins the memory
@@ -1363,6 +1368,114 @@ describe('PrismaCompromiseRepository (R-16)', () => {
 
     const repo = new PrismaCompromiseRepository();
     const rows = await repo.listByAgentDid('did:abt:agent-none');
+
+    expect(rows).toEqual([]);
+  });
+});
+
+describe('PrismaReviewRepository (R-22, ENT-10, issue 29)', () => {
+  beforeAll(() => {
+    vi.mocked(mock.reviewCreate).mockReset();
+    vi.mocked(mock.reviewFindMany).mockReset();
+  });
+
+  afterEach(() => {
+    vi.mocked(mock.reviewCreate).mockReset();
+    vi.mocked(mock.reviewFindMany).mockReset();
+  });
+
+  it('save: sends the job id as completedJobId, the author, the agent and the text, verbatim', async () => {
+    const createdAt = new Date('2026-01-04T00:00:00.000Z');
+    vi.mocked(mock.reviewCreate).mockResolvedValue({
+      id: 'rv-1',
+      completedJobId: 'job-1',
+      authorDid: 'did:example:buyer',
+      agentDid: 'did:example:agent',
+      text: 'Delivered exactly what was agreed.',
+      createdAt,
+    });
+
+    const repo = new PrismaReviewRepository();
+    await repo.save({
+      jobId: 'job-1',
+      authorDid: 'did:example:buyer',
+      agentDid: 'did:example:agent',
+      text: 'Delivered exactly what was agreed.',
+      createdAt,
+    });
+
+    expect(mock.reviewCreate).toHaveBeenCalledWith({
+      data: {
+        completedJobId: 'job-1',
+        authorDid: 'did:example:buyer',
+        agentDid: 'did:example:agent',
+        text: 'Delivered exactly what was agreed.',
+        createdAt,
+      },
+    });
+  });
+
+  it('save: a P2002 unique-constraint failure is the domain duplicate error', async () => {
+    vi.mocked(mock.reviewCreate).mockRejectedValue(p2002('job-dup'));
+
+    const repo = new PrismaReviewRepository();
+    const err = await repo
+      .save({ jobId: 'job-dup', authorDid: 'did:example:buyer', agentDid: 'did:example:agent', text: 'Solid.', createdAt: new Date() })
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ReviewAlreadyExistsError);
+    expect((err as Error).message).toContain('job-dup');
+    expect((err as Error).name).toBe('ReviewAlreadyExistsError');
+  });
+
+  it('save: a non-P2002 Prisma error is rethrown untouched', async () => {
+    const original = p1001();
+    vi.mocked(mock.reviewCreate).mockRejectedValue(original);
+
+    const repo = new PrismaReviewRepository();
+    const err = await repo
+      .save({ jobId: 'job-x', authorDid: 'did:example:buyer', agentDid: 'did:example:agent', text: 'Solid.', createdAt: new Date() })
+      .catch((e: unknown) => e);
+
+    expect(err).toBe(original);
+    expect(err).not.toBeInstanceOf(ReviewAlreadyExistsError);
+  });
+
+  it('save: a non-Prisma error is rethrown untouched', async () => {
+    const original = new Error('disk full');
+    vi.mocked(mock.reviewCreate).mockRejectedValue(original);
+
+    const repo = new PrismaReviewRepository();
+    const err = await repo
+      .save({ jobId: 'job-y', authorDid: 'did:example:buyer', agentDid: 'did:example:agent', text: 'Solid.', createdAt: new Date() })
+      .catch((e: unknown) => e);
+
+    expect(err).toBe(original);
+  });
+
+  it('listByAgentDid: sends the agent DID and orders by createdAt ascending, mapping the driver row back to jobId', async () => {
+    const createdAt = new Date('2026-01-04T00:00:00.000Z');
+    vi.mocked(mock.reviewFindMany).mockResolvedValue([
+      { id: 'rv-1', completedJobId: 'job-1', authorDid: 'did:example:buyer', agentDid: 'did:example:agent', text: 'Great work.', createdAt },
+    ]);
+
+    const repo = new PrismaReviewRepository();
+    const rows = await repo.listByAgentDid('did:example:agent');
+
+    expect(mock.reviewFindMany).toHaveBeenCalledWith({
+      where: { agentDid: 'did:example:agent' },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(rows).toEqual([
+      { jobId: 'job-1', authorDid: 'did:example:buyer', agentDid: 'did:example:agent', text: 'Great work.', createdAt },
+    ]);
+  });
+
+  it('listByAgentDid: no stored rows come back as [], not null or undefined', async () => {
+    vi.mocked(mock.reviewFindMany).mockResolvedValue([]);
+
+    const repo = new PrismaReviewRepository();
+    const rows = await repo.listByAgentDid('did:example:nobody');
 
     expect(rows).toEqual([]);
   });
