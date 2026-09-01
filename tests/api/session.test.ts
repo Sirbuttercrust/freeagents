@@ -207,7 +207,7 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
       fetchImpl: fakeGitHubFetch({ login: 'octo-cat', id: 502 }),
     });
     const token = await mintSessionToken(real);
-    const baseUrl = await listen(createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, real));
+    const baseUrl = await listen(createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, real));
 
     const agentBody = {
       did: 'did:abt:session-gate-listed-agent',
@@ -306,7 +306,7 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
       skills: ['triage'],
       githubLogin: null,
     });
-    const baseUrl = await listen(createApp(undefined, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, real));
+    const baseUrl = await listen(createApp(undefined, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, real));
 
     const jobBody = {
       buyerDid: buyer.did,
@@ -364,7 +364,7 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
       skills: ['triage'],
       githubLogin: null,
     });
-    const baseUrl = await listen(createApp(undefined, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, real));
+    const baseUrl = await listen(createApp(undefined, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, real));
 
     const jobBody = {
       buyerDid: 'did:abt:session-invalid-buyer',
