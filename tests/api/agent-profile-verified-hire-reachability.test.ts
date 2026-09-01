@@ -28,6 +28,7 @@ import {
   MemoryOperatorRepository,
 } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 const ISSUER_DID = 'did:abt:test-platform-issuer-reachability';
 const ISSUER_SEED = new Uint8Array(32).fill(3);
@@ -73,7 +74,7 @@ async function startWith(
   github: GithubAdapter,
   agentDid: string,
   buyerDid: string,
-): Promise<{ server: Server; baseUrl: string }> {
+): Promise<{ server: Server; baseUrl: string; authHeader: Record<string, string> }> {
   const agentRepo = new MemoryAgentRepository();
   await agentRepo.create({
     did: agentDid,
@@ -87,6 +88,7 @@ async function startWith(
   await operatorRepo.register({ did: buyerDid, githubLogin: 'buyer-reachability' });
   const credentialRepo = new MemoryCredentialRepository();
   const credentials = createCredentialsAdapter({ did: ISSUER_DID, seed: ISSUER_SEED }, credentialRepo);
+  const sessionAdapter = testSessionAdapter();
   const app = createApp(
     operatorRepo,
     agentRepo,
@@ -96,6 +98,10 @@ async function startWith(
     credentials,
     undefined,
     credentialRepo,
+    undefined,
+    undefined,
+    undefined,
+    sessionAdapter,
   );
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -103,13 +109,17 @@ async function startWith(
   if (address === null || typeof address === 'string') {
     throw new Error('expected server to listen on a port');
   }
-  return { server, baseUrl: `http://127.0.0.1:${(address as AddressInfo).port}` };
+  return {
+    server,
+    baseUrl: `http://127.0.0.1:${(address as AddressInfo).port}`,
+    authHeader: { authorization: `Bearer ${await mintSessionToken(sessionAdapter)}` },
+  };
 }
 
-async function post(baseUrl: string, path: string, body: unknown = {}): Promise<Response> {
+async function post(baseUrl: string, path: string, body: unknown = {}, authHeader: Record<string, string> = {}): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...authHeader },
     body: JSON.stringify(body),
   });
 }
@@ -136,13 +146,14 @@ async function walkToMerge(
   baseUrl: string,
   agent: SigningIdentity,
   buyer: SigningIdentity,
+  authHeader: Record<string, string>,
 ): Promise<Record<string, unknown>> {
   const draft = await post(baseUrl, '/jobs', {
     buyerDid: buyer.did,
     agentDid: agent.did,
     repository: 'buyer/target-repo',
     brief: 'Fix the checkout timeout',
-  });
+  }, authHeader);
   expect(draft.status).toBe(201);
   const jobId = String(((await draft.json()) as Record<string, unknown>).id);
 
@@ -175,9 +186,9 @@ describe('GET /agents/:agentDid, verified-hire reachability from a REAL merge (R
   it('a platform-brokered merge into a PUBLIC repository reaches verifiedHires, driven through the real merge route', async () => {
     const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(101));
     const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(102));
-    const { server, baseUrl } = await startWith(scriptedGithub(true), agent.did, buyer.did);
+    const { server, baseUrl, authHeader } = await startWith(scriptedGithub(true), agent.did, buyer.did);
     try {
-      const mergeBody = await walkToMerge(baseUrl, agent, buyer);
+      const mergeBody = await walkToMerge(baseUrl, agent, buyer, authHeader);
       const credential = mergeBody.credential as Record<string, unknown>;
 
       const profile = await fetch(`${baseUrl}/agents/${agent.did}`);
@@ -203,9 +214,9 @@ describe('GET /agents/:agentDid, verified-hire reachability from a REAL merge (R
   it('a platform-brokered merge into a PRIVATE repository does not reach verifiedHires, driven through the real merge route', async () => {
     const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(103));
     const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(104));
-    const { server, baseUrl } = await startWith(scriptedGithub(false), agent.did, buyer.did);
+    const { server, baseUrl, authHeader } = await startWith(scriptedGithub(false), agent.did, buyer.did);
     try {
-      await walkToMerge(baseUrl, agent, buyer);
+      await walkToMerge(baseUrl, agent, buyer, authHeader);
 
       const profile = await fetch(`${baseUrl}/agents/${agent.did}`);
       expect(profile.status).toBe(200);

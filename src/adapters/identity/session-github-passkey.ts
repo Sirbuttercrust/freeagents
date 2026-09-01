@@ -103,6 +103,45 @@ function isGitHubUserResponse(value: unknown): value is GitHubUserResponse {
   return typeof v.login === 'string' && typeof v.id === 'number';
 }
 
+// R-39 follow-up (issue 83, route enforcement): the env-derived default for
+// createApp, mirroring credentials.ts's platformIssuerFromEnv. `||` and not
+// `??` throughout: Blocklet Server materialises every declared env var, so
+// an unconfigured deployment delivers '' rather than undefined, and the
+// nullish fallback would build a GitHub OAuth config that silently fails
+// every exchange instead of announcing itself. An unconfigured deployment
+// still returns a working adapter (session mechanics, rate limiting and the
+// route gate all function); only the GitHub token exchange itself will fail
+// closed against the real provider, which is the honest behaviour for a
+// deployment nobody has wired up yet.
+export function sessionAdapterFromEnv(): SessionAdapter {
+  const clientId = process.env.FREEAGENTS_GITHUB_CLIENT_ID || '';
+  const clientSecret = process.env.FREEAGENTS_GITHUB_CLIENT_SECRET || '';
+  const redirectUri = process.env.FREEAGENTS_GITHUB_REDIRECT_URI || 'http://localhost:3000/auth/github/callback';
+  if (clientId === '' || clientSecret === '') {
+    console.warn(
+      'session: FREEAGENTS_GITHUB_CLIENT_ID/FREEAGENTS_GITHUB_CLIENT_SECRET not set; ' +
+        'GitHub OAuth sign-in will fail closed until configured. Passkey and existing ' +
+        'sessions are unaffected.',
+    );
+  }
+  const rpID = process.env.FREEAGENTS_PASSKEY_RP_ID;
+  // exactOptionalPropertyTypes forbids `passkey: undefined`, so the key is
+  // spread in only when a passkey config actually exists, not merely
+  // assigned a possibly-undefined value.
+  return createSessionAdapter({
+    github: { clientId, clientSecret, redirectUri },
+    ...(rpID === undefined || rpID === ''
+      ? {}
+      : {
+          passkey: {
+            rpName: process.env.FREEAGENTS_PASSKEY_RP_NAME || 'FreeAgents',
+            rpID,
+            origin: process.env.FREEAGENTS_PASSKEY_ORIGIN || `https://${rpID}`,
+          },
+        }),
+  });
+}
+
 export function createSessionAdapter(options: SessionAdapterOptions): SessionAdapter {
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? (() => Date.now());

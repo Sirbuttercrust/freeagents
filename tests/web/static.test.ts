@@ -206,7 +206,13 @@ describe('mounting the pages changed no API behaviour', () => {
   });
 
   // A browser is not exempt from the API's rules: the page mount is GET
-  // only, so a POST from anywhere reaches the handler it always did.
+  // only, so a POST from anywhere reaches the handler it always did. POST
+  // /operators takes no session/signature gate (D1/bootstrap-deadlock,
+  // t_8b63ee9e -- registering an operator is how an account is created,
+  // so it cannot itself demand one), so the handler's own body validation
+  // is what answers here: a wrong-method DID is still a 400, proving the
+  // routing point just as well as before -- the response is JSON from the
+  // API handler, never the HTML page mount.
   it('a POST from a browser still reaches the API handler, not a page', async () => {
     const res = await fetch(`${baseUrl}/operators`, {
       method: 'POST',

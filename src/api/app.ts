@@ -103,6 +103,8 @@ import {
 } from '../domain/review.js';
 import { ACCESS_NOTICE, CAPABILITIES, type Capability } from '../domain/access.js';
 import { SIGN_IN_METHODS, type SignInMethod } from '../domain/sign-in-methods.js';
+import { type SessionAdapter } from '../adapters/identity/session.js';
+import { sessionAdapterFromEnv } from '../adapters/identity/session-github-passkey.js';
 import { createWebSurface, type WebSurface } from '../web/static.js';
 import { renderAvatar } from './avatar.js';
 
@@ -318,6 +320,30 @@ function signerDidOf(req: Request): string | null {
   return (req as SignedRequest).signerDid ?? null;
 }
 
+// R-39 follow-up (issue 83): the subject a live session named, set by
+// requireSessionOrSignature before next(). Undefined on every route that
+// does not mount it. Not currently compared against any request body field:
+// a session's subject is a GitHub-derived id or a passkey subject, neither
+// of which is a did:abt DID, so there is nothing to bind it against yet.
+// R-24 (wallet sign-in) is what gives a session a DID subject; until then,
+// a session proves "a signed-in account exists", the same thing an
+// anonymous body-trust caller used to merely assert.
+//
+// KNOWN GAP (t_d1b82a77, F1, filed by Proof against R-39 round 2): because
+// of the above, a session holder can still POST /jobs or POST /agents
+// naming ANY buyerDid/operator in the body -- the signature path binds the
+// body-named party to the signer (signerDidOf() below), but the session
+// path has nothing to bind against. Not a regression (sessions accepted no
+// route before R-39), but it is a live unbound credential path on AUTH.
+// Fixing it needs a design decision first, not code: either a session
+// gains a resolvable operator DID (waits on R-24 or an equivalent mapping),
+// or session-authenticated writes derive the acting party from the session
+// instead of trusting the body. Escalated to Temper on t_d1b82a77 rather
+// than guessed.
+interface SessionedRequest extends Request {
+  sessionSubject?: string;
+}
+
 export function createApp(
   repo: OperatorRepository = createOperatorRepository(),
   agentRepo: AgentRepository = createAgentRepository(),
@@ -336,6 +362,12 @@ export function createApp(
   verifyRateLimiter: RateLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 }),
   web: WebSurface = createWebSurface(),
   reviewRepo: ReviewRepository = createReviewRepository(),
+  // R-39 follow-up (issue 83): the session adapter hire and list routes
+  // accept a bearer token against. Defaults to the env-derived adapter
+  // (sessionAdapterFromEnv), matching every other capability's env-default
+  // stance in this file. Injectable so tests can mint a live token against
+  // a fake GitHub backend instead of exercising real OAuth.
+  session: SessionAdapter = sessionAdapterFromEnv(),
 ): Express {
   // One repository behind both halves of the capability when the caller
   // supplies neither. createCredentialRepository() hands the memory driver a
@@ -362,50 +394,125 @@ export function createApp(
   );
 
   // R-34: adds a second, optional, verifiable identity path alongside the
-  // five hire-loop routes that carry it -- it never replaces a check that
-  // exists today, because none does (no session, cookie or OAuth code
-  // anywhere in src/). Unsigned traffic is untouched; a request that is
-  // signed wrong is refused rather than let through, because a
-  // present-but-invalid signature is worse than none. Wrapped like
-  // forwarded() below, for the same Express-4 reason: a rejected promise
-  // here would otherwise vanish into an unhandled rejection.
+  // hire-loop routes that carry it. Shared by didSignature (optional: an
+  // unsigned request passes through untouched) and requireSessionOrSignature
+  // (mandatory: the route below refuses outright when this returns 'absent'
+  // and no session covers the gap either). A present-but-invalid signature
+  // is worse than none in both callers, so both map 'invalid' to the same
+  // 401 rather than falling through to "as if unsigned".
+  async function verifySignedRequest(req: Request): Promise<'absent' | 'invalid' | { readonly did: string }> {
+    // Only a fully unsigned request is absent: absent both headers, this is
+    // unchanged behaviour for every caller that exists today. Exactly one
+    // present falls through to verifySignature below, which already treats
+    // a half-signed request as invalid input (its own first check is
+    // `if (!sigInputValue || !sigValue) return null`) -- restating that
+    // check here would just be the same 401 twice.
+    if (req.headers['signature-input'] === undefined && req.headers['signature'] === undefined) {
+      return 'absent';
+    }
+
+    const targetUri = `${req.protocol}://${req.get('host') ?? ''}${req.originalUrl}`;
+    const result = await verifySignature(
+      { method: req.method, targetUri, headers: req.headers },
+      signingKeys,
+      { requiredComponents: ['@method', '@target-uri', 'content-digest'] },
+    );
+    if (result === null) return 'invalid';
+
+    // The adapter verifies the signature bytes; it never sees the body, so
+    // the digest match is this function's half -- what binds the body
+    // actually received to the signature that named it as covered.
+    const raw = (req as RawBodyRequest).rawBody ?? Buffer.alloc(0);
+    const want = `sha-256=:${createHash('sha256').update(raw).digest('base64')}:`;
+    const got = req.headers['content-digest'];
+    if (typeof got !== 'string' || got.trim() !== want) return 'invalid';
+
+    return { did: result.did };
+  }
+
+  // R-34: a second, optional, verifiable identity path alongside the four
+  // ENT-6.2 party-exchange routes that carry it (criteria, request-changes,
+  // accept, confirm) -- it never replaces a check that exists today on those
+  // routes, because none does (no session, cookie or bearer token gates
+  // them; only the caller-identity match inside each handler). POST /jobs,
+  // POST /operators and POST /agents no longer use this middleware: they are
+  // gated by requireSessionOrSignature below instead (R-39 follow-up, issue
+  // 83). Unsigned traffic on the four exchange routes is untouched; a
+  // request that is signed wrong is refused rather than let through,
+  // because a present-but-invalid signature is worse than none. Wrapped
+  // like forwarded() below, for the same Express-4 reason: a rejected
+  // promise here would otherwise vanish into an unhandled rejection.
   const didSignature = (req: Request, res: Response, next: NextFunction): void => {
     void (async () => {
-      // Only a fully unsigned request bypasses verification: absent both
-      // headers, this is unchanged behaviour for every caller that exists
-      // today. Exactly one present falls through to verifySignature below,
-      // which already treats a half-signed request as invalid input (its own
-      // first check is `if (!sigInputValue || !sigValue) return null`) --
-      // restating that check here would just be the same 401 twice.
-      if (req.headers['signature-input'] === undefined && req.headers['signature'] === undefined) {
+      const outcome = await verifySignedRequest(req);
+      if (outcome === 'absent') {
+        next();
+        return;
+      }
+      if (outcome === 'invalid') {
+        res.status(401).json({ error: 'invalid signature' });
+        return;
+      }
+      (req as SignedRequest).signerDid = outcome.did;
+      next();
+    })().catch(next);
+  };
+
+  // R-39 follow-up (issue 83): the bearer token an Authorization header
+  // carries, or null for anything else (absent, wrong scheme, malformed).
+  // Total, never throws, so the gate below treats a malformed header the
+  // same as an absent one rather than crashing on it.
+  function bearerTokenOf(req: Request): string | null {
+    const header = req.headers.authorization;
+    if (typeof header !== 'string') return null;
+    const match = header.match(/^Bearer\s+(.+)$/i);
+    return match?.[1] ?? null;
+  }
+
+  // R-39 follow-up (issue 83): hire and list routes (the identified set in
+  // src/domain/access.ts -- POST /agents, POST /jobs) require EITHER a live
+  // session OR a verified R-34 signature naming a party. Neither is a
+  // fallback dressed up as the other: both are first-class, checked
+  // independently, and either alone is sufficient (anchor: "A session is
+  // required exactly where an account is required"). POST /operators does
+  // NOT use this gate: registering an operator is how an account is
+  // created, not an action an account performs, so it cannot itself demand
+  // one -- see D1/bootstrap-deadlock below on the route itself. A
+  // present-but-invalid signature is refused outright, the same stance
+  // didSignature takes, rather than silently falling back to a session
+  // check that might also fail -- two wrongs reading as one 401 would hide
+  // which credential was actually rejected. Only when no signature was
+  // presented at all does the session check run; only when that also comes
+  // up empty (absent, expired, or revoked -- getSession resolves all three
+  // to null indistinguishably) does the route refuse, naming both ways a
+  // caller can satisfy it.
+  const requireSessionOrSignature = (req: Request, res: Response, next: NextFunction): void => {
+    void (async () => {
+      const sigOutcome = await verifySignedRequest(req);
+      if (sigOutcome === 'invalid') {
+        res.status(401).json({ error: 'invalid signature' });
+        return;
+      }
+      if (sigOutcome !== 'absent') {
+        (req as SignedRequest).signerDid = sigOutcome.did;
         next();
         return;
       }
 
-      const targetUri = `${req.protocol}://${req.get('host') ?? ''}${req.originalUrl}`;
-      const result = await verifySignature(
-        { method: req.method, targetUri, headers: req.headers },
-        signingKeys,
-        { requiredComponents: ['@method', '@target-uri', 'content-digest'] },
-      );
-      if (result === null) {
-        res.status(401).json({ error: 'invalid signature' });
-        return;
+      const token = bearerTokenOf(req);
+      if (token !== null) {
+        const liveSession = await session.getSession(token);
+        if (liveSession !== null) {
+          (req as SessionedRequest).sessionSubject = liveSession.subject;
+          next();
+          return;
+        }
       }
 
-      // The adapter verifies the signature bytes; it never sees the body, so
-      // the digest match is this middleware's half -- what binds the body
-      // actually received to the signature that named it as covered.
-      const raw = (req as RawBodyRequest).rawBody ?? Buffer.alloc(0);
-      const want = `sha-256=:${createHash('sha256').update(raw).digest('base64')}:`;
-      const got = req.headers['content-digest'];
-      if (typeof got !== 'string' || got.trim() !== want) {
-        res.status(401).json({ error: 'invalid signature' });
-        return;
-      }
-
-      (req as SignedRequest).signerDid = result.did;
-      next();
+      res.status(401).json({
+        error:
+          'this route requires a session (sign in with GitHub OAuth or a passkey) or a verified request signature (R-34)',
+      });
     })().catch(next);
   };
 
@@ -441,6 +548,19 @@ export function createApp(
     });
   });
 
+  // R-39 follow-up (issue 83, D1/bootstrap-deadlock): registering an
+  // operator is account CREATION, not an action an existing account
+  // performs. The issue's own anchor names hire and list, and access.ts's
+  // own doc comment says 'identified' means "body must name the acting
+  // party", not "must authenticate" -- registration is how a party comes
+  // to exist, so it cannot be conditioned on a credential that itself
+  // presupposes one. Gating this route was proved (t_8b63ee9e) to deadlock
+  // every fresh deployment: no route mints a session before an operator
+  // exists, and the signing-key resolver only accepts an already-registered
+  // DID, so a self-signed request from a brand-new operator would ALSO be
+  // refused. The identityField in access.ts ('did') is still the acting
+  // party's own claim, checked below the same way it always was; only the
+  // session-or-signature gate in front of it is gone.
   app.post('/operators', async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as { did?: unknown; githubLogin?: unknown };
     const did = body.did;
@@ -568,7 +688,7 @@ export function createApp(
     }
   });
 
-  app.post('/agents', async (req: Request, res: Response) => {
+  app.post('/agents', requireSessionOrSignature, async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const did = body.did;
     const operator = body.operator;
@@ -595,6 +715,18 @@ export function createApp(
       res.status(400).json({
         error: 'did and operator must look like did:abt:<suffix>, non-empty suffix, no whitespace',
       });
+      return;
+    }
+    // R-34/D2 (t_8b63ee9e, credential-not-bound-to-party): the same rule
+    // access.ts declares for agent.list (identityField: 'operator'),
+    // cryptographically enforced when a signature is present -- the same
+    // pattern POST /jobs already applies to buyerDid. Unsigned callers
+    // (bare session, no signature) are unaffected; only a signer who names
+    // an operator different from themselves is refused, before the body
+    // is trusted to name anyone at all.
+    const signerDid = signerDidOf(req);
+    if (signerDid !== null && signerDid !== operator) {
+      res.status(403).json({ error: 'signature does not match operator' });
       return;
     }
     const proof = delegationShape(body.delegation);
@@ -1267,7 +1399,7 @@ export function createApp(
   // the check lives here to keep both drivers answering identically).
   // Everything about the brief itself, including its emptiness and the hash,
   // is delegated to createJob rather than restated.
-  app.post('/jobs', didSignature, async (req: Request, res: Response) => {
+  app.post('/jobs', requireSessionOrSignature, async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const buyerDid = body.buyerDid;
     const agentDid = body.agentDid;
