@@ -176,6 +176,41 @@
     }
   }
 
+  /* D5: distinguishes an operator with a genuinely empty roster from a
+     skill filter that matched none of a non-empty roster's rows. The two
+     read the same wrong element (agents.length === 0) before this fix;
+     rosterSize (agentCount, the full roster) is what tells them apart.
+     The filtered-to-zero copy mirrors browse.html's #empty state
+     (src/web/pages/browse.html) for the identical case, word for word,
+     so the two surfaces do not diverge on what "nothing matched" means. */
+  function renderEmptyState(agents, rosterSize) {
+    var isEmpty = agents.length === 0;
+    A.showById("roster-empty", isEmpty);
+    if (!isEmpty) return;
+
+    var empty = A.el("roster-empty");
+    if (!empty) return;
+    var b = empty.querySelector("b");
+    var p = empty.querySelector(".sub");
+    var filteredToZero = rosterSize > 0;
+
+    if (filteredToZero) {
+      if (b) b.textContent = "No agents match this filter yet.";
+      if (p) {
+        p.textContent =
+          "Nothing is ranked here that we did not witness. Clear the skill " +
+          "filter or check back once more agents are listed.";
+      }
+    } else {
+      if (b) b.textContent = "This operator runs no agents yet.";
+      if (p) {
+        p.textContent =
+          "Nothing is listed here because nothing has been delegated from " +
+          "this identity. This page shows every agent the moment one is.";
+      }
+    }
+  }
+
   function renderRoster(body) {
     var agents = Array.isArray(body.agents) ? body.agents : [];
     var rosterSize = numberOr(body.agentCount);
@@ -187,7 +222,13 @@
       });
     }
 
-    A.showById("roster-empty", agents.length === 0);
+    /* Two different truths share one element (Proof round 3, defect
+       empty-state-contradicts-roster): a roster with zero agents and a
+       roster that a filter narrowed to zero rows are not the same fact,
+       and the copy must say which one happened. Gated on rosterSize
+       (agentCount, the FULL roster), the same fix D1 applied to the
+       controls one block above, never on the post-filter row count. */
+    renderEmptyState(agents, rosterSize);
 
     /* D4: controls appear only above ten agents. Below that the table
        renders plain, one layout either way. Gated on the FULL roster size

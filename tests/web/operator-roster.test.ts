@@ -455,4 +455,52 @@ describe('the operator page roster (R-19)', () => {
       page.close();
     }
   });
+
+  // Proof round 3, D5: a filter that matches nothing must not be reported
+  // as an empty roster. #roster-empty was gated on the POST-filter row
+  // count, the identical mistake D1 made for #roster-controls one line
+  // above it in operator.js. This operator runs eleven agents; a filter
+  // that matches none of them is a filter result, not an empty roster, and
+  // the copy must say so the way browse.html's #empty already does for the
+  // identical case, rather than claiming nothing has been delegated.
+  it('filtering an above-ten roster to zero matches reports an empty filter result, not a false empty roster (D5)', async () => {
+    const page = await render(`/operators/${CONTROL_OPERATOR_DID}?skill=cobol`);
+    try {
+      const rows = page.document.querySelectorAll('[data-agent-row]');
+      expect(rows.length).toBe(0);
+
+      const empty = page.document.getElementById('roster-empty');
+      expect(empty?.hidden).toBe(false);
+
+      // The controls that produced the filter must stay reachable so the
+      // visitor can clear it (D1's fix must not regress here).
+      const controls = page.document.getElementById('roster-controls');
+      expect(controls?.hidden).toBe(false);
+
+      const text = (empty?.textContent ?? '').toLowerCase();
+      expect(text).toContain('no agents match this filter');
+      expect(text).not.toContain('runs no agents yet');
+      expect(text).not.toContain('nothing has been delegated');
+
+      // The summary still reports the full eleven-agent roster honestly,
+      // unaffected by the empty filter result (D2's fix must not regress).
+      const summary = page.document.getElementById('roster-summary')?.textContent ?? '';
+      expect(summary.toLowerCase()).not.toContain('listed here');
+    } finally {
+      page.close();
+    }
+  });
+
+  it('an operator with a genuinely empty roster still sees the original empty-roster copy, not the filter copy (D5)', async () => {
+    const page = await render(`/operators/${EMPTY_OPERATOR_DID}`);
+    try {
+      const empty = page.document.getElementById('roster-empty');
+      expect(empty?.hidden).toBe(false);
+      const text = (empty?.textContent ?? '').toLowerCase();
+      expect(text).toContain('runs no agents yet');
+      expect(text).not.toContain('no agents match this filter');
+    } finally {
+      page.close();
+    }
+  });
 });
