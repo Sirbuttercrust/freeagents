@@ -78,6 +78,7 @@ import {
   proposeCriteria,
   recordClosedUnmerged,
   recordStale,
+  decline,
   recordWithdrawn,
   requestChanges,
   submitPullRequest,
@@ -1761,6 +1762,41 @@ export function createApp(
     return null;
   }
 
+  // Lifecycle routes (withdraw, decline, pull-request, merge) were outside
+  // the ENT-6.2 gate: the launch rehearsal (2026-09-01, bug ledger B6 to B8)
+  // withdrew a job and opened a pull request with NO signature at all.
+  // Same rule as the exchange routes, one place: no signature is 401, a
+  // signature naming a stranger is 403, and a route that only one seat may
+  // act from refuses the other seat with 403 before the domain or GitHub is
+  // ever touched. Returns the row and the seat, or null after answering.
+  async function requireSignedParty(
+    label: string,
+    jobId: string,
+    req: Request,
+    res: Response,
+    allowed: readonly Party[],
+  ): Promise<{ readonly job: Job; readonly party: Party } | null> {
+    const current = await loadForExchange(label, jobId, res);
+    if (current === null) return null;
+    const signerDid = signerDidOf(req);
+    if (signerDid === null) {
+      res.status(401).json({
+        error: 'this route requires a verified request signature (R-34); sign the request naming this job\'s buyer or agent DID',
+      });
+      return null;
+    }
+    const party = partyForDid(current, signerDid);
+    if (party === null) {
+      res.status(403).json({ error: 'signature does not name a party to this job' });
+      return null;
+    }
+    if (!allowed.includes(party)) {
+      res.status(403).json({ error: `only the ${allowed.join(' or ')} may ${label.replace(/^POST \/jobs\/:jobId\//, '')} this job` });
+      return null;
+    }
+    return { job: current, party };
+  }
+
   // The party-aware sibling of runExchange, for the four routes ENT-6.2
   // binds: propose, request-changes, accept and confirm. No verified
   // signature at all is refused before the domain ever sees the request
@@ -1893,8 +1929,27 @@ export function createApp(
   // every rule lives in recordWithdrawn, the route only names the label.
   app.post(
     '/jobs/:jobId/withdraw',
+    didSignature,
     forwarded(async (req: Request, res: Response) => {
-      await runExchange('POST /jobs/:jobId/withdraw', String(req.params.jobId), res, recordWithdrawn);
+      const label = 'POST /jobs/:jobId/withdraw';
+      const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
+      if (gate === null) return;
+      await applyAndPersist(label, res, gate.job, recordWithdrawn);
+    }),
+  );
+
+  // The agent side refuses a job (domain decline(), reachable for the first
+  // time 2026-09-01, bug ledger B10). Mirror of withdraw: the buyer walks
+  // away with withdraw, the agent with decline. Which statuses allow it is
+  // the transition table's call, not this route's.
+  app.post(
+    '/jobs/:jobId/decline',
+    didSignature,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/decline';
+      const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['agent']);
+      if (gate === null) return;
+      await applyAndPersist(label, res, gate.job, decline);
     }),
   );
 
@@ -1906,21 +1961,16 @@ export function createApp(
   // effect no storage rollback can undo.
   app.post(
     '/jobs/:jobId/pull-request',
+    didSignature,
     forwarded(async (req: Request, res: Response) => {
       const jobId = String(req.params.jobId);
 
-      let current: Job | null;
-      try {
-        current = await jobRepo.findById(jobId);
-      } catch (err) {
-        console.error('POST /jobs/:jobId/pull-request: storage failed', err);
-        res.status(503).json({ error: 'storage unavailable' });
-        return;
-      }
-      if (current === null) {
-        res.status(404).json({ error: 'not found' });
-        return;
-      }
+      // Only the agent submits its own work (B7): the fork and the pull
+      // request are public side effects under the platform account, so the
+      // party check sits before the state machine and before GitHub.
+      const gate = await requireSignedParty('POST /jobs/:jobId/pull-request', jobId, req, res, ['agent']);
+      if (gate === null) return;
+      const current: Job = gate.job;
 
       // Opening a PR is a public external side effect, so the state machine
       // is consulted before it can fire at all: a draft or proposed job gets
@@ -1998,21 +2048,16 @@ export function createApp(
   // completes the job (D3 2026-08-22).
   app.post(
     '/jobs/:jobId/merge',
+    didSignature,
     forwarded(async (req: Request, res: Response) => {
       const jobId = String(req.params.jobId);
 
-      let current: Job | null;
-      try {
-        current = await jobRepo.findById(jobId);
-      } catch (err) {
-        console.error('POST /jobs/:jobId/merge: storage failed', err);
-        res.status(503).json({ error: 'storage unavailable' });
-        return;
-      }
-      if (current === null) {
-        res.status(404).json({ error: 'not found' });
-        return;
-      }
+      // Either party may ask the platform to look at GitHub (B8); a stranger
+      // may not spend the platform's GitHub budget or learn a job's outcome
+      // ahead of its parties.
+      const gate = await requireSignedParty('POST /jobs/:jobId/merge', jobId, req, res, ['buyer', 'agent']);
+      if (gate === null) return;
+      const current: Job = gate.job;
       // Captured as a const so the outcome recorder below, an async closure,
       // sees the narrowed non-null row.
       const job = current;
@@ -2029,6 +2074,10 @@ export function createApp(
         'confirmed',
         'completed',
         'closed_unmerged',
+        // B8: a withdrawn or declined job has nothing left to observe; before
+        // this it fell through to the URL parse and surfaced as a 500.
+        'withdrawn',
+        'declined',
       ];
       if (nonObservationStatuses.includes(current.status)) {
         res.status(409).json({ error: new JobTransitionError(current.status, 'merge').message });

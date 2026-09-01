@@ -24,11 +24,16 @@ import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import type { GithubAdapter, PullRequestRef, PullRequestSummary } from '../../src/adapters/github/types.js';
 import { MemoryAgentRepository, MemoryCredentialRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { createJob, type Job } from '../../src/domain/job.js';
+import { signingIdentityFromSeed, signRequest } from '../helpers/sign-request.js';
 
 const ISSUER_DID = 'did:abt:test-platform-issuer';
 const ISSUER_SEED = new Uint8Array(32).fill(9);
+// Real key-backed parties: the merge route is signed and party-gated (B8,
+// 2026-09-01), so the buyer that asks for the observation must be able to
+// sign as the job's buyerDid.
+const buyerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(61));
 const AGENT_DID = 'did:abt:agent-resolvability';
-const BUYER_DID = 'did:abt:buyer-resolvability';
+const BUYER_DID = buyerIdentity.did;
 const FORK_OWNER = 'freeagents-platform';
 const FORK_REPO = 'target-repo';
 const PR_NUMBER = 3;
@@ -109,8 +114,10 @@ beforeAll(async () => {
   const credentialRepo = new MemoryCredentialRepository();
   const credentials = createCredentialsAdapter({ did: ISSUER_DID, seed: ISSUER_SEED }, credentialRepo);
 
+  const accounts = new MemoryAccountRepository();
+  await accounts.register({ did: BUYER_DID, githubLogin: 'buyer-resolvability' });
   const app = createApp(
-    new MemoryAccountRepository(),
+    accounts,
     agentRepo,
     fakeIdentity(),
     mergedGithub(),
@@ -122,7 +129,12 @@ beforeAll(async () => {
   server = await listen(app);
   baseUrl = `http://127.0.0.1:${portOf(server)}`;
 
-  const merge = await fetch(`${baseUrl}/jobs/${JOB_ID}/merge`, { method: 'POST' });
+  const mergeUri = `${baseUrl}/jobs/${JOB_ID}/merge`;
+  const merge = await fetch(mergeUri, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...signRequest(buyerIdentity, 'POST', mergeUri, { body: '{}' }) },
+    body: '{}',
+  });
   expect(merge.status).toBe(200);
   const body = (await merge.json()) as Record<string, unknown>;
   issuedCredential = body.credential as VerifiableCredential;

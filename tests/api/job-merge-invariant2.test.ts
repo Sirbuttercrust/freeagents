@@ -103,14 +103,6 @@ const PR_NUMBER = 3;
 const MERGE_SHA = 'inv2-merge-commit-sha';
 const MERGED_AT = new Date('2026-08-25T09:00:00Z');
 
-async function post(base: string, path: string, body: unknown = {}, authHeader: Record<string, string> = {}): Promise<Response> {
-  return fetch(`${base}${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...authHeader },
-    body: JSON.stringify(body),
-  });
-}
-
 async function postSigned(base: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
   const bodyText = JSON.stringify(body);
   const targetUri = `${base}${path}`;
@@ -240,9 +232,9 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
     expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
-    expect((await post(baseUrl, `/jobs/${jobId}/pull-request`)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(200);
 
-    const merge = await post(baseUrl, `/jobs/${jobId}/merge`);
+    const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, buyerIdentity);
     expect(merge.status).toBe(200);
     const mergeBody = (await merge.json()) as Record<string, unknown>;
     credential = mergeBody.credential as Record<string, unknown>;

@@ -116,14 +116,6 @@ async function startWith(
   };
 }
 
-async function post(baseUrl: string, path: string, body: unknown = {}, authHeader: Record<string, string> = {}): Promise<Response> {
-  return fetch(`${baseUrl}${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...authHeader },
-    body: JSON.stringify(body),
-  });
-}
-
 async function postSigned(baseUrl: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
   const bodyText = JSON.stringify(body);
   const targetUri = `${baseUrl}${path}`;
@@ -173,9 +165,9 @@ async function walkToMerge(
   expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyer)).status).toBe(200);
   expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agent)).status).toBe(200);
   expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyer)).status).toBe(200);
-  expect((await post(baseUrl, `/jobs/${jobId}/pull-request`)).status).toBe(200);
+  expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agent)).status).toBe(200);
 
-  const merge = await post(baseUrl, `/jobs/${jobId}/merge`);
+  const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, buyer);
   expect(merge.status).toBe(200);
   return (await merge.json()) as Record<string, unknown>;
 }

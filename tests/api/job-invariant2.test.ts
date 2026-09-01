@@ -342,7 +342,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, operatorIdentity)).status).toBe(200);
 
-    const pr = await postJson(baseUrl, `/jobs/${jobId}/pull-request`, {});
+    const pr = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity);
     expect(pr.status).toBe(200);
     const prBody = (await pr.json()) as Record<string, unknown>;
     expect(prBody.status).toBe('submitted');
@@ -363,7 +363,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     await walkToSubmitted(jobId);
 
     prState = 'closed';
-    const merge = await postJson(baseUrl, `/jobs/${jobId}/merge`, {});
+    const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, operatorIdentity);
     expect(merge.status).toBe(200);
     const body = (await merge.json()) as Record<string, unknown>;
     expect(body.status).toBe('closed_unmerged');
@@ -427,8 +427,12 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     // keep the class honest without the leg ever running it.
     const repo = new PlantedJobRepository();
 
+    // The merge route is signed and party-gated (B8, 2026-09-01), so the
+    // planted buyer is a registered account whose signature can verify.
+    const accounts2 = new MemoryAccountRepository();
+    await accounts2.register({ did: operatorWallet.toDid(), githubLogin: `buyer-outcome-${planted.id}` });
     const server2 = createApp(
-      new MemoryAccountRepository(),
+      accounts2,
       new MemoryAgentRepository(),
       undefined,
       github,
@@ -442,7 +446,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     const base = `http://127.0.0.1:${address.port}`;
     try {
       prState = 'open';
-      const merge = await postJson(base, `/jobs/${planted.id}/merge`, {});
+      const merge = await postSigned(base, `/jobs/${planted.id}/merge`, {}, operatorIdentity);
       expect(merge.status).toBe(200);
       const body = (await merge.json()) as Record<string, unknown>;
       expect(body.status).toBe('stale');
@@ -464,7 +468,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     const jobId = String(((await res.json()) as Record<string, unknown>).id);
     await walkToSubmitted(jobId);
 
-    const withdrawn = await postJson(baseUrl, `/jobs/${jobId}/withdraw`, {});
+    const withdrawn = await postSigned(baseUrl, `/jobs/${jobId}/withdraw`, {}, operatorIdentity);
     expect(withdrawn.status).toBe(200);
     const body = (await withdrawn.json()) as Record<string, unknown>;
     expect(body.status).toBe('withdrawn');

@@ -120,19 +120,6 @@ let server: Server;
 let baseUrl: string;
 let authHeader: Record<string, string> = {};
 
-async function post(
-  path: string,
-  body: unknown = {},
-  base: string = baseUrl,
-  header: Record<string, string> = authHeader,
-): Promise<Response> {
-  return fetch(`${base}${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...header },
-    body: JSON.stringify(body),
-  });
-}
-
 async function postSigned(path: string, body: unknown, identity: SigningIdentity, base: string = baseUrl): Promise<Response> {
   const bodyText = JSON.stringify(body);
   const targetUri = `${base}${path}`;
@@ -156,6 +143,7 @@ async function get(path: string, base: string = baseUrl): Promise<Response> {
 async function startWith(
   repo: JobRepository,
   github: GithubAdapter,
+  extraAccounts: readonly { did: string; githubLogin: string }[] = [],
 ): Promise<{ server: Server; baseUrl: string; authHeader: Record<string, string> }> {
   const agentRepo = new MemoryAgentRepository();
   await agentRepo.create({
@@ -168,6 +156,9 @@ async function startWith(
   });
   const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-pr-scripted' });
+  for (const extra of extraAccounts) {
+    await operatorRepo.register(extra);
+  }
   const sessionAdapter = testSessionAdapter();
   const s = createApp(
     operatorRepo,
@@ -249,7 +240,7 @@ describe('job pull-request (R-10)', () => {
     happySpecHash = confirmedBody.specHash;
     expect(confirmedBody.status).toBe('confirmed');
 
-    const pr = await post(`/jobs/${jobId}/pull-request`);
+    const pr = await postSigned(`/jobs/${jobId}/pull-request`, {}, agent);
     expect(pr.status).toBe(200);
     const prBody = (await pr.json()) as Record<string, unknown>;
     expect(prBody.id).toBe(jobId);
@@ -306,7 +297,7 @@ describe('job pull-request (R-10)', () => {
 
   it('answers 404 for an unknown id, with zero adapter calls', async () => {
     const before = recorded.forkAndOpenPullRequest.length;
-    const nowhere = await post('/jobs/j-nowhere/pull-request');
+    const nowhere = await postSigned('/jobs/j-nowhere/pull-request', {}, agent);
     expect(nowhere.status).toBe(404);
     expect(await nowhere.json()).toEqual({ error: 'not found' });
     expect(recorded.forkAndOpenPullRequest.length).toBe(before);
@@ -318,7 +309,7 @@ describe('job pull-request (R-10)', () => {
     const { jobId } = await openDraft('A draft nobody confirmed');
     const before = recorded.forkAndOpenPullRequest.length;
 
-    const early = await post(`/jobs/${jobId}/pull-request`);
+    const early = await postSigned(`/jobs/${jobId}/pull-request`, {}, agent);
     expect(early.status).toBe(409);
     expect(((await early.json()) as { error: string }).error).toContain('status "draft"');
     expect(recorded.forkAndOpenPullRequest.length).toBe(before);
@@ -333,7 +324,7 @@ describe('job pull-request (R-10)', () => {
 
   it('locks the job after submit: posting again is a 409 and opens no second PR', async () => {
     const before = recorded.forkAndOpenPullRequest.length;
-    const again = await post(`/jobs/${happyJobId}/pull-request`);
+    const again = await postSigned(`/jobs/${happyJobId}/pull-request`, {}, agent);
     expect(again.status).toBe(409);
     expect(((await again.json()) as { error: string }).error).toContain('status "submitted"');
     expect(recorded.forkAndOpenPullRequest.length).toBe(before);
@@ -377,7 +368,7 @@ describe('job pull-request, faulted legs (R-10)', () => {
       expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agent, scripted.baseUrl)).status).toBe(200);
       expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyer, scripted.baseUrl)).status).toBe(200);
 
-      const pr = await post(`/jobs/${jobId}/pull-request`, {}, scripted.baseUrl);
+      const pr = await postSigned(`/jobs/${jobId}/pull-request`, {}, agent, scripted.baseUrl);
       expect(pr.status).toBe(503);
       expect(await pr.json()).toEqual({ error: 'github unavailable' });
       // The cause goes to the log, not the body.
@@ -466,7 +457,7 @@ describe('job pull-request, faulted legs (R-10)', () => {
     const scripted = await startWith(new ScriptedRow(), recordingFake(faults));
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const res = await fetch(`${scripted.baseUrl}/jobs/j-corrupt/pull-request`, { method: 'POST' });
+      const res = await postSigned('/jobs/j-corrupt/pull-request', {}, agent, scripted.baseUrl);
       expect(res.status).toBe(500);
       expect(await res.json()).toEqual({ error: 'internal error' });
       expect(errorLog).toHaveBeenCalled();
@@ -496,7 +487,7 @@ describe('pull-request, invariant 1 and Gate 2 (R-10)', () => {
     const confirmedBody = await walkToConfirm(jobId);
     confirmedSpecHash = confirmedBody.specHash;
 
-    const pr = await post(`/jobs/${jobId}/pull-request`);
+    const pr = await postSigned(`/jobs/${jobId}/pull-request`, {}, agent);
     expect(pr.status).toBe(200);
     expect(recorded.forkAndOpenPullRequest.length).toBe(1);
     call = forkCall(recorded, 0);
@@ -573,5 +564,41 @@ describe('pull-request, invariant 1 and Gate 2 (R-10)', () => {
     // And the no-write-access claim ships with the artifact, so the
     // invariant is part of what a buyer reads, not just of our behaviour.
     expect(call.body).toContain('holds no write access');
+  });
+});
+
+describe('job pull-request, who may (B7, 2026-09-01)', () => {
+  const jobRepo = new MemoryJobRepository();
+  const recorded = emptyRecordings();
+
+  let stranger: SigningIdentity;
+
+  beforeAll(async () => {
+    buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(81));
+    agent = await signingIdentityFromSeed(new Uint8Array(32).fill(82));
+    stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(83));
+    ({ server, baseUrl, authHeader } = await startWith(jobRepo, recordingFake(recorded), [
+      { did: stranger.did, githubLogin: 'stranger-pr' },
+    ]));
+  });
+
+  afterAll(() => {
+    server.close();
+  });
+
+  it('refuses an unsigned submit with 401, a stranger and the buyer with 403, and fires github zero times', async () => {
+    const { jobId } = await openDraft('Fix the login bug on the checkout page');
+    await walkToConfirm(jobId);
+    const unsigned = await fetch(`${baseUrl}/jobs/${jobId}/pull-request`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(unsigned.status).toBe(401);
+    expect((await postSigned(`/jobs/${jobId}/pull-request`, {}, stranger)).status).toBe(403);
+    expect((await postSigned(`/jobs/${jobId}/pull-request`, {}, buyer)).status).toBe(403);
+    expect(recorded.forkAndOpenPullRequest).toHaveLength(0);
+    const job = (await (await fetch(`${baseUrl}/jobs/${jobId}`)).json()) as { status: string };
+    expect(job.status).toBe('confirmed');
   });
 });
