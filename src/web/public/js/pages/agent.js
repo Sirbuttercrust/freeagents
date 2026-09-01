@@ -169,6 +169,20 @@
 
     var created = A.readableDate(agent.createdAt);
     A.setTextById("tech-created", created === null ? "not recorded" : created);
+
+    /* R-37: freshness as a plain fact (ENT-2, ENT-4), rendered the same
+       way "Listed since" already is: readableDate or the honest "not
+       recorded" fallback, no badge, no colour, no "stale" language.
+       recordLastChangedAt is never null (the API always derives at least
+       the agent's own creation instant), but the same honest fallback
+       covers a read that failed to carry the field. lastHireCompletedAt
+       IS null for an agent with no completed hire, and that null renders
+       as the same neutral "not recorded" text a cold-start agent's other
+       facts already use, not an accusatory "never hired". */
+    var recordChanged = A.readableDate(agent.recordLastChangedAt);
+    A.setTextById("tech-record-changed", recordChanged === null ? "not recorded" : recordChanged);
+    var lastHire = A.readableDate(agent.lastHireCompletedAt);
+    A.setTextById("tech-last-hire", lastHire === null ? "not recorded" : lastHire);
   }
 
   function setCopy(id, value) {

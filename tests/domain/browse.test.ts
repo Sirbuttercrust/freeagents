@@ -383,3 +383,60 @@ describe('toBrowseCard: structural no-blend sweep', () => {
     expect(offenders).toContain('combinedEvidence');
   });
 });
+
+// R-37, item 6: browse cards may carry the freshness dates if it costs
+// nothing structurally, but freshness must NEVER become a sort key on this
+// card. This module never imports freshness.ts, and the closed sort set
+// (D1/Q1's three named keys) never grows a fourth value derived from
+// lastHireCompletedAt or recordLastChangedAt.
+describe('browse sorting never ranks on freshness (R-37 item 6)', () => {
+  function freshnessCard(did: string, verifiedHireCount: number): BrowseCard {
+    return {
+      did,
+      name: did,
+      skills: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastVerifiedAt: null,
+      verifiedHireCount,
+      verifiedPriorWorkCount: 0,
+      portfolioCount: 0,
+      buyerCount: 0,
+    };
+  }
+
+  it('the closed sort set is exactly the three D1/Q1 keys, none freshness-named', () => {
+    expect(resolveBrowseSort('verified-hires')).toBe('verified-hires');
+    expect(resolveBrowseSort('recently-listed')).toBe('recently-listed');
+    expect(resolveBrowseSort('recently-verified')).toBe('recently-verified');
+
+    // A freshness-flavoured value someone might plausibly invent is not a
+    // sort key: it falls back to the default like any other unknown value,
+    // exactly the same as a nonsense string.
+    for (const invented of ['last-hire-completed', 'record-last-changed', 'freshness', 'most-fresh', 'stalest']) {
+      expect(resolveBrowseSort(invented)).toBe(DEFAULT_BROWSE_SORT);
+    }
+  });
+
+  it('sortBrowseCards never reads lastHireCompletedAt or recordLastChangedAt off a card (structural)', () => {
+    // A card that DOES carry both freshness fields (item 6 permits this)
+    // sorts identically to one that does not, under every named sort: the
+    // comparator never reads either field, proven by mutating them wildly
+    // and observing no change in order.
+    const withoutFreshness: BrowseCard[] = [freshnessCard('did:abt:zLow', 1), freshnessCard('did:abt:zHigh', 9)];
+    const withFreshness = withoutFreshness.map((c, i) => ({
+      ...c,
+      // Deliberately adversarial: the LOW verified-hire card gets the
+      // LATEST freshness date, so a comparator that accidentally read
+      // freshness would flip the order relative to the freshness-free run.
+      lastHireCompletedAt: i === 0 ? '2099-01-01T00:00:00.000Z' : '2020-01-01T00:00:00.000Z',
+      recordLastChangedAt: i === 0 ? '2099-01-01T00:00:00.000Z' : '2020-01-01T00:00:00.000Z',
+    }));
+
+    for (const sort of ['verified-hires', 'recently-listed', 'recently-verified'] as const) {
+      const baseline = sortBrowseCards(withoutFreshness, sort).map((c) => c.did);
+      const withDates = sortBrowseCards(withFreshness, sort).map((c) => c.did);
+      expect(withDates).toEqual(baseline);
+    }
+  });
+});
+
