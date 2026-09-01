@@ -10,7 +10,7 @@ import {
   type SignedRequestLike,
   type SigningKeyResolver,
 } from '../../src/adapters/identity/http-signature.js';
-import { createDidAbtSigningKeyResolver } from '../../src/adapters/identity/did-abt-resolver.js';
+import { createDidAbtSigningKeyResolver, createKnownKeyStore } from '../../src/adapters/identity/did-abt-resolver.js';
 import { signingIdentityFromSeed, signRequest } from '../helpers/sign-request.js';
 
 describe('DID-signed requests (RFC 9421)', () => {
@@ -191,5 +191,31 @@ describe('DID-signed requests (RFC 9421)', () => {
     const resolved = await resolver(victim.did, forgedKeyid);
 
     expect(resolved).toBeNull();
+  });
+
+  it('records the observed verification method in a KnownKeyStore when the binding check passes', async () => {
+    const identity = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
+    const knownKeys = createKnownKeyStore();
+    const resolver = createDidAbtSigningKeyResolver(async () => true, knownKeys);
+
+    expect(knownKeys.get(identity.did)).toBeNull();
+
+    const resolved = await resolver(identity.did, identity.keyid);
+
+    expect(resolved).not.toBeNull();
+    expect(knownKeys.get(identity.did)).toBe(identity.keyid);
+  });
+
+  it('does not record anything when the binding check fails (a forged keyid)', async () => {
+    const victim = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
+    const attacker = await signingIdentityFromSeed(new Uint8Array(32).fill(9));
+    const knownKeys = createKnownKeyStore();
+    const resolver = createDidAbtSigningKeyResolver(async () => true, knownKeys);
+    const attackerFragment = attacker.keyid.slice(attacker.keyid.indexOf('#') + 1);
+    const forgedKeyid = `${victim.did}#${attackerFragment}`;
+
+    await resolver(victim.did, forgedKeyid);
+
+    expect(knownKeys.get(victim.did)).toBeNull();
   });
 });

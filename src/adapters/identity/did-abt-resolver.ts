@@ -70,13 +70,60 @@ export async function buildDidAbtLoader(issuerDid: string, verificationMethod: s
   return loader.build();
 }
 
+// R-3 + R-4 completion (B5, launch blocker): local-only DID resolution and
+// verify need a source for "what verification method does this DID use"
+// that is not a network call (invariant 2). The signing-key resolver below
+// already performs the one binding check that makes a verificationMethod
+// trustworthy: does the public key it names actually re-derive the DID
+// that claims it? A KnownKeyStore is exactly the record of DIDs that have
+// passed that check during this process's lifetime, so identity.ts's
+// resolveDid and verify have real key material to work from without ever
+// calling out. This is a real limitation, stated rather than hidden: a DID
+// this process has not yet seen a valid signature from cannot be resolved,
+// the same honest gap did-abt-resolver.ts already leaves in
+// buildDidAbtLoader (it needs the proof's own verificationMethod, not a
+// network fetch, to do anything at all).
+export interface KnownKeyStore {
+  // Records that this DID's key material has been checked, once, against
+  // the binding check below. Overwrites any prior entry for the same DID
+  // (a later verified signature is the freshest evidence), never merges.
+  record(did: string, verificationMethod: string): void;
+  // Null when this DID has never passed the binding check in this process.
+  get(did: string): string | null;
+}
+
+// An in-memory store, module-scoped by whoever constructs it (the app
+// wires one instance through createIdentityAdapter and
+// createDidAbtSigningKeyResolver so both draw from the same observations).
+// No key material here, ever: only the public verificationMethod string
+// (did:abt:<suffix>#<fingerprint>), the same shape delegation.proof.
+// verificationMethod already carries onto the wire.
+export function createKnownKeyStore(): KnownKeyStore {
+  const known = new Map<string, string>();
+  return {
+    record(did, verificationMethod) {
+      known.set(did, verificationMethod);
+    },
+    get(did) {
+      return known.get(did) ?? null;
+    },
+  };
+}
+
 // Signing-key resolver for RFC 9421 request signatures (R-34). Given a
 // keyid of the form did:abt:<suffix>#<multibase-fingerprint>, reconstruct
 // the ed25519 public key from the fingerprint and require it to re-derive
 // the claimed DID suffix -- the same binding check as buildDidAbtLoader
 // above, applied to a bare request signature rather than a VC proof.
+// knownKeys is optional so every existing caller (tests, and any call site
+// that does not care about resolveDid/verify) is unaffected; when supplied,
+// a keyid that passes the binding check is recorded, giving resolveDid and
+// verify something real to work from the next time this same DID is asked
+// about (invariant 2: still no network call, only what THIS process has
+// itself independently verified).
 export function createDidAbtSigningKeyResolver(
   isRegistered: (did: string) => Promise<boolean>,
+  knownKeys?: KnownKeyStore,
 ): SigningKeyResolver {
   return async (did, keyid) => {
     try {
@@ -95,6 +142,8 @@ export function createDidAbtSigningKeyResolver(
         key: { kty: 'OKP', crv: 'Ed25519', x: Buffer.from(raw).toString('base64url') },
         format: 'jwk',
       }).export({ type: 'spki', format: 'pem' }) as string;
+
+      knownKeys?.record(did, keyid);
 
       return { publicKeyPem };
     } catch {
