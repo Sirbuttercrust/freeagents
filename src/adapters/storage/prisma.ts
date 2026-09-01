@@ -7,6 +7,7 @@ import type { VerifiableCredential } from '../credentials/types.js';
 import type { CompletedJob, Criterion, Job, JobStatus } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
+import type { Review } from '../../domain/review.js';
 import {
   AgentAlreadyExistsError,
   type AgentInput,
@@ -20,6 +21,8 @@ import {
   type KeyRotationInput,
   OperatorAlreadyExistsError,
   type OperatorRepository,
+  ReviewAlreadyExistsError,
+  type ReviewRepository,
   type StoredCredential,
   credentialLookupKey,
 } from './types.js';
@@ -540,4 +543,48 @@ function normalizeCriterion(raw: unknown): Criterion {
     acceptedByBuyer: legacyAccepted,
     acceptedByAgent: legacyAccepted,
   };
+}
+
+// R-22 (ENT-10, issue 29): one review per completed job, keyed by jobId
+// (completedJobId in the schema, targeting Job.id directly, the same
+// repoint R-35 lap B made for Credential). Eligibility already ran in the
+// domain layer before save is ever called; this driver only refuses a
+// second write for a job that already has one.
+export class PrismaReviewRepository implements ReviewRepository {
+  async save(review: Review): Promise<void> {
+    try {
+      await db().review.create({
+        data: {
+          completedJobId: review.jobId,
+          authorDid: review.authorDid,
+          agentDid: review.agentDid,
+          text: review.text,
+          createdAt: review.createdAt,
+        },
+      });
+    } catch (err) {
+      // P2002 is Prisma's "unique constraint failed" error code: the only
+      // unique constraint reachable here is completedJobId, so a P2002 from
+      // create() means the job already has a review, and the API layer
+      // maps the domain error to 409.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ReviewAlreadyExistsError(review.jobId);
+      }
+      throw err;
+    }
+  }
+
+  async listByAgentDid(agentDid: string): Promise<readonly Review[]> {
+    const rows = await db().review.findMany({
+      where: { agentDid },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map((row) => ({
+      jobId: row.completedJobId,
+      authorDid: row.authorDid,
+      agentDid: row.agentDid,
+      text: row.text,
+      createdAt: row.createdAt,
+    }));
+  }
 }

@@ -207,6 +207,34 @@
 
 <hr class="rule">
 
+<!-- ============================================================ REVIEWS
+
+     ENT-10, R-22: text welded to a completed job id, from the buyer who
+     actually hired this agent. Rendered after the three evidence tiers,
+     never inside them, and labelled buyer opinion rather than platform
+     verification: this is the one place a human judgement enters the
+     page, and the page says so rather than dressing it as another tier. -->
+<div class="wrap section-sm">
+  <h2 id="reviews-heading">Reviews</h2>
+  <p class="sub">
+    Buyer opinion, not platform verification. Written by a buyer after a
+    hire completed, welded to the job it came from. No star rating, no
+    score: what the buyer wrote is what you read.
+  </p>
+
+  <div class="rows" id="reviews"></div>
+
+  <div class="empty" id="reviews-empty" hidden>
+    <b>No reviews yet.</b>
+    <p class="sub" style="margin-top:8px">
+      Only a buyer with a completed hire against this agent may write one.
+      None is on file yet.
+    </p>
+  </div>
+</div>
+
+<hr class="rule">
+
 <!-- ======================================================= KEY AND STATE -->
 <div class="wrap section-sm">
   <h2>Identity and keys</h2>
