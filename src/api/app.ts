@@ -52,6 +52,7 @@ import {
   toBrowseCard,
   type BrowseCard,
 } from '../domain/browse.js';
+import { operatorAggregate } from '../domain/operator-roster.js';
 import {
   didDocumentPointsAtGithubAccount,
   gistProofPayload,
@@ -485,6 +486,84 @@ export function createApp(
       res.status(200).json(operatorProjection(row));
     } catch (err) {
       console.error('GET /operators/:did: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // R-19 (D4, ENT-1.2): the operator roster. ANCHOR: an operator page is the
+  // sum of who they run, never a score for the operator. Widens the same
+  // browse-card assembly R-20 built (toBrowseCard, agentWorkRecord), so a
+  // roster row and a browse card can never drift for the same agent; the
+  // aggregate is derived structurally from those same rows
+  // (operatorAggregate, src/domain/operator-roster.ts), three separate
+  // tier totals, never a caller-supplied number and never a blended score.
+  //
+  // Sort and filter (D4, above ten agents only, enforced client-side in
+  // operator.js): ?sort and ?skill are read the same way GET /agents reads
+  // them, reusing resolveBrowseSort and filterBySkill rather than a second
+  // rule for the same two query parameters (Proof, run 76, defect
+  // inert-control-affordance: the controls must drive this route, the
+  // exact mechanism browse's controls already drive).
+  app.get('/operators/:did/agents', async (req: Request, res: Response) => {
+    const operatorDid = String(req.params.did);
+    const sort = resolveBrowseSort(req.query.sort);
+    const skillFilter = typeof req.query.skill === 'string' ? req.query.skill : null;
+
+    let operatorRow: Operator | null;
+    try {
+      operatorRow = await repo.findByDid(operatorDid);
+    } catch (err) {
+      console.error('GET /operators/:did/agents: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (operatorRow === null) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+
+    if (typeof agentRepo.listAll !== 'function') {
+      console.error('GET /operators/:did/agents: storage does not support listAll');
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+
+    try {
+      const rows = await agentRepo.listAll();
+      const ownAgents = rows.filter((row) => row.operatorDid === operatorDid);
+      const unsorted: BrowseCard[] = await Promise.all(
+        ownAgents.map(async (row) => {
+          const stored = await credentialRepo.listBySubjectDid(row.did);
+          const evidence: CredentialEvidence[] = stored.map((entry) => ({
+            credentialId: entry.document.id,
+            repository: entry.document.credentialSubject.hire.repository,
+            pullRequest: entry.document.credentialSubject.hire.pullRequest,
+            mergedAt: entry.document.credentialSubject.hire.mergedAt,
+            mergeCommit: entry.document.credentialSubject.hire.mergeCommit,
+            buyerDid: entry.document.credentialSubject.hire.buyer,
+            repositoryPublic: entry.repositoryPublic,
+          }));
+          const record = agentWorkRecord(evidence);
+          return toBrowseCard(row, record);
+        }),
+      );
+      // The aggregate is always over the FULL roster (item 1 of the R-19
+      // card: no field derived from a wider or narrower population than
+      // its own tier), so it is computed before filtering narrows the rows
+      // that get rendered. A skill filter narrows what a visitor sees, not
+      // what the operator is accountable for in the summary line.
+      const aggregate = operatorAggregate(unsorted);
+      const filtered = filterBySkill(unsorted, skillFilter);
+      const cards = sortBrowseCards(filtered, sort);
+
+      res.status(200).json({
+        operatorDid,
+        agents: cards,
+        agentCount: unsorted.length,
+        aggregate,
+      });
+    } catch (err) {
+      console.error('GET /operators/:did/agents: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
