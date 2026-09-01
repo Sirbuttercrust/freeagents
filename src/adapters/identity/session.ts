@@ -37,9 +37,14 @@ import { NotImplementedError } from '../not-implemented.js';
 export type SignInMethod = 'github-oauth' | 'passkey';
 
 export interface Session {
-  // The signed-in user. For an operator with a DID this is the operator
-  // DID; a user who has not created a DID yet gets a stable local id.
-  // One field, one shape: R-24's wallet path fills the same field.
+  // The proof-specific identity the sign-in method produced: the GitHub
+  // login for github-oauth, the caller-supplied subject for passkey. One
+  // field, one shape, both proof-specific: R-39 completion resolves this
+  // to an Account server-side (session.ts's own resolveSessionAccount, or
+  // the adapter's resolveSessionAccount option), via the schema's unique
+  // githubLogin / passkeySubject constraint. This field is NEVER an
+  // Account DID itself and is never trusted as a caller-declared party;
+  // it is the key the resolution join looks up.
   readonly subject: string;
   readonly method: SignInMethod;
   readonly token: string;

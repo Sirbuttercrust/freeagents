@@ -33,15 +33,33 @@ export class MemoryAccountRepository implements AccountRepository {
   async register(input: {
     readonly did: string;
     readonly githubLogin: string;
+    readonly passkeySubject?: string | null;
   }): Promise<Account> {
     // Check-then-set is safe here: Node is single-threaded and this method awaits
     // nothing, so two concurrent registers of one DID cannot both pass the check.
     if (this.rows.has(input.did)) {
       throw new AccountAlreadyExistsError(input.did);
     }
+    // githubLogin and passkeySubject are both unique (prisma/schema.prisma):
+    // this driver enforces the same constraint in memory, one scan per
+    // field, so a duplicate throws the identical error the Postgres P2002
+    // path throws (see PrismaAccountRepository.register).
+    for (const row of this.rows.values()) {
+      if (row.githubLogin === input.githubLogin) {
+        throw new AccountAlreadyExistsError(input.did);
+      }
+      if (
+        input.passkeySubject !== undefined &&
+        input.passkeySubject !== null &&
+        row.passkeySubject === input.passkeySubject
+      ) {
+        throw new AccountAlreadyExistsError(input.did);
+      }
+    }
     const row: Account = {
       did: input.did,
       githubLogin: input.githubLogin,
+      passkeySubject: input.passkeySubject ?? null,
       createdAt: new Date(),
     };
     this.rows.set(input.did, row);
@@ -50,6 +68,20 @@ export class MemoryAccountRepository implements AccountRepository {
 
   async findByDid(did: string): Promise<Account | null> {
     return this.rows.get(did) ?? null;
+  }
+
+  async findByGithubLogin(githubLogin: string): Promise<Account | null> {
+    for (const row of this.rows.values()) {
+      if (row.githubLogin === githubLogin) return row;
+    }
+    return null;
+  }
+
+  async findByPasskeySubject(passkeySubject: string): Promise<Account | null> {
+    for (const row of this.rows.values()) {
+      if (row.passkeySubject === passkeySubject) return row;
+    }
+    return null;
   }
 }
 

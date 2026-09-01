@@ -82,15 +82,28 @@ export class PrismaAccountRepository implements AccountRepository {
   async register(input: {
     readonly did: string;
     readonly githubLogin: string;
+    readonly passkeySubject?: string | null;
   }): Promise<Account> {
     try {
-      const row = await db().account.create({ data: { ...input } });
-      return { did: row.did, githubLogin: row.githubLogin, createdAt: row.createdAt };
+      const row = await db().account.create({
+        data: {
+          did: input.did,
+          githubLogin: input.githubLogin,
+          passkeySubject: input.passkeySubject ?? null,
+        },
+      });
+      return {
+        did: row.did,
+        githubLogin: row.githubLogin,
+        passkeySubject: row.passkeySubject,
+        createdAt: row.createdAt,
+      };
     } catch (err) {
-      // P2002 is Prisma's "unique constraint failed" error code: the only
-      // unique constraint reachable here is the DID primary key, so a P2002
-      // from create() means the DID is already registered, and the API
-      // layer maps the domain error to 409.
+      // P2002 is Prisma's "unique constraint failed" error code: it fires
+      // on the DID primary key, the unique githubLogin, or the unique
+      // passkeySubject alike. All three collisions mean the same thing to
+      // a caller (this identity already claims an account), so all three
+      // map to the same domain error rather than three different ones.
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         throw new AccountAlreadyExistsError(input.did);
       }
@@ -100,7 +113,23 @@ export class PrismaAccountRepository implements AccountRepository {
 
   async findByDid(did: string): Promise<Account | null> {
     const row = await db().account.findUnique({ where: { did } });
-    return row === null ? null : { did: row.did, githubLogin: row.githubLogin, createdAt: row.createdAt };
+    return row === null
+      ? null
+      : { did: row.did, githubLogin: row.githubLogin, passkeySubject: row.passkeySubject, createdAt: row.createdAt };
+  }
+
+  async findByGithubLogin(githubLogin: string): Promise<Account | null> {
+    const row = await db().account.findUnique({ where: { githubLogin } });
+    return row === null
+      ? null
+      : { did: row.did, githubLogin: row.githubLogin, passkeySubject: row.passkeySubject, createdAt: row.createdAt };
+  }
+
+  async findByPasskeySubject(passkeySubject: string): Promise<Account | null> {
+    const row = await db().account.findUnique({ where: { passkeySubject } });
+    return row === null
+      ? null
+      : { did: row.did, githubLogin: row.githubLogin, passkeySubject: row.passkeySubject, createdAt: row.createdAt };
   }
 }
 
