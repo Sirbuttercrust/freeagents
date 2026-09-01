@@ -590,9 +590,10 @@ export function createApp(
   // party's own claim, checked below the same way it always was; only the
   // session-or-signature gate in front of it is gone.
   app.post('/accounts', async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { did?: unknown; githubLogin?: unknown };
+    const body = (req.body ?? {}) as { did?: unknown; githubLogin?: unknown; passkeySubject?: unknown };
     const did = body.did;
     const githubLogin = body.githubLogin;
+    const passkeySubject = body.passkeySubject;
 
     if (typeof did !== 'string' || typeof githubLogin !== 'string' || did.length === 0 || githubLogin.length === 0) {
       res.status(400).json({
@@ -606,9 +607,24 @@ export function createApp(
       });
       return;
     }
+    // passkeySubject is optional (design item 3): an account may register
+    // with a GitHub login only and bind a passkey subject here or later.
+    // Present-but-wrong-type or present-but-empty is a 400, the same shape
+    // githubLogin's own guard takes, rather than silently dropping a value
+    // the caller explicitly sent.
+    if (passkeySubject !== undefined && (typeof passkeySubject !== 'string' || passkeySubject.length === 0)) {
+      res.status(400).json({
+        error: 'passkeySubject, if present, must be a non-empty string',
+      });
+      return;
+    }
 
     try {
-      const row = await repo.register({ did, githubLogin });
+      const row = await repo.register({
+        did,
+        githubLogin,
+        ...(passkeySubject === undefined ? {} : { passkeySubject }),
+      });
       res.status(201).json(accountProjection(row));
     } catch (err) {
       // A duplicate DID is a 409: the operator registered it already, and

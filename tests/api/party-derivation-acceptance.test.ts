@@ -7,10 +7,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
-import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryAccountRepository, MemoryJobRepository } from '../../src/adapters/storage/memory.js';
 import { AccountAlreadyExistsError } from '../../src/adapters/storage/types.js';
 import { signRequest, signingIdentityFromSeed, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
+import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
+import { fakeGitHubConfig, fakeGitHubFetch } from '../helpers/session-fixtures.js';
+import { createPasskeyFixture } from '../helpers/webauthn-fixtures.js';
 
 async function postSigned(baseUrl: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
   const bodyText = JSON.stringify(body);
@@ -200,6 +203,7 @@ describe('R-39 completion acceptance: party derived, never declared', () => {
   it('the same account buys on one job and operates the selling agent on another, and hiring its own agent is labelled a self-hire', async () => {
     const repo = new MemoryAccountRepository();
     const agentRepo = new MemoryAgentRepository();
+    const jobRepo = new MemoryJobRepository();
     const account = await signingIdentityFromSeed(new Uint8Array(32).fill(213));
     const otherAgentOperator = await signingIdentityFromSeed(new Uint8Array(32).fill(214));
 
@@ -228,7 +232,7 @@ describe('R-39 completion acceptance: party derived, never declared', () => {
       githubLogin: null,
     });
 
-    const server = createApp(repo, agentRepo).listen(0);
+    const server = createApp(repo, agentRepo, undefined, undefined, jobRepo).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
@@ -264,6 +268,144 @@ describe('R-39 completion acceptance: party derived, never declared', () => {
       // Both jobs share one buyerDid (the dual-role account), proving one
       // account genuinely played both roles across two jobs in this run.
       expect(selfHireBody.buyerDid).toBe(buyerJobBody.buyerDid);
+
+      // The label itself (PR 89's self-hire labels, "stays a first-class
+      // labelled state"): completing both jobs and reading each agent's
+      // GET .../hires must show job A labelled selfHire TRUE and job B
+      // labelled selfHire FALSE. Completion is driven directly on the
+      // shared jobRepo (the same pattern tests/api/buyer-diversity.test.ts
+      // uses), because the label lives on the READ path, not on the
+      // POST /jobs response this test already checked above.
+      const selfHireJobId = String(selfHireBody.id);
+      const buyerJobId = String(buyerJobBody.id);
+      const storedSelfHireJob = await jobRepo.findById(selfHireJobId);
+      const storedBuyerJob = await jobRepo.findById(buyerJobId);
+      if (storedSelfHireJob === null || storedBuyerJob === null) {
+        throw new Error('expected both jobs to be stored');
+      }
+      const mergedAt = new Date('2026-09-01T00:00:00Z');
+      await jobRepo.complete(
+        { ...storedSelfHireJob, status: 'completed', mergeCommit: 'merge-self', mergedAt },
+        { jobId: selfHireJobId, buyerDid: account.did, agentDid: ownAgentDid, mergeCommit: 'merge-self', completedAt: mergedAt },
+      );
+      await jobRepo.complete(
+        { ...storedBuyerJob, status: 'completed', mergeCommit: 'merge-other', mergedAt },
+        { jobId: buyerJobId, buyerDid: account.did, agentDid: otherAgentDid, mergeCommit: 'merge-other', completedAt: mergedAt },
+      );
+
+      const ownAgentHires = await fetch(`${baseUrl}/agents/${ownAgentDid}/hires`);
+      expect(ownAgentHires.status).toBe(200);
+      const ownAgentHiresBody = (await ownAgentHires.json()) as {
+        entries: Array<{ jobId: string; selfHire: boolean }>;
+      };
+      const selfHireEntry = ownAgentHiresBody.entries.find((e) => e.jobId === selfHireJobId);
+      expect(selfHireEntry?.selfHire).toBe(true);
+
+      const otherAgentHires = await fetch(`${baseUrl}/agents/${otherAgentDid}/hires`);
+      expect(otherAgentHires.status).toBe(200);
+      const otherAgentHiresBody = (await otherAgentHires.json()) as {
+        entries: Array<{ jobId: string; selfHire: boolean }>;
+      };
+      const buyerEntry = otherAgentHiresBody.entries.find((e) => e.jobId === buyerJobId);
+      expect(buyerEntry?.selfHire).toBe(false);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('a passkey-authenticated hire derives the buyer from the session, indistinguishably from OAuth (design item 3)', async () => {
+    // Design item 3: "GitHub OAuth resolves via the unique githubLogin; a
+    // passkey resolves via its unique subject. Both land on the same
+    // Account row; the two sign-in methods must be indistinguishable
+    // downstream." A real WebAuthn registration ceremony, driven through
+    // the SAME session adapter POST /jobs authenticates against, proves
+    // the passkey path reaches an actual account and hires exactly the
+    // way the OAuth-backed test above does.
+    const repo = new MemoryAccountRepository();
+    const agentRepo = new MemoryAgentRepository();
+    const AGENT_DID = 'did:abt:pd-agent-passkey';
+    await agentRepo.create({
+      did: AGENT_DID,
+      operatorDid: 'did:abt:pd-operator-passkey',
+      delegation: { fixture: true } as never,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+
+    const sessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'pd-passkey-unused', id: 1 }),
+      passkey: { rpName: 'FreeAgents test', rpID: 'localhost', origin: 'http://localhost:3000' },
+    });
+    const subject = 'pd-passkey-hire-subject';
+
+    // Complete a real registration ceremony, exactly as tests/api/session.test.ts
+    // does, to mint a genuinely live passkey session token.
+    const { optionsJson } = await sessionAdapter.registerPasskey(subject);
+    const registrationOptions = JSON.parse(optionsJson) as { challenge: string };
+    const fixture = createPasskeyFixture();
+    const response = fixture.registrationResponse(registrationOptions.challenge, 'localhost');
+    const session = await sessionAdapter.verifyPasskey(JSON.stringify({ subject, response }));
+    if (session === null) {
+      throw new Error('verifyPasskey unexpectedly returned null');
+    }
+    const token = session.token;
+
+    const server = createApp(
+      repo,
+      agentRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    ).listen(0);
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('expected server to listen on a port');
+    }
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const authHeader = { authorization: `Bearer ${token}` };
+
+    try {
+      // The account a passkey holder must be able to acquire THROUGH THE
+      // REAL ROUTE SURFACE, not by reaching into the repository directly:
+      // POST /accounts is account creation, ungated (D1/bootstrap-deadlock),
+      // and must accept an optional passkeySubject the same way it accepts
+      // githubLogin, so a live passkey session can later resolve to this
+      // account exactly as a live GitHub session already does.
+      const registered = await fetch(`${baseUrl}/accounts`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          did: 'did:abt:pd-passkey-buyer',
+          githubLogin: 'pd-passkey-buyer-login',
+          passkeySubject: subject,
+        }),
+      });
+      expect(registered.status).toBe(201);
+      const registeredBody = (await registered.json()) as Record<string, unknown>;
+      expect(registeredBody.passkeySubject).toBe(subject);
+
+      const hire = await fetch(`${baseUrl}/jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeader },
+        body: JSON.stringify({
+          agentDid: AGENT_DID,
+          repository: 'buyer/target-repo',
+          brief: 'Fix the login bug, hired through a passkey session',
+        }),
+      });
+      expect(hire.status).toBe(201);
+      const hireBody = (await hire.json()) as Record<string, unknown>;
+      expect(hireBody.buyerDid).toBe('did:abt:pd-passkey-buyer');
     } finally {
       server.close();
     }
