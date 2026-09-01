@@ -3,7 +3,9 @@
 // harness/ci.py nor harness/ci.py --quick validates the schema any other
 // way. Without this, the fix to the dangling CompletedJob foreign key would
 // be unvalidated by anything the factory can execute.
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const schemaPath = new URL('../../prisma/schema.prisma', import.meta.url);
@@ -132,5 +134,57 @@ describe('prisma/schema.prisma, the review model (R-22, ENT-10, issue 29)', () =
     expect(matches).toHaveLength(1);
     expect(matches[0]).toMatch(/Review\?\s*$/);
     expect(matches[0]).not.toMatch(/Review\[\]/);
+  });
+});
+
+describe('prisma/schema.prisma, the Account model (R-39 completion, ENT-1.4)', () => {
+  it('githubLogin is @unique: a session can resolve to at most one account', () => {
+    const account = modelBody('Account');
+    expect(account).toMatch(/githubLogin\s+String\s+@unique/);
+  });
+
+  it('passkeySubject is @unique and nullable: a passkey session can resolve to at most one account', () => {
+    const account = modelBody('Account');
+    expect(account).toMatch(/passkeySubject\s+String\?\s+@unique/);
+  });
+});
+
+// D3 (Proof round 1, uniqueness-untested-at-schema): the mutation proof the
+// card requires ("drop the unique constraint, a test goes red") must hold
+// against the actual applied migration, not only against schema.prisma's
+// text -- a schema whose model declares @unique but whose migration never
+// shipped the constraint would pass every test above and still be
+// unenforced on a real database. This reads the migration SQL Postgres
+// would actually run.
+describe('prisma/migrations, the Account unique constraints are actually migrated (R-39 completion)', () => {
+  const migrationsDir = new URL('../../prisma/migrations/', import.meta.url);
+
+  function allMigrationSql(): string {
+    const dir = fileURLToPath(migrationsDir);
+    if (!existsSync(dir)) return '';
+    const entries = readdirSync(dir, { withFileTypes: true });
+    return entries
+      .filter((e) => e.isDirectory())
+      .map((e) => join(dir, e.name, 'migration.sql'))
+      .filter((p) => existsSync(p))
+      .map((p) => readFileSync(p, 'utf8'))
+      .join('\n');
+  }
+
+  it('at least one migration exists under prisma/migrations', () => {
+    const dir = fileURLToPath(migrationsDir);
+    expect(existsSync(dir), 'prisma/migrations does not exist: the schema unique constraints are undeployed').toBe(true);
+    const entries = existsSync(dir) ? readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()) : [];
+    expect(entries.length, 'prisma/migrations exists but contains no migration directories').toBeGreaterThan(0);
+  });
+
+  it('a migration creates a unique index on Account.githubLogin', () => {
+    const sql = allMigrationSql();
+    expect(sql).toMatch(/CREATE UNIQUE INDEX[^;]*"Account"\("githubLogin"\)/);
+  });
+
+  it('a migration creates a unique index on Account.passkeySubject', () => {
+    const sql = allMigrationSql();
+    expect(sql).toMatch(/CREATE UNIQUE INDEX[^;]*"Account"\("passkeySubject"\)/);
   });
 });

@@ -1,12 +1,12 @@
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/api/app.js';
-import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import {
   JobAlreadyExistsError,
   type AgentRepository,
   type JobRepository,
-  type OperatorRepository,
+  type AccountRepository,
 } from '../../src/adapters/storage/types.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
@@ -58,7 +58,7 @@ async function postJob(
 describe('app', () => {
   let server: Server;
   let baseUrl: string;
-  const repo = new MemoryOperatorRepository();
+  const repo = new MemoryAccountRepository();
   const agentRepo = new MemoryAgentRepository();
   const sessionAdapter: SessionAdapter = testSessionAdapter();
   let authHeader: Record<string, string>;
@@ -72,6 +72,14 @@ describe('app', () => {
       skills: ['triage'],
       githubLogin: null,
     });
+    // R-39 completion: buyerDid is now derived server-side from the
+    // session's resolved account, never trusted from the body. Every test
+    // below that names 'did:abt:buyer-jobs' as buyerDid needs that literal
+    // to be the account this session actually resolves to -- register it
+    // against the session adapter's own fixed login (session-fixtures.ts:
+    // testSessionAdapter always signs in as 'test-session-user') before
+    // any job route runs.
+    await repo.register({ did: 'did:abt:buyer-jobs', githubLogin: 'test-session-user' });
     server = createApp(
       repo,
       agentRepo,
@@ -120,7 +128,7 @@ describe('app', () => {
   });
 
   it('registers an operator and reads it back with the same body', async () => {
-    const created = await fetch(`${baseUrl}/operators`, {
+    const created = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-1', githubLogin: 'operator-api-1' }),
@@ -129,18 +137,18 @@ describe('app', () => {
     const body = (await created.json()) as Record<string, unknown>;
     expect(body.did).toBe('did:abt:api-1');
 
-    const read = await fetch(`${baseUrl}/operators/did:abt:api-1`);
+    const read = await fetch(`${baseUrl}/accounts/did:abt:api-1`);
     expect(read.status).toBe(200);
     expect(await read.json()).toEqual(body);
   });
 
   it('returns 404 for an unregistered operator DID', async () => {
-    const response = await fetch(`${baseUrl}/operators/did:abt:never-registered`);
+    const response = await fetch(`${baseUrl}/accounts/did:abt:never-registered`);
     expect(response.status).toBe(404);
   });
 
   it('returns 400 for a DID of the wrong method', async () => {
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:eth:api-2', githubLogin: 'operator-api-2' }),
@@ -149,7 +157,7 @@ describe('app', () => {
   });
 
   it('returns 400 when githubLogin is missing', async () => {
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-3' }),
@@ -164,7 +172,7 @@ describe('app', () => {
   // wrong shape), so a test per conjunct is what makes the whole guard
   // non-deletable.
   it('returns 400 when did is not a string (number)', async () => {
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 42, githubLogin: 'operator-api-4' }),
@@ -173,7 +181,7 @@ describe('app', () => {
   });
 
   it('returns 400 when did is not a string (null)', async () => {
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: null, githubLogin: 'operator-api-5' }),
@@ -185,7 +193,7 @@ describe('app', () => {
     // A well-typed string that fails the length conjunct: without the
     // did.length === 0 clause this would reach the DID-shape check and still
     // be a 400, but for a different reason with a different body.
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: '', githubLogin: 'operator-api-6' }),
@@ -199,7 +207,7 @@ describe('app', () => {
   it('returns 400 when githubLogin is not a string (number)', async () => {
     // The valid did here isolates the githubLogin conjunct: did passes both
     // its checks, so a 400 can only come from the login side of the guard.
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-7', githubLogin: 42 }),
@@ -208,7 +216,7 @@ describe('app', () => {
   });
 
   it('returns 400 when githubLogin is empty', async () => {
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-8', githubLogin: '' }),
@@ -220,14 +228,14 @@ describe('app', () => {
   });
 
   it('returns 409 when the same DID is registered twice', async () => {
-    const first = await fetch(`${baseUrl}/operators`, {
+    const first = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-dup', githubLogin: 'operator-api-dup' }),
     });
     expect(first.status).toBe(201);
 
-    const second = await fetch(`${baseUrl}/operators`, {
+    const second = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-dup', githubLogin: 'operator-api-dup' }),
@@ -238,7 +246,7 @@ describe('app', () => {
     });
 
     // The original registration survives the conflict.
-    const read = await fetch(`${baseUrl}/operators/did:abt:api-dup`);
+    const read = await fetch(`${baseUrl}/accounts/did:abt:api-dup`);
     expect(read.status).toBe(200);
   });
 
@@ -287,20 +295,16 @@ describe('app', () => {
 
   it('returns 400 when buyerDid is an empty string', async () => {
     // The length conjunct, isolated from the typeof conjunct beside it: ''
-    // is a well-typed string. Delete buyerDid.length === 0 and this input
-    // falls through to isValidOperatorDid, which rejects '' too - same
-    // status, wrong rule - so only the exact shape-guard body pins which
-    // conjunct fired.
+    // is a well-typed string. buyerDid is optional; an empty one is treated
+    // the same as absent (the route derives the party either way), so this
+    // proves an empty buyerDid does not itself trip the shape guard.
     const response = await postJob(baseUrl, {
       buyerDid: '',
       agentDid: AGENT_DID,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
     }, authHeader);
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({
-      error: 'body must be { buyerDid, agentDid, repository, brief }; all are non-empty strings',
-    });
+    expect(response.status).toBe(201);
   });
 
   it('returns 400 when agentDid is not a string (null)', async () => {
@@ -317,18 +321,17 @@ describe('app', () => {
   });
 
   it('returns 400 when agentDid is an empty string', async () => {
-    // Same isolation as the empty buyerDid: '' passes the typeof conjunct,
-    // so the shape-guard body in the response is the only proof the length
+    // Same isolation as before: '' passes the typeof conjunct, so the
+    // shape-guard body in the response is the only proof the length
     // conjunct fired rather than a later check.
     const response = await postJob(baseUrl, {
-      buyerDid: 'did:abt:buyer-jobs',
       agentDid: '',
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
     }, authHeader);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
-      error: 'body must be { buyerDid, agentDid, repository, brief }; all are non-empty strings',
+      error: 'body must be { agentDid, repository, brief, buyerDid? }; agentDid, repository, brief non-empty strings, buyerDid (if present) a string',
     });
   });
 
@@ -350,14 +353,13 @@ describe('app', () => {
     // the input would fall to the owner/name regex and be rejected there for
     // a different reason. The shape-guard body names the conjunct that fired.
     const response = await postJob(baseUrl, {
-      buyerDid: 'did:abt:buyer-jobs',
       agentDid: AGENT_DID,
       repository: '',
       brief: 'Fix the login bug',
     }, authHeader);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
-      error: 'body must be { buyerDid, agentDid, repository, brief }; all are non-empty strings',
+      error: 'body must be { agentDid, repository, brief, buyerDid? }; agentDid, repository, brief non-empty strings, buyerDid (if present) a string',
     });
   });
 
@@ -376,26 +378,24 @@ describe('app', () => {
 
   it('returns 400 when brief is an empty string', async () => {
     const response = await postJob(baseUrl, {
-      buyerDid: 'did:abt:buyer-jobs',
       agentDid: AGENT_DID,
       repository: 'buyer/target-repo',
       brief: '',
     }, authHeader);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
-      error: 'body must be { buyerDid, agentDid, repository, brief }; all are non-empty strings',
+      error: 'body must be { agentDid, repository, brief, buyerDid? }; agentDid, repository, brief non-empty strings, buyerDid (if present) a string',
     });
   });
 
   it('returns 400 when brief is whitespace-only, mapped from the domain rule', async () => {
     // This one passes every route-level check - well-typed, non-empty,
-    // valid DIDs, parseable repository, existing agent - because '   ' has a
-    // non-zero length. The 400 comes from createJob throwing JobError, the
-    // delegated rule, proving the route delegates emptiness to the domain
-    // instead of restating it: trim here and the domain rule becomes dead
-    // code that no test can catch deleting.
+    // valid agentDid, parseable repository, existing agent - because '   '
+    // has a non-zero length. The 400 comes from createJob throwing
+    // JobError, the delegated rule, proving the route delegates emptiness
+    // to the domain instead of restating it: trim here and the domain rule
+    // becomes dead code that no test can catch deleting.
     const response = await postJob(baseUrl, {
-      buyerDid: 'did:abt:buyer-jobs',
       agentDid: AGENT_DID,
       repository: 'buyer/target-repo',
       brief: '   \n\t ',
@@ -408,34 +408,29 @@ describe('app', () => {
 
   it('returns 400 when buyerDid is a DID of the wrong method', async () => {
     // did:eth:x passes the shape guard (non-empty string) so this input
-    // isolates the isValidOperatorDid conjunct.
+    // isolates the mismatch check: a body-supplied buyerDid other than the
+    // authenticated party's own DID is refused, regardless of shape.
     const response = await postJob(baseUrl, {
       buyerDid: 'did:eth:x',
       agentDid: AGENT_DID,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
     }, authHeader);
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
-      error: 'buyerDid and agentDid must look like did:abt:<suffix>, non-empty suffix, no whitespace',
+      error: 'buyerDid does not match the authenticated party',
     });
   });
 
   it('returns 400 when agentDid is a DID of the wrong method', async () => {
-    // The mirror of the buyerDid case, isolating the second conjunct of the
-    // DID guard: buyerDid is a valid did:abt here, so a 400 with the
-    // DID-guard body can only come from isValidOperatorDid(agentDid). Delete
-    // that conjunct and did:eth:x sails through to the agent lookup, coming
-    // back a 404 instead.
     const response = await postJob(baseUrl, {
-      buyerDid: 'did:abt:buyer-jobs',
       agentDid: 'did:eth:x',
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
     }, authHeader);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
-      error: 'buyerDid and agentDid must look like did:abt:<suffix>, non-empty suffix, no whitespace',
+      error: 'agentDid must look like did:abt:<suffix>, non-empty suffix, no whitespace',
     });
   });
 
@@ -476,11 +471,17 @@ describe('app', () => {
 describe('app, storage failures', () => {
   const registerError = new Error('connection refused');
 
-  class FailingRepository implements OperatorRepository {
+  class FailingRepository implements AccountRepository {
     async register(): Promise<never> {
       throw registerError;
     }
     async findByDid(): Promise<never> {
+      throw registerError;
+    }
+    async findByGithubLogin(): Promise<never> {
+      throw registerError;
+    }
+    async findByPasskeySubject(): Promise<never> {
       throw registerError;
     }
   }
@@ -519,9 +520,9 @@ describe('app, storage failures', () => {
     server.close();
   });
 
-  it('POST /operators answers 503, not 400 or 409, when storage throws a non-duplicate error', async () => {
+  it('POST /accounts answers 503, not 400 or 409, when storage throws a non-duplicate error', async () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-down', githubLogin: 'operator-api-down' }),
@@ -534,9 +535,9 @@ describe('app, storage failures', () => {
     errorLog.mockRestore();
   });
 
-  it('GET /operators/:did answers 503, not 404, when storage throws', async () => {
+  it('GET /accounts/:did answers 503, not 404, when storage throws', async () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const response = await fetch(`${baseUrl}/operators/did:abt:api-down`);
+    const response = await fetch(`${baseUrl}/accounts/did:abt:api-down`);
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: 'storage unavailable' });
     expect(errorLog).toHaveBeenCalled();
@@ -617,11 +618,20 @@ describe('app, job storage failures', () => {
       return [s, `http://127.0.0.1:${address.port}`];
     };
 
+    // R-39 completion: buyerDid is derived from the session's resolved
+    // account, so each server below needs 'did:abt:buyer-jobs' registered
+    // against the one account repository it actually uses -- the session
+    // adapter is shared, but the account repo is per-server.
+    const lookupAccountRepo = new MemoryAccountRepository();
+    await lookupAccountRepo.register({ did: 'did:abt:buyer-jobs', githubLogin: 'test-session-user' });
+    const createAccountRepo = new MemoryAccountRepository();
+    await createAccountRepo.register({ did: 'did:abt:buyer-jobs', githubLogin: 'test-session-user' });
+
     [lookupServer, lookupUrl] = await start(
       // undefined keeps the defaulted identity/github parameters; only the
       // agent repository is faulted.
       createApp(
-        new MemoryOperatorRepository(),
+        lookupAccountRepo,
         new FailingAgentLookup(),
         undefined,
         undefined,
@@ -637,7 +647,7 @@ describe('app, job storage failures', () => {
     );
     [createServer, createUrl] = await start(
       createApp(
-        new MemoryOperatorRepository(),
+        createAccountRepo,
         seededAgentRepo,
         undefined,
         undefined,
@@ -652,7 +662,7 @@ describe('app, job storage failures', () => {
       ),
     );
     [readServer, readUrl] = await start(
-      createApp(new MemoryOperatorRepository(), new MemoryAgentRepository(), undefined, undefined, new FailingJobRepository()),
+      createApp(new MemoryAccountRepository(), new MemoryAgentRepository(), undefined, undefined, new FailingJobRepository()),
     );
     const token = await mintSessionToken(sessionAdapter);
     authHeader = { authorization: `Bearer ${token}` };
@@ -744,8 +754,12 @@ describe('app, job id collision', () => {
       githubLogin: null,
     });
     const sessionAdapter = testSessionAdapter();
+    const accountRepo = new MemoryAccountRepository();
+    // R-39 completion: buyerDid is derived from the session's resolved
+    // account.
+    await accountRepo.register({ did: 'did:abt:buyer-jobs', githubLogin: 'test-session-user' });
     server = createApp(
-      new MemoryOperatorRepository(),
+      accountRepo,
       seededAgentRepo,
       undefined,
       undefined,
@@ -845,7 +859,7 @@ describe('app, default storage parameter', () => {
   });
 
   it('boots without an injected repository and serves the operator flow', async () => {
-    const created = await fetch(`${baseUrl}/operators`, {
+    const created = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:default-1', githubLogin: 'operator-default-1' }),
@@ -854,7 +868,7 @@ describe('app, default storage parameter', () => {
     const body = (await created.json()) as Record<string, unknown>;
     expect(body.did).toBe('did:abt:default-1');
 
-    const read = await fetch(`${baseUrl}/operators/did:abt:default-1`);
+    const read = await fetch(`${baseUrl}/accounts/did:abt:default-1`);
     expect(read.status).toBe(200);
     expect(await read.json()).toEqual(body);
   });
@@ -865,6 +879,18 @@ describe('app, default storage parameter', () => {
     // an unthrown 404 means findById ran against real (memory) storage.
     const missing = await fetch(`${baseUrl}/jobs/j-not-there`);
     expect(missing.status).toBe(404);
+
+    // R-39 completion: buyerDid is derived from the session's resolved
+    // account, so the account this session names must be registered
+    // through the same default-storage account repo the route reads --
+    // no handle to it exists outside the running server, so this goes
+    // through POST /accounts, exactly as a real caller would.
+    const registerBuyer = await fetch(`${baseUrl}/accounts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeader },
+      body: JSON.stringify({ did: 'did:abt:buyer-default', githubLogin: 'test-session-user' }),
+    });
+    expect(registerBuyer.status).toBe(201);
 
     // The draft path also runs end to end on default storage; it stops at
     // the agent pre-check because this server's agent repo is unreachable

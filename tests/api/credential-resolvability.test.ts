@@ -22,7 +22,7 @@ import type { DidDocument, IdentityAdapter } from '../../src/adapters/identity/t
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import type { GithubAdapter, PullRequestRef, PullRequestSummary } from '../../src/adapters/github/types.js';
-import { MemoryAgentRepository, MemoryCredentialRepository, MemoryJobRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryCredentialRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { createJob, type Job } from '../../src/domain/job.js';
 
 const ISSUER_DID = 'did:abt:test-platform-issuer';
@@ -110,7 +110,7 @@ beforeAll(async () => {
   const credentials = createCredentialsAdapter({ did: ISSUER_DID, seed: ISSUER_SEED }, credentialRepo);
 
   const app = createApp(
-    new MemoryOperatorRepository(),
+    new MemoryAccountRepository(),
     agentRepo,
     fakeIdentity(),
     mergedGithub(),

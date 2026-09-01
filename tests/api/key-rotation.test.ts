@@ -10,7 +10,7 @@ import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
-import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import type { AgentRepository, KeyRotationInput } from '../../src/adapters/storage/types.js';
 import type { Agent, Delegation } from '../../src/domain/agent.js';
 
@@ -61,7 +61,7 @@ describe('POST /agents/:agentDid/key-rotation (R-30, ENT-8.4)', () => {
       skills: ['triage'],
       githubLogin: null,
     });
-    const app = createApp(new MemoryOperatorRepository(), agentRepo);
+    const app = createApp(new MemoryAccountRepository(), agentRepo);
     server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
@@ -187,7 +187,7 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       recordKeyRotation:
         overrides.recordKeyRotation ?? ((did, input) => base.recordKeyRotation(did, input)),
     };
-    return createApp(new MemoryOperatorRepository(), repo);
+    return createApp(new MemoryAccountRepository(), repo);
   }
 
   // A storage failure is a logged operator concern, not output the test
@@ -239,7 +239,7 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       updateGithubBinding: (did, input) => base.updateGithubBinding(did, input),
       recordKeyRotation: () => Promise.reject(new Error('db down')),
     };
-    const app = createApp(new MemoryOperatorRepository(), repo);
+    const app = createApp(new MemoryAccountRepository(), repo);
     await withApp(app, async (url) => {
       const res = await postJson(url, `/agents/${AGENT_DID}/key-rotation`, {
         fromKey: `${AGENT_DID}#zA`,

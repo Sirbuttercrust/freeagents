@@ -42,7 +42,7 @@ describe('isValidOperatorDid', () => {
   });
 
   it('rejects a suffix containing whitespace', () => {
-    // It would also break the GET /operators/:did URL path, which is why the
+    // It would also break the GET /accounts/:did URL path, which is why the
     // domain refuses it rather than the route.
     expect(isValidOperatorDid('did:abt:has space')).toBe(false);
     expect(isValidOperatorDid('did:abt:tab\there')).toBe(false);

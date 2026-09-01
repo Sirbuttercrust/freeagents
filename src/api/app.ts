@@ -25,13 +25,13 @@ import {
   AgentAlreadyExistsError,
   CredentialNotFoundError,
   JobAlreadyExistsError,
-  OperatorAlreadyExistsError,
+  AccountAlreadyExistsError,
   ReviewAlreadyExistsError,
   type AgentRepository,
   type CompromiseRepository,
   type CredentialRepository,
   type JobRepository,
-  type OperatorRepository,
+  type AccountRepository,
   type ReviewRepository,
 } from '../adapters/storage/types.js';
 import {
@@ -39,7 +39,7 @@ import {
   createCompromiseRepository,
   createCredentialRepository,
   createJobRepository,
-  createOperatorRepository,
+  createAccountRepository,
   createReviewRepository,
 } from '../adapters/storage/storage.js';
 import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
@@ -65,7 +65,7 @@ import {
   type GistUrlRef,
 } from '../domain/account-proof.js';
 import { isValidOperatorDid } from '../domain/operator-did.js';
-import type { Operator } from '../domain/operator.js';
+import type { Account } from '../domain/account.js';
 import {
   acceptCriterion,
   completeJob,
@@ -103,7 +103,7 @@ import {
 } from '../domain/review.js';
 import { ACCESS_NOTICE, CAPABILITIES, type Capability } from '../domain/access.js';
 import { SIGN_IN_METHODS, type SignInMethod } from '../domain/sign-in-methods.js';
-import { type SessionAdapter } from '../adapters/identity/session.js';
+import { type SessionAdapter, type SignInMethod as SessionSignInMethod } from '../adapters/identity/session.js';
 import { sessionAdapterFromEnv } from '../adapters/identity/session-github-passkey.js';
 import { createWebSurface, type WebSurface } from '../web/static.js';
 import { renderAvatar } from './avatar.js';
@@ -115,13 +115,19 @@ function notImplemented(_req: Request, res: Response): void {
   res.status(501).json({ error: 'not implemented' });
 }
 
-// The Operator record projection is the whole response. Exactly these three
-// fields, nothing more: tests/api/operator-invariant2.test.ts asserts the
-// key set, and a fourth field here would be a contract change.
-function operatorProjection(row: Operator): Record<string, unknown> {
+// The Account record projection is the whole response. Exactly these four
+// fields, nothing more: tests/api/account-invariant2.test.ts asserts the
+// key set, and a fifth field here would be a contract change.
+// passkeySubject rides the base set unconditionally (null when the
+// account never bound one), the same "every row has the field, not every
+// row has a value" stance agentProjection takes on avatar and
+// keyRotations: an account's shape does not change with which proof it
+// used.
+function accountProjection(row: Account): Record<string, unknown> {
   return {
     did: row.did,
     githubLogin: row.githubLogin,
+    passkeySubject: row.passkeySubject,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -320,32 +326,53 @@ function signerDidOf(req: Request): string | null {
   return (req as SignedRequest).signerDid ?? null;
 }
 
-// R-39 follow-up (issue 83): the subject a live session named, set by
+// R-39 completion: the subject AND method a live session named, set by
 // requireSessionOrSignature before next(). Undefined on every route that
-// does not mount it. Not currently compared against any request body field:
-// a session's subject is a GitHub-derived id or a passkey subject, neither
-// of which is a did:abt DID, so there is nothing to bind it against yet.
-// R-24 (wallet sign-in) is what gives a session a DID subject; until then,
-// a session proves "a signed-in account exists", the same thing an
-// anonymous body-trust caller used to merely assert.
-//
-// KNOWN GAP (t_d1b82a77, F1, filed by Proof against R-39 round 2): because
-// of the above, a session holder can still POST /jobs or POST /agents
-// naming ANY buyerDid/operator in the body -- the signature path binds the
-// body-named party to the signer (signerDidOf() below), but the session
-// path has nothing to bind against. Not a regression (sessions accepted no
-// route before R-39), but it is a live unbound credential path on AUTH.
-// Fixing it needs a design decision first, not code: either a session
-// gains a resolvable operator DID (waits on R-24 or an equivalent mapping),
-// or session-authenticated writes derive the acting party from the session
-// instead of trusting the body. Escalated to Temper on t_d1b82a77 rather
-// than guessed.
+// does not mount it, and on a mounted route when no session was presented
+// at all. The method matters because resolving a session to an Account
+// joins through a DIFFERENT unique column depending on which proof
+// produced it: a github-oauth session's subject is the GitHub login
+// (Account.githubLogin), a passkey session's subject is the passkey
+// subject (Account.passkeySubject). Joining through the wrong column
+// would either miss a real account or, worse, resolve to the wrong one.
 interface SessionedRequest extends Request {
   sessionSubject?: string;
+  sessionMethod?: SessionSignInMethod;
+}
+
+// R-39 completion (issue 83's KNOWN GAP, t_d1b82a77, closed): the acting
+// party the server computed, never a caller claim. Exactly one of two
+// proofs resolves it, the same "one rule, one code path, both proofs"
+// stance the brief names:
+//   - a verified R-34 signature names the signer's own DID directly
+//     (signerDidOf) -- the signer proved possession of a registered
+//     agent or operator key, so that DID IS the acting party, with
+//     nothing left to compare it against.
+//   - a live session resolves through the account lookup the schema's
+//     unique githubLogin / passkeySubject constraint makes safe: two
+//     accounts can never claim the same login or subject, so this join
+//     can never resolve to two different accounts for one session.
+// Returns null when neither proof resolves to a party: requireSessionOrSignature
+// already refused a caller with no proof at all, so null here means "a
+// session exists but no account has claimed its identity yet" -- the
+// caller is who they say they are, they simply have not registered.
+async function resolveActingParty(req: Request, repo: AccountRepository): Promise<string | null> {
+  const signerDid = signerDidOf(req);
+  if (signerDid !== null) return signerDid;
+
+  const sessioned = req as SessionedRequest;
+  if (sessioned.sessionSubject === undefined || sessioned.sessionMethod === undefined) {
+    return null;
+  }
+  const account =
+    sessioned.sessionMethod === 'passkey'
+      ? await repo.findByPasskeySubject(sessioned.sessionSubject)
+      : await repo.findByGithubLogin(sessioned.sessionSubject);
+  return account?.did ?? null;
 }
 
 export function createApp(
-  repo: OperatorRepository = createOperatorRepository(),
+  repo: AccountRepository = createAccountRepository(),
   agentRepo: AgentRepository = createAgentRepository(),
   identity: IdentityAdapter = createIdentityAdapter(),
   github: GithubAdapter = createGithubAdapter(),
@@ -435,7 +462,7 @@ export function createApp(
   // accept, confirm) -- it never replaces a check that exists today on those
   // routes, because none does (no session, cookie or bearer token gates
   // them; only the caller-identity match inside each handler). POST /jobs,
-  // POST /operators and POST /agents no longer use this middleware: they are
+  // POST /accounts and POST /agents no longer use this middleware: they are
   // gated by requireSessionOrSignature below instead (R-39 follow-up, issue
   // 83). Unsigned traffic on the four exchange routes is untouched; a
   // request that is signed wrong is refused rather than let through,
@@ -474,7 +501,7 @@ export function createApp(
   // session OR a verified R-34 signature naming a party. Neither is a
   // fallback dressed up as the other: both are first-class, checked
   // independently, and either alone is sufficient (anchor: "A session is
-  // required exactly where an account is required"). POST /operators does
+  // required exactly where an account is required"). POST /accounts does
   // NOT use this gate: registering an operator is how an account is
   // created, not an action an account performs, so it cannot itself demand
   // one -- see D1/bootstrap-deadlock below on the route itself. A
@@ -504,6 +531,7 @@ export function createApp(
         const liveSession = await session.getSession(token);
         if (liveSession !== null) {
           (req as SessionedRequest).sessionSubject = liveSession.subject;
+          (req as SessionedRequest).sessionMethod = liveSession.method;
           next();
           return;
         }
@@ -561,10 +589,11 @@ export function createApp(
   // refused. The identityField in access.ts ('did') is still the acting
   // party's own claim, checked below the same way it always was; only the
   // session-or-signature gate in front of it is gone.
-  app.post('/operators', async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { did?: unknown; githubLogin?: unknown };
+  app.post('/accounts', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { did?: unknown; githubLogin?: unknown; passkeySubject?: unknown };
     const did = body.did;
     const githubLogin = body.githubLogin;
+    const passkeySubject = body.passkeySubject;
 
     if (typeof did !== 'string' || typeof githubLogin !== 'string' || did.length === 0 || githubLogin.length === 0) {
       res.status(400).json({
@@ -578,34 +607,49 @@ export function createApp(
       });
       return;
     }
+    // passkeySubject is optional (design item 3): an account may register
+    // with a GitHub login only and bind a passkey subject here or later.
+    // Present-but-wrong-type or present-but-empty is a 400, the same shape
+    // githubLogin's own guard takes, rather than silently dropping a value
+    // the caller explicitly sent.
+    if (passkeySubject !== undefined && (typeof passkeySubject !== 'string' || passkeySubject.length === 0)) {
+      res.status(400).json({
+        error: 'passkeySubject, if present, must be a non-empty string',
+      });
+      return;
+    }
 
     try {
-      const row = await repo.register({ did, githubLogin });
-      res.status(201).json(operatorProjection(row));
+      const row = await repo.register({
+        did,
+        githubLogin,
+        ...(passkeySubject === undefined ? {} : { passkeySubject }),
+      });
+      res.status(201).json(accountProjection(row));
     } catch (err) {
       // A duplicate DID is a 409: the operator registered it already, and
       // the message tells them what to check.
-      if (err instanceof OperatorAlreadyExistsError) {
+      if (err instanceof AccountAlreadyExistsError) {
         res.status(409).json({ error: `operator ${did} is already registered` });
         return;
       }
       // Anything else (a dead database, a disk error) is our problem, not the operator's:
       // 503 with the cause in the log, not the body, so a dead database fails closed.
-      console.error('POST /operators: storage failed', err);
+      console.error('POST /accounts: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
 
-  app.get('/operators/:did', async (req: Request, res: Response) => {
+  app.get('/accounts/:did', async (req: Request, res: Response) => {
     try {
       const row = await repo.findByDid(String(req.params.did));
       if (row === null) {
         res.status(404).json({ error: 'not found' });
         return;
       }
-      res.status(200).json(operatorProjection(row));
+      res.status(200).json(accountProjection(row));
     } catch (err) {
-      console.error('GET /operators/:did: storage failed', err);
+      console.error('GET /accounts/:did: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
@@ -624,16 +668,16 @@ export function createApp(
   // rule for the same two query parameters (Proof, run 76, defect
   // inert-control-affordance: the controls must drive this route, the
   // exact mechanism browse's controls already drive).
-  app.get('/operators/:did/agents', async (req: Request, res: Response) => {
+  app.get('/accounts/:did/agents', async (req: Request, res: Response) => {
     const operatorDid = String(req.params.did);
     const sort = resolveBrowseSort(req.query.sort);
     const skillFilter = typeof req.query.skill === 'string' ? req.query.skill : null;
 
-    let operatorRow: Operator | null;
+    let operatorRow: Account | null;
     try {
       operatorRow = await repo.findByDid(operatorDid);
     } catch (err) {
-      console.error('GET /operators/:did/agents: storage failed', err);
+      console.error('GET /accounts/:did/agents: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
       return;
     }
@@ -643,7 +687,7 @@ export function createApp(
     }
 
     if (typeof agentRepo.listAll !== 'function') {
-      console.error('GET /operators/:did/agents: storage does not support listAll');
+      console.error('GET /accounts/:did/agents: storage does not support listAll');
       res.status(503).json({ error: 'storage unavailable' });
       return;
     }
@@ -683,50 +727,66 @@ export function createApp(
         aggregate,
       });
     } catch (err) {
-      console.error('GET /operators/:did/agents: storage failed', err);
+      console.error('GET /accounts/:did/agents: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
 
+  // R-39 completion (t_d1b82a77, F1, closed): `operator` is DERIVED from
+  // the proof the caller presented, never trusted from the body -- the
+  // same pattern POST /jobs applies to buyerDid. A body-supplied operator
+  // is optional and, when present, is checked against the derived party
+  // and refused on mismatch; it is never itself the value the delegation
+  // binds to, so naming a different account in the body can only be
+  // refused, never honoured.
   app.post('/agents', requireSessionOrSignature, async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const did = body.did;
-    const operator = body.operator;
+    const claimedOperator = body.operator;
     const name = body.name;
     const skills = body.skills;
     const githubLogin = body.githubLogin;
 
     if (
       typeof did !== 'string' || did.length === 0 ||
-      typeof operator !== 'string' || operator.length === 0 ||
+      (claimedOperator !== undefined && typeof claimedOperator !== 'string') ||
       typeof name !== 'string' || name.length === 0 ||
       !Array.isArray(skills) || skills.length === 0 ||
       skills.some((s) => typeof s !== 'string' || s.length === 0) ||
       (githubLogin !== undefined && (typeof githubLogin !== 'string' || githubLogin.length === 0))
     ) {
       res.status(400).json({
-        error: 'body must be { did, operator, delegation, name, skills, githubLogin? }; did, operator, name non-empty strings, skills non-empty list of strings',
+        error: 'body must be { did, delegation, name, skills, operator?, githubLogin? }; did, name non-empty strings, skills non-empty list of strings, operator (if present) a string',
       });
       return;
     }
     // The registry speaks full DIDs (did:abt:...) in both fields; the
     // credential may carry either form, and that is reconciled below.
-    if (!isValidOperatorDid(did) || !isValidOperatorDid(operator)) {
+    if (!isValidOperatorDid(did)) {
       res.status(400).json({
-        error: 'did and operator must look like did:abt:<suffix>, non-empty suffix, no whitespace',
+        error: 'did must look like did:abt:<suffix>, non-empty suffix, no whitespace',
       });
       return;
     }
-    // R-34/D2 (t_8b63ee9e, credential-not-bound-to-party): the same rule
-    // access.ts declares for agent.list (identityField: 'operator'),
-    // cryptographically enforced when a signature is present -- the same
-    // pattern POST /jobs already applies to buyerDid. Unsigned callers
-    // (bare session, no signature) are unaffected; only a signer who names
-    // an operator different from themselves is refused, before the body
-    // is trusted to name anyone at all.
-    const signerDid = signerDidOf(req);
-    if (signerDid !== null && signerDid !== operator) {
-      res.status(403).json({ error: 'signature does not match operator' });
+    // R-39 completion: the acting party, derived server-side from whichever
+    // proof requireSessionOrSignature accepted. One code path, both proofs
+    // (the same call resolveActingParty makes for POST /jobs).
+    let operator: string | null;
+    try {
+      operator = await resolveActingParty(req, repo);
+    } catch (err) {
+      console.error('POST /agents: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (operator === null) {
+      res.status(403).json({
+        error: 'no registered account resolves from your session or signature; register an account before listing an agent',
+      });
+      return;
+    }
+    if (typeof claimedOperator === 'string' && claimedOperator.length > 0 && claimedOperator !== operator) {
+      res.status(403).json({ error: 'operator does not match the authenticated party' });
       return;
     }
     const proof = delegationShape(body.delegation);
@@ -737,7 +797,7 @@ export function createApp(
       return;
     }
 
-    let operatorRow: Operator | null;
+    let operatorRow: Account | null;
     try {
       operatorRow = await repo.findByDid(operator);
     } catch (err) {
@@ -1399,27 +1459,38 @@ export function createApp(
   // the check lives here to keep both drivers answering identically).
   // Everything about the brief itself, including its emptiness and the hash,
   // is delegated to createJob rather than restated.
+  //
+  // R-39 completion (t_d1b82a77, F1, closed): buyerDid is DERIVED from the
+  // proof the caller presented, never trusted from the body. requireSessionOrSignature
+  // already guarantees a session or a verified signature exists; here that
+  // proof is resolved to an actual account DID (resolveActingParty), and a
+  // proof that resolves to nobody (a live session with no matching
+  // registered account) is refused, the same way an absent proof would be.
+  // A body-supplied buyerDid is optional and, when present, is checked
+  // against the derived party and refused on mismatch -- it is NEVER
+  // itself the value written to the job, so smuggling a different DID into
+  // the body can only be refused, never honoured.
   app.post('/jobs', requireSessionOrSignature, async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
-    const buyerDid = body.buyerDid;
+    const claimedBuyerDid = body.buyerDid;
     const agentDid = body.agentDid;
     const repository = body.repository;
     const brief = body.brief;
 
     if (
-      typeof buyerDid !== 'string' || buyerDid.length === 0 ||
+      (claimedBuyerDid !== undefined && typeof claimedBuyerDid !== 'string') ||
       typeof agentDid !== 'string' || agentDid.length === 0 ||
       typeof repository !== 'string' || repository.length === 0 ||
       typeof brief !== 'string' || brief.length === 0
     ) {
       res.status(400).json({
-        error: 'body must be { buyerDid, agentDid, repository, brief }; all are non-empty strings',
+        error: 'body must be { agentDid, repository, brief, buyerDid? }; agentDid, repository, brief non-empty strings, buyerDid (if present) a string',
       });
       return;
     }
-    if (!isValidOperatorDid(buyerDid) || !isValidOperatorDid(agentDid)) {
+    if (!isValidOperatorDid(agentDid)) {
       res.status(400).json({
-        error: 'buyerDid and agentDid must look like did:abt:<suffix>, non-empty suffix, no whitespace',
+        error: 'agentDid must look like did:abt:<suffix>, non-empty suffix, no whitespace',
       });
       return;
     }
@@ -1432,12 +1503,25 @@ export function createApp(
       });
       return;
     }
-    // R-34: the same rule access.ts already declares for job.hire
-    // (identityField: 'buyerDid'), cryptographically enforced when a
-    // signature is present. Unsigned callers are unaffected.
-    const signerDid = signerDidOf(req);
-    if (signerDid !== null && signerDid !== buyerDid) {
-      res.status(403).json({ error: 'signature does not match buyerDid' });
+
+    // R-39 completion: the acting party, derived server-side from whichever
+    // proof requireSessionOrSignature accepted. One code path, both proofs.
+    let buyerDid: string | null;
+    try {
+      buyerDid = await resolveActingParty(req, repo);
+    } catch (err) {
+      console.error('POST /jobs: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (buyerDid === null) {
+      res.status(403).json({
+        error: 'no registered account resolves from your session or signature; register an account before hiring',
+      });
+      return;
+    }
+    if (typeof claimedBuyerDid === 'string' && claimedBuyerDid.length > 0 && claimedBuyerDid !== buyerDid) {
+      res.status(403).json({ error: 'buyerDid does not match the authenticated party' });
       return;
     }
 

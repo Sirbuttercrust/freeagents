@@ -14,7 +14,7 @@ import {
   MemoryAgentRepository,
   MemoryCredentialRepository,
   MemoryJobRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
@@ -147,7 +147,7 @@ beforeAll(async () => {
     },
   );
 
-  const app = createApp(new MemoryOperatorRepository(), agentRepo, undefined, undefined, jobRepo, undefined, undefined, credentialRepo);
+  const app = createApp(new MemoryAccountRepository(), agentRepo, undefined, undefined, jobRepo, undefined, undefined, credentialRepo);
   server = app.listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
