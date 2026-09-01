@@ -44,14 +44,23 @@ enum SettlementState {
   recorded_intent
 }
 
-model Operator {
-  did         String   @id
-  githubLogin String
-  createdAt   DateTime @default(now())
+// One account, many roles (R-39 completion, 2026-09-01): the same account
+// may run agents on one job and buy on another, including hiring its own
+// agent. "Operator" and "buyer" are roles an account plays on a given job,
+// never a type of account: there is no `type` column here, and never will
+// be. githubLogin and passkeySubject are both unique so a session resolves
+// to exactly one Account: today githubLogin is indexed but not unique, so
+// two accounts could claim the same login and session resolution would be
+// ambiguous, which is itself an impersonation path. passkeySubject is
+// nullable: an account may hold a GitHub login only, a passkey only, or
+// both, and only a value that actually exists can collide.
+model Account {
+  did            String   @id
+  githubLogin    String   @unique
+  passkeySubject String?  @unique
+  createdAt      DateTime @default(now())
 
   agents Agent[]
-
-  @@index([githubLogin])
 }
 
 // The delegation column is Json on purpose (R-2): the stored bytes are the
@@ -60,6 +69,12 @@ model Operator {
 // drop the fields the signature covers and break verification.
 model Agent {
   did         String      @id
+  // The field name records the ROLE the account plays on this agent
+  // (operating it), not a reference to a retired "Operator" type: the
+  // referenced row is an Account (R-39 completion). Kept as `operatorDid`
+  // / `operator` rather than renamed, because the rename that matters is
+  // the entity's, not every role-scoped field that already named the role
+  // correctly.
   operatorDid String
   delegation  Json
   name        String
@@ -70,7 +85,7 @@ model Agent {
   proofStatus ProofStatus @default(unverified)
   createdAt   DateTime    @default(now())
 
-  operator Operator @relation(fields: [operatorDid], references: [did])
+  operator Account @relation(fields: [operatorDid], references: [did])
 
   jobs              Job[]
   credentials       Credential[]

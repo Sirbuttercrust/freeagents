@@ -8,7 +8,7 @@
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/api/app.js';
-import { MemoryAgentRepository, MemoryJobRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
@@ -88,7 +88,7 @@ describe('DID-signed hire-loop routes (R-34)', () => {
     stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(22));
     unregistered = await signingIdentityFromSeed(new Uint8Array(32).fill(33));
 
-    const operatorRepo = new MemoryOperatorRepository();
+    const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-signed-routes' });
 
     const agentRepo = new MemoryAgentRepository();

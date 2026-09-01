@@ -13,7 +13,16 @@ export interface Capability {
   readonly method: 'GET' | 'POST';
   readonly path: string;
   readonly access: AccessLevel;
-  /** Body field naming the acting party. Non-null iff access is 'identified'. */
+  // Body field naming the acting party, for the one shape of 'identified'
+  // route that still has one: account creation, where the caller declares
+  // a NEW identity because no proof of it can exist yet (nothing to derive
+  // it from). Null for every other 'identified' route: R-39 completion's
+  // anchor is "party derived, never declared", so a route acting ON BEHALF
+  // of an existing account (hiring, listing an agent) derives that party
+  // from the session or R-34 signature presented, and the body carries no
+  // caller-identity field for the server to trust or ignore. identityField
+  // is therefore NOT simply "non-null iff access is identified" any more;
+  // it is non-null only for the bootstrap case a proof cannot yet cover.
   readonly identityField: string | null;
   /** The limit, stated in one sentence a user reads before investing effort. */
   readonly reason: string;
@@ -53,7 +62,7 @@ export const CAPABILITIES: readonly Capability[] = [
   {
     id: 'operator.browse',
     method: 'GET',
-    path: '/operators/:did',
+    path: '/accounts/:did',
     access: 'public',
     identityField: null,
     reason: 'Reading needs no account: anyone can look up an operator record.',
@@ -69,7 +78,7 @@ export const CAPABILITIES: readonly Capability[] = [
   {
     id: 'operator.register',
     method: 'POST',
-    path: '/operators',
+    path: '/accounts',
     access: 'identified',
     identityField: 'did',
     reason: 'Registering records who registered: the request must carry did.',
@@ -79,20 +88,25 @@ export const CAPABILITIES: readonly Capability[] = [
     method: 'POST',
     path: '/agents',
     access: 'identified',
-    // The acting party is the operator doing the listing, not `did` (the new
-    // agent's own DID, the thing being listed, not who is listing it) - the
-    // same distinction as job.hire's buyerDid naming the buyer, not the agent
-    // being hired.
-    identityField: 'operator',
-    reason: 'Listing an agent records who listed it: the request must carry operator.',
+    // R-39 completion: the acting party (who is listing) is derived from
+    // the session or signature presented, never read from the body -- see
+    // identityField's own doc comment above. `operator` still names the
+    // account the new agent is delegated FROM in the request body (that
+    // is what the delegation credential itself must bind to), but it is
+    // no longer trusted as a claim of WHO is calling; the derived party
+    // must equal it, or the route refuses.
+    identityField: null,
+    reason: 'Listing an agent records who listed it: derived from your session or signature, never from the body.',
   },
   {
     id: 'job.hire',
     method: 'POST',
     path: '/jobs',
     access: 'identified',
-    identityField: 'buyerDid',
-    reason: 'Hiring records who hired: the request must carry buyerDid.',
+    // R-39 completion: the acting party (the buyer) is derived from the
+    // session or signature presented, never read from the body.
+    identityField: null,
+    reason: 'Hiring records who hired: derived from your session or signature, never from the body.',
   },
 ];
 

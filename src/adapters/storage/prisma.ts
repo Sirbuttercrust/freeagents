@@ -1,11 +1,11 @@
-// Prisma-backed OperatorRepository over the generated client. This is the
+// Prisma-backed AccountRepository over the generated client. This is the
 // only file in the repository that knows Postgres exists.
 import { Prisma, PrismaClient } from '../../generated/prisma/index.js';
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
 import type { VerifiableCredential } from '../credentials/types.js';
 import type { CompletedJob, Criterion, Job, JobStatus } from '../../domain/job.js';
-import type { Operator } from '../../domain/operator.js';
+import type { Account } from '../../domain/account.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
 import type { Review } from '../../domain/review.js';
 import {
@@ -19,8 +19,8 @@ import {
   JobAlreadyExistsError,
   type JobRepository,
   type KeyRotationInput,
-  OperatorAlreadyExistsError,
-  type OperatorRepository,
+  AccountAlreadyExistsError,
+  type AccountRepository,
   ReviewAlreadyExistsError,
   type ReviewRepository,
   type StoredCredential,
@@ -78,29 +78,58 @@ async function agentWithRotations(did: string): Promise<Agent | null> {
   );
 }
 
-export class PrismaOperatorRepository implements OperatorRepository {
+export class PrismaAccountRepository implements AccountRepository {
   async register(input: {
     readonly did: string;
     readonly githubLogin: string;
-  }): Promise<Operator> {
+    readonly passkeySubject?: string | null;
+  }): Promise<Account> {
     try {
-      const row = await db().operator.create({ data: { ...input } });
-      return { did: row.did, githubLogin: row.githubLogin, createdAt: row.createdAt };
+      const row = await db().account.create({
+        data: {
+          did: input.did,
+          githubLogin: input.githubLogin,
+          passkeySubject: input.passkeySubject ?? null,
+        },
+      });
+      return {
+        did: row.did,
+        githubLogin: row.githubLogin,
+        passkeySubject: row.passkeySubject,
+        createdAt: row.createdAt,
+      };
     } catch (err) {
-      // P2002 is Prisma's "unique constraint failed" error code: the only
-      // unique constraint reachable here is the DID primary key, so a P2002
-      // from create() means the DID is already registered, and the API
-      // layer maps the domain error to 409.
+      // P2002 is Prisma's "unique constraint failed" error code: it fires
+      // on the DID primary key, the unique githubLogin, or the unique
+      // passkeySubject alike. All three collisions mean the same thing to
+      // a caller (this identity already claims an account), so all three
+      // map to the same domain error rather than three different ones.
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        throw new OperatorAlreadyExistsError(input.did);
+        throw new AccountAlreadyExistsError(input.did);
       }
       throw err;
     }
   }
 
-  async findByDid(did: string): Promise<Operator | null> {
-    const row = await db().operator.findUnique({ where: { did } });
-    return row === null ? null : { did: row.did, githubLogin: row.githubLogin, createdAt: row.createdAt };
+  async findByDid(did: string): Promise<Account | null> {
+    const row = await db().account.findUnique({ where: { did } });
+    return row === null
+      ? null
+      : { did: row.did, githubLogin: row.githubLogin, passkeySubject: row.passkeySubject, createdAt: row.createdAt };
+  }
+
+  async findByGithubLogin(githubLogin: string): Promise<Account | null> {
+    const row = await db().account.findUnique({ where: { githubLogin } });
+    return row === null
+      ? null
+      : { did: row.did, githubLogin: row.githubLogin, passkeySubject: row.passkeySubject, createdAt: row.createdAt };
+  }
+
+  async findByPasskeySubject(passkeySubject: string): Promise<Account | null> {
+    const row = await db().account.findUnique({ where: { passkeySubject } });
+    return row === null
+      ? null
+      : { did: row.did, githubLogin: row.githubLogin, passkeySubject: row.passkeySubject, createdAt: row.createdAt };
   }
 }
 

@@ -22,7 +22,7 @@ import {
   MemoryAgentRepository,
   MemoryCompromiseRepository,
   MemoryCredentialRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import type { AgentRepository, CompromiseRepository } from '../../src/adapters/storage/types.js';
 import type { Agent, Delegation } from '../../src/domain/agent.js';
@@ -98,7 +98,7 @@ describe('POST /agents/:agentDid/compromise-report (R-16, ENT-8.4)', () => {
       githubLogin: null,
     });
     const app = createApp(
-      new MemoryOperatorRepository(),
+      new MemoryAccountRepository(),
       agentRepo,
       undefined,
       undefined,
@@ -193,7 +193,7 @@ describe('POST /agents/:agentDid/compromise-report and GET .../compromise-report
       recordKeyRotation: (did, input) => baseAgents.recordKeyRotation(did, input),
     };
     return createApp(
-      new MemoryOperatorRepository(),
+      new MemoryAccountRepository(),
       agentRepo,
       undefined,
       undefined,
@@ -312,7 +312,7 @@ describe('GET /v1/credentials/:credentialId/status (R-16)', () => {
 
   beforeAll(async () => {
     const app = createApp(
-      new MemoryOperatorRepository(),
+      new MemoryAccountRepository(),
       agentRepo,
       undefined,
       undefined,
@@ -516,7 +516,7 @@ describe('invariant 2: a third party still verifies, unaided (R-16)', () => {
 
   beforeAll(async () => {
     const app = createApp(
-      new MemoryOperatorRepository(),
+      new MemoryAccountRepository(),
       agentRepo,
       undefined,
       undefined,

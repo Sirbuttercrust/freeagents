@@ -8,12 +8,12 @@
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
-import { MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 // The exact field set the service is allowed to keep, from the Operator domain
 // record: no field beyond this set, so one copy verifies against the other.
-const ALLOWED_FIELDS = new Set(['did', 'githubLogin', 'createdAt']);
+const ALLOWED_FIELDS = new Set(['did', 'githubLogin', 'passkeySubject', 'createdAt']);
 
 // Names that would mean key material leaked into storage or the wire.
 // Matched by substring, so publicKeyMultibase / privateKeyMultibase and the
@@ -37,7 +37,7 @@ function findKeyMaterialFields(obj: unknown, path = ''): string[] {
 describe('operator registration, invariant 2', () => {
   let server: Server;
   let baseUrl: string;
-  const repo = new MemoryOperatorRepository();
+  const repo = new MemoryAccountRepository();
   let authHeader: Record<string, string>;
   beforeAll(async () => {
     const sessionAdapter = testSessionAdapter();
@@ -75,7 +75,7 @@ describe('operator registration, invariant 2', () => {
     // field and the stored row has no fields beyond the response.
     const did = 'did:abt:op-inv2';
     const login = 'operator-inv2';
-    const created = await fetch(`${baseUrl}/operators`, {
+    const created = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did, githubLogin: login }),
@@ -83,7 +83,7 @@ describe('operator registration, invariant 2', () => {
     expect(created.status).toBe(201);
     const createdBody = (await created.json()) as Record<string, unknown>;
 
-    const readBack = await fetch(`${baseUrl}/operators/${did}`);
+    const readBack = await fetch(`${baseUrl}/accounts/${did}`);
     expect(readBack.status).toBe(200);
     const readBackBody = (await readBack.json()) as Record<string, unknown>;
 
@@ -92,6 +92,7 @@ describe('operator registration, invariant 2', () => {
     expect(readBackBody).toEqual({
       did: stored?.did,
       githubLogin: stored?.githubLogin,
+      passkeySubject: stored?.passkeySubject ?? null,
       createdAt: stored?.createdAt.toISOString(),
     });
     expect(createdBody).toEqual(readBackBody);
@@ -99,7 +100,7 @@ describe('operator registration, invariant 2', () => {
 
   it('stores exactly { did, githubLogin, createdAt } and no key material', async () => {
     const did = 'did:abt:op-fields';
-    await fetch(`${baseUrl}/operators`, {
+    await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did, githubLogin: 'operator-fields' }),
@@ -118,7 +119,7 @@ describe('operator registration, invariant 2', () => {
     // we do not store it: we never hold the key (ENT-1.1), and a field
     // that arrives here would end up in the wire response by construction.
     const did = 'did:abt:op-keydrop';
-    const res = await fetch(`${baseUrl}/operators`, {
+    const res = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({

@@ -1,8 +1,8 @@
 /* P-4 operator profile: read the record and render it.
 
-   The identity strip fetches GET /operators/:did (did, githubLogin,
+   The identity strip fetches GET /accounts/:did (did, githubLogin,
    createdAt), pinned by tests/api/operator-invariant2.test.ts. The roster
-   below it fetches GET /operators/:did/agents (R-19, D4): every agent
+   below it fetches GET /accounts/:did/agents (R-19, D4): every agent
    delegated from this operator, as browse-shaped rows, plus a per-tier
    aggregate.
 
@@ -16,9 +16,9 @@
 
    SORT AND FILTER ARE QUERY PARAMETERS, browse.js's own mechanism (Proof,
    run 76, defect inert-control-affordance): operating either control reads
-   its value and navigates to /operators/<did>?sort=...&skill=..., the same
+   its value and navigates to /accounts/<did>?sort=...&skill=..., the same
    round-trip-through-the-URL browse.js uses for #sort and #skill, so the
-   roster stays bookmarkable and the server (GET /operators/:did/agents) is
+   roster stays bookmarkable and the server (GET /accounts/:did/agents) is
    the one place that decides what a sort or filter value means. There is
    no second, client-only sort or filter rule for these eleven-plus rows. */
 
@@ -39,7 +39,7 @@
       return;
     }
 
-    A.get("/operators/" + encodeURIComponent(did)).then(function (result) {
+    A.get("/accounts/" + encodeURIComponent(did)).then(function (result) {
       if (result.state === "absent") {
         failLoad("No operator is registered under that identity.");
         return;
@@ -113,7 +113,7 @@
     var skill = params.get("skill") || "";
     wireControls(did, sort, skill);
 
-    var query = "/operators/" + encodeURIComponent(did) + "/agents";
+    var query = "/accounts/" + encodeURIComponent(did) + "/agents";
     var qp = new URLSearchParams();
     if (sort) qp.set("sort", sort);
     if (skill) qp.set("skill", skill);
@@ -131,7 +131,7 @@
 
   /* Wires the sort select and skill filter the same way browse.js wires
      #sort and #skill: reading the control's current value, navigating to
-     /operators/<did>?sort=...&skill=..., and letting the next page load
+     /accounts/<did>?sort=...&skill=..., and letting the next page load
      read the query string back out (currentParams, above). Operating a
      control never rewrites the DOM in place; it round-trips through the
      URL, the one mechanism this platform uses for a bookmarkable listing. */
@@ -161,7 +161,7 @@
     if (sort) qp.set("sort", sort);
     if (skill && skill.trim() !== "") qp.set("skill", skill.trim());
     var qs = qp.toString();
-    window.location.href = "/operators/" + encodeURIComponent(did) + (qs ? "?" + qs : "");
+    window.location.href = "/accounts/" + encodeURIComponent(did) + (qs ? "?" + qs : "");
   }
 
   function renderRosterFailure() {

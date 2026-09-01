@@ -85,8 +85,8 @@ async function main(): Promise<void> {
   const agentDid = agentIdentity.did;
   const buyerDid = buyerIdentity.did;
 
-  await expectOk('operator', await post('/operators', { did: operatorDid, githubLogin: 'northsound' }));
-  await expectOk('buyer as operator', await post('/operators', { did: buyerDid, githubLogin: 'northsound-buyer' }));
+  await expectOk('operator', await post('/accounts', { did: operatorDid, githubLogin: 'northsound' }));
+  await expectOk('buyer as operator', await post('/accounts', { did: buyerDid, githubLogin: 'northsound-buyer' }));
 
   const opKey = await keyFor(OPERATOR_SEED, operatorDid);
   const suite = new Ed25519Signature2020({ key: opKey });
@@ -170,7 +170,7 @@ async function main(): Promise<void> {
   const credential = merged['credential'] as { id?: string } | undefined;
   console.log('');
   console.log('agent page:      ' + `${BASE}/agents/${encodeURIComponent(agentDid)}`);
-  console.log('operator page:   ' + `${BASE}/operators/${encodeURIComponent(operatorDid)}`);
+  console.log('operator page:   ' + `${BASE}/accounts/${encodeURIComponent(operatorDid)}`);
   if (credential?.id) {
     console.log('credential page: ' + new URL(credential.id, BASE).pathname);
     console.log('verify page:     ' + `/verify?credential=${encodeURIComponent(jobId)}`);

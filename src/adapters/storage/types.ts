@@ -5,23 +5,42 @@
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
-import type { Operator } from '../../domain/operator.js';
+import type { Account } from '../../domain/account.js';
 import type { Review } from '../../domain/review.js';
 import type { VerifiableCredential } from '../credentials/types.js';
 
 // Thrown by register when the DID already exists, so the API layer can map
 // it to 409 without inspecting error messages.
-export class OperatorAlreadyExistsError extends Error {
+export class AccountAlreadyExistsError extends Error {
   constructor(did: string) {
-    super(`operator ${did} already exists`);
-    this.name = 'OperatorAlreadyExistsError';
+    super(`account ${did} already exists`);
+    this.name = 'AccountAlreadyExistsError';
   }
 }
 
-export interface OperatorRepository {
-  // Throws OperatorAlreadyExistsError when the DID is already registered.
-  register(input: { readonly did: string; readonly githubLogin: string }): Promise<Operator>;
-  findByDid(did: string): Promise<Operator | null>;
+export interface AccountRepository {
+  // Throws AccountAlreadyExistsError when the DID is already registered.
+  // passkeySubject is optional: an account may register with a GitHub
+  // login only, and bind a passkey subject later. The schema's unique
+  // constraint on passkeySubject (prisma/schema.prisma) means a second
+  // register naming an already-bound subject throws the same error a
+  // duplicate DID would; the caller-facing distinction is not this
+  // repository's job (see AccountAlreadyExistsError's single shape).
+  register(input: {
+    readonly did: string;
+    readonly githubLogin: string;
+    readonly passkeySubject?: string | null;
+  }): Promise<Account>;
+  findByDid(did: string): Promise<Account | null>;
+  // R-39 completion: session resolution. A GitHub OAuth session names the
+  // GitHub login the OAuth exchange proved; this is the ONLY lookup that
+  // may resolve a session to an account, because githubLogin is the
+  // unique key the schema enforces. Null when no account claims that
+  // login, exactly like findByDid on an unknown DID.
+  findByGithubLogin(githubLogin: string): Promise<Account | null>;
+  // R-39 completion: the passkey sibling of findByGithubLogin. Null when
+  // no account claims that passkey subject.
+  findByPasskeySubject(passkeySubject: string): Promise<Account | null>;
 }
 
 // Thrown by AgentRepository.create when the agent DID is already delegated,

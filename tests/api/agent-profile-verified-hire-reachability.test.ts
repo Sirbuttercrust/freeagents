@@ -25,7 +25,7 @@ import {
   MemoryAgentRepository,
   MemoryCredentialRepository,
   MemoryJobRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
@@ -84,7 +84,7 @@ async function startWith(
     skills: ['triage'],
     githubLogin: null,
   });
-  const operatorRepo = new MemoryOperatorRepository();
+  const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyerDid, githubLogin: 'buyer-reachability' });
   const credentialRepo = new MemoryCredentialRepository();
   const credentials = createCredentialsAdapter({ did: ISSUER_DID, seed: ISSUER_SEED }, credentialRepo);
@@ -146,14 +146,12 @@ async function walkToMerge(
   baseUrl: string,
   agent: SigningIdentity,
   buyer: SigningIdentity,
-  authHeader: Record<string, string>,
 ): Promise<Record<string, unknown>> {
-  const draft = await post(baseUrl, '/jobs', {
-    buyerDid: buyer.did,
+  const draft = await postSigned(baseUrl, '/jobs', {
     agentDid: agent.did,
     repository: 'buyer/target-repo',
     brief: 'Fix the checkout timeout',
-  }, authHeader);
+  }, buyer);
   expect(draft.status).toBe(201);
   const jobId = String(((await draft.json()) as Record<string, unknown>).id);
 
@@ -186,9 +184,9 @@ describe('GET /agents/:agentDid, verified-hire reachability from a REAL merge (R
   it('a platform-brokered merge into a PUBLIC repository reaches verifiedHires, driven through the real merge route', async () => {
     const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(101));
     const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(102));
-    const { server, baseUrl, authHeader } = await startWith(scriptedGithub(true), agent.did, buyer.did);
+    const { server, baseUrl } = await startWith(scriptedGithub(true), agent.did, buyer.did);
     try {
-      const mergeBody = await walkToMerge(baseUrl, agent, buyer, authHeader);
+      const mergeBody = await walkToMerge(baseUrl, agent, buyer);
       const credential = mergeBody.credential as Record<string, unknown>;
 
       const profile = await fetch(`${baseUrl}/agents/${agent.did}`);
@@ -214,9 +212,9 @@ describe('GET /agents/:agentDid, verified-hire reachability from a REAL merge (R
   it('a platform-brokered merge into a PRIVATE repository does not reach verifiedHires, driven through the real merge route', async () => {
     const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(103));
     const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(104));
-    const { server, baseUrl, authHeader } = await startWith(scriptedGithub(false), agent.did, buyer.did);
+    const { server, baseUrl } = await startWith(scriptedGithub(false), agent.did, buyer.did);
     try {
-      await walkToMerge(baseUrl, agent, buyer, authHeader);
+      await walkToMerge(baseUrl, agent, buyer);
 
       const profile = await fetch(`${baseUrl}/agents/${agent.did}`);
       expect(profile.status).toBe(200);

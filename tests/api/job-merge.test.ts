@@ -27,7 +27,7 @@ import {
   MemoryAgentRepository,
   MemoryCredentialRepository,
   MemoryJobRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import type { CredentialRepository, JobRepository } from '../../src/adapters/storage/types.js';
 import { createJob, type CompletedJob, type Job, type JobStatus } from '../../src/domain/job.js';
@@ -230,7 +230,7 @@ async function startWith(
   const credentialRepo = extras.credentialRepo ?? new MemoryCredentialRepository();
   const credentials =
     extras.credentials ?? createCredentialsAdapter({ did: ISSUER_DID, seed: ISSUER_SEED }, credentialRepo);
-  const operatorRepo = new MemoryOperatorRepository();
+  const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: BUYER_DID, githubLogin: 'buyer-merge-scripted' });
   const sessionAdapter = testSessionAdapter();
   const s = createApp(
@@ -258,13 +258,12 @@ async function startWith(
 async function openDraft(
   brief: string,
   base: string = baseUrl,
-  header: Record<string, string> = authHeader,
 ): Promise<string> {
-  const created = await post(
+  const created = await postSigned(
     '/jobs',
-    { buyerDid: BUYER_DID, agentDid: AGENT_DID, repository: 'buyer/target-repo', brief },
+    { agentDid: AGENT_DID, repository: 'buyer/target-repo', brief },
+    buyerIdentity,
     base,
-    header,
   );
   expect(created.status).toBe(201);
   const body = (await created.json()) as Record<string, unknown>;
@@ -640,7 +639,7 @@ describe("createApp's credentials default, no credentials adapter given (R-36)",
       githubLogin: null,
     });
     const credentialRepo = new MemoryCredentialRepository();
-    const operatorRepo = new MemoryOperatorRepository();
+    const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: BUYER_DID, githubLogin: 'buyer-merge-default' });
     const sessionAdapter = testSessionAdapter();
     const s = createApp(
@@ -663,9 +662,8 @@ describe("createApp's credentials default, no credentials adapter given (R-36)",
       throw new Error('expected server to listen on a port');
     }
     const base = `http://127.0.0.1:${address.port}`;
-    const inlineAuthHeader = { authorization: `Bearer ${await mintSessionToken(sessionAdapter)}` };
     try {
-      const jobId = await openDraft('Fix the login bug on the checkout page', base, inlineAuthHeader);
+      const jobId = await openDraft('Fix the login bug on the checkout page', base);
       await walkToSubmitted(jobId, base);
       const merge = await post(`/jobs/${jobId}/merge`, {}, base);
       expect(merge.status).toBe(200);
@@ -686,7 +684,7 @@ describe('job merge, faulted legs (R-11)', () => {
     const faults = emptyRecordings();
     const scripted = await startWith(new MemoryJobRepository(), openGithub(faults));
     try {
-      const jobId = await openDraft('A PR still under review', scripted.baseUrl, scripted.authHeader);
+      const jobId = await openDraft('A PR still under review', scripted.baseUrl);
       const submittedBody = await walkToSubmitted(jobId, scripted.baseUrl);
       expect(submittedBody.status).toBe('submitted');
 
@@ -712,7 +710,7 @@ describe('job merge, faulted legs (R-11)', () => {
     const faults = emptyRecordings();
     const scripted = await startWith(new MemoryJobRepository(), closedGithub(faults));
     try {
-      const jobId = await openDraft('A PR that was closed unmerged', scripted.baseUrl, scripted.authHeader);
+      const jobId = await openDraft('A PR that was closed unmerged', scripted.baseUrl);
       await walkToSubmitted(jobId, scripted.baseUrl);
 
       const merge = await post(`/jobs/${jobId}/merge`, {}, scripted.baseUrl);
@@ -746,7 +744,7 @@ describe('job merge, faulted legs (R-11)', () => {
     const scripted = await startWith(new MemoryJobRepository(), rejectingGithub(faults));
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const jobId = await openDraft('A PR github cannot be reached for', scripted.baseUrl, scripted.authHeader);
+      const jobId = await openDraft('A PR github cannot be reached for', scripted.baseUrl);
       await walkToSubmitted(jobId, scripted.baseUrl);
 
       const merge = await post(`/jobs/${jobId}/merge`, {}, scripted.baseUrl);

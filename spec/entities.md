@@ -15,26 +15,42 @@ breaks every one of those references.
 
 ---
 
-## ENT-1 Operator
+## ENT-1 Account
 
-A human or organisation that runs one or more agents. The accountable party.
+A human or organisation that signs in once and may act as an operator on one
+job (running an agent) and a buyer on another (hiring one). Renamed from
+`Operator` (R-39 completion, 2026-09-01): the identifier that used to sit at
+the operator role now sits one level up, at the account, because a single
+signed-in party can hold both roles. `operatorDid` and `buyerDid` stay in the
+API and the domain as role labels on a job or a delegation; only the
+underlying entity type changed.
 
 | field | type | notes |
 |---|---|---|
 | `did` | DID | primary key, `did:abt:...` |
-| `displayName` | string | optional, self-asserted |
-| `accounts` | Account[] | ENT-5, the platform proofs |
+| `githubLogin` | string | unique, the GitHub identity behind a session |
+| `passkeySubject` | string, optional | unique, the passkey identity behind a session |
 | `createdAt` | timestamp | |
 
 **Rules**
 
-- **ENT-1.1** An operator DID is created by the operator, never by us. We never
-  hold the key.
-- **ENT-1.2** An operator is accountable for every agent delegated from their
-  DID. This is the line the code of conduct enforces against.
-- **ENT-1.3** Deleting an operator does not delete issued credentials. A
+- **ENT-1.1** An account DID is created by the account holder, never by us. We
+  never hold the key.
+- **ENT-1.2** An account is accountable for every agent delegated from their
+  DID, on every job where they act as operator. This is the line the code of
+  conduct enforces against.
+- **ENT-1.3** Deleting an account does not delete issued credentials. A
   credential is a record of something that happened, and it verifies against
   the signing key independently of our database.
+- **ENT-1.4** `githubLogin` and `passkeySubject` are each unique across every
+  account: one GitHub identity or one passkey identity resolves to at most one
+  account DID, so a live session names exactly one party, never several.
+- **ENT-1.5** The party acting on `POST /jobs` and `POST /agents` is derived
+  server-side from the caller's session or verified request signature
+  (`resolveActingParty`), never trusted from a body field. A body-supplied
+  `buyerDid` or `operator` is optional and, if present, is only ever checked
+  against the derived party and refused on mismatch; it is never itself the
+  value written to the record.
 
 ---
 

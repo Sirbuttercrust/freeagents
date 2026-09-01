@@ -7,7 +7,7 @@ import type { Server } from 'node:http';
 import { describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
-import { MemoryAgentRepository, MemoryJobRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import type { AgentRepository, JobRepository } from '../../src/adapters/storage/types.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { Job } from '../../src/domain/job.js';
@@ -90,7 +90,7 @@ async function withApp(app: Express, run: (url: string) => Promise<void>): Promi
 
 function buildApp(jobRepo: JobRepository): { app: Express; agentRepo: MemoryAgentRepository } {
   const agentRepo = new MemoryAgentRepository();
-  const app = createApp(new MemoryOperatorRepository(), agentRepo, undefined, undefined, jobRepo);
+  const app = createApp(new MemoryAccountRepository(), agentRepo, undefined, undefined, jobRepo);
   return { app, agentRepo };
 }
 
@@ -240,7 +240,7 @@ describe('GET /agents/:agentDid/hires (R-33)', () => {
       updateGithubBinding: () => Promise.reject(new Error('unused')),
       recordKeyRotation: () => Promise.reject(new Error('unused')),
     };
-    const app = createApp(new MemoryOperatorRepository(), failing, undefined, undefined, new MemoryJobRepository());
+    const app = createApp(new MemoryAccountRepository(), failing, undefined, undefined, new MemoryJobRepository());
     await withApp(app, async (url) => {
       const res = await fetch(`${url}/agents/${AGENT_DID}/hires`);
       expect(res.status).toBe(503);

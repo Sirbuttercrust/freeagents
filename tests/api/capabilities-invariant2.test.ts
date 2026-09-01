@@ -105,12 +105,18 @@ describe('GET /capabilities, invariant 2', () => {
     }
   });
 
-  it('the declaration is internally consistent: identityField and access always agree', () => {
+  it('the declaration is internally consistent: identityField names a field only for the account-creation bootstrap capability', () => {
+    // R-39 completion: identityField is no longer "non-null iff
+    // identified" (see the field's own doc comment in access.ts).
+    // account.register is the sole exception -- registering an account is
+    // how a party comes to exist, so it cannot derive that party from a
+    // proof that presupposes one. Every other identified route derives
+    // its acting party server-side and carries no identityField.
     for (const cap of CAPABILITIES) {
-      if (cap.access === 'identified') {
-        expect(cap.identityField, `${cap.id} is identified and must name a field`).not.toBeNull();
+      if (cap.id === 'operator.register') {
+        expect(cap.identityField, `${cap.id} is the bootstrap route and must name a field`).not.toBeNull();
       } else {
-        expect(cap.identityField, `${cap.id} is public and must not name a field`).toBeNull();
+        expect(cap.identityField, `${cap.id} derives its party server-side and must not name a field`).toBeNull();
       }
     }
   });

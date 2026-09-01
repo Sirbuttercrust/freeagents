@@ -14,7 +14,7 @@ import type { Server } from 'node:http';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
-import { MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { createJob, type Job, type JobStatus } from '../../src/domain/job.js';
 
@@ -94,7 +94,7 @@ class PlantedJobRepository implements JobRepository {
 
 async function startWith(repo: JobRepository): Promise<{ server: Server; baseUrl: string }> {
   const server = createApp(
-    new MemoryOperatorRepository(),
+    new MemoryAccountRepository(),
     undefined,
     undefined,
     undefined,

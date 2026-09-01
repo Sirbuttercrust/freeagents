@@ -20,7 +20,7 @@ import { createApp } from '../../src/api/app.js';
 import {
   MemoryAgentRepository,
   MemoryJobRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
   MemoryReviewRepository,
 } from '../../src/adapters/storage/memory.js';
 import type { JobRepository, ReviewRepository } from '../../src/adapters/storage/types.js';
@@ -113,7 +113,7 @@ beforeAll(async () => {
   otherAgent = await signingIdentityFromSeed(OTHER_AGENT_DID_SEED);
   stranger = await signingIdentityFromSeed(STRANGER_SEED);
 
-  const operatorRepo = new MemoryOperatorRepository();
+  const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-review' });
   // Registered too, so its request signature verifies (R-34): the point of
   // this fixture is a caller who is somebody, just not THIS job's buyer.
@@ -336,7 +336,7 @@ describe('POST /jobs/:jobId/reviews and GET .../reviews, storage branches', () =
       save: () => Promise.reject(new Error('db down')),
       listByAgentDid: () => Promise.resolve([]),
     };
-    const operatorRepo = new MemoryOperatorRepository();
+    const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-review-fault' });
     const agentRepo = new MemoryAgentRepository();
     await agentRepo.create({
@@ -409,7 +409,7 @@ describe('POST /jobs/:jobId/reviews and GET .../reviews, storage branches', () =
       githubLogin: null,
     });
     const app = createApp(
-      new MemoryOperatorRepository(),
+      new MemoryAccountRepository(),
       agentRepo,
       undefined,
       undefined,

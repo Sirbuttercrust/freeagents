@@ -16,7 +16,7 @@ import {
   MemoryAgentRepository,
   MemoryCredentialRepository,
   MemoryJobRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import type { AgentRepository, JobRepository } from '../../src/adapters/storage/types.js';
 import type { Delegation } from '../../src/domain/agent.js';
@@ -105,7 +105,7 @@ function buildApp(): Rig {
   const credentialRepo = new MemoryCredentialRepository();
   const jobRepo = new MemoryJobRepository();
   const app = createApp(
-    new MemoryOperatorRepository(),
+    new MemoryAccountRepository(),
     agentRepo,
     undefined,
     undefined,
@@ -569,7 +569,7 @@ describe('GET /agents (R-20 browse)', () => {
       recordKeyRotation: () => Promise.reject(new Error('unused')),
       // listAll intentionally omitted.
     };
-    const app = createApp(new MemoryOperatorRepository(), stub);
+    const app = createApp(new MemoryAccountRepository(), stub);
     await withApp(app, async (url) => {
       const res = await fetch(`${url}/agents`);
       expect(res.status).toBe(503);
@@ -585,7 +585,7 @@ describe('GET /agents (R-20 browse)', () => {
       recordKeyRotation: () => Promise.reject(new Error('unused')),
       listAll: () => Promise.reject(new Error('db down')),
     };
-    const app = createApp(new MemoryOperatorRepository(), failing);
+    const app = createApp(new MemoryAccountRepository(), failing);
     await withApp(app, async (url) => {
       const res = await fetch(`${url}/agents`);
       expect(res.status).toBe(503);
@@ -609,7 +609,7 @@ describe('GET /agents (R-20 browse)', () => {
     };
     const agentRepo = new MemoryAgentRepository();
     await registerAgent(agentRepo, 'did:abt:zNoHiresRoute', 'noop', []);
-    const app = createApp(new MemoryOperatorRepository(), agentRepo, undefined, undefined, stubJobRepo);
+    const app = createApp(new MemoryAccountRepository(), agentRepo, undefined, undefined, stubJobRepo);
     await withApp(app, async (url) => {
       const res = await fetch(`${url}/agents`);
       expect(res.status).toBe(200);

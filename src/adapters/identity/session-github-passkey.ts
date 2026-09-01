@@ -55,15 +55,6 @@ interface StoredPasskeyChallenge {
   used: boolean;
 }
 
-// A durable local id for a GitHub account that has not (yet, or ever)
-// created a did:abt DID -- the contract's own comment on Session.subject:
-// "a user who has not created a DID yet gets a stable local id". Prefixed
-// so R-24's did:abt subjects and this adapter's subjects can never collide
-// in the same field.
-function githubSubject(githubUserId: number): string {
-  return `github:${githubUserId}`;
-}
-
 export interface GitHubOAuthConfig {
   readonly clientId: string;
   readonly clientSecret: string;
@@ -217,7 +208,7 @@ export function createSessionAdapter(options: SessionAdapterOptions): SessionAda
         const userBody: unknown = await userRes.json();
         if (!isGitHubUserResponse(userBody)) return null;
 
-        return newSession(githubSubject(userBody.id), 'github-oauth');
+        return newSession(userBody.login, 'github-oauth');
       } catch {
         return null;
       }

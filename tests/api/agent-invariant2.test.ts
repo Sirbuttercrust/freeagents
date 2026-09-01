@@ -13,9 +13,10 @@ import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { renderAvatar } from '../../src/api/avatar.js';
-import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
+import { signingIdentityFromWallet, signRequest } from '../helpers/sign-request.js';
 
 // Names that would mean key material leaked into storage. Matched by
 // substring. The delegation's own public keys in the proof metadata are the
@@ -167,10 +168,39 @@ async function postJson(
   });
 }
 
+// R-39 completion: POST /agents derives the acting party from a verified
+// R-34 signature or a resolved session, never from the body's operator
+// field. Every test below that used to authenticate through the describe
+// block's fixed session now signs the request with the WALLET whose
+// identity the test's scenario means to act as -- the same real-key
+// round trip a compliant client uses, exercised here through
+// signRequest/signingIdentityFromWallet rather than a second, fake proof.
+async function postJsonAsWallet(
+  baseUrl: string,
+  path: string,
+  body: Record<string, unknown>,
+  wallet: WalletObject,
+): Promise<Response> {
+  const identity = await signingIdentityFromWallet(wallet);
+  const bodyText = JSON.stringify(body);
+  const targetUri = `${baseUrl}${path}`;
+  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText });
+  return fetch(targetUri, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+    body: bodyText,
+  });
+}
+
 describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
   let server: Server;
   let baseUrl: string;
-  const repo = new MemoryOperatorRepository();
+  const repo = new MemoryAccountRepository();
   const agentRepo = new MemoryAgentRepository();
   const operator = fromRandom();
   const agent = fromRandom();
@@ -200,7 +230,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
     baseUrl = `http://127.0.0.1:${address.port}`;
     const token = await mintSessionToken(sessionAdapter);
     authHeader = { authorization: `Bearer ${token}` };
-    const reg = await postJson(baseUrl, '/operators', { did: operator.toDid(), githubLogin: 'operator-inv2' }, authHeader);
+    const reg = await postJson(baseUrl, '/accounts', { did: operator.toDid(), githubLogin: 'operator-inv2' }, authHeader);
     expect(reg.status).toBe(201);
   });
 
@@ -210,13 +240,12 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
 
   it('stores a W3C credential that verifies with @digitalbazaar/vc, no call to this service', async () => {
     const credential = await signW3CDelegation(operator, agent);
-    const res = await postJson(baseUrl, '/agents', {
+    const res = await postJsonAsWallet(baseUrl, '/agents', {
       did: agent.toDid(),
-      operator: operator.toDid(),
       delegation: credential,
       name: 'scout',
       skills: ['triage'],
-    }, authHeader);
+    }, operator);
     expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.did).toBe(agent.toDid());
@@ -322,13 +351,12 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
     const proof = broken.proof as Record<string, unknown>;
     broken.proof = { ...proof, proofValue: 'zTamperedProofValue' };
 
-    const res = await postJson(baseUrl, '/agents', {
+    const res = await postJsonAsWallet(baseUrl, '/agents', {
       did: intruderAgent.toDid(),
-      operator: operator.toDid(),
       delegation: broken,
       name: 'impostor',
       skills: ['triage'],
-    }, authHeader);
+    }, operator);
     expect(res.status).toBe(400);
   });
 
@@ -336,13 +364,13 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
     const stranger = fromRandom();
     const otherAgent = fromRandom();
     const credential = await signW3CDelegation(stranger, otherAgent);
-    const res = await postJson(baseUrl, '/agents', {
+    const res = await postJsonAsWallet(baseUrl, '/agents', {
       did: otherAgent.toDid(),
       operator: operator.toDid(),
       delegation: credential,
       name: 'forged',
       skills: ['triage'],
-    }, authHeader);
+    }, operator);
     expect(res.status).toBe(400);
   });
 
@@ -400,17 +428,28 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       documentLoader: signDocumentLoader,
     });
 
-    // POST this forged delegation to the service.
-    const res = await postJson(baseUrl, '/agents', {
+    // POST this forged delegation to the service, authenticated as the
+    // ATTACKER's own real key (R-34): this is the R-39 completion fix
+    // itself under test. The old attack shape assumed a session alone
+    // (no derivable identity) could reach the credential layer and rely
+    // on delegationConsistent/verifyDelegation to catch the forgery.
+    // Party derivation closes that path even earlier than that: the
+    // attacker's wallet was never registered as an account or an agent,
+    // so createDidAbtSigningKeyResolver's own isRegistered check fails
+    // and the signature itself is unverifiable -- requireSessionOrSignature
+    // refuses before the route handler, let alone the credential layer,
+    // ever runs.
+    const res = await postJsonAsWallet(baseUrl, '/agents', {
       did: forgedAgent.toDid(),
       operator: operator.toDid(),
       delegation: forged,
       name: 'totally-legit',
       skills: ['triage'],
-    }, authHeader);
+    }, attacker);
 
-    // The service MUST reject this with 400 (not 201).
-    expect(res.status).toBe(400);
+    // The service MUST reject this. Refused at the signature-verification
+    // gate (401, an unregistered signer), never honoured with a 201.
+    expect(res.status).toBe(401);
 
     // An independent verifier resolving the key from the credential alone
     // (exactly as did-abt-resolver.ts does) MUST also reject it.
@@ -421,47 +460,50 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
   });
 
   it('delegating from an unregistered operator is 404', async () => {
-    const stranger = fromRandom();
+    // The signer must already be resolvable by the signing-key resolver
+    // (agentRepo.findByDid OR repo.findByDid), or the request never even
+    // reaches this handler -- it fails at the signature layer with 401,
+    // proved by the mismatched-key test above. `agent` is registered as
+    // an AGENT (not an account) by the first test in this suite, so it
+    // passes the signer check but resolveActingParty's account lookup on
+    // its DID comes back null: exactly the "claims to be an operator, but
+    // no operator account exists at that DID" case this test is for.
     const otherAgent = fromRandom();
-    const credential = await signW3CDelegation(stranger, otherAgent);
-    const res = await postJson(baseUrl, '/agents', {
+    const credential = await signW3CDelegation(agent, otherAgent);
+    const res = await postJsonAsWallet(baseUrl, '/agents', {
       did: otherAgent.toDid(),
-      operator: stranger.toDid(),
       delegation: credential,
       name: 'orphan',
       skills: ['triage'],
-    }, authHeader);
+    }, agent);
     expect(res.status).toBe(404);
   });
 
   it('delegating the same agent DID twice is 409', async () => {
     const credential = await signW3CDelegation(operator, agent);
-    const res = await postJson(baseUrl, '/agents', {
+    const res = await postJsonAsWallet(baseUrl, '/agents', {
       did: agent.toDid(),
-      operator: operator.toDid(),
       delegation: credential,
       name: 'scout again',
       skills: ['triage'],
-    }, authHeader);
+    }, operator);
     expect(res.status).toBe(409);
   });
 
   it('malformed bodies are 400', async () => {
-    const missingDelegation = await postJson(baseUrl, '/agents', {
+    const missingDelegation = await postJsonAsWallet(baseUrl, '/agents', {
       did: agent.toDid(),
-      operator: operator.toDid(),
       name: 'no proof',
       skills: ['triage'],
-    }, authHeader);
+    }, operator);
     expect(missingDelegation.status).toBe(400);
 
-    const badSkills = await postJson(baseUrl, '/agents', {
+    const badSkills = await postJsonAsWallet(baseUrl, '/agents', {
       did: agent.toDid(),
-      operator: operator.toDid(),
       delegation: 'not an object',
       name: 'bad skills',
       skills: [],
-    }, authHeader);
+    }, operator);
     expect(badSkills.status).toBe(400);
   });
 

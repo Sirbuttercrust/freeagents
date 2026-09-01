@@ -5,7 +5,7 @@
 // TWO RULES SHAPE EVERYTHING HERE.
 //
 // 1. THE API KEEPS PRIORITY. Three page paths collide with real API routes
-//    (`/agents/:did`, `/operators/:did`, `/v1/credentials/:id`), and the
+//    (`/agents/:did`, `/accounts/:did`, `/v1/credentials/:id`), and the
 //    collision is deliberate rather than accidental: a credential's id IS
 //    its address (ENT-8), so a person handed one pastes it into a browser
 //    and must land on something readable, while a verifier fetching the
@@ -221,7 +221,7 @@ export function createWebSurface(
 
       // Pages that share a path with an API route (see rule 1 above).
       app.get('/agents/:agentDid', negotiated('agent'));
-      app.get('/operators/:did', negotiated('operator'));
+      app.get('/accounts/:did', negotiated('operator'));
       app.get('/v1/credentials/:credentialId', negotiated('credential'));
     },
 

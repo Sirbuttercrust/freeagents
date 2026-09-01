@@ -15,7 +15,7 @@ import {
   MemoryCompromiseRepository,
   MemoryCredentialRepository,
   MemoryJobRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 
@@ -65,7 +65,7 @@ function resolvableIdentity() {
 }
 
 const app = createApp(
-  new MemoryOperatorRepository(),
+  new MemoryAccountRepository(),
   new MemoryAgentRepository(),
   resolvableIdentity(),
   stubbedGithub(),

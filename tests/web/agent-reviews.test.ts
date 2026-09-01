@@ -18,7 +18,7 @@ import { createApp } from '../../src/api/app.js';
 import {
   MemoryAgentRepository,
   MemoryJobRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
   MemoryReviewRepository,
 } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
@@ -79,7 +79,7 @@ beforeAll(async () => {
   });
 
   const app = createApp(
-    new MemoryOperatorRepository(),
+    new MemoryAccountRepository(),
     agentRepo,
     undefined,
     undefined,

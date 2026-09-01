@@ -2,19 +2,19 @@
 // selected mode, not a fallback: an unconfigured deployment announces
 // itself at startup, and a configured-but-dead database fails closed with
 // a 503 on the first query (invariant 9: portability, fail closed, loud).
-import { MemoryAgentRepository, MemoryCompromiseRepository, MemoryCredentialRepository, MemoryJobRepository, MemoryOperatorRepository, MemoryReviewRepository } from './memory.js';
-import { PrismaAgentRepository, PrismaCompromiseRepository, PrismaCredentialRepository, PrismaJobRepository, PrismaOperatorRepository, PrismaReviewRepository } from './prisma.js';
-import type { AgentRepository, CompromiseRepository, CredentialRepository, JobRepository, OperatorRepository, ReviewRepository } from './types.js';
+import { MemoryAgentRepository, MemoryCompromiseRepository, MemoryCredentialRepository, MemoryJobRepository, MemoryAccountRepository, MemoryReviewRepository } from './memory.js';
+import { PrismaAgentRepository, PrismaCompromiseRepository, PrismaCredentialRepository, PrismaJobRepository, PrismaAccountRepository, PrismaReviewRepository } from './prisma.js';
+import type { AgentRepository, CompromiseRepository, CredentialRepository, JobRepository, AccountRepository, ReviewRepository } from './types.js';
 
-export function createOperatorRepository(): OperatorRepository {
+export function createAccountRepository(): AccountRepository {
   if (process.env.DATABASE_URL) {
-    return new PrismaOperatorRepository();
+    return new PrismaAccountRepository();
   }
   console.warn(
     'storage: DATABASE_URL is not set; using in-memory storage. ' +
       'Data does not survive a restart. This is a dev/test mode, not production storage.'
   );
-  return new MemoryOperatorRepository();
+  return new MemoryAccountRepository();
 }
 
 export function createAgentRepository(): AgentRepository {

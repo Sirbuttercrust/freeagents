@@ -123,10 +123,19 @@ describe('GET /capabilities', () => {
     }
   });
 
-  it('every declared identified POST refuses a caller who names no one', async () => {
-    const identifiedPosts = CAPABILITIES.filter((c) => c.access === 'identified' && c.method === 'POST');
-    expect(identifiedPosts.length).toBeGreaterThan(0);
-    for (const cap of identifiedPosts) {
+  it('the bootstrap identified POST (account creation) refuses a caller who names no one', async () => {
+    // R-39 completion: account.register is the only identified capability
+    // that still declares an identityField (see access.ts's own doc
+    // comment on the field): registering an account is how a party comes
+    // to exist, so it is the one route that cannot derive its party from
+    // a proof presupposing an account already exists. agent.list and
+    // job.hire dropped out of this loop on purpose -- they no longer read
+    // an identity field from the body at all (identityField: null), and
+    // are covered instead by the session/signature-derivation tests in
+    // tests/api/session.test.ts and tests/api/party-derivation.test.ts.
+    const bootstrapPosts = CAPABILITIES.filter((c) => c.access === 'identified' && c.identityField !== null);
+    expect(bootstrapPosts.map((c) => c.id)).toEqual(['operator.register']);
+    for (const cap of bootstrapPosts) {
       const body = VALID_BODY_MINUS_IDENTITY[cap.id];
       expect(body, `no fixture body registered for ${cap.id}`).toBeDefined();
       const res = await fetch(`${baseUrl}${cap.path}`, {
@@ -141,22 +150,43 @@ describe('GET /capabilities', () => {
     }
   });
 
-  it('agent.list: the missing-operator refusal is about operator specifically, not about the also-required delegation', async () => {
+  it('agent.list and job.hire no longer read an identity field from the body: posting without one still reaches party resolution, not a 400', async () => {
+    // R-39 completion: these two routes used to 400 on a body missing
+    // their old identityField (operator / buyerDid). Now the field is
+    // simply not read for identity, so the same trimmed body reaches
+    // resolveActingParty instead -- which refuses with 403 because this
+    // describe block's session has no registered account behind it, never
+    // with 400. The 403 (not 400) is the proof that the missing field
+    // stopped being a shape requirement.
+    for (const id of ['agent.list', 'job.hire']) {
+      const cap = CAPABILITIES.find((c) => c.id === id);
+      expect(cap, `${id} must be declared`).toBeDefined();
+      const body = VALID_BODY_MINUS_IDENTITY[id];
+      const res = await fetch(`${baseUrl}${cap!.path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeader },
+        body: JSON.stringify(body),
+      });
+      expect(res.status, `${id} should reach party resolution (403), not a body-shape 400`).toBe(403);
+    }
+  });
+
+  it('agent.list: operator is derived server-side and any body-supplied value is checked against it, never trusted', async () => {
+    // R-39 completion: a body carrying no operator at all reaches party
+    // resolution and is refused with 403 (this describe block's session
+    // has no registered account behind it) -- proving operator dropped
+    // out of the body-shape check entirely. A body naming an operator
+    // that mismatches the (still-unresolved) derived party fails the
+    // same way, for the same reason: the derived party is null either
+    // way, so there is nothing to compare a claimed value against yet
+    // and the null check fires first.
     const withoutOperator = await fetch(`${baseUrl}/agents`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify(VALID_BODY_MINUS_IDENTITY['agent.list']),
     });
-    expect(withoutOperator.status).toBe(400);
+    expect(withoutOperator.status).toBe(403);
 
-    // Same body, operator added back but pointing at a DID nobody
-    // registered. If the 400 above were actually caused by the delegation
-    // (or anything else) rather than the missing operator, this would 400
-    // the same way; instead the operator check now passes and the request
-    // fails later, for the unrelated reason that the operator is unknown -
-    // proving operator, not delegation, was the earlier refusal's cause,
-    // and that operator (the lister), not did (the agent being listed), is
-    // the field the declaration means by "the acting party".
     const withUnregisteredOperator = await fetch(`${baseUrl}/agents`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
@@ -165,7 +195,7 @@ describe('GET /capabilities', () => {
         operator: 'did:abt:capabilities-test-operator-never-registered',
       }),
     });
-    expect(withUnregisteredOperator.status).toBe(404);
+    expect(withUnregisteredOperator.status).toBe(403);
   });
 
   it('the declaration and the domain helper agree', () => {

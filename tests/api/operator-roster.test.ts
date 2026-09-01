@@ -1,4 +1,4 @@
-// R-19 (D4, ENT-1.2): GET /operators/:did/agents, the operator roster.
+// R-19 (D4, ENT-1.2): GET /accounts/:did/agents, the operator roster.
 // Widens the same browse-card assembly R-20 built (src/domain/browse.ts,
 // src/domain/agent-work-record.ts): a roster row carries the exact same
 // three tier counts a browse card does for the same agent, read the same
@@ -15,7 +15,7 @@ import {
   MemoryAgentRepository,
   MemoryCredentialRepository,
   MemoryJobRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
@@ -96,11 +96,11 @@ interface Rig {
   app: Express;
   agentRepo: MemoryAgentRepository;
   credentialRepo: MemoryCredentialRepository;
-  operatorRepo: MemoryOperatorRepository;
+  operatorRepo: MemoryAccountRepository;
 }
 
 function buildApp(): Rig {
-  const operatorRepo = new MemoryOperatorRepository();
+  const operatorRepo = new MemoryAccountRepository();
   const agentRepo = new MemoryAgentRepository();
   const credentialRepo = new MemoryCredentialRepository();
   const jobRepo = new MemoryJobRepository();
@@ -108,7 +108,7 @@ function buildApp(): Rig {
   return { app, agentRepo, credentialRepo, operatorRepo };
 }
 
-async function registerOperator(operatorRepo: MemoryOperatorRepository, did: string, githubLogin: string): Promise<void> {
+async function registerOperator(operatorRepo: MemoryAccountRepository, did: string, githubLogin: string): Promise<void> {
   await operatorRepo.register({ did, githubLogin });
 }
 
@@ -128,11 +128,11 @@ async function registerAgent(
   });
 }
 
-describe('GET /operators/:did/agents (R-19 roster)', () => {
+describe('GET /accounts/:did/agents (R-19 roster)', () => {
   it('404s for an operator that was never registered', async () => {
     const { app } = buildApp();
     await withApp(app, async (url) => {
-      const res = await fetch(`${url}/operators/did:abt:zNeverRegistered/agents`);
+      const res = await fetch(`${url}/accounts/did:abt:zNeverRegistered/agents`);
       expect(res.status).toBe(404);
     });
   });
@@ -142,7 +142,7 @@ describe('GET /operators/:did/agents (R-19 roster)', () => {
     await registerOperator(operatorRepo, OPERATOR_DID, 'roster-operator');
 
     await withApp(app, async (url) => {
-      const res = await fetch(`${url}/operators/${OPERATOR_DID}/agents`);
+      const res = await fetch(`${url}/accounts/${OPERATOR_DID}/agents`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as { agents: unknown[]; aggregate: Record<string, number> };
       expect(body.agents).toEqual([]);
@@ -162,7 +162,7 @@ describe('GET /operators/:did/agents (R-19 roster)', () => {
     await registerAgent(agentRepo, 'did:abt:zRosterTheirs', OTHER_OPERATOR_DID, 'theirs');
 
     await withApp(app, async (url) => {
-      const res = await fetch(`${url}/operators/${OPERATOR_DID}/agents`);
+      const res = await fetch(`${url}/accounts/${OPERATOR_DID}/agents`);
       const body = (await res.json()) as { agents: Array<{ did: string }> };
       expect(body.agents.map((a) => a.did)).toEqual(['did:abt:zRosterMine']);
     });
@@ -174,7 +174,7 @@ describe('GET /operators/:did/agents (R-19 roster)', () => {
     await registerAgent(agentRepo, 'did:abt:zRosterSolo', OPERATOR_DID, 'solo');
 
     await withApp(app, async (url) => {
-      const res = await fetch(`${url}/operators/${OPERATOR_DID}/agents`);
+      const res = await fetch(`${url}/accounts/${OPERATOR_DID}/agents`);
       const body = (await res.json()) as { agents: Array<{ did: string; verifiedHireCount: number }> };
       expect(body.agents).toHaveLength(1);
       expect(body.agents[0]?.did).toBe('did:abt:zRosterSolo');
@@ -206,7 +206,7 @@ describe('GET /operators/:did/agents (R-19 roster)', () => {
       const browseCard = browseBody.agents.find((a) => a.did === 'did:abt:zRosterMatch');
       expect(browseCard).toBeDefined();
 
-      const rosterRes = await fetch(`${url}/operators/${OPERATOR_DID}/agents`);
+      const rosterRes = await fetch(`${url}/accounts/${OPERATOR_DID}/agents`);
       const rosterBody = (await rosterRes.json()) as {
         agents: Array<{ did: string; verifiedHireCount: number; verifiedPriorWorkCount: number; portfolioCount: number; buyerCount: number }>;
       };
@@ -248,7 +248,7 @@ describe('GET /operators/:did/agents (R-19 roster)', () => {
     });
 
     await withApp(app, async (url) => {
-      const res = await fetch(`${url}/operators/${OPERATOR_DID}/agents`);
+      const res = await fetch(`${url}/accounts/${OPERATOR_DID}/agents`);
       const body = (await res.json()) as { aggregate: { totalVerifiedHireCount: number; totalVerifiedPriorWorkCount: number; totalPortfolioCount: number } };
       // Agent A: 1 verified hire, 1 portfolio. Agent B: 1 verified hire.
       // Total: 2 verified hires, 0 prior work, 1 portfolio, three separate
@@ -291,7 +291,7 @@ describe('GET /operators/:did/agents (R-19 roster)', () => {
     });
 
     await withApp(app, async (url) => {
-      const filtered = await fetch(`${url}/operators/${OPERATOR_DID}/agents?skill=rust`);
+      const filtered = await fetch(`${url}/accounts/${OPERATOR_DID}/agents?skill=rust`);
       const body = (await filtered.json()) as {
         agents: Array<{ did: string }>;
         aggregate: { totalVerifiedHireCount: number };
@@ -324,7 +324,7 @@ describe('GET /operators/:did/agents (R-19 roster)', () => {
     }
 
     await withApp(app, async (url) => {
-      const res = await fetch(`${url}/operators/${OPERATOR_DID}/agents?skill=rust`);
+      const res = await fetch(`${url}/accounts/${OPERATOR_DID}/agents?skill=rust`);
       const body = (await res.json()) as { agents: unknown[]; agentCount: number };
       expect(body.agents.length).toBe(5);
       expect(body.agentCount).toBe(11);
@@ -343,7 +343,7 @@ describe('GET /operators/:did/agents (R-19 roster)', () => {
     });
 
     await withApp(app, async (url) => {
-      const res = await fetch(`${url}/operators/${OPERATOR_DID}/agents`);
+      const res = await fetch(`${url}/accounts/${OPERATOR_DID}/agents`);
       const body = (await res.json()) as Record<string, unknown>;
       expect(Object.keys(body).sort()).toEqual(['agentCount', 'agents', 'aggregate', 'operatorDid'].sort());
       expect(Object.keys(body.aggregate as object).sort()).toEqual(

@@ -19,7 +19,7 @@ import { createPasskeyFixture } from '../helpers/webauthn-fixtures.js';
 import { signingIdentityFromSeed, signRequest } from '../helpers/sign-request.js';
 import { createApp } from '../../src/api/app.js';
 import { createRateLimiter } from '../../src/adapters/identity/verify-rate-limit.js';
-import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
 
 function delegationFixture(agentDid: string): Delegation {
@@ -158,9 +158,14 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
     // POST /jobs with no bearer token -> 401. Same request with a live
     // session token -> not 401. The route list that requires a session is
     // exactly the hire-and-list set from src/domain/access.ts.
+    //
+    // R-39 completion: a session alone is not enough any more -- it must
+    // resolve to a REGISTERED account (party derived, never declared), so
+    // this test registers one under the exact github login the session's
+    // OAuth fixture proves, before hiring through it.
     const real = createSessionAdapter({
       github: fakeGitHubConfig(),
-      fetchImpl: fakeGitHubFetch({ login: 'octo-cat', id: 501 }),
+      fetchImpl: fakeGitHubFetch({ login: 'octo-cat-501', id: 501 }),
     });
     const token = await mintSessionToken(real);
 
@@ -174,10 +179,11 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
       skills: ['triage'],
       githubLogin: null,
     });
-    const baseUrl = await listen(createApp(undefined, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, real));
+    const accountRepo = new MemoryAccountRepository();
+    await accountRepo.register({ did: 'did:abt:session-gate-buyer', githubLogin: 'octo-cat-501' });
+    const baseUrl = await listen(createApp(accountRepo, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, real));
 
     const jobBody = {
-      buyerDid: 'did:abt:session-gate-buyer',
       agentDid,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
@@ -246,7 +252,7 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
     // only the signer/operator mismatch can.
     const signer = await signingIdentityFromSeed(new Uint8Array(32).fill(61));
     const victim = await signingIdentityFromSeed(new Uint8Array(32).fill(62));
-    const operatorRepo = new MemoryOperatorRepository();
+    const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: signer.did, githubLogin: 'signer-operator' });
     await operatorRepo.register({ did: victim.did, githubLogin: 'victim-operator' });
 
@@ -346,7 +352,7 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
     let now = new Date('2026-08-27T00:00:00Z').getTime();
     const real = createSessionAdapter({
       github: fakeGitHubConfig(),
-      fetchImpl: fakeGitHubFetch({ login: 'octo-cat', id: 777 }),
+      fetchImpl: fakeGitHubFetch({ login: 'octo-cat-777', id: 777 }),
       sessionTtlMs: 1000,
       now: () => now,
     });
@@ -364,10 +370,11 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
       skills: ['triage'],
       githubLogin: null,
     });
-    const baseUrl = await listen(createApp(undefined, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, real));
+    const accountRepo = new MemoryAccountRepository();
+    await accountRepo.register({ did: 'did:abt:session-invalid-buyer', githubLogin: 'octo-cat-777' });
+    const baseUrl = await listen(createApp(accountRepo, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, real));
 
     const jobBody = {
-      buyerDid: 'did:abt:session-invalid-buyer',
       agentDid,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
@@ -410,7 +417,7 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
 
   it('a fresh deployment can onboard its first operator with no session and no signature', async () => {
     // Proof (t_8b63ee9e, D1/bootstrap-deadlock): createApp() with EVERY
-    // default is exactly what src/api/server.ts runs. POST /operators is
+    // default is exactly what src/api/server.ts runs. POST /accounts is
     // account CREATION (issue 83's anchor names hire and list, not
     // registration), and a route that mints the only credential a caller
     // could later present cannot itself demand one -- gating it made a
@@ -419,7 +426,7 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
     // shape a first boot has.
     const baseUrl = await listen(createApp());
 
-    const anonymous = await fetch(`${baseUrl}/operators`, {
+    const anonymous = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ did: 'did:abt:bootstrap-first-operator', githubLogin: 'bootstrap-first-operator' }),

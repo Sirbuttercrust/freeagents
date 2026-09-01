@@ -29,7 +29,7 @@ import {
 } from '../../src/web/static.js';
 import {
   MemoryAgentRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
 
@@ -60,7 +60,7 @@ let server: Server;
 let baseUrl: string;
 
 beforeAll(async () => {
-  const repo = new MemoryOperatorRepository();
+  const repo = new MemoryAccountRepository();
   await repo.register({ did: OPERATOR_DID, githubLogin: 'operator-web-surface' });
 
   const agentRepo = new MemoryAgentRepository();
@@ -126,8 +126,8 @@ describe('the web surface serves its pages', () => {
     expect(String(res.headers.get('content-type'))).toContain('text/html');
   });
 
-  it('serves the operator profile shell at /operators/:did for a browser', async () => {
-    const res = await getHtml(`/operators/${encodeURIComponent(OPERATOR_DID)}`);
+  it('serves the operator profile shell at /accounts/:did for a browser', async () => {
+    const res = await getHtml(`/accounts/${encodeURIComponent(OPERATOR_DID)}`);
     expect(res.status).toBe(200);
     expect(String(res.headers.get('content-type'))).toContain('text/html');
   });
@@ -172,14 +172,14 @@ describe('mounting the pages changed no API behaviour', () => {
     expect(String(res.headers.get('content-type'))).toContain('application/json');
   });
 
-  it('GET /operators/:did still answers JSON, and still 404s an unknown DID', async () => {
-    const found = await fetch(`${baseUrl}/operators/${encodeURIComponent(OPERATOR_DID)}`, {
+  it('GET /accounts/:did still answers JSON, and still 404s an unknown DID', async () => {
+    const found = await fetch(`${baseUrl}/accounts/${encodeURIComponent(OPERATOR_DID)}`, {
       headers: { Accept: 'application/json' },
     });
     expect(found.status).toBe(200);
     expect((await found.json()) as Record<string, unknown>).toMatchObject({ did: OPERATOR_DID });
 
-    const missing = await fetch(`${baseUrl}/operators/did:abt:nobody`, {
+    const missing = await fetch(`${baseUrl}/accounts/did:abt:nobody`, {
       headers: { Accept: 'application/json' },
     });
     expect(missing.status).toBe(404);
@@ -207,14 +207,14 @@ describe('mounting the pages changed no API behaviour', () => {
 
   // A browser is not exempt from the API's rules: the page mount is GET
   // only, so a POST from anywhere reaches the handler it always did. POST
-  // /operators takes no session/signature gate (D1/bootstrap-deadlock,
+  // /accounts takes no session/signature gate (D1/bootstrap-deadlock,
   // t_8b63ee9e -- registering an operator is how an account is created,
   // so it cannot itself demand one), so the handler's own body validation
   // is what answers here: a wrong-method DID is still a 400, proving the
   // routing point just as well as before -- the response is JSON from the
   // API handler, never the HTML page mount.
   it('a POST from a browser still reaches the API handler, not a page', async () => {
-    const res = await fetch(`${baseUrl}/operators`, {
+    const res = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', Accept: HTML },
       body: JSON.stringify({ did: 'did:eth:wrong-method', githubLogin: 'x' }),
@@ -342,7 +342,7 @@ describe('resolveWebDir', () => {
 describe('the source links are configured, never hardcoded', () => {
   function footerOf(surface: ReturnType<typeof createWebSurface>): Promise<string> {
     const app = createApp(
-      new MemoryOperatorRepository(),
+      new MemoryAccountRepository(),
       new MemoryAgentRepository(),
       undefined,
       undefined,
