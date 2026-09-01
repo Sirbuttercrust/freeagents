@@ -178,6 +178,7 @@
 
   function renderRoster(body) {
     var agents = Array.isArray(body.agents) ? body.agents : [];
+    var rosterSize = numberOr(body.agentCount);
     var host = A.el("roster-cards");
     if (host) {
       host.textContent = "";
@@ -189,13 +190,18 @@
     A.showById("roster-empty", agents.length === 0);
 
     /* D4: controls appear only above ten agents. Below that the table
-       renders plain, one layout either way. */
-    A.showById("roster-controls", agents.length > ROSTER_CONTROL_THRESHOLD);
+       renders plain, one layout either way. Gated on the FULL roster size
+       (agentCount), never the filtered row count on screen (Proof round 3,
+       defect control-hides-itself-under-its-own-effect): filtering an
+       above-ten roster down to a handful of rows must not remove the
+       controls that produced the filter. Browse keeps its controls
+       visible in the identical case; this matches it. */
+    A.showById("roster-controls", rosterSize > ROSTER_CONTROL_THRESHOLD);
 
-    renderSummary(body.aggregate);
+    renderSummary(body.aggregate, rosterSize, agents.length);
   }
 
-  function renderSummary(aggregate) {
+  function renderSummary(aggregate, rosterSize, shownCount) {
     var totals = aggregate && typeof aggregate === "object" ? aggregate : {};
     var hires = numberOr(totals.totalVerifiedHireCount);
     var prior = numberOr(totals.totalVerifiedPriorWorkCount);
@@ -203,10 +209,18 @@
 
     /* Three separately labelled totals, one sentence, never combined into
        one number (MISSION invariant 5). This is a summary of the rows
-       above it, not a verdict on the operator. */
+       above it, not a verdict on the operator.
+
+       The aggregate is always over the FULL roster (src/api/app.ts), even
+       when a skill filter narrows what is on screen: an operator's
+       accountability does not shrink because a visitor filtered. Proof
+       round 3, defect summary-contradicts-tier: the wording must say
+       whose count this is, honestly, rather than claiming "every agent
+       listed here" over rows that are a strict subset. */
+    var subject = shownCount < rosterSize ? "Across every agent this operator runs" : "Across every agent listed here";
     A.setTextById(
       "roster-summary",
-      "Across every agent listed here: " +
+      subject + ": " +
         A.plural(hires, "verified hire", "verified hires") + ", " +
         A.plural(prior, "verified prior work", "verified prior work") + ", " +
         A.plural(portfolio, "portfolio claim", "portfolio claims") + "."
@@ -265,6 +279,17 @@
     }
 
     row.appendChild(body);
+
+    /* THE DATE (Proof round 3, defect roster-row-drifts-from-browse-card):
+       browse's cardRow appends a .when span with the same last-verified-
+       or-registered date rule; a roster row must carry it too, so the two
+       surfaces cannot drift on any field, not just the tier counts. */
+    var when = document.createElement("span");
+    when.className = "when";
+    var date = A.readableDate(agent.lastVerifiedAt) || A.readableDate(agent.createdAt);
+    when.textContent = date === null ? "" : date;
+    row.appendChild(when);
+
     return row;
   }
 

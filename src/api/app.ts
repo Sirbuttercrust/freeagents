@@ -559,6 +559,7 @@ export function createApp(
       res.status(200).json({
         operatorDid,
         agents: cards,
+        agentCount: unsorted.length,
         aggregate,
       });
     } catch (err) {

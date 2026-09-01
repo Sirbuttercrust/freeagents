@@ -259,6 +259,78 @@ describe('GET /operators/:did/agents (R-19 roster)', () => {
     });
   });
 
+  // Proof round 3, D4: mutation M5 (aggregate computed over the FILTERED
+  // rows instead of the full roster) left every test in this file green.
+  // A skill filter that removes agent B from view must not also remove
+  // agent B's hire from the aggregate: the aggregate names the FULL
+  // roster, always, whether or not a filter is active.
+  it('a skill filter narrows the visible rows but never the aggregate, which stays full-roster (D4)', async () => {
+    const { app, operatorRepo, agentRepo, credentialRepo } = buildApp();
+    await registerOperator(operatorRepo, OPERATOR_DID, 'roster-operator');
+    await agentRepo.create({
+      did: 'did:abt:zRosterFilterA',
+      operatorDid: OPERATOR_DID,
+      delegation: delegation('did:abt:zRosterFilterA', OPERATOR_DID),
+      name: 'filter-a',
+      skills: ['python'],
+      githubLogin: null,
+    });
+    await agentRepo.create({
+      did: 'did:abt:zRosterFilterB',
+      operatorDid: OPERATOR_DID,
+      delegation: delegation('did:abt:zRosterFilterB', OPERATOR_DID),
+      name: 'filter-b',
+      skills: ['rust'],
+      githubLogin: null,
+    });
+    await credentialRepo.save({
+      completedJobId: 'job-filter-a',
+      subjectDid: 'did:abt:zRosterFilterA',
+      document: credentialDoc('https://platform.example/v1/credentials/job-filter-a', 'did:abt:zRosterFilterA', 'c-filter-a', '2026-08-01T00:00:00.000Z'),
+      repositoryPublic: true,
+    });
+
+    await withApp(app, async (url) => {
+      const filtered = await fetch(`${url}/operators/${OPERATOR_DID}/agents?skill=rust`);
+      const body = (await filtered.json()) as {
+        agents: Array<{ did: string }>;
+        aggregate: { totalVerifiedHireCount: number };
+      };
+      // Only agent B (rust) is on screen, but agent A's verified hire
+      // still counts toward the aggregate: it is over the full roster.
+      expect(body.agents.map((a) => a.did)).toEqual(['did:abt:zRosterFilterB']);
+      expect(body.aggregate.totalVerifiedHireCount).toBe(1);
+    });
+  });
+
+  // Proof round 3, D1: the client cannot know whether it is looking at the
+  // full roster or a filtered slice from body.agents.length alone. A
+  // filtered roster must still tell the page the FULL size, so the page
+  // can gate its own controls on the unfiltered count rather than the
+  // count of rows currently on screen.
+  it('reports the full roster size alongside a filtered, narrower agents array (D1)', async () => {
+    const { app, operatorRepo, agentRepo } = buildApp();
+    await registerOperator(operatorRepo, OPERATOR_DID, 'roster-operator');
+    for (let i = 0; i < 11; i += 1) {
+      const did = `did:abt:zRosterSizeAgent${i}`;
+      await agentRepo.create({
+        did,
+        operatorDid: OPERATOR_DID,
+        delegation: delegation(did, OPERATOR_DID),
+        name: `size-${i}`,
+        skills: i < 6 ? ['python'] : ['rust'],
+        githubLogin: null,
+      });
+    }
+
+    await withApp(app, async (url) => {
+      const res = await fetch(`${url}/operators/${OPERATOR_DID}/agents?skill=rust`);
+      const body = (await res.json()) as { agents: unknown[]; agentCount: number };
+      expect(body.agents.length).toBe(5);
+      expect(body.agentCount).toBe(11);
+    });
+  });
+
   it('the response never carries a combined score, reputation number, or ranking field', async () => {
     const { app, operatorRepo, agentRepo, credentialRepo } = buildApp();
     await registerOperator(operatorRepo, OPERATOR_DID, 'roster-operator');
@@ -273,7 +345,7 @@ describe('GET /operators/:did/agents (R-19 roster)', () => {
     await withApp(app, async (url) => {
       const res = await fetch(`${url}/operators/${OPERATOR_DID}/agents`);
       const body = (await res.json()) as Record<string, unknown>;
-      expect(Object.keys(body).sort()).toEqual(['agents', 'aggregate', 'operatorDid'].sort());
+      expect(Object.keys(body).sort()).toEqual(['agentCount', 'agents', 'aggregate', 'operatorDid'].sort());
       expect(Object.keys(body.aggregate as object).sort()).toEqual(
         ['totalVerifiedHireCount', 'totalVerifiedPriorWorkCount', 'totalPortfolioCount'].sort(),
       );

@@ -379,4 +379,80 @@ describe('the operator page roster (R-19)', () => {
       page.close();
     }
   });
+
+  // Proof round 3, D1: filtering an above-ten roster down to a handful of
+  // rows must not delete the controls that produced the filter. Browse
+  // keeps #sort and #skill visible in the identical case; the roster must
+  // match it, gating on the FULL roster size, never the filtered one.
+  it('filtering an above-ten roster down keeps the controls visible and the filter value on screen (D1)', async () => {
+    const page = await render(`/operators/${CONTROL_OPERATOR_DID}?skill=rust`);
+    try {
+      const rows = page.document.querySelectorAll('[data-agent-row]');
+      expect(rows.length).toBe(5);
+
+      const controls = page.document.getElementById('roster-controls');
+      expect(controls?.hidden).toBe(false);
+
+      const skillInput = page.document.getElementById('roster-skill') as HTMLInputElement | null;
+      expect(skillInput).toBeTruthy();
+      expect(skillInput?.value).toBe('rust');
+    } finally {
+      page.close();
+    }
+  });
+
+  // Proof round 3, D3: a roster row must carry every field browse's card
+  // does for the same agent, not just the three tier counts already
+  // checked above. Comparing the rendered DOM field by field (rather than
+  // only the tier counts) is what the round-2 parity test missed: it never
+  // looked at .when.
+  it("a roster row is field-identical to the same agent's browse card, including the date (D3)", async () => {
+    const rosterPage = await render(`/operators/${SOLO_OPERATOR_DID}`);
+    const browsePage = await render('/browse');
+    try {
+      const rosterRow = rosterPage.document.querySelector('[data-agent-row]');
+      const browseCard = browsePage.document.querySelector(
+        `[data-agent-card="${'did:abt:zRosterPageSoloAgent'}"]`,
+      );
+      expect(rosterRow).toBeTruthy();
+      expect(browseCard).toBeTruthy();
+
+      function fields(row: Element | null) {
+        return {
+          name: row?.querySelector('.name-link')?.textContent ?? '',
+          evidence: row?.querySelector('.evidence-row')?.textContent ?? '',
+          skills: row?.querySelector('.skills')?.textContent ?? '',
+          when: row?.querySelector('.when')?.textContent ?? '',
+        };
+      }
+
+      const rosterFields = fields(rosterRow);
+      const browseFields = fields(browseCard as Element | null);
+      expect(rosterFields.when).not.toBe('');
+      expect(rosterFields).toEqual(browseFields);
+    } finally {
+      rosterPage.close();
+      browsePage.close();
+    }
+  });
+
+  // Proof round 3, D2: the summary sentence must not claim a population it
+  // is not showing. A skill filter narrows the rows on screen while the
+  // aggregate stays full-roster (app.ts: an operator's accountability does
+  // not shrink because a visitor filtered); the wording must say so
+  // honestly instead of claiming "every agent listed here" over a filtered
+  // view that plainly is not every agent.
+  it('the summary never claims a filtered view lists every agent when the aggregate is full-roster (D2)', async () => {
+    const page = await render(`/operators/${CONTROL_OPERATOR_DID}?skill=rust`);
+    try {
+      const rows = page.document.querySelectorAll('[data-agent-row]');
+      expect(rows.length).toBe(5);
+
+      const summary = page.document.getElementById('roster-summary')?.textContent ?? '';
+      expect(summary.toLowerCase()).not.toContain('listed here');
+      expect(summary).toContain('verified hire');
+    } finally {
+      page.close();
+    }
+  });
 });
