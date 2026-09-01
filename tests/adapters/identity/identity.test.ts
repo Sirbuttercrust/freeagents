@@ -13,6 +13,7 @@ import { fromRandom } from '@ocap/wallet';
 
 import { createIdentityAdapter } from '../../../src/adapters/identity/identity.js';
 import { createKnownKeyStore } from '../../../src/adapters/identity/did-abt-resolver.js';
+import { MemoryObservedKeyRepository } from '../../../src/adapters/storage/memory.js';
 import { signingIdentityFromWallet } from '../../helpers/sign-request.js';
 
 describe('createIdentityAdapter, resolveDid (real, local-only)', () => {
@@ -118,5 +119,59 @@ describe('createIdentityAdapter, verify (real, local-only)', () => {
     const signature = nodeCrypto.sign(null, Buffer.from(payload, 'utf8'), impostorSigning.privateKey).toString('base64');
 
     await expect(identity.verify({ payload, signature, signerDid: signing.did })).resolves.toBe(false);
+  });
+});
+
+// D2 (Proof round 1, task t_8a82c865): identity resolution must not depend
+// on process warmth. The anchor: "a stranger derives the same
+// verificationMethod from the keyid whether or not this process happened
+// to be running when the agent last signed" -- so this process must not
+// either. A durable ObservedKeyRepository, injected alongside the
+// in-process KnownKeyStore, is what makes that true across a restart: the
+// tests below simulate one by handing resolveDid/verify a FRESH KnownKeyStore
+// (never taught anything) alongside a durable store that already carries
+// the observation "from before the restart".
+describe('createIdentityAdapter, durable fallback (D2, task t_8a82c865)', () => {
+  it('resolveDid falls back to the ObservedKeyRepository when the in-process KnownKeyStore has no entry, simulating a restart', async () => {
+    const wallet = fromRandom();
+    const signing = await signingIdentityFromWallet(wallet);
+
+    const observedKeys = new MemoryObservedKeyRepository();
+    await observedKeys.record(signing.did, signing.keyid);
+
+    const freshKnownKeys = createKnownKeyStore();
+    const identity = createIdentityAdapter(freshKnownKeys, observedKeys);
+
+    const doc = await identity.resolveDid(signing.did);
+    expect(doc.verificationMethod).toEqual([signing.keyid]);
+  });
+
+  it('verify falls back to the ObservedKeyRepository the same way, and still checks the real signature', async () => {
+    const wallet = fromRandom();
+    const signing = await signingIdentityFromWallet(wallet);
+    const observedKeys = new MemoryObservedKeyRepository();
+    await observedKeys.record(signing.did, signing.keyid);
+
+    const freshKnownKeys = createKnownKeyStore();
+    const identity = createIdentityAdapter(freshKnownKeys, observedKeys);
+
+    const payload = 'freeagents identity verify durable-fallback payload';
+    const signature = nodeCrypto.sign(null, Buffer.from(payload, 'utf8'), signing.privateKey).toString('base64');
+
+    await expect(identity.verify({ payload, signature, signerDid: signing.did })).resolves.toBe(true);
+    // The negative control still holds through the durable path.
+    await expect(
+      identity.verify({ payload: 'a tampered payload', signature, signerDid: signing.did }),
+    ).resolves.toBe(false);
+  });
+
+  it('still throws when NEITHER the in-process store NOR the durable repository has observed the DID', async () => {
+    const observedKeys = new MemoryObservedKeyRepository();
+    const identity = createIdentityAdapter(createKnownKeyStore(), observedKeys);
+
+    await expect(identity.resolveDid('did:abt:zNeverObservedAnywhere')).rejects.toThrow();
+    await expect(
+      identity.verify({ payload: 'x', signature: 'AAAA', signerDid: 'did:abt:zNeverObservedAnywhere' }),
+    ).rejects.toThrow();
   });
 });

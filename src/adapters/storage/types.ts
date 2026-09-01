@@ -238,3 +238,27 @@ export interface ReviewRepository {
   // every other listing in this file takes).
   listByAgentDid(agentDid: string): Promise<readonly Review[]>;
 }
+
+// R-3 + R-4 completion (D2, task t_8a82c865): the durable record of the
+// most recent verification method this process has independently checked
+// for a DID, through the R-34 signing-key resolver's binding check (the
+// same check buildDidAbtLoader performs for a credential proof). A side
+// record, not a field on Agent or Account -- the same separation
+// KeyRotation and CompromiseReport already keep from the entity they
+// describe -- because this exists so identity.resolveDid and identity.verify
+// survive a process restart, not because it belongs to a DID's own
+// identity. The anchor (MISSION.md, this card): "a stranger derives the
+// same verificationMethod from the keyid whether or not this process
+// happened to be running when the agent last signed" -- before this
+// interface existed, this process could not either: KnownKeyStore alone is
+// an in-memory Map, and a restart between an agent's last signed request
+// and POST /jobs/:jobId/merge permanently 503'd the merge, with no
+// agent-drivable recovery once the job was submitted.
+export interface ObservedKeyRepository {
+  // Overwrites any prior entry for this DID, mirroring KnownKeyStore's own
+  // stance (did-abt-resolver.ts): a later verified signature is the
+  // freshest evidence, never merged with an older one.
+  record(did: string, verificationMethod: string): Promise<void>;
+  // Null when this DID has never passed the binding check durably.
+  get(did: string): Promise<string | null>;
+}

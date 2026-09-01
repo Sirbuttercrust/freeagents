@@ -236,6 +236,17 @@ model Settlement {
   job Job @relation(fields: [jobId], references: [id])
 }
 
+// R-3 + R-4 completion (D2, task t_8a82c865): the durable record of a
+// verified verificationMethod for a DID, so identity resolution survives a
+// process restart without any network call. One row per DID: a later
+// verified signature replaces the prior row, mirroring KnownKeyStore's own
+// overwrite-on-record stance (did-abt-resolver.ts).
+model ObservedKey {
+  did                String   @id
+  verificationMethod String
+  observedAt         DateTime @default(now())
+}
+
 // One review per completed job (ENT-10, R-22 issue 29). completedJobId
 // targets Job.id, the same repoint R-35 lap B made for Credential and for
 // the identical reason: neither storage driver ever inserts a CompletedJob

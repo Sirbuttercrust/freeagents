@@ -7,6 +7,7 @@ import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-
 import { securityLoader } from '@digitalbazaar/security-document-loader';
 import { fromPublicKey } from '@arcblock/did';
 import type { SigningKeyResolver } from './http-signature.js';
+import type { ObservedKeyRepository } from '../storage/types.js';
 
 // Ed25519VerificationKey2020 has a private _publicKeyBuffer property that holds
 // the raw public key bytes. This interface extends the public type to access it.
@@ -110,20 +111,19 @@ export function createKnownKeyStore(): KnownKeyStore {
   };
 }
 
-// Signing-key resolver for RFC 9421 request signatures (R-34). Given a
-// keyid of the form did:abt:<suffix>#<multibase-fingerprint>, reconstruct
-// the ed25519 public key from the fingerprint and require it to re-derive
-// the claimed DID suffix -- the same binding check as buildDidAbtLoader
-// above, applied to a bare request signature rather than a VC proof.
-// knownKeys is optional so every existing caller (tests, and any call site
-// that does not care about resolveDid/verify) is unaffected; when supplied,
-// a keyid that passes the binding check is recorded, giving resolveDid and
-// verify something real to work from the next time this same DID is asked
-// about (invariant 2: still no network call, only what THIS process has
-// itself independently verified).
+// D2 (task t_8a82c865): the durable half of the binding check's memory.
+// Optional so every existing caller (tests, and the smoke-test wrapped
+// adapter) is unaffected; when supplied, a keyid that passes the binding
+// check is recorded here too, so the SAME observation survives a process
+// restart, not just this process's lifetime. The anchor (this card): "a
+// stranger derives the same verificationMethod from the keyid whether or
+// not this process happened to be running when the agent last signed" --
+// this is what makes that true for THIS process's own later requests, not
+// only for a stranger's independent derivation.
 export function createDidAbtSigningKeyResolver(
   isRegistered: (did: string) => Promise<boolean>,
   knownKeys?: KnownKeyStore,
+  observedKeys?: ObservedKeyRepository,
 ): SigningKeyResolver {
   return async (did, keyid) => {
     try {
@@ -144,6 +144,7 @@ export function createDidAbtSigningKeyResolver(
       }).export({ type: 'spki', format: 'pem' }) as string;
 
       knownKeys?.record(did, keyid);
+      await observedKeys?.record(did, keyid);
 
       return { publicKeyPem };
     } catch {

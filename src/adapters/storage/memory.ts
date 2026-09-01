@@ -24,6 +24,7 @@ import {
   type AccountRepository,
   ReviewAlreadyExistsError,
   type ReviewRepository,
+  type ObservedKeyRepository,
   credentialLookupKey,
 } from './types.js';
 
@@ -326,5 +327,21 @@ export class MemoryReviewRepository implements ReviewRepository {
     // so filtering here is already oldest-first with no extra sort, the
     // same convention MemoryCredentialRepository.listBySubjectDid relies on.
     return [...this.rows.values()].filter((row) => row.agentDid === agentDid);
+  }
+}
+
+// D2 (task t_8a82c865): the durable half of the R-34 signing-key
+// resolver's binding check, so a restart does not erase what this process
+// already independently verified. Overwrite-on-record, never merge, the
+// same stance did-abt-resolver.ts's in-memory KnownKeyStore already takes.
+export class MemoryObservedKeyRepository implements ObservedKeyRepository {
+  private readonly rows = new Map<string, string>();
+
+  async record(did: string, verificationMethod: string): Promise<void> {
+    this.rows.set(did, verificationMethod);
+  }
+
+  async get(did: string): Promise<string | null> {
+    return this.rows.get(did) ?? null;
   }
 }

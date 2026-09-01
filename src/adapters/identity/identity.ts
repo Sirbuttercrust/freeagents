@@ -4,6 +4,7 @@ import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-
 import * as vc from '@digitalbazaar/vc';
 import { didSuffix, type Delegation } from '../../domain/agent.js';
 import { NotImplementedError } from '../not-implemented.js';
+import type { ObservedKeyRepository } from '../storage/types.js';
 import { buildDidAbtLoader, createKnownKeyStore, type KnownKeyStore } from './did-abt-resolver.js';
 import type { DidDocument, DidKeyPair, IdentityAdapter, SignedPayload } from './types.js';
 
@@ -35,7 +36,20 @@ export class DidNotResolvableError extends Error {
 // them (grep src/api/app.ts -- neither identity.createOperatorDid,
 // identity.createAgentDid nor identity.sign appears there), so building them
 // ahead of need would violate FACTORY_RULES.md 2.5.
-export function createIdentityAdapter(knownKeys: KnownKeyStore = createKnownKeyStore()): IdentityAdapter {
+export function createIdentityAdapter(
+  knownKeys: KnownKeyStore = createKnownKeyStore(),
+  observedKeys?: ObservedKeyRepository,
+): IdentityAdapter {
+  // D2 (task t_8a82c865): the in-process KnownKeyStore first (no I/O, the
+  // common case), the durable ObservedKeyRepository second, so a DID this
+  // process observed before a restart still resolves without a network
+  // call -- the anchor's own words, made true across process restarts and
+  // not only for a stranger's independent derivation.
+  async function resolveVerificationMethod(did: string): Promise<string | null> {
+    const inProcess = knownKeys.get(did);
+    if (inProcess !== null) return inProcess;
+    return (await observedKeys?.get(did)) ?? null;
+  }
   return {
     createOperatorDid(): Promise<DidKeyPair> {
       throw new NotImplementedError(CAPABILITY, 'createOperatorDid');
@@ -85,24 +99,30 @@ export function createIdentityAdapter(knownKeys: KnownKeyStore = createKnownKeyS
     // observed for this DID (knownKeys, populated by the R-34 signing-key
     // resolver's binding check -- the same discipline buildDidAbtLoader
     // above already applies to a credential's proof). alsoKnownAs is
-    // always null here: the real DID document's alsoKnownAs entry (R-3
-    // direction one) is authored by the operator's own wallet tooling and
-    // is not derivable from key material alone, so this adapter is honest
-    // about not knowing it rather than fabricating an empty-but-plausible
-    // answer. A DID this process has never seen a valid signature from is
-    // a DidNotResolvableError, never a guessed document.
+    // always undefined here, never null: the real DID document's
+    // alsoKnownAs entry (R-3 direction one) is authored by the operator's
+    // own wallet tooling and is not derivable from key material alone, so
+    // this adapter has no path to check it at all. undefined says exactly
+    // that ("cannot determine"), which the account-proof route maps to a
+    // 503; null would claim "checked, no claim present" and hand back a
+    // 409 whose remedy the operator can never make this adapter observe
+    // (Proof round 1, D1, task t_8a82c865: a permanent, unsatisfiable
+    // conflict is worse than the outage it replaced). A DID this process
+    // has never seen a valid signature from is a DidNotResolvableError,
+    // never a guessed document.
     resolveDid(did: string): Promise<DidDocument> {
-      const verificationMethod = knownKeys.get(did);
-      if (verificationMethod === null) {
-        return Promise.reject(new DidNotResolvableError(did));
-      }
-      const doc: DidDocument = {
-        id: did,
-        controller: null,
-        verificationMethod: [verificationMethod],
-        alsoKnownAs: null,
-      };
-      return Promise.resolve(doc);
+      return resolveVerificationMethod(did).then((verificationMethod) => {
+        if (verificationMethod === null) {
+          throw new DidNotResolvableError(did);
+        }
+        const doc: DidDocument = {
+          id: did,
+          controller: null,
+          verificationMethod: [verificationMethod],
+          alsoKnownAs: undefined,
+        };
+        return doc;
+      });
     },
     sign(_did: string, _payload: string): Promise<SignedPayload> {
       throw new NotImplementedError(CAPABILITY, 'sign');
@@ -115,7 +135,7 @@ export function createIdentityAdapter(knownKeys: KnownKeyStore = createKnownKeyS
     // signerDid throws, the same "no data to work from" case resolveDid
     // above throws on.
     async verify(signed: SignedPayload): Promise<boolean> {
-      const verificationMethod = knownKeys.get(signed.signerDid);
+      const verificationMethod = await resolveVerificationMethod(signed.signerDid);
       if (verificationMethod === null) {
         throw new DidNotResolvableError(signed.signerDid);
       }

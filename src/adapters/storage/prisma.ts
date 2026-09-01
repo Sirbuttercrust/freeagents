@@ -24,6 +24,7 @@ import {
   ReviewAlreadyExistsError,
   type ReviewRepository,
   type StoredCredential,
+  type ObservedKeyRepository,
   credentialLookupKey,
 } from './types.js';
 
@@ -615,5 +616,45 @@ export class PrismaReviewRepository implements ReviewRepository {
       text: row.text,
       createdAt: row.createdAt,
     }));
+  }
+}
+
+// D2 (task t_8a82c865): addressed structurally, for the same reason
+// rotationDb() and compromiseDb() are: the generated client lags the
+// schema, and this path cannot regenerate it.
+interface ObservedKeyRow {
+  did: string;
+  verificationMethod: string;
+  observedAt: Date;
+}
+function observedKeyDb() {
+  return db() as unknown as {
+    observedKey: {
+      upsert(args: {
+        where: { did: string };
+        create: { did: string; verificationMethod: string };
+        update: { verificationMethod: string; observedAt: Date };
+      }): Promise<ObservedKeyRow>;
+      findUnique(args: { where: { did: string } }): Promise<ObservedKeyRow | null>;
+    };
+  };
+}
+
+// D2 (task t_8a82c865): the durable half of the R-34 signing-key
+// resolver's binding check. upsert, not create: a later verified signature
+// replaces the prior row, the same overwrite-on-record stance the
+// in-process KnownKeyStore already takes (did-abt-resolver.ts).
+export class PrismaObservedKeyRepository implements ObservedKeyRepository {
+  async record(did: string, verificationMethod: string): Promise<void> {
+    await observedKeyDb().observedKey.upsert({
+      where: { did },
+      create: { did, verificationMethod },
+      update: { verificationMethod, observedAt: new Date() },
+    });
+  }
+
+  async get(did: string): Promise<string | null> {
+    const row = await observedKeyDb().observedKey.findUnique({ where: { did } });
+    return row?.verificationMethod ?? null;
   }
 }

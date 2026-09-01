@@ -33,6 +33,7 @@ import {
   type JobRepository,
   type AccountRepository,
   type ReviewRepository,
+  type ObservedKeyRepository,
 } from '../adapters/storage/types.js';
 import {
   createAgentRepository,
@@ -41,6 +42,7 @@ import {
   createJobRepository,
   createAccountRepository,
   createReviewRepository,
+  createObservedKeyRepository,
 } from '../adapters/storage/storage.js';
 import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
@@ -395,6 +397,14 @@ export function createApp(
   // stance in this file. Injectable so tests can mint a live token against
   // a fake GitHub backend instead of exercising real OAuth.
   session: SessionAdapter = sessionAdapterFromEnv(),
+  // D2 (task t_8a82c865): the durable half of the R-34 signing-key
+  // resolver's binding check, so identity resolution survives a process
+  // restart. Defaults to the env-derived repository, matching every other
+  // storage capability's stance in this file. Injectable so a test can
+  // share one durable store across two separate createApp calls, the way
+  // it shares any other repository, to prove a restart does not lose the
+  // observation.
+  observedKeyRepo: ObservedKeyRepository = createObservedKeyRepository(),
 ): Express {
   // One repository behind both halves of the capability when the caller
   // supplies neither. createCredentialRepository() hands the memory driver a
@@ -421,7 +431,7 @@ export function createApp(
   // exchange), and the merge route can later name that same key on the
   // credential (ENT-8) with no new network call, only local recall.
   const knownKeys = createKnownKeyStore();
-  const identityAdapter = identity ?? createIdentityAdapter(knownKeys);
+  const identityAdapter = identity ?? createIdentityAdapter(knownKeys, observedKeyRepo);
 
   // R-34: either an agent or an operator DID may sign (the issue's wording
   // is "a registered agent or operator DID"). A storage failure inside this
@@ -430,6 +440,7 @@ export function createApp(
   const signingKeys = createDidAbtSigningKeyResolver(
     async (did) => (await agentRepo.findByDid(did)) !== null || (await repo.findByDid(did)) !== null,
     knownKeys,
+    observedKeyRepo,
   );
 
   // R-34: adds a second, optional, verifiable identity path alongside the
@@ -1027,6 +1038,22 @@ export function createApp(
       doc = await identityAdapter.resolveDid(did);
     } catch (err) {
       console.error('POST /agents/:agentDid/account-proof: identity resolution failed', err);
+      res.status(503).json({ error: 'identity resolution unavailable' });
+      return;
+    }
+
+    // alsoKnownAs undefined means the resolver could not determine the
+    // field at all (Proof round 1, D1, task t_8a82c865): this adapter's
+    // resolveDid never learns it, so a 409 naming "add ... to its
+    // alsoKnownAs field" would be a remedy the operator can never satisfy
+    // from this adapter's point of view. That is a platform limitation,
+    // not an operator error, so it is the same 503 an unresolvable DID
+    // gets, distinct from a genuinely resolved document with no claim
+    // (alsoKnownAs: null), which stays the 409 below.
+    if (doc.alsoKnownAs === undefined) {
+      console.error(
+        `POST /agents/:agentDid/account-proof: identity resolution for ${did} cannot determine alsoKnownAs`,
+      );
       res.status(503).json({ error: 'identity resolution unavailable' });
       return;
     }
