@@ -17,10 +17,12 @@ import {
 } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { Job } from '../../src/domain/job.js';
+import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 
 const OPERATOR_DID = 'did:abt:zR37Operator';
 const COLD_DID = 'did:abt:zR37ColdAgent';
 const HIRED_DID = 'did:abt:zR37HiredAgent';
+const PRIVATE_ONLY_DID = 'did:abt:zR37PrivateOnlyAgent';
 
 function delegation(agentDid: string): Delegation {
   return {
@@ -57,6 +59,38 @@ function jobFixture(overrides: Partial<Job> & { id: string; agentDid: string }):
     deadline: null,
     createdAt: new Date('2026-08-01T00:00:00Z'),
     ...overrides,
+  };
+}
+
+function credentialDoc(
+  id: string,
+  subjectDid: string,
+  repository: string,
+  mergeCommit: string,
+  mergedAt: string,
+): VerifiableCredential {
+  return {
+    '@context': ['https://www.w3.org/ns/credentials/v2'],
+    id,
+    type: ['VerifiableCredential', 'CompletedHireCredential'],
+    issuer: 'did:abt:platform',
+    validFrom: mergedAt,
+    credentialSubject: {
+      id: subjectDid,
+      hire: {
+        brief: 'sha256:brief',
+        repository,
+        pullRequest: `https://github.com/${repository}/pull/1`,
+        mergedAt,
+        mergeCommit,
+        signedBy: `${subjectDid}#key-1`,
+        buyer: 'did:example:r37-buyer',
+        additions: 10,
+        deletions: 2,
+        filesChanged: 1,
+      },
+    },
+    proof: { type: 'Ed25519Signature2020', proofValue: 'zProof' },
   };
 }
 
@@ -97,6 +131,56 @@ beforeAll(async () => {
       completedAt: new Date('2026-08-30T00:00:00Z'),
     },
   );
+  await credentialRepo.save({
+    completedJobId: draft.id,
+    subjectDid: HIRED_DID,
+    document: credentialDoc(
+      'urn:uuid:r37-job-1',
+      HIRED_DID,
+      'buyer/r37-repo',
+      'r37cafe',
+      '2026-08-30T00:00:00.000Z',
+    ),
+    repositoryPublic: true,
+  });
+
+  // D1 (Proof, task t_28c5458e): an agent whose only completed hire merged
+  // into a private repository. evidenceTier demotes it to portfolio, so
+  // verifiedHires stays empty even though a completed job exists. The
+  // profile page must not render a last-hire date beside an empty
+  // "Verified hire" section for this agent.
+  await agentRepo.create({
+    did: PRIVATE_ONLY_DID,
+    operatorDid: OPERATOR_DID,
+    delegation: delegation(PRIVATE_ONLY_DID),
+    name: 'private-only-agent',
+    skills: [],
+    githubLogin: null,
+  });
+  const privateDraft = jobFixture({ id: 'r37-job-private', agentDid: PRIVATE_ONLY_DID });
+  await jobRepo.create(privateDraft);
+  await jobRepo.complete(
+    { ...privateDraft, status: 'completed', mergeCommit: 'r37priv1', mergedAt: new Date('2026-07-04T00:00:00Z') },
+    {
+      jobId: privateDraft.id,
+      buyerDid: privateDraft.buyerDid,
+      agentDid: PRIVATE_ONLY_DID,
+      mergeCommit: 'r37priv1',
+      completedAt: new Date('2026-07-04T00:00:00Z'),
+    },
+  );
+  await credentialRepo.save({
+    completedJobId: privateDraft.id,
+    subjectDid: PRIVATE_ONLY_DID,
+    document: credentialDoc(
+      'urn:uuid:r37-job-private',
+      PRIVATE_ONLY_DID,
+      'buyer/r37-private-repo',
+      'r37priv1',
+      '2026-07-04T00:00:00.000Z',
+    ),
+    repositoryPublic: false,
+  });
 
   const app = createApp(undefined, agentRepo, undefined, undefined, jobRepo, undefined, undefined, credentialRepo);
   server = app.listen(0);
@@ -174,5 +258,13 @@ describe('agent profile renders freshness as plain facts (R-37)', () => {
     const coldDocument = await render(`/agents/${COLD_DID}`);
     const coldLastHire = coldDocument.getElementById('tech-last-hire')?.textContent ?? '';
     expect(coldLastHire).toBe('not recorded');
+  });
+
+  it('an agent whose only completed hire is a private-repo merge renders no last-hire date beside its empty verified-hire tier (D1)', async () => {
+    const document = await render(`/agents/${PRIVATE_ONLY_DID}`);
+    const emptyStateText = (document.getElementById('history-empty')?.textContent ?? '').toLowerCase();
+    expect(emptyStateText).toContain('no verified hires');
+    const lastHire = document.getElementById('tech-last-hire')?.textContent ?? '';
+    expect(lastHire).toBe('not recorded');
   });
 });

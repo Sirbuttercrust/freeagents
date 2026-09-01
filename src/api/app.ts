@@ -664,12 +664,23 @@ export function createApp(
         return;
       }
       const completedHires = await jobRepo.findCompletedByAgent(did);
+      const record = agentWorkRecord(evidence);
+      // D1 (Proof, task t_c55991ed): lastHireCompletedAt must sit beside the
+      // SAME population verifiedHires renders, or a private-repo agent's
+      // page states both "no verified hires" and a date for the hire that
+      // didn't verify. record.verifiedHires is the one array the "Verified
+      // hire" section itself renders from (agent-work-record.ts), so
+      // reading mergedAt off it, rather than off the tier-blind
+      // completedHires, keeps the summary and the tier answering the same
+      // question. recordLastChangedAt stays tier-agnostic on purpose: "did
+      // anything in this record change" is a claim about the whole record,
+      // not about the verified-hire tier, so it still reads completedHires.
       const freshness = {
-        lastHireCompletedAt: lastHireCompletedAt(completedHires),
+        lastHireCompletedAt: lastHireCompletedAt(record.verifiedHires.map((hire) => ({ completedAt: hire.mergedAt }))),
         recordLastChangedAt: recordLastChangedAt(row, completedHires),
       };
 
-      res.status(200).json({ ...agentProjection(row), ...agentWorkRecord(evidence), ...freshness });
+      res.status(200).json({ ...agentProjection(row), ...record, ...freshness });
     } catch (err) {
       console.error('GET /agents/:agentDid: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });

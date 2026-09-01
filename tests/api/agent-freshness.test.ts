@@ -18,6 +18,7 @@ import {
 import type { Agent, Delegation } from '../../src/domain/agent.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import type { Job } from '../../src/domain/job.js';
+import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 
 function listen(app: Express): Promise<Server> {
   return new Promise((resolve) => {
@@ -67,12 +68,48 @@ function jobFixture(overrides: Partial<Job> & { id: string; agentDid: string }):
   };
 }
 
-async function completeJob(
+function credentialDoc(id: string, subjectDid: string, mergeCommit: string, mergedAt: string): VerifiableCredential {
+  return {
+    '@context': ['https://www.w3.org/ns/credentials/v2'],
+    id,
+    type: ['VerifiableCredential', 'CompletedHireCredential'],
+    issuer: 'did:abt:platform',
+    validFrom: mergedAt,
+    credentialSubject: {
+      id: subjectDid,
+      hire: {
+        brief: 'sha256:brief',
+        repository: 'buyer/freshness-repo',
+        pullRequest: `https://github.com/buyer/freshness-repo/pull/1`,
+        mergedAt,
+        mergeCommit,
+        signedBy: `${subjectDid}#key-1`,
+        buyer: 'did:example:freshness-buyer',
+        additions: 10,
+        deletions: 2,
+        filesChanged: 1,
+      },
+    },
+    proof: { type: 'Ed25519Signature2020', proofValue: 'zProof' },
+  };
+}
+
+// Completes a job AND issues its credential in the same call, mirroring
+// what the real merge route always does (src/api/app.ts's POST
+// /jobs/:jobId/merge writes jobRepo.complete then credentialRepo.save for
+// every merge, never one without the other). repositoryPublic controls
+// which tier evidenceTier assigns the credential to (invariant 4): a
+// private-repo merge demotes to portfolio, so lastHireCompletedAt (D1,
+// Proof task t_28c5458e) must read this same tier boundary, not the wider
+// jobRepo population alone.
+async function completeJobWithCredential(
   jobRepo: MemoryJobRepository,
+  credentialRepo: MemoryCredentialRepository,
   id: string,
   agentDid: string,
   mergeCommit: string,
   completedAt: Date,
+  repositoryPublic: boolean,
 ): Promise<void> {
   const draft = jobFixture({ id, agentDid });
   await jobRepo.create(draft);
@@ -80,6 +117,12 @@ async function completeJob(
     { ...draft, status: 'completed', mergeCommit, mergedAt: completedAt },
     { jobId: id, buyerDid: draft.buyerDid, agentDid, mergeCommit, completedAt },
   );
+  await credentialRepo.save({
+    completedJobId: id,
+    subjectDid: agentDid,
+    document: credentialDoc(`urn:uuid:${id}`, agentDid, mergeCommit, completedAt.toISOString()),
+    repositoryPublic,
+  });
 }
 
 describe('GET /agents/:agentDid, freshness (R-37)', () => {
@@ -87,10 +130,12 @@ describe('GET /agents/:agentDid, freshness (R-37)', () => {
   let baseUrl: string;
   const agentRepo = new MemoryAgentRepository();
   const jobRepo = new MemoryJobRepository();
+  const credentialRepo = new MemoryCredentialRepository();
   const operatorDid = 'did:abt:zOperatorFreshness';
 
   const coldDid = 'did:abt:zAgentFreshnessCold';
   const hiredDid = 'did:abt:zAgentFreshnessHired';
+  const privateOnlyDid = 'did:abt:zAgentFreshnessPrivateOnly';
 
   beforeAll(async () => {
     const app = createApp(
@@ -101,7 +146,7 @@ describe('GET /agents/:agentDid, freshness (R-37)', () => {
       jobRepo,
       undefined,
       undefined,
-      new MemoryCredentialRepository(),
+      credentialRepo,
     );
     server = await listen(app);
     baseUrl = `http://127.0.0.1:${portOf(server)}`;
@@ -124,8 +169,47 @@ describe('GET /agents/:agentDid, freshness (R-37)', () => {
       skills: ['triage'],
       githubLogin: null,
     });
-    await completeJob(jobRepo, 'freshness-job-1', hiredDid, 'freshcafe1', new Date('2026-02-01T00:00:00.000Z'));
-    await completeJob(jobRepo, 'freshness-job-2', hiredDid, 'freshcafe2', new Date('2026-05-01T00:00:00.000Z'));
+    await completeJobWithCredential(
+      jobRepo,
+      credentialRepo,
+      'freshness-job-1',
+      hiredDid,
+      'freshcafe1',
+      new Date('2026-02-01T00:00:00.000Z'),
+      true,
+    );
+    await completeJobWithCredential(
+      jobRepo,
+      credentialRepo,
+      'freshness-job-2',
+      hiredDid,
+      'freshcafe2',
+      new Date('2026-05-01T00:00:00.000Z'),
+      true,
+    );
+
+    // D1 (Proof, task t_28c5458e): an agent whose only completed hire merged
+    // into a private repository. evidenceTier demotes it to portfolio, so
+    // verifiedHires stays empty for this agent even though jobRepo carries a
+    // completed job dated 2026-07-04. lastHireCompletedAt must not read past
+    // that tier boundary.
+    await agentRepo.create({
+      did: privateOnlyDid,
+      operatorDid,
+      delegation: delegation(privateOnlyDid, operatorDid),
+      name: 'private-only-agent',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    await completeJobWithCredential(
+      jobRepo,
+      credentialRepo,
+      'freshness-job-private',
+      privateOnlyDid,
+      'freshprivate1',
+      new Date('2026-07-04T00:00:00.000Z'),
+      false,
+    );
   });
 
   afterAll(async () => {
@@ -162,7 +246,15 @@ describe('GET /agents/:agentDid, freshness (R-37)', () => {
     // unambiguously the latest fact in the record regardless of how far
     // in real time the agent's own createdAt landed relative to the
     // earlier 2026-02/2026-05 fixture dates.
-    await completeJob(jobRepo, 'freshness-job-3', hiredDid, 'freshcafe3', new Date('2099-01-01T00:00:00.000Z'));
+    await completeJobWithCredential(
+      jobRepo,
+      credentialRepo,
+      'freshness-job-3',
+      hiredDid,
+      'freshcafe3',
+      new Date('2099-01-01T00:00:00.000Z'),
+      true,
+    );
 
     const after = await fetch(`${baseUrl}/agents/${hiredDid}`);
     const afterBody = (await after.json()) as Record<string, unknown>;
@@ -176,5 +268,17 @@ describe('GET /agents/:agentDid, freshness (R-37)', () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(typeof body.lastHireCompletedAt).toBe('string');
     expect(typeof body.recordLastChangedAt).toBe('string');
+  });
+
+  it('lastHireCompletedAt is null for an agent whose only completed hire is a private-repo merge, matching its empty verified-hire tier (D1)', async () => {
+    const res = await fetch(`${baseUrl}/agents/${privateOnlyDid}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    // The tier this date is supposed to sit beside is empty: a merge into a
+    // private repository never reaches verified-hire (invariant 4).
+    expect(body.verifiedHires).toEqual([]);
+    // The blocker Proof reported: this must not read July 4 out of the
+    // wider, tier-blind findCompletedByAgent population.
+    expect(body.lastHireCompletedAt).toBeNull();
   });
 });
