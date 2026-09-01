@@ -197,6 +197,77 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
     expect(withSession.status).toBe(201);
   });
 
+  it('a hire-loop route returns 401 for an expired or a merely malformed bearer token, never an anonymous fallthrough', async () => {
+    // A gated route must refuse an invalid credential exactly as it refuses
+    // an absent one -- 401 either way, never treated as if no Authorization
+    // header were sent at all. getSession resolves expired and unknown
+    // tokens to null indistinguishably (pinned above); this proves the HTTP
+    // gate honours that null the same way for every kind of bad token.
+    let now = new Date('2026-08-27T00:00:00Z').getTime();
+    const real = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'octo-cat', id: 777 }),
+      sessionTtlMs: 1000,
+      now: () => now,
+    });
+    const start = await real.beginGitHubOAuth();
+    const session = await real.completeGitHubOAuth({ code: 'irrelevant-code', state: start.state });
+    const token = session!.token;
+
+    const agentRepo = new MemoryAgentRepository();
+    const agentDid = 'did:abt:session-invalid-agent';
+    await agentRepo.create({
+      did: agentDid,
+      operatorDid: 'did:abt:op-session-invalid',
+      delegation: delegationFixture(agentDid),
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    const baseUrl = await listen(createApp(undefined, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, real));
+
+    const jobBody = {
+      buyerDid: 'did:abt:session-invalid-buyer',
+      agentDid,
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    };
+
+    // Live, right before expiry: the session gate accepts it.
+    now += 999;
+    const live = await fetch(`${baseUrl}/jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify(jobBody),
+    });
+    expect(live.status).toBe(201);
+
+    // Past the TTL: the same token is now expired, and the route refuses.
+    now += 2;
+    const expired = await fetch(`${baseUrl}/jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify(jobBody),
+    });
+    expect(expired.status).toBe(401);
+
+    // A token this adapter never issued: 401, not treated as anonymous.
+    const unknown = await fetch(`${baseUrl}/jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer never-issued-token' },
+      body: JSON.stringify(jobBody),
+    });
+    expect(unknown.status).toBe(401);
+
+    // A malformed Authorization header (wrong scheme entirely): same 401.
+    const malformed = await fetch(`${baseUrl}/jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Basic not-a-bearer-token' },
+      body: JSON.stringify(jobBody),
+    });
+    expect(malformed.status).toBe(401);
+  });
+
   it('browse and verify routes succeed with no session and no account', async () => {
     // GET /agents/:agentDid and GET /v1/credentials/:credentialId answer a
     // stranger. This is the product's trust story; a session requirement

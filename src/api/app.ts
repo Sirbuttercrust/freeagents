@@ -388,15 +388,18 @@ export function createApp(
     return { did: result.did };
   }
 
-  // R-34: a second, optional, verifiable identity path alongside the five
-  // hire-loop routes that carry it -- it never replaces a check that exists
-  // today, because none does on those routes (no session, cookie or bearer
-  // token gates them; only the caller-identity match inside each handler).
-  // Unsigned traffic is untouched; a request that is signed wrong is
-  // refused rather than let through, because a present-but-invalid
-  // signature is worse than none. Wrapped like forwarded() below, for the
-  // same Express-4 reason: a rejected promise here would otherwise vanish
-  // into an unhandled rejection.
+  // R-34: a second, optional, verifiable identity path alongside the four
+  // ENT-6.2 party-exchange routes that carry it (criteria, request-changes,
+  // accept, confirm) -- it never replaces a check that exists today on those
+  // routes, because none does (no session, cookie or bearer token gates
+  // them; only the caller-identity match inside each handler). POST /jobs,
+  // POST /operators and POST /agents no longer use this middleware: they are
+  // gated by requireSessionOrSignature below instead (R-39 follow-up, issue
+  // 83). Unsigned traffic on the four exchange routes is untouched; a
+  // request that is signed wrong is refused rather than let through,
+  // because a present-but-invalid signature is worse than none. Wrapped
+  // like forwarded() below, for the same Express-4 reason: a rejected
+  // promise here would otherwise vanish into an unhandled rejection.
   const didSignature = (req: Request, res: Response, next: NextFunction): void => {
     void (async () => {
       const outcome = await verifySignedRequest(req);
