@@ -242,8 +242,11 @@ export interface ReviewRepository {
 // R-3 + R-4 completion (D2, task t_8a82c865): the durable record of the
 // most recent verification method this process has independently checked
 // for a DID, through the R-34 signing-key resolver's binding check (the
-// same check buildDidAbtLoader performs for a credential proof). A side
-// record, not a field on Agent or Account -- the same separation
+// same check buildDidAbtLoader performs for a credential proof) AND a
+// genuinely verified request signature (D4/D5, task t_8a82c865: the write
+// happens from http-signature.ts's verify(), only once the ed25519 bytes
+// have checked out, never merely on the binding check over public data).
+// A side record, not a field on Agent or Account -- the same separation
 // KeyRotation and CompromiseReport already keep from the entity they
 // describe -- because this exists so identity.resolveDid and identity.verify
 // survive a process restart, not because it belongs to a DID's own

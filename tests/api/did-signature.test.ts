@@ -11,7 +11,9 @@ import {
   type SigningKeyResolver,
 } from '../../src/adapters/identity/http-signature.js';
 import { createDidAbtSigningKeyResolver, createKnownKeyStore } from '../../src/adapters/identity/did-abt-resolver.js';
-import { signingIdentityFromSeed, signRequest } from '../helpers/sign-request.js';
+import { MemoryObservedKeyRepository } from '../../src/adapters/storage/memory.js';
+import type { ObservedKeyRepository } from '../../src/adapters/storage/types.js';
+import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
 describe('DID-signed requests (RFC 9421)', () => {
   it('accepts a request whose Signature-Input and Signature verify against the resolved key', async () => {
@@ -193,7 +195,13 @@ describe('DID-signed requests (RFC 9421)', () => {
     expect(resolved).toBeNull();
   });
 
-  it('records the observed verification method in a KnownKeyStore when the binding check passes', async () => {
+  // D5 (Proof round 2, task t_8a82c865): recording is now deferred to an
+  // onVerified callback the resolver hands back, invoked by http-signature
+  // verify() only once the request's own signature bytes have checked out
+  // -- not merely once the keyid's binding check (public data) passes. A
+  // direct call to the resolver proves the key resolved but records
+  // nothing until the caller confirms the signature verified.
+  it('records the observed verification method in a KnownKeyStore once the caller confirms the signature verified', async () => {
     const identity = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
     const knownKeys = createKnownKeyStore();
     const resolver = createDidAbtSigningKeyResolver(async () => true, knownKeys);
@@ -203,6 +211,10 @@ describe('DID-signed requests (RFC 9421)', () => {
     const resolved = await resolver(identity.did, identity.keyid);
 
     expect(resolved).not.toBeNull();
+    expect(knownKeys.get(identity.did)).toBeNull();
+
+    await resolved?.onVerified?.();
+
     expect(knownKeys.get(identity.did)).toBe(identity.keyid);
   });
 
@@ -217,5 +229,81 @@ describe('DID-signed requests (RFC 9421)', () => {
     await resolver(victim.did, forgedKeyid);
 
     expect(knownKeys.get(victim.did)).toBeNull();
+  });
+
+  // D4 (Proof round 2, task t_8a82c865): a durable-write failure must not
+  // change the answer to "did this signature verify". The signature has
+  // already checked out by the time onVerified runs; the durable write
+  // inside it is bookkeeping, not part of the verdict. A throwing
+  // ObservedKeyRepository used to be caught by the resolver's own
+  // try/catch before onVerified existed, and turned the whole resolution
+  // into null -- which every SigningKeyResolver caller reads as "this
+  // signature does not verify" -- so a Postgres blip reported a genuine
+  // signature as forged.
+  it('a genuine signature still verifies when the durable ObservedKeyRepository write throws (D4)', async () => {
+    const identity = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
+    const throwingObservedKeys: ObservedKeyRepository = {
+      record: () => Promise.reject(new Error('durable store unavailable')),
+      get: () => Promise.resolve(null),
+    };
+    const resolver = createDidAbtSigningKeyResolver(async () => true, undefined, throwingObservedKeys);
+    const targetUri = 'http://127.0.0.1:41234/jobs';
+    const headers = signRequest(identity, 'POST', targetUri, { components: ['@method', '@target-uri'] });
+
+    const result = await verify({ method: 'POST', targetUri, headers }, resolver);
+
+    expect(result).toEqual({ did: identity.did });
+  });
+
+  it('still records into the in-process KnownKeyStore when the durable write throws (D4)', async () => {
+    const identity = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
+    const knownKeys = createKnownKeyStore();
+    const throwingObservedKeys: ObservedKeyRepository = {
+      record: () => Promise.reject(new Error('durable store unavailable')),
+      get: () => Promise.resolve(null),
+    };
+    const resolver = createDidAbtSigningKeyResolver(async () => true, knownKeys, throwingObservedKeys);
+    const targetUri = 'http://127.0.0.1:41234/jobs';
+    const headers = signRequest(identity, 'POST', targetUri, { components: ['@method', '@target-uri'] });
+
+    await verify({ method: 'POST', targetUri, headers }, resolver);
+
+    expect(knownKeys.get(identity.did)).toBe(identity.keyid);
+  });
+
+  // D5 (Proof round 2, task t_8a82c865): the durable write must not happen
+  // before the request's own signature bytes are confirmed to verify.
+  // Before this fix, the resolver recorded as soon as the keyid's binding
+  // check passed (a check over PUBLIC data: the fingerprint re-deriving
+  // the claimed DID, both of which ride on the wire in every signed
+  // request and every issued credential). An attacker who knows a
+  // registered victim's DID and real keyid can sign a request with their
+  // OWN private key while presenting the victim's genuine keyid: the
+  // binding check passes (it is the victim's real fingerprint), so the
+  // old code recorded the victim's own correct verification method,
+  // before ever checking whether the BYTES of this particular request
+  // were actually signed by that key. The route still 401s (the ed25519
+  // check itself fails), but the durable write already happened.
+  it('does not durably record before the request signature itself has actually verified (D5)', async () => {
+    const victim = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
+    const attacker = await signingIdentityFromSeed(new Uint8Array(32).fill(9));
+    const observedKeys = new MemoryObservedKeyRepository();
+    const resolver = createDidAbtSigningKeyResolver(async () => true, undefined, observedKeys);
+    const targetUri = 'http://127.0.0.1:41234/jobs';
+
+    // The victim's genuine keyid (public), signed with the attacker's
+    // private key: the binding check alone cannot catch this, only the
+    // actual ed25519 verification over the request bytes can.
+    const forgedIdentity: SigningIdentity = {
+      did: victim.did,
+      keyid: victim.keyid,
+      privateKey: attacker.privateKey,
+    };
+    const headers = signRequest(forgedIdentity, 'POST', targetUri, { components: ['@method', '@target-uri'] });
+
+    const result = await verify({ method: 'POST', targetUri, headers }, resolver);
+
+    expect(result).toBeNull();
+    expect(await observedKeys.get(victim.did)).toBeNull();
   });
 });

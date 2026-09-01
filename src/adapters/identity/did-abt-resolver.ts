@@ -143,10 +143,20 @@ export function createDidAbtSigningKeyResolver(
         format: 'jwk',
       }).export({ type: 'spki', format: 'pem' }) as string;
 
-      knownKeys?.record(did, keyid);
-      await observedKeys?.record(did, keyid);
-
-      return { publicKeyPem };
+      // D4/D5 (task t_8a82c865): recording is deferred to onVerified,
+      // called by http-signature.ts's verify() only after the request's
+      // own signature bytes have checked out -- not here, where only the
+      // keyid's binding check (public data) has passed. knownKeys.record
+      // is synchronous and in-memory, so it cannot itself fail; it runs
+      // before the durable write so a durable-write failure never loses
+      // the in-process observation.
+      return {
+        publicKeyPem,
+        async onVerified() {
+          knownKeys?.record(did, keyid);
+          await observedKeys?.record(did, keyid);
+        },
+      };
     } catch {
       return null;
     }
