@@ -28,7 +28,7 @@ import {
   MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
-import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
+import { testSessionAdapter } from '../helpers/session-fixtures.js';
 
 // The did:abt suffix derives from the public key, exactly like agent DIDs, so
 // the proof's verification method binds back to the DID without any lookup in
@@ -193,7 +193,6 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
     const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: buyerDid, githubLogin: 'buyer-merge-invariant2' });
     const sessionAdapter = testSessionAdapter();
-    const authHeader = { authorization: `Bearer ${await mintSessionToken(sessionAdapter)}` };
 
     const s = createApp(
       operatorRepo,
@@ -218,12 +217,11 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
     baseUrl = `http://127.0.0.1:${address.port}`;
 
     // Walk one job over HTTP, all the way to merge.
-    const draft = await post(baseUrl, '/jobs', {
-      buyerDid,
+    const draft = await postSigned(baseUrl, '/jobs', {
       agentDid,
       repository: 'buyer/target-repo',
       brief: 'Fix the checkout timeout',
-    }, authHeader);
+    }, buyerIdentity);
     expect(draft.status).toBe(201);
     const jobId = String(((await draft.json()) as Record<string, unknown>).id);
 

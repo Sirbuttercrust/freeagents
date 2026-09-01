@@ -37,7 +37,7 @@ import {
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { createJob, type Job } from '../../src/domain/job.js';
-import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { signingIdentityFromSeed, signingIdentityFromWallet, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 const proposal = [
@@ -398,13 +398,12 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
     ).toBe(201);
     expect(
       (
-        await post('/agents', {
+        await postSigned('/agents', {
           did: agentWallet.toDid(),
-          operator: operatorWallet.toDid(),
           delegation: await signW3CDelegation(operatorWallet, agentWallet),
           name: 'scout',
           skills: ['triage'],
-        }, authHeader)
+        }, await signingIdentityFromWallet(operatorWallet))
       ).status,
     ).toBe(201);
   });
@@ -414,17 +413,6 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
   });
 
   it('a stranger recomputes specHash from the response alone, no call to this service', async () => {
-    // An interior CRLF survives proposeCriteria's trim, so join AND
-    // normalisation both have to be right for the digest to match.
-    const created = await post('/jobs', {
-      buyerDid: operatorWallet.toDid(),
-      agentDid: agentWallet.toDid(),
-      repository: 'buyer/target-repo',
-      brief: 'Fix the login bug\r\nthen deploy\n  ',
-    }, authHeader);
-    expect(created.status).toBe(201);
-    const jobId = String(((await created.json()) as Record<string, unknown>).id);
-
     const walletSigningIdentity = async (wallet: WalletObject): Promise<SigningIdentity> => {
       const seed = hexToBytes(wallet.secretKey).slice(0, 32);
       const key = await Ed25519VerificationKey2020.generate({ seed, controller: wallet.toDid() });
@@ -440,6 +428,16 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
     };
     const operatorIdentity = await walletSigningIdentity(operatorWallet);
     const agentIdentity = await walletSigningIdentity(agentWallet);
+
+    // An interior CRLF survives proposeCriteria's trim, so join AND
+    // normalisation both have to be right for the digest to match.
+    const created = await postSigned('/jobs', {
+      agentDid: agentWallet.toDid(),
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug\r\nthen deploy\n  ',
+    }, operatorIdentity);
+    expect(created.status).toBe(201);
+    const jobId = String(((await created.json()) as Record<string, unknown>).id);
 
     expect(
       (

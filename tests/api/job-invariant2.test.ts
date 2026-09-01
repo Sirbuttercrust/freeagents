@@ -155,13 +155,12 @@ describe('job draft, invariant 2 (R-28): the brief hash is verifiable off-platfo
     }, authHeader);
     expect(reg.status).toBe(201);
 
-    const delegated = await postJson(baseUrl, '/agents', {
+    const delegated = await postSigned(baseUrl, '/agents', {
       did: agentWallet.toDid(),
-      operator: operatorWallet.toDid(),
       delegation: await signW3CDelegation(operatorWallet, agentWallet),
       name: 'scout',
       skills: ['triage'],
-    }, authHeader);
+    }, await signingIdentityFromWallet(operatorWallet));
     expect(delegated.status).toBe(201);
   });
 
@@ -174,12 +173,11 @@ describe('job draft, invariant 2 (R-28): the brief hash is verifiable off-platfo
     // message most plausibly carries.
     const brief = 'Fix the login bug on the checkout page\r\nthen deploy\r\n   \n  ';
 
-    const res = await postJson(baseUrl, '/jobs', {
-      buyerDid: operatorWallet.toDid(),
+    const res = await postSigned(baseUrl, '/jobs', {
       agentDid: agentWallet.toDid(),
       repository: 'buyer/target-repo',
       brief,
-    }, authHeader);
+    }, await signingIdentityFromWallet(operatorWallet));
     expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -314,13 +312,12 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     }, authHeader);
     expect(reg.status).toBe(201);
 
-    const delegated = await postJson(baseUrl, '/agents', {
+    const delegated = await postSigned(baseUrl, '/agents', {
       did: agentWallet.toDid(),
-      operator: operatorWallet.toDid(),
       delegation: await signW3CDelegation(operatorWallet, agentWallet),
       name: 'scout',
       skills: ['triage'],
-    }, authHeader);
+    }, operatorIdentity);
     expect(delegated.status).toBe(201);
   });
 
@@ -356,12 +353,11 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
   }
 
   it('a closed_unmerged outcome projects no merge facts, and briefHash still recomputes from it', async () => {
-    const res = await postJson(baseUrl, '/jobs', {
-      buyerDid: operatorWallet.toDid(),
+    const res = await postSigned(baseUrl, '/jobs', {
       agentDid: agentWallet.toDid(),
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug on the checkout page',
-    }, authHeader);
+    }, operatorIdentity);
     expect(res.status).toBe(201);
     const jobId = String(((await res.json()) as Record<string, unknown>).id);
     await walkToSubmitted(jobId);
@@ -459,12 +455,11 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
   });
 
   it('a withdrawn outcome projects no merge facts, and briefHash still recomputes from it (R-31)', async () => {
-    const res = await postJson(baseUrl, '/jobs', {
-      buyerDid: operatorWallet.toDid(),
+    const res = await postSigned(baseUrl, '/jobs', {
       agentDid: agentWallet.toDid(),
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug on the checkout page',
-    }, authHeader);
+    }, operatorIdentity);
     expect(res.status).toBe(201);
     const jobId = String(((await res.json()) as Record<string, unknown>).id);
     await walkToSubmitted(jobId);

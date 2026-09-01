@@ -13,7 +13,7 @@ import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixture
 
 // The exact field set the service is allowed to keep, from the Operator domain
 // record: no field beyond this set, so one copy verifies against the other.
-const ALLOWED_FIELDS = new Set(['did', 'githubLogin', 'createdAt']);
+const ALLOWED_FIELDS = new Set(['did', 'githubLogin', 'passkeySubject', 'createdAt']);
 
 // Names that would mean key material leaked into storage or the wire.
 // Matched by substring, so publicKeyMultibase / privateKeyMultibase and the
@@ -92,6 +92,7 @@ describe('operator registration, invariant 2', () => {
     expect(readBackBody).toEqual({
       did: stored?.did,
       githubLogin: stored?.githubLogin,
+      passkeySubject: stored?.passkeySubject ?? null,
       createdAt: stored?.createdAt.toISOString(),
     });
     expect(createdBody).toEqual(readBackBody);

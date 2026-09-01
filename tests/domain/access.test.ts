@@ -25,9 +25,17 @@ describe('CAPABILITIES', () => {
     expect(new Set(ids).size).toBe(CAPABILITIES.length);
   });
 
-  it('identityField is non-null exactly when access is identified', () => {
+  // R-39 completion: identityField is no longer "non-null iff identified".
+  // Only account.register still declares one (the bootstrap case: no proof
+  // of the not-yet-existing account can exist), the exact set the domain
+  // comment above documents. This test pins that narrower invariant
+  // instead of the old "every identified route names a field" one, which
+  // stopped being true the moment agent.list and job.hire started
+  // deriving their party server-side instead of reading it from the body.
+  const BOOTSTRAP_IDS_WITH_IDENTITY_FIELD = new Set(['operator.register']);
+  it('identityField is non-null only for the bootstrap capability that creates an account', () => {
     for (const cap of CAPABILITIES) {
-      if (cap.access === 'identified') {
+      if (BOOTSTRAP_IDS_WITH_IDENTITY_FIELD.has(cap.id)) {
         expect(cap.identityField).not.toBeNull();
       } else {
         expect(cap.identityField).toBeNull();
@@ -49,8 +57,8 @@ describe('CAPABILITIES', () => {
       { id: 'operator.browse', method: 'GET', path: '/accounts/:did', access: 'public', identityField: null },
       { id: 'credential.verify', method: 'GET', path: '/v1/credentials/:credentialId', access: 'public', identityField: null },
       { id: 'operator.register', method: 'POST', path: '/accounts', access: 'identified', identityField: 'did' },
-      { id: 'agent.list', method: 'POST', path: '/agents', access: 'identified', identityField: 'operator' },
-      { id: 'job.hire', method: 'POST', path: '/jobs', access: 'identified', identityField: 'buyerDid' },
+      { id: 'agent.list', method: 'POST', path: '/agents', access: 'identified', identityField: null },
+      { id: 'job.hire', method: 'POST', path: '/jobs', access: 'identified', identityField: null },
     ]);
   });
 });

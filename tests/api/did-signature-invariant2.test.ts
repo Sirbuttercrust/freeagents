@@ -131,6 +131,12 @@ describe('DID-signed requests, invariant 2 (R-34): third-party verifiability', (
     });
     const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(41));
     await repo.register({ did: buyer.did, githubLogin: 'buyer-sig-invariant2' });
+    // R-39 completion: the session path resolves the acting party from the
+    // session's GitHub login (testSessionAdapter always signs in as
+    // 'test-session-user'), so the account this session names must be
+    // registered against that exact login for the unsigned leg below to
+    // resolve to a real, non-null party.
+    await repo.register({ did: 'did:abt:session-buyer', githubLogin: 'test-session-user' });
     const sessionAdapter = testSessionAdapter();
 
     let server: Server | undefined;

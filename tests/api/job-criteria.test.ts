@@ -211,12 +211,11 @@ describe('job criteria exchange (R-8)', () => {
     const createSpy = vi.spyOn(jobRepo, 'create');
 
     // 1. The draft opens with exactly the pinned eight-key projection.
-    const draft = await post('/jobs', {
-      buyerDid: buyer.did,
+    const draft = await postSigned('/jobs', {
       agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug on the checkout page',
-    });
+    }, buyer);
     expect(draft.status).toBe(201);
     const draftBody = (await draft.json()) as Record<string, unknown>;
     expect(draftBody.status).toBe('draft');
@@ -282,12 +281,11 @@ describe('job criteria exchange (R-8)', () => {
   });
 
   it('rejects a malformed body with 400', async () => {
-    const seed = await post('/jobs', {
-      buyerDid: buyer.did,
+    const seed = await postSigned('/jobs', {
       agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
-    });
+    }, buyer);
     const jobId = String(((await seed.json()) as Record<string, unknown>).id);
 
     const missingField = await postSigned(`/jobs/${jobId}/criteria`, {}, agent);
@@ -334,12 +332,11 @@ describe('job criteria exchange (R-8)', () => {
   });
 
   it('answers 401 with no signature at all, and 403 for a signed stranger', async () => {
-    const seed = await post('/jobs', {
-      buyerDid: buyer.did,
+    const seed = await postSigned('/jobs', {
       agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
-    });
+    }, buyer);
     const jobId = String(((await seed.json()) as Record<string, unknown>).id);
 
     const noSignature = await post(`/jobs/${jobId}/criteria`, { criteria: firstProposal });
@@ -383,12 +380,11 @@ describe('job criteria exchange (R-8)', () => {
     expect(proposeOnConfirmed.status).toBe(409);
 
     // A draft has no proposal to push back on: also a conflict.
-    const draftRowRes = await post('/jobs', {
-      buyerDid: buyer.did,
+    const draftRowRes = await postSigned('/jobs', {
       agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'Another brief',
-    });
+    }, buyer);
     const draftId = String(((await draftRowRes.json()) as Record<string, unknown>).id);
     const pushbackOnDraft = await postSigned(`/jobs/${draftId}/request-changes`, {}, buyer);
     expect(pushbackOnDraft.status).toBe(409);

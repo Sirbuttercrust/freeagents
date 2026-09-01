@@ -162,6 +162,7 @@ describe('PrismaAccountRepository', () => {
     vi.mocked(mock.create).mockResolvedValue({
       did: 'did:abt:prisma-1',
       githubLogin: 'operator-prisma-1',
+      passkeySubject: null,
       createdAt,
     });
 
@@ -173,15 +174,16 @@ describe('PrismaAccountRepository', () => {
 
     // The data sent to the database is exactly the supplied facts.
     expect(mock.create).toHaveBeenCalledWith({
-      data: { did: 'did:abt:prisma-1', githubLogin: 'operator-prisma-1' },
+      data: { did: 'did:abt:prisma-1', githubLogin: 'operator-prisma-1', passkeySubject: null },
     });
-    // And the projection is exactly the three stored fields.
+    // And the projection is exactly the four stored fields.
     expect(row).toEqual({
       did: 'did:abt:prisma-1',
       githubLogin: 'operator-prisma-1',
+      passkeySubject: null,
       createdAt,
     });
-    expect(Object.keys(row).sort()).toEqual(['createdAt', 'did', 'githubLogin']);
+    expect(Object.keys(row).sort()).toEqual(['createdAt', 'did', 'githubLogin', 'passkeySubject']);
   });
 
   it('register: a P2002 unique-constraint failure is the domain duplicate error', async () => {

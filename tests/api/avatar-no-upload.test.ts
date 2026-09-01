@@ -115,12 +115,11 @@ describe('avatars are derived, never uploaded (R-21)', () => {
   });
 
   it('an avatar field in the POST /agents body is ignored, and the derived avatar is served instead', async () => {
-    const reg = await postJson(baseUrl, '/accounts', { did: OPERATOR_DID, githubLogin: 'operator-avatar' }, authHeader);
+    const reg = await postJson(baseUrl, '/accounts', { did: OPERATOR_DID, githubLogin: 'test-session-user' }, authHeader);
     expect(reg.status).toBe(201);
 
     const res = await postJson(baseUrl, '/agents', {
       did: AGENT_DID,
-      operator: OPERATOR_DID,
       delegation: delegationFixture(),
       name: 'scout',
       skills: ['triage'],

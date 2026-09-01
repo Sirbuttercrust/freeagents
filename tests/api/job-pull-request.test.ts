@@ -210,14 +210,12 @@ async function walkToConfirm(jobId: string, base: string = baseUrl): Promise<Rec
 async function openDraft(
   brief: string,
   base: string = baseUrl,
-  header: Record<string, string> = authHeader,
 ): Promise<{ jobId: string; briefHash: unknown }> {
-  const created = await post('/jobs', {
-    buyerDid: buyer.did,
+  const created = await postSigned('/jobs', {
     agentDid: agent.did,
     repository: 'buyer/target-repo',
     brief,
-  }, base, header);
+  }, buyer, base);
   expect(created.status).toBe(201);
   const body = (await created.json()) as Record<string, unknown>;
   return { jobId: String(body.id), briefHash: body.briefHash };
@@ -359,16 +357,15 @@ describe('job pull-request, faulted legs (R-10)', () => {
     try {
       // The helpers take an explicit base because this server is not the
       // describe's own.
-      const created = await post(
+      const created = await postSigned(
         '/jobs',
         {
-          buyerDid: buyer.did,
           agentDid: agent.did,
           repository: 'buyer/target-repo',
           brief: 'A job whose PR will fail',
         },
+        buyer,
         scripted.baseUrl,
-        scripted.authHeader,
       );
       expect(created.status).toBe(201);
       const jobId = String(((await created.json()) as Record<string, unknown>).id);
