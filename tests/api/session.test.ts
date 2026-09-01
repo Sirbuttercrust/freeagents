@@ -197,6 +197,44 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
     expect(withSession.status).toBe(201);
   });
 
+  it('the agent-listing route returns 401 without a session, and passes with one', async () => {
+    // POST /agents is the other list-and-hire route the operator decision on
+    // #30 names. Same shape as the /jobs case above: no bearer token is a
+    // 401, a live session token reaches the handler.
+    const real = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'octo-cat', id: 502 }),
+    });
+    const token = await mintSessionToken(real);
+    const baseUrl = await listen(createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, real));
+
+    const agentBody = {
+      did: 'did:abt:session-gate-listed-agent',
+      operator: 'did:abt:session-gate-operator',
+      delegation: delegationFixture('did:abt:session-gate-listed-agent'),
+      name: 'scout',
+      skills: ['triage'],
+    };
+
+    const anonymous = await fetch(`${baseUrl}/agents`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(agentBody),
+    });
+    expect(anonymous.status).toBe(401);
+    expect(((await anonymous.json()) as { error: string }).error).toContain('session');
+
+    // The session gate itself is what is under test here, not the domain
+    // rule behind it: an unregistered operator is a 404 from the handler,
+    // reached only because the session satisfied the gate in front of it.
+    const withSession = await fetch(`${baseUrl}/agents`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify(agentBody),
+    });
+    expect(withSession.status).not.toBe(401);
+  });
+
   it('a hire-loop route returns 401 for an expired or a merely malformed bearer token, never an anonymous fallthrough', async () => {
     // A gated route must refuse an invalid credential exactly as it refuses
     // an absent one -- 401 either way, never treated as if no Authorization
