@@ -6,6 +6,7 @@ import type { CompletedJob, Job } from '../../domain/job.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
 import type { Operator } from '../../domain/operator.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
+import type { Review } from '../../domain/review.js';
 import type { VerifiableCredential } from '../credentials/types.js';
 import {
   AgentAlreadyExistsError,
@@ -21,6 +22,8 @@ import {
   type KeyRotationInput,
   OperatorAlreadyExistsError,
   type OperatorRepository,
+  ReviewAlreadyExistsError,
+  type ReviewRepository,
   credentialLookupKey,
 } from './types.js';
 
@@ -268,5 +271,28 @@ export class MemoryCredentialRepository implements CredentialRepository {
     return [...this.rows.values()]
       .filter((row) => row.subjectDid === subjectDid)
       .map((row) => ({ document: row.document, repositoryPublic: row.repositoryPublic }));
+  }
+}
+
+// R-22 (ENT-10, issue 29): one review per completed job, keyed by jobId.
+// Eligibility already ran in the domain layer before save is ever called;
+// this driver only refuses a second write for a job that already has one.
+export class MemoryReviewRepository implements ReviewRepository {
+  private readonly rows = new Map<string, Review>();
+
+  async save(review: Review): Promise<void> {
+    // Check-then-set is safe here: Node is single-threaded and this method
+    // awaits nothing, so two concurrent saves of one job cannot both pass.
+    if (this.rows.has(review.jobId)) {
+      throw new ReviewAlreadyExistsError(review.jobId);
+    }
+    this.rows.set(review.jobId, { ...review });
+  }
+
+  async listByAgentDid(agentDid: string): Promise<readonly Review[]> {
+    // Map iteration order is insertion order (the JS spec guarantees it),
+    // so filtering here is already oldest-first with no extra sort, the
+    // same convention MemoryCredentialRepository.listBySubjectDid relies on.
+    return [...this.rows.values()].filter((row) => row.agentDid === agentDid);
   }
 }

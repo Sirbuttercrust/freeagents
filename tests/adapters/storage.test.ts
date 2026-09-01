@@ -2,6 +2,7 @@
 // previously tested: no test ever set or unset the variable, so a change that
 // swapped the two drivers, or deleted the startup warning, would fail nothing.
 import type { Job } from '../../src/domain/job.js';
+import type { Review } from '../../src/domain/review.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -13,14 +14,24 @@ const {
   createCredentialRepository,
   createJobRepository,
   createOperatorRepository,
+  createReviewRepository,
 } = await import('../../src/adapters/storage/storage.js');
-const { MemoryCompromiseRepository, MemoryCredentialRepository, MemoryJobRepository, MemoryOperatorRepository } =
-  await import('../../src/adapters/storage/memory.js');
-const { PrismaCompromiseRepository, PrismaCredentialRepository, PrismaJobRepository, PrismaOperatorRepository } =
-  await import('../../src/adapters/storage/prisma.js');
-const { CredentialAlreadyIssuedError, JobAlreadyExistsError, credentialLookupKey } = await import(
-  '../../src/adapters/storage/types.js'
-);
+const {
+  MemoryCompromiseRepository,
+  MemoryCredentialRepository,
+  MemoryJobRepository,
+  MemoryOperatorRepository,
+  MemoryReviewRepository,
+} = await import('../../src/adapters/storage/memory.js');
+const {
+  PrismaCompromiseRepository,
+  PrismaCredentialRepository,
+  PrismaJobRepository,
+  PrismaOperatorRepository,
+  PrismaReviewRepository,
+} = await import('../../src/adapters/storage/prisma.js');
+const { CredentialAlreadyIssuedError, JobAlreadyExistsError, ReviewAlreadyExistsError, credentialLookupKey } =
+  await import('../../src/adapters/storage/types.js');
 
 // Shared with tests/adapters/prisma.test.ts: both drivers are pinned to the
 // same input/output pair, so a projection that drops a field fails at least
@@ -203,6 +214,46 @@ describe('createCredentialRepository', () => {
     delete process.env.DATABASE_URL;
     const repo = createCredentialRepository();
     expect(repo).toBeInstanceOf(MemoryCredentialRepository);
+  });
+});
+
+describe('createReviewRepository', () => {
+  const original = process.env.DATABASE_URL;
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    if (original === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = original;
+    }
+    vi.restoreAllMocks();
+  });
+
+  it('DATABASE_URL set selects the Prisma driver', () => {
+    vi.stubEnv('DATABASE_URL', 'postgresql://user:***@127.0.0.1:5432/freeagents');
+    const repo = createReviewRepository();
+    expect(repo).toBeInstanceOf(PrismaReviewRepository);
+    expect(repo.constructor.name).toBe('PrismaReviewRepository');
+  });
+
+  it('DATABASE_URL empty selects the in-memory driver, with the loud warning', () => {
+    vi.stubEnv('DATABASE_URL', '');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const repo = createReviewRepository();
+    expect(repo).toBeInstanceOf(MemoryReviewRepository);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain('DATABASE_URL');
+    expect(message).toContain('in-memory');
+  });
+
+  it('DATABASE_URL unset selects the in-memory driver, with the loud warning', () => {
+    vi.unstubAllEnvs();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    delete process.env.DATABASE_URL;
+    const repo = createReviewRepository();
+    expect(repo).toBeInstanceOf(MemoryReviewRepository);
   });
 });
 
@@ -574,5 +625,54 @@ describe('MemoryJobRepository', () => {
     await repo.complete({ ...completedFixture, id: 'job_3', agentDid: 'did:example:other-agent' }, otherAgentAnchor);
 
     expect(await repo.findCompletedByAgent('did:example:agent')).toEqual([]);
+  });
+});
+
+describe('MemoryReviewRepository', () => {
+  function reviewFixture(overrides: Partial<Review> = {}): Review {
+    return {
+      jobId: 'job_1',
+      authorDid: 'did:example:buyer',
+      agentDid: 'did:example:agent',
+      text: 'Delivered exactly what was agreed.',
+      createdAt: new Date('2026-01-04T00:00:00Z'),
+      ...overrides,
+    };
+  }
+
+  it('save and listByAgentDid round-trip the review', async () => {
+    const repo = new MemoryReviewRepository();
+    await repo.save(reviewFixture());
+    expect(await repo.listByAgentDid('did:example:agent')).toEqual([reviewFixture()]);
+  });
+
+  it('listByAgentDid is empty for an agent with no reviews', async () => {
+    const repo = new MemoryReviewRepository();
+    expect(await repo.listByAgentDid('did:example:nobody')).toEqual([]);
+  });
+
+  it('a second save for the same job is ReviewAlreadyExistsError, and the first review is untouched', async () => {
+    const repo = new MemoryReviewRepository();
+    await repo.save(reviewFixture());
+    const err = await repo.save(reviewFixture({ text: 'A second attempt on the same job' })).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ReviewAlreadyExistsError);
+    expect((err as Error).name).toBe('ReviewAlreadyExistsError');
+    expect(await repo.listByAgentDid('did:example:agent')).toEqual([reviewFixture()]);
+  });
+
+  it('two reviews for the same agent on different jobs both persist, oldest first', async () => {
+    const repo = new MemoryReviewRepository();
+    await repo.save(reviewFixture({ jobId: 'job_1', createdAt: new Date('2026-01-04T00:00:00Z') }));
+    await repo.save(reviewFixture({ jobId: 'job_2', createdAt: new Date('2026-01-05T00:00:00Z') }));
+    const reviews = await repo.listByAgentDid('did:example:agent');
+    expect(reviews.map((r) => r.jobId)).toEqual(['job_1', 'job_2']);
+  });
+
+  it('reviews for different agents stay independent', async () => {
+    const repo = new MemoryReviewRepository();
+    await repo.save(reviewFixture({ jobId: 'job_1', agentDid: 'did:example:agent' }));
+    await repo.save(reviewFixture({ jobId: 'job_2', agentDid: 'did:example:other-agent' }));
+    expect((await repo.listByAgentDid('did:example:agent')).map((r) => r.jobId)).toEqual(['job_1']);
+    expect((await repo.listByAgentDid('did:example:other-agent')).map((r) => r.jobId)).toEqual(['job_2']);
   });
 });

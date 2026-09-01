@@ -116,15 +116,19 @@ model Job {
   completedJob CompletedJob?
   credential   Credential?
   settlement   Settlement?
+  review       Review?
 
   @@index([agentDid])
   @@index([buyerDid])
 }
 
 // Created only when a Job transitions to "completed" (its pull request
-// merged). Review and Credential hang off this row rather than off Job
-// directly, so neither can exist against a job that never merged: there is
-// no row for them to reference.
+// merged). Neither storage driver inserts a row here today (the completed
+// facts live on the Job row itself, and PrismaJobRepository derives this
+// shape from it); the model exists for the fields R-11's completeJob
+// signature already promises. Credential and Review both bind to Job
+// directly instead (see the comments on each), for exactly the reason a
+// CompletedJob foreign key could never be satisfied by either driver.
 model CompletedJob {
   id          String   @id @default(cuid())
   jobId       String   @unique
@@ -135,11 +139,12 @@ model CompletedJob {
 
   job Job @relation(fields: [jobId], references: [id])
 
-  review Review?
-
-  // Candidate key a Review's composite foreign key binds against, so the
-  // database itself rejects a review whose author or agent does not match
-  // the completed job it cites.
+  // Candidate key R-11's completeJob/complete route always populates,
+  // even though the current storage drivers never insert a row here (the
+  // completed record is derived from the Job row itself). Kept for the
+  // shape a future driver may need; nothing in this codebase binds a
+  // foreign key against it any more (see the Job-targeting relations on
+  // the receipt and review models below, and the R-35 lap B note there).
   @@unique([id, buyerDid, agentDid])
 }
 
@@ -167,10 +172,6 @@ model Credential {
   @@index([subjectDid])
 }
 
-// One review per completed job. authorDid and agentDid are load-bearing,
-// not denormalisation: the composite foreign key below is what makes it
-// impossible to store a review against a buyer or agent other than the ones
-// on record for that completed job.
 // R-29 (ENT-8.4): a rotation records the superseded key and when, so a
 // credential signed by an old key still verifies. Append-only: rows are
 // never updated or deleted, for the same reason a credential is stored
@@ -220,17 +221,27 @@ model Settlement {
   job Job @relation(fields: [jobId], references: [id])
 }
 
+// One review per completed job (ENT-10, R-22 issue 29). completedJobId
+// targets Job.id, the same repoint R-35 lap B made for Credential and for
+// the identical reason: neither storage driver ever inserts a CompletedJob
+// row, so a foreign key into CompletedJob could never be satisfied and
+// every review insert would fail on Postgres. authorDid and agentDid ride
+// beside the review as the buyer's and the agent's identity at write time;
+// eligibility itself (completed status, exact buyer, exact agent) is
+// checked by the domain layer against the Job row before a Review is ever
+// built (src/domain/review.ts, assertReviewEligible), not by a database
+// constraint, because JobStatus is not a value Prisma's relation syntax can
+// gate on. No rating column exists anywhere on this model (ENT-10.2): a
+// review is text, never a number.
 model Review {
   id             String   @id @default(cuid())
   completedJobId String   @unique
   authorDid      String
   agentDid       String
-  rating         Int
   text           String
   createdAt      DateTime @default(now())
 
-  completedJob CompletedJob @relation(fields: [completedJobId, authorDid, agentDid], references: [id, buyerDid, agentDid])
+  completedJob Job @relation(fields: [completedJobId], references: [id])
 
-  @@unique([completedJobId, authorDid, agentDid])
   @@index([agentDid])
 }

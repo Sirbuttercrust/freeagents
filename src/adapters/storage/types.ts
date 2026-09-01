@@ -6,6 +6,7 @@ import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
 import type { Operator } from '../../domain/operator.js';
+import type { Review } from '../../domain/review.js';
 import type { VerifiableCredential } from '../credentials/types.js';
 
 // Thrown by register when the DID already exists, so the API layer can map
@@ -193,4 +194,28 @@ export interface CredentialRepository {
   // the profile route renders an honest zero (ENT-2.4) rather than
   // branching on absence.
   listBySubjectDid(subjectDid: string): Promise<readonly StoredCredential[]>;
+}
+
+// Thrown by ReviewRepository.save when the job already has a review, so the
+// API layer can map it to 409 without inspecting error messages (rule 4 of
+// R-22, ENT-10.1: one review per completed hire; a second attempt is
+// refused, not appended).
+export class ReviewAlreadyExistsError extends Error {
+  constructor(jobId: string) {
+    super(`job ${jobId} already has a review`);
+    this.name = 'ReviewAlreadyExistsError';
+  }
+}
+
+// One review per completed job (R-22, ENT-10). The eligibility check
+// (completed status, exact buyer, exact agent) happens in the domain layer
+// against the Job record before save is ever called; this repository only
+// persists what it is handed and refuses a second write for the same job.
+export interface ReviewRepository {
+  // Throws ReviewAlreadyExistsError when the job already has a review.
+  save(review: Review): Promise<void>;
+  // Every review on record for an agent, oldest first. Empty array for an
+  // agent with none, never null (the same "zero renders as zero" stance
+  // every other listing in this file takes).
+  listByAgentDid(agentDid: string): Promise<readonly Review[]>;
 }
