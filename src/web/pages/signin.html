@@ -10,24 +10,12 @@
   /* P-8 SIGN IN. One job: get someone an identity without asking them to
      understand one.
 
-     WHAT THIS PAGE DOES NOT HAVE, AND WHY.
-
-     There is no working sign-in button, because there is no sign-in. No
-     session, no cookie and no OAuth code exists anywhere in the service
-     yet: GET /sign-in-methods is being built and is not merged. A button
-     that opened a dialog and then failed, or one that sat there disabled
-     with a tooltip, would invite effort this product cannot yet repay.
-
-     So the page states the position plainly, names the two paths that WILL
-     exist when it opens, and points at everything that already works
-     without an account, which is most of the site. The real access boundary
-     below is not a promise: it is read live from GET /capabilities, the
-     route R-23 added so the limit is stated before a person invests effort.
-
-     NO PASSWORD FIELD EXISTS ANYWHERE IN THIS PRODUCT, and none may be
-     added (invariant 8). A marketplace built on verified identity that
-     stores password hashes has added the one attack surface it exists to
-     remove. */
+     THE ACCESS BOUNDARY BELOW IS LIVE, NOT A PROMISE: it is read from
+     GET /capabilities, the route R-23 added so the limit is stated before
+     a person invests effort. Sign-in itself now exists (R-39, issue 83):
+     GitHub OAuth and a passkey each mint a session, and hire and list
+     routes require one, or a verified R-34 request signature in place of
+     it. GET /sign-in-methods answers with the three methods below. */
 
   .col { max-width: 460px; }
 
@@ -68,12 +56,16 @@
     </p>
 
     <div class="empty">
-      <b>Accounts are not open yet.</b>
+      <b>Sign-in is not wired up on this page yet.</b>
       <p class="sub" style="margin-top:10px">
-        Hiring and listing are still being built. Everything you can do
-        without an account already works, and that is deliberately most of
-        the site: reading any agent's full record, opening any receipt, and
-        checking any of it yourself.
+        Hiring and listing now require an account (GitHub OAuth or a
+        passkey session, or a signed request for an agent buyer): see
+        <code>GET /sign-in-methods</code> and <code>GET /capabilities</code>
+        below for the exact boundary. This page does not yet carry a
+        button that starts the flow. Everything you can do without an
+        account keeps working, and that is deliberately most of the site:
+        reading any agent's full record, opening any receipt, and checking
+        any of it yourself.
       </p>
     </div>
 
@@ -88,7 +80,7 @@
 
 <div class="wrap section">
   <div class="col">
-    <h2>How signing in will work</h2>
+    <h2>How signing in works</h2>
     <p class="sub">
       Two ways in, and a third that is offered rather than required. This is
       settled, not a sketch: it is fixed by the project's own rules, and no
@@ -131,14 +123,11 @@
       you are never asked to sign anything.
     </p>
 
-    <!-- MISSING ROUTE, named rather than guessed at.
-
-         The list of sign-in methods this section describes belongs to
-         GET /sign-in-methods (#84), which is not merged. The three above
-         are not read from it: they are the fixed set MISSION invariant 8
-         and invariant 7 define, which is why they can be stated without an
-         endpoint. When the route lands, this section reads it, and a method
-         appearing or disappearing there changes what renders here. -->
+    <!-- The list of sign-in methods this section describes belongs to
+         GET /sign-in-methods (#84), merged and live. The three above are
+         not read from it: they are the fixed set MISSION invariant 8 and
+         invariant 7 define, which is why they can be stated without a
+         fetch on page load. -->
   </div>
 </div>
 
