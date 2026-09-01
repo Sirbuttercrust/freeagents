@@ -108,9 +108,11 @@ import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import { MemoryAgentRepository, MemoryCredentialRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { signRequest, signingIdentityFromSeed, signingIdentityFromWallet, type SigningIdentity } from '../helpers/sign-request.js';
+import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 let server: Server;
 let base: string;
+let authHeader: Record<string, string> = {};
 
 // R-15: the app resolves credentials out of this repository. It is
 // module-scoped because the resolution step saves into it the same way
@@ -138,7 +140,7 @@ async function get(path: string): Promise<Response> {
 async function post(path: string, body: unknown = {}): Promise<Response> {
   const res = await fetch(`${base}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...authHeader },
     body: JSON.stringify(body),
   });
   stepsAsserted += 1;
@@ -424,6 +426,7 @@ const identityAdapter: IdentityAdapter = {
 beforeAll(async () => {
   // Explicit memory repositories: deterministic regardless of whether the
   // runner environment happens to export DATABASE_URL.
+  const sessionAdapter = testSessionAdapter();
   const app = createApp(
     new MemoryOperatorRepository(),
     new MemoryAgentRepository(),
@@ -433,6 +436,9 @@ beforeAll(async () => {
     createCredentialsAdapter(platformIssuer, credentialRepo),
     undefined,
     credentialRepo,
+    undefined,
+    undefined,
+    sessionAdapter,
   );
   server = await new Promise<Server>((resolve, reject) => {
     const s = app.listen(0, '127.0.0.1');
@@ -441,6 +447,7 @@ beforeAll(async () => {
   });
   const addr = server.address() as AddressInfo;
   base = `http://127.0.0.1:${addr.port}`;
+  authHeader = { authorization: `Bearer ${await mintSessionToken(sessionAdapter)}` };
 });
 
 afterAll(async () => {

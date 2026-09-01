@@ -28,6 +28,7 @@ import {
   MemoryOperatorRepository,
 } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 // The did:abt suffix derives from the public key, exactly like agent DIDs, so
 // the proof's verification method binds back to the DID without any lookup in
@@ -102,10 +103,10 @@ const PR_NUMBER = 3;
 const MERGE_SHA = 'inv2-merge-commit-sha';
 const MERGED_AT = new Date('2026-08-25T09:00:00Z');
 
-async function post(base: string, path: string, body: unknown = {}): Promise<Response> {
+async function post(base: string, path: string, body: unknown = {}, authHeader: Record<string, string> = {}): Promise<Response> {
   return fetch(`${base}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...authHeader },
     body: JSON.stringify(body),
   });
 }
@@ -191,6 +192,8 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
     const credentials = createCredentialsAdapter({ did: issuerDid, seed: issuerSeed }, credentialRepo);
     const operatorRepo = new MemoryOperatorRepository();
     await operatorRepo.register({ did: buyerDid, githubLogin: 'buyer-merge-invariant2' });
+    const sessionAdapter = testSessionAdapter();
+    const authHeader = { authorization: `Bearer ${await mintSessionToken(sessionAdapter)}` };
 
     const s = createApp(
       operatorRepo,
@@ -201,6 +204,9 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
       credentials,
       undefined,
       credentialRepo,
+      undefined,
+      undefined,
+      sessionAdapter,
     ).listen(0);
     await new Promise<void>((resolve) => s.once('listening', resolve));
     const address = s.address();
@@ -216,7 +222,7 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
       agentDid,
       repository: 'buyer/target-repo',
       brief: 'Fix the checkout timeout',
-    });
+    }, authHeader);
     expect(draft.status).toBe(201);
     const jobId = String(((await draft.json()) as Record<string, unknown>).id);
 

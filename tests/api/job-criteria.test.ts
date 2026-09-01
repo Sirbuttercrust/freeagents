@@ -32,6 +32,7 @@ import {
   type Job,
 } from '../../src/domain/job.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 function delegationFixture(agentDid: string): Record<string, unknown> {
   return {
@@ -54,7 +55,7 @@ function delegationFixture(agentDid: string): Record<string, unknown> {
 async function post(path: string, body: unknown): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...authHeader },
     body: JSON.stringify(body),
   });
 }
@@ -96,7 +97,7 @@ function draftRow(id: string): Job {
 // scripted repo - the same shape as the FailingRead test below. The
 // scripted server's own agentRepo carries the same agent identity, so a
 // signed request from it still verifies.
-async function startWith(jobRepo: JobRepository): Promise<{ server: Server; baseUrl: string }> {
+async function startWith(jobRepo: JobRepository): Promise<{ server: Server; baseUrl: string; authHeader: Record<string, string> }> {
   const agentRepo = new MemoryAgentRepository();
   await agentRepo.create({
     did: agent.did,
@@ -106,13 +107,30 @@ async function startWith(jobRepo: JobRepository): Promise<{ server: Server; base
     skills: ['triage'],
     githubLogin: null,
   });
-  const server = createApp(new MemoryOperatorRepository(), agentRepo, undefined, undefined, jobRepo).listen(0);
+  const sessionAdapter = testSessionAdapter();
+  const server = createApp(
+    new MemoryOperatorRepository(),
+    agentRepo,
+    undefined,
+    undefined,
+    jobRepo,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    sessionAdapter,
+  ).listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
   if (address === null || typeof address === 'string') {
     throw new Error('expected server to listen on a port');
   }
-  return { server, baseUrl: `http://127.0.0.1:${address.port}` };
+  return {
+    server,
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    authHeader: { authorization: `Bearer ${await mintSessionToken(sessionAdapter)}` },
+  };
 }
 
 const firstProposal = [
@@ -126,6 +144,7 @@ const revisedProposal = [
 
 let server: Server;
 let baseUrl: string;
+let authHeader: Record<string, string> = {};
 let buyer: SigningIdentity;
 let agent: SigningIdentity;
 // A registered agent DID that is not a party to any job this file creates:
@@ -159,13 +178,27 @@ describe('job criteria exchange (R-8)', () => {
       skills: ['triage'],
       githubLogin: null,
     });
-    server = createApp(operatorRepo, agentRepo, undefined, undefined, jobRepo).listen(0);
+    const sessionAdapter = testSessionAdapter();
+    server = createApp(
+      operatorRepo,
+      agentRepo,
+      undefined,
+      undefined,
+      jobRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    ).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
       throw new Error('expected server to listen on a port');
     }
     baseUrl = `http://127.0.0.1:${address.port}`;
+    authHeader = { authorization: `Bearer ${await mintSessionToken(sessionAdapter)}` };
   });
 
   afterAll(() => {

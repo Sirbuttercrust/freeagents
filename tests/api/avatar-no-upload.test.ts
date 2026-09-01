@@ -11,6 +11,7 @@ import type { IdentityAdapter } from '../../src/adapters/identity/types.js';
 import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE, type Delegation } from '../../src/domain/agent.js';
 import { renderAvatar } from '../../src/api/avatar.js';
+import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 /**
  * THE ACCEPT LINE'S OTHER HALF: no upload path exists anywhere.
@@ -65,10 +66,15 @@ const acceptingIdentity: IdentityAdapter = {
   verifyDelegation: () => Promise.resolve(true),
 };
 
-async function postJson(baseUrl: string, path: string, body: unknown): Promise<Response> {
+async function postJson(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+  authHeader: Record<string, string> = {},
+): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...authHeader },
     body: JSON.stringify(body),
   });
 }
@@ -76,15 +82,31 @@ async function postJson(baseUrl: string, path: string, body: unknown): Promise<R
 describe('avatars are derived, never uploaded (R-21)', () => {
   let server: Server;
   let baseUrl: string;
+  let authHeader: Record<string, string>;
 
   beforeAll(async () => {
-    server = createApp(new MemoryOperatorRepository(), new MemoryAgentRepository(), acceptingIdentity).listen(0);
+    const sessionAdapter = testSessionAdapter();
+    server = createApp(
+      new MemoryOperatorRepository(),
+      new MemoryAgentRepository(),
+      acceptingIdentity,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    ).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
       throw new Error('expected server to listen on a port');
     }
     baseUrl = `http://127.0.0.1:${address.port}`;
+    const token = await mintSessionToken(sessionAdapter);
+    authHeader = { authorization: `Bearer ${token}` };
   });
 
   afterAll(() => {
@@ -92,7 +114,7 @@ describe('avatars are derived, never uploaded (R-21)', () => {
   });
 
   it('an avatar field in the POST /agents body is ignored, and the derived avatar is served instead', async () => {
-    const reg = await postJson(baseUrl, '/operators', { did: OPERATOR_DID, githubLogin: 'operator-avatar' });
+    const reg = await postJson(baseUrl, '/operators', { did: OPERATOR_DID, githubLogin: 'operator-avatar' }, authHeader);
     expect(reg.status).toBe(201);
 
     const res = await postJson(baseUrl, '/agents', {
@@ -102,7 +124,7 @@ describe('avatars are derived, never uploaded (R-21)', () => {
       name: 'scout',
       skills: ['triage'],
       avatar: FORGED_AVATAR,
-    });
+    }, authHeader);
     expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
 

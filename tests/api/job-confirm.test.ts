@@ -38,6 +38,7 @@ import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { createJob, type Job } from '../../src/domain/job.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
@@ -74,10 +75,10 @@ let stranger: SigningIdentity;
 // which is the point: one job id, every path tried against it.
 let confirmedJobId: string;
 
-async function post(path: string, body: unknown = {}): Promise<Response> {
+async function post(path: string, body: unknown = {}, authHeader: Record<string, string> = {}): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...authHeader },
     body: JSON.stringify(body),
   });
 }
@@ -195,12 +196,12 @@ describe('job confirm (R-9)', () => {
   });
 
   it('walks propose -> accept x2 (both parties) -> confirm on ONE row and projects the confirmed keys', async () => {
-    const created = await post('/jobs', {
+    const created = await postSigned('/jobs', {
       buyerDid: buyer.did,
       agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug on the checkout page',
-    });
+    }, buyer);
     expect(created.status).toBe(201);
     const draftBody = (await created.json()) as Record<string, unknown>;
     const jobId = String(draftBody.id);
@@ -247,12 +248,12 @@ describe('job confirm (R-9)', () => {
   });
 
   it('answers 400 while a criterion is unaccepted by either party, and for junk accept indexes', async () => {
-    const created = await post('/jobs', {
+    const created = await postSigned('/jobs', {
       buyerDid: buyer.did,
       agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'Another brief',
-    });
+    }, buyer);
     const jobId = String(((await created.json()) as Record<string, unknown>).id);
     await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal }, agent);
     await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyer);
@@ -272,12 +273,12 @@ describe('job confirm (R-9)', () => {
   });
 
   it('one party accepting every criterion and calling confirm is REFUSED', async () => {
-    const created = await post('/jobs', {
+    const created = await postSigned('/jobs', {
       buyerDid: buyer.did,
       agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'A buyer-only accept attempt',
-    });
+    }, buyer);
     const jobId = String(((await created.json()) as Record<string, unknown>).id);
     await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal }, agent);
     // The buyer alone accepts every criterion.
@@ -294,12 +295,12 @@ describe('job confirm (R-9)', () => {
   });
 
   it('a caller with no signature at all is refused 401, and a signed stranger is refused 403, on every exchange route', async () => {
-    const created = await post('/jobs', {
+    const created = await postSigned('/jobs', {
       buyerDid: buyer.did,
       agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'A stranger tries every route',
-    });
+    }, buyer);
     const jobId = String(((await created.json()) as Record<string, unknown>).id);
 
     expect((await post(`/jobs/${jobId}/criteria`, { criteria: proposal })).status).toBe(401);
@@ -314,12 +315,12 @@ describe('job confirm (R-9)', () => {
   });
 
   it('answers 409 confirming a fresh draft, and 404 for an unknown id', async () => {
-    const created = await post('/jobs', {
+    const created = await postSigned('/jobs', {
       buyerDid: buyer.did,
       agentDid: agent.did,
       repository: 'buyer/target-repo',
       brief: 'A third brief',
-    });
+    }, buyer);
     const jobId = String(((await created.json()) as Record<string, unknown>).id);
     expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyer)).status).toBe(409);
 
@@ -365,19 +366,35 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
   const operatorWallet = fromRandom();
   const agentWallet = fromRandom();
   let confirmedBody: Record<string, unknown>;
+  let authHeader: Record<string, string>;
 
   beforeAll(async () => {
-    server = createApp(new MemoryOperatorRepository(), new MemoryAgentRepository()).listen(0);
+    const sessionAdapter = testSessionAdapter();
+    server = createApp(
+      new MemoryOperatorRepository(),
+      new MemoryAgentRepository(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    ).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
       throw new Error('expected server to listen on a port');
     }
     baseUrl = `http://127.0.0.1:${address.port}`;
+    const token = await mintSessionToken(sessionAdapter);
+    authHeader = { authorization: `Bearer ${token}` };
 
-    expect((await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-confirm' })).status).toBe(
-      201,
-    );
+    expect(
+      (await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-confirm' }, authHeader)).status,
+    ).toBe(201);
     expect(
       (
         await post('/agents', {
@@ -386,7 +403,7 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
           delegation: await signW3CDelegation(operatorWallet, agentWallet),
           name: 'scout',
           skills: ['triage'],
-        })
+        }, authHeader)
       ).status,
     ).toBe(201);
   });
@@ -403,7 +420,7 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
       agentDid: agentWallet.toDid(),
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug\r\nthen deploy\n  ',
-    });
+    }, authHeader);
     expect(created.status).toBe(201);
     const jobId = String(((await created.json()) as Record<string, unknown>).id);
 

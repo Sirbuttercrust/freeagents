@@ -206,14 +206,18 @@ describe('mounting the pages changed no API behaviour', () => {
   });
 
   // A browser is not exempt from the API's rules: the page mount is GET
-  // only, so a POST from anywhere reaches the handler it always did.
+  // only, so a POST from anywhere reaches the handler it always did. The
+  // handler now answers 401 before ever inspecting the body (R-39 follow-up:
+  // POST /operators requires a session or a signature), which still proves
+  // the routing point just as well as the old 400 did: the response is
+  // JSON from the API handler, never the HTML page mount.
   it('a POST from a browser still reaches the API handler, not a page', async () => {
     const res = await fetch(`${baseUrl}/operators`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', Accept: HTML },
       body: JSON.stringify({ did: 'did:eth:wrong-method', githubLogin: 'x' }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(401);
     expect(String(res.headers.get('content-type'))).toContain('application/json');
   });
 });

@@ -13,12 +13,8 @@
 // required, and OAuth or a passkey reaches every capability.
 import { describe, it, expect, afterEach } from 'vitest';
 import type { Server } from 'node:http';
-import {
-  NotImplementedSessionAdapter,
-  type SessionAdapter,
-} from '../../src/adapters/identity/session.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
-import { fakeGitHubConfig, fakeGitHubFetch, failingGitHubFetch } from '../helpers/session-fixtures.js';
+import { fakeGitHubConfig, fakeGitHubFetch, failingGitHubFetch, mintSessionToken } from '../helpers/session-fixtures.js';
 import { createPasskeyFixture } from '../helpers/webauthn-fixtures.js';
 import { createApp } from '../../src/api/app.js';
 import { createRateLimiter } from '../../src/adapters/identity/verify-rate-limit.js';
@@ -157,20 +153,48 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
     expect(replay).toBeNull();
   });
 
-  it.fails('a hire-loop route returns 401 without a session and works with one', async () => {
+  it('a hire-loop route returns 401 without a session and works with one', async () => {
     // POST /jobs with no bearer token -> 401. Same request with a live
     // session token -> not 401. The route list that requires a session is
     // exactly the hire-and-list set from src/domain/access.ts.
-    //
-    // Deferred per the operator-approved split (card comment thread,
-    // 2026-08-30): this PR lands the SessionAdapter only. Route
-    // enforcement is its own reviewable follow-up (the anonymous
-    // body-trust fallback ~10 test files pin today is a separate security
-    // finding, not a detail to retrofit inline here). The stub adapter
-    // below is the RED baseline that follow-up promotes away from.
-    const stub: SessionAdapter = new NotImplementedSessionAdapter();
-    void stub;
-    expect(true).toBe(false); // RED until the follow-up implements route enforcement
+    const real = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'octo-cat', id: 501 }),
+    });
+    const token = await mintSessionToken(real);
+
+    const agentRepo = new MemoryAgentRepository();
+    const agentDid = 'did:abt:session-gate-agent';
+    await agentRepo.create({
+      did: agentDid,
+      operatorDid: 'did:abt:op-session-gate',
+      delegation: delegationFixture(agentDid),
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    const baseUrl = await listen(createApp(undefined, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, real));
+
+    const jobBody = {
+      buyerDid: 'did:abt:session-gate-buyer',
+      agentDid,
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    };
+
+    const anonymous = await fetch(`${baseUrl}/jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(jobBody),
+    });
+    expect(anonymous.status).toBe(401);
+
+    const withSession = await fetch(`${baseUrl}/jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify(jobBody),
+    });
+    expect(withSession.status).toBe(201);
   });
 
   it('browse and verify routes succeed with no session and no account', async () => {

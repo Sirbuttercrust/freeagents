@@ -30,6 +30,7 @@ import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { createJob, type Job } from '../../src/domain/job.js';
 import { signingIdentityFromWallet, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 // The ArcBlock wallet's secretKey is seed(32)||public(32) in hex.
 function hexToBytes(h: string): Uint8Array {
@@ -84,10 +85,15 @@ async function signW3CDelegation(operator: WalletObject, agent: WalletObject): P
   return signed;
 }
 
-async function postJson(url: string, path: string, body: unknown): Promise<Response> {
+async function postJson(
+  url: string,
+  path: string,
+  body: unknown,
+  authHeader: Record<string, string> = {},
+): Promise<Response> {
   return fetch(`${url}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...authHeader },
     body: JSON.stringify(body),
   });
 }
@@ -113,23 +119,39 @@ describe('job draft, invariant 2 (R-28): the brief hash is verifiable off-platfo
   let baseUrl: string;
   const operatorWallet = fromRandom();
   const agentWallet = fromRandom();
+  let authHeader: Record<string, string>;
 
   // Operator and agent are built through the public routes exactly as the
   // agent-invariant2 suite does, so the draft hangs off a genuinely
   // delegated agent rather than a planted row.
   beforeAll(async () => {
-    server = createApp(new MemoryOperatorRepository(), new MemoryAgentRepository()).listen(0);
+    const sessionAdapter = testSessionAdapter();
+    server = createApp(
+      new MemoryOperatorRepository(),
+      new MemoryAgentRepository(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    ).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
       throw new Error('expected server to listen on a port');
     }
     baseUrl = `http://127.0.0.1:${address.port}`;
+    const token = await mintSessionToken(sessionAdapter);
+    authHeader = { authorization: `Bearer ${token}` };
 
     const reg = await postJson(baseUrl, '/operators', {
       did: operatorWallet.toDid(),
       githubLogin: 'operator-job-inv2',
-    });
+    }, authHeader);
     expect(reg.status).toBe(201);
 
     const delegated = await postJson(baseUrl, '/agents', {
@@ -138,7 +160,7 @@ describe('job draft, invariant 2 (R-28): the brief hash is verifiable off-platfo
       delegation: await signW3CDelegation(operatorWallet, agentWallet),
       name: 'scout',
       skills: ['triage'],
-    });
+    }, authHeader);
     expect(delegated.status).toBe(201);
   });
 
@@ -156,7 +178,7 @@ describe('job draft, invariant 2 (R-28): the brief hash is verifiable off-platfo
       agentDid: agentWallet.toDid(),
       repository: 'buyer/target-repo',
       brief,
-    });
+    }, authHeader);
     expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -233,6 +255,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
   const agentWallet = fromRandom();
   let operatorIdentity: SigningIdentity;
   let agentIdentity: SigningIdentity;
+  let authHeader: Record<string, string>;
   const FORK_OWNER = 'freeagents-platform';
   const FORK_REPO = 'target-repo';
 
@@ -260,18 +283,33 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
   beforeAll(async () => {
     operatorIdentity = await signingIdentityFromWallet(operatorWallet);
     agentIdentity = await signingIdentityFromWallet(agentWallet);
-    server = createApp(new MemoryOperatorRepository(), new MemoryAgentRepository(), undefined, github, new MemoryJobRepository()).listen(0);
+    const sessionAdapter = testSessionAdapter();
+    server = createApp(
+      new MemoryOperatorRepository(),
+      new MemoryAgentRepository(),
+      undefined,
+      github,
+      new MemoryJobRepository(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    ).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
       throw new Error('expected server to listen on a port');
     }
     baseUrl = `http://127.0.0.1:${address.port}`;
+    const token = await mintSessionToken(sessionAdapter);
+    authHeader = { authorization: `Bearer ${token}` };
 
     const reg = await postJson(baseUrl, '/operators', {
       did: operatorWallet.toDid(),
       githubLogin: 'operator-outcome-inv2',
-    });
+    }, authHeader);
     expect(reg.status).toBe(201);
 
     const delegated = await postJson(baseUrl, '/agents', {
@@ -280,7 +318,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
       delegation: await signW3CDelegation(operatorWallet, agentWallet),
       name: 'scout',
       skills: ['triage'],
-    });
+    }, authHeader);
     expect(delegated.status).toBe(201);
   });
 
@@ -321,7 +359,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
       agentDid: agentWallet.toDid(),
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug on the checkout page',
-    });
+    }, authHeader);
     expect(res.status).toBe(201);
     const jobId = String(((await res.json()) as Record<string, unknown>).id);
     await walkToSubmitted(jobId);
@@ -424,7 +462,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
       agentDid: agentWallet.toDid(),
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug on the checkout page',
-    });
+    }, authHeader);
     expect(res.status).toBe(201);
     const jobId = String(((await res.json()) as Record<string, unknown>).id);
     await walkToSubmitted(jobId);
