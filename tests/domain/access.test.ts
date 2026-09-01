@@ -46,9 +46,9 @@ describe('CAPABILITIES', () => {
       { id: 'capabilities.read', method: 'GET', path: '/capabilities', access: 'public', identityField: null },
       { id: 'agent.browse', method: 'GET', path: '/agents/:agentDid', access: 'public', identityField: null },
       { id: 'agent.browse.list', method: 'GET', path: '/agents', access: 'public', identityField: null },
-      { id: 'operator.browse', method: 'GET', path: '/operators/:did', access: 'public', identityField: null },
+      { id: 'operator.browse', method: 'GET', path: '/accounts/:did', access: 'public', identityField: null },
       { id: 'credential.verify', method: 'GET', path: '/v1/credentials/:credentialId', access: 'public', identityField: null },
-      { id: 'operator.register', method: 'POST', path: '/operators', access: 'identified', identityField: 'did' },
+      { id: 'operator.register', method: 'POST', path: '/accounts', access: 'identified', identityField: 'did' },
       { id: 'agent.list', method: 'POST', path: '/agents', access: 'identified', identityField: 'operator' },
       { id: 'job.hire', method: 'POST', path: '/jobs', access: 'identified', identityField: 'buyerDid' },
     ]);

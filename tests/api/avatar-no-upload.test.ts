@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import type { IdentityAdapter } from '../../src/adapters/identity/types.js';
-import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE, type Delegation } from '../../src/domain/agent.js';
 import { renderAvatar } from '../../src/api/avatar.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
@@ -87,7 +87,7 @@ describe('avatars are derived, never uploaded (R-21)', () => {
   beforeAll(async () => {
     const sessionAdapter = testSessionAdapter();
     server = createApp(
-      new MemoryOperatorRepository(),
+      new MemoryAccountRepository(),
       new MemoryAgentRepository(),
       acceptingIdentity,
       undefined,
@@ -115,7 +115,7 @@ describe('avatars are derived, never uploaded (R-21)', () => {
   });
 
   it('an avatar field in the POST /agents body is ignored, and the derived avatar is served instead', async () => {
-    const reg = await postJson(baseUrl, '/operators', { did: OPERATOR_DID, githubLogin: 'operator-avatar' }, authHeader);
+    const reg = await postJson(baseUrl, '/accounts', { did: OPERATOR_DID, githubLogin: 'operator-avatar' }, authHeader);
     expect(reg.status).toBe(201);
 
     const res = await postJson(baseUrl, '/agents', {

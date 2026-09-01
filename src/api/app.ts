@@ -25,13 +25,13 @@ import {
   AgentAlreadyExistsError,
   CredentialNotFoundError,
   JobAlreadyExistsError,
-  OperatorAlreadyExistsError,
+  AccountAlreadyExistsError,
   ReviewAlreadyExistsError,
   type AgentRepository,
   type CompromiseRepository,
   type CredentialRepository,
   type JobRepository,
-  type OperatorRepository,
+  type AccountRepository,
   type ReviewRepository,
 } from '../adapters/storage/types.js';
 import {
@@ -39,7 +39,7 @@ import {
   createCompromiseRepository,
   createCredentialRepository,
   createJobRepository,
-  createOperatorRepository,
+  createAccountRepository,
   createReviewRepository,
 } from '../adapters/storage/storage.js';
 import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
@@ -65,7 +65,7 @@ import {
   type GistUrlRef,
 } from '../domain/account-proof.js';
 import { isValidOperatorDid } from '../domain/operator-did.js';
-import type { Operator } from '../domain/operator.js';
+import type { Account } from '../domain/account.js';
 import {
   acceptCriterion,
   completeJob,
@@ -115,10 +115,10 @@ function notImplemented(_req: Request, res: Response): void {
   res.status(501).json({ error: 'not implemented' });
 }
 
-// The Operator record projection is the whole response. Exactly these three
-// fields, nothing more: tests/api/operator-invariant2.test.ts asserts the
+// The Account record projection is the whole response. Exactly these three
+// fields, nothing more: tests/api/account-invariant2.test.ts asserts the
 // key set, and a fourth field here would be a contract change.
-function operatorProjection(row: Operator): Record<string, unknown> {
+function accountProjection(row: Account): Record<string, unknown> {
   return {
     did: row.did,
     githubLogin: row.githubLogin,
@@ -345,7 +345,7 @@ interface SessionedRequest extends Request {
 }
 
 export function createApp(
-  repo: OperatorRepository = createOperatorRepository(),
+  repo: AccountRepository = createAccountRepository(),
   agentRepo: AgentRepository = createAgentRepository(),
   identity: IdentityAdapter = createIdentityAdapter(),
   github: GithubAdapter = createGithubAdapter(),
@@ -435,7 +435,7 @@ export function createApp(
   // accept, confirm) -- it never replaces a check that exists today on those
   // routes, because none does (no session, cookie or bearer token gates
   // them; only the caller-identity match inside each handler). POST /jobs,
-  // POST /operators and POST /agents no longer use this middleware: they are
+  // POST /accounts and POST /agents no longer use this middleware: they are
   // gated by requireSessionOrSignature below instead (R-39 follow-up, issue
   // 83). Unsigned traffic on the four exchange routes is untouched; a
   // request that is signed wrong is refused rather than let through,
@@ -474,7 +474,7 @@ export function createApp(
   // session OR a verified R-34 signature naming a party. Neither is a
   // fallback dressed up as the other: both are first-class, checked
   // independently, and either alone is sufficient (anchor: "A session is
-  // required exactly where an account is required"). POST /operators does
+  // required exactly where an account is required"). POST /accounts does
   // NOT use this gate: registering an operator is how an account is
   // created, not an action an account performs, so it cannot itself demand
   // one -- see D1/bootstrap-deadlock below on the route itself. A
@@ -561,7 +561,7 @@ export function createApp(
   // refused. The identityField in access.ts ('did') is still the acting
   // party's own claim, checked below the same way it always was; only the
   // session-or-signature gate in front of it is gone.
-  app.post('/operators', async (req: Request, res: Response) => {
+  app.post('/accounts', async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as { did?: unknown; githubLogin?: unknown };
     const did = body.did;
     const githubLogin = body.githubLogin;
@@ -581,31 +581,31 @@ export function createApp(
 
     try {
       const row = await repo.register({ did, githubLogin });
-      res.status(201).json(operatorProjection(row));
+      res.status(201).json(accountProjection(row));
     } catch (err) {
       // A duplicate DID is a 409: the operator registered it already, and
       // the message tells them what to check.
-      if (err instanceof OperatorAlreadyExistsError) {
+      if (err instanceof AccountAlreadyExistsError) {
         res.status(409).json({ error: `operator ${did} is already registered` });
         return;
       }
       // Anything else (a dead database, a disk error) is our problem, not the operator's:
       // 503 with the cause in the log, not the body, so a dead database fails closed.
-      console.error('POST /operators: storage failed', err);
+      console.error('POST /accounts: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
 
-  app.get('/operators/:did', async (req: Request, res: Response) => {
+  app.get('/accounts/:did', async (req: Request, res: Response) => {
     try {
       const row = await repo.findByDid(String(req.params.did));
       if (row === null) {
         res.status(404).json({ error: 'not found' });
         return;
       }
-      res.status(200).json(operatorProjection(row));
+      res.status(200).json(accountProjection(row));
     } catch (err) {
-      console.error('GET /operators/:did: storage failed', err);
+      console.error('GET /accounts/:did: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
@@ -624,16 +624,16 @@ export function createApp(
   // rule for the same two query parameters (Proof, run 76, defect
   // inert-control-affordance: the controls must drive this route, the
   // exact mechanism browse's controls already drive).
-  app.get('/operators/:did/agents', async (req: Request, res: Response) => {
+  app.get('/accounts/:did/agents', async (req: Request, res: Response) => {
     const operatorDid = String(req.params.did);
     const sort = resolveBrowseSort(req.query.sort);
     const skillFilter = typeof req.query.skill === 'string' ? req.query.skill : null;
 
-    let operatorRow: Operator | null;
+    let operatorRow: Account | null;
     try {
       operatorRow = await repo.findByDid(operatorDid);
     } catch (err) {
-      console.error('GET /operators/:did/agents: storage failed', err);
+      console.error('GET /accounts/:did/agents: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
       return;
     }
@@ -643,7 +643,7 @@ export function createApp(
     }
 
     if (typeof agentRepo.listAll !== 'function') {
-      console.error('GET /operators/:did/agents: storage does not support listAll');
+      console.error('GET /accounts/:did/agents: storage does not support listAll');
       res.status(503).json({ error: 'storage unavailable' });
       return;
     }
@@ -683,7 +683,7 @@ export function createApp(
         aggregate,
       });
     } catch (err) {
-      console.error('GET /operators/:did/agents: storage failed', err);
+      console.error('GET /accounts/:did/agents: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
@@ -737,7 +737,7 @@ export function createApp(
       return;
     }
 
-    let operatorRow: Operator | null;
+    let operatorRow: Account | null;
     try {
       operatorRow = await repo.findByDid(operator);
     } catch (err) {

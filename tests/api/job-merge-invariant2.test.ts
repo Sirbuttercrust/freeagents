@@ -25,7 +25,7 @@ import {
   MemoryAgentRepository,
   MemoryCredentialRepository,
   MemoryJobRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
@@ -190,7 +190,7 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
 
     const credentialRepo = new MemoryCredentialRepository();
     const credentials = createCredentialsAdapter({ did: issuerDid, seed: issuerSeed }, credentialRepo);
-    const operatorRepo = new MemoryOperatorRepository();
+    const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: buyerDid, githubLogin: 'buyer-merge-invariant2' });
     const sessionAdapter = testSessionAdapter();
     const authHeader = { authorization: `Bearer ${await mintSessionToken(sessionAdapter)}` };

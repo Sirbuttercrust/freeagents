@@ -105,7 +105,7 @@ import type { VerifiableCredential } from '../../src/adapters/credentials/types.
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter, SignedPayload } from '../../src/adapters/identity/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
-import { MemoryAgentRepository, MemoryCredentialRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryCredentialRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { signRequest, signingIdentityFromSeed, signingIdentityFromWallet, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
@@ -428,7 +428,7 @@ beforeAll(async () => {
   // runner environment happens to export DATABASE_URL.
   const sessionAdapter = testSessionAdapter();
   const app = createApp(
-    new MemoryOperatorRepository(),
+    new MemoryAccountRepository(),
     new MemoryAgentRepository(),
     identityAdapter,
     githubAdapter,
@@ -502,7 +502,7 @@ describe('the API starts and answers', () => {
     // unimplemented. What matters for this assertion is that none of them
     // 404, because a route that does not exist cannot be said to have a
     // contract at all.
-    // POST /operators, POST /agents, POST /jobs, POST /jobs/:id/confirm,
+    // POST /accounts, POST /agents, POST /jobs, POST /jobs/:id/confirm,
     // POST /jobs/:id/pull-request, POST /jobs/:id/merge and
     // POST /jobs/:id/reviews have left this list: they are implemented,
     // driven end to end over HTTP by their own dedicated suites
@@ -527,28 +527,28 @@ describe('the API starts and answers', () => {
 
     // 1. Register. The response is exactly the stored fact projection:
     // did, githubLogin, createdAt, and nothing else, no key material.
-    const created = await post('/operators', { did: 'did:abt:op1', githubLogin: 'operator-1' });
+    const created = await post('/accounts', { did: 'did:abt:op1', githubLogin: 'operator-1' });
     expect(created.status).toBe(201);
     const createdBody = (await created.json()) as Record<string, unknown>;
     expect(createdBody.did).toBe('did:abt:op1');
     expect(Object.keys(createdBody).sort()).toEqual(['createdAt', 'did', 'githubLogin']);
 
     // 2. Read back: the same body, field for field.
-    const read = await get('/operators/did:abt:op1');
+    const read = await get('/accounts/did:abt:op1');
     expect(read.status).toBe(200);
     expect(await read.json()).toEqual(createdBody);
 
     // 3. The same DID twice is a conflict, not a silent overwrite.
-    const dup = await post('/operators', { did: 'did:abt:op1', githubLogin: 'operator-1' });
+    const dup = await post('/accounts', { did: 'did:abt:op1', githubLogin: 'operator-1' });
     expect(dup.status).toBe(409);
 
     // 4. A DID of the wrong method is a client error.
-    const bad = await post('/operators', { did: 'did:eth:xyz', githubLogin: 'operator-1' });
+    const bad = await post('/accounts', { did: 'did:eth:xyz', githubLogin: 'operator-1' });
     expect(bad.status).toBe(400);
 
     // 5. An unregistered DID is a 404, so the read-back above meant
     // something.
-    const missing = await get('/operators/did:abt:nobody');
+    const missing = await get('/accounts/did:abt:nobody');
     expect(missing.status).toBe(404);
   });
 
@@ -563,7 +563,7 @@ describe('the API starts and answers', () => {
     const credential = await signW3CDelegation(operatorWallet, agentWallet);
 
     // 1. The operator registers first: a delegation vouches with its standing.
-    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-delegation' });
+    const op = await post('/accounts', { did: operatorWallet.toDid(), githubLogin: 'operator-delegation' });
     expect(op.status).toBe(201);
 
     // 2. Delegate the agent. The response carries the delegation verbatim.
@@ -650,7 +650,7 @@ describe('the API starts and answers', () => {
     const oldDid = agentWallet.toDid();
 
     // 1. Register the operator and delegate the agent, as in the R-2 flow.
-    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-rotate' });
+    const op = await post('/accounts', { did: operatorWallet.toDid(), githubLogin: 'operator-rotate' });
     expect(op.status).toBe(201);
     const delegation = await signW3CDelegation(operatorWallet, agentWallet);
     const delegated = await post('/agents', {
@@ -732,7 +732,7 @@ describe('the API starts and answers', () => {
     const credential = await signW3CDelegation(operatorWallet, agentWallet);
 
     // 1. Register the operator.
-    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-jobs' });
+    const op = await post('/accounts', { did: operatorWallet.toDid(), githubLogin: 'operator-jobs' });
     expect(op.status).toBe(201);
 
     // 2. Delegate an agent from it, W3C-signed as in the R-2 flow above.
@@ -806,7 +806,7 @@ describe('the API starts and answers', () => {
     const credential = await signW3CDelegation(operatorWallet, agentWallet);
 
     // 1. Register and delegate, as in the R-2 flow above.
-    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-proof' });
+    const op = await post('/accounts', { did: operatorWallet.toDid(), githubLogin: 'operator-proof' });
     expect(op.status).toBe(201);
     const created = await post('/agents', {
       did: agentWallet.toDid(),
@@ -853,7 +853,7 @@ describe('the API starts and answers', () => {
     const credential = await signW3CDelegation(operatorWallet, agentWallet);
 
     // 1. Register and delegate, as in the R-2 flow above.
-    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-gist' });
+    const op = await post('/accounts', { did: operatorWallet.toDid(), githubLogin: 'operator-gist' });
     expect(op.status).toBe(201);
     const created = await post('/agents', {
       did: agentWallet.toDid(),
@@ -991,11 +991,11 @@ describe('the API starts and answers', () => {
     const credential = await signW3CDelegation(operatorWallet, agentWallet);
 
     // 1-2. Register and delegate, as in the flows above.
-    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-criteria' });
+    const op = await post('/accounts', { did: operatorWallet.toDid(), githubLogin: 'operator-criteria' });
     expect(op.status).toBe(201);
     // The buyer must be registered too: a verified signature requires the
     // DID behind it to resolve, and the buyer is not the job's operator.
-    const buyerReg = await post('/operators', { did: buyerWallet.toDid(), githubLogin: 'buyer-criteria' });
+    const buyerReg = await post('/accounts', { did: buyerWallet.toDid(), githubLogin: 'buyer-criteria' });
     expect(buyerReg.status).toBe(201);
     const delegated = await post('/agents', {
       did: agentWallet.toDid(),
@@ -1074,9 +1074,9 @@ describe('the API starts and answers', () => {
     const credential = await signW3CDelegation(operatorWallet, agentWallet);
 
     // 1-2. Register and delegate, as in the flows above.
-    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-confirm' });
+    const op = await post('/accounts', { did: operatorWallet.toDid(), githubLogin: 'operator-confirm' });
     expect(op.status).toBe(201);
-    const buyerReg = await post('/operators', { did: buyerWallet.toDid(), githubLogin: 'buyer-confirm' });
+    const buyerReg = await post('/accounts', { did: buyerWallet.toDid(), githubLogin: 'buyer-confirm' });
     expect(buyerReg.status).toBe(201);
     const delegated = await post('/agents', {
       did: agentWallet.toDid(),
@@ -1183,9 +1183,9 @@ describe('the API starts and answers', () => {
     const credential = await signW3CDelegation(operatorWallet, agentWallet);
 
     // 1-2. Register and delegate, as in the flows above.
-    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-pr' });
+    const op = await post('/accounts', { did: operatorWallet.toDid(), githubLogin: 'operator-pr' });
     expect(op.status).toBe(201);
-    const buyerReg = await post('/operators', { did: buyerWallet.toDid(), githubLogin: 'buyer-pr' });
+    const buyerReg = await post('/accounts', { did: buyerWallet.toDid(), githubLogin: 'buyer-pr' });
     expect(buyerReg.status).toBe(201);
     const delegated = await post('/agents', {
       did: agentWallet.toDid(),
@@ -1259,9 +1259,9 @@ describe('the API starts and answers', () => {
     const credential = await signW3CDelegation(operatorWallet, agentWallet);
 
     // 1-2. Register and delegate, as in the flows above.
-    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-merge' });
+    const op = await post('/accounts', { did: operatorWallet.toDid(), githubLogin: 'operator-merge' });
     expect(op.status).toBe(201);
-    const buyerReg = await post('/operators', { did: buyerWallet.toDid(), githubLogin: 'buyer-merge' });
+    const buyerReg = await post('/accounts', { did: buyerWallet.toDid(), githubLogin: 'buyer-merge' });
     expect(buyerReg.status).toBe(201);
     const delegated = await post('/agents', {
       did: agentWallet.toDid(),
@@ -1458,12 +1458,12 @@ describe('the API starts and answers', () => {
     const buyerIdentity = await signingIdentityFromSeed(hexToBytes(buyerWallet.secretKey).slice(0, 32));
 
     // 1. The agent's operator registers.
-    const op = await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-r34' });
+    const op = await post('/accounts', { did: operatorWallet.toDid(), githubLogin: 'operator-r34' });
     expect(op.status).toBe(201);
 
     // 2. The buyer registers too: a signing identity must be a registered
     // DID for createDidAbtSigningKeyResolver to accept it (R-34).
-    const buyerReg = await post('/operators', { did: buyerIdentity.did, githubLogin: 'buyer-r34' });
+    const buyerReg = await post('/accounts', { did: buyerIdentity.did, githubLogin: 'buyer-r34' });
     expect(buyerReg.status).toBe(201);
 
     // 3. Delegate the agent, unsigned, exactly as every flow above does --

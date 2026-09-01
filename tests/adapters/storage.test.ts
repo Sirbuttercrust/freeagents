@@ -13,21 +13,21 @@ const {
   createCompromiseRepository,
   createCredentialRepository,
   createJobRepository,
-  createOperatorRepository,
+  createAccountRepository,
   createReviewRepository,
 } = await import('../../src/adapters/storage/storage.js');
 const {
   MemoryCompromiseRepository,
   MemoryCredentialRepository,
   MemoryJobRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
   MemoryReviewRepository,
 } = await import('../../src/adapters/storage/memory.js');
 const {
   PrismaCompromiseRepository,
   PrismaCredentialRepository,
   PrismaJobRepository,
-  PrismaOperatorRepository,
+  PrismaAccountRepository,
   PrismaReviewRepository,
 } = await import('../../src/adapters/storage/prisma.js');
 const { CredentialAlreadyIssuedError, JobAlreadyExistsError, ReviewAlreadyExistsError, credentialLookupKey } =
@@ -83,7 +83,7 @@ const credentialFixture: VerifiableCredential = {
   proof: { type: 'Ed25519Signature2020', proofValue: 'zProof' },
 };
 
-describe('createOperatorRepository', () => {
+describe('createAccountRepository', () => {
   const original = process.env.DATABASE_URL;
 
   afterEach(() => {
@@ -98,11 +98,11 @@ describe('createOperatorRepository', () => {
 
   it('DATABASE_URL set selects the Prisma driver', () => {
     vi.stubEnv('DATABASE_URL', 'postgresql://user:pass@127.0.0.1:5432/freeagents');
-    const repo = createOperatorRepository();
-    expect(repo).toBeInstanceOf(PrismaOperatorRepository);
+    const repo = createAccountRepository();
+    expect(repo).toBeInstanceOf(PrismaAccountRepository);
     // The two drivers are different classes; an instanceof on the wrong one
     // would pass on a common ancestor, so also assert the exact name.
-    expect(repo.constructor.name).toBe('PrismaOperatorRepository');
+    expect(repo.constructor.name).toBe('PrismaAccountRepository');
   });
 
   it('DATABASE_URL empty selects the in-memory driver, with the loud warning', () => {
@@ -110,9 +110,9 @@ describe('createOperatorRepository', () => {
     // variable exists but means nothing. The falsy check must treat it as unset.
     vi.stubEnv('DATABASE_URL', '');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const repo = createOperatorRepository();
-    expect(repo).toBeInstanceOf(MemoryOperatorRepository);
-    expect(repo.constructor.name).toBe('MemoryOperatorRepository');
+    const repo = createAccountRepository();
+    expect(repo).toBeInstanceOf(MemoryAccountRepository);
+    expect(repo.constructor.name).toBe('MemoryAccountRepository');
     // The warning is the fail-loud half of the branch: a dev/test mode must
     // announce itself, so its absence is a regression this test catches.
     expect(warn).toHaveBeenCalledTimes(1);
@@ -127,8 +127,8 @@ describe('createOperatorRepository', () => {
     vi.unstubAllEnvs();
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     delete process.env.DATABASE_URL;
-    const repo = createOperatorRepository();
-    expect(repo).toBeInstanceOf(MemoryOperatorRepository);
+    const repo = createAccountRepository();
+    expect(repo).toBeInstanceOf(MemoryAccountRepository);
   });
 });
 

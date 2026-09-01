@@ -49,7 +49,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import {
   MemoryAgentRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 
 let server: Server;
@@ -58,7 +58,7 @@ let baseUrl: string;
 beforeAll(async () => {
   // Deliberately EMPTY repositories. Every record below is one that does
   // not exist, which is the state under test.
-  server = createApp(new MemoryOperatorRepository(), new MemoryAgentRepository()).listen(0);
+  server = createApp(new MemoryAccountRepository(), new MemoryAgentRepository()).listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -156,7 +156,7 @@ describe('the hidden guard is present in the stylesheets that ship', () => {
   it.each([
     ['/v1/credentials/no-such-receipt', 'receipt'],
     ['/agents/did:abt:nobody-at-all', 'agent'],
-    ['/operators/did:abt:nobody-at-all', 'operator'],
+    ['/accounts/did:abt:nobody-at-all', 'operator'],
     ['/verify', 'verify'],
     ['/how', 'how it works'],
     ['/signin', 'sign in'],
@@ -236,7 +236,7 @@ describe('an agent that was never registered says only that', () => {
 
 describe('an operator that was never registered says only that', () => {
   it('hides the identity row on the failure path', async () => {
-    const page = await render('/operators/did:abt:nobody-at-all');
+    const page = await render('/accounts/did:abt:nobody-at-all');
     try {
       expect(page.document.getElementById('name')?.textContent).toBe('Operator not found');
       expect(page.isHidden('ident')).toBe(true);
@@ -296,7 +296,7 @@ describe('every page that hides something also carries the guard for it', () => 
     ['/signin', 'sign in', 200],
     ['/verify', 'verify', 200],
     ['/agents/did:abt:nobody-at-all', 'agent, not found', 200],
-    ['/operators/did:abt:nobody-at-all', 'operator, not found', 200],
+    ['/accounts/did:abt:nobody-at-all', 'operator, not found', 200],
     ['/v1/credentials/no-such-receipt', 'receipt, not found', 200],
     // A real page, served with the status it should have.
     ['/no-such-page', '404', 404],

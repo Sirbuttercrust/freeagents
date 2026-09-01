@@ -16,7 +16,7 @@ export function isValidOperatorDid(value: string): boolean {
   const suffix = value.slice('did:abt:'.length);
   if (suffix.length === 0) return false;
 
-  // Whitespace in the suffix would also break the GET /operators/:did URL
+  // Whitespace in the suffix would also break the GET /accounts/:did URL
   // path, so it is refused here rather than in the route, where the reason
   // would read as a transport detail.
   if (/\s/.test(suffix)) return false;

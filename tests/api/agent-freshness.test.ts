@@ -13,7 +13,7 @@ import {
   MemoryAgentRepository,
   MemoryCredentialRepository,
   MemoryJobRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import type { Agent, Delegation } from '../../src/domain/agent.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
@@ -139,7 +139,7 @@ describe('GET /agents/:agentDid, freshness (R-37)', () => {
 
   beforeAll(async () => {
     const app = createApp(
-      new MemoryOperatorRepository(),
+      new MemoryAccountRepository(),
       agentRepo,
       undefined,
       undefined,

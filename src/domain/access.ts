@@ -53,7 +53,7 @@ export const CAPABILITIES: readonly Capability[] = [
   {
     id: 'operator.browse',
     method: 'GET',
-    path: '/operators/:did',
+    path: '/accounts/:did',
     access: 'public',
     identityField: null,
     reason: 'Reading needs no account: anyone can look up an operator record.',
@@ -69,7 +69,7 @@ export const CAPABILITIES: readonly Capability[] = [
   {
     id: 'operator.register',
     method: 'POST',
-    path: '/operators',
+    path: '/accounts',
     access: 'identified',
     identityField: 'did',
     reason: 'Registering records who registered: the request must carry did.',

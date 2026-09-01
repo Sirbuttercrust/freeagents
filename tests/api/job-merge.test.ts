@@ -27,7 +27,7 @@ import {
   MemoryAgentRepository,
   MemoryCredentialRepository,
   MemoryJobRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import type { CredentialRepository, JobRepository } from '../../src/adapters/storage/types.js';
 import { createJob, type CompletedJob, type Job, type JobStatus } from '../../src/domain/job.js';
@@ -230,7 +230,7 @@ async function startWith(
   const credentialRepo = extras.credentialRepo ?? new MemoryCredentialRepository();
   const credentials =
     extras.credentials ?? createCredentialsAdapter({ did: ISSUER_DID, seed: ISSUER_SEED }, credentialRepo);
-  const operatorRepo = new MemoryOperatorRepository();
+  const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: BUYER_DID, githubLogin: 'buyer-merge-scripted' });
   const sessionAdapter = testSessionAdapter();
   const s = createApp(
@@ -640,7 +640,7 @@ describe("createApp's credentials default, no credentials adapter given (R-36)",
       githubLogin: null,
     });
     const credentialRepo = new MemoryCredentialRepository();
-    const operatorRepo = new MemoryOperatorRepository();
+    const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: BUYER_DID, githubLogin: 'buyer-merge-default' });
     const sessionAdapter = testSessionAdapter();
     const s = createApp(

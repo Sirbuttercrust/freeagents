@@ -46,7 +46,7 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
   );
   return {
     PrismaClient: class {
-      operator = mock;
+      account = mock;
       agent = { create: mock.agentCreate, findUnique: mock.agentFindUnique, findMany: mock.agentFindMany, update: mock.agentUpdate };
       job = {
         create: mock.jobCreate,
@@ -70,14 +70,14 @@ const {
   PrismaCompromiseRepository,
   PrismaCredentialRepository,
   PrismaJobRepository,
-  PrismaOperatorRepository,
+  PrismaAccountRepository,
   PrismaReviewRepository,
 } = await import('../../src/adapters/storage/prisma.js');
 const {
   AgentAlreadyExistsError,
   CredentialAlreadyIssuedError,
   JobAlreadyExistsError,
-  OperatorAlreadyExistsError,
+  AccountAlreadyExistsError,
   ReviewAlreadyExistsError,
 } = await import('../../src/adapters/storage/types.js');
 
@@ -146,7 +146,7 @@ function p1001(): Error {
   });
 }
 
-describe('PrismaOperatorRepository', () => {
+describe('PrismaAccountRepository', () => {
   beforeAll(() => {
     vi.mocked(mock.create).mockReset();
     vi.mocked(mock.findUnique).mockReset();
@@ -165,7 +165,7 @@ describe('PrismaOperatorRepository', () => {
       createdAt,
     });
 
-    const repo = new PrismaOperatorRepository();
+    const repo = new PrismaAccountRepository();
     const row = await repo.register({
       did: 'did:abt:prisma-1',
       githubLogin: 'operator-prisma-1',
@@ -187,23 +187,23 @@ describe('PrismaOperatorRepository', () => {
   it('register: a P2002 unique-constraint failure is the domain duplicate error', async () => {
     vi.mocked(mock.create).mockRejectedValue(p2002('did:abt:prisma-dup'));
 
-    const repo = new PrismaOperatorRepository();
+    const repo = new PrismaAccountRepository();
     const err = await repo
       .register({ did: 'did:abt:prisma-dup', githubLogin: 'operator-prisma-dup' })
       .catch((e: unknown) => e);
 
-    expect(err).toBeInstanceOf(OperatorAlreadyExistsError);
+    expect(err).toBeInstanceOf(AccountAlreadyExistsError);
     expect((err as Error).message).toContain('did:abt:prisma-dup');
     // The API maps this type to 409; a different error type would be a 503,
     // which is exactly what the missing branch would have produced.
-    expect((err as Error).name).toBe('OperatorAlreadyExistsError');
+    expect((err as Error).name).toBe('AccountAlreadyExistsError');
   });
 
   it('register: a non-P2002 Prisma error is rethrown untouched', async () => {
     const original = p1001();
     vi.mocked(mock.create).mockRejectedValue(original);
 
-    const repo = new PrismaOperatorRepository();
+    const repo = new PrismaAccountRepository();
     const err = await repo
       .register({ did: 'did:abt:prisma-2', githubLogin: 'operator-prisma-2' })
       .catch((e: unknown) => e);
@@ -211,14 +211,14 @@ describe('PrismaOperatorRepository', () => {
     // Same object: a dead database must not be rewritten into a duplicate,
     // and it must not be swallowed.
     expect(err).toBe(original);
-    expect(err).not.toBeInstanceOf(OperatorAlreadyExistsError);
+    expect(err).not.toBeInstanceOf(AccountAlreadyExistsError);
   });
 
   it('register: a non-Prisma error is rethrown untouched', async () => {
     const original = new Error('disk full');
     vi.mocked(mock.create).mockRejectedValue(original);
 
-    const repo = new PrismaOperatorRepository();
+    const repo = new PrismaAccountRepository();
     const err = await repo
       .register({ did: 'did:abt:prisma-3', githubLogin: 'operator-prisma-3' })
       .catch((e: unknown) => e);
@@ -234,7 +234,7 @@ describe('PrismaOperatorRepository', () => {
       createdAt,
     });
 
-    const repo = new PrismaOperatorRepository();
+    const repo = new PrismaAccountRepository();
     const row = await repo.findByDid('did:abt:prisma-1');
 
     expect(mock.findUnique).toHaveBeenCalledWith({ where: { did: 'did:abt:prisma-1' } });
@@ -248,7 +248,7 @@ describe('PrismaOperatorRepository', () => {
   it('findByDid: no stored row comes back as null, not an empty operator', async () => {
     vi.mocked(mock.findUnique).mockResolvedValue(null);
 
-    const repo = new PrismaOperatorRepository();
+    const repo = new PrismaAccountRepository();
     const row = await repo.findByDid('did:abt:prisma-none');
 
     expect(mock.findUnique).toHaveBeenCalledWith({ where: { did: 'did:abt:prisma-none' } });

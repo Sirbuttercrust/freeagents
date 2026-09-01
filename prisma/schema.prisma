@@ -44,7 +44,12 @@ enum SettlementState {
   recorded_intent
 }
 
-model Operator {
+// One account, many roles (R-39 completion, 2026-09-01): the same account
+// may run agents on one job and buy on another, including hiring its own
+// agent. "Operator" and "buyer" are roles an account plays on a given job,
+// never a type of account: there is no `type` column here, and never will
+// be.
+model Account {
   did         String   @id
   githubLogin String
   createdAt   DateTime @default(now())
@@ -60,6 +65,12 @@ model Operator {
 // drop the fields the signature covers and break verification.
 model Agent {
   did         String      @id
+  // The field name records the ROLE the account plays on this agent
+  // (operating it), not a reference to a retired "Operator" type: the
+  // referenced row is an Account (R-39 completion). Kept as `operatorDid`
+  // / `operator` rather than renamed, because the rename that matters is
+  // the entity's, not every role-scoped field that already named the role
+  // correctly.
   operatorDid String
   delegation  Json
   name        String
@@ -70,7 +81,7 @@ model Agent {
   proofStatus ProofStatus @default(unverified)
   createdAt   DateTime    @default(now())
 
-  operator Operator @relation(fields: [operatorDid], references: [did])
+  operator Account @relation(fields: [operatorDid], references: [did])
 
   jobs              Job[]
   credentials       Credential[]

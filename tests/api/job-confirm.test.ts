@@ -32,7 +32,7 @@ import { createApp } from '../../src/api/app.js';
 import {
   MemoryAgentRepository,
   MemoryJobRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
@@ -146,7 +146,7 @@ async function startWith(repo: JobRepository): Promise<{ server: Server; baseUrl
     skills: ['triage'],
     githubLogin: null,
   });
-  const operatorRepo = new MemoryOperatorRepository();
+  const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-confirm-scripted' });
   const s = createApp(operatorRepo, agentRepo, undefined, undefined, repo).listen(0);
   await new Promise<void>((resolve) => s.once('listening', resolve));
@@ -163,7 +163,7 @@ describe('job confirm (R-9)', () => {
     agent = await signingIdentityFromSeed(new Uint8Array(32).fill(72));
     stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(73));
 
-    const operatorRepo = new MemoryOperatorRepository();
+    const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-confirm' });
     const agentRepo = new MemoryAgentRepository();
     await agentRepo.create({
@@ -371,7 +371,7 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
   beforeAll(async () => {
     const sessionAdapter = testSessionAdapter();
     server = createApp(
-      new MemoryOperatorRepository(),
+      new MemoryAccountRepository(),
       new MemoryAgentRepository(),
       undefined,
       undefined,
@@ -394,7 +394,7 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
     authHeader = { authorization: `Bearer ${token}` };
 
     expect(
-      (await post('/operators', { did: operatorWallet.toDid(), githubLogin: 'operator-confirm' }, authHeader)).status,
+      (await post('/accounts', { did: operatorWallet.toDid(), githubLogin: 'operator-confirm' }, authHeader)).status,
     ).toBe(201);
     expect(
       (

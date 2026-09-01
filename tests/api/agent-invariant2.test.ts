@@ -13,7 +13,7 @@ import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { renderAvatar } from '../../src/api/avatar.js';
-import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
@@ -170,7 +170,7 @@ async function postJson(
 describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
   let server: Server;
   let baseUrl: string;
-  const repo = new MemoryOperatorRepository();
+  const repo = new MemoryAccountRepository();
   const agentRepo = new MemoryAgentRepository();
   const operator = fromRandom();
   const agent = fromRandom();
@@ -200,7 +200,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
     baseUrl = `http://127.0.0.1:${address.port}`;
     const token = await mintSessionToken(sessionAdapter);
     authHeader = { authorization: `Bearer ${token}` };
-    const reg = await postJson(baseUrl, '/operators', { did: operator.toDid(), githubLogin: 'operator-inv2' }, authHeader);
+    const reg = await postJson(baseUrl, '/accounts', { did: operator.toDid(), githubLogin: 'operator-inv2' }, authHeader);
     expect(reg.status).toBe(201);
   });
 

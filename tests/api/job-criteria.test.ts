@@ -22,7 +22,7 @@ import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
-import { MemoryAgentRepository, MemoryJobRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import {
   acceptCriterion,
@@ -109,7 +109,7 @@ async function startWith(jobRepo: JobRepository): Promise<{ server: Server; base
   });
   const sessionAdapter = testSessionAdapter();
   const server = createApp(
-    new MemoryOperatorRepository(),
+    new MemoryAccountRepository(),
     agentRepo,
     undefined,
     undefined,
@@ -159,7 +159,7 @@ describe('job criteria exchange (R-8)', () => {
     agent = await signingIdentityFromSeed(new Uint8Array(32).fill(62));
     stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(63));
 
-    const operatorRepo = new MemoryOperatorRepository();
+    const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-criteria' });
 
     const agentRepo = new MemoryAgentRepository();
@@ -422,7 +422,7 @@ describe('job criteria exchange (R-8)', () => {
       githubLogin: null,
     });
     const failingServer = createApp(
-      new MemoryOperatorRepository(),
+      new MemoryAccountRepository(),
       failingAgentRepo,
       undefined,
       undefined,

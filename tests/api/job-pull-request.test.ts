@@ -33,7 +33,7 @@ import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import {
   MemoryAgentRepository,
   MemoryJobRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { createJob, type Job, type JobStatus } from '../../src/domain/job.js';
@@ -165,7 +165,7 @@ async function startWith(
     skills: ['triage'],
     githubLogin: null,
   });
-  const operatorRepo = new MemoryOperatorRepository();
+  const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-pr-scripted' });
   const sessionAdapter = testSessionAdapter();
   const s = createApp(

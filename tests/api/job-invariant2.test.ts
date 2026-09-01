@@ -25,7 +25,7 @@ import { fromRandom, type WalletObject } from '@ocap/wallet';
 import { createApp } from '../../src/api/app.js';
 import type { GithubAdapter, PullRequestSummary } from '../../src/adapters/github/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
-import { MemoryAgentRepository, MemoryJobRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { createJob, type Job } from '../../src/domain/job.js';
@@ -127,7 +127,7 @@ describe('job draft, invariant 2 (R-28): the brief hash is verifiable off-platfo
   beforeAll(async () => {
     const sessionAdapter = testSessionAdapter();
     server = createApp(
-      new MemoryOperatorRepository(),
+      new MemoryAccountRepository(),
       new MemoryAgentRepository(),
       undefined,
       undefined,
@@ -149,7 +149,7 @@ describe('job draft, invariant 2 (R-28): the brief hash is verifiable off-platfo
     const token = await mintSessionToken(sessionAdapter);
     authHeader = { authorization: `Bearer ${token}` };
 
-    const reg = await postJson(baseUrl, '/operators', {
+    const reg = await postJson(baseUrl, '/accounts', {
       did: operatorWallet.toDid(),
       githubLogin: 'operator-job-inv2',
     }, authHeader);
@@ -286,7 +286,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     agentIdentity = await signingIdentityFromWallet(agentWallet);
     const sessionAdapter = testSessionAdapter();
     server = createApp(
-      new MemoryOperatorRepository(),
+      new MemoryAccountRepository(),
       new MemoryAgentRepository(),
       undefined,
       github,
@@ -308,7 +308,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     const token = await mintSessionToken(sessionAdapter);
     authHeader = { authorization: `Bearer ${token}` };
 
-    const reg = await postJson(baseUrl, '/operators', {
+    const reg = await postJson(baseUrl, '/accounts', {
       did: operatorWallet.toDid(),
       githubLogin: 'operator-outcome-inv2',
     }, authHeader);
@@ -432,7 +432,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     const repo = new PlantedJobRepository();
 
     const server2 = createApp(
-      new MemoryOperatorRepository(),
+      new MemoryAccountRepository(),
       new MemoryAgentRepository(),
       undefined,
       github,

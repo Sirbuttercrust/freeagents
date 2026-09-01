@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-key-2020';
 import { fromPublicKey } from '@arcblock/did';
 import { createApp } from '../../src/api/app.js';
-import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
@@ -119,7 +119,7 @@ async function independentlyVerify(
 
 describe('DID-signed requests, invariant 2 (R-34): third-party verifiability', () => {
   it('a signed request leaves no signature, key or key-material trace in what the service serves', async () => {
-    const repo = new MemoryOperatorRepository();
+    const repo = new MemoryAccountRepository();
     const agentRepo = new MemoryAgentRepository();
     await agentRepo.create({
       did: AGENT_DID,

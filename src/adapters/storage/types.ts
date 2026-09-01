@@ -5,23 +5,23 @@
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
-import type { Operator } from '../../domain/operator.js';
+import type { Account } from '../../domain/account.js';
 import type { Review } from '../../domain/review.js';
 import type { VerifiableCredential } from '../credentials/types.js';
 
 // Thrown by register when the DID already exists, so the API layer can map
 // it to 409 without inspecting error messages.
-export class OperatorAlreadyExistsError extends Error {
+export class AccountAlreadyExistsError extends Error {
   constructor(did: string) {
-    super(`operator ${did} already exists`);
-    this.name = 'OperatorAlreadyExistsError';
+    super(`account ${did} already exists`);
+    this.name = 'AccountAlreadyExistsError';
   }
 }
 
-export interface OperatorRepository {
-  // Throws OperatorAlreadyExistsError when the DID is already registered.
-  register(input: { readonly did: string; readonly githubLogin: string }): Promise<Operator>;
-  findByDid(did: string): Promise<Operator | null>;
+export interface AccountRepository {
+  // Throws AccountAlreadyExistsError when the DID is already registered.
+  register(input: { readonly did: string; readonly githubLogin: string }): Promise<Account>;
+  findByDid(did: string): Promise<Account | null>;
 }
 
 // Thrown by AgentRepository.create when the agent DID is already delegated,

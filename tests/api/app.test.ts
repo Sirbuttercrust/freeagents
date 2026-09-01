@@ -1,12 +1,12 @@
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/api/app.js';
-import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import {
   JobAlreadyExistsError,
   type AgentRepository,
   type JobRepository,
-  type OperatorRepository,
+  type AccountRepository,
 } from '../../src/adapters/storage/types.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
@@ -58,7 +58,7 @@ async function postJob(
 describe('app', () => {
   let server: Server;
   let baseUrl: string;
-  const repo = new MemoryOperatorRepository();
+  const repo = new MemoryAccountRepository();
   const agentRepo = new MemoryAgentRepository();
   const sessionAdapter: SessionAdapter = testSessionAdapter();
   let authHeader: Record<string, string>;
@@ -120,7 +120,7 @@ describe('app', () => {
   });
 
   it('registers an operator and reads it back with the same body', async () => {
-    const created = await fetch(`${baseUrl}/operators`, {
+    const created = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-1', githubLogin: 'operator-api-1' }),
@@ -129,18 +129,18 @@ describe('app', () => {
     const body = (await created.json()) as Record<string, unknown>;
     expect(body.did).toBe('did:abt:api-1');
 
-    const read = await fetch(`${baseUrl}/operators/did:abt:api-1`);
+    const read = await fetch(`${baseUrl}/accounts/did:abt:api-1`);
     expect(read.status).toBe(200);
     expect(await read.json()).toEqual(body);
   });
 
   it('returns 404 for an unregistered operator DID', async () => {
-    const response = await fetch(`${baseUrl}/operators/did:abt:never-registered`);
+    const response = await fetch(`${baseUrl}/accounts/did:abt:never-registered`);
     expect(response.status).toBe(404);
   });
 
   it('returns 400 for a DID of the wrong method', async () => {
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:eth:api-2', githubLogin: 'operator-api-2' }),
@@ -149,7 +149,7 @@ describe('app', () => {
   });
 
   it('returns 400 when githubLogin is missing', async () => {
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-3' }),
@@ -164,7 +164,7 @@ describe('app', () => {
   // wrong shape), so a test per conjunct is what makes the whole guard
   // non-deletable.
   it('returns 400 when did is not a string (number)', async () => {
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 42, githubLogin: 'operator-api-4' }),
@@ -173,7 +173,7 @@ describe('app', () => {
   });
 
   it('returns 400 when did is not a string (null)', async () => {
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: null, githubLogin: 'operator-api-5' }),
@@ -185,7 +185,7 @@ describe('app', () => {
     // A well-typed string that fails the length conjunct: without the
     // did.length === 0 clause this would reach the DID-shape check and still
     // be a 400, but for a different reason with a different body.
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: '', githubLogin: 'operator-api-6' }),
@@ -199,7 +199,7 @@ describe('app', () => {
   it('returns 400 when githubLogin is not a string (number)', async () => {
     // The valid did here isolates the githubLogin conjunct: did passes both
     // its checks, so a 400 can only come from the login side of the guard.
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-7', githubLogin: 42 }),
@@ -208,7 +208,7 @@ describe('app', () => {
   });
 
   it('returns 400 when githubLogin is empty', async () => {
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-8', githubLogin: '' }),
@@ -220,14 +220,14 @@ describe('app', () => {
   });
 
   it('returns 409 when the same DID is registered twice', async () => {
-    const first = await fetch(`${baseUrl}/operators`, {
+    const first = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-dup', githubLogin: 'operator-api-dup' }),
     });
     expect(first.status).toBe(201);
 
-    const second = await fetch(`${baseUrl}/operators`, {
+    const second = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-dup', githubLogin: 'operator-api-dup' }),
@@ -238,7 +238,7 @@ describe('app', () => {
     });
 
     // The original registration survives the conflict.
-    const read = await fetch(`${baseUrl}/operators/did:abt:api-dup`);
+    const read = await fetch(`${baseUrl}/accounts/did:abt:api-dup`);
     expect(read.status).toBe(200);
   });
 
@@ -476,7 +476,7 @@ describe('app', () => {
 describe('app, storage failures', () => {
   const registerError = new Error('connection refused');
 
-  class FailingRepository implements OperatorRepository {
+  class FailingRepository implements AccountRepository {
     async register(): Promise<never> {
       throw registerError;
     }
@@ -519,9 +519,9 @@ describe('app, storage failures', () => {
     server.close();
   });
 
-  it('POST /operators answers 503, not 400 or 409, when storage throws a non-duplicate error', async () => {
+  it('POST /accounts answers 503, not 400 or 409, when storage throws a non-duplicate error', async () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const response = await fetch(`${baseUrl}/operators`, {
+    const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-down', githubLogin: 'operator-api-down' }),
@@ -534,9 +534,9 @@ describe('app, storage failures', () => {
     errorLog.mockRestore();
   });
 
-  it('GET /operators/:did answers 503, not 404, when storage throws', async () => {
+  it('GET /accounts/:did answers 503, not 404, when storage throws', async () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const response = await fetch(`${baseUrl}/operators/did:abt:api-down`);
+    const response = await fetch(`${baseUrl}/accounts/did:abt:api-down`);
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: 'storage unavailable' });
     expect(errorLog).toHaveBeenCalled();
@@ -621,7 +621,7 @@ describe('app, job storage failures', () => {
       // undefined keeps the defaulted identity/github parameters; only the
       // agent repository is faulted.
       createApp(
-        new MemoryOperatorRepository(),
+        new MemoryAccountRepository(),
         new FailingAgentLookup(),
         undefined,
         undefined,
@@ -637,7 +637,7 @@ describe('app, job storage failures', () => {
     );
     [createServer, createUrl] = await start(
       createApp(
-        new MemoryOperatorRepository(),
+        new MemoryAccountRepository(),
         seededAgentRepo,
         undefined,
         undefined,
@@ -652,7 +652,7 @@ describe('app, job storage failures', () => {
       ),
     );
     [readServer, readUrl] = await start(
-      createApp(new MemoryOperatorRepository(), new MemoryAgentRepository(), undefined, undefined, new FailingJobRepository()),
+      createApp(new MemoryAccountRepository(), new MemoryAgentRepository(), undefined, undefined, new FailingJobRepository()),
     );
     const token = await mintSessionToken(sessionAdapter);
     authHeader = { authorization: `Bearer ${token}` };
@@ -745,7 +745,7 @@ describe('app, job id collision', () => {
     });
     const sessionAdapter = testSessionAdapter();
     server = createApp(
-      new MemoryOperatorRepository(),
+      new MemoryAccountRepository(),
       seededAgentRepo,
       undefined,
       undefined,
@@ -845,7 +845,7 @@ describe('app, default storage parameter', () => {
   });
 
   it('boots without an injected repository and serves the operator flow', async () => {
-    const created = await fetch(`${baseUrl}/operators`, {
+    const created = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:default-1', githubLogin: 'operator-default-1' }),
@@ -854,7 +854,7 @@ describe('app, default storage parameter', () => {
     const body = (await created.json()) as Record<string, unknown>;
     expect(body.did).toBe('did:abt:default-1');
 
-    const read = await fetch(`${baseUrl}/operators/did:abt:default-1`);
+    const read = await fetch(`${baseUrl}/accounts/did:abt:default-1`);
     expect(read.status).toBe(200);
     expect(await read.json()).toEqual(body);
   });

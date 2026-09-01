@@ -135,7 +135,7 @@
 
     var operator = A.el("operator-link");
     if (operator && typeof agent.operatorDid === "string") {
-      operator.setAttribute("href", "/operators/" + encodeURIComponent(agent.operatorDid));
+      operator.setAttribute("href", "/accounts/" + encodeURIComponent(agent.operatorDid));
       A.setText(operator, A.shortDid(agent.operatorDid));
     }
 

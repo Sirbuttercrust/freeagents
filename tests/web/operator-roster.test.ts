@@ -18,7 +18,7 @@ import {
   MemoryAgentRepository,
   MemoryCredentialRepository,
   MemoryJobRepository,
-  MemoryOperatorRepository,
+  MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
@@ -76,7 +76,7 @@ let server: Server;
 let baseUrl: string;
 
 beforeAll(async () => {
-  const operatorRepo = new MemoryOperatorRepository();
+  const operatorRepo = new MemoryAccountRepository();
   const agentRepo = new MemoryAgentRepository();
   const credentialRepo = new MemoryCredentialRepository();
   const jobRepo = new MemoryJobRepository();
@@ -212,7 +212,7 @@ async function render(path: string): Promise<Rendered> {
 
 describe('the operator page roster (R-19)', () => {
   it('a single-agent operator sees the roster table with one row, no sort or filter controls', async () => {
-    const page = await render(`/operators/${SOLO_OPERATOR_DID}`);
+    const page = await render(`/accounts/${SOLO_OPERATOR_DID}`);
     try {
       const rows = page.document.querySelectorAll('[data-agent-row]');
       expect(rows.length).toBe(1);
@@ -225,7 +225,7 @@ describe('the operator page roster (R-19)', () => {
   });
 
   it('each roster row carries the same three separately labelled tier counts a browse card does', async () => {
-    const page = await render(`/operators/${SOLO_OPERATOR_DID}`);
+    const page = await render(`/accounts/${SOLO_OPERATOR_DID}`);
     try {
       const row = page.document.querySelector('[data-agent-row]');
       const text = row?.textContent ?? '';
@@ -238,7 +238,7 @@ describe('the operator page roster (R-19)', () => {
   });
 
   it('the aggregate is a summary line, three separate figures, never a combined score', async () => {
-    const page = await render(`/operators/${SOLO_OPERATOR_DID}`);
+    const page = await render(`/accounts/${SOLO_OPERATOR_DID}`);
     try {
       const summary = page.document.getElementById('roster-summary')?.textContent ?? '';
       expect(summary).toContain('1 verified hire');
@@ -254,7 +254,7 @@ describe('the operator page roster (R-19)', () => {
   });
 
   it('per-agent rows stay dominant: the roster table renders before the aggregate summary in the DOM', async () => {
-    const page = await render(`/operators/${SOLO_OPERATOR_DID}`);
+    const page = await render(`/accounts/${SOLO_OPERATOR_DID}`);
     try {
       const rosterHost = page.document.getElementById('roster-cards');
       const summary = page.document.getElementById('roster-summary');
@@ -269,7 +269,7 @@ describe('the operator page roster (R-19)', () => {
   });
 
   it('an operator with zero agents renders an honest empty roster, no promotional framing (ENT-2.4)', async () => {
-    const page = await render(`/operators/${EMPTY_OPERATOR_DID}`);
+    const page = await render(`/accounts/${EMPTY_OPERATOR_DID}`);
     try {
       expect(page.document.getElementById('roster-empty')?.hidden).toBe(false);
       expect(page.document.querySelectorAll('[data-agent-row]').length).toBe(0);
@@ -285,7 +285,7 @@ describe('the operator page roster (R-19)', () => {
   });
 
   it('an operator running eleven agents gets sort and filter controls (D4, above ten)', async () => {
-    const page = await render(`/operators/${MANY_OPERATOR_DID}`);
+    const page = await render(`/accounts/${MANY_OPERATOR_DID}`);
     try {
       const rows = page.document.querySelectorAll('[data-agent-row]');
       expect(rows.length).toBe(11);
@@ -298,7 +298,7 @@ describe('the operator page roster (R-19)', () => {
   });
 
   it('every roster row links to its agent profile', async () => {
-    const page = await render(`/operators/${SOLO_OPERATOR_DID}`);
+    const page = await render(`/accounts/${SOLO_OPERATOR_DID}`);
     try {
       const link = page.document.querySelector(`a[href="/agents/${encodeURIComponent('did:abt:zRosterPageSoloAgent')}"]`);
       expect(link).toBeTruthy();
@@ -313,7 +313,7 @@ describe('the operator page roster (R-19)', () => {
   // passes identically on a build where neither is wired to anything.
 
   it('loading the roster with a skill query param renders only the matching rows, the same way browse filters (item 1)', async () => {
-    const page = await render(`/operators/${CONTROL_OPERATOR_DID}?skill=rust`);
+    const page = await render(`/accounts/${CONTROL_OPERATOR_DID}?skill=rust`);
     try {
       const rows = page.document.querySelectorAll('[data-agent-row]');
       expect(rows.length).toBe(5);
@@ -326,7 +326,7 @@ describe('the operator page roster (R-19)', () => {
   });
 
   it('loading the roster with a sort query param reorders the rows, the same way browse sorts (item 1)', async () => {
-    const page = await render(`/operators/${CONTROL_OPERATOR_DID}?sort=recently-listed`);
+    const page = await render(`/accounts/${CONTROL_OPERATOR_DID}?sort=recently-listed`);
     try {
       const rows = Array.from(page.document.querySelectorAll('[data-agent-row]'));
       const dids = rows.map((r) => r.getAttribute('data-agent-row'));
@@ -341,7 +341,7 @@ describe('the operator page roster (R-19)', () => {
   });
 
   it('operating the sort select navigates to the URL that produces that sort, the same mechanism browse uses (item 1, item 2)', async () => {
-    const page = await render(`/operators/${CONTROL_OPERATOR_DID}`);
+    const page = await render(`/accounts/${CONTROL_OPERATOR_DID}`);
     const nav = captureNavigations();
     try {
       const sortSelect = page.document.getElementById('roster-sort') as HTMLSelectElement | null;
@@ -349,11 +349,11 @@ describe('the operator page roster (R-19)', () => {
       sortSelect!.value = 'recently-listed';
       sortSelect!.dispatchEvent(new (page.document.defaultView as unknown as { Event: typeof Event }).Event('change', { bubbles: true }));
 
-      const relevant = nav.calls.filter((url) => url.includes('/operators/'));
+      const relevant = nav.calls.filter((url) => url.includes('/accounts/'));
       expect(relevant.length).toBeGreaterThan(0);
       const last = relevant[relevant.length - 1] ?? '';
       expect(last).toContain('sort=recently-listed');
-      expect(last).toContain(`/operators/${encodeURIComponent(CONTROL_OPERATOR_DID)}`);
+      expect(last).toContain(`/accounts/${encodeURIComponent(CONTROL_OPERATOR_DID)}`);
     } finally {
       nav.restore();
       page.close();
@@ -361,7 +361,7 @@ describe('the operator page roster (R-19)', () => {
   });
 
   it('operating the skill filter navigates to the URL that produces that filter, the same mechanism browse uses (item 1, item 2)', async () => {
-    const page = await render(`/operators/${CONTROL_OPERATOR_DID}`);
+    const page = await render(`/accounts/${CONTROL_OPERATOR_DID}`);
     const nav = captureNavigations();
     try {
       const skillInput = page.document.getElementById('roster-skill') as HTMLInputElement | null;
@@ -369,11 +369,11 @@ describe('the operator page roster (R-19)', () => {
       skillInput!.value = 'rust';
       skillInput!.dispatchEvent(new (page.document.defaultView as unknown as { Event: typeof Event }).Event('change', { bubbles: true }));
 
-      const relevant = nav.calls.filter((url) => url.includes('/operators/'));
+      const relevant = nav.calls.filter((url) => url.includes('/accounts/'));
       expect(relevant.length).toBeGreaterThan(0);
       const last = relevant[relevant.length - 1] ?? '';
       expect(last).toContain('skill=rust');
-      expect(last).toContain(`/operators/${encodeURIComponent(CONTROL_OPERATOR_DID)}`);
+      expect(last).toContain(`/accounts/${encodeURIComponent(CONTROL_OPERATOR_DID)}`);
     } finally {
       nav.restore();
       page.close();
@@ -385,7 +385,7 @@ describe('the operator page roster (R-19)', () => {
   // keeps #sort and #skill visible in the identical case; the roster must
   // match it, gating on the FULL roster size, never the filtered one.
   it('filtering an above-ten roster down keeps the controls visible and the filter value on screen (D1)', async () => {
-    const page = await render(`/operators/${CONTROL_OPERATOR_DID}?skill=rust`);
+    const page = await render(`/accounts/${CONTROL_OPERATOR_DID}?skill=rust`);
     try {
       const rows = page.document.querySelectorAll('[data-agent-row]');
       expect(rows.length).toBe(5);
@@ -407,7 +407,7 @@ describe('the operator page roster (R-19)', () => {
   // only the tier counts) is what the round-2 parity test missed: it never
   // looked at .when.
   it("a roster row is field-identical to the same agent's browse card, including the date (D3)", async () => {
-    const rosterPage = await render(`/operators/${SOLO_OPERATOR_DID}`);
+    const rosterPage = await render(`/accounts/${SOLO_OPERATOR_DID}`);
     const browsePage = await render('/browse');
     try {
       const rosterRow = rosterPage.document.querySelector('[data-agent-row]');
@@ -443,7 +443,7 @@ describe('the operator page roster (R-19)', () => {
   // honestly instead of claiming "every agent listed here" over a filtered
   // view that plainly is not every agent.
   it('the summary never claims a filtered view lists every agent when the aggregate is full-roster (D2)', async () => {
-    const page = await render(`/operators/${CONTROL_OPERATOR_DID}?skill=rust`);
+    const page = await render(`/accounts/${CONTROL_OPERATOR_DID}?skill=rust`);
     try {
       const rows = page.document.querySelectorAll('[data-agent-row]');
       expect(rows.length).toBe(5);
@@ -464,7 +464,7 @@ describe('the operator page roster (R-19)', () => {
   // the copy must say so the way browse.html's #empty already does for the
   // identical case, rather than claiming nothing has been delegated.
   it('filtering an above-ten roster to zero matches reports an empty filter result, not a false empty roster (D5)', async () => {
-    const page = await render(`/operators/${CONTROL_OPERATOR_DID}?skill=cobol`);
+    const page = await render(`/accounts/${CONTROL_OPERATOR_DID}?skill=cobol`);
     try {
       const rows = page.document.querySelectorAll('[data-agent-row]');
       expect(rows.length).toBe(0);
@@ -492,7 +492,7 @@ describe('the operator page roster (R-19)', () => {
   });
 
   it('an operator with a genuinely empty roster still sees the original empty-roster copy, not the filter copy (D5)', async () => {
-    const page = await render(`/operators/${EMPTY_OPERATOR_DID}`);
+    const page = await render(`/accounts/${EMPTY_OPERATOR_DID}`);
     try {
       const empty = page.document.getElementById('roster-empty');
       expect(empty?.hidden).toBe(false);

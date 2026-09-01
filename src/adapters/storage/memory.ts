@@ -1,10 +1,10 @@
-// In-memory OperatorRepository: real storage for dev and tests, and the selected
+// In-memory AccountRepository: real storage for dev and tests, and the selected
 // mode when DATABASE_URL is unset (see storage.ts). A Map keyed by DID gives the
 // same duplicate-key semantics the database gives through its primary key.
 import type { Agent, ProofStatus } from '../../domain/agent.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
-import type { Operator } from '../../domain/operator.js';
+import type { Account } from '../../domain/account.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
 import type { Review } from '../../domain/review.js';
 import type { VerifiableCredential } from '../credentials/types.js';
@@ -20,26 +20,26 @@ import {
   JobAlreadyExistsError,
   type JobRepository,
   type KeyRotationInput,
-  OperatorAlreadyExistsError,
-  type OperatorRepository,
+  AccountAlreadyExistsError,
+  type AccountRepository,
   ReviewAlreadyExistsError,
   type ReviewRepository,
   credentialLookupKey,
 } from './types.js';
 
-export class MemoryOperatorRepository implements OperatorRepository {
-  private readonly rows = new Map<string, Operator>();
+export class MemoryAccountRepository implements AccountRepository {
+  private readonly rows = new Map<string, Account>();
 
   async register(input: {
     readonly did: string;
     readonly githubLogin: string;
-  }): Promise<Operator> {
+  }): Promise<Account> {
     // Check-then-set is safe here: Node is single-threaded and this method awaits
     // nothing, so two concurrent registers of one DID cannot both pass the check.
     if (this.rows.has(input.did)) {
-      throw new OperatorAlreadyExistsError(input.did);
+      throw new AccountAlreadyExistsError(input.did);
     }
-    const row: Operator = {
+    const row: Account = {
       did: input.did,
       githubLogin: input.githubLogin,
       createdAt: new Date(),
@@ -48,7 +48,7 @@ export class MemoryOperatorRepository implements OperatorRepository {
     return row;
   }
 
-  async findByDid(did: string): Promise<Operator | null> {
+  async findByDid(did: string): Promise<Account | null> {
     return this.rows.get(did) ?? null;
   }
 }

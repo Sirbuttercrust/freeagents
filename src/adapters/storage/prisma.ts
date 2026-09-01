@@ -1,11 +1,11 @@
-// Prisma-backed OperatorRepository over the generated client. This is the
+// Prisma-backed AccountRepository over the generated client. This is the
 // only file in the repository that knows Postgres exists.
 import { Prisma, PrismaClient } from '../../generated/prisma/index.js';
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
 import type { VerifiableCredential } from '../credentials/types.js';
 import type { CompletedJob, Criterion, Job, JobStatus } from '../../domain/job.js';
-import type { Operator } from '../../domain/operator.js';
+import type { Account } from '../../domain/account.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
 import type { Review } from '../../domain/review.js';
 import {
@@ -19,8 +19,8 @@ import {
   JobAlreadyExistsError,
   type JobRepository,
   type KeyRotationInput,
-  OperatorAlreadyExistsError,
-  type OperatorRepository,
+  AccountAlreadyExistsError,
+  type AccountRepository,
   ReviewAlreadyExistsError,
   type ReviewRepository,
   type StoredCredential,
@@ -78,13 +78,13 @@ async function agentWithRotations(did: string): Promise<Agent | null> {
   );
 }
 
-export class PrismaOperatorRepository implements OperatorRepository {
+export class PrismaAccountRepository implements AccountRepository {
   async register(input: {
     readonly did: string;
     readonly githubLogin: string;
-  }): Promise<Operator> {
+  }): Promise<Account> {
     try {
-      const row = await db().operator.create({ data: { ...input } });
+      const row = await db().account.create({ data: { ...input } });
       return { did: row.did, githubLogin: row.githubLogin, createdAt: row.createdAt };
     } catch (err) {
       // P2002 is Prisma's "unique constraint failed" error code: the only
@@ -92,14 +92,14 @@ export class PrismaOperatorRepository implements OperatorRepository {
       // from create() means the DID is already registered, and the API
       // layer maps the domain error to 409.
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        throw new OperatorAlreadyExistsError(input.did);
+        throw new AccountAlreadyExistsError(input.did);
       }
       throw err;
     }
   }
 
-  async findByDid(did: string): Promise<Operator | null> {
-    const row = await db().operator.findUnique({ where: { did } });
+  async findByDid(did: string): Promise<Account | null> {
+    const row = await db().account.findUnique({ where: { did } });
     return row === null ? null : { did: row.did, githubLogin: row.githubLogin, createdAt: row.createdAt };
   }
 }

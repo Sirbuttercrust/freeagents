@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { GistNotFoundError } from '../../src/adapters/github/types.js';
 import type { Gist, GithubAdapter } from '../../src/adapters/github/types.js';
-import { MemoryAgentRepository, MemoryOperatorRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import type { AgentRepository } from '../../src/adapters/storage/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import type { DidDocument, IdentityAdapter, SignedPayload } from '../../src/adapters/identity/types.js';
@@ -144,7 +144,7 @@ async function postJson(baseUrl: string, path: string, body: unknown): Promise<R
 describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
   let server: Server;
   let baseUrl: string;
-  const repo = new MemoryOperatorRepository();
+  const repo = new MemoryAccountRepository();
   const agentRepo = new MemoryAgentRepository();
 
   const documents = new Map<string, DidDocument>();
@@ -570,7 +570,7 @@ describe('POST /agents/:agentDid/account-proof, identity verification failure', 
   const gists = new Map<string, Gist | null>();
   const base = new MemoryAgentRepository();
   const app = createApp(
-    new MemoryOperatorRepository(),
+    new MemoryAccountRepository(),
     base,
     fakeIdentity(documents, () => {
       throw new Error('verify down');
@@ -641,7 +641,7 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
         overrides.updateGithubBinding ?? ((did, input) => base.updateGithubBinding(did, input)),
       recordKeyRotation: (did, input) => base.recordKeyRotation(did, input),
     };
-    return createApp(new MemoryOperatorRepository(), repo, fakeIdentity(documents), fakeGithub(gists));
+    return createApp(new MemoryAccountRepository(), repo, fakeIdentity(documents), fakeGithub(gists));
   }
 
   // A storage failure is a logged operator concern, not output the test
