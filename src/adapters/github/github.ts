@@ -242,7 +242,15 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
       await requireOk(prResponse, 'open pull request');
       const pr = (await prResponse.json()) as { readonly number: number };
 
-      return { owner: forkOwner, repo: forkRepo, number: pr.number };
+      // D1 fix (Proof run 100, changes_requested): GitHub allocates the
+      // pull request number in the BASE repository's namespace, not the
+      // fork's. POST /repos/{source}/pulls returns a PR that resolves at
+      // https://github.com/{source}/pull/{n} (GitHub's own docs use exactly
+      // that shape: octocat/Hello-World/pull/1347). Returning the fork's
+      // owner/repo here would hand back a ref that 404s the moment
+      // getPullRequest tries to read it. Reading GitHub as a witness (the
+      // card's anchor) means naming the address GitHub itself answers to.
+      return { owner: input.sourceOwner, repo: input.sourceRepo, number: pr.number };
     },
   };
 }

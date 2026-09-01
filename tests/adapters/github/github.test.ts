@@ -255,7 +255,60 @@ describe('createGithubAdapter, forkAndOpenPullRequest (R-10, invariant 1: fork a
       ['POST', 'https://api.github.com/repos/freeagents-platform/target-repo/git/refs'],
       ['POST', 'https://api.github.com/repos/buyer/target-repo/pulls'],
     ]);
-    expect(ref).toEqual({ owner: 'freeagents-platform', repo: 'target-repo', number: 7 });
+    // R-10, D1 fix (Proof run 100, changes_requested): GitHub allocates the
+    // pull request number in the BASE repository's namespace, not the
+    // fork's - POST /repos/{source}/pulls returns a PR that resolves at
+    // https://github.com/{source}/pull/{n}. Returning the fork's owner/repo
+    // with that number names a ref that does not exist, which is exactly
+    // why the merge route's getPullRequest 404s later. The ref this adapter
+    // hands back has to be the one GitHub will actually answer to.
+    expect(ref).toEqual({ owner: 'buyer', repo: 'target-repo', number: 7 });
+  });
+
+  // MUTATION PROOF (D1): forkAndOpenPullRequest's return value is not just
+  // shaped right, it has to be the SAME address getPullRequest can read back
+  // - chaining the two closes the gap Proof found, where the adapter suite
+  // and the api-level fake each hard-coded the fork-owner ref and agreed
+  // with each other instead of with GitHub. Here the second call is driven
+  // by the first call's own output, through the same fetchImpl, so a
+  // regression back to the fork-owner ref fails this test the same way it
+  // failed against real GitHub (404, not merged).
+  it('the ref returned by forkAndOpenPullRequest is the one getPullRequest can read back (chained, not assumed)', async () => {
+    const { fetchImpl, calls } = scriptedFetch([
+      // fork, read fork ref, create branch, open PR - the same four calls
+      // as the happy path above.
+      jsonResponse(202, { owner: { login: 'freeagents-platform' }, name: 'target-repo', default_branch: 'main' }),
+      jsonResponse(200, { object: { sha: 'fork-head-sha' } }),
+      jsonResponse(201, { ref: 'refs/heads/freeagents/j-1', object: { sha: 'fork-head-sha' } }),
+      jsonResponse(201, { number: 7 }),
+      // The merge observation GitHub actually serves PR 7 at: the source
+      // repo (buyer/target-repo), not the fork.
+      jsonResponse(200, {
+        state: 'closed',
+        merged: true,
+        merge_commit_sha: 'deadbeef',
+        merged_at: '2026-08-25T09:00:00Z',
+        head: { sha: 'headsha123' },
+        additions: 1,
+        deletions: 1,
+        changed_files: 1,
+        base: { repo: { private: false } },
+      }),
+    ]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
+
+    const ref = await adapter.forkAndOpenPullRequest(input);
+    const summary = await adapter.getPullRequest(ref);
+
+    // The 5th call is the observation, driven entirely by what
+    // forkAndOpenPullRequest handed back - if that ref still named the
+    // fork, this URL would 404 against real GitHub.
+    expect(calls[4]).toEqual({
+      url: 'https://api.github.com/repos/buyer/target-repo/pulls/7',
+      method: 'GET',
+      body: undefined,
+    });
+    expect(summary.state).toBe('merged');
   });
 
   it('the pull request names head as fork-owner:branch and base as the fork default branch, carrying the title and body verbatim', async () => {
