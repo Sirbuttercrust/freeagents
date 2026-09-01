@@ -262,6 +262,13 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       verifiedHires: [],
       verifiedPriorWork: [],
       portfolio: [],
+      // R-37: freshness joined the contract, derived at read time from
+      // stored hires (never entered by the operator, never a stored
+      // column). This agent has no completed hire, so lastHireCompletedAt
+      // renders honestly null (ENT-2.4); recordLastChangedAt is never
+      // null, since the agent's own creation is itself a record change.
+      lastHireCompletedAt: null,
+      recordLastChangedAt: stored?.createdAt.toISOString(),
     });
 
     // A stranger fetching from the public API can verify with no further

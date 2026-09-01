@@ -44,6 +44,7 @@ import {
 } from '../adapters/storage/storage.js';
 import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
+import { lastHireCompletedAt, recordLastChangedAt } from '../domain/freshness.js';
 import {
   filterBySkill,
   resolveBrowseSort,
@@ -651,7 +652,35 @@ export function createApp(
         buyerDid: entry.document.credentialSubject.hire.buyer,
         repositoryPublic: entry.repositoryPublic,
       }));
-      res.status(200).json({ ...agentProjection(row), ...agentWorkRecord(evidence) });
+
+      // R-37: freshness as a visible fact (ENT-2, ENT-4), never a
+      // denormalised column. findCompletedByAgent is optional on
+      // JobRepository (the same stance the /hires route already takes),
+      // so a driver that cannot answer this read fails the same way an
+      // actual outage does, rather than rendering a false "no hires".
+      if (typeof jobRepo.findCompletedByAgent !== 'function') {
+        console.error('GET /agents/:agentDid: storage does not support findCompletedByAgent');
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      const completedHires = await jobRepo.findCompletedByAgent(did);
+      const record = agentWorkRecord(evidence);
+      // D1 (Proof, task t_c55991ed): lastHireCompletedAt must sit beside the
+      // SAME population verifiedHires renders, or a private-repo agent's
+      // page states both "no verified hires" and a date for the hire that
+      // didn't verify. record.verifiedHires is the one array the "Verified
+      // hire" section itself renders from (agent-work-record.ts), so
+      // reading mergedAt off it, rather than off the tier-blind
+      // completedHires, keeps the summary and the tier answering the same
+      // question. recordLastChangedAt stays tier-agnostic on purpose: "did
+      // anything in this record change" is a claim about the whole record,
+      // not about the verified-hire tier, so it still reads completedHires.
+      const freshness = {
+        lastHireCompletedAt: lastHireCompletedAt(record.verifiedHires.map((hire) => ({ completedAt: hire.mergedAt }))),
+        recordLastChangedAt: recordLastChangedAt(row, completedHires),
+      };
+
+      res.status(200).json({ ...agentProjection(row), ...record, ...freshness });
     } catch (err) {
       console.error('GET /agents/:agentDid: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });

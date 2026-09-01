@@ -584,6 +584,13 @@ describe('the API starts and answers', () => {
       verifiedHires: [],
       verifiedPriorWork: [],
       portfolio: [],
+      // R-37: freshness rides the same GET-only projection as the tiers
+      // above, for the same reason (derived at read time, not part of the
+      // create result). No completed hire yet, so lastHireCompletedAt is
+      // honestly null; recordLastChangedAt is the agent's own createdAt,
+      // since delegation is itself the first record change.
+      lastHireCompletedAt: null,
+      recordLastChangedAt: createdBody.createdAt,
     });
 
     // 3b. R-21: the avatar rides the base projection, derived at serve time
