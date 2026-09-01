@@ -8,6 +8,7 @@
 // controls appear only above ten agents.
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { createRequire } from 'node:module';
 
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -25,6 +26,7 @@ import type { VerifiableCredential } from '../../src/adapters/credentials/types.
 const SOLO_OPERATOR_DID = 'did:abt:zRosterPageSoloOperator';
 const MANY_OPERATOR_DID = 'did:abt:zRosterPageManyOperator';
 const EMPTY_OPERATOR_DID = 'did:abt:zRosterPageEmptyOperator';
+const CONTROL_OPERATOR_DID = 'did:abt:zRosterPageControlOperator';
 
 function delegation(agentDid: string, operatorDid: string): Delegation {
   return {
@@ -112,6 +114,25 @@ beforeAll(async () => {
     });
   }
 
+  await operatorRepo.register({ did: CONTROL_OPERATOR_DID, githubLogin: 'roster-page-control' });
+  // Eleven agents on a split skill set, listed one after another with a real
+  // gap between each (mirrors registerAgent's createdAt-by-registration-time
+  // rule in tests/api/browse.test.ts), so recently-listed has a genuine
+  // order to prove and skill has a genuine split to filter on: 6 python, 5
+  // rust, same mix Proof's live reproduction used.
+  for (let i = 0; i < 11; i += 1) {
+    const did = `did:abt:zRosterPageControlAgent${i}`;
+    await agentRepo.create({
+      did,
+      operatorDid: CONTROL_OPERATOR_DID,
+      delegation: delegation(did, CONTROL_OPERATOR_DID),
+      name: `Control Agent ${i}`,
+      skills: i < 6 ? ['python'] : ['rust'],
+      githubLogin: null,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+
   const app = createApp(operatorRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, credentialRepo);
   server = app.listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -125,6 +146,32 @@ afterAll(async () => {
 interface Rendered {
   document: Document;
   close: () => void;
+}
+
+// jsdom's Location is a legacy platform object with a non-configurable
+// href/assign pair (a real jsdom limitation: setting window.location.href
+// on a JSDOM instance cannot complete a cross-document navigation at all,
+// see node_modules/jsdom/lib/jsdom/living/window/navigation.js). The one
+// observable seam jsdom itself calls on every href/assign/replace path is
+// whatwg-url's parseURL, which is an ordinary writable module export. This
+// intercepts that seam to observe the URL the page script asked to
+// navigate to, exactly as a browser's window.location.assign spy would.
+const require = createRequire(import.meta.url);
+const whatwgURL = require('whatwg-url') as { parseURL: (v: string, opts?: unknown) => unknown };
+
+function captureNavigations(): { calls: string[]; restore: () => void } {
+  const calls: string[] = [];
+  const original = whatwgURL.parseURL;
+  whatwgURL.parseURL = function (this: unknown, v: string, opts?: unknown) {
+    calls.push(v);
+    return original.call(this, v, opts);
+  };
+  return {
+    calls,
+    restore() {
+      whatwgURL.parseURL = original;
+    },
+  };
 }
 
 async function render(path: string): Promise<Rendered> {
@@ -256,6 +303,79 @@ describe('the operator page roster (R-19)', () => {
       const link = page.document.querySelector(`a[href="/agents/${encodeURIComponent('did:abt:zRosterPageSoloAgent')}"]`);
       expect(link).toBeTruthy();
     } finally {
+      page.close();
+    }
+  });
+
+  // D4's controls exist to DO something. These four tests operate them
+  // rather than asserting presence (Proof, run 76, defect vacuous-guard):
+  // a test that never fires an event on #roster-sort or #roster-skill
+  // passes identically on a build where neither is wired to anything.
+
+  it('loading the roster with a skill query param renders only the matching rows, the same way browse filters (item 1)', async () => {
+    const page = await render(`/operators/${CONTROL_OPERATOR_DID}?skill=rust`);
+    try {
+      const rows = page.document.querySelectorAll('[data-agent-row]');
+      expect(rows.length).toBe(5);
+      Array.from(rows).forEach((row) => {
+        expect((row.textContent ?? '').toLowerCase()).toContain('rust');
+      });
+    } finally {
+      page.close();
+    }
+  });
+
+  it('loading the roster with a sort query param reorders the rows, the same way browse sorts (item 1)', async () => {
+    const page = await render(`/operators/${CONTROL_OPERATOR_DID}?sort=recently-listed`);
+    try {
+      const rows = Array.from(page.document.querySelectorAll('[data-agent-row]'));
+      const dids = rows.map((r) => r.getAttribute('data-agent-row'));
+      // Registered last, listed first under recently-listed; registered
+      // first, listed last. A plain reorder proves the parameter drove it,
+      // not the roster's fixed registration order.
+      expect(dids[0]).toBe('did:abt:zRosterPageControlAgent10');
+      expect(dids[dids.length - 1]).toBe('did:abt:zRosterPageControlAgent0');
+    } finally {
+      page.close();
+    }
+  });
+
+  it('operating the sort select navigates to the URL that produces that sort, the same mechanism browse uses (item 1, item 2)', async () => {
+    const page = await render(`/operators/${CONTROL_OPERATOR_DID}`);
+    const nav = captureNavigations();
+    try {
+      const sortSelect = page.document.getElementById('roster-sort') as HTMLSelectElement | null;
+      expect(sortSelect).toBeTruthy();
+      sortSelect!.value = 'recently-listed';
+      sortSelect!.dispatchEvent(new (page.document.defaultView as unknown as { Event: typeof Event }).Event('change', { bubbles: true }));
+
+      const relevant = nav.calls.filter((url) => url.includes('/operators/'));
+      expect(relevant.length).toBeGreaterThan(0);
+      const last = relevant[relevant.length - 1] ?? '';
+      expect(last).toContain('sort=recently-listed');
+      expect(last).toContain(`/operators/${encodeURIComponent(CONTROL_OPERATOR_DID)}`);
+    } finally {
+      nav.restore();
+      page.close();
+    }
+  });
+
+  it('operating the skill filter navigates to the URL that produces that filter, the same mechanism browse uses (item 1, item 2)', async () => {
+    const page = await render(`/operators/${CONTROL_OPERATOR_DID}`);
+    const nav = captureNavigations();
+    try {
+      const skillInput = page.document.getElementById('roster-skill') as HTMLInputElement | null;
+      expect(skillInput).toBeTruthy();
+      skillInput!.value = 'rust';
+      skillInput!.dispatchEvent(new (page.document.defaultView as unknown as { Event: typeof Event }).Event('change', { bubbles: true }));
+
+      const relevant = nav.calls.filter((url) => url.includes('/operators/'));
+      expect(relevant.length).toBeGreaterThan(0);
+      const last = relevant[relevant.length - 1] ?? '';
+      expect(last).toContain('skill=rust');
+      expect(last).toContain(`/operators/${encodeURIComponent(CONTROL_OPERATOR_DID)}`);
+    } finally {
+      nav.restore();
       page.close();
     }
   });

@@ -12,13 +12,25 @@
 
    ONE LAYOUT, NO BRANCHING (D4). A roster table that gains sort and filter
    controls only above ten agents; a single-agent operator sees the same
-   table with one row. There is no second layout for the small case. */
+   table with one row. There is no second layout for the small case.
+
+   SORT AND FILTER ARE QUERY PARAMETERS, browse.js's own mechanism (Proof,
+   run 76, defect inert-control-affordance): operating either control reads
+   its value and navigates to /operators/<did>?sort=...&skill=..., the same
+   round-trip-through-the-URL browse.js uses for #sort and #skill, so the
+   roster stays bookmarkable and the server (GET /operators/:did/agents) is
+   the one place that decides what a sort or filter value means. There is
+   no second, client-only sort or filter rule for these eleven-plus rows. */
 
 (function () {
   "use strict";
 
   var A = window.FAApi;
   var ROSTER_CONTROL_THRESHOLD = 10;
+
+  function currentParams() {
+    return new URLSearchParams(window.location.search);
+  }
 
   function start() {
     var did = A.idFromPath();
@@ -96,13 +108,60 @@
   /* --------------------------------------------------------- the roster */
 
   function loadRoster(did) {
-    A.get("/operators/" + encodeURIComponent(did) + "/agents").then(function (result) {
+    var params = currentParams();
+    var sort = params.get("sort") || "";
+    var skill = params.get("skill") || "";
+    wireControls(did, sort, skill);
+
+    var query = "/operators/" + encodeURIComponent(did) + "/agents";
+    var qp = new URLSearchParams();
+    if (sort) qp.set("sort", sort);
+    if (skill) qp.set("skill", skill);
+    var qs = qp.toString();
+    if (qs) query += "?" + qs;
+
+    A.get(query).then(function (result) {
       if (result.state !== "ok") {
         renderRosterFailure();
         return;
       }
       renderRoster(result.value);
     });
+  }
+
+  /* Wires the sort select and skill filter the same way browse.js wires
+     #sort and #skill: reading the control's current value, navigating to
+     /operators/<did>?sort=...&skill=..., and letting the next page load
+     read the query string back out (currentParams, above). Operating a
+     control never rewrites the DOM in place; it round-trips through the
+     URL, the one mechanism this platform uses for a bookmarkable listing. */
+  function wireControls(did, sort, skill) {
+    var sortSelect = A.el("roster-sort");
+    if (sortSelect) {
+      sortSelect.value = sort || "verified-hires";
+      sortSelect.addEventListener("change", function () {
+        navigateRoster(did, sortSelect.value, skillInput ? skillInput.value : skill);
+      });
+    }
+
+    var skillInput = A.el("roster-skill");
+    if (skillInput) {
+      skillInput.value = skill;
+      skillInput.addEventListener("change", function () {
+        navigateRoster(did, sortSelect ? sortSelect.value : sort, skillInput.value);
+      });
+      skillInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") navigateRoster(did, sortSelect ? sortSelect.value : sort, skillInput.value);
+      });
+    }
+  }
+
+  function navigateRoster(did, sort, skill) {
+    var qp = new URLSearchParams();
+    if (sort) qp.set("sort", sort);
+    if (skill && skill.trim() !== "") qp.set("skill", skill.trim());
+    var qs = qp.toString();
+    window.location.href = "/operators/" + encodeURIComponent(did) + (qs ? "?" + qs : "");
   }
 
   function renderRosterFailure() {

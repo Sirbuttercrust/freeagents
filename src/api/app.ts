@@ -46,7 +46,6 @@ import { delegationConsistent, type Agent, type Delegation } from '../domain/age
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
 import { lastHireCompletedAt, recordLastChangedAt } from '../domain/freshness.js';
 import {
-  DEFAULT_BROWSE_SORT,
   filterBySkill,
   resolveBrowseSort,
   sortBrowseCards,
@@ -498,8 +497,17 @@ export function createApp(
   // aggregate is derived structurally from those same rows
   // (operatorAggregate, src/domain/operator-roster.ts), three separate
   // tier totals, never a caller-supplied number and never a blended score.
+  //
+  // Sort and filter (D4, above ten agents only, enforced client-side in
+  // operator.js): ?sort and ?skill are read the same way GET /agents reads
+  // them, reusing resolveBrowseSort and filterBySkill rather than a second
+  // rule for the same two query parameters (Proof, run 76, defect
+  // inert-control-affordance: the controls must drive this route, the
+  // exact mechanism browse's controls already drive).
   app.get('/operators/:did/agents', async (req: Request, res: Response) => {
     const operatorDid = String(req.params.did);
+    const sort = resolveBrowseSort(req.query.sort);
+    const skillFilter = typeof req.query.skill === 'string' ? req.query.skill : null;
 
     let operatorRow: Operator | null;
     try {
@@ -539,18 +547,19 @@ export function createApp(
           return toBrowseCard(row, record);
         }),
       );
-      // D1's default order, the same rule browse defaults to: verified
-      // hires, descending. The roster carries no separate sort surface of
-      // its own (D4 draws that line at ten-plus agents, handled client-side
-      // in operator.js), so the one order this route ever returns is the
-      // platform's one honest default, reusing browse's own sort function
-      // rather than a second ordering rule for the same rows.
-      const cards = sortBrowseCards(unsorted, DEFAULT_BROWSE_SORT);
+      // The aggregate is always over the FULL roster (item 1 of the R-19
+      // card: no field derived from a wider or narrower population than
+      // its own tier), so it is computed before filtering narrows the rows
+      // that get rendered. A skill filter narrows what a visitor sees, not
+      // what the operator is accountable for in the summary line.
+      const aggregate = operatorAggregate(unsorted);
+      const filtered = filterBySkill(unsorted, skillFilter);
+      const cards = sortBrowseCards(filtered, sort);
 
       res.status(200).json({
         operatorDid,
         agents: cards,
-        aggregate: operatorAggregate(cards),
+        aggregate,
       });
     } catch (err) {
       console.error('GET /operators/:did/agents: storage failed', err);
