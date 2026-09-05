@@ -45,10 +45,19 @@ MUTATIONS = [
      "@media (pointer: coarse) {\n  /* mutated: floor removed */\n}",
      "notetoggle tap target"),
 
+    # WAS: width: min(520px, ...) -> width: 520px, labelled "sheet overflows".
+    # That mutation is INVALID and the run correctly reported MISSED. Measured:
+    # the UA stylesheet gives a modal <dialog> max-width: calc(100% - 36px), so
+    # a fixed 520px still renders at 284px inside a 320px viewport. The
+    # mutation introduced no defect, so nothing could catch it.
+    #
+    # What CAN overflow is content inside the sheet, which is the real risk and
+    # the reason check 2 opens every dialog. Measured with this mutation
+    # applied: the code renders at 38..438 against a 320 viewport.
     ("flow.css",
-     "  width: min(520px, calc(100vw - 24px));",
-     "  width: 520px;",
-     "sheet overflows 320px when open"),
+     "  width: 180px; height: 180px; margin: 0 auto;",
+     "  width: 400px; height: 180px; margin: 0 auto;",
+     "content overflowing inside an open sheet"),
 
     ("staged.html",
      'data-copy="c41f8a9d2b73e05614af8c3d99b7e2016fa4d825">Copy',
@@ -59,6 +68,14 @@ MUTATIONS = [
      ".mark-on  { background: var(--fg-2); }",
      ".mark-on  { background: var(--accent); }",
      "accent spent on a signature"),
+
+    # The defect a screenshot found and no number would have: the parent stays
+    # a grid in the narrow branch, so rows auto-place side by side and print
+    # on top of each other while every element stays inside 320px.
+    ("flow.css",
+     "@media (max-width: 560px) {\n  .terms { display: block; }",
+     "@media (max-width: 560px) {\n  .terms { grid-template-columns: 24px 1fr; }",
+     "agreement rows overlapping at 320px"),
 ]
 
 print("=" * 74)

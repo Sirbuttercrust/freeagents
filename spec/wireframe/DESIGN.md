@@ -352,6 +352,19 @@ defensible in the moment.
 On these screens the accent appears on the primary button, the verified hire
 count beside an agent's name, and a focus ring. Nowhere else.
 
+**One case that needed deciding rather than assuming: `accent-color` on a
+radio or a checkbox.** The picker's selected option is drawn in the accent by
+the browser. That is permitted, and it belongs in the same category the focus
+ring is already in: a control telling you where you are inside itself, which
+vanishes when the sheet closes. It makes no claim about the world.
+
+The line between the two cases is whether the mark OUTLIVES the interaction. A
+selected radio is gone when the modal closes; a signature sits on a stored
+agreement forever and is exactly what a reader will later scan for evidence.
+That is why one keeps the accent and the other does not, and it is worth
+stating because "a signature is a real cryptographic fact" is a genuinely good
+argument for the opposite conclusion.
+
 #### Banned words, on every money surface
 
 Non-custodial is a claim one verb can break. **hold, release, escrow, your
