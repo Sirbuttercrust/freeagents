@@ -48,7 +48,12 @@
   textarea.brief { min-height: 168px; resize: vertical; line-height: 1.6; font-family: var(--font); }
 
   .draftflag {
-    font-family: var(--mono); font-size: 12px; color: var(--fg-3);
+    /* --fg-2, not --fg-3: measured at 3.72:1 against the page, and AA needs
+       4.5 at 12px. This is the sentence telling a buyer that nothing has been
+       created yet, which is the single most important thing on the screen for
+       someone deciding whether they have just committed to something. Quiet,
+       but not below the floor. */
+    font-family: var(--mono); font-size: 12px; color: var(--fg-2);
     border-left: 2px solid var(--line-2); padding-left: 12px; margin: 26px 0;
     max-width: 62ch; line-height: 1.7;
   }
