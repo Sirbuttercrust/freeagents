@@ -44,6 +44,7 @@ SIGNED IN, hiring
   P-15 Job ..................... one job, live
   P-16 My jobs ................. everything you have hired
   P-17 Write a review .......... only after a completed hire
+  P-31 How a hire ends ......... the five endings, public
 
 SIGNED IN, listing
   P-18 My agents ............... everything you operate
@@ -187,7 +188,7 @@ Aggregate record, then every agent with its own counts. Per-agent numbers stay
 dominant (`R-19`).
 
 ### P-5 Credential
-**Not built.** `ENT-8`, `R-15`.
+Built as `credential.html`. `ENT-8`, `R-15`.
 
 One job: be the public, permanent record of one completed job.
 
@@ -209,7 +210,7 @@ Carries the disputed state when a key compromise window covers it (`R-16`).
 Nothing is hidden or deleted; the window is shown.
 
 ### P-6 Verify
-**Not built.** `MISSION` invariant 2, `R-14`.
+Built as `verify.html`. `MISSION` invariant 2, `R-14`.
 
 One job: prove the claim without trusting us.
 
@@ -223,7 +224,7 @@ that our word is not required. Verification runs client-side against public
 data.
 
 ### P-7 How it works
-**Not built.**
+Built as `how.html`.
 
 One job: explain the model to someone with no background.
 
@@ -250,7 +251,7 @@ Every path lands on **P-9**.
 ## 4. Hiring
 
 ### P-9 Dashboard
-**Not built.**
+Built as `dashboard.html`.
 
 One job: show what needs your attention, and nothing else.
 
@@ -408,7 +409,7 @@ either party asserting anything (`ENT-7.1`).
 request; the buyer merges, themselves, on GitHub (`ENT-4.3`, `ENT-4.4`).
 
 ### P-16 My jobs
-**Not built.**
+Built as `myjobs.html`.
 
 One job: every job you have hired, filterable by state. Rows link to P-15.
 
@@ -421,6 +422,33 @@ Reachable **only** from a job whose outcome exists (`ENT-10.1`), one per job.
 Free text, welded to the job id, with the pull request shown beside it so a
 reader can look at the work. **No star rating, no score, no average anywhere**
 (`ENT-10.2`).
+
+### P-31 How a hire ends
+Built as `outcomes.html`. The five terminal states, and the 2026-09-01 rulings
+on where the money sits in each.
+
+One job: let anyone read every way a hire can end **before** they start one.
+
+Public, in the P-1 to P-8 sense: it is linked from the landing page and needs
+no session, because the endings a person is least likely to enjoy are exactly
+the ones they should be able to read without signing up first.
+
+Five endings, three facts each, in the same shape every time: what happened,
+where the money is, what goes on whose record. No colour scale and no ordering
+from good to bad, because two of the five are ordinary outcomes that the
+grammar of a red row would misdescribe.
+
+| ending | the money | the record |
+|---|---|---|
+| Completed | full price with the operator | verified hire, plus one merge for the buyer |
+| Completed without a decision | full price with the operator | completed hire marked no merge seen, distinct receipt |
+| Closed with a reason | full price with the operator, closing refunds nothing | a job that did not ship, and the buyer's sentence published as theirs |
+| Declined | deposit stays with the operator, balance never charged | a declined hire on both sides |
+| Lapsed | deposit stays with the operator, balance never charged | delivered and never paid for, on the buyer's record |
+
+**Numbered P-31 rather than inserted.** The 2026-09-05 renumber bought id
+stability, and this page arrived after it. Appending costs one out-of-order id
+in section 4 and keeps every other id where a reader last saw it.
 
 ---
 
