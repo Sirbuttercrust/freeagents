@@ -53,8 +53,18 @@ SCREENS = [
 # the credential verify affordance, the single primary action, and a focus
 # ring. Anything else painting itself accent is spending the one signal the
 # product sells.
-ACCENT = "rgb(124, 124, 255)"
-ACCENT_OK = ("btn-primary", "hires", "mark", "brand", "railnow", "rail")
+#
+# MATCHED AS WHOLE CLASS NAMES, NOT AS SUBSTRINGS. An earlier version tested
+# `if ok in element.className`, with "mark" on the list for the wordmark's dot
+# (`.brand .mark`). That silently exempted `class="mark mark-on"`, which is a
+# signature, and the mutation test reported MISSED twice before the cause
+# surfaced. A substring allow-list grows holes as class names multiply, and
+# the holes are invisible until something exploits one.
+#
+# So the wordmark's dot is matched by its real selector context instead, and
+# `mark` is NOT on this list: a signature mark painting itself accent is
+# exactly the violation this check exists for.
+ACCENT_OK = frozenset(["btn-primary", "hires", "brand", "railnow"])
 
 # "Celebrate the rails, never toll them": chain vocabulary is allowed where a
 # person is choosing a rail or reading the technical panel, and nowhere else.
@@ -217,13 +227,64 @@ ACCENT_JS = """(() => {
     const painted = s.backgroundColor === ACC || s.borderTopColor === ACC ||
                     s.borderLeftColor === ACC;
     const inked = s.color === ACC && (el.textContent || '').trim();
-    if (painted || inked) {
-      hits.push({cls: el.className || el.tagName,
-                 how: painted ? 'fill' : 'ink',
-                 txt: (el.textContent || '').trim().slice(0, 30)});
-    }
+    if (!painted && !inked) return;
+    // the wordmark's dot is the one .mark that may carry the accent, and it
+    // is identified by WHERE it is, not by a class-name substring
+    if (el.closest('.brand')) return;
+    hits.push({cls: (el.className || el.tagName),
+               classes: (el.className || '').split(/\\s+/).filter(Boolean),
+               how: painted ? 'fill' : 'ink',
+               txt: (el.textContent || '').trim().slice(0, 30)});
   });
   return hits;
+})()"""
+
+# ROWS MUST NOT OVERLAP EACH OTHER.
+#
+# This gate exists because the overflow check reported a clean 320 on a screen
+# whose agreement rows were printing on top of each other by up to 385px. The
+# overflow check measures the RIGHT edge; two rows sharing a vertical band are
+# perfectly inside 320px and completely unreadable. A screenshot found it and
+# nothing numeric would have.
+#
+# The cause is worth encoding rather than just the symptom: a `.trow` is
+# `display: contents` at wide widths and a grid of its own at narrow widths.
+# When the PARENT stayed a two-column grid in the narrow branch, the rows
+# became grid items of the parent and were auto-placed side by side. Any
+# component that swaps a `display: contents` row into a real box can do this.
+#
+# Also checks the outcome cards and the fact list, because they are the other
+# two multi-row components here and they would fail the same way.
+OVERLAP_JS = """(() => {
+  const groups = [['.terms .trow', 'agreement row'],
+                  ['.facts > li', 'fact'],
+                  ['.outcomes > .oc', 'outcome card'],
+                  ['.fixed > li', 'fixed term'],
+                  ['.counts > .ct', 'count']];
+  const found = [];
+  groups.forEach(([sel, label]) => {
+    const rows = [...document.querySelectorAll(sel)];
+    if (rows.length < 2) return;
+    const boxes = rows.map((r, i) => {
+      // display:contents rows have no box; measure the union of their children
+      const kids = [...r.children].map(k => k.getBoundingClientRect())
+                                  .filter(k => k.width > 0 || k.height > 0);
+      const src = kids.length ? kids : [r.getBoundingClientRect()];
+      return {i: i + 1,
+              top: Math.min(...src.map(k => k.top)),
+              bottom: Math.max(...src.map(k => k.bottom))};
+    });
+    for (let a = 0; a < boxes.length; a++) {
+      for (let c = a + 1; c < boxes.length; c++) {
+        const A = boxes[a], C = boxes[c];
+        const o = Math.min(A.bottom, C.bottom) - Math.max(A.top, C.top);
+        if (o > 1) {
+          found.push(`${label} ${A.i} and ${C.i} share ${Math.round(o)}px`);
+        }
+      }
+    }
+  });
+  return found.slice(0, 6);
 })()"""
 
 OPEN_ALL_JS = """(() => {
@@ -240,11 +301,12 @@ try:
     # ---------------------------------------------------------------- pass 1
     narrow(b)
     print("\n[1+2+3] 320px touch profile, closed and open states\n")
-    print(f"{'screen':<20} {'coarse':>7} {'docW':>6} {'overflow':>9} {'openOverflow':>13} {'tap<44':>7}")
+    print(f"{'screen':<20} {'coarse':>7} {'docW':>6} {'overflow':>9} {'openOverflow':>13} {'tap<44':>7} {'overlap':>8}")
     for s in SCREENS:
         url = f"{BASE}/{s}"
         r = probe(b, url, OVERFLOW_JS)
         tap = b.js(TAP_JS)
+        lap = b.js(OVERLAP_JS)
 
         if not r["coarse"]:
             fails.append(f"{s}: (pointer: coarse) did not match, results not trustworthy")
@@ -275,10 +337,12 @@ try:
             fails.append(f"{s}: document scrollWidth {r['doc']} > 320")
         if alltap:
             fails.append(f"{s}: tap targets under 44px: {alltap[:4]}")
+        if lap:
+            fails.append(f"{s}: rows overlapping at 320px: {lap[:3]}")
 
         rows.append(s)
         print(f"{s:<20} {str(r['coarse']):>7} {r['doc']:>6} {len(r['off']):>9} "
-              f"{openoff:>13} {len(alltap):>7}")
+              f"{openoff:>13} {len(alltap):>7} {len(lap):>8}")
 
     # ---------------------------------------------------------------- pass 2
     b.send("Emulation.clearDeviceMetricsOverride")
@@ -302,8 +366,9 @@ try:
             d[k] = list({*d[k], *d2[k]})
 
         acc = b.js(ACCENT_JS)
+        # whole class names, never substrings: see the ACCENT_OK comment
         stray = [h for h in acc
-                 if not any(ok in str(h["cls"]) for ok in ACCENT_OK)]
+                 if not (set(h.get("classes") or []) & ACCENT_OK)]
 
         if d["noHref"]:
             fails.append(f"{s}: anchors with no href: {d['noHref'][:3]}")
@@ -372,11 +437,11 @@ else:
     print(f"PASS, {len(rows)} screens")
 
 print("""
-COVERED:  320px overflow closed AND with every dialog open, tap targets on a
-          real touch profile, dead links and copy buttons and dialog triggers
-          including behind disclosures, empty labelled values, accent
-          discipline against DESIGN.md 2.2, reduced-motion end state, em
-          dashes in source.
+COVERED:  320px overflow closed AND with every dialog open, ROWS OVERLAPPING
+          each other at 320px, tap targets on a real touch profile, dead links
+          and copy buttons and dialog triggers including behind disclosures,
+          empty labelled values, accent discipline against DESIGN.md 2.2,
+          reduced-motion end state, em dashes in source.
 
 NOT COVERED, and judged by a person instead:  whether the copy is
           comprehensible to a first-time buyer, whether the attestation reads
