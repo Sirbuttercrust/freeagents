@@ -333,6 +333,8 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
             { text: 'The login bug is fixed', proposedBy: 'agent' },
             { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
           ],
+          priceUsd: '500.00',
+          rail: 'abt',
         }, agentIdentity)
       ).status,
     ).toBe(200);
@@ -340,6 +342,8 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, operatorIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, operatorIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, operatorIdentity)).status).toBe(200);
 
     const pr = await postJson(baseUrl, `/jobs/${jobId}/pull-request`, {});

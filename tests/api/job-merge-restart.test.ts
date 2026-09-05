@@ -157,6 +157,8 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
             { text: 'The checkout no longer times out', proposedBy: 'agent' },
             { text: 'Load test passes', proposedBy: 'buyer' },
           ],
+          priceUsd: '500.00',
+          rail: 'abt',
         }, agentIdentity)
       ).status,
     ).toBe(200);
@@ -164,6 +166,8 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(first.baseUrl, `/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(first.baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
     expect((await post(first.baseUrl, `/jobs/${jobId}/pull-request`)).status).toBe(200);
 

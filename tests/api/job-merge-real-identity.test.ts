@@ -181,12 +181,16 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
         { text: 'The checkout no longer times out', proposedBy: 'agent' },
         { text: 'Load test passes', proposedBy: 'buyer' },
       ],
+      priceUsd: '500.00',
+      rail: 'abt',
     }, agentIdentity);
     expect(criteria.status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
     expect((await post(baseUrl, `/jobs/${jobId}/pull-request`)).status).toBe(200);
 
@@ -281,6 +285,8 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
               { text: 'The checkout no longer times out', proposedBy: 'agent' },
               { text: 'Load test passes', proposedBy: 'buyer' },
             ],
+            priceUsd: '500.00',
+            rail: 'abt',
           }, agentIdentity)
         ).status,
       ).toBe(200);
@@ -288,6 +294,8 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
       expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity)).status).toBe(200);
       expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity)).status).toBe(200);
       expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
+      expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
+      expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
       expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
       expect((await post(baseUrl, `/jobs/${jobId}/pull-request`)).status).toBe(200);
 

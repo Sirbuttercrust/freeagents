@@ -26,6 +26,7 @@ import { MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } f
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import {
   acceptCriterion,
+  acceptPrice,
   confirmSpec,
   createJob,
   proposeCriteria,
@@ -369,11 +370,12 @@ describe('job criteria exchange (R-8)', () => {
       { id: 'j-conflicted', buyerDid: buyer.did, agentDid: agent.did, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
       new Date('2026-01-01T00:00:00Z'),
     );
-    const proposedJob: Job = proposeCriteria(draft, firstProposal);
+    const proposedJob: Job = proposeCriteria(draft, firstProposal, { priceUsd: '500.00', rail: 'abt' });
     let confirmable = acceptCriterion(proposedJob, 0, 'buyer');
     confirmable = acceptCriterion(confirmable, 0, 'agent');
     confirmable = acceptCriterion(confirmable, 1, 'buyer');
     confirmable = acceptCriterion(confirmable, 1, 'agent');
+    confirmable = acceptPrice(acceptPrice(confirmable, 'buyer'), 'agent');
     await jobRepo.create(confirmSpec(confirmable, new Date()));
 
     const proposeOnConfirmed = await postSigned('/jobs/j-conflicted/criteria', { criteria: firstProposal }, agent);

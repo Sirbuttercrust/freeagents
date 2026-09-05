@@ -5,6 +5,7 @@ import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
 import type { VerifiableCredential } from '../credentials/types.js';
 import type { CompletedJob, Criterion, Job, JobStatus } from '../../domain/job.js';
+import { DEPOSIT_PERCENT, REDO_ALLOWANCE } from '../../domain/job.js';
 import type { Account } from '../../domain/account.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
 import type { Review } from '../../domain/review.js';
@@ -147,7 +148,8 @@ export class PrismaAgentRepository implements AgentRepository {
           name: input.name,
           skills: [...input.skills],
           githubLogin: input.githubLogin,
-        },
+          floorPriceUsd: input.floorPriceUsd ?? null,
+        } as unknown as Prisma.AgentCreateInput,
       });
       // A fresh agent has no rotation history; do not add a nested create.
       return toAgent(row, []);
@@ -269,7 +271,21 @@ export class PrismaCompromiseRepository implements CompromiseRepository {
 }
 
 function toAgent(
-  row: { did: string; operatorDid: string; delegation: unknown; name: string; skills: string[]; githubLogin: string | null; proofStatus: 'unverified' | 'pending' | 'verified'; createdAt: Date },
+  row: {
+    did: string;
+    operatorDid: string;
+    delegation: unknown;
+    name: string;
+    skills: string[];
+    githubLogin: string | null;
+    proofStatus: 'unverified' | 'pending' | 'verified';
+    createdAt: Date;
+    // The generated client lags the schema (see JobRow's comment below):
+    // a worktree generated before this column exists types the Agent row
+    // without it, so it is optional here and defaults to null, the same
+    // "no floor set" meaning an absent column already carries.
+    floorPriceUsd?: string | null;
+  },
   keyRotations: readonly KeyRotation[],
 ): Agent {
   return {
@@ -282,6 +298,7 @@ function toAgent(
     proofStatus: row.proofStatus,
     createdAt: row.createdAt,
     keyRotations: [...keyRotations],
+    floorPriceUsd: row.floorPriceUsd ?? null,
   };
 }
 
@@ -308,6 +325,17 @@ interface JobRow {
   submittedAt: Date | null;
   deadline: Date | null;
   createdAt: Date;
+  // P1: optional, same reasoning as floorPriceUsd on the Agent row above --
+  // a worktree generated before these columns exist types the row without
+  // them, and an absent column means "not yet proposed", the same meaning
+  // a stored null already carries.
+  priceUsd?: string | null;
+  rail?: string | null;
+  priceAcceptedByBuyer?: boolean;
+  priceAcceptedByAgent?: boolean;
+  depositPercent?: number;
+  redoAllowance?: number;
+  deliveryWindowDays?: number | null;
 }
 
 export class PrismaJobRepository implements JobRepository {
@@ -333,6 +361,13 @@ export class PrismaJobRepository implements JobRepository {
           submittedAt: job.submittedAt,
           deadline: job.deadline,
           createdAt: job.createdAt,
+          priceUsd: job.priceUsd,
+          rail: job.rail,
+          priceAcceptedByBuyer: job.priceAcceptedByBuyer,
+          priceAcceptedByAgent: job.priceAcceptedByAgent,
+          depositPercent: job.depositPercent,
+          redoAllowance: job.redoAllowance,
+          deliveryWindowDays: job.deliveryWindowDays,
         } as unknown as Prisma.JobCreateInput,
       });
       return toJob(row as unknown as JobRow);
@@ -366,6 +401,13 @@ export class PrismaJobRepository implements JobRepository {
           submittedAt: job.submittedAt,
           deadline: job.deadline,
           createdAt: job.createdAt,
+          priceUsd: job.priceUsd,
+          rail: job.rail,
+          priceAcceptedByBuyer: job.priceAcceptedByBuyer,
+          priceAcceptedByAgent: job.priceAcceptedByAgent,
+          depositPercent: job.depositPercent,
+          redoAllowance: job.redoAllowance,
+          deliveryWindowDays: job.deliveryWindowDays,
         } as unknown as Prisma.JobUpdateInput,
       });
       return toJob(row as unknown as JobRow);
@@ -407,6 +449,13 @@ export class PrismaJobRepository implements JobRepository {
           submittedAt: job.submittedAt,
           deadline: job.deadline,
           createdAt: job.createdAt,
+          priceUsd: job.priceUsd,
+          rail: job.rail,
+          priceAcceptedByBuyer: job.priceAcceptedByBuyer,
+          priceAcceptedByAgent: job.priceAcceptedByAgent,
+          depositPercent: job.depositPercent,
+          redoAllowance: job.redoAllowance,
+          deliveryWindowDays: job.deliveryWindowDays,
         } as unknown as Prisma.JobUpdateInput,
       });
       return toJob(row as unknown as JobRow);
@@ -551,6 +600,13 @@ function toJob(row: JobRow): Job {
     submittedAt: row.submittedAt,
     deadline: row.deadline,
     createdAt: row.createdAt,
+    priceUsd: row.priceUsd ?? null,
+    rail: (row.rail ?? null) as Job['rail'],
+    priceAcceptedByBuyer: row.priceAcceptedByBuyer ?? false,
+    priceAcceptedByAgent: row.priceAcceptedByAgent ?? false,
+    depositPercent: row.depositPercent ?? DEPOSIT_PERCENT,
+    redoAllowance: row.redoAllowance ?? REDO_ALLOWANCE,
+    deliveryWindowDays: row.deliveryWindowDays ?? null,
   };
 }
 
