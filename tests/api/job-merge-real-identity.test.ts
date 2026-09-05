@@ -56,14 +56,6 @@ function fakeGithub(): GithubAdapter {
   };
 }
 
-async function post(base: string, path: string, body: unknown = {}): Promise<Response> {
-  return fetch(`${base}${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-}
-
 async function postSigned(base: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
   const bodyText = JSON.stringify(body);
   const targetUri = `${base}${path}`;
