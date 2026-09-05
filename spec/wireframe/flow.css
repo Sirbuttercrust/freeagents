@@ -161,8 +161,7 @@
    None of the text below is a portfolio claim. It is the explanation under
    every conduct count, the repository a job belongs to, the diff size on a
    pull request, and the sentence saying nothing exists yet. All of it is read
-   to act on. So on these screens --fg-3 keeps only its structural jobs: row
-   numbers, and the quiet marks that are not prose.
+   to act on.
 
    Applied at each rule's own declaration rather than as one override block
    further down the file. A batch selector is the obvious move and it does not
@@ -177,12 +176,42 @@
    actually compute to #666B73 while carrying prose, across all eight screens
    with every disclosure and dialog open.
 
-   What KEEPS --fg-3, deliberately: row numbers, the `edit` control, the
-   column headers, the dashed unsigned ring, and other short marks that are
-   structure rather than something you read. They are 2 to 4 characters of
-   scaffolding beside the text they label, and lifting them would flatten the
-   hierarchy the quiet grey exists to create. Named so the next person can see
-   it was a decision rather than an oversight. */
+   ===================================================================
+   ROUND 2: THE EXEMPTION THAT SURVIVED THIS BLOCK WAS ALSO WRONG.
+   ===================================================================
+
+   The first pass ended with an exemption written right here, naming what was
+   allowed to stay at --fg-3: row numbers, the `edit` control, the column
+   headers, on the reasoning that they are "2 to 4 characters of scaffolding".
+   Review rejected it, correctly, and the reasoning is worth keeping because
+   it is the kind of mistake that reads as principled while it is happening.
+
+   `edit` is the only control that reopens a signed line of an agreement, and
+   the card requires that the buyer accepts or edits per line. "You" and the
+   agent's name are the labels that say whose signature each column carries,
+   which on a two-party matrix is the load-bearing text on the screen. A row
+   number is how a person says which line they mean when they ask for a
+   change. None of that is scaffolding. Calling it structure was a way of
+   describing text by its LENGTH rather than by its job, and short text that
+   you have to read is still text you have to read.
+
+   So there is no exemption on these screens any more. THE RULE IS:
+
+       if it renders characters, it meets AA.
+
+   --fg-3 keeps only the jobs that paint no characters at all: the dashed
+   unsigned ring, hairlines, hover borders, and the input placeholder colour.
+
+   This is now enforced by verify_ink.py, which makes every glyph transparent,
+   photographs the page, and measures each text run against the pixel actually
+   behind it. It does not consult a list of allowed classes, so the argument
+   about what counts as structure cannot be had again: 45 real failures across
+   agreement and deposit at both viewports, and the gate names each one.
+
+   That sweep also found a failing rule this block never covered, because it
+   was page-local rather than in this file: `.getlist .num` inside
+   deposit.html. An exemption list only ever governs the file it is written
+   in, which is a second reason to prefer a gate that measures the page. */
 
 /* =================================================================== terms
    THE TWO-PARTY TERM MATRIX. The agreement is a list of lines, and each line
@@ -211,8 +240,11 @@
 .thead {
   display: contents;
 }
+/* --fg-2, not --fg-3. These name the two parties, which is what tells a
+   reader whose signature each column carries. Measured at 3.72:1 before the
+   lift, against the 4.5 AA needs at 12px. */
 .thead span {
-  font-size: 12px; color: var(--fg-3);
+  font-size: 12px; color: var(--fg-2);
   padding: 0 0 10px; text-align: center;
   border-bottom: 1px solid var(--line);
 }
@@ -224,7 +256,9 @@
   border-bottom: 1px solid var(--line);
   align-self: start;
 }
-.trow .num { grid-column: 1; font-family: var(--mono); font-size: 12px; color: var(--fg-3); padding-top: 17px; }
+/* --fg-2 on the number: it is how a person says which line they mean when
+   they ask for a change, so it is read, not decoration. 3.72:1 before. */
+.trow .num { grid-column: 1; font-family: var(--mono); font-size: 12px; color: var(--fg-2); padding-top: 17px; }
 .trow .line { grid-column: 2; font-size: 15px; line-height: 1.5; padding-right: 16px; }
 .trow .m-you { grid-column: 3; justify-self: center; }
 .trow .m-them { grid-column: 4; justify-self: center; }
@@ -304,8 +338,12 @@ button.mark:focus-visible { outline: 2px solid var(--accent); outline-offset: -8
    :has() carries this in CSS alone. Where it is unsupported nothing previews
    and the standing sentence under the list still states the rule, so the page
    is correct either way. */
+/* --fg-2, not --fg-3. This is a real control and the only one that reopens a
+   signed line, so it is read to act on. Measured at 3.72:1 before the lift.
+   It stays quieter than the term beside it through SIZE and weight rather
+   than through a grey that fails AA. */
 .trow .edit .act {
-  font-size: 13px; color: var(--fg-3);
+  font-size: 13px; color: var(--fg-2);
   background: none; border: 0; cursor: pointer;
   padding: 11px 6px; font-family: var(--font);
   min-height: 44px; min-width: 44px;
