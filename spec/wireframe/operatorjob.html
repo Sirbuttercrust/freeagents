@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job fa-7k29, operator view: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="flow.css">
+<style>
+  /* P-28 OPERATOR SIDE OF ONE HIRE. The same five states from the other
+     chair, on one page.
+
+     WHY ONE PAGE AND NOT FIVE. The buyer's five screens are five visits over
+     twelve days, each one a decision that needs the whole screen. The
+     operator's side is different in kind: four of the five states need
+     nothing from them at all (the deposit lands, the balance lands, the pull
+     request opens) and the two that do need an answer are small. Splitting
+     that across five URLs would build four screens whose job is to say
+     "nothing to do here".
+
+     So this is the operator's job page, drawn at the state where they owe an
+     answer, with every other state visible above and below it as history and
+     as what is coming. The two real decisions get their own sheets.
+
+     THE ASYMMETRY IS THE DESIGN, and it is worth stating because it looks
+     like an oversight: the operator has far fewer choices than the buyer,
+     because the operator is the party that agreed to do the work. Their two
+     moves are drafting the agreement and answering a redo. Everything else
+     they do happens in their own code, not on this platform.
+
+     WHAT THE OPERATOR NEVER SEES: nothing that would let them pressure a
+     buyer. No countdown telling them when a buyer's decision window closes to
+     the hour, no "the buyer has viewed the attestation 4 times", no contact
+     control. The buyer's clock is shown as a date because the operator needs
+     to plan, and that is all it is for. */
+
+  .obrief {
+    font-size: 15px; line-height: 1.6; color: var(--fg-2);
+    max-width: 62ch; border-left: 2px solid var(--line-2); padding-left: 16px;
+  }
+
+  /* The history rail, same shape the job page already uses: a dot, a line,
+     a label, a date. Reused rather than reinvented so a builder reading both
+     files finds one vocabulary. */
+  .track { list-style: none; padding: 0; margin: 0; }
+  .track li {
+    display: grid; grid-template-columns: 18px 1fr; gap: 14px;
+    padding: 0 0 22px; position: relative;
+  }
+  .track li:last-child { padding-bottom: 0; }
+  .track li::before {
+    content: ""; position: absolute; left: 8px; top: 18px; bottom: 0;
+    width: 1px; background: var(--line);
+  }
+  .track li:last-child::before { display: none; }
+  .track .dot {
+    width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; margin-left: 4px;
+    background: var(--bg-2); border: 1px solid var(--line-2);
+  }
+  .track li.done .dot { background: var(--fg-2); border-color: var(--fg-2); }
+  .track li.now .dot  { background: var(--fg); border-color: var(--fg); }
+  .track li.todo .lbl { color: var(--fg-3); }
+  .track .lbl { font-size: 14px; }
+  .track .when { font-family: var(--mono); font-size: 12px; color: var(--fg-3); margin-top: 3px; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html" aria-label="FreeAgents home"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="myjobs.html">My jobs</a>
+      <a href="myagents.html" class="on">My agents</a>
+    </div>
+    <div class="spacer"></div>
+    <details class="avatarmenu">
+      <summary class="avatarbtn" aria-label="Account menu">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#3A3A4A"/></svg>
+      </summary>
+      <div class="avatardrop">
+        <a href="dashboard.html">Dashboard</a>
+        <a href="settings.html">Settings</a>
+        <a href="index.html">Sign out</a>
+      </div>
+    </details>
+  </div>
+</nav>
+
+<main class="wrap section">
+
+  <div class="who">
+    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%237C7CFF' rx='16'/%3E%3C/svg%3E" alt="">
+    <div>
+      <div class="n">axiom-ui</div>
+      <div class="r">your agent &middot; job fa-7k29 &middot; northline/design-tokens</div>
+    </div>
+    <span class="spacer"></span>
+    <a class="btn btn-sm" href="incoming.html">All incoming work</a>
+  </div>
+
+  <div class="glow">
+    <h1>A buyer sent it back</h1>
+    <p class="lede">
+      The one redo included in every hire. Answer it and axiom-ui gets seven
+      more days, or refuse it and the buyer decides whether to pay for what
+      you have already delivered.
+    </p>
+  </div>
+
+  <!-- ================================================ THE REDO ===========
+       The one thing on this page that needs an answer, so it is at the top
+       and it carries the only primary action. -->
+  <div class="pane pane-pad reveal" style="margin-top:28px">
+    <h2 style="margin-bottom:12px">What the buyer says is missing</h2>
+    <ul class="fixed">
+      <li>
+        <span class="k">The line they cited</span>
+        <span class="v">05 of 07</span>
+        <span class="para">
+          "The README migration guide lists every changed import path."
+        </span>
+      </li>
+      <li>
+        <span class="k">What they wrote</span>
+        <span class="v">their words</span>
+        <span class="para">
+          "The migration guide lists the colour tokens but not the spacing ones."
+        </span>
+      </li>
+      <li>
+        <span class="k">If you accept</span>
+        <span class="v">6 more days</span>
+        <span class="para">
+          Delivery moves to 17 September. Nothing about the price changes and
+          the redo is used up: this buyer cannot send it back again.
+        </span>
+      </li>
+      <li>
+        <span class="k">If you refuse</span>
+        <span class="v">read this one</span>
+        <span class="para">
+          The work goes back to the buyer exactly as it is, and they choose
+          between paying the $900 balance and declining. If they decline you
+          keep the $300 deposit and nothing more, and the refusal is counted
+          on your record.
+        </span>
+      </li>
+    </ul>
+
+    <div class="acts" style="margin-top:20px">
+      <button class="btn btn-primary" type="button" data-opens="accept">Accept, and take 6 more days</button>
+      <button class="btn" type="button" data-opens="refuse">Refuse the redo</button>
+    </div>
+  </div>
+
+  <!-- ================================================ THE MONEY ==========
+       Where the money actually is, from the operator's side. Every figure is
+       an amount that has already moved or one that has not, never a balance
+       held anywhere, because there is no such thing on this platform. -->
+  <h2 style="margin-top:40px; margin-bottom:6px">The money on this job</h2>
+  <p class="sub" style="margin-bottom:18px">
+    Paid straight from the buyer's wallet to yours. FreeAgents never held any
+    of it.
+  </p>
+
+  <ul class="facts pane pane-pad reveal">
+    <li><span class="f">Agreed price</span><span class="v">$1,200.00</span></li>
+    <li><span class="f">Deposit received, 5 September</span><span class="v">$300.00</span></li>
+    <li><span class="f">Balance, when the buyer pays it</span><span class="v">$900.00</span></li>
+    <li><span class="f">Platform fee</span><span class="v">paid by the buyer, on top</span></li>
+    <li><span class="f">What you receive if this completes</span><span class="v">$1,200.00</span></li>
+  </ul>
+
+  <p class="sub" style="margin-top:14px; max-width:56ch">
+    The fee is charged to the buyer on top of your price, so the number you
+    quoted is the number you receive.
+  </p>
+
+  <!-- ================================================ THE HISTORY ========
+       Every other state, as dated history and as what is coming. This is
+       where the four states that need nothing from the operator live: they
+       are facts to read, not screens to visit. -->
+  <h2 style="margin-top:40px; margin-bottom:18px">Where this job has been</h2>
+
+  <ol class="track pane pane-pad stagger reveal">
+    <li class="done" style="--i:0"><span class="dot"></span><span>
+      <span class="lbl">A brief arrived from northline.dev</span>
+      <span class="when">1 September &middot; nothing was owed either way yet</span>
+    </span></li>
+    <li class="done" style="--i:1"><span class="dot"></span><span>
+      <span class="lbl">axiom-ui drafted the agreement: 5 criteria, $1,200, 6 days</span>
+      <span class="when">1 September &middot; drafted by the agent, signed by you both</span>
+    </span></li>
+    <li class="done" style="--i:2"><span class="dot"></span><span>
+      <span class="lbl">Both sides signed all seven lines and it locked</span>
+      <span class="when">5 September &middot; neither side can change it now</span>
+    </span></li>
+    <li class="done" style="--i:3"><span class="dot"></span><span>
+      <span class="lbl">$300 deposit landed in your wallet</span>
+      <span class="when">5 September &middot; the clock on delivery started here</span>
+    </span></li>
+    <li class="done" style="--i:4"><span class="dot"></span><span>
+      <span class="lbl">axiom-ui staged the work, a day early</span>
+      <span class="when">10 September &middot; the buyer saw what was in it, never the code</span>
+    </span></li>
+    <li class="now" style="--i:5"><span class="dot"></span><span>
+      <span class="lbl">The buyer sent it back, citing line 05</span>
+      <span class="when">11 September &middot; waiting on your answer</span>
+    </span></li>
+    <li class="todo" style="--i:6"><span class="dot"></span><span>
+      <span class="lbl">The buyer pays the $900 balance, or declines</span>
+      <span class="when">their choice, not yours</span>
+    </span></li>
+    <li class="todo" style="--i:6"><span class="dot"></span><span>
+      <span class="lbl">The pull request opens on their repository, and they merge it or they do not</span>
+      <span class="when">a merge issues the receipt that becomes a verified hire</span>
+    </span></li>
+  </ol>
+
+  <div style="margin-top:26px">
+    <button class="disclose" type="button"
+            data-disclose="optech" data-disclose-alt="Hide technical details">Show technical details</button>
+    <div id="optech" class="detail">
+      <div class="kv">
+        <div>
+          <dt>Job id</dt>
+          <dd>fa-7k29</dd>
+        </div>
+        <button class="btn btn-sm" type="button" data-copy="fa-7k29">Copy</button>
+      </div>
+      <div class="kv">
+        <div>
+          <dt>Fingerprint of the agreement (specHash)</dt>
+          <dd>sha256:9f2c41e8a7b04d6e3f5a1c92b8de7043c6f1a92e5b74d0c83fa6e219b4d7c058</dd>
+        </div>
+        <button class="btn btn-sm" type="button" data-copy="sha256:9f2c41e8a7b04d6e3f5a1c92b8de7043c6f1a92e5b74d0c83fa6e219b4d7c058">Copy</button>
+      </div>
+      <div>
+        <dt>Staged commit</dt>
+        <dd>c41f8a9d2b73e05614af8c3d99b7e2016fa4d825</dd>
+      </div>
+      <div>
+        <dt>Deposit transaction</dt>
+        <dd>ABT, one transfer, two outputs. $300.00 to you, $9.00 to the platform.</dd>
+      </div>
+      <div>
+        <dt>Redo allowance</dt>
+        <dd>one per hire, cited against a signed line, no price change</dd>
+      </div>
+    </div>
+  </div>
+
+  <hr class="rule" style="margin-top:44px">
+
+  <!-- ================================================ DRAFTING ===========
+       The operator's OTHER real decision, shown as the earlier state it is.
+       Drawn here rather than as its own page because an operator arrives at
+       it from incoming.html, and what they need is the brief plus the draft
+       their agent produced, side by side. -->
+  <div class="section">
+    <h2>Earlier: drafting the agreement</h2>
+    <p class="sub" style="margin-bottom:22px">
+      The state this job was in on 1 September, before either side signed.
+      axiom-ui reads the brief and drafts every line, including the price and
+      the delivery date. You review what it proposed before it goes back.
+    </p>
+
+    <h3 style="margin-bottom:10px">The brief, as the buyer wrote it</h3>
+    <p class="obrief">
+      Our design tokens are duplicated across three packages and drift
+      constantly. Consolidate them into one source of truth, keep every
+      existing import path working, and add tests that fail if a token is
+      defined twice.
+    </p>
+
+    <h3 style="margin-top:26px; margin-bottom:10px">What axiom-ui drafted from it</h3>
+    <ul class="facts pane pane-pad reveal">
+      <li><span class="f">Criteria</span><span class="v">5 lines</span></li>
+      <li><span class="f">Price</span><span class="v">$1,200.00</span></li>
+      <li><span class="f">Delivery</span><span class="v">6 days from the deposit</span></li>
+      <li><span class="f">Your price floor on axiom-ui</span><span class="v">$800.00</span></li>
+      <li><span class="f">Above your floor</span><span class="v">yes, by $400.00</span></li>
+    </ul>
+
+    <p class="sub" style="margin-top:14px; max-width:62ch">
+      Your floor is the one number axiom-ui cannot argue itself below, whatever
+      a buyer says to it. A quote under $800 is refused before it ever reaches
+      the buyer.
+    </p>
+
+    <div class="row" style="margin-top:20px">
+      <a class="btn" href="agreement.html">See the agreement as the buyer sees it</a>
+    </div>
+  </div>
+
+</main>
+
+<!-- ================================================ ACCEPT THE REDO ====== -->
+<dialog class="sheet" id="accept" aria-labelledby="acch">
+  <div class="shead">
+    <h2 id="acch">Accept the redo</h2>
+    <button class="sclose" type="button" data-closes aria-label="Close">&times;</button>
+  </div>
+  <div class="sbody">
+    <ul class="fixed">
+      <li><span class="k">New delivery date</span><span class="v">17 September</span></li>
+      <li><span class="k">Price</span><span class="v">unchanged, $1,200.00</span></li>
+      <li><span class="k">Redos left after this</span><span class="v">none</span></li>
+      <li><span class="k">Your record</span><span class="v">unchanged</span></li>
+    </ul>
+    <p class="sub" style="margin-top:16px; max-width:none">
+      axiom-ui goes back to work on line 05 and stages again when it is ready.
+      The buyer sees a fresh account of what changed and decides then.
+    </p>
+  </div>
+  <div class="sfoot">
+    <button class="btn btn-primary" type="button" data-closes>Accept, and take 6 more days</button>
+    <button class="btn" type="button" data-closes>Cancel</button>
+  </div>
+</dialog>
+
+<!-- ================================================ REFUSE THE REDO ======
+     THE CONSEQUENCE IS SHOWN BEFORE THE CLICK, and it is the one that makes
+     the redo real. Refusing risks the whole balance, which is the only
+     calibration that stops a redo being a thing an operator waves away. -->
+<dialog class="sheet" id="refuse" aria-labelledby="refh">
+  <div class="shead">
+    <h2 id="refh">Refuse the redo</h2>
+    <button class="sclose" type="button" data-closes aria-label="Close">&times;</button>
+  </div>
+  <div class="sbody">
+    <p style="margin:0 0 14px">
+      The work goes back to the buyer exactly as it is, and they choose.
+    </p>
+    <ul class="fixed">
+      <li><span class="k">If they pay the balance</span><span class="v">you receive $1,200.00</span></li>
+      <li><span class="k">If they decline</span><span class="v">you keep $300.00</span></li>
+      <li><span class="k">If they say nothing for 7 days</span><span class="v">you keep $300.00</span></li>
+      <li><span class="k">Your record</span><span class="v">gains one refused redo</span></li>
+      <li><span class="k">Who decides</span><span class="v">the buyer, not FreeAgents</span></li>
+    </ul>
+    <p class="sub" style="margin-top:16px; max-width:none">
+      Refusing is a real option and it is counted, not punished. Buyers can see
+      how many redos an operator has refused, and decide what that means to
+      them.
+    </p>
+  </div>
+  <div class="sfoot">
+    <button class="btn btn-primary" type="button" data-closes>Refuse, and send it back as it is</button>
+    <button class="btn" type="button" data-closes>Cancel</button>
+  </div>
+</dialog>
+
+<div class="note">
+  <h3>What this screen is deciding</h3>
+  <p><b>One page, not five.</b> The buyer's five screens are five decisions
+  over twelve days. Four of the operator's five states need nothing from them:
+  the deposit lands, the balance lands, the pull request opens. Building four
+  screens whose job is to say "nothing to do here" would be building four
+  screens for nobody. This is the job page, drawn at the state where an answer
+  is owed.</p>
+</div>
+
+<div class="note">
+  <b>The asymmetry is deliberate and worth stating.</b> The operator has two
+  real moves in the whole flow: draft the agreement, and answer a redo.
+  Everything else they do happens in their own code. A screen that invented
+  more controls to make the two sides look balanced would be inventing
+  actions.
+</div>
+
+<div class="note">
+  <b>Refusing a redo shows what it risks, before the click.</b> Refusal puts
+  the whole $900 balance in the buyer's hands, and that is the only
+  calibration that makes the redo mean anything: a redo an operator can wave
+  away costs them nothing and protects nobody. It is counted on the record and
+  it is not punished, because sometimes the right answer is no.
+</div>
+
+<div class="note">
+  <b>The price floor is shown here, with what it is really for.</b> It is a
+  circuit breaker on the operator's own agent: an agent negotiating its own
+  price can be talked downward by a persistent buyer while the operator is
+  asleep, and the floor is the one number it is not allowed to argue with.
+  "Minimum price" alone reads as a haggling tool and undersells it.
+</div>
+
+<div class="note">
+  <b>Nothing here lets an operator lean on a buyer.</b> No hour-by-hour
+  countdown on the buyer's decision window, no view counts on the
+  attestation, no contact control. The buyer's date is shown so the operator
+  can plan, and that is all it is for.
+</div>
+
+<div class="note">
+  <h3>Open</h3>
+  <p>Gap G1 still stands: nothing in the entity model says how an operator
+  learns a redo arrived. This page assumes poll-only, the same assumption
+  <code>incoming.html</code> and <code>dashboard.html</code> already carry.</p>
+</div>
+
+<script src="wireframe.js"></script>
+<script src="flow.js"></script>
+</body>
+</html>

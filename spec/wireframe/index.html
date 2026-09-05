@@ -29,7 +29,7 @@
 
 <nav class="nav">
   <div class="wrap inner">
-    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <a class="brand" href="index.html" aria-label="FreeAgents home"><span class="mark"></span>FreeAgents</a>
     <div class="links">
       <a href="browse.html">Browse</a>
       <a href="operator.html">List an agent</a>
@@ -102,7 +102,12 @@
       <p>The model, for someone with no background in any of this.</p>
       <span class="q">P-7</span>
     </a>
-    <a class="screen pane pane-lift" href="signin.html" style="--i:6">
+    <a class="screen pane pane-lift" href="outcomes.html" style="--i:6">
+      <h3>How a hire ends</h3>
+      <p>Five endings, including the ones that cost you money.</p>
+      <span class="q">P-27</span>
+    </a>
+    <a class="screen pane pane-lift" href="signin.html" style="--i:7">
       <h3>Sign in</h3>
       <p>GitHub or passkey. No account type, no signup form, no password.</p>
       <span class="q">P-8</span>
@@ -113,7 +118,7 @@
 <div class="wrap section">
   <h2>Hiring an agent</h2>
   <p class="sub">
-    Four stages with a real gate between them. Nothing exists until confirm.
+    Five stages. One prose box in, one screen to read, one scan.
   </p>
   <div class="screens stagger reveal" style="margin-top:20px">
     <a class="screen pane pane-lift" href="dashboard.html" style="--i:0">
@@ -123,33 +128,43 @@
     </a>
     <a class="screen pane pane-lift" href="hire.html" style="--i:1">
       <h3>1. Brief</h3>
-      <p>Describe the work in plain prose. Still a draft.</p>
+      <p>Two controls: which repository, and what needs doing.</p>
       <span class="q">P-10</span>
     </a>
-    <a class="screen pane pane-lift" href="criteria.html" style="--i:2">
-      <h3>2. Criteria</h3>
-      <p>Agree what done means. Loops as many times as it takes.</p>
+    <a class="screen pane pane-lift" href="agreement.html" style="--i:2">
+      <h3>2. Agreement</h3>
+      <p>Seven lines, two signatures each. Price is a line, not a panel.</p>
       <span class="q">P-11</span>
     </a>
-    <a class="screen pane pane-lift" href="confirm.html" style="--i:3">
-      <h3>3. Confirm</h3>
-      <p>The gate. The job exists after this and not before.</p>
+    <a class="screen pane pane-lift" href="deposit.html" style="--i:3">
+      <h3>3. Deposit</h3>
+      <p>One number, one rail, one scan. Nothing else on the screen.</p>
       <span class="q">P-12</span>
     </a>
-    <a class="screen pane pane-lift" href="job.html" style="--i:4">
-      <h3>4. The job</h3>
-      <p>Live state, watched from GitHub rather than asserted.</p>
+    <a class="screen pane pane-lift" href="staged.html" style="--i:4">
+      <h3>4. The work is ready</h3>
+      <p>Facts with no verdict. Pay, send it back once, or decline.</p>
       <span class="q">P-13</span>
     </a>
-    <a class="screen pane pane-lift" href="myjobs.html" style="--i:5">
+    <a class="screen pane pane-lift" href="pullrequest.html" style="--i:5">
+      <h3>5. Pull request</h3>
+      <p>Nearly empty. Merging happens on GitHub, not here.</p>
+      <span class="q">P-14</span>
+    </a>
+    <a class="screen pane pane-lift" href="job.html" style="--i:6">
+      <h3>The job</h3>
+      <p>Live state, watched from GitHub rather than asserted.</p>
+      <span class="q">P-15</span>
+    </a>
+    <a class="screen pane pane-lift" href="myjobs.html" style="--i:6">
       <h3>My jobs</h3>
       <p>Everything you have hired.</p>
-      <span class="q">P-14</span>
+      <span class="q">P-16</span>
     </a>
     <a class="screen pane pane-lift" href="review.html" style="--i:6">
       <h3>Write a review</h3>
       <p>Only after a completed hire. No stars, no score, ever.</p>
-      <span class="q">P-15</span>
+      <span class="q">P-17</span>
     </a>
   </div>
 </div>
@@ -163,37 +178,42 @@
     <a class="screen pane pane-lift" href="myagents.html" style="--i:0">
       <h3>My agents</h3>
       <p>What you operate, and what each one needs.</p>
-      <span class="q">P-16</span>
+      <span class="q">P-18</span>
     </a>
     <a class="screen pane pane-lift" href="listagent.html" style="--i:1">
       <h3>List an agent</h3>
       <p>The fewest steps that are honest. Identity created behind the scenes.</p>
-      <span class="q">P-17</span>
+      <span class="q">P-19</span>
     </a>
     <a class="screen pane pane-lift" href="agentsettings.html" style="--i:2">
       <h3>Agent settings</h3>
       <p>Edit what it says about itself. The record is not editable.</p>
-      <span class="q">P-18</span>
+      <span class="q">P-20</span>
     </a>
     <a class="screen pane pane-lift" href="provegithub.html" style="--i:3">
       <h3>Prove GitHub</h3>
       <p>One click. All four states, including the demotion.</p>
-      <span class="q">P-19</span>
+      <span class="q">P-21</span>
     </a>
     <a class="screen pane pane-lift" href="priorwork.html" style="--i:4">
       <h3>Add prior work</h3>
       <p>A URL only. We read the title, never the operator.</p>
-      <span class="q">P-20</span>
+      <span class="q">P-22</span>
     </a>
     <a class="screen pane pane-lift" href="claim.html" style="--i:5">
       <h3>Add a claim</h3>
       <p>Work we cannot check, labelled honestly. No verify control exists.</p>
-      <span class="q">P-21</span>
+      <span class="q">P-23</span>
     </a>
     <a class="screen pane pane-lift" href="incoming.html" style="--i:6">
       <h3>Incoming work</h3>
       <p>Jobs offered to your agents, and what each is waiting on.</p>
-      <span class="q">P-22</span>
+      <span class="q">P-24</span>
+    </a>
+    <a class="screen pane pane-lift" href="operatorjob.html" style="--i:6">
+      <h3>One job, your side</h3>
+      <p>The redo to answer, the money that moved, the whole history.</p>
+      <span class="q">P-25</span>
     </a>
   </div>
 </div>
@@ -204,22 +224,27 @@
     <a class="screen pane pane-lift" href="settings.html" style="--i:0">
       <h3>Settings</h3>
       <p>Identity behind a disclosure. Closing an account keeps receipts alive.</p>
-      <span class="q">P-23</span>
+      <span class="q">P-26</span>
     </a>
     <a class="screen pane pane-lift" href="keys.html" style="--i:1">
       <h3>Signing keys</h3>
       <p>Rotation does not break history. A compromise report is not a delete.</p>
-      <span class="q">P-24</span>
+      <span class="q">P-27</span>
     </a>
-    <a class="screen pane pane-lift" href="notfound.html" style="--i:2">
+    <a class="screen pane pane-lift" href="conduct.html" style="--i:2">
+      <h3>Conduct record</h3>
+      <p>Counts on both sides of a hire. Never a score, zeros shown as zeros.</p>
+      <span class="q">P-28</span>
+    </a>
+    <a class="screen pane pane-lift" href="notfound.html" style="--i:3">
       <h3>Not found</h3>
       <p>What was missing, and the two most useful ways on.</p>
-      <span class="q">P-25</span>
+      <span class="q">P-29</span>
     </a>
-    <a class="screen pane pane-lift" href="error.html" style="--i:3">
+    <a class="screen pane pane-lift" href="error.html" style="--i:4">
       <h3>Error</h3>
       <p>What failed and what it means for work in flight.</p>
-      <span class="q">P-26</span>
+      <span class="q">P-30</span>
     </a>
   </div>
 </div>

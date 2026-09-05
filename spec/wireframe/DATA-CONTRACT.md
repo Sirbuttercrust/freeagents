@@ -238,7 +238,216 @@ is a candidate issue, not something a builder should invent.
 
 ---
 
-## 8. What must never appear, on any screen
+## 8. The hire, agreement and payment flow
+
+Everything the six new screens need. Added 2026-09-05 from the 2026-09-01
+payment rulings and the 2026-09-04 chain verifications. Every number on those
+screens appears in one of the tables below, with where it comes from.
+
+**The rule that governs this whole section:** the platform never receives,
+holds, forwards, releases or refunds money. There is no balance, no escrow and
+no account we could freeze. A field named `balance`, `heldAmount`,
+`escrowState` or `payout` is a bug in the model, not a missing feature.
+
+### 8.1 The agreement, and why a boolean is not enough
+
+An agreement is a list of LINES. Each line carries one signature slot **per
+party**, and the price and the delivery window are lines like any other.
+
+| field | source | notes |
+|---|---|---|
+| `lines[].index` | assigned in order | `01`..`nn`, stable, shown to both parties and cited by a redo or a close |
+| `lines[].kind` | `criterion` \| `price` \| `delivery` | three kinds, one list. Never three lists |
+| `lines[].text` | agent draft, either party may edit | one checkable sentence for a criterion |
+| `lines[].value` | number | dollars for `price`, days for `delivery`. Absent on `criterion` |
+| `lines[].proposedBy` | `buyer` \| `agent` | who wrote the current text |
+| `lines[].signatures[]` | one per party who has signed THAT line | party did, key id, signature, signed at |
+
+**`accepted: true` is removed and must not come back.** A single boolean cannot
+say who accepted, so any route handler can flip it for either side. That is a
+design defect before it is a security one, because the interface teaches a
+model the system cannot enforce.
+
+**Editing a line clears the signatures on that line only.** Not the whole
+agreement. Resetting everything for a one-word fix pushes both sides toward
+bulk-accepting without reading, which is what the signatures exist to prevent.
+
+**The lock is a state transition, not an endpoint anybody calls.** When the
+last outstanding signature lands, the agreement locks and the fingerprint is
+computed. There is no confirm route, and adding one would recreate the
+forgeable boolean in a different shape.
+
+### 8.2 The fixed terms
+
+Shown on the agreement, identical on every hire, **not editable by either
+party and carrying no signature slots**. They are properties of the venue, not
+of the deal.
+
+| field | value at launch | notes |
+|---|---|---|
+| `depositShare` | `0.25` | counts toward the price, never a fee on top |
+| `balanceShare` | `0.75` | due at `staged`, before the PR opens |
+| `redoAllowance` | `1` | per hire, buyer only, cited against a line index |
+| `cancellationTerms` | one paragraph, versioned | the version is inside the fingerprint |
+
+Default 25, and **not a buyer-facing knob**. If it ever becomes configurable it
+becomes a line in 9.1 with two signature slots, not a field on a settings page.
+
+### 8.3 The fingerprint
+
+`specHash` covers **every commercial term**, not just the descriptive ones: all
+lines including price and delivery, plus all four fixed terms and the
+cancellation version. A term outside the hash is a term either side can later
+claim was different, which undoes the reason the hash is on the screen.
+
+### 8.4 Money, per payment
+
+Two payments per hire. Each is one buyer-signed transfer to the operator plus
+the platform fee, and neither ever touches a platform account.
+
+| field | source | notes |
+|---|---|---|
+| `payments[].kind` | `deposit` \| `balance` | |
+| `payments[].priceAmount` | derived from `lines[kind=price].value` and the share | dollars |
+| `payments[].feeAmount` | `priceAmount * feeRate` | charged to the buyer ON TOP, so the operator receives the signed price |
+| `payments[].rail` | `abt` \| `usdc` | chosen by the buyer at the deposit screen |
+| `payments[].feeRate` | `0.03` on `abt`, `0.06` on `usdc` | the ABT rate is the incentive to use ArcBlock's token. Never zero: the fee is the only cost of fabricating a hire record |
+| `payments[].approvalCount` | `1` on `abt`, `2` on `usdc` | **must be on the surface, not derived by the UI.** See below |
+| `payments[].txids[]` | observed from the chain | one on ABT, two on USDC |
+| `payments[].confirmedAt` | chain confirmation | the PR opens only after the balance confirms |
+
+**`approvalCount` is a real field because it is a real difference.** One ABT
+`TransferV3Tx` carries the price and the fee as two outputs, so the wallet asks
+once (verified 2026-09-04 on the ABT beta chain). An ERC-20 transfer has a
+single recipient, so USDC is two transactions per payment and four across a
+hire (verified 2026-09-04 on Arbitrum Sepolia, roughly 6 cents of gas each). A
+buyer who meets the second prompt unwarned reads it as a double charge.
+
+**Prices are denominated in dollars on every screen.** The token amount is the
+wallet's business and is shown by the wallet at signing. Nothing in the product
+quotes an exchange rate, because a rate needs a source and a staleness rule and
+neither exists yet (gap G7).
+
+### 8.5 The attestation
+
+Machine-produced from the staged commit, signed by the platform, and shown to
+the buyer BEFORE they pay the balance and before any code is visible.
+
+| field | source | rendered as |
+|---|---|---|
+| `filesChanged` | staged commit | a count |
+| `additions`, `deletions` | staged commit | `+186 / -94` |
+| `changedPaths[]` | staged commit | **every path, in full** |
+| `testCommand` | the buyer's own, from the agreement | verbatim |
+| `testExit`, `testPassed`, `testFailed`, `testSkipped` | running the buyer's command | a line of counts |
+| `failingTestNames[]` | the buyer's own suite | the buyer's own text, so not a leak |
+| `testsDeleted` | diff of test files | a count, plus paths |
+| `testsNewlySkipped` | diff of skip annotations | a count, plus paths |
+| `pathsOutsideAgreement` | changed paths against the agreed paths | a count |
+| `commitsSignedByAgent` | signature check against the agent DID | `4 of 4`, a fraction never a percentage |
+| `lineShareByCategory` | classifier over changed paths | source, test, lockfile, generated, vendored. Behind the disclosure |
+| `diffHash` | staged commit | behind the disclosure |
+| `platformSignature` | Ed25519 over every field above | behind the disclosure |
+
+**Refused, permanently:** the diff, any source, symbol names, test bodies,
+commit messages, raw test output, per-criterion file mapping, and any summary
+of the approach. Each publishes the work before it is paid for. Failing test
+names survive only because they are the buyer's own text from the buyer's own
+suite.
+
+**No verdict field, and none may be added.** No `riskLevel`, no `warnings[]`,
+no `flags[]`, no ordering by concern. The UI renders every row at the same
+weight because deciding which facts are worrying is a judgement about the work.
+
+### 8.6 The two clocks
+
+Both are seven days and **silence means the opposite thing in each**. This is
+the most confusable pair in the model, so it is one table.
+
+| clock | starts | silence at the end means | who has been paid |
+|---|---|---|---|
+| `stagedDeadline` | attestation published | the job closes, code never leaves staging, deposit stays with the operator | deposit only |
+| `reviewDeadline` | pull request opened | **deemed completed**, a credential issues | in full |
+
+The second one exists because the operator has delivered and been paid, so a
+silent buyer must not be able to cost them their record for free.
+
+A third clock: `confirmed` with no staging expires at 30 days
+(`expired_unstaged`), which closes a job neither side is answering.
+
+### 8.7 Outcomes
+
+| outcome | reached by | money | credential |
+|---|---|---|---|
+| `completed` | buyer merges | full price to the operator | merge credential |
+| `deemed_completed` | `reviewDeadline` passes | full price to the operator | **distinct type**, carries the staged commit and an explicit no-merge field |
+| `closed_unmerged` | buyer closes citing a line index plus one sentence | full price to the operator, nothing refunded | none |
+| `staged_declined` | buyer declines at staged | deposit only | none |
+| `closed_unpaid` | `stagedDeadline` passes | deposit only | none |
+
+**A close with no cited index is not a close.** The clock keeps running and
+deemed completion fires. The citation is what makes the record mean anything.
+
+**The cited sentence is attributed to the buyer, never to the platform**, and
+the platform does not endorse it or rule on whether it is fair.
+
+### 8.8 The conduct record
+
+Keyed to the **verified GitHub account**, never to the DID.
+
+| count | side | source |
+|---|---|---|
+| `hiresStarted` | buyer | agreements locked with a deposit paid |
+| `merged` | buyer | `completed` outcomes |
+| `deemed` | buyer | `deemed_completed` outcomes |
+| `citedCloses` | buyer | `closed_unmerged` outcomes |
+| `redosRequested` | buyer | redo requests sent |
+| `walked` | buyer | `staged_declined` plus `closed_unpaid` |
+| `deliveredUnpaid` | operator | `staged_declined` plus `closed_unpaid` on their agents |
+| `redosRefused` | operator | redo refusals |
+
+**Counts only, never a score.** No percentage, no letter, no computed
+reliability, no total, and no sort derived from any of them. The two sides are
+never summed: one account plays both roles and they are different populations.
+
+**Zeros render as zeros.** A new account returns all eight at zero and the UI
+draws all eight.
+
+Operators may filter incoming work on these counts (`minBuyerMerges`,
+`maxWalkedAfterConfirm`). **The platform sets no thresholds and recommends
+none.**
+
+**What this does not fix, and should be said before launch.** A DID is free, so
+keying to GitHub raises the cost of a clean slate from nothing to one aged
+GitHub account. It does not close prepayment farming, credential laundering or
+attestation harvesting. Those are the residuals of a marketplace that refuses
+custody and refuses to judge work, and the honest answer is a record that
+accumulates against real identities plus operators who decline buyers with bad
+counts.
+
+### 8.9 The repository list
+
+The hire screen picks a repository from the buyer's **confirmed GitHub
+account**, read from the GitHub API at render time, never typed. Prefilled when
+there is exactly one, and the select still renders in that case rather than
+collapsing to text: two layouts is two things to build, and a person with a
+second repository tomorrow would meet a control they had never seen.
+
+---
+
+## 9. Gaps added by the payment flow
+
+| gap | where it bites | suggested resolution |
+|---|---|---|
+| **G7, dollar to token rate** | the deposit and balance screens | Nothing quotes a rate; the wallet shows it at signing. If a rate must appear in the product it needs a source and a staleness rule |
+| **G8, who runs the staging repository** | the whole `staged` state | The model says work lands in a private staging repo under a platform account. That is the one place the platform holds something, and it is code rather than money. Needs a written boundary and a retention rule |
+| **G9, redo refusal loop** | operator refuses, buyer is back at staged | Drawn as returning to the same three choices with the clock unchanged. Whether the clock resets is undecided |
+| **G10, where the conduct record lives** | `conduct.html` | Drawn as its own page. It could be a section of the operator profile, but a buyer with no agents has a record and no operator profile to hang it on |
+| **G11, notification for a redo** | `operatorjob.html` | Same as G1: poll-only assumed, nothing in the entity model covers it |
+
+---
+
+## 10. What must never appear, on any screen
 
 Restating because these are the failure modes a well-meaning builder adds:
 

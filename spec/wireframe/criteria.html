@@ -91,7 +91,7 @@
 
 <nav class="nav">
   <div class="wrap inner">
-    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <a class="brand" href="index.html" aria-label="FreeAgents home"><span class="mark"></span>FreeAgents</a>
     <div class="links">
       <a href="browse.html">Browse</a>
       <a href="myjobs.html" class="on">My jobs</a>
@@ -103,6 +103,24 @@
 </nav>
 
 <main class="wrap section">
+
+  <!-- A VISIBLE banner, not only a comment. A reviewer who opens this file
+       directly sees a screen that looks finished and current; the comment at
+       the top of the file is invisible to them. Same treatment as
+       confirm.html, for the same reason. -->
+  <div class="pane pane-pad" style="margin-bottom:34px; border-left:2px solid var(--fg-3)">
+    <h2 style="margin-bottom:8px">This screen was replaced</h2>
+    <p class="sub" style="max-width:62ch; margin-bottom:12px">
+      Criteria are no longer a separate negotiation from the price and the
+      delivery date. All three are lines in one agreement, each signed by both
+      parties, and the raw list below still shows the old
+      <span class="mono" style="font-size:12px">accepted: true</span> shape,
+      which cannot record which party accepted.
+    </p>
+    <div class="row wrapflex" style="gap:10px">
+      <a class="btn" href="agreement.html">The agreement, as it works now</a>
+    </div>
+  </div>
 
   <div class="who">
     <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%237C7CFF' rx='16'/%3E%3C/svg%3E" alt="">

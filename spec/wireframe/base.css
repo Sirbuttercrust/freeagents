@@ -279,6 +279,14 @@ body.notes-on .note { display: block; }
 .notetoggle:hover { color: var(--fg); border-color: var(--fg-3); }
 body.notes-on .notetoggle { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 
+/* The house 44px floor, on the one piece of chrome that appears on every
+   screen. Measured on a real touch profile it was 101x34 on all 26 pages, so
+   it was the single most repeated tap-target failure in the wireframe. Gated
+   on (pointer: coarse), so no desktop pixel changes. */
+@media (pointer: coarse) {
+  .notetoggle { min-height: 44px; }
+}
+
 /* -------------------------------------------------------- perched agents
    The characters that float in a page header.
 
@@ -668,4 +676,52 @@ a:focus-visible, button:focus-visible, .chip:focus-visible, .disclose:focus-visi
 
   /* A long DID or hash must break rather than widen the page. */
   .mono, .hashline, .ident { overflow-wrap: anywhere; }
+}
+
+/* ------------------------------------------------- 44px on shared chrome
+   MEASURED, not assumed, on a real touch profile (320px, mobile=true,
+   setTouchEmulationEnabled). Every one of these was under the house floor on
+   ALL 26 screens, which makes it a base.css defect rather than anything a
+   single page introduced:
+
+     .brand            105 x 25
+     .nav .links a      44 x 43
+     .avatardrop a     158 x 41
+     .notetoggle       101 x 34   (fixed at its own rule above)
+
+   Gated on (pointer: coarse), so not one desktop pixel moves. Note that
+   measuring this by sizing a desktop browser to 320px returns a clean pass:
+   desktop Chrome at 320px does not match (pointer: coarse), so the sweep
+   reads the desktop branch and confirms it. The emulation has to set touch.
+
+   HEIGHT AND WIDTH, once the wordmark collapses. The width floor is only
+   affordable because the brand drops to its 44px mark below 420px (see the
+   rule below), which frees the 61px the three links need. Applying the width
+   floor without that change pushes the document to 345px and trades an
+   accessibility floor for horizontal overflow, which is the worse defect. */
+@media (pointer: coarse) {
+  .nav .links a { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+  .brand { min-height: 44px; }
+  .avatardrop a { min-height: 44px; display: flex; align-items: center; }
+}
+
+/* ------------------------------------------- the wordmark at 320px
+   MEASURED: the bar cannot hold three text links at a 44px width plus the
+   wordmark plus the avatar. Laid out at 320px it comes to 321px before any
+   link is padded, and bringing "My jobs" (25px) and "My agents" (39px) up to
+   the floor adds 24 more. Something has to give, and padding sideways until
+   the document scrolls horizontally trades an accessibility floor for a worse
+   defect on every page.
+
+   What gives is the WORD, not the link. Below 420px the wordmark collapses to
+   its mark, which is the ordinary responsive pattern and is permitted by
+   DESIGN.md section 8: the current lockup is a placeholder that reads as
+   intentional, and the mark is the half of it that survives at any size. It
+   frees 61px, which is more than the 24px the links need.
+
+   Home stays reachable, the label moves into the accessible name so a screen
+   reader still hears the product name rather than a bare link. */
+@media (max-width: 420px) {
+  .brand { font-size: 0; gap: 0; width: 44px; flex: none; justify-content: center; }
+  .brand .mark { width: 20px; height: 20px; }
 }
