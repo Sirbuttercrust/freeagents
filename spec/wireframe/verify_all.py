@@ -13,6 +13,7 @@ several minutes and deliberately edits files, so it is run on its own.
 """
 
 import os
+import re
 import subprocess
 import sys
 import time
@@ -73,6 +74,30 @@ for name, _, _, _, covers in results:
     print("  %-22s %s" % (name, covers))
 
 bad = [r for r in results if r[1] != 0]
+
+# The DESIGN.md table and this runner must list the same gates. Written as a
+# check rather than a note, because "keep these in step" is a hope: a gate
+# missing from the runner does not get run, and a gate listed in the doc that
+# is not in the runner is a claim of coverage nothing backs. Both directions
+# fail here.
+design = os.path.join(HERE, "DESIGN.md")
+if os.path.exists(design):
+    text = open(design, encoding="utf-8").read()
+    listed = set(re.findall(r"`(verify_[a-z_]+\.py)`", text))
+    # The mutation test is deliberately outside verify_all.py.
+    listed.discard("verify_flow_mutation.py")
+    listed.discard("verify_all.py")
+    ours = {name for name, _, _ in GATES}
+    only_doc = sorted(listed - ours)
+    only_run = sorted(ours - listed)
+    if only_doc or only_run:
+        print("\nDESIGN.md section 10 and verify_all.py disagree:")
+        for g in only_doc:
+            print("  %s is documented but NOT run by verify_all.py" % g)
+        for g in only_run:
+            print("  %s is run but NOT documented in DESIGN.md" % g)
+        bad.append(("DESIGN.md gate list", 1, 0.0, "out of step", ""))
+
 print()
 if bad:
     print("FAIL: %d of %d gates did not pass" % (len(bad), len(results)))
