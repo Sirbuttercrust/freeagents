@@ -70,10 +70,13 @@ import { isValidOperatorDid } from '../domain/operator-did.js';
 import type { Account } from '../domain/account.js';
 import {
   acceptCriterion,
+  acceptPrice,
+  assertPriceAboveFloor,
   completeJob,
   confirmSpec,
   createJob,
   JobError,
+  JobPriceError,
   JobTransitionError,
   proposeCriteria,
   recordClosedUnmerged,
@@ -86,6 +89,7 @@ import {
   type Job,
   type JobStatus,
   type Party,
+  type PriceProposal,
 } from '../domain/job.js';
 import { rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
 import { buyerDiversity } from '../domain/buyer-diversity.js';
@@ -194,6 +198,12 @@ function agentProjection(row: Agent): Record<string, unknown> {
       toKey: rotation.toKey,
       rotatedAt: rotation.rotatedAt.toISOString(),
     })),
+    // P1, scope item 5: the optional floor rides the base key set
+    // unconditionally, the same "every agent has the field, not every
+    // agent has a value" stance avatar and keyRotations already take --
+    // null when the agent never set one, which places no floor on a
+    // proposal at all.
+    floorPriceUsd: row.floorPriceUsd,
   };
 }
 
@@ -248,6 +258,26 @@ function jobProjection(row: Job): Record<string, unknown> {
     row.confirmedSpecHash !== null && row.confirmedAt !== null
       ? { specHash: row.confirmedSpecHash, confirmedAt: row.confirmedAt.toISOString() }
       : {};
+  // P1: the price line joins the projection once the agent has proposed one
+  // (row.priceUsd !== null), the same conditional stance `criteria` takes
+  // once the exchange has something in it. depositPercent, redoAllowance
+  // and deliveryWindowDays ride beside the price rather than the base
+  // eight, because they describe the same agreement line the price does --
+  // there is nothing to show before a price exists to attach them to.
+  const price =
+    row.priceUsd !== null
+      ? {
+          price: {
+            priceUsd: row.priceUsd,
+            rail: row.rail,
+            depositPercent: row.depositPercent,
+            redoAllowance: row.redoAllowance,
+            deliveryWindowDays: row.deliveryWindowDays,
+            acceptedByBuyer: row.priceAcceptedByBuyer,
+            acceptedByAgent: row.priceAcceptedByAgent,
+          },
+        }
+      : {};
   // The same one-writer rule for submit (R-10): submitPullRequest writes all
   // three fields or none, so all three ride one conditional. deadline is
   // null on rows written before R-12, and stays null there - the projection
@@ -276,6 +306,7 @@ function jobProjection(row: Job): Record<string, unknown> {
     briefHash: row.briefHash,
     status: row.status,
     ...(row.criteria.length > 0 ? { criteria: row.criteria } : {}),
+    ...price,
     ...confirmation,
     ...submission,
     ...completion,
@@ -769,6 +800,7 @@ export function createApp(
     const name = body.name;
     const skills = body.skills;
     const githubLogin = body.githubLogin;
+    const floorPriceUsd = body.floorPriceUsd;
 
     if (
       typeof did !== 'string' || did.length === 0 ||
@@ -776,10 +808,12 @@ export function createApp(
       typeof name !== 'string' || name.length === 0 ||
       !Array.isArray(skills) || skills.length === 0 ||
       skills.some((s) => typeof s !== 'string' || s.length === 0) ||
-      (githubLogin !== undefined && (typeof githubLogin !== 'string' || githubLogin.length === 0))
+      (githubLogin !== undefined && (typeof githubLogin !== 'string' || githubLogin.length === 0)) ||
+      (floorPriceUsd !== undefined && floorPriceUsd !== null &&
+        (typeof floorPriceUsd !== 'string' || !/^\d+\.\d{2}$/.test(floorPriceUsd)))
     ) {
       res.status(400).json({
-        error: 'body must be { did, delegation, name, skills, operator?, githubLogin? }; did, name non-empty strings, skills non-empty list of strings, operator (if present) a string',
+        error: 'body must be { did, delegation, name, skills, operator?, githubLogin?, floorPriceUsd? }; did, name non-empty strings, skills non-empty list of strings, operator (if present) a string, floorPriceUsd (if present) a decimal string with exactly two places',
       });
       return;
     }
@@ -860,6 +894,7 @@ export function createApp(
         name,
         skills,
         githubLogin: githubLogin ?? null,
+        floorPriceUsd: (floorPriceUsd as string | undefined) ?? null,
       });
       res.status(201).json(agentProjection(row));
     } catch (err) {
@@ -1701,6 +1736,13 @@ export function createApp(
         res.status(400).json({ error: err.message });
         return;
       }
+      // P1: the price gate is a state conflict (the AGREEMENT is not ready),
+      // the same 409 a criteria-outstanding confirm already answers with --
+      // never 400, because nothing the caller just sent is malformed.
+      if (err instanceof JobPriceError) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
       if (err instanceof JobTransitionError) {
         res.status(409).json({ error: err.message });
         return;
@@ -1796,11 +1838,25 @@ export function createApp(
   // (ENT-6, D2): draft -> proposed on the first call, the list revised in
   // place while proposed. Emptiness, trimming and the proposer enum are the
   // domain's rules; only the body shape is checked here.
+  //
+  // P1: the proposal may also carry a price beside the criteria (scope item
+  // 2) -- priceUsd, rail, and an optional deliveryWindowDays. All three are
+  // optional as a group: a body naming none of them leaves whatever price
+  // is already stored untouched (proposeCriteria's own stance). A body
+  // naming priceUsd or rail must name both, since one without the other is
+  // not an offer either party could accept. When a price is proposed, it is
+  // refused before it ever reaches the domain if it falls below the
+  // agent's optional floor (MAP.md, scope item 5), naming the floor.
   app.post(
     '/jobs/:jobId/criteria',
     didSignature,
     forwarded(async (req: Request, res: Response) => {
-      const body = (req.body ?? {}) as { criteria?: unknown };
+      const body = (req.body ?? {}) as {
+        criteria?: unknown;
+        priceUsd?: unknown;
+        rail?: unknown;
+        deliveryWindowDays?: unknown;
+      };
       const input = body.criteria;
       // The element guard is a conjunction of five conditions: typeof
       // object, non-null, non-array, string text, string proposedBy. Each
@@ -1825,10 +1881,86 @@ export function createApp(
         });
         return;
       }
-      await runPartyExchange('POST /jobs/:jobId/criteria', String(req.params.jobId), req, res, (job) =>
+
+      const { priceUsd, rail, deliveryWindowDays } = body;
+      const priceNamed = priceUsd !== undefined || rail !== undefined;
+      if (priceNamed) {
+        if (
+          typeof priceUsd !== 'string' ||
+          (rail !== 'abt' && rail !== 'usdc') ||
+          (deliveryWindowDays !== undefined &&
+            (typeof deliveryWindowDays !== 'number' || !Number.isInteger(deliveryWindowDays) || deliveryWindowDays <= 0))
+        ) {
+          res.status(400).json({
+            error:
+              'a proposed price must be { priceUsd, rail, deliveryWindowDays? }; priceUsd a decimal string, rail "abt" or "usdc", deliveryWindowDays (if present) a positive integer',
+          });
+          return;
+        }
+      }
+
+      // One load, shared by the floor check and the exchange below (the
+      // comment on loadForExchange/runPartyExchange documents why a second
+      // jobRepo.findById here would be an untested behaviour change): the
+      // caller-identity gate runs first, exactly as runPartyExchange runs
+      // it for every other exchange route, so a request that fails
+      // signature verification never touches agentRepo either.
+      const current = await loadForExchange('POST /jobs/:jobId/criteria', String(req.params.jobId), res);
+      if (current === null) return;
+
+      const signerDid = signerDidOf(req);
+      if (signerDid === null) {
+        res.status(401).json({
+          error: 'this route requires a verified request signature (R-34); sign the request naming this job\'s buyer or agent DID',
+        });
+        return;
+      }
+      const signedParty = partyForDid(current, signerDid);
+      if (signedParty === null) {
+        res.status(403).json({ error: 'signature does not name a party to this job' });
+        return;
+      }
+
+      let priceProposal: PriceProposal | undefined;
+      if (priceNamed) {
+        // Well-formed by the guard above; re-narrow so the domain call
+        // below is typed without a cast.
+        const rawRail = rail as 'abt' | 'usdc';
+        const rawWindow = deliveryWindowDays as number | undefined;
+        // MAP.md, scope item 5: refused at propose time, before the
+        // domain ever sees it, naming the floor. Only fires when the job's
+        // agent has one set; a missing agent row (should be unreachable --
+        // POST /jobs already required one to exist) is treated as no floor
+        // rather than a second 404 surface this route does not otherwise have.
+        let floorPriceUsd: string | null = null;
+        try {
+          const agentRow = await agentRepo.findByDid(current.agentDid);
+          floorPriceUsd = agentRow?.floorPriceUsd ?? null;
+        } catch (err) {
+          console.error('POST /jobs/:jobId/criteria: storage failed', err);
+          res.status(503).json({ error: 'storage unavailable' });
+          return;
+        }
+        try {
+          assertPriceAboveFloor(priceUsd as string, floorPriceUsd);
+        } catch (err) {
+          if (err instanceof JobError) {
+            res.status(400).json({ error: err.message });
+            return;
+          }
+          throw err;
+        }
+        priceProposal =
+          rawWindow === undefined
+            ? { priceUsd: priceUsd as string, rail: rawRail }
+            : { priceUsd: priceUsd as string, rail: rawRail, deliveryWindowDays: rawWindow };
+      }
+
+      await applyAndPersist('POST /jobs/:jobId/criteria', res, current, (job) =>
         proposeCriteria(
           job,
           input as ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>,
+          priceProposal,
         ),
       );
     }),
@@ -1868,6 +2000,25 @@ export function createApp(
         req,
         res,
         (job, party) => acceptCriterion(job, Number(req.params.index), party),
+      );
+    }),
+  );
+
+  // P1: accepting the price is a line in the agreement like any criterion
+  // (scope item 2) -- the same party-aware shape as criteria/:index/accept,
+  // one route, no index because there is exactly one price line per job.
+  // acceptPrice itself refuses (400, via JobError) when no price has been
+  // proposed yet, mirroring the out-of-range-index refusal above.
+  app.post(
+    '/jobs/:jobId/price/accept',
+    didSignature,
+    forwarded(async (req: Request, res: Response) => {
+      await runPartyExchange(
+        'POST /jobs/:jobId/price/accept',
+        String(req.params.jobId),
+        req,
+        res,
+        (job, party) => acceptPrice(job, party),
       );
     }),
   );

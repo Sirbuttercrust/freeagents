@@ -17,6 +17,7 @@ import { createCredentialsAdapter } from '../../../src/adapters/credentials/cred
 import type { WorkHistoryClaim } from '../../../src/adapters/credentials/types.js';
 import {
   acceptCriterion,
+  acceptPrice,
   completeJob,
   confirmSpec,
   createJob,
@@ -141,9 +142,10 @@ describe('work-history credential, invariant 2 (R-14)', () => {
     job = proposeCriteria(job, [
       { text: 'The report includes the Q4 numbers', proposedBy: 'agent' },
       { text: 'Delivered as markdown in docs/', proposedBy: 'agent' },
-    ]);
+    ], { priceUsd: '500.00', rail: 'abt' });
     job = acceptCriterion(acceptCriterion(job, 0, 'buyer'), 0, 'agent');
     job = acceptCriterion(acceptCriterion(job, 1, 'buyer'), 1, 'agent');
+    job = acceptPrice(acceptPrice(job, 'buyer'), 'agent');
     job = confirmSpec(job, now);
     job = submitPullRequest(job, pullRequestUrl, now);
     const completed = completeJob(job, {

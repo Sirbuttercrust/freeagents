@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   acceptCriterion,
+  acceptPrice,
   completeJob,
   confirmSpec,
   createJob,
@@ -31,6 +32,13 @@ function proposedJob(overrides: Partial<Job> = {}): Job {
     confirmedSpecHash: null,
     status: 'proposed',
     criteria: [],
+    priceUsd: null,
+    rail: null,
+    priceAcceptedByBuyer: false,
+    priceAcceptedByAgent: false,
+    depositPercent: 25,
+    redoAllowance: 1,
+    deliveryWindowDays: null,
     pullRequestUrl: null,
     mergeCommit: null,
     mergedAt: null,
@@ -47,7 +55,9 @@ const proposal = (): Array<{ text: string; proposedBy: string }> => [
   { text: 'Checkout e2e test passes', proposedBy: 'agent' },
 ];
 
-// A proposal every party has accepted - what confirmSpec requires (ENT-6.2).
+// A proposal every party has accepted - what confirmSpec requires (ENT-6.2),
+// now including an agreed price (P1): the price is one number in dollars
+// whatever token settles it, and confirm refuses without it too.
 function acceptedProposalJob(overrides: Partial<Job> = {}): Job {
   return proposedJob({
     status: 'proposed',
@@ -55,6 +65,10 @@ function acceptedProposalJob(overrides: Partial<Job> = {}): Job {
       { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true },
       { text: 'Checkout e2e test passes', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: true },
     ],
+    priceUsd: '500.00',
+    rail: 'abt',
+    priceAcceptedByBuyer: true,
+    priceAcceptedByAgent: true,
     ...overrides,
   });
 }
@@ -353,10 +367,12 @@ describe('createJob', () => {
     // proposeCriteria (R-8) and confirmSpec each return a new job object;
     // none of them touches the brief, which is the buyer's verbatim record.
     // Both parties must accept before confirm (ENT-6.2), so both accept
-    // calls run against every index.
-    let proposed = proposeCriteria({ ...job, status: 'draft' }, proposal());
+    // calls run against every index. P1: confirm also needs an agreed
+    // price, so this walk proposes and accepts one too.
+    let proposed = proposeCriteria({ ...job, status: 'draft' }, proposal(), { priceUsd: '500.00', rail: 'abt' });
     proposed = acceptCriterion(acceptCriterion(proposed, 0, 'buyer'), 0, 'agent');
     proposed = acceptCriterion(acceptCriterion(proposed, 1, 'buyer'), 1, 'agent');
+    proposed = acceptPrice(acceptPrice(proposed, 'buyer'), 'agent');
     expect(proposed.brief).toBe(job.brief);
     const confirmed = confirmSpec(proposed, now);
     expect(confirmed.brief).toBe(job.brief);
@@ -517,9 +533,10 @@ describe('criteria exchange', () => {
   });
 
   it('rejects proposing on a confirmed job', () => {
-    let proposed = proposeCriteria(draft(), proposal());
+    let proposed = proposeCriteria(draft(), proposal(), { priceUsd: '500.00', rail: 'abt' });
     proposed = acceptCriterion(acceptCriterion(proposed, 0, 'buyer'), 0, 'agent');
     proposed = acceptCriterion(acceptCriterion(proposed, 1, 'buyer'), 1, 'agent');
+    proposed = acceptPrice(acceptPrice(proposed, 'buyer'), 'agent');
     const confirmed = confirmSpec(proposed, new Date());
     expect(() => proposeCriteria(confirmed, proposal())).toThrow(JobTransitionError);
     expect(() => requestChanges(confirmed)).toThrow(JobTransitionError);
@@ -596,6 +613,10 @@ describe('invariant 2: the brief hash is re-computable off-platform', () => {
         ...job,
         status: 'proposed',
         criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+        priceUsd: '500.00',
+        rail: 'abt',
+        priceAcceptedByBuyer: true,
+        priceAcceptedByAgent: true,
       },
       now,
     );
@@ -654,8 +675,16 @@ describe('confirmSpec (R-9)', () => {
     });
 
     // The documented serialization (A1), recomputed independently - this test
-    // does not call the hashing module:
-    const specText = job.criteria.map((criterion) => criterion.text).join('\n');
+    // does not call the hashing module. P1: the digest also carries the
+    // price line, in the fixed order confirmSpec documents.
+    const specText = [
+      ...job.criteria.map((criterion) => criterion.text),
+      `price:${job.priceUsd}`,
+      `rail:${job.rail}`,
+      `deposit:${job.depositPercent}`,
+      `redo:${job.redoAllowance}`,
+      `window:${job.deliveryWindowDays}`,
+    ].join('\n');
     let normalised = specText
       .replace(/\r\n/g, '\n')
       .replace(/\r/g, '\n')

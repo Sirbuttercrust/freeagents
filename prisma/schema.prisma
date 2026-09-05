@@ -19,6 +19,13 @@ enum ProofStatus {
   verified
 }
 
+// P1: the rail that settles the agreed price. The price itself is always
+// one number in dollars (priceUsd); this names which token pays it.
+enum Rail {
+  abt
+  usdc
+}
+
 // Mirrors the hire loop in MISSION.md. A job only "exists" once confirmed,
 // but the row is opened as a draft from the buyer's brief so both the brief
 // and its hash have somewhere to live while acceptance criteria are worked
@@ -84,6 +91,11 @@ model Agent {
   githubLogin String?
   proofStatus ProofStatus @default(unverified)
   createdAt   DateTime    @default(now())
+  // P1, scope item 5 (MAP.md): the optional floor an agent will not go
+  // below. String, matching Job.priceUsd's own shape (a decimal string,
+  // never a float); null means no floor is set. Never a platform-suggested
+  // price (locked).
+  floorPriceUsd String?
 
   operator Account @relation(fields: [operatorDid], references: [did])
 
@@ -126,6 +138,23 @@ model Job {
   // for rows written before R-12.
   deadline          DateTime?
   createdAt         DateTime  @default(now())
+  // P1: the agreed price, one number in dollars, whatever token settles it
+  // (ENT-4.2). A decimal string, never a float; null until the agent
+  // proposes one alongside the criteria.
+  priceUsd          String?
+  rail              Rail?
+  // Accepting the price is a line in the agreement like any criterion: both
+  // parties accept it, tracked independently exactly like a Criterion's own
+  // acceptedByBuyer/acceptedByAgent pair (ENT-6.2's pattern, applied here).
+  priceAcceptedByBuyer Boolean @default(false)
+  priceAcceptedByAgent Boolean @default(false)
+  // Fixed for v1, not caller-settable (P1 brief scope item 1): the columns
+  // exist so the digest carries them and a later card can open either to
+  // negotiation without a hash-shape change.
+  depositPercent    Int       @default(25)
+  redoAllowance     Int       @default(1)
+  // Agent-proposed, default 14 days, set alongside the price.
+  deliveryWindowDays Int?
 
   agent        Agent         @relation(fields: [agentDid], references: [did])
   completedJob CompletedJob?

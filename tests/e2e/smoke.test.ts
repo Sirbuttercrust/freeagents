@@ -1122,6 +1122,8 @@ describe('the API starts and answers', () => {
             { text: 'The login bug is fixed\r\non staging', proposedBy: 'agent' },
             { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
           ],
+          priceUsd: '500.00',
+          rail: 'abt',
         }, agentIdentity)
       ).status,
     ).toBe(200);
@@ -1129,6 +1131,8 @@ describe('the API starts and answers', () => {
     expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
 
     // 5. Confirm: status flips, specHash appears, confirmedAt rides beside it.
     const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity);
@@ -1138,7 +1142,8 @@ describe('the API starts and answers', () => {
     expect(String(confirmedBody.specHash)).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(typeof confirmedBody.confirmedAt).toBe('string');
 
-    // 6. Read back: base eight + criteria + specHash + confirmedAt, no more.
+    // 6. Read back: base eight + criteria + specHash + confirmedAt + price,
+    // no more.
     const read = await get(`/jobs/${jobId}`);
     expect(read.status).toBe(200);
     const readBack = (await read.json()) as Record<string, unknown>;
@@ -1151,17 +1156,31 @@ describe('the API starts and answers', () => {
       'createdAt',
       'criteria',
       'id',
+      'price',
       'repository',
       'specHash',
       'status',
     ]);
 
     // 7. A stranger recomputes specHash from this response alone: criteria
-    // texts '\n'-joined, documented normalisation written out here, sha256
-    // with node:crypto. No call to the service, no import of its hashing.
-    const joined = (readBack.criteria as Array<{ text: string }>)
-      .map((criterion) => criterion.text)
-      .join('\n');
+    // texts and the price line '\n'-joined, documented normalisation written
+    // out here, sha256 with node:crypto. No call to the service, no import
+    // of its hashing.
+    const readBackPrice = readBack.price as {
+      priceUsd: string;
+      rail: string;
+      depositPercent: number;
+      redoAllowance: number;
+      deliveryWindowDays: number | null;
+    };
+    const joined = [
+      ...(readBack.criteria as Array<{ text: string }>).map((criterion) => criterion.text),
+      `price:${readBackPrice.priceUsd}`,
+      `rail:${readBackPrice.rail}`,
+      `deposit:${readBackPrice.depositPercent}`,
+      `redo:${readBackPrice.redoAllowance}`,
+      `window:${readBackPrice.deliveryWindowDays}`,
+    ].join('\n');
     let normalised = joined
       .replace(/\r\n/g, '\n')
       .replace(/\r/g, '\n')
@@ -1226,6 +1245,8 @@ describe('the API starts and answers', () => {
             { text: 'The login bug is fixed', proposedBy: 'agent' },
             { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
           ],
+          priceUsd: '500.00',
+          rail: 'abt',
         }, agentIdentity)
       ).status,
     ).toBe(200);
@@ -1233,6 +1254,8 @@ describe('the API starts and answers', () => {
     expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
 
     // 6. Fork and open the PR: the job lands on submitted with the URL and
@@ -1299,6 +1322,8 @@ describe('the API starts and answers', () => {
             { text: 'The login bug is fixed', proposedBy: 'agent' },
             { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
           ],
+          priceUsd: '500.00',
+          rail: 'abt',
         }, agentIdentity)
       ).status,
     ).toBe(200);
@@ -1306,6 +1331,8 @@ describe('the API starts and answers', () => {
     expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
     const pr = await post(`/jobs/${jobId}/pull-request`);
     expect(pr.status).toBe(200);
@@ -1332,6 +1359,7 @@ describe('the API starts and answers', () => {
       'id',
       'mergeCommit',
       'mergedAt',
+      'price',
       'pullRequestUrl',
       'repository',
       'specHash',
@@ -1503,7 +1531,7 @@ describe('the API starts and answers', () => {
     // 5. Propose and accept one criterion, signed.
     const proposed = await postSigned(
       `/jobs/${jobId}/criteria`,
-      { criteria: [{ text: 'Login works on staging', proposedBy: 'agent' }] },
+      { criteria: [{ text: 'Login works on staging', proposedBy: 'agent' }], priceUsd: '500.00', rail: 'abt' },
       buyerIdentity,
     );
     expect(proposed.status).toBe(200);
@@ -1514,6 +1542,8 @@ describe('the API starts and answers', () => {
     const agentIdentity = await signingIdentityFromSeed(hexToBytes(agentWallet.secretKey).slice(0, 32));
     const acceptedByAgent = await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity);
     expect(acceptedByAgent.status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
 
     // 7. Confirm, signed: the issue's acceptance line.
     const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity);
@@ -1536,6 +1566,7 @@ describe('the API starts and answers', () => {
       'createdAt',
       'criteria',
       'id',
+      'price',
       'repository',
       'specHash',
       'status',

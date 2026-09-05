@@ -20,6 +20,13 @@ function proposedJob(overrides: Partial<Job> = {}): Job {
     confirmedSpecHash: null,
     status: 'proposed',
     criteria: [],
+    priceUsd: null,
+    rail: null,
+    priceAcceptedByBuyer: false,
+    priceAcceptedByAgent: false,
+    depositPercent: 25,
+    redoAllowance: 1,
+    deliveryWindowDays: null,
     pullRequestUrl: null,
     mergeCommit: null,
     mergedAt: null,
@@ -110,6 +117,10 @@ describe('job transition validation', () => {
     const confirmed = confirmSpec(
       proposedJob({
         criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+        priceUsd: '500.00',
+        rail: 'abt',
+        priceAcceptedByBuyer: true,
+        priceAcceptedByAgent: true,
       }),
       now,
     );

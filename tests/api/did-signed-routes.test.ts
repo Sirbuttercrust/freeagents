@@ -136,7 +136,7 @@ describe('DID-signed hire-loop routes (R-34)', () => {
     const draftBody = (await draft.json()) as Record<string, unknown>;
     const jobId = String(draftBody.id);
 
-    const proposed = await postSigned(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'Login works', proposedBy: 'agent' }] }, buyer);
+    const proposed = await postSigned(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'Login works', proposedBy: 'agent' }], priceUsd: '500.00', rail: 'abt' }, buyer);
     expect(proposed.status).toBe(200);
 
     // Two-party consent (ENT-6.2): confirm needs both parties' acceptance,
@@ -145,6 +145,8 @@ describe('DID-signed hire-loop routes (R-34)', () => {
     expect(acceptedByBuyer.status).toBe(200);
     const acceptedByAgent = await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agent);
     expect(acceptedByAgent.status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, buyer)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agent)).status).toBe(200);
 
     const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, buyer);
     expect(confirmed.status).toBe(200);

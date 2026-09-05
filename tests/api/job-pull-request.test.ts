@@ -196,13 +196,20 @@ async function startWith(
 }
 
 // One job walked draft -> confirmed over HTTP, returning the confirm body so
-// the specHash a stranger sees can be compared byte for byte.
+// the specHash a stranger sees can be compared byte for byte. P1: confirm
+// now also needs an agreed price, so the price rides the same proposal
+// call and both parties accept it alongside the criteria.
 async function walkToConfirm(jobId: string, base: string = baseUrl): Promise<Record<string, unknown>> {
-  expect((await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal }, agent, base)).status).toBe(200);
+  expect(
+    (await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal, priceUsd: '500.00', rail: 'abt' }, agent, base))
+      .status,
+  ).toBe(200);
   expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyer, base)).status).toBe(200);
   expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agent, base)).status).toBe(200);
   expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyer, base)).status).toBe(200);
   expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agent, base)).status).toBe(200);
+  expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, buyer, base)).status).toBe(200);
+  expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agent, base)).status).toBe(200);
   const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, buyer, base);
   expect(confirmed.status).toBe(200);
   return (await confirmed.json()) as Record<string, unknown>;
@@ -257,7 +264,8 @@ describe('job pull-request (R-10)', () => {
     expect(prBody.pullRequestUrl).toBe(`https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/1`);
     expect(typeof prBody.submittedAt).toBe('string');
     // A submitted job projects the confirmed eleven plus pullRequestUrl,
-    // submittedAt and deadline (R-10, R-12), and nothing else.
+    // submittedAt and deadline (R-10, R-12), plus the price line (P1) once
+    // one exists, and nothing else.
     expect(Object.keys(prBody).sort()).toEqual([
       'agentDid',
       'brief',
@@ -268,6 +276,7 @@ describe('job pull-request (R-10)', () => {
       'criteria',
       'deadline',
       'id',
+      'price',
       'pullRequestUrl',
       'repository',
       'specHash',
@@ -370,11 +379,13 @@ describe('job pull-request, faulted legs (R-10)', () => {
       );
       expect(created.status).toBe(201);
       const jobId = String(((await created.json()) as Record<string, unknown>).id);
-      expect((await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal }, agent, scripted.baseUrl)).status).toBe(200);
+      expect((await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal, priceUsd: '500.00', rail: 'abt' }, agent, scripted.baseUrl)).status).toBe(200);
       expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyer, scripted.baseUrl)).status).toBe(200);
       expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agent, scripted.baseUrl)).status).toBe(200);
       expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyer, scripted.baseUrl)).status).toBe(200);
       expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agent, scripted.baseUrl)).status).toBe(200);
+      expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, buyer, scripted.baseUrl)).status).toBe(200);
+      expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agent, scripted.baseUrl)).status).toBe(200);
       expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyer, scripted.baseUrl)).status).toBe(200);
 
       const pr = await post(`/jobs/${jobId}/pull-request`, {}, scripted.baseUrl);
