@@ -2,7 +2,7 @@
 // generate a real ed25519 keypair and did:abt DID the same way
 // tests/e2e/smoke.test.ts and tests/api/agent-invariant2.test.ts already do,
 // then sign a real RFC 9421 message over it -- no fabricated constants.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { sign } from 'node:crypto';
 import {
   verify,
@@ -250,9 +250,19 @@ describe('DID-signed requests (RFC 9421)', () => {
     const targetUri = 'http://127.0.0.1:41234/jobs';
     const headers = signRequest(identity, 'POST', targetUri, { components: ['@method', '@target-uri'] });
 
-    const result = await verify({ method: 'POST', targetUri, headers }, resolver);
-
-    expect(result).toEqual({ did: identity.did });
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const result = await verify({ method: 'POST', targetUri, headers }, resolver);
+      expect(result).toEqual({ did: identity.did });
+      // The swallowed failure leaves a trace an operator can find
+      // (t_84d1a099): the verdict is unchanged and the cause is logged.
+      expect(errorLog).toHaveBeenCalledWith(
+        'http-signature: onVerified durable write failed after a verified signature',
+        expect.objectContaining({ message: 'durable store unavailable' }),
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   it('still records into the in-process KnownKeyStore when the durable write throws (D4)', async () => {
