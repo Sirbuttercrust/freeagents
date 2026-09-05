@@ -61,6 +61,9 @@ export interface AgentInput {
   readonly name: string;
   readonly skills: readonly string[];
   readonly githubLogin: string | null;
+  // P1, scope item 5: optional, decimal string, never caller-suggested by
+  // the platform. Omitted (or explicitly null) means no floor.
+  readonly floorPriceUsd?: string | null;
 }
 
 // One rotation record, in the shape the API accepts (R-30). Carries only

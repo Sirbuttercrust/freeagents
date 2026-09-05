@@ -93,6 +93,13 @@ const jobFixture = {
   confirmedSpecHash: null,
   status: 'draft',
   criteria: [] as Array<{ text: string; proposedBy: 'agent' | 'buyer'; acceptedByBuyer: boolean; acceptedByAgent: boolean }>,
+  priceUsd: null,
+  rail: null,
+  priceAcceptedByBuyer: false,
+  priceAcceptedByAgent: false,
+  depositPercent: 25,
+  redoAllowance: 1,
+  deliveryWindowDays: null,
   pullRequestUrl: null,
   mergeCommit: null,
   mergedAt: null,
@@ -315,6 +322,7 @@ describe('PrismaAgentRepository', () => {
         name: 'scout',
         skills: ['triage'],
         githubLogin: null,
+        floorPriceUsd: null,
       },
     });
     expect(row).toEqual({
@@ -327,6 +335,7 @@ describe('PrismaAgentRepository', () => {
       proofStatus: 'unverified',
       createdAt,
       keyRotations: [],
+      floorPriceUsd: null,
     });
   });
 
@@ -416,6 +425,7 @@ describe('PrismaAgentRepository', () => {
       proofStatus: 'verified',
       createdAt,
       keyRotations: [],
+      floorPriceUsd: null,
     });
   });
 
@@ -500,7 +510,7 @@ describe('PrismaAgentRepository', () => {
       where: { did: 'did:abt:agent-1' },
       data: { githubLogin: 'scout-agent', proofStatus: 'pending' },
     });
-    expect(row).toEqual({ ...updatedRow, keyRotations: [] });
+    expect(row).toEqual({ ...updatedRow, keyRotations: [], floorPriceUsd: null });
   });
 
   it('updateGithubBinding: a P2025 not-found comes back as null, not an error', async () => {
@@ -685,6 +695,13 @@ describe('PrismaJobRepository', () => {
         'status',
         'submittedAt',
         'deadline',
+        'priceUsd',
+        'rail',
+        'priceAcceptedByBuyer',
+        'priceAcceptedByAgent',
+        'depositPercent',
+        'redoAllowance',
+        'deliveryWindowDays',
       ].sort(),
     );
   });
@@ -748,6 +765,13 @@ describe('PrismaJobRepository', () => {
         submittedAt: updated.submittedAt,
         deadline: updated.deadline,
         createdAt: updated.createdAt,
+        priceUsd: updated.priceUsd,
+        rail: updated.rail,
+        priceAcceptedByBuyer: updated.priceAcceptedByBuyer,
+        priceAcceptedByAgent: updated.priceAcceptedByAgent,
+        depositPercent: updated.depositPercent,
+        redoAllowance: updated.redoAllowance,
+        deliveryWindowDays: updated.deliveryWindowDays,
       },
     });
     expect(row).toEqual(updated);
@@ -950,6 +974,13 @@ describe('PrismaJobRepository', () => {
         submittedAt: completedFixture.submittedAt,
         deadline: completedFixture.deadline,
         createdAt: completedFixture.createdAt,
+        priceUsd: completedFixture.priceUsd,
+        rail: completedFixture.rail,
+        priceAcceptedByBuyer: completedFixture.priceAcceptedByBuyer,
+        priceAcceptedByAgent: completedFixture.priceAcceptedByAgent,
+        depositPercent: completedFixture.depositPercent,
+        redoAllowance: completedFixture.redoAllowance,
+        deliveryWindowDays: completedFixture.deliveryWindowDays,
       },
     });
     expect(row).toEqual(completedFixture);

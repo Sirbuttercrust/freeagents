@@ -272,13 +272,19 @@ async function openDraft(
 
 // One job walked draft -> submitted over HTTP: propose, accept both, confirm,
 // open the pull request. Returns the submitted body so the merge tests can
-// compare against it.
+// compare against it. P1: confirm needs an agreed price too, so the price
+// rides the proposal and both parties accept it alongside the criteria.
 async function walkToSubmitted(jobId: string, base: string = baseUrl): Promise<Record<string, unknown>> {
-  expect((await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal }, agentIdentity, base)).status).toBe(200);
+  expect(
+    (await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal, priceUsd: '500.00', rail: 'abt' }, agentIdentity, base))
+      .status,
+  ).toBe(200);
   expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyerIdentity, base)).status).toBe(200);
   expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity, base)).status).toBe(200);
   expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity, base)).status).toBe(200);
   expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity, base)).status).toBe(200);
+  expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, buyerIdentity, base)).status).toBe(200);
+  expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agentIdentity, base)).status).toBe(200);
   expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity, base)).status).toBe(200);
   const pr = await post(`/jobs/${jobId}/pull-request`, {}, base);
   expect(pr.status).toBe(200);
@@ -340,7 +346,7 @@ describe('job merge (R-11)', () => {
     // The values came from github, not this service's clock.
     expect(mergedBody.mergeCommit).toBe(MERGE_SHA);
     expect(mergedBody.mergedAt).toBe(MERGED_AT.toISOString());
-    expect(Object.keys(mergedBody).sort()).toEqual(COMPLETED_WITH_CREDENTIAL_KEYS);
+    expect(Object.keys(mergedBody).sort()).toEqual([...COMPLETED_WITH_CREDENTIAL_KEYS, 'price'].sort());
 
     // R-36: the merge issued a work-history credential, riding the response
     // as a sibling of the job projection.
@@ -718,7 +724,7 @@ describe('job merge, faulted legs (R-11)', () => {
       const body = (await merge.json()) as Record<string, unknown>;
       expect(body.id).toBe(jobId);
       expect(body.status).toBe('closed_unmerged');
-      expect(Object.keys(body).sort()).toEqual(SUBMITTED_KEYS);
+      expect(Object.keys(body).sort()).toEqual([...SUBMITTED_KEYS, 'price'].sort());
       expect(body.mergeCommit).toBeUndefined();
       expect(body.mergedAt).toBeUndefined();
       expect(typeof body.deadline).toBe('string');

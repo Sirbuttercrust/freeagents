@@ -50,6 +50,12 @@ export interface Agent {
   // ENT-8.4: append-only rotation history, the record that keeps a
   // credential signed by a superseded key verifiable.
   readonly keyRotations: readonly KeyRotation[];
+  // P1, scope item 5 (MAP.md): the optional floor an agent will not go
+  // below. Decimal string like priceUsd, never a float, and never a
+  // platform-suggested price (locked: no blended numbers, no leaderboard) --
+  // this is the agent's own stated minimum, nothing more. Null when the
+  // agent has not set one, which places no floor on a proposal at all.
+  readonly floorPriceUsd: string | null;
 }
 
 // The structural half of "the delegation proof verifies" (R-2 accept). The
