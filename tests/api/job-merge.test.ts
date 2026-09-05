@@ -216,6 +216,7 @@ async function startWith(
     identity?: IdentityAdapter;
     credentials?: CredentialsAdapter;
     credentialRepo?: CredentialRepository;
+    extraAccounts?: readonly { did: string; githubLogin: string }[];
   } = {},
 ): Promise<{ server: Server; baseUrl: string; credentialRepo: CredentialRepository; authHeader: Record<string, string> }> {
   const agentRepo = new MemoryAgentRepository();
@@ -232,6 +233,7 @@ async function startWith(
     extras.credentials ?? createCredentialsAdapter({ did: ISSUER_DID, seed: ISSUER_SEED }, credentialRepo);
   const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: BUYER_DID, githubLogin: 'buyer-merge-scripted' });
+  for (const extra of extras.extraAccounts ?? []) await operatorRepo.register(extra);
   const sessionAdapter = testSessionAdapter();
   const s = createApp(
     operatorRepo,
@@ -1084,5 +1086,54 @@ describe('job merge, outcomes (R-12)', () => {
     } finally {
       await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
     }
+  });
+});
+
+describe('job merge, who may (B8, 2026-09-01)', () => {
+  // Proof's D2 on t_66170f30: the merge guard was live but pinned by no
+  // test, so reinstating the pre-B8 unauthenticated route passed the whole
+  // suite. This block exists to make that mutation fail. Same shape as the
+  // B6 and B7 blocks: unsigned 401, stranger 403, zero GitHub calls on the
+  // refused legs, then both parties 200.
+  const jobRepo = new MemoryJobRepository();
+  const recorded = emptyRecordings();
+  let stranger: SigningIdentity;
+
+  beforeAll(async () => {
+    stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(93));
+    // Registered, so the signature resolves and the refusal is the party
+    // check (403), not an unknown key (401).
+    ({ server, baseUrl, authHeader } = await startWith(jobRepo, mergedGithub(recorded), {
+      extraAccounts: [{ did: stranger.did, githubLogin: 'stranger-merge' }],
+    }));
+  });
+
+  afterAll(() => {
+    server.close();
+  });
+
+  it('refuses an unsigned merge with 401 and a stranger with 403, firing github zero times', async () => {
+    const jobId = await openDraft('Fix the login bug on the checkout page');
+    await walkToSubmitted(jobId);
+    const before = recorded.getPullRequest.length;
+    const unsigned = await fetch(`${baseUrl}/jobs/${jobId}/merge`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(unsigned.status).toBe(401);
+    expect((await postSigned(`/jobs/${jobId}/merge`, {}, stranger)).status).toBe(403);
+    expect(recorded.getPullRequest.length).toBe(before);
+    const job = (await (await get(`/jobs/${jobId}`)).json()) as { status: string };
+    expect(job.status).toBe('submitted');
+  });
+
+  it('lets the buyer merge, and on a second job the agent', async () => {
+    const buyerJob = await openDraft('Fix the login bug on the checkout page');
+    await walkToSubmitted(buyerJob);
+    expect((await postSigned(`/jobs/${buyerJob}/merge`, {}, buyerIdentity)).status).toBe(200);
+    const agentJob = await openDraft('Fix the login bug on the checkout page');
+    await walkToSubmitted(agentJob);
+    expect((await postSigned(`/jobs/${agentJob}/merge`, {}, agentIdentity)).status).toBe(200);
   });
 });
