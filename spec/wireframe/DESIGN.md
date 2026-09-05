@@ -191,14 +191,29 @@ anywhere in the product and none may be added.
 Every text and background pair meets **WCAG 2.2 AA**: 4.5:1 for body text,
 3:1 for text at 18px+ and for the boundary of an interactive control.
 
-`--fg-3` on `--bg` is the tightest pair in the system and it is deliberately
-at the edge. It is permitted for portfolio claim text and for nothing that a
-user must read to act. **If a measurement says it fails, the fix is to lift
-the token, never to leave it.**
+`--fg-3` on `--bg` measures **3.72:1**, and on `--bg-2` **3.41:1**. Both fail
+AA at 12 and 13px. It follows that on the flow screens `--fg-3` paints no
+characters at all: it is for the dashed unsigned ring, hairlines, hover
+borders, and placeholder text. The rule is one line and admits no exemption:
 
-Measured with a real browser, not eyeballed. Anything reporting `lab()` or
-`oklch()` must be converted before comparison; parsing those as RGB is a known
-way to get a confident wrong answer.
+> **If it renders characters, it meets AA.**
+
+That flat rule replaced a list of things allowed to stay quiet, and the
+history is worth keeping because the list read as principled while it was
+wrong. It exempted row numbers, the `edit` control and the two column headers
+as "structure", on the grounds that they are two to four characters long. But
+`edit` is the only control that reopens a signed line of a paid agreement, the
+column headers name whose signature each column carries, and a row number is
+how a person says which line they want changed. Short text you have to read is
+still text you have to read, and length is not a category of meaning.
+
+Measured with a real browser, not eyeballed, and by an instrument that does
+not guess at the background: `verify_ink.py` makes every glyph transparent,
+photographs the page, and reads the pixel where the characters sit. Sampling
+"near" text instead reads glyph antialiasing, a button's own fill, or an
+uncomposited alpha, and produces confident wrong numbers in both directions.
+Anything reporting `lab()` or `oklch()` must be converted before comparison;
+parsing those as RGB is another known way to get a confident wrong answer.
 
 ---
 
@@ -538,22 +553,39 @@ these has a good-sounding argument behind it:
 
 ## 10. Checking a screen
 
-Runnable, in this directory. A screen is not done until these pass.
+Runnable, in this directory, from a clone. A screen is not done until these
+pass.
+
+**Everything needed is committed here.** No environment variables, no pip
+install, no npm, no file outside this directory. Standard library python3 and
+any Chrome or Chromium, which is found automatically or named with
+`CHROME_BIN`. That is deliberate: an earlier round of these gates imported a
+browser driver that lived on one machine, so every green result they printed
+was unreproducible by anybody else, and a real contrast defect shipped behind
+one. A gate a reviewer cannot run is a claim, not a check.
 
 ```bash
-# every gate, one table, exit 0 only if all of them pass
-WEBGRAB_DIR=<dir holding webgrab.py> python3 verify_all.py http://<host>:<port>
+# 1. serve this directory (threading, no-cache, exposes a build fingerprint)
+python3 devserver.py 3111 &
+curl -s http://127.0.0.1:3111/healthz     # says which tree is being served
 
-# and prove the flow gate can FAIL, on the bugs it was written for.
-# Run separately: it edits files and takes several minutes.
-WEBGRAB_DIR=<dir holding webgrab.py> python3 verify_flow_mutation.py http://<host>:<port>
+# 2. every gate, one table, exit 0 only if all of them pass
+python3 verify_all.py http://127.0.0.1:3111
+
+# 3. and prove the gates can FAIL, on the bugs they were written for.
+#    Run separately: these edit files and take several minutes.
+python3 verify_flow_mutation.py   http://127.0.0.1:3111
+python3 verify_round2_mutation.py http://127.0.0.1:3111
 
 # house rule: zero em dashes
 grep -o $'\u2014' *.html *.css *.js *.md | wc -l
 ```
 
-`verify_all.py` runs the nine below. Each can also be run alone, and each
-takes the base url except the three that need no browser.
+Exit codes: `0` pass, `1` a real failure, `3` no browser on this machine,
+which is neither. The suite never folds a missing browser into a pass.
+
+`verify_all.py` runs the ten below. Each can also be run alone, and each takes
+the base url except the two that need no browser.
 
 | gate | what it covers |
 |---|---|
@@ -561,15 +593,28 @@ takes the base url except the three that need no browser.
 | `verify_links.py` | every local link resolves, every live page reachable |
 | `verify_sitemap.py` | SITEMAP build claims match the directory, and no page is served without a page id |
 | `verify_tokens.py` | WCAG ratios computed by hand, no browser, no server |
-| `verify_contrast.py` | real rendered pixels behind text on all eight flow screens |
+| `verify_ink.py` | every rendered character against AA at both viewports, with ink composited over the pixel measured behind it |
+| `verify_names.py` | no two controls a person can reach at the same time answer to the same accessible name |
 | `verify_money.py` | every dollar figure on every screen derives from one model of the deal |
 | `verify_rail.py` | the headline total, the fee and the pay button follow the chosen rail, including inside the scan sheet |
 | `verify_pickers.py` | every picker row traces to a real agreement line with matching text, and every omitted line is explained on screen |
 | `verify_primary.py` | no surface ever shows two accent-filled primaries at once |
 
+Supporting files, also committed: `wirebrowse.py` (the driver, standard
+library only) and `devserver.py` (the preview server).
+
+`verify_contrast.py` is **superseded** and exits 2 with an explanation. It
+sampled the pixel behind a text run, which cannot read a filled button or a
+translucent surface, so its findings had to be filtered by hand and the filter
+became a place for real defects to hide. `verify_ink.py` replaces it by making
+every glyph transparent and photographing the page, so the background is
+measured rather than guessed.
+
 **Keep this table and `verify_all.py` in step.** A gate missing from the
 runner does not get run, and a gate listed here that is not in the runner is a
-claim of coverage that nothing backs.
+claim of coverage that nothing backs. This is checked, not merely asked for:
+`verify_all.py` compares this table against its own list and fails on any
+disagreement in either direction.
 
 `measure_density.py` and `calibrate_density.py` are referenced by section 4.1
 and **do not exist on this branch**. They were written on
