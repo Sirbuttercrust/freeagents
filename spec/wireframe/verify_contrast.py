@@ -1,50 +1,49 @@
 #!/usr/bin/env python3
-"""Contrast across every flow screen, with the sampler's known artifact
-separated from real findings.
+"""SUPERSEDED by verify_ink.py. Kept as a signpost, not as a gate.
 
-The artifact: contrast_check.py samples the pixel behind a text run. On a
-filled control it reads the PAGE behind the button rather than the button's own
-fill, so accent-filled primary buttons report about 1.01 when the real ink-on-
-fill ratio is 5.79. Detected here by recognising --accent-fg, which is used as
-ink on an accent fill and nowhere else.
+This gate shelled out to a pixel sampler that lives outside this repository,
+which is why review could not run it, and which is how a real contrast defect
+shipped behind a green result. Two failures, one cause.
+
+WHAT IT USED TO DO, AND WHY THAT WAS NOT ENOUGH
+
+It sampled the pixel behind a text run and compared it with the text colour.
+That instrument cannot see:
+
+  * a filled button, where the pixel behind the label is the page rather than
+    the button's own fill. Reported 1.01 on healthy buttons, and every one of
+    those had to be disproved by hand.
+  * a translucent surface, where the background needs compositing before it
+    means anything. Reported 1.31 on a rail row that is genuinely fine.
+  * text painted over a gradient, since one sample cannot find the worst
+    point.
+
+Because the noise had to be filtered by recognising known-good token values,
+the filter also decided what counted as a finding, and an exemption written
+into the stylesheet decided the rest. Between them, 45 real AA failures were
+allowed through, including the `edit` control and the two party headers on
+the agreement.
+
+WHAT REPLACED IT
+
+verify_ink.py makes every glyph transparent, photographs the page, and reads
+the pixel where the characters actually sit. That pixel IS the background,
+whatever produced it: a fill, a gradient, an ancestor's alpha. Then it
+composites the ink over the measured colour with its real alpha and samples
+five points per run, keeping the worst.
+
+There is nothing left for the instrument to guess, so there are no artifacts
+to disprove and no exemption list to argue about. It also needs nothing
+outside this repository: standard library, plus wirebrowse.py beside it.
+
+Run that instead:
+
+    python3 devserver.py 3111 &
+    python3 verify_ink.py http://127.0.0.1:3111
 """
-import os
-import subprocess
+
 import sys
 
-SCREENS = ["hire.html", "agreement.html", "deposit.html", "staged.html",
-           "pullrequest.html", "outcomes.html", "operatorjob.html", "conduct.html"]
-BASE = "http://127.0.0.1:3111"
-BIN = os.environ.get("WEBGRAB_DIR", ".")
-
-# --accent-fg #0A0A16. Ink on an accent fill, used nowhere else in the system.
-ARTIFACT_FG = "(10, 10, 22)"
-
-real, artifacts = [], []
-for s in SCREENS:
-    r = subprocess.run([sys.executable, os.path.join(BIN, "contrast_check.py"),
-                        f"{BASE}/{s}", "2"],
-                       capture_output=True, text=True)
-    for line in r.stdout.splitlines():
-        # "FAILURES: 3" is the tool's own summary line, not a finding. Matching
-        # on startswith("FAIL") swallowed it and inflated every count by one
-        # per screen, which made a clean run look like eight failures.
-        if not line.startswith("FAIL "):
-            continue
-        if ARTIFACT_FG in line:
-            artifacts.append((s, line.strip()))
-        else:
-            real.append((s, line.strip()))
-    head = [l for l in r.stdout.splitlines() if l.startswith("sampled")]
-    print(f"{s:<20} {head[0] if head else '?'}")
-
-print(f"\n{'=' * 70}")
-print(f"ARTIFACTS (button ink sampled against the page, not its own fill): {len(artifacts)}")
-for s, line in artifacts:
-    print(f"  {s}: {line[:96]}")
-
-print(f"\nREAL FAILURES: {len(real)}")
-for s, line in real:
-    print(f"  {s}: {line[:96]}")
-
-sys.exit(1 if real else 0)
+print(__doc__)
+print("verify_contrast.py is superseded. Run verify_ink.py.")
+sys.exit(2)

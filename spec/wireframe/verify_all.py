@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
 """Run every gate in this directory and report one table.
 
-Exists so a reviewer runs ONE command instead of nine, and so the list of what
+Exists so a reviewer runs ONE command instead of ten, and so the list of what
 is covered cannot drift from the list of what actually runs. A gate that is
 not in this file does not get run, and a gate in this file that has rotted
 fails here.
 
-    WEBGRAB_DIR=<dir with webgrab.py> python3 verify_all.py [base-url]
+    python3 devserver.py 3111 &
+    python3 verify_all.py [base-url]
 
-Exit 0 only if every gate exits 0. The mutation test is NOT run here: it takes
-several minutes and deliberately edits files, so it is run on its own.
+NO ENVIRONMENT SETUP. Round 2 of review found that most gates imported a
+browser driver that was not in the repo, which made every green result here
+unreproducible by anybody else. The driver (wirebrowse.py) and the preview
+server (devserver.py) are now committed beside the gates and use the standard
+library only, so a clone plus python3 plus any Chrome is the whole toolchain.
+
+Exit 0 only if every gate exits 0.
+Exit 3 if no browser could be found, which is not a pass and not a failure.
+The mutation tests are NOT run here: they take several minutes and
+deliberately edit files, so they are run on their own.
 """
 
 import os
@@ -31,8 +40,10 @@ GATES = [
      "SITEMAP build claims match the directory, no page served without an id"),
     ("verify_tokens.py", False,
      "WCAG ratios computed by hand, no browser"),
-    ("verify_contrast.py", False,
-     "real rendered pixels behind text on all eight screens"),
+    ("verify_ink.py", True,
+     "every rendered character against AA, ink composited over the pixel measured behind it"),
+    ("verify_names.py", True,
+     "no two controls reachable at once answer to the same name"),
     ("verify_money.py", True,
      "every dollar figure derives from one model of the deal"),
     ("verify_rail.py", True,
@@ -44,9 +55,6 @@ GATES = [
 ]
 
 env = dict(os.environ)
-if not env.get("WEBGRAB_DIR"):
-    print("Set WEBGRAB_DIR to the directory holding webgrab.py")
-    sys.exit(2)
 
 results = []
 for name, takes_url, covers in GATES:
@@ -58,6 +66,12 @@ for name, takes_url, covers in GATES:
     t0 = time.time()
     p = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=HERE)
     dt = time.time() - t0
+    # Exit 3 is "no browser on this machine". Reported as its own state, never
+    # folded into pass or fail, so an unrunnable suite cannot read as green.
+    if p.returncode == 3:
+        print("NO BROWSER. %s could not start Chrome:" % name)
+        print(p.stdout.strip()[:600])
+        sys.exit(3)
     tail = [l for l in p.stdout.splitlines() if l.startswith(("PASS", "FAIL", "REAL FAILURES"))]
     results.append((name, p.returncode, dt, tail[-1][:52] if tail else "(no verdict line)", covers))
 
@@ -83,10 +97,21 @@ bad = [r for r in results if r[1] != 0]
 design = os.path.join(HERE, "DESIGN.md")
 if os.path.exists(design):
     text = open(design, encoding="utf-8").read()
-    listed = set(re.findall(r"`(verify_[a-z_]+\.py)`", text))
-    # The mutation test is deliberately outside verify_all.py.
+    listed = set(re.findall(r"`(verify_[a-z_0-9]+\.py)`", text))
+    # The mutation tests are deliberately outside verify_all.py.
     listed.discard("verify_flow_mutation.py")
+    listed.discard("verify_round2_mutation.py")
     listed.discard("verify_all.py")
+    # A gate the doc explicitly declares SUPERSEDED is not a coverage claim,
+    # so it is allowed to be named without being run. Only that exact word
+    # licenses the omission: mentioning a retired gate in passing still
+    # fails, because a reader scanning this section for what is checked
+    # cannot tell the difference between a gate that runs and one that used
+    # to. The superseded file itself exits 2 rather than 0, so it cannot be
+    # mistaken for a pass by anything that runs it directly either.
+    superseded = set(re.findall(
+        r"`(verify_[a-z_0-9]+\.py)` is \*\*superseded\*\*", text))
+    listed -= superseded
     ours = {name for name, _, _ in GATES}
     only_doc = sorted(listed - ours)
     only_run = sorted(ours - listed)
@@ -109,5 +134,6 @@ print()
 print("NOT COVERED HERE, and judged by a person:  whether the copy is")
 print("comprehensible to a first-time buyer, whether the attestation reads as")
 print("neutral rather than as a verdict, and whether the two seven day clocks")
-print("are distinguishable. Run verify_flow_mutation.py separately: it edits")
-print("files and takes several minutes.")
+print("are distinguishable. Run verify_flow_mutation.py and")
+print("verify_round2_mutation.py separately: they edit files and take")
+print("several minutes.")
