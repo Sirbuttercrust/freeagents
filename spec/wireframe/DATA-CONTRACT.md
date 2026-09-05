@@ -433,6 +433,59 @@ there is exactly one, and the select still renders in that case rather than
 collapsing to text: two layouts is two things to build, and a person with a
 second repository tomorrow would meet a control they had never seen.
 
+### 8.10 Which tier every number on these screens comes from
+
+Section 1 sorts evidence by **who could forge it**, and the payment screens
+introduce numbers that section 1 predates. Placing each one is not
+bookkeeping: the tier decides how it renders, and the accent is reserved for
+the top tier, so a number placed one row too high spends the signal the
+product sells.
+
+| number, as a buyer sees it | tier | forgeable by | so it renders as |
+|---|---|---|---|
+| the verified hire count beside a name | Verified hire | nobody, without real buyers merging real code | **accent**, the only DATA on these screens that gets it |
+| every attestation row (files, lines, paths, tests, signed commits) | machine fact, platform-signed | nobody, without breaking the platform key | plain foreground, every row at one weight |
+| price, delivery, deposit, balance, fee, total | agreed term | either party, but only by editing a line and re-signing it | plain foreground, and the signature marks say who agreed |
+| the rail, the fee rate, the approval count | venue constant | nobody, it is not per-hire data | plain foreground, stated for both rails at once |
+| `txid`, `confirmedAt` | chain observation | nobody | plain foreground, links out to the chain |
+| every conduct count | outcome tally | nobody, each is a count of recorded outcomes | plain foreground, never accent, never summed |
+| the cited sentence on a close or a redo | the buyer's own words | the buyer, and it is attributed to them | plain foreground, attributed, never endorsed |
+
+**Nothing on these screens is a Portfolio claim**, which is why no dim-grey
+unverifiable text appears in the flow. That tier exists for an operator's
+description of their own past work, and the hire flow contains none: every
+figure here is either agreed by both parties, observed from a chain, or
+computed from a commit.
+
+**The accent appears in exactly three roles, measured across all eight screens
+with every dialog open.** One is data and two are controls, and keeping them
+distinct is what stops the colour becoming decoration:
+
+| role | example | why it is allowed |
+|---|---|---|
+| the verified hire count | `12 verified hires` | DESIGN.md 2.2, witnessed work |
+| the single primary action | `Pay the balance, $927.00` | one per SURFACE, ink is `--accent-fg` on an accent fill |
+| the selected rail row | the chosen ABT or USDC card | selection state on a control the buyer just set |
+
+**One primary per surface, not per document.** `staged.html` paints three, and
+that is the rule holding rather than breaking: one on the page, and one inside
+each dialog, which is a separate surface with its own single commitment
+(`Send it back`, `Decline, and end this hire`). A person never sees two accent
+fills competing, because opening a sheet covers the page behind it. Counting
+`btn-primary` in the source and calling three a violation would be reading the
+file instead of the screen.
+
+`conduct.html` carries **no accent at all**, which is the load-bearing case: it
+is eight counts and nothing on it is witnessed completed work, so a screen full
+of numbers stays entirely plain.
+
+**Two things deliberately do NOT get the accent even though the system can
+prove them.** A per-line signature mark and the stage rail's current step are
+both facts, and both are refused, because the accent means witnessed completed
+work and nothing else. Progress through a form is not that. Both refusals are
+asserted by the flow gate, and the mutation test confirms the assertion fires
+when an accent is applied to a signature mark.
+
 ---
 
 ## 9. Gaps added by the payment flow
