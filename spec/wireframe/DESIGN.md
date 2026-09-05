@@ -541,17 +541,35 @@ these has a good-sounding argument behind it:
 Runnable, in this directory. A screen is not done until these pass.
 
 ```bash
-# the flow screens: 320px overflow closed AND with every dialog open, tap
-# targets on a real touch profile, dead controls, accent discipline,
-# reduced-motion end state, em dashes
-WEBGRAB_DIR=<dir holding webgrab.py> python3 verify_flow.py http://<host>:<port>
+# every gate, one table, exit 0 only if all of them pass
+WEBGRAB_DIR=<dir holding webgrab.py> python3 verify_all.py http://<host>:<port>
 
-# and prove that gate can fail, on the bugs it was written for
+# and prove the flow gate can FAIL, on the bugs it was written for.
+# Run separately: it edits files and takes several minutes.
 WEBGRAB_DIR=<dir holding webgrab.py> python3 verify_flow_mutation.py http://<host>:<port>
 
 # house rule: zero em dashes
 grep -o $'\u2014' *.html *.css *.js *.md | wc -l
 ```
+
+`verify_all.py` runs the nine below. Each can also be run alone, and each
+takes the base url except the three that need no browser.
+
+| gate | what it covers |
+|---|---|
+| `verify_flow.py` | 320px overflow closed AND with every dialog open, rows overlapping, tap targets on a real touch profile, dead controls, accent discipline, reduced-motion end state, em dashes |
+| `verify_links.py` | every local link resolves, every live page reachable |
+| `verify_sitemap.py` | SITEMAP build claims match the directory, and no page is served without a page id |
+| `verify_tokens.py` | WCAG ratios computed by hand, no browser, no server |
+| `verify_contrast.py` | real rendered pixels behind text on all eight flow screens |
+| `verify_money.py` | every dollar figure on every screen derives from one model of the deal |
+| `verify_rail.py` | the headline total, the fee and the pay button follow the chosen rail, including inside the scan sheet |
+| `verify_pickers.py` | every picker row traces to a real agreement line with matching text, and every omitted line is explained on screen |
+| `verify_primary.py` | no surface ever shows two accent-filled primaries at once |
+
+**Keep this table and `verify_all.py` in step.** A gate missing from the
+runner does not get run, and a gate listed here that is not in the runner is a
+claim of coverage that nothing backs.
 
 `measure_density.py` and `calibrate_density.py` are referenced by section 4.1
 and **do not exist on this branch**. They were written on
