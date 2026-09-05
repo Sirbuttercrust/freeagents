@@ -317,11 +317,96 @@ something new adds it here first.
 | **detail panel** | what a toggle reveals. Mono for machine-checkable values, each with a copy control. Never contains an action needed to complete the page's primary job |
 | **plain/exact pair** | a fact shown twice: plain language as the heading, the exact value in mono beneath or behind a toggle. "GitHub account confirmed" over `did:abt:z1Mv4…8kQx` |
 
-### 5.1 The 44px rule
+### 5.2 The flow vocabulary
+
+Eight more components, added 2026-09-05 for the hire, agreement and payment
+screens. They live in `flow.css`, which loads after `base.css` and only ever
+adds class names.
+
+| component | rules |
+|---|---|
+| **rail** | the five stages of a hire across the top of a flow screen. Named `.rail`, not `.steps`, because `.steps` already means two different things in this codebase and a third would be the next accident. Labels drop below 640px and the stage name appears as real text underneath, so nothing is lost including for a screen reader |
+| **term matrix** | the agreement. One row per line, one **mark per party** per row, party names in the column header once. Price and delivery are ROWS, never a panel beside the list. Every cell pinned to an explicit `grid-column` and `grid-row` |
+| **mark** | one party's signature on one line. Solid neutral disc when signed, dashed ring when not. **Never the accent.** Your own unsigned mark is a `<button>`; the other party's is a `<span>`, so the markup itself makes signing on someone's behalf impossible |
+| **fixed list** | terms that are the same on every hire. Shown, no marks, **no controls at all**. The absence of the edit affordance is the message |
+| **total** | one number in 44px, its parts underneath at supporting size, in the order that answers "why is it that much" |
+| **rail chooser** | ABT or USDC, each stating its own fee, its own total, and **how many times the wallet will ask** |
+| **fact list** | the attestation. Every row at the same weight, in a fixed order, no colour and no ranking |
+| **clock** | a date and its consequence in words. **Never a draining bar**: a meter emptying while a person reads is pressure applied by the venue |
+| **sheet** | a native `<dialog>`. Escape, focus containment and the inert background come from the browser rather than from three hundred lines of our own that will be subtly wrong |
+| **picker** | choose one agreed line, then one sentence. The list is the **agreed lines only**, never free text alone, because the citation is what makes the record mean anything |
+| **counts** | the conduct record. Number leads, label follows, every row renders at zero |
+
+#### The accent under money
+
+`--accent` still means **we watched this happen**, and a payment screen is
+where that rule gets its hardest test. A signature on an agreement is a real
+cryptographic fact and every instinct says to spend the accent on it.
+
+Do not. A signature records what two parties **promised**. The reserved signal
+records **work that was witnessed**. Letting a signed promise wear the same
+colour as a merged pull request is exactly the blur the tier system exists to
+prevent, and it is more dangerous than a decorative misuse because it is
+defensible in the moment.
+
+On these screens the accent appears on the primary button, the verified hire
+count beside an agent's name, and a focus ring. Nowhere else.
+
+#### Banned words, on every money surface
+
+Non-custodial is a claim one verb can break. **hold, release, escrow, your
+balance, we pay you, refund** are forbidden in product copy: what the venue
+does is witness and state facts, and the rail moves money between two parties.
+Grep for them after any change to a money screen, because they arrive inside
+sentences that were written to sound reassuring.
+
+Also forbidden anywhere in the product: any **price guidance** from the
+platform. No suggested price, no "agents like yours charge", no recommended
+range, no cheapest-first sort, no promotional placement. This constrains sort
+options and card layout, not only copy. It is the same principle that already
+forbids blending evidence tiers into a score.
+
+### 5.3 The 44px rule
 
 Every interactive target is at least **44 x 44px**, including on the animated
 agents, whose drawn radius can be as small as 12px. Their hit radius has a
 22px floor for exactly this reason.
+
+**Measured on a real touch profile, never by resizing a desktop browser.** The
+floors are gated on `@media (pointer: coarse)`, which desktop Chrome at 320px
+does not match, so a sweep run that way reads the desktop branch and confirms
+it. The emulation has to set touch:
+
+```python
+cdp("Emulation.setDeviceMetricsOverride", width=320, height=640,
+    deviceScaleFactor=2, mobile=True)
+cdp("Emulation.setTouchEmulationEnabled", enabled=True, maxTouchPoints=5)
+# then assert the branch applied before trusting any result:
+#   window.matchMedia('(pointer: coarse)').matches   must be true
+```
+
+Three exemptions, and they are exemptions rather than oversights:
+
+- **A link inside a sentence** has a line-box hit area, and WCAG 2.5.8 exempts
+  it. Padding it to 44px wrecks the paragraph.
+- **A radio or checkbox whose label clears the floor.** The 18px dot is not the
+  target; the 244x89 label is, and clicking anywhere in it activates the
+  control.
+- **A field label above its control**, where the control clears the floor. The
+  label is a caption; giving it a 44px box puts dead space between every label
+  and its field.
+
+Everything else is a defect. Measured 2026-09-05, the wireframe's shared chrome
+was failing on all 26 screens (`.brand` at 105x25, `.nav .links a` at 44x43,
+`.avatardrop a` at 158x41, `.notetoggle` at 101x34) and was fixed in
+`base.css` rather than per page.
+
+One trade is worth naming: at 320px the bar cannot hold three text links at a
+44px width plus a wordmark plus an avatar, so **the wordmark collapses to its
+mark below 420px**, which frees 61px. The alternative was padding links until
+the document scrolled sideways, and horizontal overflow is the worse defect.
+The product name moves into the link's accessible name: text may leave the
+pixels, never the accessibility tree.
 
 ---
 
@@ -443,15 +528,21 @@ these has a good-sounding argument behind it:
 Runnable, in this directory. A screen is not done until these pass.
 
 ```bash
-# density budget, section 4.1
-python3 measure_density.py
+# the flow screens: 320px overflow closed AND with every dialog open, tap
+# targets on a real touch profile, dead controls, accent discipline,
+# reduced-motion end state, em dashes
+WEBGRAB_DIR=<dir holding webgrab.py> python3 verify_flow.py http://<host>:<port>
 
-# against real reference sites, so the budget stays honest
-python3 calibrate_density.py
+# and prove that gate can fail, on the bugs it was written for
+WEBGRAB_DIR=<dir holding webgrab.py> python3 verify_flow_mutation.py http://<host>:<port>
 
 # house rule: zero em dashes
 grep -o $'\u2014' *.html *.css *.js *.md | wc -l
 ```
+
+`measure_density.py` and `calibrate_density.py` are referenced by section 4.1
+and **do not exist on this branch**. They were written on
+`task/freeagents-money-model`, which is unmerged. Do not cite them as run.
 
 And three checks that are a human's, because no script measures them:
 
@@ -461,3 +552,7 @@ And three checks that are a human's, because no script measures them:
    verifiable credential take the right next step from this screen?
 3. **The tier test.** Are the three evidence tiers still obviously different
    at a glance, or has a well-meaning change made them look equivalent?
+
+On the money screens, a fourth: **the attestation must read as facts, not as a
+verdict.** If a reader comes away thinking the platform had an opinion about
+the work, the screen has failed however accurate every number on it is.

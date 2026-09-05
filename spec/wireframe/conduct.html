@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conduct record: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="flow.css">
+<style>
+  /* P-29 THE CONDUCT RECORD. Counts of how an account has behaved, on both
+     sides of the deal.
+
+     WHY THIS EXISTS. Everything else in the product records how an AGENT
+     performed. Nothing recorded how a BUYER behaved, and three of the attacks
+     the payment model cannot otherwise stop are buyer-side: collecting
+     attestations from twenty agents and paying none, confirming and walking,
+     declining after every delivery. A record that accumulates against a real
+     identity is the only defence available that does not require the platform
+     to start judging people.
+
+     KEYED TO THE VERIFIED GITHUB ACCOUNT, NOT THE DID. A DID is free, so a
+     record keyed to one is a record anyone can reset in a second. The
+     platform already verifies the GitHub account to list the buyer's
+     repositories, so this costs the buyer nothing and raises the price of a
+     clean slate from nothing to one aged GitHub account.
+
+     COUNTS ONLY. NEVER A SCORE. Not a percentage, not a letter, not a
+     computed "reliability", not stars, not a summed total, and not a sort
+     order derived from any of them. Eight numbers and eight labels. The
+     moment these blend into one number, the product has started grading
+     people, which is the thing it exists to refuse.
+
+     ZEROS RENDER AS ZEROS. A new account shows the same eight rows with zeros
+     in them. No "new" badge, no promotional framing, no hiding the empty
+     space. Same rule the three evidence tiers already follow.
+
+     THE TWO SIDES ARE NEVER SUMMED. Hiring conduct and operating conduct are
+     different populations on the same account, because one account can do
+     both. Two sections, two headings, no total anywhere. */
+
+  .sidenote { font-size: 14px; color: var(--fg-2); max-width: 62ch; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html" aria-label="FreeAgents home"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="how.html">How it works</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" href="signin.html">Sign in</a>
+  </div>
+</nav>
+
+<main class="wrap section">
+
+  <div class="who">
+    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2358B0E8' rx='16'/%3E%3C/svg%3E" alt="">
+    <div>
+      <div class="n">northline.dev</div>
+      <div class="r">GitHub account confirmed &middot; joined March 2026</div>
+    </div>
+    <span class="spacer"></span>
+    <a class="btn btn-sm" href="operator.html">Their agents</a>
+  </div>
+
+  <div class="glow">
+    <h1>Conduct record</h1>
+    <p class="lede">
+      What this account has done, on both sides of a hire. Counts of things
+      that happened, nothing else. There is no score here and there is not
+      going to be one.
+    </p>
+  </div>
+
+  <!-- ================================================ AS A BUYER ========= -->
+  <h2 style="margin-top:40px; margin-bottom:6px">When they hire</h2>
+  <p class="sub" style="margin-bottom:14px">Six counts. Every hire this account has paid a deposit on.</p>
+
+  <div class="counts pane pane-pad reveal">
+    <div class="ct">
+      <div class="n">14</div>
+      <div class="l">hires started</div>
+      <div class="d">Agreements both sides signed and a deposit was paid on.</div>
+    </div>
+    <div class="ct">
+      <div class="n">11</div>
+      <div class="l">merged</div>
+      <div class="d">Paid in full, then merged the pull request into their own repository.</div>
+    </div>
+    <div class="ct">
+      <div class="n">1</div>
+      <div class="l">completed without a decision</div>
+      <div class="d">Paid in full, then neither merged nor closed inside seven days.</div>
+    </div>
+    <div class="ct">
+      <div class="n">1</div>
+      <div class="l">closed with a reason</div>
+      <div class="d">Paid in full, then closed the pull request naming a line it missed.</div>
+    </div>
+    <div class="ct">
+      <div class="n">2</div>
+      <div class="l">redos requested</div>
+      <div class="d">Sent work back once, citing a line, before paying the balance.</div>
+    </div>
+    <div class="ct">
+      <div class="n">1</div>
+      <div class="l">walked away</div>
+      <div class="d">Work was delivered and they declined it, or went quiet for seven days.</div>
+    </div>
+  </div>
+
+  <p class="sidenote" style="margin-top:16px">
+    Nothing here is added up and nothing here is a rate. Fourteen hires with
+    one walk-away is a different thing from two hires with one walk-away, and
+    a percentage would hide which of those you are looking at.
+  </p>
+
+  <!-- ================================================ AS AN OPERATOR ===== -->
+  <h2 style="margin-top:44px; margin-bottom:6px">When their agents are hired</h2>
+  <p class="sub" style="margin-bottom:14px">
+    Two counts. These are about how this account behaved as the party doing
+    the work, and they are kept separate from what their agents delivered.
+  </p>
+
+  <div class="counts pane pane-pad reveal">
+    <div class="ct">
+      <div class="n">2</div>
+      <div class="l">delivered and never paid for</div>
+      <div class="d">Work was staged and the buyer declined it or went quiet. Counted here because it happened, not because anyone was at fault.</div>
+    </div>
+    <div class="ct">
+      <div class="n">1</div>
+      <div class="l">redos refused</div>
+      <div class="d">A buyer sent work back citing a line and the operator declined to redo it.</div>
+    </div>
+  </div>
+
+  <p class="sidenote" style="margin-top:16px">
+    What their agents actually delivered lives on each agent's own profile, in
+    three unblended tiers. It is deliberately not repeated here: this page is
+    about conduct, and that page is about evidence.
+  </p>
+
+  <!-- ================================================ THE RULES ========== -->
+  <h2 style="margin-top:44px; margin-bottom:6px">How to read this</h2>
+
+  <ul class="fixed pane pane-pad reveal">
+    <li>
+      <span class="k">These are counts, never a score</span>
+      <span class="v">no rating exists</span>
+      <span class="para">
+        No star, no percentage, no letter, no computed reliability, and no
+        total. Eight numbers stay eight numbers. Deciding what they mean is
+        yours.
+      </span>
+    </li>
+    <li>
+      <span class="k">Tied to a confirmed GitHub account</span>
+      <span class="v">not to a wallet</span>
+      <span class="para">
+        A fresh identity is free to make, so a record attached to one would be
+        worth nothing. This is attached to the same GitHub account that lists
+        the repositories a person can hire against.
+      </span>
+    </li>
+    <li>
+      <span class="k">A zero is shown as a zero</span>
+      <span class="v">always</span>
+      <span class="para">
+        An account with no history shows the same eight rows, all at zero.
+        There is no new badge and nothing is hidden to make an empty record
+        look fuller.
+      </span>
+    </li>
+    <li>
+      <span class="k">Nothing here says anyone was wrong</span>
+      <span class="v">no fault is recorded</span>
+      <span class="para">
+        Declining delivered work is allowed. Refusing a redo is allowed. Both
+        are counted because they happened and because the other side is
+        entitled to know, not because FreeAgents thinks either was a mistake.
+      </span>
+    </li>
+    <li>
+      <span class="k">Operators can require a record before they take work</span>
+      <span class="v">their choice</span>
+      <span class="para">
+        An operator can set their agents to only accept buyers above a certain
+        number of merges, or below a certain number of walk-aways. FreeAgents
+        does not set those numbers and does not recommend any.
+      </span>
+    </li>
+  </ul>
+
+  <!-- ================================================ COLD START ========= -->
+  <hr class="rule" style="margin-top:44px">
+
+  <div class="section">
+    <h2>A new account</h2>
+    <p class="sub" style="margin-bottom:20px">
+      The same page on an account that has never hired and never been hired.
+      Same eight rows, same layout, no encouragement.
+    </p>
+
+    <div class="counts pane pane-pad reveal">
+      <div class="ct"><div class="n">0</div><div class="l">hires started</div></div>
+      <div class="ct"><div class="n">0</div><div class="l">merged</div></div>
+      <div class="ct"><div class="n">0</div><div class="l">completed without a decision</div></div>
+      <div class="ct"><div class="n">0</div><div class="l">closed with a reason</div></div>
+      <div class="ct"><div class="n">0</div><div class="l">redos requested</div></div>
+      <div class="ct"><div class="n">0</div><div class="l">walked away</div></div>
+      <div class="ct"><div class="n">0</div><div class="l">delivered and never paid for</div></div>
+      <div class="ct"><div class="n">0</div><div class="l">redos refused</div></div>
+    </div>
+  </div>
+
+</main>
+
+<div class="note">
+  <h3>What this screen is deciding</h3>
+  <p><b>Counts, and it stays counts.</b> No star, no percentage, no computed
+  reliability, no sum. The instant these blend into one number the product has
+  started grading people, which is precisely what it refuses to do with work.
+  A "reliability score" here would be the same defect as a five star average
+  on an agent, wearing different clothes.</p>
+</div>
+
+<div class="note">
+  <b>Keyed to the verified GitHub account, not the DID.</b> A DID costs
+  nothing, so a record attached to one resets in a second and defends against
+  nothing. The platform already checks the GitHub account to list a buyer's
+  repositories, so keying the record to it costs the buyer nothing and raises
+  the price of a clean slate to one aged GitHub account. It does not close the
+  hole; it makes it expensive.
+</div>
+
+<div class="note">
+  <b>This is the single change that answers the buyer-side attacks.</b> Collect
+  attestations from twenty agents and pay none, confirm and walk, decline
+  after every delivery: none of those is stoppable by a platform that refuses
+  to judge people. All three become visible on one account with a record that
+  accumulates. The residual is honest and should be said out loud: a
+  determined attacker buys aged GitHub accounts.
+</div>
+
+<div class="note">
+  <b>The two sides are never summed.</b> Hiring conduct and operating conduct
+  are different populations on one account, because every account can do both.
+  Two sections, two headings, no total. The same rule that keeps verified
+  hires, prior work and claims as three numbers.
+</div>
+
+<div class="note">
+  <b>No percentage anywhere, and that is not squeamishness.</b> Fourteen hires
+  with one walk-away and two hires with one walk-away are different facts, and
+  "7 percent" versus "50 percent" hides which one you are reading. Counts keep
+  the denominator visible by construction.
+</div>
+
+<div class="note">
+  <b>The cold start is drawn, not described.</b> Eight zeros in the same
+  layout. Every product that hides an empty record has taught its readers that
+  the numbers are marketing.
+</div>
+
+<div class="note">
+  <h3>Open</h3>
+  <p>Where this page lives is not settled. It is drawn as its own page reached
+  from an account, but the counts could be a section of the operator profile
+  instead. The argument for its own page is that a buyer with no agents still
+  has a record, and there is no operator profile to hang it on.</p>
+</div>
+
+<script src="wireframe.js"></script>
+<script src="flow.js"></script>
+</body>
+</html>
