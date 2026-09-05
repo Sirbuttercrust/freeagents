@@ -625,6 +625,26 @@ body:has(#rail-usdc:checked) .amt-usdc { display: inline; }
 .picker input { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
 .picker label:hover { color: var(--fg); }
 
+/* WHY A ROW CAN BE ABSENT FROM A PICKER.
+   The agreement has seven lines and neither picker offers all seven: the redo
+   picker drops row 06, and the close picker drops 06 and 07. Both omissions
+   are correct. Price is not something delivered work can miss, and by the
+   time a pull request is open the buyer has paid in full and the work has
+   arrived, so lateness is settled too.
+
+   Correct and unexplained is still a question, and this flow is gated on a
+   first-time buyer getting through without asking one. A person who signed
+   seven lines and counts six counts a bug. One sentence under the list is
+   cheaper than the doubt.
+
+   Deliberately NOT a note inside the list: it is not a choice, so it must not
+   sit among the choosable rows. --fg-2 rather than --fg-3, same as every
+   other explanatory line on these screens. */
+.pickernote {
+  font-size: 13px; color: var(--fg-2); line-height: 1.55;
+  margin: 12px 0 0; max-width: 62ch;
+}
+
 /* =============================================================== outcomes
    Five ways a hire ends. A card each, three labelled rows inside: what
    happened, what happened to the money, what is on whose record.
