@@ -376,6 +376,64 @@ describe('createGithubAdapter, forkAndOpenPullRequest (R-10, invariant 1: fork a
   });
 });
 
+describe('createGithubAdapter, FREEAGENTS_GITHUB_API_BASE override (B4)', () => {
+  it('honours the env override for every call the adapter makes', async () => {
+    const original = process.env.FREEAGENTS_GITHUB_API_BASE;
+    process.env.FREEAGENTS_GITHUB_API_BASE = 'https://github-double.internal.test';
+    try {
+      const { fetchImpl, calls } = scriptedFetch([
+        jsonResponse(200, { owner: { login: 'scout-agent' }, files: {} }),
+      ]);
+      const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
+
+      await adapter.getPublicGist({ id: 'abc123' });
+
+      expect(calls).toEqual([
+        { url: 'https://github-double.internal.test/gists/abc123', method: 'GET', body: undefined },
+      ]);
+    } finally {
+      if (original === undefined) delete process.env.FREEAGENTS_GITHUB_API_BASE;
+      else process.env.FREEAGENTS_GITHUB_API_BASE = original;
+    }
+  });
+
+  it('defaults to the real GitHub API when the env var is unset', async () => {
+    const original = process.env.FREEAGENTS_GITHUB_API_BASE;
+    delete process.env.FREEAGENTS_GITHUB_API_BASE;
+    try {
+      const { fetchImpl, calls } = scriptedFetch([
+        jsonResponse(200, { owner: { login: 'scout-agent' }, files: {} }),
+      ]);
+      const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
+
+      await adapter.getPublicGist({ id: 'abc123' });
+
+      expect(calls).toEqual([{ url: 'https://api.github.com/gists/abc123', method: 'GET', body: undefined }]);
+    } finally {
+      if (original === undefined) delete process.env.FREEAGENTS_GITHUB_API_BASE;
+      else process.env.FREEAGENTS_GITHUB_API_BASE = original;
+    }
+  });
+
+  it('an explicit empty-string env var also falls back to the real GitHub API (Blocklet Server materialises unset vars as \'\')', async () => {
+    const original = process.env.FREEAGENTS_GITHUB_API_BASE;
+    process.env.FREEAGENTS_GITHUB_API_BASE = '';
+    try {
+      const { fetchImpl, calls } = scriptedFetch([
+        jsonResponse(200, { owner: { login: 'scout-agent' }, files: {} }),
+      ]);
+      const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
+
+      await adapter.getPublicGist({ id: 'abc123' });
+
+      expect(calls).toEqual([{ url: 'https://api.github.com/gists/abc123', method: 'GET', body: undefined }]);
+    } finally {
+      if (original === undefined) delete process.env.FREEAGENTS_GITHUB_API_BASE;
+      else process.env.FREEAGENTS_GITHUB_API_BASE = original;
+    }
+  });
+});
+
 describe('createGithubAdapter, getMergeCommitSignature (unbuilt: nothing on main calls it yet)', () => {
   it('throws NotImplementedError, honest about the gap rather than a stub answer', () => {
     const { fetchImpl } = scriptedFetch([]);

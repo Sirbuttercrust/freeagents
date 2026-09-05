@@ -71,3 +71,8 @@ environments:
     required: false
     secure: true
     default: ''
+  - name: FREEAGENTS_GITHUB_API_BASE
+    description: Base URL the github adapter calls instead of https://api.github.com. Unset means the real GitHub API. Intended for pointing the adapter at a test double during rehearsal, never for production traffic.
+    required: false
+    secure: false
+    default: ''

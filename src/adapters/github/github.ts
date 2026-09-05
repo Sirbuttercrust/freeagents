@@ -10,7 +10,7 @@ import {
 } from './types.js';
 
 const CAPABILITY = 'github';
-const API_BASE = 'https://api.github.com';
+const DEFAULT_API_BASE = 'https://api.github.com';
 
 // This card builds three of the four methods for real; the fourth
 // (getMergeCommitSignature) has no caller on main yet, so it stays a named
@@ -38,6 +38,8 @@ export interface CreateGithubAdapterOptions {
   readonly token?: string;
   /** Injected for tests; defaults to the real fetch (no network in the test suite otherwise). */
   readonly fetchImpl?: typeof fetch;
+  /** Defaults to FREEAGENTS_GITHUB_API_BASE from the environment, or the real GitHub API. */
+  readonly apiBase?: string;
 }
 
 interface GitHubErrorBody {
@@ -46,11 +48,12 @@ interface GitHubErrorBody {
 
 async function githubRequest(
   fetchImpl: typeof fetch,
+  apiBase: string,
   token: string,
   path: string,
   init: { readonly method?: string; readonly body?: unknown } = {},
 ): Promise<Response> {
-  const response = await fetchImpl(`${API_BASE}${path}`, {
+  const response = await fetchImpl(`${apiBase}${path}`, {
     method: init.method ?? 'GET',
     headers: {
       accept: 'application/vnd.github+json',
@@ -116,6 +119,10 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
   // var, so an unconfigured deployment delivers '' rather than undefined.
   const token = options.token ?? (process.env.FREEAGENTS_GITHUB_TOKEN || '');
   const fetchImpl = options.fetchImpl ?? fetch;
+  // B4: this is what let the rehearsal run against a GitHub double only by
+  // patching dist, which must never be necessary again. Same `||` stance as
+  // every other env-derived default in this file.
+  const apiBase = options.apiBase ?? (process.env.FREEAGENTS_GITHUB_API_BASE || DEFAULT_API_BASE);
 
   // Fails closed BEFORE any network call: an absent or empty token cannot
   // authenticate, so every method rejects immediately rather than attempting
@@ -132,7 +139,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
   return {
     async getPullRequest(ref: PullRequestRef): Promise<PullRequestSummary> {
       const tok = requireToken();
-      const response = await githubRequest(fetchImpl, tok, `/repos/${ref.owner}/${ref.repo}/pulls/${String(ref.number)}`);
+      const response = await githubRequest(fetchImpl, apiBase, tok, `/repos/${ref.owner}/${ref.repo}/pulls/${String(ref.number)}`);
       await requireOk(response, 'getPullRequest');
       const raw = (await response.json()) as RawPullRequest;
       return {
@@ -160,7 +167,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
     // an unconfigured deployment should announce itself uniformly).
     async getPublicGist(ref: { readonly id: string }): Promise<Gist> {
       const tok = requireToken();
-      const response = await githubRequest(fetchImpl, tok, `/gists/${ref.id}`);
+      const response = await githubRequest(fetchImpl, apiBase, tok, `/gists/${ref.id}`);
       if (response.status === 404) {
         // R-5 (ENT-5.3): a deleted gist is not a platform outage, it is the
         // check's answer. The route maps this to the downgrade path.
@@ -195,7 +202,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
       // GitHub's own docs (a fork "happens asynchronously"), but the 202
       // response already names the fork's owner and default branch, which
       // is everything the next two steps need.
-      const forkResponse = await githubRequest(fetchImpl, tok, `/repos/${input.sourceOwner}/${input.sourceRepo}/forks`, {
+      const forkResponse = await githubRequest(fetchImpl, apiBase, tok, `/repos/${input.sourceOwner}/${input.sourceRepo}/forks`, {
         method: 'POST',
       });
       await requireOk(forkResponse, 'fork');
@@ -213,6 +220,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
       // on the fork this platform actually controls.
       const refResponse = await githubRequest(
         fetchImpl,
+        apiBase,
         tok,
         `/repos/${forkOwner}/${forkRepo}/git/ref/heads/${forkDefaultBranch}`,
       );
@@ -220,7 +228,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
       const forkRef = (await refResponse.json()) as { readonly object: { readonly sha: string } };
 
       // 3. Create the working branch on the fork.
-      const branchResponse = await githubRequest(fetchImpl, tok, `/repos/${forkOwner}/${forkRepo}/git/refs`, {
+      const branchResponse = await githubRequest(fetchImpl, apiBase, tok, `/repos/${forkOwner}/${forkRepo}/git/refs`, {
         method: 'POST',
         body: { ref: `refs/heads/${input.branch}`, sha: forkRef.object.sha },
       });
@@ -230,7 +238,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
       // base is the fork's default branch (the branch the fork was cut
       // from), targeting the SOURCE repository as GitHub's cross-repo PR
       // convention requires.
-      const prResponse = await githubRequest(fetchImpl, tok, `/repos/${input.sourceOwner}/${input.sourceRepo}/pulls`, {
+      const prResponse = await githubRequest(fetchImpl, apiBase, tok, `/repos/${input.sourceOwner}/${input.sourceRepo}/pulls`, {
         method: 'POST',
         body: {
           title: input.title,
