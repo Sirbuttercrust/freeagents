@@ -321,6 +321,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       // null, since the agent's own creation is itself a record change.
       lastHireCompletedAt: null,
       recordLastChangedAt: stored?.createdAt.toISOString(),
+      floorPriceUsd: stored?.floorPriceUsd ?? null,
     });
 
     // A stranger fetching from the public API can verify with no further

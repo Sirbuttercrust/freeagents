@@ -206,7 +206,7 @@ describe('job confirm (R-9)', () => {
     const draftBody = (await created.json()) as Record<string, unknown>;
     const jobId = String(draftBody.id);
 
-    expect((await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal }, agent)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal, priceUsd: '500.00', rail: 'abt' }, agent)).status).toBe(200);
 
     // Each accept flips exactly its own party's flag on its own criterion,
     // visible on the wire.
@@ -219,6 +219,8 @@ describe('job confirm (R-9)', () => {
     expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agent)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyer)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agent)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, buyer)).status).toBe(200);
+    expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agent)).status).toBe(200);
 
     const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, buyer);
     expect(confirmed.status).toBe(200);
@@ -227,8 +229,8 @@ describe('job confirm (R-9)', () => {
     expect(confirmedBody.status).toBe('confirmed');
     expect(String(confirmedBody.specHash)).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(typeof confirmedBody.confirmedAt).toBe('string');
-    // A confirmed job projects base eight + criteria + specHash + confirmedAt,
-    // and nothing else.
+    // A confirmed job projects base eight + criteria + specHash + confirmedAt
+    // + the agreed price (P1), and nothing else.
     expect(Object.keys(confirmedBody).sort()).toEqual([
       'agentDid',
       'brief',
@@ -238,6 +240,7 @@ describe('job confirm (R-9)', () => {
       'createdAt',
       'criteria',
       'id',
+      'price',
       'repository',
       'specHash',
       'status',
@@ -448,6 +451,8 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
               { text: 'The login bug is fixed', proposedBy: 'agent' },
               { text: 'Checkout e2e passes\r\non staging', proposedBy: 'buyer' },
             ],
+            priceUsd: '500.00',
+            rail: 'abt',
           },
           agentIdentity,
         )
@@ -457,6 +462,8 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
     await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agentIdentity);
     await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, operatorIdentity);
     await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity);
+    await postSigned(`/jobs/${jobId}/price/accept`, {}, operatorIdentity);
+    await postSigned(`/jobs/${jobId}/price/accept`, {}, agentIdentity);
 
     const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, operatorIdentity);
     expect(confirmed.status).toBe(200);
@@ -465,7 +472,21 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
     // Everything below holds only this response plus node:crypto - nothing
     // from src/, no import of the hashing module.
     const criteria = confirmedBody.criteria as Array<{ text: string }>;
-    const joined = criteria.map((criterion) => criterion.text).join('\n');
+    const price = confirmedBody.price as {
+      priceUsd: string;
+      rail: string;
+      depositPercent: number;
+      redoAllowance: number;
+      deliveryWindowDays: number | null;
+    };
+    const joined = [
+      ...criteria.map((criterion) => criterion.text),
+      `price:${price.priceUsd}`,
+      `rail:${price.rail}`,
+      `deposit:${price.depositPercent}`,
+      `redo:${price.redoAllowance}`,
+      `window:${price.deliveryWindowDays}`,
+    ].join('\n');
 
     // The documented serialization (A1), written out independently:
     // \n endings, trailing whitespace stripped per line, no final newline.
@@ -488,10 +509,24 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
     // If the recomputation above could not disagree with the service, it
     // would prove nothing. One changed word must move the digest.
     const criteria = confirmedBody.criteria as Array<{ text: string }>;
+    const price = confirmedBody.price as {
+      priceUsd: string;
+      rail: string;
+      depositPercent: number;
+      redoAllowance: number;
+      deliveryWindowDays: number | null;
+    };
     const tampered = criteria.map((criterion, i) =>
       i === 0 ? { ...criterion, text: criterion.text.replace('fixed', 'broken') } : criterion,
     );
-    const joined = tampered.map((criterion) => criterion.text).join('\n');
+    const joined = [
+      ...tampered.map((criterion) => criterion.text),
+      `price:${price.priceUsd}`,
+      `rail:${price.rail}`,
+      `deposit:${price.depositPercent}`,
+      `redo:${price.redoAllowance}`,
+      `window:${price.deliveryWindowDays}`,
+    ].join('\n');
     const normalise = (s: string): string =>
       s
         .replace(/\r\n/g, '\n')

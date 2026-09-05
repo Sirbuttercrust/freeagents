@@ -163,7 +163,7 @@ async function walkToMerge(
         { criteria: [
           { text: 'The checkout no longer times out', proposedBy: 'agent' },
           { text: 'Load test passes', proposedBy: 'buyer' },
-        ] },
+        ], priceUsd: '500.00', rail: 'abt' },
         agent,
       )
     ).status,
@@ -172,6 +172,8 @@ async function walkToMerge(
   expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agent)).status).toBe(200);
   expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyer)).status).toBe(200);
   expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agent)).status).toBe(200);
+  expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyer)).status).toBe(200);
+  expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agent)).status).toBe(200);
   expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyer)).status).toBe(200);
   expect((await post(baseUrl, `/jobs/${jobId}/pull-request`)).status).toBe(200);
 

@@ -54,6 +54,11 @@ export interface Criterion {
   readonly acceptedByAgent: boolean;
 }
 
+// The rail that settles the price: which token the agreed dollar figure
+// gets paid in. Fixed to two values for v1 (P1 brief); the price itself is
+// always one number in dollars, whatever token settles it.
+export type Rail = 'abt' | 'usdc';
+
 export interface Job {
   readonly id: string;
   readonly buyerDid: string;
@@ -67,6 +72,23 @@ export interface Job {
   // exchange starts; replaced wholesale on every re-propose while proposed;
   // immutable once confirmed (D2). Raw text only: hashing is confirm's job.
   readonly criteria: Criterion[];
+  // P1: the agreed price, one number in dollars, whatever token settles it.
+  // A decimal string with exactly two places, never a float (a JS number
+  // cannot hold a decimal amount exactly). Null until the agent proposes
+  // one alongside the criteria.
+  readonly priceUsd: string | null;
+  readonly rail: Rail | null;
+  // Accepting the price is a line in the agreement like any criterion: both
+  // parties accept it, tracked as an independent pair exactly like
+  // Criterion.acceptedByBuyer / acceptedByAgent (ENT-6.2's own pattern).
+  readonly priceAcceptedByBuyer: boolean;
+  readonly priceAcceptedByAgent: boolean;
+  // Fixed for v1, not caller-settable: the field exists so the digest
+  // carries it and a later card can open it (P1 brief, scope item 1).
+  readonly depositPercent: number;
+  readonly redoAllowance: number;
+  // Agent-proposed, default 14 days, set alongside the price.
+  readonly deliveryWindowDays: number | null;
   readonly confirmedSpecHash: string | null;
   readonly status: JobStatus;
   readonly pullRequestUrl: string | null;
@@ -94,12 +116,33 @@ export interface CompletedJob {
   readonly completedAt: Date;
 }
 
+// P1: fixed for v1, not caller-settable. The digest carries them so a
+// later card can open either to negotiation without a hash-shape change.
+export const DEPOSIT_PERCENT = 25;
+export const REDO_ALLOWANCE = 1;
+// P1: the agent's proposal may omit deliveryWindowDays; this is what it
+// defaults to.
+export const DEFAULT_DELIVERY_WINDOW_DAYS = 14;
+
 // User-facing: the input was the buyer's to fix, not a system failure.
 // The API layer (R-28) maps this to 400.
 export class JobError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'JobError';
+  }
+}
+
+// P1: confirm refuses because the price is not yet a fully agreed fact --
+// no price proposed, only one party accepted it, or no rail set. Distinct
+// from the plain JobError the criteria-outstanding gate throws (both are
+// "the agreement is not ready", but the route maps this one to 409 the
+// same state-conflict way a criteria gap is mapped, not to 400: nothing
+// the caller sent is malformed, the AGREEMENT itself is incomplete).
+export class JobPriceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'JobPriceError';
   }
 }
 
@@ -129,6 +172,13 @@ export function createJob(
     confirmedSpecHash: null,
     status: 'draft',
     criteria: [],
+    priceUsd: null,
+    rail: null,
+    priceAcceptedByBuyer: false,
+    priceAcceptedByAgent: false,
+    depositPercent: DEPOSIT_PERCENT,
+    redoAllowance: REDO_ALLOWANCE,
+    deliveryWindowDays: null,
     pullRequestUrl: null,
     mergeCommit: null,
     mergedAt: null,
@@ -210,13 +260,40 @@ export function confirmSpec(job: Job, now: Date): Job {
       `confirm needs every criterion accepted by both parties: ${outstanding} of ${job.criteria.length} outstanding`,
     );
   }
+  // P1 anchor: a hire cannot confirm without a price both parties signed.
+  // Checked after the criteria gate (mirroring CONFIRM_GATE_STATUS's own
+  // ordering: transition first, content gates after), so a caller sees the
+  // criteria problem before the price problem when both are outstanding --
+  // one failure at a time, the earlier one in the agreement first.
+  if (job.priceUsd === null || job.rail === null) {
+    throw new JobPriceError(
+      'confirm needs an agreed price: no price has been proposed for this job yet',
+    );
+  }
+  if (!job.priceAcceptedByBuyer || !job.priceAcceptedByAgent) {
+    throw new JobPriceError(
+      'confirm needs the price accepted by both parties before the agreement is final',
+    );
+  }
   // specHash pins WHAT WAS AGREED: the criteria texts in order, '\n'-joined,
   // through hashSpec's documented normalisation (\n endings, trailing
   // whitespace stripped per line, no trailing newline). Anyone holding the
   // criteria can recompute it with node:crypto alone - invariant 2. The
   // acceptance flags are uniformly true here and proposedBy stays visible in
   // plaintext, so neither belongs in the digest.
-  const specText = job.criteria.map((criterion) => criterion.text).join('\n');
+  //
+  // P1 extends the digest with the price line (ENT-4.2): after the criteria
+  // texts, newline-joined, in this fixed order -- price, rail, deposit,
+  // redo, window -- so a stranger recomputing the hash from the confirmed
+  // response's own fields needs no call to this service.
+  const specText = [
+    ...job.criteria.map((criterion) => criterion.text),
+    `price:${job.priceUsd}`,
+    `rail:${job.rail}`,
+    `deposit:${job.depositPercent}`,
+    `redo:${job.redoAllowance}`,
+    `window:${job.deliveryWindowDays}`,
+  ].join('\n');
   return { ...job, status: 'confirmed', confirmedSpecHash: hashSpec(specText), confirmedAt: now };
 }
 
@@ -310,9 +387,53 @@ export function decline(job: Job): Job {
 // issue asked to be decided. Each stored entry is consumed by at most one
 // match, so two lines with identical text cannot both inherit the same
 // acceptance history.
+// Validates a decimal-USD string: exactly two places after the point, no
+// sign, no thousands separator. Total: any string in, one boolean out.
+// Never a float in the domain (a JS number cannot hold a decimal amount
+// exactly), so this is the one place the shape is checked.
+function isDecimalUsd(value: string): boolean {
+  return /^\d+\.\d{2}$/.test(value);
+}
+
+export interface PriceProposal {
+  readonly priceUsd: string;
+  readonly rail: Rail;
+  readonly deliveryWindowDays?: number;
+}
+
+// The acceptance-criteria exchange R-8 owns (ENT-6, D2). The first propose
+// walks draft -> proposed, the edge the transition table already records;
+// every later one revises the list while staying in proposed.
+//
+// Re-propose is a DIFF against the stored list, not a wholesale replace
+// (design review, 2026-08-29: "editing one line resets only that line"). A new
+// entry is matched against the CURRENT criteria by exact trimmed text: an
+// unchanged line keeps whatever acceptedByBuyer/acceptedByAgent it already
+// carried, because nothing about it changed. A line whose text differs from
+// every current entry - whether it is a genuinely new criterion or an edit
+// of an existing one - has no honest way to tell those two cases apart from
+// the text alone, and BOTH cases mean the parties have not agreed on this
+// exact wording yet, so both start unaccepted by both parties. Removing a
+// criterion (striking it) is simply not carrying its text into the new
+// list; it disappears, and every other line's match (and therefore its
+// acceptance) is untouched, which is the "neighbouring acceptances" this
+// issue asked to be decided. Each stored entry is consumed by at most one
+// match, so two lines with identical text cannot both inherit the same
+// acceptance history.
+//
+// P1: the agent's proposal (POST /jobs/:jobId/criteria) may carry a price
+// beside the criteria (scope item 2). Accepting the price is a line in the
+// agreement like any criterion: proposing the SAME price+rail+window as is
+// already stored leaves both acceptances untouched (mirroring an unchanged
+// criterion's text keeping its acceptance history); proposing a DIFFERENT
+// one resets both to unaccepted (mirroring an edited criterion's text
+// resetting to unaccepted). Omitting the price argument entirely leaves
+// whatever price is already stored untouched, so a re-propose that only
+// touches criteria text does not disturb an already-agreed price.
 export function proposeCriteria(
   job: Job,
   input: ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>,
+  price?: PriceProposal,
 ): Job {
   if (input.length === 0) {
     throw new JobError('a proposal needs at least one acceptance criterion');
@@ -340,15 +461,47 @@ export function proposeCriteria(
       acceptedByAgent: existing?.acceptedByAgent ?? false,
     };
   });
+
+  let priceFields: Pick<
+    Job,
+    'priceUsd' | 'rail' | 'deliveryWindowDays' | 'priceAcceptedByBuyer' | 'priceAcceptedByAgent'
+  > = {
+    priceUsd: job.priceUsd,
+    rail: job.rail,
+    deliveryWindowDays: job.deliveryWindowDays,
+    priceAcceptedByBuyer: job.priceAcceptedByBuyer,
+    priceAcceptedByAgent: job.priceAcceptedByAgent,
+  };
+  if (price !== undefined) {
+    if (typeof price.priceUsd !== 'string' || !isDecimalUsd(price.priceUsd)) {
+      throw new JobError('priceUsd must be a decimal string with exactly two places, e.g. "500.00"');
+    }
+    if (price.rail !== 'abt' && price.rail !== 'usdc') {
+      throw new JobError('rail must be "abt" or "usdc"');
+    }
+    const deliveryWindowDays = price.deliveryWindowDays ?? DEFAULT_DELIVERY_WINDOW_DAYS;
+    const unchanged =
+      job.priceUsd === price.priceUsd &&
+      job.rail === price.rail &&
+      job.deliveryWindowDays === deliveryWindowDays;
+    priceFields = {
+      priceUsd: price.priceUsd,
+      rail: price.rail,
+      deliveryWindowDays,
+      priceAcceptedByBuyer: unchanged ? job.priceAcceptedByBuyer : false,
+      priceAcceptedByAgent: unchanged ? job.priceAcceptedByAgent : false,
+    };
+  }
+
   if (job.status === 'draft') {
     validateJobTransition(job.status, 'proposed');
-    return { ...job, status: 'proposed', criteria };
+    return { ...job, ...priceFields, status: 'proposed', criteria };
   }
   if (job.status === 'proposed') {
     // proposed -> proposed is not a legal transition, and looping must not
     // invent one: a re-propose revises the list in place, same status,
     // same job. Only the first propose crosses the validator.
-    return { ...job, criteria };
+    return { ...job, ...priceFields, criteria };
   }
   throw new JobTransitionError(job.status, 'propose criteria for');
 }
@@ -392,4 +545,34 @@ export function acceptCriterion(job: Job, index: number, party: Party): Job {
         : { ...criterion, acceptedByAgent: true };
     }),
   };
+}
+
+// P1: one party accepts the price line, the same shape as acceptCriterion
+// (ENT-6.2's pattern applied to price): idempotent per party, independent
+// of the other party's flag. Refuses when no price has been proposed yet --
+// there is nothing to accept -- the same way acceptCriterion refuses an
+// out-of-range index.
+export function acceptPrice(job: Job, party: Party): Job {
+  if (job.status !== 'proposed') {
+    throw new JobTransitionError(job.status, 'accept the price on');
+  }
+  if (job.priceUsd === null || job.rail === null) {
+    throw new JobError('no price has been proposed for this job yet');
+  }
+  return party === 'buyer'
+    ? { ...job, priceAcceptedByBuyer: true }
+    : { ...job, priceAcceptedByAgent: true };
+}
+
+// P1, scope item 5: the optional agent floor (MAP.md). A proposal below it
+// is refused at propose time, naming the floor. Total in the sense that
+// invokes need not catch anything unexpected: a null floor never throws (no
+// floor set), and a price at or above the floor never throws. Compares as
+// decimal strings converted once, never as floats retained beyond the
+// comparison, so the domain still never stores a price as a number.
+export function assertPriceAboveFloor(priceUsd: string, floorPriceUsd: string | null): void {
+  if (floorPriceUsd === null) return;
+  if (Number(priceUsd) < Number(floorPriceUsd)) {
+    throw new JobError(`proposed price ${priceUsd} is below the agent's floor of ${floorPriceUsd}`);
+  }
 }

@@ -115,7 +115,12 @@ A unit of hired work. The centre of the model.
 | `repo` | string | `owner/name` on GitHub |
 | `brief` | text | the buyer's prose, stored |
 | `criteria` | Criterion[] | ENT-6, agreed acceptance criteria |
-| `specHash` | sha256 | hash of the confirmed criteria |
+| `priceUsd` | string? | decimal-USD string, two places, never a float; null until proposed (P1) |
+| `rail` | `abt` \| `usdc`? | the token that settles the price; null until proposed (P1) |
+| `depositPercent` | number | fixed at 25 for v1, not caller-settable (P1) |
+| `redoAllowance` | number | fixed at 1 for v1, not caller-settable (P1) |
+| `deliveryWindowDays` | number? | agent-proposed, defaults to 14 (P1) |
+| `specHash` | sha256 | hash of the confirmed criteria and price, ENT-4.2 |
 | `state` | JobState | see below |
 | `pullRequest` | string? | set when the agent opens one |
 | `outcome` | Outcome? | ENT-7, set when it closes |
@@ -135,7 +140,18 @@ draft -> awaiting_criteria -> criteria_offered -> confirmed
 - **ENT-4.1** A job does not exist until the buyer confirms the criteria. Before
   that it is a draft with no record and no obligation on either side.
 - **ENT-4.2** `specHash` is computed at confirm and is immutable. If the
-  criteria need to change, that is a new job.
+  criteria need to change, that is a new job. Confirm refuses unless both
+  parties have also agreed a price (P1): a hire cannot confirm without a
+  price both parties signed, and the price is one number in dollars whatever
+  token settles it. The digest covers, in this order, newline-joined: the
+  criteria texts, then `price:<priceUsd>`, `rail:<rail>`,
+  `deposit:<depositPercent>`, `redo:<redoAllowance>`,
+  `window:<deliveryWindowDays>`. `depositPercent` and `redoAllowance` are
+  fixed v1 constants (25 and 1) rather than caller-settable, but ride the
+  digest in this same order so a later card can make them negotiable
+  without changing the hash's shape. Anyone holding the confirmed response
+  can recompute `specHash` with off-the-shelf tools alone, no call to this
+  service.
 - **ENT-4.3** The platform never receives write access to `repo`. Ever. The
   agent forks and opens a pull request. This is a MISSION invariant and no
   issue may relax it.

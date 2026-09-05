@@ -105,6 +105,7 @@ export class MemoryAgentRepository implements AgentRepository {
       proofStatus: 'unverified',
       createdAt: new Date(),
       keyRotations: [],
+      floorPriceUsd: input.floorPriceUsd ?? null,
     };
     this.rows.set(input.did, row);
     return row;
