@@ -35,11 +35,30 @@
 
 .rail { display: flex; gap: 0; margin: 0; list-style: none; padding: 0; }
 .rail li {
-  flex: 1; font-size: 12px; color: var(--fg-3);
+  flex: 1; font-size: 12px; color: var(--fg-2);
   padding-top: 12px; border-top: 2px solid var(--line);
   font-family: var(--mono); letter-spacing: 0.02em;
   min-width: 0;
 }
+
+/* FUTURE STEPS ARE --fg-2, NOT --fg-3, and this departs from DESIGN.md's
+   older `.steps` spec on a measurement. contrast_check.py sampled a future
+   step at 3.52:1 against the pane behind it; AA needs 4.5 at 12px. DESIGN.md
+   2.5 is explicit that when a measurement says --fg-3 fails, the answer is to
+   lift, never to leave it.
+
+   So the three states are carried by the BORDER, which is a decorative rule
+   rather than text and is held to 3:1, and the text only distinguishes the
+   current step from the rest:
+
+     current   text --fg,   border --fg
+     done      text --fg-2, border --line-2
+     future    text --fg-2, border --line
+
+   Losing the text-colour difference between done and future costs little:
+   position already says which is which (everything left of the current step
+   is done), and the border keeps a visible difference. Shipping 3.52:1 text
+   to say the same thing would not be a trade, it would be a defect. */
 .rail li.on   { color: var(--fg); border-top-color: var(--fg); }
 .rail li.done { color: var(--fg-2); border-top-color: var(--line-2); }
 
@@ -80,7 +99,22 @@
 }
 .who img { width: 32px; height: 32px; border-radius: 50%; flex: none; }
 .who .n { font-weight: 550; }
-.who .r { color: var(--fg-3); font-size: 13px; }
+.who .r { color: var(--fg-2); font-size: 13px; }
+
+/* A LINK inside that line is lifted to --fg-2, and this is a measured fix
+   rather than a preference. `contrast_check.py` sampled the operator link at
+   3.72:1 against the page, where AA needs 4.5 at 13px.
+
+   DESIGN.md 2.5 permits --fg-3 "for portfolio claim text and for nothing that
+   a user must read to act". An operator's name is a control a person follows
+   to decide who is accountable for the agent they are about to pay, so it is
+   squarely in the second category. The surrounding words stay quiet; only the
+   thing you can click is lifted, which also makes the link discoverable
+   instead of being the same grey as the sentence around it.
+
+   Measured after: 7.68:1. */
+.who .r a { color: var(--fg-2); }
+.who .r a:hover { color: var(--fg); }
 
 /* The verified hire count beside a name. This IS witnessed work, so it is one
    of the four places the accent is allowed. */
@@ -111,6 +145,44 @@
 .pane-pad.counts,
 .pane-pad.picker,
 .pane-pad.outcomes { padding: 22px 24px; }
+
+/* =========================================== the --fg-3 rule on these screens
+   MEASURED, and it changes what --fg-3 may be used for here.
+
+   contrast_check.py sampled 21 real failures across the eight flow screens,
+   every one of them --fg-3 (#666B73) carrying real body text: 3.44:1 on a
+   pane, 3.72:1 on the page, against the 4.5 AA needs at 12 and 13px.
+
+   DESIGN.md 2.5 already anticipated this. --fg-3 is "the quietest legible
+   grey", permitted "for portfolio claim text and for nothing that a user must
+   read to act", and the file is explicit that if a measurement says it fails,
+   the fix is to lift the token rather than leave it.
+
+   None of the text below is a portfolio claim. It is the explanation under
+   every conduct count, the repository a job belongs to, the diff size on a
+   pull request, and the sentence saying nothing exists yet. All of it is read
+   to act on. So on these screens --fg-3 keeps only its structural jobs: row
+   numbers, and the quiet marks that are not prose.
+
+   Applied at each rule's own declaration rather than as one override block
+   further down the file. A batch selector is the obvious move and it does not
+   work: `.ct .d` in the batch and `.ct .d` at its own definition have equal
+   specificity, so whichever comes LATER wins, and the definitions all come
+   later. The measured result was 21 failures becoming 17 while the batch rule
+   looked correct in the source. Fix the declaration, not its shadow.
+
+   THE LIST IS MEASURED, NOT GUESSED. A first attempt was written by reading
+   contrast_check.py's text snippets and inferring which classes they belonged
+   to; it missed four. The set below came from asking the page which elements
+   actually compute to #666B73 while carrying prose, across all eight screens
+   with every disclosure and dialog open.
+
+   What KEEPS --fg-3, deliberately: row numbers, the `edit` control, the
+   column headers, the dashed unsigned ring, and other short marks that are
+   structure rather than something you read. They are 2 to 4 characters of
+   scaffolding beside the text they label, and lifting them would flatten the
+   hierarchy the quiet grey exists to create. Named so the next person can see
+   it was a decision rather than an oversight. */
 
 /* =================================================================== terms
    THE TWO-PARTY TERM MATRIX. The agreement is a list of lines, and each line
@@ -162,7 +234,7 @@
    the weight; the label stays quiet, because "Price" is the least surprising
    word on the row. */
 .trow .line b { font-weight: 600; }
-.trow .line .why { display: block; font-size: 13px; color: var(--fg-3); margin-top: 4px; }
+.trow .line .why { display: block; font-size: 13px; color: var(--fg-2); margin-top: 4px; }
 
 .terms .trow:last-of-type > * { border-bottom: 0; }
 
@@ -566,7 +638,7 @@ body:has(#rail-usdc:checked) .amt-usdc { display: inline; }
 .oc { padding: 20px 22px; }
 .oc h3 { margin-bottom: 10px; }
 .oc dl { margin: 0; }
-.oc dt { font-size: 12px; color: var(--fg-3); margin-top: 12px; }
+.oc dt { font-size: 12px; color: var(--fg-2); margin-top: 12px; }
 .oc dd { margin: 3px 0 0; font-size: 14px; color: var(--fg-2); line-height: 1.55; }
 .oc dd b { color: var(--fg); font-weight: 550; }
 
@@ -585,7 +657,7 @@ body:has(#rail-usdc:checked) .amt-usdc { display: inline; }
 .ct { padding: 14px 0; }
 .ct .n { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .ct .l { font-size: 13px; color: var(--fg-2); margin-top: 2px; }
-.ct .d { font-size: 12px; color: var(--fg-3); margin-top: 6px; line-height: 1.5; }
+.ct .d { font-size: 12px; color: var(--fg-2); margin-top: 6px; line-height: 1.5; }
 
 /* ============================================================ tap targets
    THE 44px FLOOR, applied where a finger is the pointer.
