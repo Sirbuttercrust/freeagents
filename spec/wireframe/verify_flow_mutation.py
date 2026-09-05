@@ -24,11 +24,9 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:3111"
 
-# WEBGRAB_DIR comes from the environment with no default. This repository is
-# public, so a hardcoded home path is a leak as well as a portability bug.
-if not os.environ.get("WEBGRAB_DIR"):
-    print("Set WEBGRAB_DIR to the directory holding webgrab.py")
-    sys.exit(2)
+# No environment setup: wirebrowse.py is committed beside the gates, so this
+# runs from a clone. The repository is public, so a hardcoded home path would
+# be a leak as well as a portability bug.
 ENV = dict(os.environ)
 
 

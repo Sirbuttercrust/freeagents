@@ -10,19 +10,19 @@ That is a claim about what a person can see at once, so counting the class in
 the source cannot check it. This opens each dialog in turn and counts the
 PAINTED accent fills, which is the number a person actually experiences.
 
-    WEBGRAB_DIR=<dir with webgrab.py> python3 verify_primary.py [base-url]
+    python3 verify_primary.py [base-url]
 """
 
 import json
 import os
 import sys
 
-sys.path.insert(0, os.environ.get("WEBGRAB_DIR", "."))
-try:
-    from webgrab import Browser
-except ImportError:
-    print("Set WEBGRAB_DIR to the directory holding webgrab.py")
-    sys.exit(2)
+# wirebrowse.py sits beside this file, in the repo, standard library only.
+# No WEBGRAB_DIR, no pip install, no external checkout: a reviewer with a
+# clone, python3 and any Chrome can run this gate and disagree with its
+# result. That is the whole point of committing the driver.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from wirebrowse import Browser, NoBrowser
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:3111"
 SCREENS = ["hire.html", "agreement.html", "deposit.html", "staged.html",
