@@ -118,7 +118,6 @@ function forkCall(recorded: RecordedCalls, index: number): ForkAndOpenPullReques
 // so handing the helpers below to whichever suite is current is safe.
 let server: Server;
 let baseUrl: string;
-let authHeader: Record<string, string> = {};
 
 async function postSigned(path: string, body: unknown, identity: SigningIdentity, base: string = baseUrl): Promise<Response> {
   const bodyText = JSON.stringify(body);
@@ -225,7 +224,7 @@ describe('job pull-request (R-10)', () => {
   beforeAll(async () => {
     buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(81));
     agent = await signingIdentityFromSeed(new Uint8Array(32).fill(82));
-    ({ server, baseUrl, authHeader } = await startWith(jobRepo, recordingFake(recorded)));
+    ({ server, baseUrl } = await startWith(jobRepo, recordingFake(recorded)));
   });
 
   afterAll(() => {
@@ -480,7 +479,7 @@ describe('pull-request, invariant 1 and Gate 2 (R-10)', () => {
   let call: ForkAndOpenPullRequestInput;
 
   beforeAll(async () => {
-    ({ server, baseUrl, authHeader } = await startWith(new MemoryJobRepository(), recordingFake(recorded)));
+    ({ server, baseUrl } = await startWith(new MemoryJobRepository(), recordingFake(recorded)));
     const { jobId, briefHash } = await openDraft('Fix the login bug');
     prJobId = jobId;
     prBriefHash = briefHash;
@@ -577,7 +576,7 @@ describe('job pull-request, who may (B7, 2026-09-01)', () => {
     buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(81));
     agent = await signingIdentityFromSeed(new Uint8Array(32).fill(82));
     stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(83));
-    ({ server, baseUrl, authHeader } = await startWith(jobRepo, recordingFake(recorded), [
+    ({ server, baseUrl } = await startWith(jobRepo, recordingFake(recorded), [
       { did: stranger.did, githubLogin: 'stranger-pr' },
     ]));
   });

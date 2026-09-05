@@ -165,7 +165,7 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
-    expect((await post(first.baseUrl, `/jobs/${jobId}/pull-request`)).status).toBe(200);
+    expect((await postSigned(first.baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(200);
 
     // The process exits. Nothing about process 1 survives into process 2
     // except the durable repositories.
@@ -189,7 +189,7 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
     const second = await listen(app2);
     servers.push(second.server);
 
-    const merge = await post(second.baseUrl, `/jobs/${jobId}/merge`);
+    const merge = await postSigned(second.baseUrl, `/jobs/${jobId}/merge`, {}, buyerIdentity);
     expect(merge.status).toBe(200);
     const mergeBody = (await merge.json()) as Record<string, unknown>;
     expect(mergeBody.status).toBe('completed');

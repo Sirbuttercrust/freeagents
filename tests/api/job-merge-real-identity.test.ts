@@ -188,9 +188,9 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
     expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
-    expect((await post(baseUrl, `/jobs/${jobId}/pull-request`)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(200);
 
-    const merge = await post(baseUrl, `/jobs/${jobId}/merge`);
+    const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, buyerIdentity);
     expect(merge.status).toBe(200);
     const mergeBody = (await merge.json()) as Record<string, unknown>;
     expect(mergeBody.status).toBe('completed');
@@ -289,9 +289,9 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
       expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyerIdentity)).status).toBe(200);
       expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
       expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
-      expect((await post(baseUrl, `/jobs/${jobId}/pull-request`)).status).toBe(200);
+      expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(200);
 
-      const merge = await post(baseUrl, `/jobs/${jobId}/merge`);
+      const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, buyerIdentity);
       expect(merge.status).toBe(200);
       const mergeBody = (await merge.json()) as Record<string, unknown>;
       const credential = mergeBody.credential as Record<string, unknown>;
