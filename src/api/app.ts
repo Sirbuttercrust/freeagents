@@ -16,7 +16,7 @@ import {
   type PullRequestRef,
   type PullRequestSummary,
 } from '../adapters/github/types.js';
-import { createDidAbtSigningKeyResolver } from '../adapters/identity/did-abt-resolver.js';
+import { createDidAbtSigningKeyResolver, createKnownKeyStore } from '../adapters/identity/did-abt-resolver.js';
 import { verify as verifySignature } from '../adapters/identity/http-signature.js';
 import { createIdentityAdapter } from '../adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter } from '../adapters/identity/types.js';
@@ -33,6 +33,7 @@ import {
   type JobRepository,
   type AccountRepository,
   type ReviewRepository,
+  type ObservedKeyRepository,
 } from '../adapters/storage/types.js';
 import {
   createAgentRepository,
@@ -41,6 +42,7 @@ import {
   createJobRepository,
   createAccountRepository,
   createReviewRepository,
+  createObservedKeyRepository,
 } from '../adapters/storage/storage.js';
 import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
@@ -374,7 +376,7 @@ async function resolveActingParty(req: Request, repo: AccountRepository): Promis
 export function createApp(
   repo: AccountRepository = createAccountRepository(),
   agentRepo: AgentRepository = createAgentRepository(),
-  identity: IdentityAdapter = createIdentityAdapter(),
+  identity?: IdentityAdapter,
   github: GithubAdapter = createGithubAdapter(),
   jobRepo: JobRepository = createJobRepository(),
   credentials: CredentialsAdapter | undefined = undefined,
@@ -395,6 +397,14 @@ export function createApp(
   // stance in this file. Injectable so tests can mint a live token against
   // a fake GitHub backend instead of exercising real OAuth.
   session: SessionAdapter = sessionAdapterFromEnv(),
+  // D2 (task t_8a82c865): the durable half of the R-34 signing-key
+  // resolver's binding check, so identity resolution survives a process
+  // restart. Defaults to the env-derived repository, matching every other
+  // storage capability's stance in this file. Injectable so a test can
+  // share one durable store across two separate createApp calls, the way
+  // it shares any other repository, to prove a restart does not lose the
+  // observation.
+  observedKeyRepo: ObservedKeyRepository = createObservedKeyRepository(),
 ): Express {
   // One repository behind both halves of the capability when the caller
   // supplies neither. createCredentialRepository() hands the memory driver a
@@ -412,12 +422,25 @@ export function createApp(
     }),
   );
 
+  // R-3 + R-4 completion (B5, launch blocker): the record of which DIDs'
+  // key material this process has itself independently checked (via the
+  // R-34 signing-key resolver's binding check below), so the default
+  // identity adapter's resolveDid and verify have real key material to
+  // derive from without ever calling out (invariant 2). Shared by both:
+  // an agent proves its key by signing one request (e.g. the criteria
+  // exchange), and the merge route can later name that same key on the
+  // credential (ENT-8) with no new network call, only local recall.
+  const knownKeys = createKnownKeyStore();
+  const identityAdapter = identity ?? createIdentityAdapter(knownKeys, observedKeyRepo);
+
   // R-34: either an agent or an operator DID may sign (the issue's wording
   // is "a registered agent or operator DID"). A storage failure inside this
   // lookup throws, which createDidAbtSigningKeyResolver's own try/catch
   // turns into null -- an unverifiable signature, not a 500.
   const signingKeys = createDidAbtSigningKeyResolver(
     async (did) => (await agentRepo.findByDid(did)) !== null || (await repo.findByDid(did)) !== null,
+    knownKeys,
+    observedKeyRepo,
   );
 
   // R-34: adds a second, optional, verifiable identity path alongside the
@@ -821,7 +844,7 @@ export function createApp(
 
     // ownerDid is the credential's own subject, verbatim, because the
     // verifier compares it by equality with credentialSubject.id.
-    const verified = await identity.verifyDelegation(proof, proof.credentialSubject.id, operator);
+    const verified = await identityAdapter.verifyDelegation(proof, proof.credentialSubject.id, operator);
     if (!verified) {
       res.status(400).json({
         error: 'delegation proof failed verification: the signature does not check out against the operator key',
@@ -1012,9 +1035,25 @@ export function createApp(
     // backend, and failing open would record an unverified claim as held.
     let doc: DidDocument;
     try {
-      doc = await identity.resolveDid(did);
+      doc = await identityAdapter.resolveDid(did);
     } catch (err) {
       console.error('POST /agents/:agentDid/account-proof: identity resolution failed', err);
+      res.status(503).json({ error: 'identity resolution unavailable' });
+      return;
+    }
+
+    // alsoKnownAs undefined means the resolver could not determine the
+    // field at all (Proof round 1, D1, task t_8a82c865): this adapter's
+    // resolveDid never learns it, so a 409 naming "add ... to its
+    // alsoKnownAs field" would be a remedy the operator can never satisfy
+    // from this adapter's point of view. That is a platform limitation,
+    // not an operator error, so it is the same 503 an unresolvable DID
+    // gets, distinct from a genuinely resolved document with no claim
+    // (alsoKnownAs: null), which stays the 409 below.
+    if (doc.alsoKnownAs === undefined) {
+      console.error(
+        `POST /agents/:agentDid/account-proof: identity resolution for ${did} cannot determine alsoKnownAs`,
+      );
       res.status(503).json({ error: 'identity resolution unavailable' });
       return;
     }
@@ -1133,7 +1172,7 @@ export function createApp(
     // reconstructs the same bytes from the gist alone (invariant 2).
     let checksOut: boolean;
     try {
-      checksOut = await identity.verify({
+      checksOut = await identityAdapter.verify({
         payload: gistProofPayload(did, githubAccountUrl(handle)),
         signature: statement.signature,
         signerDid: did,
@@ -2113,7 +2152,7 @@ export function createApp(
       // stays submitted and fully retryable.
       let signedBy: string;
       try {
-        const doc = await identity.resolveDid(job.agentDid);
+        const doc = await identityAdapter.resolveDid(job.agentDid);
         const method = doc.verificationMethod[0];
         if (method === undefined) {
           throw new Error(`the DID document for ${job.agentDid} carries no verification method`);

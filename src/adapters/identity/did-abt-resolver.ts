@@ -7,6 +7,7 @@ import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-
 import { securityLoader } from '@digitalbazaar/security-document-loader';
 import { fromPublicKey } from '@arcblock/did';
 import type { SigningKeyResolver } from './http-signature.js';
+import type { ObservedKeyRepository } from '../storage/types.js';
 
 // Ed25519VerificationKey2020 has a private _publicKeyBuffer property that holds
 // the raw public key bytes. This interface extends the public type to access it.
@@ -70,13 +71,59 @@ export async function buildDidAbtLoader(issuerDid: string, verificationMethod: s
   return loader.build();
 }
 
-// Signing-key resolver for RFC 9421 request signatures (R-34). Given a
-// keyid of the form did:abt:<suffix>#<multibase-fingerprint>, reconstruct
-// the ed25519 public key from the fingerprint and require it to re-derive
-// the claimed DID suffix -- the same binding check as buildDidAbtLoader
-// above, applied to a bare request signature rather than a VC proof.
+// R-3 + R-4 completion (B5, launch blocker): local-only DID resolution and
+// verify need a source for "what verification method does this DID use"
+// that is not a network call (invariant 2). The signing-key resolver below
+// already performs the one binding check that makes a verificationMethod
+// trustworthy: does the public key it names actually re-derive the DID
+// that claims it? A KnownKeyStore is exactly the record of DIDs that have
+// passed that check during this process's lifetime, so identity.ts's
+// resolveDid and verify have real key material to work from without ever
+// calling out. This is a real limitation, stated rather than hidden: a DID
+// this process has not yet seen a valid signature from cannot be resolved,
+// the same honest gap did-abt-resolver.ts already leaves in
+// buildDidAbtLoader (it needs the proof's own verificationMethod, not a
+// network fetch, to do anything at all).
+export interface KnownKeyStore {
+  // Records that this DID's key material has been checked, once, against
+  // the binding check below. Overwrites any prior entry for the same DID
+  // (a later verified signature is the freshest evidence), never merges.
+  record(did: string, verificationMethod: string): void;
+  // Null when this DID has never passed the binding check in this process.
+  get(did: string): string | null;
+}
+
+// An in-memory store, module-scoped by whoever constructs it (the app
+// wires one instance through createIdentityAdapter and
+// createDidAbtSigningKeyResolver so both draw from the same observations).
+// No key material here, ever: only the public verificationMethod string
+// (did:abt:<suffix>#<fingerprint>), the same shape delegation.proof.
+// verificationMethod already carries onto the wire.
+export function createKnownKeyStore(): KnownKeyStore {
+  const known = new Map<string, string>();
+  return {
+    record(did, verificationMethod) {
+      known.set(did, verificationMethod);
+    },
+    get(did) {
+      return known.get(did) ?? null;
+    },
+  };
+}
+
+// D2 (task t_8a82c865): the durable half of the binding check's memory.
+// Optional so every existing caller (tests, and the smoke-test wrapped
+// adapter) is unaffected; when supplied, a keyid that passes the binding
+// check is recorded here too, so the SAME observation survives a process
+// restart, not just this process's lifetime. The anchor (this card): "a
+// stranger derives the same verificationMethod from the keyid whether or
+// not this process happened to be running when the agent last signed" --
+// this is what makes that true for THIS process's own later requests, not
+// only for a stranger's independent derivation.
 export function createDidAbtSigningKeyResolver(
   isRegistered: (did: string) => Promise<boolean>,
+  knownKeys?: KnownKeyStore,
+  observedKeys?: ObservedKeyRepository,
 ): SigningKeyResolver {
   return async (did, keyid) => {
     try {
@@ -96,7 +143,20 @@ export function createDidAbtSigningKeyResolver(
         format: 'jwk',
       }).export({ type: 'spki', format: 'pem' }) as string;
 
-      return { publicKeyPem };
+      // D4/D5 (task t_8a82c865): recording is deferred to onVerified,
+      // called by http-signature.ts's verify() only after the request's
+      // own signature bytes have checked out -- not here, where only the
+      // keyid's binding check (public data) has passed. knownKeys.record
+      // is synchronous and in-memory, so it cannot itself fail; it runs
+      // before the durable write so a durable-write failure never loses
+      // the in-process observation.
+      return {
+        publicKeyPem,
+        async onVerified() {
+          knownKeys?.record(did, keyid);
+          await observedKeys?.record(did, keyid);
+        },
+      };
     } catch {
       return null;
     }

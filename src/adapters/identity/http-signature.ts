@@ -22,7 +22,20 @@ export interface SignedRequestLike {
 }
 
 export interface SigningKeyResolver {
-  (did: string, keyid: string): Promise<{ publicKeyPem: string } | null>;
+  (did: string, keyid: string): Promise<{
+    readonly publicKeyPem: string;
+    // D4/D5 (task t_8a82c865): recording an observation is deferred to
+    // this optional callback, invoked by verify() below ONLY after the
+    // request's own ed25519 signature bytes have checked out -- never at
+    // resolution time, when only the keyid's binding check (public data:
+    // the fingerprint re-deriving the claimed DID) has passed. This closes
+    // two defects at once: a durable-write failure can no longer turn a
+    // genuine signature into a 401 (the verdict is already decided by the
+    // time this runs), and an attacker presenting a victim's real keyid
+    // under their own forged signature can no longer cause a durable
+    // write for a signature that never actually verified.
+    readonly onVerified?: () => Promise<void>;
+  } | null>;
 }
 
 export interface VerifyOptions {
@@ -118,6 +131,16 @@ export async function verify(
 
     const key = createPublicKey(resolved.publicKeyPem);
     if (!nodeVerify(null, Buffer.from(base, 'utf8'), key, sig)) return null;
+
+    // D4 (task t_8a82c865): the signature has now genuinely verified, so
+    // recording the observation is safe to attempt -- but a failure here
+    // is a storage-layer fact, not a verdict on this signature. Swallow
+    // it rather than let it flip an already-decided "yes" back to null.
+    try {
+      await resolved.onVerified?.();
+    } catch {
+      // Durable bookkeeping failed; the signature still verified.
+    }
 
     return { did };
   } catch {

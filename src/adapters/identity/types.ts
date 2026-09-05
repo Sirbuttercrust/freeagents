@@ -15,8 +15,15 @@ export interface DidDocument {
   readonly verificationMethod: readonly string[];
   // Standard DID Core field. R-3 direction one reads the GitHub account
   // claim from here and only from here (invariant 2: a third party reading
-  // the same field reaches the same conclusion).
-  readonly alsoKnownAs: readonly string[] | null;
+  // the same field reaches the same conclusion). Three states, not two:
+  // an array is a resolved claim, null is a resolved document that
+  // genuinely carries no claim (a real 409, operator-fixable), and
+  // undefined is "this resolver could not determine the field at all"
+  // (a 503: the operator cannot fix what this adapter has no path to
+  // check). Collapsing the third state into null is what let a resolver
+  // that can never learn alsoKnownAs hand out a 409 whose remedy it can
+  // never observe being satisfied (Proof round 1, D1, task t_8a82c865).
+  readonly alsoKnownAs: readonly string[] | null | undefined;
 }
 
 export interface SignedPayload {
