@@ -39,6 +39,7 @@ import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { createJob, type Job } from '../../src/domain/job.js';
 import { signingIdentityFromSeed, signingIdentityFromWallet, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
+import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
@@ -148,7 +149,7 @@ async function startWith(repo: JobRepository): Promise<{ server: Server; baseUrl
   });
   const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-confirm-scripted' });
-  const s = createApp(operatorRepo, agentRepo, undefined, undefined, repo).listen(0);
+  const s = createApp(operatorRepo, agentRepo, undefined, undefined, repo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, alwaysSettledGate()).listen(0);
   await new Promise<void>((resolve) => s.once('listening', resolve));
   const address = s.address();
   if (address === null || typeof address === 'string') {
@@ -182,7 +183,7 @@ describe('job confirm (R-9)', () => {
       skills: ['triage'],
       githubLogin: null,
     });
-    server = createApp(operatorRepo, agentRepo, undefined, undefined, jobRepo).listen(0);
+    server = createApp(operatorRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, alwaysSettledGate()).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
@@ -386,6 +387,8 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
       undefined,
       undefined,
       sessionAdapter,
+      undefined,
+      alwaysSettledGate(),
     ).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();

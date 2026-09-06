@@ -65,6 +65,8 @@ function jobFixture(overrides: Partial<Job> & { id: string; agentDid: string }):
     submittedAt: null,
     deadline: null,
     createdAt: new Date('2026-08-01T00:00:00Z'),
+    stagedAt: null,
+    stagedCommit: null,
     ...overrides,
   };
 }

@@ -15,6 +15,7 @@ import {
   recordStale,
   recordWithdrawn,
   requestChanges,
+  stageWork,
   submitPullRequest,
   STALE_AFTER_DAYS,
   validateJobTransition,
@@ -44,6 +45,8 @@ function proposedJob(overrides: Partial<Job> = {}): Job {
     mergedAt: null,
     confirmedAt: null,
     submittedAt: null,
+    stagedAt: null,
+    stagedCommit: null,
     deadline: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
@@ -82,7 +85,10 @@ describe('job state machine', () => {
     expect(confirmed.confirmedSpecHash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(confirmed.confirmedAt).toBe(now);
 
-    const submitted = submitPullRequest(confirmed, 'https://github.com/buyer/target-repo/pull/1', now);
+    const staged = stageWork(confirmed, 'commit-sha-1', now);
+    expect(staged.status).toBe('staged');
+
+    const submitted = submitPullRequest(staged, 'https://github.com/buyer/target-repo/pull/1', now);
     expect(submitted.status).toBe('submitted');
     expect(submitted.pullRequestUrl).toBe('https://github.com/buyer/target-repo/pull/1');
 
@@ -182,7 +188,7 @@ describe('job outcomes (R-12)', () => {
 
   it('submitPullRequest writes deadline as submittedAt + 30 days, exactly', () => {
     const now = new Date('2026-02-01T12:30:00Z');
-    const submitted = submitPullRequest(proposedJob({ status: 'confirmed' }), 'https://github.com/buyer/target-repo/pull/1', now);
+    const submitted = submitPullRequest(proposedJob({ status: 'staged' }), 'https://github.com/buyer/target-repo/pull/1', now);
     // STALE_AFTER_DAYS is the D3 value; deriving the expectation from it keeps
     // the test honest if the constant ever moves, and the ISO pin proves the
     // offset is applied, not skipped.
@@ -343,10 +349,11 @@ describe('createJob', () => {
     ).toThrow(JobError);
   });
 
-  it('walks draft -> proposed -> confirmed -> submitted -> completed', () => {
+  it('walks draft -> proposed -> confirmed -> staged -> submitted -> completed', () => {
     expect(validateJobTransition('draft', 'proposed')).toBe('proposed');
     expect(validateJobTransition('proposed', 'confirmed')).toBe('confirmed');
-    expect(validateJobTransition('confirmed', 'submitted')).toBe('submitted');
+    expect(validateJobTransition('confirmed', 'staged')).toBe('staged');
+    expect(validateJobTransition('staged', 'submitted')).toBe('submitted');
     expect(validateJobTransition('submitted', 'completed')).toBe('completed');
   });
 
@@ -376,8 +383,10 @@ describe('createJob', () => {
     expect(proposed.brief).toBe(job.brief);
     const confirmed = confirmSpec(proposed, now);
     expect(confirmed.brief).toBe(job.brief);
-    expect(submitPullRequest(confirmed, 'https://github.com/buyer/target-repo/pull/1', now).brief).toBe(job.brief);
-    expect(completeJob(submitPullRequest(confirmed, 'https://github.com/buyer/target-repo/pull/1', now), { mergeCommit: 'abc123', completedAt: now }).job.brief).toBe(job.brief);
+    const staged = stageWork(confirmed, 'commit-sha-1', now);
+    expect(staged.brief).toBe(job.brief);
+    expect(submitPullRequest(staged, 'https://github.com/buyer/target-repo/pull/1', now).brief).toBe(job.brief);
+    expect(completeJob(submitPullRequest(staged, 'https://github.com/buyer/target-repo/pull/1', now), { mergeCommit: 'abc123', completedAt: now }).job.brief).toBe(job.brief);
     expect(decline(confirmed).brief).toBe(job.brief);
   });
 });

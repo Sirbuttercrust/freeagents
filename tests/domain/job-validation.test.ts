@@ -4,6 +4,7 @@ import {
   confirmSpec,
   decline,
   JobTransitionError,
+  stageWork,
   submitPullRequest,
   validateJobTransition,
 } from '../../src/domain/job.js';
@@ -32,6 +33,8 @@ function proposedJob(overrides: Partial<Job> = {}): Job {
     mergedAt: null,
     confirmedAt: null,
     submittedAt: null,
+    stagedAt: null,
+    stagedCommit: null,
     deadline: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
@@ -50,7 +53,8 @@ describe('job transition validation', () => {
     expect(validateJobTransition('proposed', 'declined')).toBe('declined');
     
     // Test confirmed -> submitted
-    expect(validateJobTransition('confirmed', 'submitted')).toBe('submitted');
+    expect(validateJobTransition('confirmed', 'staged')).toBe('staged');
+    expect(validateJobTransition('staged', 'submitted')).toBe('submitted');
     
     // Test confirmed -> declined
     expect(validateJobTransition('confirmed', 'declined')).toBe('declined');
@@ -126,8 +130,12 @@ describe('job transition validation', () => {
     );
     expect(confirmed.status).toBe('confirmed');
     
+    // Test that stageWork works correctly
+    const staged = stageWork(confirmed, 'commit-sha-1', now);
+    expect(staged.status).toBe('staged');
+
     // Test that submitPullRequest works correctly
-    const submitted = submitPullRequest(confirmed, 'https://github.com/buyer/target-repo/pull/1', now);
+    const submitted = submitPullRequest(staged, 'https://github.com/buyer/target-repo/pull/1', now);
     expect(submitted.status).toBe('submitted');
     
     // Test that completeJob works correctly

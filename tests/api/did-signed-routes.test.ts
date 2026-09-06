@@ -11,6 +11,7 @@ import { createApp } from '../../src/api/app.js';
 import { MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 
 function delegationFixture(agentDid: string): Delegation {
   return {
@@ -113,7 +114,7 @@ describe('DID-signed hire-loop routes (R-34)', () => {
     });
 
     jobRepo = new MemoryJobRepository();
-    server = createApp(operatorRepo, agentRepo, undefined, undefined, jobRepo).listen(0);
+    server = createApp(operatorRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, alwaysSettledGate()).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {

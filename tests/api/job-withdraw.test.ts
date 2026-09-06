@@ -43,6 +43,8 @@ const SUBMITTED_KEYS = [
   'pullRequestUrl',
   'repository',
   'specHash',
+  'stagedAt',
+  'stagedCommit',
   'status',
   'submittedAt',
 ];
@@ -50,23 +52,32 @@ const SUBMITTED_KEYS = [
 // A row in the requested status, fully confirmed and submitted so the
 // projection carries the full submitted keyset. The deadline is the one
 // submitPullRequest writes (R-12): submittedAt + 30 days.
+//
+// P4: submittedAt is anchored to "now" rather than a fixed historical
+// date. GET /jobs/:jobId applies the lapse clocks on every read (brief
+// section 4), and deemCompleted fires 7 days after submittedAt -- a fixed
+// early-project date would silently read back as deemed_completed by the
+// time this suite runs, in tests that plant this row for a reason that
+// has nothing to do with the clock.
 function plantedJob(id: string, status: JobStatus): Job {
-  const submittedAt = new Date('2026-01-02T00:00:00Z');
+  const submittedAt = new Date(Date.now() - 60 * 60 * 1000);
   return {
     ...createJob(
       { id, buyerDid: BUYER_DID, agentDid: AGENT_DID, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
-      new Date('2026-01-01T00:00:00Z'),
+      new Date(submittedAt.getTime() - 24 * 60 * 60 * 1000),
     ),
     status,
     pullRequestUrl: 'https://github.com/freeagents-platform/target-repo/pull/7',
     submittedAt,
+    stagedAt: new Date(submittedAt.getTime() - 6 * 60 * 60 * 1000),
+    stagedCommit: 'commit-sha-1',
     deadline: new Date(submittedAt.getTime() + 30 * 86_400_000),
     criteria: [
       { text: 'fixes the login bug', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true },
       { text: 'no new dependencies', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: true },
     ],
     confirmedSpecHash: 'a'.repeat(64),
-    confirmedAt: new Date('2026-01-01T12:00:00Z'),
+    confirmedAt: new Date(submittedAt.getTime() - 12 * 60 * 60 * 1000),
   };
 }
 

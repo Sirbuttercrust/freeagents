@@ -30,6 +30,14 @@ enum Rail {
 // but the row is opened as a draft from the buyer's brief so both the brief
 // and its hash have somewhere to live while acceptance criteria are worked
 // out.
+//
+// P4 (design record, 2026-09-01): five new members for the payment state
+// machine. `staged` sits between an agreed price and an opened pull
+// request -- the work lives in a staging repository with a published
+// attestation, unpaid and unseen. The other four are terminal outcomes
+// the two clocks (src/domain/job.ts) and the buyer's staged-time choices
+// can reach. See validateJobTransition in src/domain/job.ts for the exact
+// transition table this enum backs.
 enum JobStatus {
   draft
   proposed
@@ -42,6 +50,15 @@ enum JobStatus {
   stale
   // R-31 (D3 2026-08-22): a buyer walk-away, recorded as a timing fact.
   withdrawn
+  // P4 terminal outcomes (design record, 2026-09-01): a buyer who declines
+  // staged work, a job the buyer went silent on at staged, a confirmed job
+  // nobody ever staged, and a paid job nobody merged or closed in time,
+  // are each a distinct closed fact, not a variant of an existing one.
+  staged
+  staged_declined
+  closed_unpaid
+  expired_unstaged
+  deemed_completed
 }
 
 // ENT-9: v1 records intent and nothing else. Exactly one member, on purpose:
@@ -155,6 +172,13 @@ model Job {
   redoAllowance     Int       @default(1)
   // Agent-proposed, default 14 days, set alongside the price.
   deliveryWindowDays Int?
+  // P4: the instant the agent staged the work (confirmed -> staged) and
+  // the commit SHA it staged, in the staging repository the attestation
+  // (a later card) will publish against. Both null until staged; written
+  // together by stageWork, the same one-writer pairing confirmedSpecHash/
+  // confirmedAt already keeps.
+  stagedAt          DateTime?
+  stagedCommit      String?
 
   agent        Agent         @relation(fields: [agentDid], references: [did])
   completedJob CompletedJob?
