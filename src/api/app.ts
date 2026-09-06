@@ -2776,9 +2776,28 @@ export function createApp(
   // /start uses, naming the buyer as the only allowed party; onAuth's
   // buyerDid check is unchanged and remains the party check that gates
   // whether a payment actually lands.
+  //
+  // Review round 2, D3: this guard used to read jobId from req.body on
+  // POST and never looked at req.query. did-connect-js's own
+  // generateSession (dist/handlers/util.js) builds the session's
+  // extraParams as `{ ...req.body, ...req.query, ...req.params }`, so on
+  // a POST carrying both, the QUERY value is the one that lands in the
+  // session (object spread: later keys win). A caller could name their
+  // OWN job in the body, where this guard used to look, and a VICTIM's
+  // job in the query, where the session was actually bound. The guard now
+  // reads jobId (and leg, operatorAddress, which ride the same merge)
+  // with the exact same precedence generateSession applies, so it always
+  // authorizes the value the session will actually carry.
+  function mintExtraParam(req: Request, key: string): string {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const query = (req.query ?? {}) as Record<string, unknown>;
+    const params = (req.params ?? {}) as Record<string, unknown>;
+    const merged = { ...body, ...query, ...params };
+    return String(merged[key] ?? '');
+  }
   const requireBuyerToMintAbtSession = (req: Request, res: Response, next: NextFunction): void => {
     void (async () => {
-      const jobId = String((req.method === 'GET' ? req.query.jobId : (req.body as { jobId?: unknown })?.jobId) ?? '');
+      const jobId = mintExtraParam(req, 'jobId');
       if (jobId === '') {
         res.status(400).json({ error: 'jobId is required to mint an abt payment session' });
         return;

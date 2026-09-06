@@ -307,6 +307,7 @@ interface StartedAbtApp {
   readonly settlementRepo: MemorySettlementRepository;
   readonly gate: PrismaSettlementGate;
   readonly jobId: string;
+  readonly agent: SigningIdentity;
   readonly operatorRepo: MemoryAccountRepository;
 }
 
@@ -377,7 +378,7 @@ async function startAbtApp(chainClient: AbtChainClient): Promise<StartedAbtApp> 
     await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyer);
     await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agent);
 
-    return { server, baseUrl, buyer, buyerWallet, settlementRepo, gate, jobId, operatorRepo };
+    return { server, baseUrl, buyer, buyerWallet, settlementRepo, gate, jobId, agent, operatorRepo };
   });
 }
 
@@ -588,5 +589,49 @@ describe('review round 1, D2: the abt session-minting route refuses a request th
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(typeof body.token).toBe('string');
+  });
+});
+
+describe('review round 2, D3: the token-route buyer gate must check the jobId the session actually binds to', () => {
+  let started6: StartedAbtApp;
+  let fakeChain6: ReturnType<typeof fakeAbtChainClient>;
+  let attacker: SigningIdentity;
+  let attackerJobId: string;
+
+  beforeAll(async () => {
+    fakeChain6 = fakeAbtChainClient(true);
+    started6 = await startAbtApp(fakeChain6.client);
+
+    // The attacker is a real, registered buyer, but of their OWN job, not
+    // started6's job. did-connect-js's generateSession folds req.body,
+    // req.query and req.params into one extraParams object with query
+    // winning over body (util.js: {...req.body, ...req.query, ...req.params}),
+    // so a POST that carries the attacker's own jobId in the body and the
+    // victim's jobId in the query must still be refused: the guard has to
+    // check the same jobId the session will actually be bound to.
+    const attackerWallet = fromRandom();
+    attacker = await signingIdentityFromWallet(attackerWallet);
+    await started6.operatorRepo.register({ did: attacker.did, githubLogin: 'attacker-abt-token' });
+    const created = await postSigned(started6.baseUrl, '/jobs', {
+      buyerDid: attacker.did,
+      agentDid: started6.agent.did,
+      repository: 'attacker/target-repo',
+      brief: 'Fix the attacker\'s own bug',
+    }, attacker);
+    const job = (await created.json()) as Record<string, unknown>;
+    attackerJobId = String(job.id);
+    await postSigned(started6.baseUrl, `/jobs/${attackerJobId}/criteria`, { criteria: proposal, priceUsd: '400.00', rail: 'abt' }, started6.agent);
+  });
+
+  afterAll(() => started6.server.close());
+
+  it('a POST carrying the attacker\'s own jobId in the body and the victim\'s jobId in the query is refused', async () => {
+    const res = await postSigned(
+      started6.baseUrl,
+      `/api/did/pay/token?jobId=${started6.jobId}&leg=deposit&operatorAddress=${OPERATOR_ADDRESS}`,
+      { jobId: attackerJobId, leg: 'deposit', operatorAddress: OPERATOR_ADDRESS },
+      attacker,
+    );
+    expect(res.status).toBe(403);
   });
 });
