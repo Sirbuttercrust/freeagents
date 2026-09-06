@@ -76,43 +76,48 @@ environments:
     required: false
     secure: false
     default: ''
+  - name: FREEAGENTS_ENABLED_RAILS
+    description: Comma-separated list of payment rails this deployment offers, chosen from abt and usdc, for example abt alone for an ABT-only soft launch. Unset or empty means both rails are offered, which is the existing behaviour. Naming a rail here does not configure it by itself, each named rail still needs its own four variables set or it fails closed at call time exactly as it does today.
+    required: false
+    secure: false
+    default: ''
   - name: FREEAGENTS_ABT_CHAIN_HOST
-    description: ArcBlock chain GraphQL endpoint the ABT payment rail talks to (e.g. the ABT beta chain during development). Unset means the rail fails closed with a typed PaymentConfigError rather than constructing a client against nothing.
+    description: An ArcBlock chain GraphQL endpoint, for example the ABT beta chain during development or the ABT mainnet host for a live deployment. Required for the ABT rail to take a payment. Unset means the rail fails closed with a typed PaymentConfigError rather than constructing a client against nothing.
     required: false
     secure: false
     default: ''
   - name: FREEAGENTS_ABT_PLATFORM_SK
-    description: Secret key of the platform wallet the ABT payment rail signs transaction envelopes with. The platform wallet is never an input owner on any transaction (invariant 12); this key only ever signs the envelope of a transaction the buyer already signed. Unset means the rail fails closed rather than constructing a wallet from nothing.
+    description: Secret key of the platform wallet the ABT payment rail signs transaction envelopes with. Required for the ABT rail to take a payment. The platform wallet is never an input owner on any transaction (invariant 12); this key only ever signs the envelope of a transaction the buyer already signed. Unset means the rail fails closed rather than constructing a wallet from nothing.
     required: false
     secure: true
     default: ''
   - name: FREEAGENTS_ABT_TOKEN
-    description: Token contract address the ABT payment rail denominates payments in. Unset means the rail fails closed rather than building a transfer against an empty token address.
+    description: The token contract address on the chain named by FREEAGENTS_ABT_CHAIN_HOST that the ABT payment rail denominates payments in. Required for the ABT rail to take a payment. Unset means the rail fails closed rather than building a transfer against an empty token address.
     required: false
     secure: false
     default: ''
   - name: FREEAGENTS_ABT_FEE_ADDRESS
-    description: Platform address the ABT payment rail names as the fee output on every transaction it builds. Unset means the rail fails closed rather than building a transfer with no fee destination.
+    description: The platform's own address on the chain named by FREEAGENTS_ABT_CHAIN_HOST, named as the fee output on every transaction the ABT rail builds. Required for the ABT rail to take a payment. Unset means the rail fails closed rather than building a transfer with no fee destination.
     required: false
     secure: false
     default: ''
   - name: FREEAGENTS_USDC_RPC_URL
-    description: Arbitrum JSON-RPC endpoint the USDC payment rail talks to (e.g. Arbitrum Sepolia during development). Unset means the rail fails closed with a typed PaymentConfigError rather than constructing a provider against nothing.
+    description: An Arbitrum JSON-RPC endpoint, for example Arbitrum Sepolia during development or Arbitrum One for a live deployment. Required for the USDC rail to take a payment. Unset means the rail fails closed with a typed PaymentConfigError rather than constructing a provider against nothing.
     required: false
     secure: false
     default: ''
   - name: FREEAGENTS_USDC_TOKEN_CONTRACT
-    description: USDC token contract address the USDC payment rail denominates payments in. Decimals are read from this contract at call time, never assumed. Unset means the rail fails closed rather than building a transfer against an empty token address.
+    description: The USDC token contract address on the chain named by FREEAGENTS_USDC_CHAIN_ID that the USDC payment rail denominates payments in. Required for the USDC rail to take a payment. Decimals are read from this contract at call time, never assumed. Unset means the rail fails closed rather than building a transfer against an empty token address.
     required: false
     secure: false
     default: ''
   - name: FREEAGENTS_USDC_CHAIN_ID
-    description: The Arbitrum chain id (e.g. 421614 for Arbitrum Sepolia, 42161 for Arbitrum One) the wallet must sign each USDC transfer against. Unset means the rail fails closed rather than building a request with no chain to target.
+    description: The chain id the wallet must sign each USDC transfer against, for example 42161 for Arbitrum One or 421614 for Arbitrum Sepolia. Required for the USDC rail to take a payment. Unset means the rail fails closed rather than building a request with no chain to target.
     required: false
     secure: false
     default: ''
   - name: FREEAGENTS_USDC_FEE_ADDRESS
-    description: Platform address the USDC payment rail names as the fee transfer's recipient. The platform never signs on the buyer's behalf; this is only ever a transfer destination (invariant 12). Unset means the rail fails closed rather than building a transfer with no fee destination.
+    description: The platform's own address on the chain named by FREEAGENTS_USDC_CHAIN_ID, named as the fee transfer's recipient. Required for the USDC rail to take a payment. The platform never signs on the buyer's behalf; this is only ever a transfer destination (invariant 12). Unset means the rail fails closed rather than building a transfer with no fee destination.
     required: false
     secure: false
     default: ''
