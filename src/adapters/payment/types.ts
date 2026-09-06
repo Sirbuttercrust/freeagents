@@ -65,15 +65,38 @@ export interface CreateRequestInput {
 // What the web layer needs to show a scan. Opaque per rail: a caller reads
 // `rail` to pick a renderer and passes everything else through unexamined,
 // so P3 can add a `usdc` member without this card's callers changing.
-export type PaymentRequest = {
-  readonly rail: 'abt';
-  readonly jobId: string;
-  readonly leg: 'deposit' | 'balance';
-  // The exact claim shape a DID Connect `claims.prepareTx` callback returns
-  // (see abt.ts). P4's route handler returns this verbatim from its own
-  // `prepareTx` claim function; nothing here is a route, only data.
-  readonly claim: PrepareTxClaim;
-};
+export type PaymentRequest =
+  | {
+      readonly rail: 'abt';
+      readonly jobId: string;
+      readonly leg: 'deposit' | 'balance';
+      // The exact claim shape a DID Connect `claims.prepareTx` callback returns
+      // (see abt.ts). P4's route handler returns this verbatim from its own
+      // `prepareTx` claim function; nothing here is a route, only data.
+      readonly claim: PrepareTxClaim;
+    }
+  | {
+      readonly rail: 'usdc';
+      readonly jobId: string;
+      readonly leg: 'deposit' | 'balance';
+      readonly chainId: number;
+      // ERC-20 has no multi-output transfer (P3's brief, finding 1): one
+      // payment leg is two separate `transfer` calls, price to the operator
+      // then fee to the platform, in the order the web layer must raise the
+      // two signatures. A tuple, not an array, so a caller cannot receive
+      // zero or three of these by construction.
+      readonly transfers: readonly [UsdcTransferIntent, UsdcTransferIntent];
+    };
+
+// One ERC-20 `transfer(recipient, amount)` call the web layer renders as a
+// signature request. amountBaseUnits is the token's own smallest unit
+// (never a decimal token amount), a string because it can exceed
+// Number.MAX_SAFE_INTEGER and must never round.
+export interface UsdcTransferIntent {
+  readonly recipient: string;
+  readonly amountBaseUnits: string;
+  readonly tokenContract: string;
+}
 
 // The prepareTx claim shape the working reference proved on the ABT beta
 // chain (qr-server.mjs, hash F3209229A6E6FED27463F2A908C1C94C49E622FE55CA74A160C1C6871AFE55FA).
@@ -98,12 +121,34 @@ export interface PrepareTxClaim {
 // What the wallet hands back, opaque per rail. ABT: the finalTx the wallet
 // signed (base58, exactly what DID Connect's `signature` claim answer
 // carries as `c.finalTx` in the working reference).
-export type WalletResponseInput = {
-  readonly rail: 'abt';
-  readonly jobId: string;
-  readonly leg: 'deposit' | 'balance';
-  readonly finalTx: string;
-};
+export type WalletResponseInput =
+  | {
+      readonly rail: 'abt';
+      readonly jobId: string;
+      readonly leg: 'deposit' | 'balance';
+      readonly finalTx: string;
+    }
+  | {
+      readonly rail: 'usdc';
+      readonly jobId: string;
+      readonly leg: 'deposit' | 'balance';
+      // The operator address this leg's price transfer was addressed to
+      // (the same value createRequest's CreateRequestInput carried): USDC
+      // has no envelope-signing platform step to independently decode an
+      // address from the way ABT's onWalletResponse does (see abt.ts), so
+      // the caller (P4's route handler, which already built the request)
+      // passes it back through rather than this rail re-deriving it.
+      readonly operatorAddress: string;
+      // The buyer always signs the price transfer first (createRequest's
+      // transfer order): a hash always exists for it by the time this is
+      // called.
+      readonly priceTxHash: string;
+      // The fee transfer's outcome. An explicit "the wallet never signed
+      // it" answer, not an empty string or a null hash standing in for
+      // one: this rail must never guess why a hash is missing (P3 brief,
+      // scope item 2).
+      readonly feeTx: { readonly signed: true; readonly hash: string } | { readonly signed: false };
+    };
 
 // Opaque per rail: what confirm() and every downstream caller address a
 // settlement by. ABT: the broadcast transaction hash, plus the two output
@@ -111,21 +156,57 @@ export type WalletResponseInput = {
 // confirm() can check the balances those very outputs paid into (D4,
 // Review round 1: confirm previously checked only getTx's code, while the
 // card defines confirm as "code OK AND reading the two output balances").
-export type PaymentRef = {
-  readonly rail: 'abt';
-  readonly hash: string;
-  readonly operatorAddress: string;
-  readonly feeAddress: string;
-};
+export type PaymentRef =
+  | {
+      readonly rail: 'abt';
+      readonly hash: string;
+      readonly operatorAddress: string;
+      readonly feeAddress: string;
+    }
+  | {
+      readonly rail: 'usdc';
+      readonly jobId: string;
+      readonly leg: 'deposit' | 'balance';
+      readonly chainId: number;
+      readonly tokenContract: string;
+      readonly operatorAddress: string;
+      readonly feeAddress: string;
+      readonly priceTxHash: string;
+      // null exactly when the wallet never signed the fee transfer
+      // (WalletResponseInput's `feeTx: { signed: false }`): confirm() must
+      // never invent a hash to check a receipt for one that was never sent.
+      readonly feeTxHash: string | null;
+    };
+
+// Per-leg outcome confirm() actually observed on chain, USDC only. Three
+// states, not two, because "the wallet never signed this" and "signed and
+// broadcast but the chain has not confirmed it" are different facts and a
+// caller acting on either must be able to tell them apart.
+export type UsdcLegStatus =
+  | { readonly status: 'confirmed'; readonly hash: string }
+  | { readonly status: 'not_confirmed'; readonly hash: string }
+  | { readonly status: 'not_signed' };
 
 export interface Confirmation {
   readonly rail: Rail;
+  // ABT: the single broadcast tx hash. USDC: the price transfer's hash,
+  // which always exists by the time confirm() is called (see
+  // WalletResponseInput above).
   readonly hash: string;
   readonly confirmed: boolean;
   // Present once confirmed is true (ABT): the operator's and platform fee
   // address's token balance, read fresh from the chain, in token units.
   readonly operatorBalance?: string;
   readonly feeBalance?: string;
+  // USDC only: each leg's own observed status, so a caller never has to
+  // infer what happened to the fee transfer from `confirmed: false` alone
+  // (P3 brief, "never report a leg it did not see a receipt for").
+  readonly legs?: { readonly price: UsdcLegStatus; readonly fee: UsdcLegStatus };
+  // True exactly when one leg confirmed and the other did not (whichever
+  // direction): the half-paid state this card exists to name plainly
+  // rather than silently reporting `confirmed: false` and leaving a caller
+  // to guess why.
+  readonly halfPaid?: boolean;
 }
 
 export interface PaymentRail {

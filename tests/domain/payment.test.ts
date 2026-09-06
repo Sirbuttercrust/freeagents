@@ -1,7 +1,7 @@
 // P2: fee math, pure, decimal strings, no floats. Every assertion here fails
 // without src/domain/payment.ts and passes with it.
 import { describe, expect, it } from 'vitest';
-import { ABT_FEE_RATE_PERCENT, calculateFee, usdToTokenAmount } from '../../src/domain/payment.js';
+import { ABT_FEE_RATE_PERCENT, USDC_FEE_RATE_PERCENT, calculateFee, toBaseUnits, usdToTokenAmount } from '../../src/domain/payment.js';
 
 describe('calculateFee: decimal-string math, never a JS float', () => {
   it('computes 3 percent of a plain amount, rounded to two places', () => {
@@ -65,6 +65,21 @@ describe('calculateFee: decimal-string math, never a JS float', () => {
   });
 });
 
+describe('calculateFee at the USDC rate (6 percent, P3): the same round-half-up rule applies at a different rate', () => {
+  it('computes 6 percent of a plain amount', () => {
+    expect(calculateFee('20.00', USDC_FEE_RATE_PERCENT)).toBe('1.20');
+  });
+
+  // MUTATION PROOF (P3, "round the 6 percent fee the wrong way at the
+  // boundary"): 0.25 * 6% = 0.0150, an exact half-cent tie at the 6 percent
+  // rate (a different tie than ABT's 0.50 * 3% one, since 6 percent and 3
+  // percent land on a tie at different amounts). Round-half-up answers
+  // 0.02; truncation answers 0.01.
+  it('an amount landing exactly on a half-cent fee at 6 percent rounds up (round-half-up, not truncation)', () => {
+    expect(calculateFee('0.25', USDC_FEE_RATE_PERCENT)).toBe('0.02');
+  });
+});
+
 describe('usdToTokenAmount: dollar amount converted at an injected rate, decimal strings only', () => {
   it('divides the dollar amount by the USD-per-token rate', () => {
     // $2.06 at a rate of $1 per token is 2.06 tokens.
@@ -108,5 +123,39 @@ describe('usdToTokenAmount: dollar amount converted at an injected rate, decimal
     // merely-small rate.
     expect(() => usdToTokenAmount('10.00', '0.004')).not.toThrow();
     expect(usdToTokenAmount('10.00', '0.004')).toBe('2500');
+  });
+});
+
+describe('toBaseUnits: decimal token amount to integer smallest-unit, floor convention (P3)', () => {
+  it('converts a whole-number token amount at 6 decimals (USDC)', () => {
+    expect(toBaseUnits('15', 6)).toBe('15000000');
+  });
+
+  it('converts a fractional token amount that divides exactly at the target precision', () => {
+    expect(toBaseUnits('1.2', 6)).toBe('1200000');
+  });
+
+  // MUTATION PROOF (P3, "settle the rounding convention deliberately"):
+  // FLOOR, not round-half-up, chosen so the buyer is never asked to sign a
+  // base-unit amount larger than the exact quoted price (consistent with
+  // usdToTokenAmount's own floor at its 8-decimal-place limit, so the whole
+  // USD -> token -> base-units pipeline errs in one direction only). This
+  // amount's 7th decimal digit is a genuine tie-breaker (5, not merely
+  // trailing), so round-half-up and floor answer differently: round-half-up
+  // would take 15123457, floor takes 15123456.
+  it('floors excess fractional digits beyond the target precision (round-half-up would answer differently)', () => {
+    expect(toBaseUnits('15.1234565', 6)).toBe('15123456');
+  });
+
+  it('floors even when the excess digit is a 9 (never rounds up regardless of magnitude)', () => {
+    expect(toBaseUnits('0.0000009', 6)).toBe('0');
+  });
+
+  it('rejects a malformed amount rather than silently returning zero', () => {
+    expect(() => toBaseUnits('not-a-number', 6)).toThrow();
+  });
+
+  it('rejects a negative decimals count', () => {
+    expect(() => toBaseUnits('15', -1)).toThrow();
   });
 });

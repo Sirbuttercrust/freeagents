@@ -10,6 +10,7 @@ import { fromRandom } from '@ocap/wallet';
 import { fromBase64, toBase58 } from '@ocap/util';
 import { decodeTx as cborDecodeTx, encodeTx as cborEncodeTx } from '@ocap/message/cbor';
 import { createAbtPaymentRail } from '../../../src/adapters/payment/abt.js';
+import { createUsdcPaymentRail } from '../../../src/adapters/payment/usdc.js';
 import type { AbtChainClient } from '../../../src/adapters/payment/abt.js';
 
 const TOKEN = 'z1Token00000000000000000000000000000000';
@@ -139,5 +140,42 @@ describe('invariant 12: the platform wallet is never an input owner on any trans
     // rail's createRequest output itself, independent of what a wallet
     // sends back, never contains the platform address among inputs.
     expect(JSON.stringify(request.claim.partialTx.itx.inputs)).not.toContain(platformWallet.toAddress());
+  });
+});
+
+// P3: invariant 12 on the USDC rail. USDC has no envelope-signing platform
+// step at all (unlike ABT): the buyer signs each ERC-20 transfer directly
+// with their own wallet, addressed straight to the operator or the fee
+// address. There is no platform wallet in this rail's flow to appear as an
+// input owner in the first place; this test pins that structurally, by
+// reading the two transfer intents this rail actually builds.
+describe('invariant 12 (USDC): the platform never appears as a recipient of the price transfer, and never signs on the buyer\'s behalf', () => {
+  it('the price transfer pays the operator; the platform address appears only as the fee transfer\'s recipient', async () => {
+    const usdcFeeAddress = '0xFeeAddress000000000000000000000000000';
+    const operatorUsdcAddress = '0xOperator000000000000000000000000000000';
+    const rail = withEnv(
+      {
+        FREEAGENTS_USDC_RPC_URL: 'https://sepolia-rollup.arbitrum.io/rpc',
+        FREEAGENTS_USDC_TOKEN_CONTRACT: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
+        FREEAGENTS_USDC_CHAIN_ID: '421614',
+        FREEAGENTS_USDC_FEE_ADDRESS: usdcFeeAddress,
+      },
+      () => createUsdcPaymentRail({ chainClient: { decimals: async () => 6, getTransactionReceipt: async () => null } }),
+    );
+    const request = await rail.createRequest({
+      jobId: 'job_1',
+      leg: 'deposit',
+      operatorAddress: operatorUsdcAddress,
+      amountToken: '15',
+      feeToken: '1.2',
+    });
+    expect(request.transfers[0].recipient).toBe(operatorUsdcAddress);
+    expect(request.transfers[0].recipient).not.toBe(usdcFeeAddress);
+    expect(request.transfers[1].recipient).toBe(usdcFeeAddress);
+    // Neither transfer intent carries any concept of a platform-held
+    // input: its keys are exactly recipient/amountBaseUnits/tokenContract,
+    // never a signer or a from-address the platform controls.
+    expect(Object.keys(request.transfers[0]).sort()).toEqual(['amountBaseUnits', 'recipient', 'tokenContract']);
+    expect(Object.keys(request.transfers[1]).sort()).toEqual(['amountBaseUnits', 'recipient', 'tokenContract']);
   });
 });
