@@ -18,6 +18,7 @@ import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 
 let buyer: SigningIdentity;
 let agent: SigningIdentity;
+let stranger: SigningIdentity;
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
   { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
@@ -51,6 +52,12 @@ async function startWith(repo: JobRepository, attestationRepo: MemoryAttestation
   });
   const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-redo-scripted' });
+  // P6 review round 3, D6 (t_604e3f2a): a stranger's signature must be
+  // verifiable (registered somewhere, the way requireSignedParty's own
+  // header comment distinguishes 401 "no signature" from 403 "signature
+  // does not name a party") for the redo route's own party check, not the
+  // signature verification step, to be what refuses them.
+  await operatorRepo.register({ did: stranger.did, githubLogin: 'stranger-redo-scripted' });
   const sessionAdapter = testSessionAdapter();
   const s = createApp(
     operatorRepo,
@@ -102,6 +109,7 @@ describe('job redo at staged (P6, design record row 2)', () => {
   beforeAll(async () => {
     buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(121));
     agent = await signingIdentityFromSeed(new Uint8Array(32).fill(122));
+    stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(123));
     attestationRepo = new MemoryAttestationRepository();
     const started = await startWith(new MemoryJobRepository(), attestationRepo);
     server = started.server;
@@ -148,6 +156,25 @@ describe('job redo at staged (P6, design record row 2)', () => {
     expect((await postSigned(baseUrl, `/jobs/${jobId}/redo`, { criterionIndex: 0 }, buyer)).status).toBe(200);
     const res = await postSigned(baseUrl, `/jobs/${jobId}/redo-refuse`, {}, buyer);
     expect(res.status).toBe(403);
+  });
+
+  // P6 review round 3, D6 (t_604e3f2a): the brief's own "done means" list
+  // names this explicitly ("the agent cannot request a redo and a stranger
+  // cannot either"). The agent half was pinned above; a verified signature
+  // that names neither party to the job was not.
+  it('a stranger cannot request a redo (403): a verified signature naming neither party is refused', async () => {
+    const jobId = await walkToStaged(baseUrl);
+    const res = await postSigned(baseUrl, `/jobs/${jobId}/redo`, { criterionIndex: 0 }, stranger);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'signature does not name a party to this job' });
+  });
+
+  it('a stranger cannot refuse a redo (403): a verified signature naming neither party is refused', async () => {
+    const jobId = await walkToStaged(baseUrl);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/redo`, { criterionIndex: 0 }, buyer)).status).toBe(200);
+    const res = await postSigned(baseUrl, `/jobs/${jobId}/redo-refuse`, {}, stranger);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'signature does not name a party to this job' });
   });
 
   it('the first attestation is still readable after a redo restages: a new record joins it, the old one is never overwritten', async () => {
