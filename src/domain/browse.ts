@@ -61,7 +61,7 @@ export interface BrowseCard {
   // exists (R-20 item 3): "12 verified hires, 9 buyers" never implies a
   // breadth the record does not have, because it is computed from the SAME
   // verifiedHires array as verifiedHireCount, below, never from a wider
-  // population (Proof's summary-contradicts-tier finding: a caller-supplied
+  // population (the summary-contradicts-tier finding from review: a caller-supplied
   // buyerCount drawn from every completed job, tier-blind).
   readonly buyerCount: number;
 }

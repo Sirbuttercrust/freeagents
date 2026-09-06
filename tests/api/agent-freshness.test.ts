@@ -284,7 +284,7 @@ describe('GET /agents/:agentDid, freshness (R-37)', () => {
     // The tier this date is supposed to sit beside is empty: a merge into a
     // private repository never reaches verified-hire (invariant 4).
     expect(body.verifiedHires).toEqual([]);
-    // The blocker Proof reported: this must not read July 4 out of the
+    // The blocker raised in review: this must not read July 4 out of the
     // wider, tier-blind findCompletedByAgent population.
     expect(body.lastHireCompletedAt).toBeNull();
   });
