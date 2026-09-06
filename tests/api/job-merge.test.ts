@@ -1090,7 +1090,7 @@ describe('job merge, outcomes (R-12)', () => {
 });
 
 describe('job merge, who may (B8, 2026-09-01)', () => {
-  // Proof's D2 on t_66170f30: the merge guard was live but pinned by no
+  // D2 from review on t_66170f30: the merge guard was live but pinned by no
   // test, so reinstating the pre-B8 unauthenticated route passed the whole
   // suite. This block exists to make that mutation fail. Same shape as the
   // B6 and B7 blocks: unsigned 401, stranger 403, zero GitHub calls on the
