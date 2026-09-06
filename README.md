@@ -89,10 +89,55 @@ npm test
 
 The domain and adapter layers are separated on purpose: `src/domain` is plain
 TypeScript with no vendor dependency, `src/adapters` is where every ArcBlock
-integration lives behind a narrow interface. Identity, credentials, and
-GitHub adapters currently throw on every call, real work is not wired in yet.
-The HTTP surface in `src/api` exists and returns `501` for the hire loop
-routes until it is.
+integration lives behind a narrow interface. Identity, credentials, and the
+GitHub adapter are real: they call `@arcblock/did`, the ArcBlock DID Connect
+wallet flow, and the GitHub API respectively, each behind its own
+fail-closed guard when the environment it needs is not configured.
+
+## Deploying
+
+1. **Set `DATABASE_URL`** to a Postgres connection string. Every other
+   environment variable is optional; see `blocklet.yml`'s `environments:`
+   block and `.env.example` for what each one does.
+2. **Install and build:** `npm install && npm run build`.
+3. **Start it:** `npm start`, or on Blocklet Server, install the bundle and
+   let it run the `main` entry point. Both paths apply every migration in
+   `prisma/migrations` with `prisma migrate deploy` before the server
+   accepts its first request: `npm start` runs it automatically through
+   npm's own `prestart` lifecycle script, and Blocklet Server runs it
+   through the `preStart` hook declared in `blocklet.yml`. Nobody runs a
+   database command by hand either way.
+
+What the migration step does in each case an operator actually hits:
+
+- **Empty database:** all ten migrations apply in order, `_prisma_migrations`
+  ends up with ten rows, and the server starts.
+- **Database already at the current schema:** the step is a no-op. It exits
+  0 and logs that the schema is up to date; starting a second time against
+  the same database changes nothing.
+- **Database with tables but no migration history:** `prisma migrate deploy`
+  refuses with error P3005, "the database schema is not empty", because it
+  cannot tell which of its migrations the existing tables already reflect.
+  This is not a database health check gone wrong; it is Prisma correctly
+  declining to guess. The fix is a one-time baseline, run by a human, not by
+  this step:
+  ```bash
+  # For each migration under prisma/migrations whose effects the database
+  # already has, oldest first:
+  npx prisma migrate resolve --applied <migration_name>
+  # Then run the normal deploy for whatever is left:
+  npx prisma migrate deploy
+  ```
+  The migration step recognizes P3005 and points at this procedure in its
+  error message rather than failing with a bare Prisma error, but it never
+  runs the baseline itself: marking a migration applied without running it
+  is a claim about a database's contents that only a human can make
+  correctly.
+
+If the migration step cannot apply the schema for any other reason, it exits
+non-zero with the underlying cause in the log and the server does not start.
+A server running against an unmigrated schema is the failure this step
+exists to prevent, so it never starts halfway.
 
 ## Built in the open
 
