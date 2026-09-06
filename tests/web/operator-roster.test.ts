@@ -119,7 +119,7 @@ beforeAll(async () => {
   // gap between each (mirrors registerAgent's createdAt-by-registration-time
   // rule in tests/api/browse.test.ts), so recently-listed has a genuine
   // order to prove and skill has a genuine split to filter on: 6 python, 5
-  // rust, same mix Proof's live reproduction used.
+  // rust, same mix the live reproduction from review used.
   for (let i = 0; i < 11; i += 1) {
     const did = `did:abt:zRosterPageControlAgent${i}`;
     await agentRepo.create({
