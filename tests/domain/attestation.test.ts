@@ -8,7 +8,6 @@ import { describe, expect, it } from 'vitest';
 import { createJob, stageWork, type Job } from '../../src/domain/job.js';
 import {
   buildAttestation,
-  serializeAttestation,
   AttestationError,
   type StagingObservation,
 } from '../../src/domain/attestation.js';
@@ -138,14 +137,14 @@ describe('buildAttestation: the accepted fields, and only the accepted fields', 
   });
 });
 
-describe('serializeAttestation: canonical bytes, the contract the signature covers', () => {
+describe('buildAttestation output is itself the canonical bytes: the signature covers exactly what this function returns, nothing behind an unused helper', () => {
   it('is deterministic for the same attestation', () => {
     const job = stagedJob();
     const attestation = buildAttestation(job, observation(), new Date());
-    expect(serializeAttestation(attestation)).toBe(serializeAttestation(attestation));
+    expect(JSON.stringify(attestation)).toBe(JSON.stringify(attestation));
   });
 
-  it('a field-order permutation of the same facts produces the same bytes', () => {
+  it('a field-order permutation of the same facts produces the same bytes straight off buildAttestation, with no intermediate step required', () => {
     const job = stagedJob();
     const now = new Date();
     const a = buildAttestation(
@@ -165,14 +164,14 @@ describe('serializeAttestation: canonical bytes, the contract the signature cove
       }),
       now,
     );
-    expect(serializeAttestation(a)).toBe(serializeAttestation(b));
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
   });
 
   it('differs when a real fact differs', () => {
     const job = stagedJob();
     const a = buildAttestation(job, observation({ linesAdded: 40 }), new Date());
     const b = buildAttestation(job, observation({ linesAdded: 41 }), new Date());
-    expect(serializeAttestation(a)).not.toBe(serializeAttestation(b));
+    expect(JSON.stringify(a)).not.toBe(JSON.stringify(b));
   });
 
   it('the refused list, pinned negatively: sentinel strings for the diff, source, symbols, test bodies and commit messages never appear in the serialized bytes', () => {
@@ -187,7 +186,7 @@ describe('serializeAttestation: canonical bytes, the contract the signature cove
       }),
       new Date(),
     );
-    const wire = serializeAttestation(attestation);
+    const wire = JSON.stringify(attestation);
     const sentinels = [
       'SENTINEL_DIFF_LINE_+function secretSauce()',
       'SENTINEL_SOURCE_BODY_const apiKey = "shh"',

@@ -12,16 +12,24 @@
 // which is what makes the platform signature over those bytes verifiable
 // by a third party without calling this service (invariant 2).
 //
-// CANONICAL SERIALIZATION (this is the contract the signature covers):
+// CANONICAL SERIALIZATION (this is the contract the signature covers, and
+// it is produced by buildAttestation itself, not by a separate step
+// downstream of it -- the credentials adapter signs this object verbatim,
+// so any normalization has to live here or the signed document does not
+// actually carry it):
 //   - object keys in a fixed, explicit order (never Object.keys' insertion
 //     order, which a caller could vary without changing any fact)
 //   - changedPaths, testsDeleted and testsSkipAdded sorted lexicographically
+//   - commitSigners sorted by matchesAgentDid (false before true): signers
+//     carry no other field to sort by, so this is the only ordering
+//     freedom a caller could vary without changing any fact
+//   - lineShareByCategory's five keys always written in the same order
 //   - numbers written as JSON integers or the fixed-precision decimal a
 //     line share is (never a locale-formatted string)
-//   - no whitespace: JSON.stringify with no space argument
 // A permutation of the same facts into a different field or array order
-// must produce byte-identical output; see the mutation proof in this
-// file's test for the pin.
+// must produce byte-identical JSON.stringify output off the object this
+// function returns; see the mutation proof in this file's test for the
+// pin.
 import type { Job } from './job.js';
 
 export class AttestationError extends Error {
@@ -111,6 +119,16 @@ export interface Attestation {
 // brief's own instruction ("from the job, not from a party") is honoured
 // by construction, since observation carries no stagedCommit field to
 // even be tempted by.
+//
+// Every field below is written in the same explicit key order every
+// call, and the array fields are sorted, so this object's own
+// JSON.stringify output IS the canonical serialization the platform
+// signature covers (this file's header). There is no separate
+// serialization step downstream: normalizing here, once, is what keeps
+// the signed document (src/adapters/credentials/credentials.ts embeds
+// this object verbatim under credentialSubject.attestation) actually
+// order-invariant, instead of only a helper nothing calls being
+// order-invariant.
 export function buildAttestation(job: Job, observed: StagingObservation, now: Date): Attestation {
   if (job.stagedCommit === null) {
     throw new AttestationError(
@@ -124,7 +142,13 @@ export function buildAttestation(job: Job, observed: StagingObservation, now: Da
     linesAdded: observed.linesAdded,
     linesRemoved: observed.linesRemoved,
     changedPaths: [...observed.changedPaths].sort(),
-    lineShareByCategory: { ...observed.lineShareByCategory },
+    lineShareByCategory: {
+      source: observed.lineShareByCategory.source,
+      test: observed.lineShareByCategory.test,
+      lockfile: observed.lineShareByCategory.lockfile,
+      generated: observed.lineShareByCategory.generated,
+      vendored: observed.lineShareByCategory.vendored,
+    },
     testsDeleted: [...observed.testsDeleted].sort(),
     testsSkipAdded: [...observed.testsSkipAdded].sort(),
     buyerTestRun: {
@@ -136,50 +160,13 @@ export function buildAttestation(job: Job, observed: StagingObservation, now: Da
       failingTestNames: [...observed.buyerTestRun.failingTestNames].sort(),
     },
     outOfCriteriaPathCount: observed.outOfCriteriaPathCount,
-    commitSigners: observed.commitSigners.map((signer) => ({ matchesAgentDid: signer.matchesAgentDid })),
-    generatedAt: now.toISOString(),
-  };
-}
-
-// The canonical serialization the platform signature covers (see this
-// file's header comment). Every key is written in a fixed order chosen
-// here, never derived from the object's own enumeration order, so a
-// caller that assembled the same facts through a different code path
-// still signs and verifies against the same bytes.
-export function serializeAttestation(attestation: Attestation): string {
-  const canonical = {
-    stagedCommit: attestation.stagedCommit,
-    diffHash: attestation.diffHash,
-    filesChanged: attestation.filesChanged,
-    linesAdded: attestation.linesAdded,
-    linesRemoved: attestation.linesRemoved,
-    changedPaths: [...attestation.changedPaths].sort(),
-    lineShareByCategory: {
-      source: attestation.lineShareByCategory.source,
-      test: attestation.lineShareByCategory.test,
-      lockfile: attestation.lineShareByCategory.lockfile,
-      generated: attestation.lineShareByCategory.generated,
-      vendored: attestation.lineShareByCategory.vendored,
-    },
-    testsDeleted: [...attestation.testsDeleted].sort(),
-    testsSkipAdded: [...attestation.testsSkipAdded].sort(),
-    buyerTestRun: {
-      command: attestation.buyerTestRun.command,
-      exitCode: attestation.buyerTestRun.exitCode,
-      passCount: attestation.buyerTestRun.passCount,
-      failCount: attestation.buyerTestRun.failCount,
-      skipCount: attestation.buyerTestRun.skipCount,
-      failingTestNames: [...attestation.buyerTestRun.failingTestNames].sort(),
-    },
-    outOfCriteriaPathCount: attestation.outOfCriteriaPathCount,
     // Signers carry no identifying field to sort by; the count and the
     // multiset of booleans are the whole fact, so a stable sort on the
     // boolean value (false before true) removes the only remaining
     // ordering freedom a caller could vary without changing any fact.
-    commitSigners: [...attestation.commitSigners]
+    commitSigners: [...observed.commitSigners]
       .map((signer) => ({ matchesAgentDid: signer.matchesAgentDid }))
       .sort((a, b) => Number(a.matchesAgentDid) - Number(b.matchesAgentDid)),
-    generatedAt: attestation.generatedAt,
+    generatedAt: now.toISOString(),
   };
-  return JSON.stringify(canonical);
 }

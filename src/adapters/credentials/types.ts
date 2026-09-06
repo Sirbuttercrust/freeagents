@@ -118,12 +118,13 @@ export interface CredentialsAdapter {
   issueWorkHistoryCredential(subjectDid: string, claim: WorkHistoryClaim): Promise<VerifiableCredential>;
   verifyCredential(credential: VerifiableCredential): Promise<boolean>;
   getCredential(credentialId: string): Promise<VerifiableCredential>;
-  // P5: sign the canonical serialization of an attestation (see
-  // src/domain/attestation.ts's serializeAttestation) with the platform
-  // key, through the same Ed25519Signature2020 construction
-  // issueWorkHistoryCredential already uses. The id is a stable, resolvable
-  // handle keyed on the staged commit (ENT-8's stance, restated): a
-  // stranger can recompute it from the attestation's own stagedCommit
-  // field without calling this service.
+  // P5: sign the attestation exactly as buildAttestation returned it (see
+  // src/domain/attestation.ts's own header: that function's output is
+  // already the canonical, order-invariant serialization the signature
+  // covers) with the platform key, through the same Ed25519Signature2020
+  // construction issueWorkHistoryCredential already uses. The id is a
+  // stable, resolvable handle keyed on the staged commit (ENT-8's stance,
+  // restated): a stranger can recompute it from the attestation's own
+  // stagedCommit field without calling this service.
   signAttestation(attestation: Attestation): Promise<SignedAttestation>;
 }

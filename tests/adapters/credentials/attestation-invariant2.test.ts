@@ -180,6 +180,71 @@ describe('platform signature over an attestation, invariant 2', () => {
     }
   });
 
+  it('the signed wire is invariant under a permutation of the same facts: two observations differing only in signer order and lineShareByCategory key order sign to identical attestation bytes', async () => {
+    const issuerSeed = newSeed();
+    const issuerKey = await generateKey(issuerSeed);
+    const localIssuerDid = issuerKey.controller;
+    const now = new Date('2026-01-06T00:00:00Z');
+    const draft = createJob(
+      { id: 'job-perm', buyerDid: 'did:example:buyer', agentDid: 'did:example:agent', repository: 'buyer/target-repo', brief: 'Fix the login bug' },
+      now,
+    );
+    const confirmed: Job = {
+      ...draft,
+      status: 'confirmed',
+      confirmedSpecHash: 'sha256:spec',
+      confirmedAt: now,
+      priceUsd: '500.00',
+      rail: 'abt',
+      priceAcceptedByBuyer: true,
+      priceAcceptedByAgent: true,
+      criteria: [{ text: 'Login works', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+    };
+    const job = stageWork(confirmed, 'commit-sha-perm-1', now);
+    const base = {
+      diffHash: 'sha256:diffhash',
+      filesChanged: 3,
+      linesAdded: 40,
+      linesRemoved: 10,
+      changedPaths: ['src/b.ts', 'src/a.ts'],
+      testsDeleted: [] as string[],
+      testsSkipAdded: [] as string[],
+      buyerTestRun: {
+        command: 'npm test',
+        exitCode: 0,
+        passCount: 10,
+        failCount: 0,
+        skipCount: 0,
+        failingTestNames: [] as string[],
+      },
+      outOfCriteriaPathCount: 1,
+    };
+    const attestationA = buildAttestation(
+      job,
+      {
+        ...base,
+        lineShareByCategory: { source: 0.7, test: 0.2, lockfile: 0.05, generated: 0.03, vendored: 0.02 },
+        commitSigners: [{ matchesAgentDid: true }, { matchesAgentDid: false }],
+      },
+      now,
+    );
+    const attestationB = buildAttestation(
+      job,
+      {
+        ...base,
+        lineShareByCategory: { vendored: 0.02, generated: 0.03, lockfile: 0.05, test: 0.2, source: 0.7 },
+        commitSigners: [{ matchesAgentDid: false }, { matchesAgentDid: true }],
+      },
+      now,
+    );
+    const issuer = { did: localIssuerDid, seed: issuerSeed };
+    const signedA = await createCredentialsAdapter(issuer).signAttestation(attestationA);
+    const signedB = await createCredentialsAdapter(issuer).signAttestation(attestationB);
+    const subjectA = (signedA as unknown as Record<string, unknown>).credentialSubject as Record<string, unknown>;
+    const subjectB = (signedB as unknown as Record<string, unknown>).credentialSubject as Record<string, unknown>;
+    expect(JSON.stringify(subjectA.attestation)).toBe(JSON.stringify(subjectB.attestation));
+  });
+
   it('FORGERY: an attacker key claiming the platform DID is rejected by the binding check', async () => {
     const attackerKey = await Ed25519VerificationKey2020.generate({ seed: newSeed(), controller: issuerDid });
     attackerKey.id = `${issuerDid}#${attackerKey.publicKeyMultibase}`;
