@@ -1,0 +1,734 @@
+/* FreeAgents: the hire, agreement and payment flow.
+   Loaded AFTER base.css by the flow screens only. Nothing in here overrides
+   a base.css rule; every selector is a new name, so base.css stays the
+   readable statement of the system.
+
+   WHY A SECOND STYLESHEET AND NOT MORE PAGE-LOCAL BLOCKS. Eight screens share
+   the same eight components: the stage rail, the two-party term matrix, the
+   money total, the rail chooser, the clock, the fact list, the sheet, the
+   picker. Copying any of those into eight <style> blocks guarantees they drift,
+   and the drift always shows up as two screens teaching the same idea two ways.
+
+   THREE RULES CARRIED FROM base.css, restated because every component below
+   obeys them:
+
+   1. The accent means "we watched this happen" and nothing else. A signature
+      is a PROMISE, not witnessed work, so a signed line is neutral. A verified
+      hire count is witnessed, so it keeps the accent. This is the single
+      easiest rule to break on a payment screen, because a cryptographic
+      signature feels like exactly the kind of fact the accent is for.
+   2. No verdict, no score, no grade. The attestation renders every fact at
+      the same weight. Colouring "2 tests skipped" as a warning would be the
+      platform judging the work, which it does not do.
+   3. Space instead of lines. A border only survives where alignment genuinely
+      needs a guide, which on these screens means the term matrix and the row
+      lists.
+*/
+
+/* ==================================================================== rail
+   The five stages of a hire, as a bar across the top of every flow screen.
+
+   Named .rail rather than .steps because base.css already owns .steps as a
+   flex row of <span>, and three older pages override THAT with their own
+   <ol> version. A third meaning for the same class would be the fourth
+   accident waiting to happen. */
+
+.rail { display: flex; gap: 0; margin: 0; list-style: none; padding: 0; }
+.rail li {
+  flex: 1; font-size: 12px; color: var(--fg-2);
+  padding-top: 12px; border-top: 2px solid var(--line);
+  font-family: var(--mono); letter-spacing: 0.02em;
+  min-width: 0;
+}
+
+/* FUTURE STEPS ARE --fg-2, NOT --fg-3, and this departs from DESIGN.md's
+   older `.steps` spec on a measurement. contrast_check.py sampled a future
+   step at 3.52:1 against the pane behind it; AA needs 4.5 at 12px. DESIGN.md
+   2.5 is explicit that when a measurement says --fg-3 fails, the answer is to
+   lift, never to leave it.
+
+   So the three states are carried by the BORDER, which is a decorative rule
+   rather than text and is held to 3:1, and the text only distinguishes the
+   current step from the rest:
+
+     current   text --fg,   border --fg
+     done      text --fg-2, border --line-2
+     future    text --fg-2, border --line
+
+   Losing the text-colour difference between done and future costs little:
+   position already says which is which (everything left of the current step
+   is done), and the border keeps a visible difference. Shipping 3.52:1 text
+   to say the same thing would not be a trade, it would be a defect. */
+.rail li.on   { color: var(--fg); border-top-color: var(--fg); }
+.rail li.done { color: var(--fg-2); border-top-color: var(--line-2); }
+
+/* THE CURRENT STEP IS --fg, NOT --accent, and this was a real finding from
+   verify_flow.py against the tree that had just passed everything else.
+   "You are on step 3" is navigation state, not witnessed work, so under
+   DESIGN.md 2.2 it has no claim on the reserved colour. The rail already
+   separates its three states by text colour (--fg, --fg-2, --fg-3); the
+   border only has to agree with the text beside it.
+
+   Worth stating plainly because it looked harmless: if a per-line signature,
+   which is a genuine cryptographic fact, does not get the accent, then a
+   progress marker certainly does not.
+
+   The three pre-payment screens (hire's old rail, criteria.html,
+   confirm.html) each carry a page-local `.steps li.on` that still paints the
+   accent. Two of those three are superseded. The live one is noted for
+   review rather than silently changed from here, because .steps is a
+   different component owned by those pages. */
+
+/* Below 640px the labels are dropped and the bar becomes five segments that
+   still say where you are. The stage name survives in real text under the
+   rail (see .railnow), so nothing is lost, including for a screen reader. */
+@media (max-width: 640px) {
+  .rail li { font-size: 0; padding-top: 8px; }
+}
+.railnow { display: none; font-size: 13px; color: var(--fg-2); margin-top: 12px; }
+@media (max-width: 640px) { .railnow { display: block; } }
+
+/* ===================================================================== who
+   The agent and operator strip. Same shape as the one three older pages
+   define locally; defined once here so the flow screens cannot drift from
+   each other. */
+
+.who {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px;
+}
+.who img { width: 32px; height: 32px; border-radius: 50%; flex: none; }
+.who .n { font-weight: 550; }
+.who .r { color: var(--fg-2); font-size: 13px; }
+
+/* A LINK inside that line is lifted to --fg-2, and this is a measured fix
+   rather than a preference. `contrast_check.py` sampled the operator link at
+   3.72:1 against the page, where AA needs 4.5 at 13px.
+
+   DESIGN.md 2.5 permits --fg-3 "for portfolio claim text and for nothing that
+   a user must read to act". An operator's name is a control a person follows
+   to decide who is accountable for the agent they are about to pay, so it is
+   squarely in the second category. The surrounding words stay quiet; only the
+   thing you can click is lifted, which also makes the link discoverable
+   instead of being the same grey as the sentence around it.
+
+   Measured after: 7.68:1. */
+.who .r a { color: var(--fg-2); }
+.who .r a:hover { color: var(--fg); }
+
+/* The verified hire count beside a name. This IS witnessed work, so it is one
+   of the four places the accent is allowed. */
+.who .hires { color: var(--accent); font-size: 13px; font-weight: 550; }
+
+@media (max-width: 420px) {
+  .who { flex-wrap: wrap; }
+  .who .spacer { display: none; }
+}
+
+/* ============================================ pane padding, restored
+   THE TRAP THIS EXISTS FOR. Every list below is a <ul> or <ol>, so each one
+   has to zero the browser's 40px list indent, and each is used with
+   `class="... pane pane-pad"`. `.pane-pad` lives in base.css and sets all four
+   paddings; `.fixed { padding: 0 }` lives here and this file loads second, so
+   the list's reset silently deleted the pane's padding and every value in the
+   right-hand column sat flush against the pane's rim. Measured: value right
+   edge 1260, pane right edge 1260, zero gap.
+
+   The fix is a compound selector rather than a per-page override, because the
+   next component someone adds here will hit exactly the same wall. Two classes
+   beat one, so the pane wins wherever both are present, and the bare list
+   still gets its reset when it is used off a pane. */
+.pane-pad.fixed,
+.pane-pad.facts,
+.pane-pad.getlist,
+.pane-pad.terms,
+.pane-pad.counts,
+.pane-pad.picker,
+.pane-pad.outcomes { padding: 22px 24px; }
+
+/* =========================================== the --fg-3 rule on these screens
+   MEASURED, and it changes what --fg-3 may be used for here.
+
+   contrast_check.py sampled 21 real failures across the eight flow screens,
+   every one of them --fg-3 (#666B73) carrying real body text: 3.44:1 on a
+   pane, 3.72:1 on the page, against the 4.5 AA needs at 12 and 13px.
+
+   DESIGN.md 2.5 already anticipated this. --fg-3 is "the quietest legible
+   grey", permitted "for portfolio claim text and for nothing that a user must
+   read to act", and the file is explicit that if a measurement says it fails,
+   the fix is to lift the token rather than leave it.
+
+   None of the text below is a portfolio claim. It is the explanation under
+   every conduct count, the repository a job belongs to, the diff size on a
+   pull request, and the sentence saying nothing exists yet. All of it is read
+   to act on.
+
+   Applied at each rule's own declaration rather than as one override block
+   further down the file. A batch selector is the obvious move and it does not
+   work: `.ct .d` in the batch and `.ct .d` at its own definition have equal
+   specificity, so whichever comes LATER wins, and the definitions all come
+   later. The measured result was 21 failures becoming 17 while the batch rule
+   looked correct in the source. Fix the declaration, not its shadow.
+
+   THE LIST IS MEASURED, NOT GUESSED. A first attempt was written by reading
+   contrast_check.py's text snippets and inferring which classes they belonged
+   to; it missed four. The set below came from asking the page which elements
+   actually compute to #666B73 while carrying prose, across all eight screens
+   with every disclosure and dialog open.
+
+   ===================================================================
+   ROUND 2: THE EXEMPTION THAT SURVIVED THIS BLOCK WAS ALSO WRONG.
+   ===================================================================
+
+   The first pass ended with an exemption written right here, naming what was
+   allowed to stay at --fg-3: row numbers, the `edit` control, the column
+   headers, on the reasoning that they are "2 to 4 characters of scaffolding".
+   Review rejected it, correctly, and the reasoning is worth keeping because
+   it is the kind of mistake that reads as principled while it is happening.
+
+   `edit` is the only control that reopens a signed line of an agreement, and
+   the card requires that the buyer accepts or edits per line. "You" and the
+   agent's name are the labels that say whose signature each column carries,
+   which on a two-party matrix is the load-bearing text on the screen. A row
+   number is how a person says which line they mean when they ask for a
+   change. None of that is scaffolding. Calling it structure was a way of
+   describing text by its LENGTH rather than by its job, and short text that
+   you have to read is still text you have to read.
+
+   So there is no exemption on these screens any more. THE RULE IS:
+
+       if it renders characters, it meets AA.
+
+   --fg-3 keeps only the jobs that paint no characters at all: the dashed
+   unsigned ring, hairlines, hover borders, and the input placeholder colour.
+
+   This is now enforced by verify_ink.py, which makes every glyph transparent,
+   photographs the page, and measures each text run against the pixel actually
+   behind it. It does not consult a list of allowed classes, so the argument
+   about what counts as structure cannot be had again: 45 real failures across
+   agreement and deposit at both viewports, and the gate names each one.
+
+   That sweep also found a failing rule this block never covered, because it
+   was page-local rather than in this file: `.getlist .num` inside
+   deposit.html. An exemption list only ever governs the file it is written
+   in, which is a second reason to prefer a gate that measures the page. */
+
+/* =================================================================== terms
+   THE TWO-PARTY TERM MATRIX. The agreement is a list of lines, and each line
+   carries one mark per party.
+
+   WHY A MATRIX AND NOT LABELLED CHIPS PER ROW. The parties are the same on
+   every line, so their names belong in a column header once. Written as a
+   labelled pair per row, a seven line agreement prints the agent's name seven
+   times and the reader has to re-read the same two words on every line. With
+   the names promoted to headers, each row carries two bare marks and the
+   outstanding work reads as a vertical scan down one column.
+
+   WHY PRICE AND DELIVERY ARE ROWS AND NOT A PANEL BESIDE THE LIST. Layout is
+   the claim. A term parked in its own box reads as fixed whatever the copy
+   says, and price is negotiable line by line exactly like every other line.
+
+   EVERY CELL IS PINNED to an explicit grid-column and grid-row. Auto placement
+   hands a track to whichever child reaches it first, so a row missing its edit
+   control silently pulls the next row's mark into the wrong column. That fault
+   presents as two unrelated bugs (a value in the wrong column, and a row
+   number printed over its own text at narrow width) from one cause. */
+
+.terms { display: grid; grid-template-columns: 26px 1fr 58px 58px 62px; }
+.terms > * { min-width: 0; }
+
+.thead {
+  display: contents;
+}
+/* --fg-2, not --fg-3. These name the two parties, which is what tells a
+   reader whose signature each column carries. Measured at 3.72:1 before the
+   lift, against the 4.5 AA needs at 12px. */
+.thead span {
+  font-size: 12px; color: var(--fg-2);
+  padding: 0 0 10px; text-align: center;
+  border-bottom: 1px solid var(--line);
+}
+.thead .th-line { text-align: left; }
+
+.trow { display: contents; }
+.trow > * {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  align-self: start;
+}
+/* --fg-2 on the number: it is how a person says which line they mean when
+   they ask for a change, so it is read, not decoration. 3.72:1 before. */
+.trow .num { grid-column: 1; font-family: var(--mono); font-size: 12px; color: var(--fg-2); padding-top: 17px; }
+.trow .line { grid-column: 2; font-size: 15px; line-height: 1.5; padding-right: 16px; }
+.trow .m-you { grid-column: 3; justify-self: center; }
+.trow .m-them { grid-column: 4; justify-self: center; }
+.trow .edit { grid-column: 5; justify-self: end; }
+
+/* A term whose value is a number rather than a sentence. The value carries
+   the weight; the label stays quiet, because "Price" is the least surprising
+   word on the row. */
+.trow .line b { font-weight: 600; }
+.trow .line .why { display: block; font-size: 13px; color: var(--fg-2); margin-top: 4px; }
+
+.terms .trow:last-of-type > * { border-bottom: 0; }
+
+/* -------------------------------------------------------------- the mark
+   Signed is a solid neutral disc. Unsigned is a dashed ring, which is the
+   grammar the evidence tiers already teach for "nobody has done this", so a
+   reader who learned it once needs no legend.
+
+   NEUTRAL, NOT ACCENT, and this is deliberate: the accent means we watched
+   the work happen. A signature records what somebody promised. Letting a
+   signed promise wear the verified colour is the exact blur the tier system
+   exists to prevent, and it is more dangerous than a decorative misuse
+   because it is defensible in the moment. */
+.mark {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: none; margin-top: 2px;
+}
+.mark-on  { background: var(--fg-2); }
+.mark-on::after {
+  content: ""; width: 9px; height: 5px;
+  border-left: 2px solid var(--bg); border-bottom: 2px solid var(--bg);
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+.mark-off { border: 2px dashed var(--fg-3); }
+
+/* The buyer's own unsigned mark is a CONTROL; the other party's mark is a
+   STATEMENT. Same shape, different element, and only one of them is
+   pressable. A person cannot sign on someone else's behalf, so there is no
+   markup on this page that would let them try. */
+button.mark { padding: 0; font: inherit; cursor: pointer; }
+button.mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* The whole mark cell is the touch target, not the 22px disc. A signable mark
+   is a real control, so the BUTTON has to carry the floor rather than the cell
+   around it: a 22x22 button inside a 58x44 cell leaves 36px of the cell dead,
+   which is exactly the gap a thumb lands in. Measured at 22x22 before this
+   rule. The disc stays 22px visually and the pressable box grows around it. */
+.trow .m-you, .trow .m-them { display: flex; justify-content: center; min-height: 44px; }
+button.mark {
+  width: 44px; height: 44px; margin-top: -9px;
+  background-clip: content-box; box-sizing: border-box;
+}
+button.mark-off {
+  border: 0;
+  background:
+    radial-gradient(circle, transparent 10px, var(--bg) 10px) padding-box;
+}
+/* The dashed ring is drawn as a child box so the 44px hit area stays
+   invisible. A dashed border on the 44px element itself would draw a
+   44px ring, which reads as a different component. */
+button.mark-off::before {
+  content: ""; width: 22px; height: 22px; border-radius: 50%;
+  border: 2px dashed var(--fg-3); box-sizing: border-box;
+}
+button.mark-off:hover::before { border-color: var(--fg-2); }
+button.mark:focus-visible { outline: 2px solid var(--accent); outline-offset: -8px; border-radius: 50%; }
+
+/* -------------------------------------------------- the edit blast radius
+   Hovering or focusing an edit control marks the two marks that edit would
+   clear, on that row only, in the state they are about to become.
+
+   A toast after the click is too late to be a warning, and a sentence under
+   the list never says WHICH marks are at risk. Suppressed on a row with
+   nothing signed, so it never threatens a loss that cannot happen.
+
+   :has() carries this in CSS alone. Where it is unsupported nothing previews
+   and the standing sentence under the list still states the rule, so the page
+   is correct either way. */
+/* --fg-2, not --fg-3. This is a real control and the only one that reopens a
+   signed line, so it is read to act on. Measured at 3.72:1 before the lift.
+   It stays quieter than the term beside it through SIZE and weight rather
+   than through a grey that fails AA. */
+.trow .edit .act {
+  font-size: 13px; color: var(--fg-2);
+  background: none; border: 0; cursor: pointer;
+  padding: 11px 6px; font-family: var(--font);
+  min-height: 44px; min-width: 44px;
+}
+.trow .edit .act:hover { color: var(--fg); }
+
+@media (hover: hover) {
+  .terms .trow:has(.act:hover) .mark-on,
+  .terms .trow:has(.act:focus-visible) .mark-on {
+    background: transparent;
+    border: 2px dashed var(--fg-3);
+  }
+  .terms .trow:has(.act:hover) .mark-on::after,
+  .terms .trow:has(.act:focus-visible) .mark-on::after { content: none; }
+}
+.terms .trow:has(.act:focus-visible) .mark-on {
+  background: transparent;
+  border: 2px dashed var(--fg-3);
+}
+.terms .trow:has(.act:focus-visible) .mark-on::after { content: none; }
+/* At 320px the edit column has nowhere to go, so the matrix becomes two
+   lines per row: the term, then its marks and its control on one strip.
+   The column headers go with it, which means each mark has to carry a
+   visible label again. The omission upstairs was licensed by the header;
+   remove the licence and the omission is a defect.
+
+   `.terms` STOPS BEING A GRID HERE, and that is the whole fix rather than a
+   tidy-up. Measured before it: rows overlapped by up to 385px and the text of
+   two agreement lines printed on top of each other. The cause is that
+   `.terms` remained a two-column grid while each `.trow` became a grid in its
+   own right, so the rows were auto-placed as GRID ITEMS of the parent: row 1
+   into column 1, row 2 into column 2 beside it, row 3 into column 1 of the
+   next track. Two agreement lines sharing a vertical band is not a spacing
+   bug, it is unreadable.
+
+   The numeric overflow gate could not see this. Every element stayed inside
+   320px horizontally, which is all that gate measures. A screenshot found it,
+   and verify_flow.py now carries an overlap assertion so it cannot come back
+   silently. A clean overflow number says nothing about whether two things are
+   stacked on each other. */
+@media (max-width: 560px) {
+  .terms { display: block; }
+  .thead { display: none; }
+  .trow {
+    display: grid; grid-template-columns: 24px 1fr;
+    border-bottom: 1px solid var(--line); padding: 14px 0;
+  }
+  .trow > * { border-bottom: 0; padding: 4px 0; }
+  .trow .num { grid-column: 1; grid-row: 1; padding-top: 3px; }
+  .trow .line { grid-column: 2; grid-row: 1; padding-right: 0; }
+  .trow .m-you { grid-column: 2; grid-row: 2; justify-self: start; }
+  .trow .m-them { grid-column: 2; grid-row: 3; justify-self: start; }
+  .trow .edit { grid-column: 2; grid-row: 4; justify-self: start; }
+  .trow .m-you, .trow .m-them {
+    display: flex; align-items: center; gap: 9px;
+    font-size: 13px; color: var(--fg-2); min-height: 44px;
+  }
+  .trow .m-you::after  { content: attr(data-who); }
+  .trow .m-them::after { content: attr(data-who); }
+  .trow .edit .act { padding-left: 0; }
+}
+
+/* ------------------------------------------------------------ outstanding
+   What is left, named as whose turn it is rather than as a status. "Waiting
+   on you" and "waiting on them" are actionable; "half signed" is a state the
+   reader has to decode into one of those two anyway.
+
+   THERE IS NO CONFIRM BUTTON HERE, and none may be added. The agreement locks
+   when the last mark lands, which is a state transition to draw, not a
+   control to design. A lone confirm button on a two-party agreement
+   contradicts the model it exists to enforce. */
+.outstanding { font-size: 15px; line-height: 1.55; }
+.outstanding b { color: var(--fg); font-weight: 550; }
+
+/* =================================================================== fixed
+   Terms that are the same on every hire. Shown, never editable, no marks.
+
+   THE ABSENCE OF THE CONTROLS IS THE MESSAGE, the same argument the missing
+   verify button already makes on a portfolio claim. A disabled edit button
+   beside a platform term would teach a buyer that the term is arguable and
+   that they lost the argument. */
+.fixed { list-style: none; padding: 0; margin: 0; }
+.fixed li {
+  display: grid; grid-template-columns: 1fr auto; gap: 12px 16px;
+  padding: 13px 0; border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+.fixed li:last-child { border-bottom: 0; padding-bottom: 0; }
+.fixed .k { font-size: 15px; }
+.fixed .v { font-family: var(--mono); font-size: 13px; color: var(--fg-2); text-align: right; }
+.fixed .para { grid-column: 1 / -1; font-size: 14px; color: var(--fg-2); line-height: 1.6; max-width: 62ch; }
+@media (max-width: 420px) {
+  .fixed li { grid-template-columns: 1fr; }
+  .fixed .v { text-align: left; }
+}
+
+/* =================================================================== total
+   The one number leaving the wallet today, and what it is made of.
+
+   ONE NUMBER, because a person about to approve a transfer is answering one
+   question. The parts are underneath at supporting size, in the order that
+   answers "why is it that much": the deposit, then the fee, then what the
+   deposit does to the price. */
+.total { }
+.total .big {
+  font-size: 44px; line-height: 1.05; font-weight: 600; letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.total .when { font-size: 13px; color: var(--fg-2); margin-top: 6px; }
+.total .parts {
+  list-style: none; margin: 18px 0 0; padding: 0;
+  font-size: 14px; color: var(--fg-2);
+}
+.total .parts li { display: flex; justify-content: space-between; gap: 16px; padding: 6px 0; }
+.total .parts .amt { font-family: var(--mono); font-size: 13px; color: var(--fg); flex: none; }
+.total .parts li.sum { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 12px; color: var(--fg); }
+@media (max-width: 420px) { .total .big { font-size: 34px; } }
+
+/* =================================================================== rails
+   ABT or USDC. Two rows, each stating its own fee, its own total, and how
+   many times the wallet will ask.
+
+   THE APPROVAL COUNT IS NOT A FOOTNOTE. On ABT one signed transaction carries
+   the price and the fee as two outputs. An ERC-20 transfer has one recipient,
+   so USDC is two transactions per payment, which is two taps in the wallet
+   and four across the hire. A buyer who is not told that reads the second
+   prompt as a bug or a double charge. */
+.rails { display: grid; gap: 10px; margin: 0; }
+.railopt { position: relative; }
+.railopt input {
+  position: absolute; top: 18px; left: 16px; width: 20px; height: 20px;
+  accent-color: var(--accent); margin: 0;
+}
+.railopt label {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 16px;
+  padding: 16px 18px 16px 48px; min-height: 44px;
+  border: 1px solid var(--line-2); border-radius: var(--r);
+  cursor: pointer;
+}
+.railopt label:hover { border-color: var(--fg-3); }
+.railopt input:checked + label { border-color: var(--accent); background: var(--accent-dim); }
+.railopt input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 2px; }
+.railopt .rname { font-size: 15px; font-weight: 550; }
+.railopt .ramt { font-family: var(--mono); font-size: 14px; text-align: right; }
+.railopt .rwhy { grid-column: 1 / -1; font-size: 13px; color: var(--fg-2); }
+@media (max-width: 420px) {
+  .railopt label { grid-template-columns: 1fr; padding-left: 44px; }
+  .railopt .ramt { text-align: left; }
+}
+
+/* The headline number follows the chosen rail. Both totals are in the markup
+   at all times, so a browser without :has() shows the ABT total with the ABT
+   row marked chosen, which is coherent rather than broken. */
+.amt-usdc { display: none; }
+body:has(#rail-usdc:checked) .amt-abt  { display: none; }
+body:has(#rail-usdc:checked) .amt-usdc { display: inline; }
+
+/* =================================================================== clock
+   A deadline is a fact and a date. Not a countdown bar: a meter that empties
+   while you read is pressure, and this product does not lean on a buyer to
+   decide faster. What happens at zero is stated beside it, because a clock
+   with an unnamed consequence is just anxiety. */
+.clock { font-size: 15px; line-height: 1.55; }
+.clock .days { font-weight: 600; }
+.clock .then { display: block; font-size: 13px; color: var(--fg-2); margin-top: 8px; max-width: 62ch; }
+
+/* =================================================================== facts
+   The attestation. Machine-produced facts about what is in staging.
+
+   EVERY ROW HAS THE SAME WEIGHT, and that is the whole design. No colour, no
+   icon, no ordering that puts the "concerning" facts first, because deciding
+   which facts are concerning is a judgement about the work and the platform
+   does not make one. A buyer reads the facts and decides. */
+.facts { list-style: none; padding: 0; margin: 0; }
+.facts li {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 20px;
+  padding: 13px 0; border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+.facts li:last-child { border-bottom: 0; padding-bottom: 0; }
+.facts .f { font-size: 14px; color: var(--fg-2); }
+.facts .v { font-family: var(--mono); font-size: 13px; color: var(--fg); text-align: right; overflow-wrap: anywhere; }
+.facts .paths {
+  grid-column: 1 / -1; margin: 6px 0 0; padding: 0; list-style: none;
+  font-family: var(--mono); font-size: 12px; color: var(--fg-2); line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+
+/* THE NESTED ROWS MUST NOT LOOK LIKE FACTS. Measured before this rule: each
+   path row was 50px tall with its own 1px divider, because base.css's
+   `.rows > *` matches any child of a `.rows` ancestor and these lists sit
+   inside one. Nine changed paths therefore rendered as nine more rows in the
+   same visual language as the nine facts above them.
+
+   That is not cosmetic. The attestation's credibility rests on a reader
+   seeing a FIXED set of facts on every hire; a list whose apparent length
+   grows with the number of changed files reads as a variable report, and a
+   buyer cannot tell which lines are the contract and which are detail.
+   Measured after: 23px rows, zero borders.
+
+   Reset explicitly rather than relying on specificity: the parent selector
+   lives in another file and matches by descent, so it will keep winning
+   against anything less direct. */
+.facts .paths li {
+  padding: 0;
+  border: 0;
+  min-height: 0;
+}
+@media (max-width: 520px) {
+  .facts li { grid-template-columns: 1fr; }
+  .facts .v { text-align: left; }
+}
+
+/* ==================================================================== acts
+   The decision row. Three choices at staged, one at pull request open.
+   Wraps rather than stacks: three full-width buttons read as a menu, and a
+   menu is what a screen with exactly three moves must not look like. */
+.acts { display: flex; flex-wrap: wrap; gap: 10px; }
+.acts .btn { min-height: 44px; }
+
+/* =================================================================== sheet
+   The modal. A native <dialog>, so Escape, focus containment and the inert
+   background come from the browser rather than from three hundred lines of
+   our own that will be subtly wrong.
+
+   Every sheet on these screens exists because an action needs a second look:
+   the wallet scan, the redo picker, the close-with-a-reason picker, the
+   decline confirm. None of them is a place to put anything the primary screen
+   needed to say. */
+.sheet {
+  width: min(520px, calc(100vw - 24px));
+  max-height: calc(100vh - 48px);
+  padding: 0; border: 0; border-radius: 14px;
+  background: var(--bg-1);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 24px 60px -12px rgba(0,0,0,0.8);
+  color: var(--fg); overflow: auto;
+}
+.sheet::backdrop { background: rgba(4,4,6,0.72); }
+.sheet .shead {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 20px 20px 0;
+}
+.sheet .shead h2 { margin: 0; flex: 1; }
+.sheet .sbody { padding: 14px 20px 20px; }
+.sheet .sfoot {
+  display: flex; flex-wrap: wrap; gap: 10px;
+  padding: 0 20px 20px;
+}
+.sheet .sfoot .btn { min-height: 44px; }
+.sclose {
+  width: 44px; height: 44px; margin: -10px -8px 0 0; flex: none;
+  border: 0; background: none; color: var(--fg-2);
+  font-size: 22px; line-height: 1; cursor: pointer; border-radius: var(--r);
+}
+.sclose:hover { color: var(--fg); background: var(--bg-2); }
+
+/* ====================================================================== qr
+   The DID Connect scan, drawn in CSS.
+
+   NEVER A REAL QR IMAGE. A scannable code in a wireframe either encodes
+   nothing, which is a dead control, or encodes something, which is inventing
+   a live payment request. A drawn placeholder with the three finder squares
+   reads as "a code goes here" in under a second and lies about nothing.
+
+   EXACTLY THREE CHILDREN, positioned by corner. An earlier version laid the
+   code out as a 9x9 grid of cells and relied on the markup supplying eighty
+   one of them; miscount by six and the bottom row renders empty, which reads
+   as a half-drawn image rather than a placeholder. Three pinned finders plus
+   a painted field cannot underflow. */
+.qr {
+  position: relative;
+  width: 180px; height: 180px; margin: 0 auto;
+  background: var(--fg);
+  border-radius: 8px;
+}
+.qr::before {
+  content: "";
+  position: absolute; inset: 12px;
+  background-image: repeating-conic-gradient(var(--bg-1) 0% 25%, transparent 0% 50%);
+  background-size: 22px 22px;
+}
+.qr i {
+  position: absolute; width: 46px; height: 46px;
+  border: 7px solid var(--bg-1); background: var(--fg);
+}
+.qr i::after { content: ""; position: absolute; inset: 6px; background: var(--bg-1); }
+.qr i:nth-child(1) { top: 12px; left: 12px; }
+.qr i:nth-child(2) { top: 12px; right: 12px; }
+.qr i:nth-child(3) { bottom: 12px; left: 12px; }
+
+/* The waiting line under the code. The dot is painted at rest and only
+   breathes where motion is welcome, so reduced motion gets a solid dot and a
+   sentence rather than a frozen half-faded one. */
+.waiting { display: flex; align-items: center; gap: 9px; font-size: 14px; color: var(--fg-2); }
+.waiting .d { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-2); flex: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .waiting .d { animation: breathe 1.8s ease-in-out infinite; }
+  @keyframes breathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+}
+
+/* ================================================================= picker
+   Pick one of the agreed lines, then say what is wrong in one sentence.
+   Used by the redo request and by close-with-a-reason, because both answer
+   the same question: which line, and why in your words.
+
+   The list is the AGREED lines and nothing else. A free-text-only reason
+   would let a buyer close a job over something neither side ever agreed to,
+   and the citation is what makes the record mean anything later. */
+.picker { list-style: none; padding: 0; margin: 0; }
+.picker li { border-bottom: 1px solid var(--line); }
+.picker li:last-child { border-bottom: 0; }
+.picker label {
+  display: grid; grid-template-columns: 22px 1fr; gap: 12px;
+  padding: 13px 0; min-height: 44px; align-items: start; cursor: pointer;
+  font-size: 14px; line-height: 1.5;
+}
+.picker input { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
+.picker label:hover { color: var(--fg); }
+
+/* WHY A ROW CAN BE ABSENT FROM A PICKER.
+   The agreement has seven lines and neither picker offers all seven: the redo
+   picker drops row 06, and the close picker drops 06 and 07. Both omissions
+   are correct. Price is not something delivered work can miss, and by the
+   time a pull request is open the buyer has paid in full and the work has
+   arrived, so lateness is settled too.
+
+   Correct and unexplained is still a question, and this flow is gated on a
+   first-time buyer getting through without asking one. A person who signed
+   seven lines and counts six counts a bug. One sentence under the list is
+   cheaper than the doubt.
+
+   Deliberately NOT a note inside the list: it is not a choice, so it must not
+   sit among the choosable rows. --fg-2 rather than --fg-3, same as every
+   other explanatory line on these screens. */
+.pickernote {
+  font-size: 13px; color: var(--fg-2); line-height: 1.55;
+  margin: 12px 0 0; max-width: 62ch;
+}
+
+/* =============================================================== outcomes
+   Five ways a hire ends. A card each, three labelled rows inside: what
+   happened, what happened to the money, what is on whose record.
+
+   A CARD RATHER THAN A TABLE. The comparison is genuinely three columns wide,
+   which is a table's job, but a five row table at 320px either scrolls
+   sideways or turns into unlabelled fragments. Cards carry their own labels
+   at every width and cost one extra heading each. */
+.outcomes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+@media (max-width: 760px) { .outcomes { grid-template-columns: 1fr; } }
+.oc { padding: 20px 22px; }
+.oc h3 { margin-bottom: 10px; }
+.oc dl { margin: 0; }
+.oc dt { font-size: 12px; color: var(--fg-2); margin-top: 12px; }
+.oc dd { margin: 3px 0 0; font-size: 14px; color: var(--fg-2); line-height: 1.55; }
+.oc dd b { color: var(--fg); font-weight: 550; }
+
+/* ================================================================= counts
+   The conduct record. Counts, that account's own, never summed and never
+   scored.
+
+   The number leads and the label follows, because the number is the fact and
+   "redos requested" is only the word for it. Every count renders even at
+   zero: an account with no history shows the same eight rows as an account
+   with fifty, which is the same rule that already governs the three evidence
+   tiers. */
+.counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px 22px; }
+@media (max-width: 700px) { .counts { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 380px) { .counts { grid-template-columns: 1fr; } }
+.ct { padding: 14px 0; }
+.ct .n { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.ct .l { font-size: 13px; color: var(--fg-2); margin-top: 2px; }
+.ct .d { font-size: 12px; color: var(--fg-2); margin-top: 6px; line-height: 1.5; }
+
+/* ============================================================ tap targets
+   THE 44px FLOOR, applied where a finger is the pointer.
+
+   base.css draws .btn at 38px and .btn-sm at 32px, which is right for a mouse
+   and eight pixels short of the house floor for a thumb. Gating on
+   (pointer: coarse) raises it on touch without changing a single desktop
+   pixel. Measured with a desktop browser sized to 320px this rule does not
+   apply at all, which is exactly how a tap target sweep returns a clean pass
+   on a broken layout: the emulation has to set touch, not just width. */
+@media (pointer: coarse) {
+  .btn, .btn-sm { min-height: 44px; }
+  .chip { min-height: 44px; padding-top: 0; padding-bottom: 0; }
+  .disclose { min-height: 44px; }
+  .rail li { padding-top: 14px; }
+}
