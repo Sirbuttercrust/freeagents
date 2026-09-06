@@ -1160,6 +1160,7 @@ describe('the API starts and answers', () => {
     const readBack = (await read.json()) as Record<string, unknown>;
     expect(Object.keys(readBack).sort()).toEqual([
       'agentDid',
+      'baseCommit',
       'brief',
       'briefHash',
       'buyerDid',
@@ -1170,6 +1171,7 @@ describe('the API starts and answers', () => {
       'price',
       'repository',
       'specHash',
+      'stagingRepo',
       'status',
     ]);
 
@@ -1366,6 +1368,7 @@ describe('the API starts and answers', () => {
     // The submitted keys, plus exactly mergeCommit, mergedAt and credential.
     expect(Object.keys(mergeBody).sort()).toEqual([
       'agentDid',
+      'baseCommit',
       'brief',
       'briefHash',
       'buyerDid',
@@ -1383,6 +1386,7 @@ describe('the API starts and answers', () => {
       'specHash',
       'stagedAt',
       'stagedCommit',
+      'stagingRepo',
       'status',
       'submittedAt',
     ]);
@@ -1580,6 +1584,7 @@ describe('the API starts and answers', () => {
     const readBack = (await read.json()) as Record<string, unknown>;
     expect(Object.keys(readBack).sort()).toEqual([
       'agentDid',
+      'baseCommit',
       'brief',
       'briefHash',
       'buyerDid',
@@ -1590,6 +1595,7 @@ describe('the API starts and answers', () => {
       'price',
       'repository',
       'specHash',
+      'stagingRepo',
       'status',
     ]);
   });

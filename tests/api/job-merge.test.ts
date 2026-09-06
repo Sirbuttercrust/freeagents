@@ -185,6 +185,12 @@ function submittedJob(id: string): Job {
     ],
     confirmedSpecHash: 'a'.repeat(64),
     confirmedAt: new Date(submittedAt.getTime() - 12 * 60 * 60 * 1000),
+    // B14a: a scripted submitted/completed row already carries the
+    // platform-created staging repository confirm would have attached --
+    // stagingRepo and baseCommit ride together, the same one-writer pair
+    // attachStagingRepository itself always sets.
+    stagingRepo: { owner: 'freeagents-platform', repo: `staging-${id}` },
+    baseCommit: 'buyer-target-repo-head-sha',
   };
 }
 
@@ -320,6 +326,7 @@ async function walkToSubmitted(jobId: string, base: string = baseUrl): Promise<R
 // An outcome job (R-12) projects the submitted keyset and nothing more.
 const SUBMITTED_KEYS = [
   'agentDid',
+  'baseCommit',
   'brief',
   'briefHash',
   'buyerDid',
@@ -333,6 +340,7 @@ const SUBMITTED_KEYS = [
   'specHash',
   'stagedAt',
   'stagedCommit',
+  'stagingRepo',
   'status',
   'submittedAt',
 ];
