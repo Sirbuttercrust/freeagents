@@ -106,7 +106,7 @@ export function createIdentityAdapter(
     // that ("cannot determine"), which the account-proof route maps to a
     // 503; null would claim "checked, no claim present" and hand back a
     // 409 whose remedy the operator can never make this adapter observe
-    // (Proof round 1, D1, task t_8a82c865: a permanent, unsatisfiable
+    // (Review finding, round 1, D1, task t_8a82c865: a permanent, unsatisfiable
     // conflict is worse than the outage it replaced). A DID this process
     // has never seen a valid signature from is a DidNotResolvableError,
     // never a guessed document.

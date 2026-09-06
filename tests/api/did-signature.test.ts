@@ -195,7 +195,7 @@ describe('DID-signed requests (RFC 9421)', () => {
     expect(resolved).toBeNull();
   });
 
-  // D5 (Proof round 2, task t_8a82c865): recording is now deferred to an
+  // D5 (Review finding, round 2, task t_8a82c865): recording is now deferred to an
   // onVerified callback the resolver hands back, invoked by http-signature
   // verify() only once the request's own signature bytes have checked out
   // -- not merely once the keyid's binding check (public data) passes. A
@@ -231,7 +231,7 @@ describe('DID-signed requests (RFC 9421)', () => {
     expect(knownKeys.get(victim.did)).toBeNull();
   });
 
-  // D4 (Proof round 2, task t_8a82c865): a durable-write failure must not
+  // D4 (Review finding, round 2, task t_8a82c865): a durable-write failure must not
   // change the answer to "did this signature verify". The signature has
   // already checked out by the time onVerified runs; the durable write
   // inside it is bookkeeping, not part of the verdict. A throwing
@@ -281,7 +281,7 @@ describe('DID-signed requests (RFC 9421)', () => {
     expect(knownKeys.get(identity.did)).toBe(identity.keyid);
   });
 
-  // D5 (Proof round 2, task t_8a82c865): the durable write must not happen
+  // D5 (Review finding, round 2, task t_8a82c865): the durable write must not happen
   // before the request's own signature bytes are confirmed to verify.
   // Before this fix, the resolver recorded as soon as the keyid's binding
   // check passed (a check over PUBLIC data: the fingerprint re-deriving

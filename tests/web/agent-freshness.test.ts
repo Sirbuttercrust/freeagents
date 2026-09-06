@@ -153,7 +153,7 @@ beforeAll(async () => {
     repositoryPublic: true,
   });
 
-  // D1 (Proof, task t_28c5458e): an agent whose only completed hire merged
+  // D1 (Review finding, task t_28c5458e): an agent whose only completed hire merged
   // into a private repository. evidenceTier demotes it to portfolio, so
   // verifiedHires stays empty even though a completed job exists. The
   // profile page must not render a last-hire date beside an empty

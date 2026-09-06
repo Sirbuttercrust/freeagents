@@ -1,4 +1,4 @@
-// D1 fix (Proof round 1, task t_8a82c865): identity.resolveDid's real,
+// D1 fix (Review finding, round 1, task t_8a82c865): identity.resolveDid's real,
 // local-only implementation cannot derive alsoKnownAs. It is authored by
 // the operator's own wallet tooling, off-platform data no local derivation
 // can produce (see identity.ts's resolveDid comment). Before this fix, the

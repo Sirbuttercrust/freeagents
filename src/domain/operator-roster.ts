@@ -10,7 +10,7 @@
 //
 // Deriving the totals here, from the SAME rows the roster renders, rather
 // than accepting a caller-supplied total, is the fix pattern R-20's
-// tier-blind buyerCount defect (Proof, t_698205aa) established: a function
+// tier-blind buyerCount defect (Review finding, t_698205aa) established: a function
 // that derives its own numbers cannot be handed one drawn from a wider or
 // different population than the rows beside it.
 import type { BrowseCard } from './browse.js';
