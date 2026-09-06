@@ -12,6 +12,14 @@ import type {
   WalletResponseInput,
 } from './types.js';
 
+// This rail only ever produces the abt-shaped member of each opaque union
+// (see abt.ts's own AbtPaymentRequest/AbtWalletResponseInput/AbtPaymentRef
+// comment for why narrowing here, rather than widening the return types,
+// is what keeps this file matching P4's existing callers unchanged).
+type AbtPaymentRequest = Extract<PaymentRequest, { rail: 'abt' }>;
+type AbtWalletResponseInput = Extract<WalletResponseInput, { rail: 'abt' }>;
+type AbtPaymentRef = Extract<PaymentRef, { rail: 'abt' }>;
+
 // Test-only control surface, beyond the PaymentRail interface: lets a test
 // force a specific confirmation answer for a hash, so P4's API tests can
 // simulate "the chain confirmed" or "not yet confirmed" without any real
@@ -20,7 +28,19 @@ export interface MemoryPaymentRailControls {
   setConfirmed(hash: string, confirmed: boolean): void;
 }
 
-export function createMemoryPaymentRail(): PaymentRail & MemoryPaymentRailControls {
+// Narrowed the same way AbtPaymentRail narrows PaymentRail in abt.ts: this
+// rail only ever builds the abt-shaped request/response/ref, so its own
+// tests see `.hash`/`.claim` directly rather than a union they would have
+// to narrow themselves (P3 added the `usdc` member to the shared types;
+// this file's own shape is unchanged).
+export interface MemoryPaymentRail extends Omit<PaymentRail, 'createRequest' | 'onWalletResponse' | 'confirm'> {
+  readonly rail: 'abt';
+  createRequest(input: CreateRequestInput): Promise<AbtPaymentRequest>;
+  onWalletResponse(input: AbtWalletResponseInput): Promise<AbtPaymentRef>;
+  confirm(ref: AbtPaymentRef): Promise<Confirmation>;
+}
+
+export function createMemoryPaymentRail(): MemoryPaymentRail & MemoryPaymentRailControls {
   const confirmations = new Map<string, boolean>();
   let hashCounter = 0;
 
@@ -41,7 +61,7 @@ export function createMemoryPaymentRail(): PaymentRail & MemoryPaymentRailContro
       };
     },
 
-    async createRequest(input: CreateRequestInput): Promise<PaymentRequest> {
+    async createRequest(input: CreateRequestInput): Promise<AbtPaymentRequest> {
       return {
         rail: 'abt',
         jobId: input.jobId,
@@ -66,7 +86,7 @@ export function createMemoryPaymentRail(): PaymentRail & MemoryPaymentRailContro
       };
     },
 
-    async onWalletResponse(input: WalletResponseInput): Promise<PaymentRef> {
+    async onWalletResponse(input: AbtWalletResponseInput): Promise<AbtPaymentRef> {
       hashCounter += 1;
       const hash = `memory-hash-${input.jobId}-${input.leg}-${String(hashCounter)}`;
       // Unconfirmed by default: a test opts in with setConfirmed.
@@ -74,7 +94,7 @@ export function createMemoryPaymentRail(): PaymentRail & MemoryPaymentRailContro
       return { rail: 'abt', hash, operatorAddress: 'z1MemoryOperator', feeAddress: 'z1MemoryFeeAddress' };
     },
 
-    async confirm(ref: PaymentRef): Promise<Confirmation> {
+    async confirm(ref: AbtPaymentRef): Promise<Confirmation> {
       const confirmed = confirmations.get(ref.hash) ?? false;
       return { rail: 'abt', hash: ref.hash, confirmed };
     },
