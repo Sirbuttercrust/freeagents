@@ -77,7 +77,7 @@ environments:
     secure: false
     default: ''
   - name: FREEAGENTS_ENABLED_RAILS
-    description: Comma-separated list of payment rails this deployment offers, chosen from abt and usdc, for example abt alone for an ABT-only soft launch. Unset or empty means both rails are offered, which is the existing behaviour. Naming a rail here does not configure it by itself, each named rail still needs its own four variables set or it fails closed at call time exactly as it does today.
+    description: Comma-separated declaration of which payment rails this deployment intends to run, chosen from abt and usdc, for example abt alone for an ABT-only soft launch. This does not restrict which rail the platform will accept a payment on; only a rail's own four variables decide that. Setting this only changes what the startup configuration report checks, naming a rail listed here that is not itself fully configured, or a name that is not abt or usdc, as a misconfiguration. Unset or empty means the report checks nothing extra, which is the existing behaviour.
     required: false
     secure: false
     default: ''
