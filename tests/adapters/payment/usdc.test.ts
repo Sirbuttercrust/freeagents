@@ -137,13 +137,18 @@ function fakeChainClient(overrides: Partial<UsdcChainClient> = {}): UsdcChainCli
 }
 
 // Builds a fake chain client keyed by hash, so a confirm() test can give
-// each of the two legs' hashes its own observed receipt.
+// each of the two legs' hashes its own observed receipt. Resolves the
+// lookup key case-insensitively (S1 review round 1, D1): a real node
+// resolves a transaction hash regardless of how it is spelled, so a fake
+// keyed by exact string is stricter than the chain it fakes and would
+// hide a defect the real chain would never exhibit.
 function chainClientByHash(
   byHash: Record<string, { readonly status: number | null; readonly transfer: UsdcObservedTransfer | null } | null>,
 ): UsdcChainClient {
+  const normalized = new Map(Object.entries(byHash).map(([hash, receipt]) => [hash.toLowerCase(), receipt]));
   return {
     decimals: async () => 6,
-    getTransactionReceipt: async (hash) => byHash[hash] ?? null,
+    getTransactionReceipt: async (hash) => normalized.get(hash.toLowerCase()) ?? null,
   };
 }
 
@@ -485,6 +490,32 @@ describe('S1: legStatus binds a leg to the transfer it claims, not to any confir
     );
     const confirmation = await rail.confirm(usdcRef({ jobId: 'job_1', leg: 'deposit', feeTxHash: null }));
     expect(confirmation.legs?.price).toEqual({ status: 'mismatched', hash: '0xprice' });
+  });
+
+  it('mutation proof: a hash already spent on another job does not confirm a second time when re-presented with different letter case (D1, review round 1)', async () => {
+    const chainClient = chainClientByHash({ '0xprice': { status: 1, transfer: transferPayingPrice() } });
+    const spentTransferStorage = fakeSpentTransferStorage();
+    // Job 2 already spent this exact transfer, recorded lowercase (the
+    // normalized form onWalletResponse must store it in).
+    await spentTransferStorage.record({ hash: '0xprice', jobId: 'job_2', leg: 'deposit', role: 'price' });
+    const { storage } = fakeHalfPaidStorage();
+    const rail = withEnv(envConfig(), () =>
+      createUsdcPaymentRail({ chainClient, halfPaidStorage: storage, spentTransferStorage, rateSource: async () => '1' }),
+    );
+    // Job 1 presents the SAME transaction, respelled in upper case, as
+    // its own deposit price transfer.
+    const ref = await rail.onWalletResponse({
+      rail: 'usdc',
+      jobId: 'job_1',
+      leg: 'deposit',
+      operatorAddress,
+      priceTxHash: '0xPRICE',
+      feeTx: { signed: false },
+      amountUsd: '15.00',
+    });
+    const confirmation = await rail.confirm(ref);
+    expect(confirmation.legs?.price).toEqual({ status: 'mismatched', hash: '0xprice' });
+    expect(confirmation.confirmed).toBe(false);
   });
 
   it('re-confirming the SAME (job, leg, role) is idempotent and still confirms', async () => {
