@@ -73,7 +73,7 @@ beforeAll(async () => {
     githubLogin: null,
   });
 
-  server = createApp(repo, agentRepo).listen(0);
+  server = createApp(repo, agentRepo).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${address.port}`;
@@ -357,7 +357,7 @@ describe('the source links are configured, never hardcoded', () => {
       surface,
     );
     return new Promise((resolve, reject) => {
-      const srv = app.listen(0, () => {
+      const srv = app.listen(0, '127.0.0.1', () => {
         const port = (srv.address() as AddressInfo).port;
         fetch(`http://127.0.0.1:${port}/`, { headers: { Accept: HTML } })
           .then((res) => res.text())

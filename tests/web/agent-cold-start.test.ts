@@ -280,7 +280,7 @@ beforeAll(async () => {
   });
 
   const app = createApp(undefined, agentRepo, undefined, undefined, jobRepo, undefined, undefined, credentialRepo);
-  server = app.listen(0);
+  server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -355,7 +355,7 @@ async function startFailingHiresServer(): Promise<{ baseUrl: string; close: () =
     req.pipe(upstream);
   });
 
-  await new Promise<void>((resolve) => proxy.listen(0, resolve));
+  await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
   const proxyBaseUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
 
   return {

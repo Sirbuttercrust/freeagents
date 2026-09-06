@@ -144,7 +144,7 @@ async function startApp(): Promise<{
     alwaysSettledGate(),
     anyCommitStagingObserver(),
   );
-  const server = app.listen(0);
+  const server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
   if (address === null || typeof address === 'string') {
@@ -270,7 +270,7 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
       alwaysSettledGate(),
       anyCommitStagingObserver(),
     );
-    const s = app.listen(0);
+    const s = app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => s.once('listening', resolve));
     const address = s.address();
     if (address === null || typeof address === 'string') {
