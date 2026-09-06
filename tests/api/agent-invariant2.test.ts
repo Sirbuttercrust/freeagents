@@ -322,6 +322,8 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       lastHireCompletedAt: null,
       recordLastChangedAt: stored?.createdAt.toISOString(),
       floorPriceUsd: stored?.floorPriceUsd ?? null,
+      minBuyerMerges: stored?.minBuyerMerges ?? null,
+      maxWalkedAfterConfirm: stored?.maxWalkedAfterConfirm ?? null,
     });
 
     // A stranger fetching from the public API can verify with no further

@@ -154,6 +154,8 @@ export class PrismaAgentRepository implements AgentRepository {
           skills: [...input.skills],
           githubLogin: input.githubLogin,
           floorPriceUsd: input.floorPriceUsd ?? null,
+          minBuyerMerges: input.minBuyerMerges ?? null,
+          maxWalkedAfterConfirm: input.maxWalkedAfterConfirm ?? null,
         } as unknown as Prisma.AgentCreateInput,
       });
       // A fresh agent has no rotation history; do not add a nested create.
@@ -290,6 +292,12 @@ function toAgent(
     // without it, so it is optional here and defaults to null, the same
     // "no floor set" meaning an absent column already carries.
     floorPriceUsd?: string | null;
+    // P7: same reasoning as floorPriceUsd above -- a worktree generated
+    // before these columns exist types the Agent row without them, and an
+    // absent column means "no filter set", the same meaning a stored null
+    // already carries.
+    minBuyerMerges?: number | null;
+    maxWalkedAfterConfirm?: number | null;
   },
   keyRotations: readonly KeyRotation[],
 ): Agent {
@@ -304,6 +312,8 @@ function toAgent(
     createdAt: row.createdAt,
     keyRotations: [...keyRotations],
     floorPriceUsd: row.floorPriceUsd ?? null,
+    minBuyerMerges: row.minBuyerMerges ?? null,
+    maxWalkedAfterConfirm: row.maxWalkedAfterConfirm ?? null,
   };
 }
 
@@ -530,6 +540,13 @@ export class PrismaJobRepository implements JobRepository {
     }
     completed.sort((a, b) => a.completedAt.getTime() - b.completedAt.getTime());
     return completed;
+  }
+
+  // P7: every job for one buyer DID, in any status, projected exactly
+  // like findById already does.
+  async findByBuyerDid(buyerDid: string): Promise<readonly Job[]> {
+    const rows = await db().job.findMany({ where: { buyerDid } });
+    return rows.map((row) => toJob(row as unknown as JobRow));
   }
 }
 

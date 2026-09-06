@@ -172,3 +172,58 @@ describe('isSelfHire', () => {
     expect(isSelfHire(123, {})).toBe(false);
   });
 });
+
+// P7 (committee synthesis, attack 2): the self-hire check compares DIDs,
+// and DIDs are free. Keying the buyer record to GitHub raises the cost
+// from free to one aged GitHub account per fake hire. It does not close
+// it - the label still never hides a hire, and the DID comparison stays
+// exactly as it was.
+describe('isSelfHire: the GitHub login comparison (P7)', () => {
+  it('a hire is a self-hire when the buyer GitHub login equals the operator GitHub login, even with different DIDs', () => {
+    expect(
+      isSelfHire('did:abt:zBuyer', 'did:abt:zOperator', 'scout-owner', 'scout-owner'),
+    ).toBe(true);
+  });
+
+  it('the DID comparison alone still catches a self-hire when logins are absent', () => {
+    expect(isSelfHire('did:abt:zOperator', 'did:abt:zOperator', null, null)).toBe(true);
+  });
+
+  it('an absent buyer login is never a match, even against an absent operator login (two absent logins are not equal to each other)', () => {
+    expect(isSelfHire('did:abt:zBuyer', 'did:abt:zSomeoneElse', null, null)).toBe(false);
+    expect(isSelfHire('did:abt:zBuyer', 'did:abt:zSomeoneElse', undefined, undefined)).toBe(false);
+  });
+
+  it('an unresolvable operator login is not evidence of a self-hire', () => {
+    expect(isSelfHire('did:abt:zBuyer', 'did:abt:zSomeoneElse', 'scout-owner', null)).toBe(false);
+    expect(isSelfHire('did:abt:zBuyer', 'did:abt:zSomeoneElse', null, 'scout-owner')).toBe(false);
+  });
+
+  it('a shape-valid but different buyer login is not a self-hire', () => {
+    expect(isSelfHire('did:abt:zBuyer', 'did:abt:zSomeoneElse', 'buyer-login', 'operator-login')).toBe(false);
+  });
+
+  it('is total: non-string logins never throw and yield false for the login half', () => {
+    expect(() => isSelfHire(undefined, undefined, 123 as unknown as string, {} as unknown as string)).not.toThrow();
+    expect(isSelfHire(undefined, undefined, 123 as unknown as string, {} as unknown as string)).toBe(false);
+  });
+
+  it('buyerDiversity threads the login comparison through to the entry label, from each hire fact and the operator login', () => {
+    const result = buyerDiversity(
+      [hire({ buyerDid: 'did:abt:zBuyer', agentDid: 'did:abt:zAgent1', buyerGithubLogin: 'scout-owner' })],
+      'did:abt:zOperator',
+      'scout-owner',
+    );
+    expect(result.entries[0]?.selfHire).toBe(true);
+    expect(result.counts.selfHires).toBe(1);
+  });
+
+  it('buyerDiversity: a mismatched buyer login against a matching operator login is not a self-hire, and the DID stays independently decisive', () => {
+    const result = buyerDiversity(
+      [hire({ buyerDid: 'did:abt:zBuyer', agentDid: 'did:abt:zAgent1', buyerGithubLogin: 'someone-else' })],
+      'did:abt:zSomeoneElseOperator',
+      'scout-owner',
+    );
+    expect(result.entries[0]?.selfHire).toBe(false);
+  });
+});

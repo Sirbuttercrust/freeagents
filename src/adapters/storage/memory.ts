@@ -110,6 +110,8 @@ export class MemoryAgentRepository implements AgentRepository {
       createdAt: new Date(),
       keyRotations: [],
       floorPriceUsd: input.floorPriceUsd ?? null,
+      minBuyerMerges: input.minBuyerMerges ?? null,
+      maxWalkedAfterConfirm: input.maxWalkedAfterConfirm ?? null,
     };
     this.rows.set(input.did, row);
     return row;
@@ -259,6 +261,18 @@ export class MemoryJobRepository implements JobRepository {
     }
     completed.sort((a, b) => a.completedAt.getTime() - b.completedAt.getTime());
     return completed;
+  }
+
+  // P7: every job for one buyer DID, in any status. Exact DID string
+  // match, the same stance findCompletedByAgent already takes on
+  // agentDid: the caller passes the stored buyer DID it read back from
+  // AccountRepository, not a raw wallet form needing reconciliation here.
+  async findByBuyerDid(buyerDid: string): Promise<readonly Job[]> {
+    const rows: Job[] = [];
+    for (const row of this.rows.values()) {
+      if (row.buyerDid === buyerDid) rows.push(row);
+    }
+    return rows;
   }
 }
 
