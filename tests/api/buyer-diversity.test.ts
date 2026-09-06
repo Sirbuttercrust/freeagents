@@ -8,9 +8,10 @@ import { describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
 import { MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
-import type { AgentRepository, JobRepository } from '../../src/adapters/storage/types.js';
+import type { AccountRepository, AgentRepository, JobRepository } from '../../src/adapters/storage/types.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { Job } from '../../src/domain/job.js';
+import type { Account } from '../../src/domain/account.js';
 
 const AGENT_DID = 'did:abt:zHiresAgent';
 const OPERATOR_DID = 'did:abt:zHiresOperator';
@@ -97,9 +98,12 @@ async function withApp(app: Express, run: (url: string) => Promise<void>): Promi
   }
 }
 
-function buildApp(jobRepo: JobRepository): { app: Express; agentRepo: MemoryAgentRepository } {
+function buildApp(jobRepo: JobRepository, accountRepo: AccountRepository = new MemoryAccountRepository()): {
+  app: Express;
+  agentRepo: MemoryAgentRepository;
+} {
   const agentRepo = new MemoryAgentRepository();
-  const app = createApp(new MemoryAccountRepository(), agentRepo, undefined, undefined, jobRepo);
+  const app = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo);
   return { app, agentRepo };
 }
 
@@ -273,6 +277,117 @@ describe('GET /agents/:agentDid/hires (R-33)', () => {
       const res = await fetch(`${url}/agents/${AGENT_DID}/hires`);
       expect(res.status).toBe(503);
       expect(await res.json()).toEqual({ error: 'storage unavailable' });
+    });
+  });
+});
+
+// P7 (committee synthesis, attack 2): the DID self-hire check is free for
+// an attacker to defeat, so the label gains a second, independent
+// comparison on verified GitHub logins. This only raises the attacker's
+// cost if the HTTP surface actually resolves and threads real logins
+// through to isSelfHire -- a domain unit test injecting logins no route
+// ever produces would leave the comparison unreachable in production
+// (review round 1, D1).
+//
+// Design note, pinned rather than guessed at: Account.githubLogin is
+// @unique and a DID is an Account's own primary key with no rotation or
+// merge route in this build, so two DIDs can never legitimately resolve
+// to the same login through the exposed /accounts registration path.
+// Wiring the real per-hire lookup here (rather than leaving the login
+// arguments undefined) is still the correct fix: it makes the comparison
+// live the moment a later card lets one verified identity span more than
+// one DID (a freed-and-reused login, or an accounts-merge feature),
+// without any further change at this call site. The stand-in
+// AccountRepository below asserts the wiring itself, independent of
+// whether today's schema can produce the matching pair in a live system.
+class TwoDidsOneLoginAccountRepository implements AccountRepository {
+  private readonly byDid = new Map<string, Account>();
+
+  register(): Promise<Account> {
+    return Promise.reject(new Error('unused: accounts are seeded directly for this stand-in'));
+  }
+
+  seed(did: string, githubLogin: string): void {
+    this.byDid.set(did, { did, githubLogin, passkeySubject: null, createdAt: new Date('2026-01-01T00:00:00Z') });
+  }
+
+  async findByDid(did: string): Promise<Account | null> {
+    return this.byDid.get(did) ?? null;
+  }
+
+  async findByGithubLogin(githubLogin: string): Promise<Account | null> {
+    for (const row of this.byDid.values()) {
+      if (row.githubLogin === githubLogin) return row;
+    }
+    return null;
+  }
+
+  async findByPasskeySubject(): Promise<Account | null> {
+    return null;
+  }
+}
+
+describe('GET /agents/:agentDid/hires: the GitHub login self-hire comparison (P7)', () => {
+  it('a buyer whose verified GitHub login equals the operator\'s is labelled selfHire, even under a different DID', async () => {
+    const jobRepo = new MemoryJobRepository();
+    const accountRepo = new TwoDidsOneLoginAccountRepository();
+    accountRepo.seed(OPERATOR_DID, 'scout-owner');
+    const buyerDid = 'did:example:second-identity';
+    accountRepo.seed(buyerDid, 'scout-owner');
+    const { app, agentRepo } = buildApp(jobRepo, accountRepo);
+    await registerAgent(agentRepo, OPERATOR_DID);
+    await complete(jobRepo, 'job_github_self', buyerDid, 'merge-github-self', new Date('2026-01-01T00:00:00Z'));
+
+    await withApp(app, async (url) => {
+      const res = await fetch(`${url}/agents/${AGENT_DID}/hires`);
+      const body = (await res.json()) as {
+        counts: { selfHires: number };
+        entries: Array<{ jobId: string; selfHire: boolean }>;
+      };
+      const entry = body.entries.find((e) => e.jobId === 'job_github_self');
+      expect(entry?.selfHire).toBe(true);
+      expect(body.counts.selfHires).toBe(1);
+    });
+  });
+
+  it('a buyer whose verified GitHub login differs from the operator\'s, and whose DID also differs, is not labelled selfHire', async () => {
+    const jobRepo = new MemoryJobRepository();
+    const accountRepo = new TwoDidsOneLoginAccountRepository();
+    accountRepo.seed(OPERATOR_DID, 'scout-owner');
+    const buyerDid = 'did:example:independent-buyer';
+    accountRepo.seed(buyerDid, 'independent-login');
+    const { app, agentRepo } = buildApp(jobRepo, accountRepo);
+    await registerAgent(agentRepo, OPERATOR_DID);
+    await complete(jobRepo, 'job_not_self', buyerDid, 'merge-not-self', new Date('2026-01-01T00:00:00Z'));
+
+    await withApp(app, async (url) => {
+      const res = await fetch(`${url}/agents/${AGENT_DID}/hires`);
+      const body = (await res.json()) as {
+        counts: { selfHires: number };
+        entries: Array<{ jobId: string; selfHire: boolean }>;
+      };
+      const entry = body.entries.find((e) => e.jobId === 'job_not_self');
+      expect(entry?.selfHire).toBe(false);
+      expect(body.counts.selfHires).toBe(0);
+    });
+  });
+
+  it('a buyer with no registered account at all (an unresolvable login) is not labelled selfHire on login grounds alone', async () => {
+    const jobRepo = new MemoryJobRepository();
+    const accountRepo = new TwoDidsOneLoginAccountRepository();
+    accountRepo.seed(OPERATOR_DID, 'scout-owner');
+    const buyerDid = 'did:example:unregistered-buyer';
+    const { app, agentRepo } = buildApp(jobRepo, accountRepo);
+    await registerAgent(agentRepo, OPERATOR_DID);
+    await complete(jobRepo, 'job_unregistered', buyerDid, 'merge-unregistered', new Date('2026-01-01T00:00:00Z'));
+
+    await withApp(app, async (url) => {
+      const res = await fetch(`${url}/agents/${AGENT_DID}/hires`);
+      const body = (await res.json()) as {
+        entries: Array<{ jobId: string; selfHire: boolean }>;
+      };
+      const entry = body.entries.find((e) => e.jobId === 'job_unregistered');
+      expect(entry?.selfHire).toBe(false);
     });
   });
 });
