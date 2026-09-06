@@ -324,7 +324,7 @@
 
     /* THE DATE (Review finding, round 3, defect
        roster-row-drifts-from-browse-card): browse's cardRow appends a .when
-       span with the same last-verified- or-registered date rule; a roster
+       span with the same last-verified-or-registered date rule; a roster
        row must carry it too, so the two surfaces cannot drift on any field,
        not just the tier counts. */
     var when = document.createElement("span");
