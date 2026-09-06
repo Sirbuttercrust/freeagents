@@ -8,6 +8,13 @@
 //
 // P9: it must also print the configuration report exactly once at startup
 // (scope item 1), additive to the listen wiring above, never replacing it.
+//
+// B14a: and the github token scope line, from the one live network probe
+// this process makes at boot (a GET /user, read only for its
+// x-oauth-scopes header -- report.ts's own header comment). A probe
+// failure (network down, DNS) must never block startup the way every
+// other capability here already refuses to: caught and logged as its own
+// line, not thrown.
 import { describe, expect, it, vi } from 'vitest';
 
 const mock = vi.hoisted(() => ({
@@ -18,6 +25,8 @@ const mock = vi.hoisted(() => ({
   resolveListenPort: vi.fn(() => 4242),
   buildConfigReport: vi.fn(() => ({ capabilities: [] })),
   formatConfigReport: vi.fn(() => 'configuration report:\n  database: configured'),
+  probeGithubTokenScope: vi.fn(async () => ({ requiredScope: 'repo', scopesHeader: 'repo', hasRequiredScope: true })),
+  formatGithubScopeLine: vi.fn(() => '  githubTokenScope: has repo'),
 }));
 
 mock.createApp.mockImplementation(() => ({ listen: mock.listen }));
@@ -27,6 +36,8 @@ vi.mock('../../src/adapters/runtime/runtime.js', () => ({ resolveListenPort: moc
 vi.mock('../../src/adapters/config/report.js', () => ({
   buildConfigReport: mock.buildConfigReport,
   formatConfigReport: mock.formatConfigReport,
+  probeGithubTokenScope: mock.probeGithubTokenScope,
+  formatGithubScopeLine: mock.formatGithubScopeLine,
 }));
 
 const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -34,6 +45,9 @@ const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 // Side-effecting on import, like the real process boot: resolveListenPort()
 // runs and its result is handed straight to app.listen().
 await import('../../src/api/server.js');
+// The scope probe is async (a real network call in production); give its
+// microtask a turn to resolve before asserting on the second log line.
+await new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('src/api/server.ts', () => {
   it('resolves the listen port through resolveListenPort and binds the app to it', () => {
@@ -46,5 +60,11 @@ describe('src/api/server.ts', () => {
     expect(mock.buildConfigReport).toHaveBeenCalledTimes(1);
     expect(mock.formatConfigReport).toHaveBeenCalledTimes(1);
     expect(logSpy).toHaveBeenCalledWith('configuration report:\n  database: configured');
+  });
+
+  it('probes the github token scope and logs the result line, additive to the report', () => {
+    expect(mock.probeGithubTokenScope).toHaveBeenCalledTimes(1);
+    expect(mock.formatGithubScopeLine).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith('  githubTokenScope: has repo');
   });
 });
