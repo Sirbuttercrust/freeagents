@@ -385,10 +385,39 @@ model DidConnectSession {
 // only. Three states because "the wallet never signed this" and "signed
 // but the chain has not confirmed it" are different facts a caller must be
 // able to tell apart (see UsdcLegStatus in src/adapters/payment/types.ts).
+// S1: 'mismatched' names a transfer that landed on chain but did not pay
+// what this leg expected (wrong recipient, amount, token, or chain), a
+// different fact from 'not_confirmed' (nothing has landed on chain yet).
 enum UsdcTransferStatus {
   confirmed
   not_confirmed
   not_signed
+  mismatched
+}
+
+// S1: which of the two ERC-20 transfers a leg is made of a spent hash
+// backed. Named generically ('price' | 'fee'), not 'deposit'/'balance':
+// that pairing is already leg's own job.
+enum UsdcTransferRole {
+  price
+  fee
+}
+
+// S1: durable record of every hash that has already backed a settlement
+// leg (the anchor's Case C, "one receipt confirms unlimited jobs"). One
+// row per hash: a hash presented again for the SAME (jobId, leg, role) is
+// the ordinary idempotent re-confirm and upserts onto this same row;
+// presented for a different job, leg, or role it is refused before this
+// table is ever written a second time for that hash (usdc.ts's legStatus
+// checks findByHash first).
+model UsdcSpentTransfer {
+  hash       String           @id
+  jobId      String
+  leg        String
+  role       UsdcTransferRole
+  recordedAt DateTime         @default(now())
+
+  @@index([jobId, leg])
 }
 
 // P3: the durable record of a half-paid USDC settlement (one leg confirmed,

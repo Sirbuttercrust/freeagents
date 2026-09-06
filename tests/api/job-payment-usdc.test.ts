@@ -1,12 +1,18 @@
-// P10: the USDC payment surface (brief, scope item 4). Every assertion
-// here fails without: the two USDC payment routes, the usdcPaymentRail
-// capability parameter on createApp, and the observed settlement record
-// they write on confirmed: true.
+// P10 / S1: the USDC payment surface (brief, scope item 4). Every
+// assertion here fails without: the two USDC payment routes, the
+// usdcPaymentRail capability parameter on createApp, and the observed
+// settlement record they write on confirmed: true.
+//
+// S1 (this card): the fake chain client here answers a full observed
+// transfer (recipient, value, token, chain id), not merely a status, so
+// these route tests exercise the real binding path end to end rather than
+// a stubbed-out "any confirmed hash confirms" shortcut.
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
-import { createUsdcPaymentRail, type UsdcChainClient } from '../../src/adapters/payment/usdc.js';
+import { createUsdcPaymentRail, type UsdcChainClient, type UsdcObservedTransfer } from '../../src/adapters/payment/usdc.js';
+import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from '../../src/adapters/payment/usdc-spent-transfer-storage-types.js';
 import { MemorySettlementRepository } from '../../src/adapters/storage/memory.js';
 import {
   MemoryAgentRepository,
@@ -24,6 +30,7 @@ const proposal = [
 const USDC_TOKEN = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d';
 const USDC_FEE_ADDRESS = '0xFeeAddress000000000000000000000000000';
 const USDC_OPERATOR_ADDRESS = '0xOperator000000000000000000000000000000';
+const USDC_CHAIN_ID = 421614;
 
 async function postSigned(baseUrl: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
   const bodyText = JSON.stringify(body);
@@ -41,21 +48,54 @@ async function postSigned(baseUrl: string, path: string, body: unknown, identity
   });
 }
 
-function fakeUsdcChainClient(receiptStatus: (hash: string) => number | null = () => 1): UsdcChainClient {
+// S1: a receipt map keyed by hash, each answering the full observed
+// transfer (or null for "nothing landed yet") that legStatus binds
+// against -- never merely a status.
+type ReceiptSpec = { readonly status: number | null; readonly transfer: UsdcObservedTransfer | null };
+
+function fakeUsdcChainClient(receipts: Record<string, ReceiptSpec | null> = {}): UsdcChainClient {
   return {
     decimals: async () => 6,
-    getTransactionReceipt: async (hash: string) => {
-      const status = receiptStatus(hash);
-      return status === null ? null : { status };
+    getTransactionReceipt: async (hash: string) => receipts[hash] ?? null,
+  };
+}
+
+// S1: a stateful fake of the spent-transfer storage, so these route tests
+// never touch Prisma (DATABASE_URL is unset here) and a re-confirm within
+// one test still sees what an earlier record() wrote.
+function fakeSpentTransferStorage(): UsdcSpentTransferStorage {
+  const rows = new Map<string, UsdcSpentTransferRow>();
+  return {
+    async record(row) {
+      rows.set(row.hash, { ...row });
+    },
+    async findByHash(hash) {
+      return rows.get(hash) ?? null;
     },
   };
+}
+
+// The job in every test here prices at 500.00 USD with the default 25%
+// deposit: deposit 125.00 (fee 6% = 7.50), remainder 375.00 (fee 6% =
+// 22.50), at a 1:1 rate and USDC's 6 decimals.
+function depositPriceTransfer(overrides: Partial<UsdcObservedTransfer> = {}): UsdcObservedTransfer {
+  return { to: USDC_OPERATOR_ADDRESS, value: '125000000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID, ...overrides };
+}
+function depositFeeTransfer(overrides: Partial<UsdcObservedTransfer> = {}): UsdcObservedTransfer {
+  return { to: USDC_FEE_ADDRESS, value: '7500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID, ...overrides };
+}
+function remainderPriceTransfer(overrides: Partial<UsdcObservedTransfer> = {}): UsdcObservedTransfer {
+  return { to: USDC_OPERATOR_ADDRESS, value: '375000000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID, ...overrides };
+}
+function remainderFeeTransfer(overrides: Partial<UsdcObservedTransfer> = {}): UsdcObservedTransfer {
+  return { to: USDC_FEE_ADDRESS, value: '22500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID, ...overrides };
 }
 
 function usdcEnvVars(): Record<string, string> {
   return {
     FREEAGENTS_USDC_RPC_URL: 'https://sepolia-rollup.arbitrum.io/rpc',
     FREEAGENTS_USDC_TOKEN_CONTRACT: USDC_TOKEN,
-    FREEAGENTS_USDC_CHAIN_ID: '421614',
+    FREEAGENTS_USDC_CHAIN_ID: String(USDC_CHAIN_ID),
     FREEAGENTS_USDC_FEE_ADDRESS: USDC_FEE_ADDRESS,
   };
 }
@@ -179,6 +219,7 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/start: the happy path', () => 
         chainClient: fakeUsdcChainClient(),
         rateSource: async () => '1',
         halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
       }),
     );
     ({ server, baseUrl, buyer, agent } = await startApp(usdcRail));
@@ -221,9 +262,13 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/wallet-response: confirm write
   it('confirmed true writes exactly one settlement row and the gate opens confirm', async () => {
     const usdcRail = withUsdcEnv(() =>
       createUsdcPaymentRail({
-        chainClient: fakeUsdcChainClient(() => 1),
+        chainClient: fakeUsdcChainClient({
+          '0xprice1': { status: 1, transfer: depositPriceTransfer() },
+          '0xfee1': { status: 1, transfer: depositFeeTransfer() },
+        }),
         rateSource: async () => '1',
         halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
       }),
     );
     const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
@@ -278,9 +323,10 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/wallet-response: confirm write
   it('confirmed false (nothing landed yet) writes no settlement row, and the gate still refuses', async () => {
     const usdcRail = withUsdcEnv(() =>
       createUsdcPaymentRail({
-        chainClient: fakeUsdcChainClient(() => null),
+        chainClient: fakeUsdcChainClient(),
         rateSource: async () => '1',
         halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
       }),
     );
     const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
@@ -308,9 +354,12 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/wallet-response: confirm write
   it('the half-paid case writes no settlement, and the response names which leg confirmed and which did not', async () => {
     const usdcRail = withUsdcEnv(() =>
       createUsdcPaymentRail({
-        chainClient: fakeUsdcChainClient((hash) => (hash === '0xprice3' ? 1 : null)),
+        chainClient: fakeUsdcChainClient({
+          '0xprice3': { status: 1, transfer: depositPriceTransfer() },
+        }),
         rateSource: async () => '1',
         halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
       }),
     );
     const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
@@ -342,9 +391,13 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/wallet-response: confirm write
   it('a stranger cannot post a wallet response for someone else\'s job', async () => {
     const usdcRail = withUsdcEnv(() =>
       createUsdcPaymentRail({
-        chainClient: fakeUsdcChainClient(() => 1),
+        chainClient: fakeUsdcChainClient({
+          '0xprice4': { status: 1, transfer: depositPriceTransfer() },
+          '0xfee4': { status: 1, transfer: depositFeeTransfer() },
+        }),
         rateSource: async () => '1',
         halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
       }),
     );
     const { server, baseUrl, buyer, agent } = await startApp(usdcRail);
@@ -365,6 +418,36 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/wallet-response: confirm write
   });
 });
 
+describe('S1: priceTxHash equal to feeTx.hash is refused as a malformed request, not answered as a chain observation (Case D)', () => {
+  it('answers 400 and confirms neither leg', async () => {
+    const usdcRail = withUsdcEnv(() =>
+      createUsdcPaymentRail({
+        chainClient: fakeUsdcChainClient({
+          '0xsame': { status: 1, transfer: depositPriceTransfer() },
+        }),
+        rateSource: async () => '1',
+        halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
+      }),
+    );
+    const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
+    try {
+      const jobId = await walkToConfirmed(baseUrl, buyer, agent);
+      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, { operatorAddress: USDC_OPERATOR_ADDRESS }, buyer);
+      const res = await postSigned(
+        baseUrl,
+        `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
+        { operatorAddress: USDC_OPERATOR_ADDRESS, priceTxHash: '0xsame', feeTx: { signed: true, hash: '0xsame' } },
+        buyer,
+      );
+      expect(res.status).toBe(400);
+      expect(await settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
+    } finally {
+      server.close();
+    }
+  });
+});
+
 describe('review round 3, D4: the job\'s own agent is a real party to the job but not its buyer, and starting or confirming a usdc payment is refused', () => {
   it('the agent cannot start a usdc payment for the job it was hired on, and no settlement is written', async () => {
     const usdcRail = withUsdcEnv(() =>
@@ -372,6 +455,7 @@ describe('review round 3, D4: the job\'s own agent is a real party to the job bu
         chainClient: fakeUsdcChainClient(),
         rateSource: async () => '1',
         halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
       }),
     );
     const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
@@ -388,9 +472,13 @@ describe('review round 3, D4: the job\'s own agent is a real party to the job bu
   it('the agent cannot post a wallet response and settle the job\'s own remainder leg', async () => {
     const usdcRail = withUsdcEnv(() =>
       createUsdcPaymentRail({
-        chainClient: fakeUsdcChainClient(() => 1),
+        chainClient: fakeUsdcChainClient({
+          '0xagentprice': { status: 1, transfer: remainderPriceTransfer() },
+          '0xagentfee': { status: 1, transfer: remainderFeeTransfer() },
+        }),
         rateSource: async () => '1',
         halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
       }),
     );
     const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
@@ -414,9 +502,15 @@ describe('the remainder leg confirms independently of the deposit leg, and unloc
   it('a settled remainder leg lets pull-request pass its settlement gate, driven through the route', async () => {
     const usdcRail = withUsdcEnv(() =>
       createUsdcPaymentRail({
-        chainClient: fakeUsdcChainClient(() => 1),
+        chainClient: fakeUsdcChainClient({
+          '0xdep-price': { status: 1, transfer: depositPriceTransfer() },
+          '0xdep-fee': { status: 1, transfer: depositFeeTransfer() },
+          '0xrem-price': { status: 1, transfer: remainderPriceTransfer() },
+          '0xrem-fee': { status: 1, transfer: remainderFeeTransfer() },
+        }),
         rateSource: async () => '1',
         halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
       }),
     );
     const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(121));

@@ -148,6 +148,13 @@ export type WalletResponseInput =
       // one: this rail must never guess why a hash is missing (P3 brief,
       // scope item 2).
       readonly feeTx: { readonly signed: true; readonly hash: string } | { readonly signed: false };
+      // S1: the leg's agreed USD amount (route's legAmountUsdFromJob),
+      // carried through so onWalletResponse can compute the base-unit
+      // amounts confirm() must bind the observed transfers against. Never
+      // read from a caller-supplied body field at the route (S1 brief,
+      // "the amount must come from the job's agreed price"); this is the
+      // rail's own input contract, not a route body shape.
+      readonly amountUsd: string;
     };
 
 // Opaque per rail: what confirm() and every downstream caller address a
@@ -176,16 +183,29 @@ export type PaymentRef =
       // (WalletResponseInput's `feeTx: { signed: false }`): confirm() must
       // never invent a hash to check a receipt for one that was never sent.
       readonly feeTxHash: string | null;
+      // S1: the base-unit amounts the price and fee transfers must carry
+      // to confirm, computed once by onWalletResponse from the job's own
+      // agreed USD price (never a caller-supplied amount). confirm()
+      // compares each observed transfer's value against these, never
+      // against a fresh re-quote: the price a buyer signed for is the
+      // price that must land, even if the rate source answers something
+      // else by the time confirm() runs.
+      readonly expectedPriceBaseUnits: string;
+      readonly expectedFeeBaseUnits: string;
     };
 
-// Per-leg outcome confirm() actually observed on chain, USDC only. Three
-// states, not two, because "the wallet never signed this" and "signed and
-// broadcast but the chain has not confirmed it" are different facts and a
-// caller acting on either must be able to tell them apart.
+// Per-leg outcome confirm() actually observed on chain, USDC only. Four
+// states, not two, because "the wallet never signed this", "signed and
+// broadcast but the chain has not confirmed it", and "landed, but paid the
+// wrong recipient, amount, token or chain" are three different facts and a
+// caller acting on any of them must be able to tell them apart (S1: a
+// transaction that succeeded is not the same fact as a transaction that
+// paid what this job asked for).
 export type UsdcLegStatus =
   | { readonly status: 'confirmed'; readonly hash: string }
   | { readonly status: 'not_confirmed'; readonly hash: string }
-  | { readonly status: 'not_signed' };
+  | { readonly status: 'not_signed' }
+  | { readonly status: 'mismatched'; readonly hash: string };
 
 export interface Confirmation {
   readonly rail: Rail;

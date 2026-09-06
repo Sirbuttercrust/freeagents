@@ -3307,6 +3307,15 @@ export function createApp(
       }
       const feeTx = feeTxRaw as { signed: true; hash: string } | { signed: false };
 
+      // S1 scope item 4: priceTxHash equal to feeTx.hash is refused here,
+      // at the route, as a malformed request (400) -- not answered by the
+      // rail as a chain observation. One transfer can never satisfy both
+      // legs of a payment.
+      if (feeTx.signed && feeTx.hash === body.priceTxHash) {
+        res.status(400).json({ error: 'priceTxHash and feeTx.hash must not be the same transaction' });
+        return;
+      }
+
       let ref: PaymentRef;
       let confirmation;
       try {
@@ -3316,6 +3325,7 @@ export function createApp(
           operatorAddress: body.operatorAddress,
           priceTxHash: body.priceTxHash,
           feeTx,
+          amountUsd: legAmountUsdFromJob(gate.job, leg),
         });
         confirmation = await confirmPayment(usdcPaymentRail, ref);
       } catch (err) {
