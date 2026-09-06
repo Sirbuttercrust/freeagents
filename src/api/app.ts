@@ -103,7 +103,7 @@ import {
 import { depositUsd, remainderUsd } from '../domain/payment.js';
 import { createSettlementGate, remainderSettled, type SettlementGate } from '../adapters/payment/gate.js';
 import { rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
-import { buyerDiversity } from '../domain/buyer-diversity.js';
+import { buyerDiversity, type HireFacts } from '../domain/buyer-diversity.js';
 import {
   buyerConductRecord,
   buyerConductThresholdFailure,
@@ -487,6 +487,31 @@ function buyerConductFailureMessage(failure: BuyerConductThresholdFailure): stri
     return `this agent requires ${failure.threshold} of at least ${failure.required}; your account has ${failure.actual}`;
   }
   return `this agent requires ${failure.threshold} of at most ${failure.required}; your account has ${failure.actual}`;
+}
+
+// P7 (review round 1, D1): the self-hire label's GitHub comparison is only
+// as good as the logins actually reaching isSelfHire. Resolves each
+// distinct buyer DID in `hires` to its own verified GitHub login (one
+// lookup per distinct buyer, not per hire) and attaches it to the row,
+// so buyerDiversity's login comparison compares real accounts rather
+// than the undefined isSelfHire silently treats as never-a-match.
+// A buyer DID with no registered Account resolves to a null login,
+// exactly like an unkeyed buyer elsewhere in this file: absent is never
+// invented as a match.
+async function withBuyerGithubLogins(
+  hires: readonly CompletedJob[],
+  accountRepo: AccountRepository,
+): Promise<HireFacts[]> {
+  const loginByBuyerDid = new Map<string, string | null>();
+  for (const hire of hires) {
+    if (loginByBuyerDid.has(hire.buyerDid)) continue;
+    const account = await accountRepo.findByDid(hire.buyerDid);
+    loginByBuyerDid.set(hire.buyerDid, account?.githubLogin ?? null);
+  }
+  return hires.map((hire) => ({
+    ...hire,
+    buyerGithubLogin: loginByBuyerDid.get(hire.buyerDid) ?? null,
+  }));
 }
 
 export function createApp(
@@ -1563,7 +1588,17 @@ export function createApp(
 
     try {
       const hires = await jobRepo.findCompletedByAgent(row.did);
-      const { counts, entries } = buyerDiversity(hires, row.operatorDid);
+      // P7: the operator's own verified GitHub login, resolved once per
+      // request (the operator is fixed per agent), and each buyer's own
+      // login resolved per distinct buyer (withBuyerGithubLogins). Both
+      // travel to buyerDiversity so isSelfHire's GitHub comparison
+      // compares real accounts, not the undefined it silently treated
+      // as never-a-match before this fix (review round 1, D1). A storage
+      // failure in either lookup falls through to the same 503 the
+      // existing catch below already maps every other failure here to.
+      const operatorAccount = await repo.findByDid(row.operatorDid);
+      const hiresWithLogins = await withBuyerGithubLogins(hires, repo);
+      const { counts, entries } = buyerDiversity(hiresWithLogins, row.operatorDid, operatorAccount?.githubLogin ?? null);
       res.status(200).json({ agentDid: did, counts, entries });
     } catch (err) {
       console.error('GET /agents/:agentDid/hires: storage failed', err);
