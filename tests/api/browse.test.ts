@@ -397,7 +397,7 @@ describe('GET /agents (R-20 browse)', () => {
     });
   });
 
-  // Proof (t_698205aa, defect no-blend-sweep-vacuous): the original fixture
+  // Review finding (t_698205aa, defect no-blend-sweep-vacuous): the original fixture
   // here was 1 verified hire (implicitly 1 buyer) and 1 portfolio item, so
   // tierCounts [1, 0, 1] made forbiddenSums {1, 2} and buyerCount 1 (now
   // derived structurally by toBrowseCard) collided with its own sum. Because

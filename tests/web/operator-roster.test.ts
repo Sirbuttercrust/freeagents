@@ -308,7 +308,7 @@ describe('the operator page roster (R-19)', () => {
   });
 
   // D4's controls exist to DO something. These four tests operate them
-  // rather than asserting presence (Proof, run 76, defect vacuous-guard):
+  // rather than asserting presence (review, run 76, defect vacuous-guard):
   // a test that never fires an event on #roster-sort or #roster-skill
   // passes identically on a build where neither is wired to anything.
 
@@ -380,7 +380,7 @@ describe('the operator page roster (R-19)', () => {
     }
   });
 
-  // Proof round 3, D1: filtering an above-ten roster down to a handful of
+  // Review round 3, D1: filtering an above-ten roster down to a handful of
   // rows must not delete the controls that produced the filter. Browse
   // keeps #sort and #skill visible in the identical case; the roster must
   // match it, gating on the FULL roster size, never the filtered one.
@@ -401,7 +401,7 @@ describe('the operator page roster (R-19)', () => {
     }
   });
 
-  // Proof round 3, D3: a roster row must carry every field browse's card
+  // Review round 3, D3: a roster row must carry every field browse's card
   // does for the same agent, not just the three tier counts already
   // checked above. Comparing the rendered DOM field by field (rather than
   // only the tier counts) is what the round-2 parity test missed: it never
@@ -436,7 +436,7 @@ describe('the operator page roster (R-19)', () => {
     }
   });
 
-  // Proof round 3, D2: the summary sentence must not claim a population it
+  // Review round 3, D2: the summary sentence must not claim a population it
   // is not showing. A skill filter narrows the rows on screen while the
   // aggregate stays full-roster (app.ts: an operator's accountability does
   // not shrink because a visitor filtered); the wording must say so
@@ -456,7 +456,7 @@ describe('the operator page roster (R-19)', () => {
     }
   });
 
-  // Proof round 3, D5: a filter that matches nothing must not be reported
+  // Review round 3, D5: a filter that matches nothing must not be reported
   // as an empty roster. #roster-empty was gated on the POST-filter row
   // count, the identical mistake D1 made for #roster-controls one line
   // above it in operator.js. This operator runs eleven agents; a filter
