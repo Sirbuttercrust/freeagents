@@ -2756,11 +2756,47 @@ export function createApp(
       : remainderUsd(String(job.priceUsd), job.depositPercent);
   }
 
+  // Review round 1, D2: did-connect-js's own attachExpress mounts
+  // `{prefix}/{action}/token` (here, /api/did/pay/token) with NO
+  // middleware at all (node_modules/@arcblock/did-connect-js/dist/
+  // adapters/express.js: `app.get(pathname, generateSession)` and the
+  // POST sibling, neither one guarded). Reached directly rather than
+  // through the /start route below, it minted a valid, job-bound
+  // session token for any jobId a caller named, without a signature of
+  // any kind. onAuth (abt-did-connect.ts) still refused to let that
+  // session ever settle a payment, so this was never a fund-loss path,
+  // but it let a stranger mint sessions for jobs they have no
+  // relationship to, which is exactly what the /start route's own gate
+  // is supposed to prevent. Registered here, before
+  // attachAbtPaymentHandlers mounts its own routes on the same path
+  // below: Express matches handlers for one path in the order they were
+  // registered, and app.use with an exact path matches every method on
+  // it, so this runs in front of did-connect-js's own token handler for
+  // both GET and POST. It reuses the exact same requireSignedParty gate
+  // /start uses, naming the buyer as the only allowed party; onAuth's
+  // buyerDid check is unchanged and remains the party check that gates
+  // whether a payment actually lands.
+  const requireBuyerToMintAbtSession = (req: Request, res: Response, next: NextFunction): void => {
+    void (async () => {
+      const jobId = String((req.method === 'GET' ? req.query.jobId : (req.body as { jobId?: unknown })?.jobId) ?? '');
+      if (jobId === '') {
+        res.status(400).json({ error: 'jobId is required to mint an abt payment session' });
+        return;
+      }
+      const gate = await requireSignedParty('GET/POST /api/did/pay/token', jobId, req, res, ['buyer']);
+      if (gate === null) return;
+      next();
+    })().catch(next);
+  };
+
   // The ABT DID Connect handlers are attached ONCE at app construction
   // (brief scope item 3), only when the rail is configured: an unwired
   // deployment mounts no DID Connect routes at all, and its /start route
   // (below) answers the same clean 503 every other unconfigured rail
   // answers, rather than a route that exists but can never complete.
+  if (abtPaymentRail !== null) {
+    app.use('/api/did/pay/token', didSignature, requireBuyerToMintAbtSession);
+  }
   const abtHandlers =
     abtPaymentRail === null
       ? null
@@ -2780,9 +2816,13 @@ export function createApp(
   // session token generator needs; the web layer renders the scan from
   // the response's own `url` field. RULE: the paying party is checked at
   // onAuth time (abt-did-connect.ts), against the job's own buyerDid --
-  // this route's own buyer gate additionally refuses a stranger before a
-  // session is even minted, so a stranger never learns a valid session
-  // token for someone else's job either.
+  // that is the check that gates whether a payment can ever settle.
+  // Review round 1, D2: this route's own buyer gate covers only calls
+  // that go through this path. The `requireBuyerToMintAbtSession`
+  // middleware registered above, in front of did-connect-js's own
+  // /api/did/pay/token mount, is what stops a stranger reaching that
+  // route directly and minting a session token for someone else's job
+  // without ever touching this route at all.
   app.post(
     '/jobs/:jobId/payments/:leg/abt/start',
     didSignature,
@@ -2819,6 +2859,22 @@ export function createApp(
         leg,
         operatorAddress: body.operatorAddress,
       };
+      // Review round 1, D1: did-connect-js's own generateSession builds the
+      // wallet callback URL from req.originalUrl (preparePathname,
+      // node_modules/@arcblock/did-connect-js/dist/handlers/util.js). It
+      // expects to be invoked as the handler mounted directly at
+      // /api/did/pay/token (attachExpress's own mount point) and strips
+      // that exact path back out of whatever it is given. Calling
+      // generateSession from this route's own different path left the
+      // whole /jobs/.../abt/start prefix stuck on the front of the
+      // callback URL, so a real wallet fetched a path that 404s. Only
+      // the pathname half of preparePathname's split matters (the query
+      // string plays no part in it), so rewriting originalUrl to the
+      // path attachAbtPaymentHandlers actually mounted the token route at
+      // is enough to make preparePathname resolve the same callback path
+      // that route would have produced. Nothing downstream of this call
+      // reads the pre-rewrite value.
+      req.originalUrl = '/api/did/pay/token';
       await abtHandlers.generateSession(req, res);
     }),
   );
