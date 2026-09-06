@@ -1704,7 +1704,38 @@ export function createApp(
   });
 
   app.get('/agents/:agentDid/card', notImplemented);
-  app.get('/agents/:agentDid/credentials', notImplemented);
+
+  // B9 (launch ledger): the receipts listing every agent profile already
+  // links to. Same shape as GET /agents/:agentDid/reviews above: look the
+  // agent up first, 404 when it is not registered, then read the listing,
+  // and map a storage throw to 503. credentialEvidenceOf is the one
+  // narrowing every reader of listBySubjectDid goes through (P6), so a
+  // deemed-completion document can never widen into a hire here.
+  app.get('/agents/:agentDid/credentials', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+
+    let row: Agent | null;
+    try {
+      row = await agentRepo.findByDid(did);
+    } catch (err) {
+      console.error('GET /agents/:agentDid/credentials: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (row === null) {
+      res.status(404).json({ error: `agent ${did} is not registered` });
+      return;
+    }
+
+    try {
+      const stored = await credentialRepo.listBySubjectDid(did);
+      const credentials = credentialEvidenceOf(stored);
+      res.status(200).json({ agentDid: did, credentials });
+    } catch (err) {
+      console.error('GET /agents/:agentDid/credentials: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
 
   // P7 (scope item 6): the buyer conduct record, keyed to the buyer's
   // verified GitHub account, public because this is the record that is
