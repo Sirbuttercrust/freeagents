@@ -3101,9 +3101,21 @@ export function createApp(
   // is copied from the job, never taken as input). The body names the
   // confirmed criterion and the one sentence of reasoning; recordCitedClose
   // validates both, mapping to 400 through the same applyAndPersist leg
-  // every other lifecycle route shares. No payment gate: the balance
-  // already settled at pull-request time (P4), so there is nothing left to
-  // check before a paid buyer can close.
+  // every other lifecycle route shares.
+  //
+  // P6 review round 1 (D1): a payment gate IS required here, and asking it
+  // is not optional the way the original comment on this route assumed.
+  // "The balance already settled at pull-request time" is a fact about the
+  // PAST, not the live state this route must check: the settlement gate is
+  // an asynchronous external question (design record row 4: "available
+  // only after the buyer has paid the remainder"), and its answer can
+  // differ between the pull-request instant and this one -- the same
+  // reason applyLiveLapses re-asks it on every read of a staged job rather
+  // than trusting what confirm once observed. Asking again here, through
+  // the same applyAndPersist paymentGate leg confirm already uses, closes
+  // that gap: 402 when unsettled (naming the remainder still owed), 503 on
+  // a gate failure, exactly like every other settlement-gated route in
+  // this file.
   app.post(
     '/jobs/:jobId/cited-close',
     didSignature,
@@ -3121,7 +3133,19 @@ export function createApp(
         return;
       }
       const input = { criterionIndex: body.criterionIndex, reasonText: body.reasonText };
-      await applyAndPersist(label, res, gate.job, (job) => recordCitedClose(job, input, new Date()));
+      await applyAndPersist(
+        label,
+        res,
+        gate.job,
+        (job) => recordCitedClose(job, input, new Date()),
+        {
+          settled: (jobId) => remainderSettled(settlementGate, jobId),
+          unsettledBody: (updated) => ({
+            error: 'the remainder has not settled; this job cannot be cited-closed until it does',
+            remainderUsd: updated.priceUsd === null ? null : remainderUsd(updated.priceUsd, updated.depositPercent),
+          }),
+        },
+      );
     }),
   );
 

@@ -17,6 +17,7 @@ import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../h
 import { testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import type { SettlementGate } from '../../src/adapters/payment/gate.js';
 
 let buyer: SigningIdentity;
 let agent: SigningIdentity;
@@ -53,7 +54,7 @@ async function postSigned(base: string, path: string, body: unknown, identity: S
   });
 }
 
-async function startWith(repo: JobRepository, credentialRepo: MemoryCredentialRepository): Promise<{ server: Server; baseUrl: string }> {
+async function startWith(repo: JobRepository, credentialRepo: MemoryCredentialRepository, settlementGate: SettlementGate = alwaysSettledGate()): Promise<{ server: Server; baseUrl: string }> {
   const agentRepo = new MemoryAgentRepository();
   await agentRepo.create({
     did: agent.did,
@@ -80,7 +81,7 @@ async function startWith(repo: JobRepository, credentialRepo: MemoryCredentialRe
     undefined,
     sessionAdapter,
     undefined,
-    alwaysSettledGate(),
+    settlementGate,
     anyCommitStagingObserver(),
   ).listen(0);
   await new Promise<void>((resolve) => s.once('listening', resolve));
@@ -163,5 +164,75 @@ describe('job cited close after paying (P6, design record row 4)', () => {
     expect(res.status).toBe(200);
     const stored = await credentialRepo.findByDocumentId(jobId);
     expect(stored).toBeNull();
+  });
+});
+
+// P6 review round 1 (D1): the cited close is the buyer's move AFTER
+// paying the remainder (design record row 4: "available only after the
+// buyer has paid the remainder"). The settlement fact the route asks is
+// live, not a memory of what was true when the pull request opened -- the
+// same SettlementGate applyLiveLapses and the pull-request route already
+// ask, asked again here because settlement can be reversed or can never
+// have actually landed between those two instants. A toggling gate proves
+// the route asks the LIVE answer, not the one it saw at submit time: it
+// answers settled long enough to walk the job to submitted, then flips to
+// unsettled before the cited close is attempted.
+class ToggleableSettlementGate implements SettlementGate {
+  private settled = true;
+  askedBalanceCount = 0;
+
+  setSettled(value: boolean): void {
+    this.settled = value;
+  }
+
+  async depositSettled(_jobId: string): Promise<boolean> {
+    return this.settled;
+  }
+
+  async balanceSettled(_jobId: string): Promise<boolean> {
+    this.askedBalanceCount += 1;
+    return this.settled;
+  }
+}
+
+describe('cited close is gated on the live settlement fact (P6 review round 1, D1)', () => {
+  let server: Server;
+  let baseUrl: string;
+  let gate: ToggleableSettlementGate;
+
+  beforeAll(async () => {
+    buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(133));
+    agent = await signingIdentityFromSeed(new Uint8Array(32).fill(134));
+    gate = new ToggleableSettlementGate();
+    const started = await startWith(new MemoryJobRepository(), new MemoryCredentialRepository(), gate);
+    server = started.server;
+    baseUrl = started.baseUrl;
+  });
+
+  afterAll(() => {
+    server.close();
+  });
+
+  it('refuses a cited close with 402 when the remainder has not settled, and stores no cited-close fact', async () => {
+    const jobId = await walkToSubmitted(baseUrl);
+    const askedBefore = gate.askedBalanceCount;
+    gate.setSettled(false);
+    const res = await postSigned(baseUrl, `/jobs/${jobId}/cited-close`, { criterionIndex: 0, reasonText: 'Not fixed.' }, buyer);
+    expect(res.status).toBe(402);
+    expect(gate.askedBalanceCount).toBeGreaterThan(askedBefore);
+
+    gate.setSettled(true);
+    const read = await (await fetch(`${baseUrl}/jobs/${jobId}`)).json() as Record<string, unknown>;
+    expect(read.status).toBe('submitted');
+    expect(read.citedClose).toBeUndefined();
+  });
+
+  it('allows the cited close once the remainder settles again', async () => {
+    const jobId = await walkToSubmitted(baseUrl);
+    gate.setSettled(true);
+    const res = await postSigned(baseUrl, `/jobs/${jobId}/cited-close`, { criterionIndex: 0, reasonText: 'Not fixed, still.' }, buyer);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.status).toBe('cited_closed');
   });
 });

@@ -329,12 +329,19 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
     // record row 2). staged -> withdrawn and staged -> declined stay
     // absent for the same reasons the P4 comment above already names.
     staged: ['submitted', 'staged_declined', 'closed_unpaid', 'redo_requested'],
-    // P6: redo_requested has exactly two edges out. Accepting the redo is
-    // NOT a transition of its own -- stageWork repeats the confirmed ->
-    // staged edge (its own header comment), which this table therefore
-    // also has to permit starting FROM redo_requested, not only from
-    // confirmed. Refusing is refuseRedo's own edge, back to staged.
-    redo_requested: ['staged'],
+    // P6: redo_requested has three edges out. Accepting the redo is NOT a
+    // transition of its own -- stageWork repeats the confirmed -> staged
+    // edge (its own header comment), which this table therefore also has
+    // to permit starting FROM redo_requested, not only from confirmed.
+    // Refusing is refuseRedo's own edge, back to staged. closed_unpaid is
+    // lapseAtStaged's own edge (review round 1, D2): a redo the operator
+    // never answers is still an unpaid staged job on the clock, the same
+    // clock and the same extended deadline that already protects an
+    // unanswered staged job, so this table records the same fact staged's
+    // own entry already does. Named here for documentation only --
+    // lapseAtStaged writes the status directly, the same way it already
+    // does from `staged`, rather than calling this validator.
+    redo_requested: ['staged', 'closed_unpaid'],
     // R-12 (ENT-7.2): non-merge outcomes are recorded, not hidden. The
     // stale -> closed_unmerged edge is legal (R-31): an outcome update
     // after stale, not a new state. P4: deemed_completed joins the same
@@ -571,11 +578,24 @@ export function expireUnstaged(job: Job, now: Date): Job {
   return { ...job, status: 'expired_unstaged' };
 }
 
-// staged with no balance settled, LAPSE_AT_STAGED_AFTER_DAYS after
-// stagedAt, becomes closed_unpaid (terminal). "The code never leaves
-// staging": nothing here touches stagedCommit or stagedAt, so a lapsed
-// row still carries exactly what was staged, for whatever the attestation
-// card eventually shows against a closed_unpaid job.
+// staged (or redo_requested) with no balance settled,
+// LAPSE_AT_STAGED_AFTER_DAYS after stagedAt, becomes closed_unpaid
+// (terminal). "The code never leaves staging": nothing here touches
+// stagedCommit or stagedAt, so a lapsed row still carries exactly what was
+// staged, for whatever the attestation card eventually shows against a
+// closed_unpaid job.
+//
+// P6 review round 1 (D2): redo_requested joins staged as a starting status
+// this clock covers, not only staged. Before this fix, the moment a buyer
+// requested a redo the job left `staged` and this clock returned it
+// unchanged forever after -- an operator who simply never answered the
+// redo left the job immortal, with no deadline of any kind. redo_requested
+// sits between staged and staged again (job.ts's own header comment): the
+// buyer has still not paid in either status, so the same clock protects
+// both the same way, off the same stagedAt and the same
+// stagedLapseExtensionDays (requestRedo has already added the extension
+// by the time a job reaches redo_requested, so the deadline a pending
+// redo is held to is already the extended one, not the base one).
 //
 // remainderIsSettled is the caller's answer to the ONE fact this clock is
 // defined against (brief section 4: "staged with NO BALANCE SETTLED" --
@@ -593,7 +613,13 @@ export function expireUnstaged(job: Job, now: Date): Job {
 // SettlementGate to ask; it passes the real answer explicitly rather
 // than relying on this default.
 export function lapseAtStaged(job: Job, now: Date, remainderIsSettled = false): Job {
-  if (job.status !== 'staged' || job.stagedAt === null || remainderIsSettled) return job;
+  if (
+    (job.status !== 'staged' && job.status !== 'redo_requested') ||
+    job.stagedAt === null ||
+    remainderIsSettled
+  ) {
+    return job;
+  }
   // P6: a redo requested and accepted earlier on this job extends the
   // window by stagedLapseExtensionDays (a stored fact, never
   // recomputed from redoUsedCount -- see requestRedo's own header
