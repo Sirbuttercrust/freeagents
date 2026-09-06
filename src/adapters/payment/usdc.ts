@@ -60,6 +60,17 @@ interface UsdcEnvConfig {
   readonly feeAddress: string;
 }
 
+// Shape check for FREEAGENTS_USDC_CHAIN_ID, shared with the P9 startup
+// configuration report (report.ts): "configured" must mean the same thing
+// in both places, so the report never claims the chain id is set when it
+// is a value readUsdcEnvConfig would reject. String round-trip catches
+// leading zeros, whitespace and scientific notation that Number.parseInt
+// alone would silently accept.
+export function isValidUsdcChainId(raw: string): boolean {
+  const chainId = Number.parseInt(raw, 10);
+  return Number.isInteger(chainId) && chainId > 0 && String(chainId) === raw;
+}
+
 // Fails closed BEFORE any network call, matching readAbtEnvConfig's own
 // posture (abt.ts): an absent or empty env var throws a typed error
 // immediately rather than proceeding with a half-configured rail.
@@ -79,12 +90,12 @@ function readUsdcEnvConfig(): UsdcEnvConfig {
   if (missing.length > 0) {
     throw new PaymentConfigError(`usdc payment rail: missing env var(s): ${missing.join(', ')}`);
   }
-  const chainId = Number.parseInt(chainIdRaw, 10);
-  if (!Number.isInteger(chainId) || chainId <= 0 || String(chainId) !== chainIdRaw) {
+  if (!isValidUsdcChainId(chainIdRaw)) {
     throw new PaymentConfigError(
       `usdc payment rail: FREEAGENTS_USDC_CHAIN_ID must be a positive integer, got "${chainIdRaw}"`,
     );
   }
+  const chainId = Number.parseInt(chainIdRaw, 10);
   return { rpcUrl, tokenContract, chainId, feeAddress };
 }
 

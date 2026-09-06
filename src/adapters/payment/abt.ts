@@ -94,6 +94,22 @@ async function defaultRateSource(): Promise<string | null> {
   return null;
 }
 
+// Shape check for FREEAGENTS_ABT_PLATFORM_SK, shared with the P9 startup
+// configuration report (report.ts): "configured" must mean the same thing
+// in both places, so the report never claims the platform key is set when
+// it is a value fromSecretKey would reject. Delegates to fromSecretKey
+// itself rather than duplicating its key-length rule, since that rule
+// lives in @ocap/wallet, not in this file. Purely local key derivation,
+// no network call, matching every other validity predicate this card adds.
+export function isValidAbtPlatformSk(value: string): boolean {
+  try {
+    fromSecretKey(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export interface CreateAbtPaymentRailOptions {
   readonly chainClient?: AbtChainClient;
   readonly rateSource?: RateSource;
