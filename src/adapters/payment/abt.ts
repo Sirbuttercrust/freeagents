@@ -43,6 +43,25 @@ import {
   type WalletResponseInput,
 } from './types.js';
 
+// The abt-only slice of each opaque union, so a caller already holding an
+// AbtPaymentRail (this file's own tests, and any other caller who received
+// this rail specifically rather than through a dispatch table keyed on
+// PaymentRail) gets the concrete claim/hash shape back without narrowing
+// PaymentRequest itself (P3 added the `usdc` member to that union; this
+// file never edits it). Structurally compatible with PaymentRail: a
+// narrower return type is assignable to the wider one, so this rail still
+// satisfies PaymentRail for a caller that only holds the general interface.
+type AbtPaymentRequest = Extract<PaymentRequest, { rail: 'abt' }>;
+type AbtWalletResponseInput = Extract<WalletResponseInput, { rail: 'abt' }>;
+type AbtPaymentRef = Extract<PaymentRef, { rail: 'abt' }>;
+
+export interface AbtPaymentRail extends Omit<PaymentRail, 'createRequest' | 'onWalletResponse' | 'confirm'> {
+  readonly rail: 'abt';
+  createRequest(input: CreateRequestInput): Promise<AbtPaymentRequest>;
+  onWalletResponse(input: AbtWalletResponseInput): Promise<AbtPaymentRef>;
+  confirm(ref: AbtPaymentRef): Promise<Confirmation>;
+}
+
 // The three chain calls this rail makes, isolated behind an interface so
 // tests never construct a real @ocap/client (no network in the test suite;
 // FACTORY_RULES.md and this card both require that). The production
@@ -113,7 +132,7 @@ function readAbtEnvConfig(): AbtEnvConfig {
   return { chainHost, platformSk, token, feeAddress };
 }
 
-export function createAbtPaymentRail(options: CreateAbtPaymentRailOptions = {}): PaymentRail {
+export function createAbtPaymentRail(options: CreateAbtPaymentRailOptions = {}): AbtPaymentRail {
   const config = readAbtEnvConfig();
   const platformWallet = fromSecretKey(config.platformSk);
   const chainClient = options.chainClient ?? realChainClient(config.chainHost);
@@ -139,7 +158,7 @@ export function createAbtPaymentRail(options: CreateAbtPaymentRailOptions = {}):
       };
     },
 
-    async createRequest(input: CreateRequestInput): Promise<PaymentRequest> {
+    async createRequest(input: CreateRequestInput): Promise<AbtPaymentRequest> {
       // D1 (review, round 1): fromTokenToUnit accepts a decimal STRING
       // directly and does exact big-number math internally (@ocap/util's
       // BN, not a JS float); routing the amount through Number() first
@@ -178,7 +197,7 @@ export function createAbtPaymentRail(options: CreateAbtPaymentRailOptions = {}):
       return { rail: 'abt', jobId: input.jobId, leg: input.leg, claim };
     },
 
-    async onWalletResponse(input: WalletResponseInput): Promise<PaymentRef> {
+    async onWalletResponse(input: AbtWalletResponseInput): Promise<AbtPaymentRef> {
       const decoded = (await chainClient.decodeTx(fromBase58(input.finalTx))) as {
         itx: { outputs: readonly { owner: string }[] };
       };
@@ -207,7 +226,7 @@ export function createAbtPaymentRail(options: CreateAbtPaymentRailOptions = {}):
       };
     },
 
-    async confirm(ref: PaymentRef): Promise<Confirmation> {
+    async confirm(ref: AbtPaymentRef): Promise<Confirmation> {
       const result = await chainClient.getTx({ hash: ref.hash });
       const confirmed = result.code === 'OK';
       if (!confirmed) {

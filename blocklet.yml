@@ -96,3 +96,23 @@ environments:
     required: false
     secure: false
     default: ''
+  - name: FREEAGENTS_USDC_RPC_URL
+    description: Arbitrum JSON-RPC endpoint the USDC payment rail talks to (e.g. Arbitrum Sepolia during development). Unset means the rail fails closed with a typed PaymentConfigError rather than constructing a provider against nothing.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_USDC_TOKEN_CONTRACT
+    description: USDC token contract address the USDC payment rail denominates payments in. Decimals are read from this contract at call time, never assumed. Unset means the rail fails closed rather than building a transfer against an empty token address.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_USDC_CHAIN_ID
+    description: The Arbitrum chain id (e.g. 421614 for Arbitrum Sepolia, 42161 for Arbitrum One) the wallet must sign each USDC transfer against. Unset means the rail fails closed rather than building a request with no chain to target.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_USDC_FEE_ADDRESS
+    description: Platform address the USDC payment rail names as the fee transfer's recipient. The platform never signs on the buyer's behalf; this is only ever a transfer destination (invariant 12). Unset means the rail fails closed rather than building a transfer with no fee destination.
+    required: false
+    secure: false
+    default: ''
