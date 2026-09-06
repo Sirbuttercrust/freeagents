@@ -1,4 +1,4 @@
-// P4, Proof round 1 (D2/D3, t_cb5d35cd): the two clocks (expireUnstaged,
+// P4, review round 1 (D2/D3, t_cb5d35cd): the two clocks (expireUnstaged,
 // lapseAtStaged) were only applied on GET, so a job that lapsed while
 // nobody was looking could still be ACTED ON by a mutation route -- the
 // exact "unpaid work reaches a buyer's repository" failure this card
@@ -20,9 +20,12 @@ import type { GithubAdapter, ForkAndOpenPullRequestInput, PullRequestRef } from 
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
-function fakeGithub(recorded: ForkAndOpenPullRequestInput[]): GithubAdapter {
+function fakeGithub(recorded: ForkAndOpenPullRequestInput[], mergeCalls: PullRequestRef[] = []): GithubAdapter {
   return {
-    getPullRequest: () => Promise.reject(new NotImplementedError('github', 'getPullRequest')),
+    getPullRequest: (ref) => {
+      mergeCalls.push(ref);
+      return Promise.reject(new NotImplementedError('github', 'getPullRequest'));
+    },
     getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
     getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
     forkAndOpenPullRequest: (input) => {
@@ -179,4 +182,83 @@ describe('lapse enforcement binds to mutation routes, not only GET (P4, anchor)'
     const body = (await pr.json()) as Record<string, unknown>;
     expect(body.status).toBe('submitted');
   });
+});
+
+// D7 (review round 2, t_cb5d35cd): the merge route's nonObservationStatuses
+// guard predated P4 and never learned the five statuses this card adds. A
+// caller mistake (asking to merge a job that was never submitted) turned
+// into a 500 platform fault instead of an honest 409, because the route
+// fell through to the submitted-only pullRequestUrl parse for statuses
+// that never carry one. Each of these must answer 409 before github is
+// ever asked, the same way draft/proposed/confirmed/withdrawn/declined
+// already do.
+describe('merge refuses every P4 non-observable status with 409, not 500 (D7, t_cb5d35cd)', () => {
+  let server: Server;
+  let baseUrl: string;
+  let jobRepo: MemoryJobRepository;
+  let mergeCalls: PullRequestRef[];
+
+  beforeAll(async () => {
+    const accounts = new MemoryAccountRepository();
+    await accounts.register({ did: buyer.did, githubLogin: 'buyer-merge-guard' });
+    const agentRepo = new MemoryAgentRepository();
+    await agentRepo.create({
+      did: agent.did,
+      operatorDid: 'did:abt:op-merge-guard',
+      delegation: { fixture: true } as never,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    jobRepo = new MemoryJobRepository();
+    mergeCalls = [];
+    const app = createApp(
+      accounts,
+      agentRepo,
+      undefined,
+      fakeGithub([], mergeCalls),
+      jobRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      new MemorySettlementGate(),
+    );
+    server = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('expected server to listen on a port');
+    }
+    baseUrl = `http://127.0.0.1:${address.port}`;
+  });
+
+  afterAll(() => server.close());
+
+  const cases: readonly { readonly id: string; readonly status: Job['status'] }[] = [
+    { id: 'j-merge-guard-staged', status: 'staged' },
+    { id: 'j-merge-guard-expired-unstaged', status: 'expired_unstaged' },
+    { id: 'j-merge-guard-staged-declined', status: 'staged_declined' },
+    { id: 'j-merge-guard-closed-unpaid', status: 'closed_unpaid' },
+    { id: 'j-merge-guard-deemed-completed', status: 'deemed_completed' },
+  ];
+
+  for (const { id, status } of cases) {
+    it(`answers 409 for a job in status "${status}", asking github zero times`, async () => {
+      const job: Job = { ...confirmedJob(id, new Date()), status, confirmedAt: null };
+      await jobRepo.create(job);
+
+      const before = mergeCalls.length;
+      const merge = await postSigned(baseUrl, `/jobs/${job.id}/merge`, {}, buyer);
+      expect(merge.status).toBe(409);
+      expect(mergeCalls.length).toBe(before);
+
+      const stored = await jobRepo.findById(job.id);
+      expect(stored?.status).toBe(status);
+    });
+  }
 });

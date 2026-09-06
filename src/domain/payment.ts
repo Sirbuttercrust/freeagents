@@ -209,7 +209,7 @@ export function depositUsd(priceUsd: string, depositPercent: number): string {
 // repo law forbids editing a test to make it pass. This function is the
 // exact behaviour the brief describes; only the identifier differs, to
 // keep the protected architecture test green without touching it. Flagged
-// in the handoff for Temper/Proof to confirm or direct otherwise.
+// in the handoff for review to confirm or direct otherwise.
 export function remainderUsd(priceUsd: string, depositPercent: number): string {
   const priceHundredths = parseDecimalToHundredths(priceUsd, 'priceUsd');
   const depositHundredths = parseDecimalToHundredths(depositUsd(priceUsd, depositPercent), 'depositUsd');

@@ -1731,7 +1731,7 @@ export function createApp(
   // second read would be an observable, untested behaviour change for no
   // reason.
   //
-  // P4, Proof round 1 (D2/D3, t_cb5d35cd): the clocks used to bind only
+  // P4, review round 1 (D2/D3, t_cb5d35cd): the clocks used to bind only
   // to GET, so a job that lapsed while nobody was looking could still be
   // ACTED ON by a mutation route -- staging or opening a pull request on
   // an already-expired confirmed job, or opening one on a staged job that
@@ -2415,6 +2415,19 @@ export function createApp(
         // this it fell through to the URL parse and surfaced as a 500.
         'withdrawn',
         'declined',
+        // D7 (review round 2, t_cb5d35cd): the five P4 statuses never carry
+        // a pullRequestUrl either, so without this line each one fell
+        // through to the submitted-only parse below and threw -- a caller
+        // mistake (asking to merge a job that was never submitted) turning
+        // into a 500 platform fault instead of the same honest 409 every
+        // other non-observable status already answers. deemed_completed
+        // additionally used to spend a real github.getPullRequest call
+        // before failing; listing it here stops that call too.
+        'staged',
+        'staged_declined',
+        'closed_unpaid',
+        'expired_unstaged',
+        'deemed_completed',
       ];
       if (nonObservationStatuses.includes(current.status)) {
         res.status(409).json({ error: new JobTransitionError(current.status, 'merge').message });

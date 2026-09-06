@@ -72,7 +72,7 @@ function mergedGithub(): GithubAdapter {
 //
 // P4: submittedAt is anchored to "now" rather than a fixed historical
 // date. The merge route now loads through the same lapse-aware path GET
-// uses (Proof round 1, D2/D3, t_cb5d35cd): a submitted job neither merged
+// uses (review round 1, D2/D3, t_cb5d35cd): a submitted job neither merged
 // nor closed within DEEM_COMPLETED_AFTER_DAYS (7) becomes deemed_completed
 // before merge ever runs its own logic. A fixed date from early in this
 // project's history would silently read back as deemed_completed by the

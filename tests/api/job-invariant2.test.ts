@@ -399,7 +399,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     // scripts its unreachable rows.
     //
     // P4: submittedAt must stay inside DEEM_COMPLETED_AFTER_DAYS (7) of
-    // now, or the merge route's own lapse-aware load (Proof round 1,
+    // now, or the merge route's own lapse-aware load (review round 1,
     // D2/D3, t_cb5d35cd) flips the row to deemed_completed before this
     // test's stale-observation path ever runs -- exactly the brief's own
     // prediction that stale becomes unreachable past 7 days on a paid
