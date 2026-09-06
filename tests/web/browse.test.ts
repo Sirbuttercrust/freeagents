@@ -125,6 +125,8 @@ beforeAll(async () => {
     submittedAt: null,
     deadline: null,
     createdAt: new Date('2026-08-29T00:00:00Z'),
+    stagedAt: null,
+    stagedCommit: null,
   });
   await jobRepo.complete(
     {
@@ -151,6 +153,8 @@ beforeAll(async () => {
       submittedAt: null,
       deadline: null,
       createdAt: new Date('2026-08-29T00:00:00Z'),
+      stagedAt: null,
+      stagedCommit: null,
     },
     {
       jobId: 'browse-page-job-1',

@@ -29,6 +29,8 @@ function job(overrides: Partial<Job> = {}): Job {
     submittedAt: new Date('2026-01-01T18:00:00Z'),
     deadline: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
+    stagedAt: null,
+    stagedCommit: null,
     ...overrides,
   };
 }

@@ -33,6 +33,7 @@ import type { CredentialRepository, JobRepository } from '../../src/adapters/sto
 import { createJob, type CompletedJob, type Job, type JobStatus } from '../../src/domain/job.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
+import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 
 const agentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(91));
 const buyerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(92));
@@ -149,16 +150,27 @@ function rejectingGithub(recorded: RecordedCalls): GithubAdapter {
 // legs below, which script storage or the row directly rather than walking
 // the whole HTTP exchange. The deadline is the one submitPullRequest writes
 // (R-12): submittedAt + 30 days.
+//
+// P4: submittedAt is anchored to "now" rather than a fixed historical date.
+// GET /jobs/:jobId applies the lapse clocks on every read (brief section 4:
+// "a job that lapsed while nobody was looking reports the truth"), and
+// deemCompleted fires 7 days after submittedAt -- a fixed date from early
+// in this project's history would silently read back as deemed_completed
+// by the time this suite runs, in every test that plants this row for a
+// reason that has nothing to do with the clock (identity resolution,
+// credential issuance, a stale-record persistence failure).
 function submittedJob(id: string): Job {
-  const submittedAt = new Date('2026-01-02T00:00:00Z');
+  const submittedAt = new Date(Date.now() - 60 * 60 * 1000);
   return {
     ...createJob(
       { id, buyerDid: BUYER_DID, agentDid: AGENT_DID, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
-      new Date('2026-01-01T00:00:00Z'),
+      new Date(submittedAt.getTime() - 24 * 60 * 60 * 1000),
     ),
     status: 'submitted',
     pullRequestUrl: `https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/${PR_NUMBER}`,
     submittedAt,
+    stagedAt: new Date(submittedAt.getTime() - 6 * 60 * 60 * 1000),
+    stagedCommit: 'commit-sha-1',
     deadline: new Date(submittedAt.getTime() + 30 * 86_400_000),
     // The scripted legs project the full submitted keyset, so the row is
     // fully confirmed, like the walked jobs: the hash's presence, not its
@@ -168,7 +180,7 @@ function submittedJob(id: string): Job {
       { text: 'no new dependencies', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: true },
     ],
     confirmedSpecHash: 'a'.repeat(64),
-    confirmedAt: new Date('2026-01-01T12:00:00Z'),
+    confirmedAt: new Date(submittedAt.getTime() - 12 * 60 * 60 * 1000),
   };
 }
 
@@ -248,6 +260,8 @@ async function startWith(
     undefined,
     undefined,
     sessionAdapter,
+    undefined,
+    alwaysSettledGate(),
   ).listen(0);
   await new Promise<void>((resolve) => s.once('listening', resolve));
   const address = s.address();
@@ -288,6 +302,7 @@ async function walkToSubmitted(jobId: string, base: string = baseUrl): Promise<R
   expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, buyerIdentity, base)).status).toBe(200);
   expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agentIdentity, base)).status).toBe(200);
   expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity, base)).status).toBe(200);
+  expect((await postSigned(`/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agentIdentity, base)).status).toBe(200);
   const pr = await postSigned(`/jobs/${jobId}/pull-request`, {}, agentIdentity, base);
   expect(pr.status).toBe(200);
   return (await pr.json()) as Record<string, unknown>;
@@ -310,6 +325,8 @@ const SUBMITTED_KEYS = [
   'pullRequestUrl',
   'repository',
   'specHash',
+  'stagedAt',
+  'stagedCommit',
   'status',
   'submittedAt',
 ];
@@ -663,6 +680,8 @@ describe("createApp's credentials default, no credentials adapter given (R-36)",
       undefined,
       undefined,
       sessionAdapter,
+      undefined,
+      alwaysSettledGate(),
     ).listen(0);
     await new Promise<void>((resolve) => s.once('listening', resolve));
     const address = s.address();

@@ -107,6 +107,8 @@ const jobFixture = {
   submittedAt: null,
   deadline: null,
   createdAt: new Date('2026-01-01T00:00:00Z'),
+  stagedAt: null,
+  stagedCommit: null,
 } satisfies Job;
 
 // The delegation the driver stores is the full W3C credential (R-2); these
@@ -702,6 +704,8 @@ describe('PrismaJobRepository', () => {
         'depositPercent',
         'redoAllowance',
         'deliveryWindowDays',
+        'stagedAt',
+        'stagedCommit',
       ].sort(),
     );
   });
@@ -772,6 +776,8 @@ describe('PrismaJobRepository', () => {
         depositPercent: updated.depositPercent,
         redoAllowance: updated.redoAllowance,
         deliveryWindowDays: updated.deliveryWindowDays,
+        stagedAt: updated.stagedAt,
+        stagedCommit: updated.stagedCommit,
       },
     });
     expect(row).toEqual(updated);
@@ -981,6 +987,8 @@ describe('PrismaJobRepository', () => {
         depositPercent: completedFixture.depositPercent,
         redoAllowance: completedFixture.redoAllowance,
         deliveryWindowDays: completedFixture.deliveryWindowDays,
+        stagedAt: completedFixture.stagedAt,
+        stagedCommit: completedFixture.stagedCommit,
       },
     });
     expect(row).toEqual(completedFixture);

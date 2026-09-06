@@ -31,6 +31,7 @@ import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { createJob, type Job } from '../../src/domain/job.js';
 import { signingIdentityFromWallet, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
+import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 
 // The ArcBlock wallet's secretKey is seed(32)||public(32) in hex.
 function hexToBytes(h: string): Uint8Array {
@@ -296,6 +297,8 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
       undefined,
       undefined,
       sessionAdapter,
+      undefined,
+      alwaysSettledGate(),
     ).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
@@ -345,6 +348,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, operatorIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, operatorIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agentIdentity)).status).toBe(200);
 
     const pr = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity);
     expect(pr.status).toBe(200);

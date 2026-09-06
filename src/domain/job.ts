@@ -10,22 +10,42 @@ import { hashSpec } from './hashing.js';
 // buyer walk-away recorded as a timing fact, and terminal - a withdrawn job
 // has no further outcomes to observe.
 
+// P4 (design record, 2026-09-01): five new statuses for the payment state
+// machine. `staged` sits between an agreed price and an opened pull
+// request -- the work lives in a staging repository with a published
+// attestation, unpaid and unseen, so unpaid work never becomes visible.
+// The other four are terminal outcomes the two clocks and the buyer's
+// staged-time choices can reach: see the transition table on
+// validateJobTransition below for exactly which edges reach each one.
 export type JobStatus =
   | 'draft'
   | 'proposed'
   | 'confirmed'
+  | 'staged'
   | 'submitted'
   | 'completed'
   | 'declined'
   | 'closed_unmerged'
   | 'stale'
-  | 'withdrawn';
+  | 'withdrawn'
+  | 'staged_declined'
+  | 'closed_unpaid'
+  | 'expired_unstaged'
+  | 'deemed_completed';
 
 const TERMINAL_STATUSES: readonly JobStatus[] = [
   'completed',
   'declined',
   'closed_unmerged',
   'withdrawn',
+  // P4 terminal outcomes (design record, 2026-09-01): a buyer who declines
+  // staged work, a job the buyer went silent on at staged, a confirmed job
+  // nobody ever staged, and a paid job nobody merged or closed in time,
+  // are each a distinct closed fact, not a variant of an existing one.
+  'staged_declined',
+  'closed_unpaid',
+  'expired_unstaged',
+  'deemed_completed',
 ];
 
 // A party to the hire loop: whoever is doing the accepting. Named apart
@@ -98,6 +118,13 @@ export interface Job {
   readonly mergedAt: Date | null;
   readonly confirmedAt: Date | null;
   readonly submittedAt: Date | null;
+  // P4: the instant the agent staged the work (confirmed -> staged) and
+  // the commit SHA it staged, in the staging repository the attestation
+  // (a later card) will publish against. Both null until staged; written
+  // together by stageWork, the same one-writer pairing confirmSpec keeps
+  // for confirmedSpecHash/confirmedAt.
+  readonly stagedAt: Date | null;
+  readonly stagedCommit: string | null;
   // The instant the pull request goes stale (R-12, D3 2026-08-22): written
   // by submitPullRequest as submittedAt + STALE_AFTER_DAYS, null until
   // submitted and for rows written before R-12.
@@ -184,6 +211,8 @@ export function createJob(
     mergedAt: null,
     confirmedAt: null,
     submittedAt: null,
+    stagedAt: null,
+    stagedCommit: null,
     deadline: null,
     createdAt: now,
   };
@@ -212,19 +241,47 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
   // Valid transitions according to the hire loop
   // draft -> proposed is walked by the criteria exchange R-8 owns; this
   // table only records the edge.
+  //
+  // P4 (design record, 2026-09-01): confirmed no longer walks straight to
+  // submitted. Staged work sits unpaid and unseen in a staging repository
+  // until the balance settles (the route layer's gate, not this table);
+  // only then does submitted (an opened pull request) become reachable.
+  // Two edges are deliberately absent from `staged`, each recording a
+  // fact this table must not blur into an existing status:
+  //   staged -> withdrawn is absent. Once work is staged the buyer's exit
+  //   is staged_declined, a distinct fact from withdrawn: the buyer saw a
+  //   published attestation and passed, rather than walking away before
+  //   anything was delivered. Two different facts never share one status.
+  //   staged -> declined is absent. The agent has already delivered the
+  //   work at staged; there is nothing left for it to refuse.
   const validTransitions: Record<JobStatus, JobStatus[]> = {
     draft: ['proposed', 'declined', 'withdrawn'],
     proposed: ['confirmed', 'declined', 'withdrawn'],
-    confirmed: ['submitted', 'declined', 'withdrawn'],
+    confirmed: ['staged', 'expired_unstaged', 'declined', 'withdrawn'],
+    staged: ['submitted', 'staged_declined', 'closed_unpaid'],
     // R-12 (ENT-7.2): non-merge outcomes are recorded, not hidden. The
     // stale -> closed_unmerged edge is legal (R-31): an outcome update
-    // after stale, not a new state.
-    submitted: ['completed', 'closed_unmerged', 'stale', 'declined', 'withdrawn'],
+    // after stale, not a new state. P4: deemed_completed joins the same
+    // list (the buyer paid, then neither merged nor closed within the
+    // review window) -- see deemCompleted below. `stale` itself is
+    // untouched by this card: deemed completion now fires at 7 days,
+    // long before stale's 30-day mark, so stale is effectively
+    // unreachable on a paid job going forward. That retirement is its
+    // own card (a status removal ripples through both storage drivers
+    // and the lifecycle routes); this table keeps `stale` exactly as it
+    // was and adds no new edge to it.
+    submitted: ['completed', 'closed_unmerged', 'deemed_completed', 'stale', 'declined', 'withdrawn'],
     stale: ['completed', 'closed_unmerged', 'declined', 'withdrawn'],
     closed_unmerged: [],
     completed: [],
     declined: [],
     withdrawn: [],
+    // P4 terminal outcomes: each is a closed fact with no further
+    // transition (see TERMINAL_STATUSES above).
+    staged_declined: [],
+    closed_unpaid: [],
+    expired_unstaged: [],
+    deemed_completed: [],
   };
   
   const allowedTransitions = validTransitions[fromStatus];
@@ -301,6 +358,118 @@ export function confirmSpec(job: Job, now: Date): Job {
 // 2026-08-22: 30 days from submission).
 export const STALE_AFTER_DAYS = 30;
 
+// P4: the agent stages its work (confirmed -> staged), the same party
+// rule submitPullRequest already keeps (only the agent submits its own
+// work): only the agent may call this, enforced by the route layer the
+// same way it enforces submitPullRequest's party rule, not by this pure
+// function taking a party argument it would then have to validate twice.
+// The attestation document itself is a later card; this function stores
+// only the staged commit SHA and the instant, the two facts this card
+// owns. The redo mechanic a buyer can request at staged is a later card
+// too -- this is the seam it attaches to: a redo would read this same
+// stagedCommit/stagedAt pair and, on approval, call stageWork again with
+// a revised commit, still gated on the same confirmed -> staged edge
+// (a redo does not invent a new transition, it repeats this one).
+export function stageWork(job: Job, stagedCommit: string, now: Date): Job {
+  validateJobTransition(job.status, 'staged');
+  return {
+    // stagedAt and stagedCommit are one pair with one writer, mirroring
+    // confirmSpec's own confirmedSpecHash/confirmedAt pairing.
+    ...job,
+    status: 'staged',
+    stagedCommit,
+    stagedAt: now,
+  };
+}
+
+// P4: the buyer declines the staged work, free of charge, before paying
+// the balance (design record, 2026-09-01: "the buyer has exactly three
+// moves there and nowhere else: pay the balance, request the one redo, or
+// decline for free"). Terminal: staged_declined records that the buyer
+// saw a published attestation and passed, a distinct fact from withdrawn
+// (see the transition table's comment on the absent staged -> withdrawn
+// edge). No money moves and none is owed -- this function touches no
+// payment field because there is nothing here to touch: the deposit
+// already settled at confirm and is never reversed (MISSION.md invariant
+// 12; no refund vocabulary exists anywhere in this domain).
+export function recordStagedDeclined(job: Job): Job {
+  validateJobTransition(job.status, 'staged_declined');
+  return { ...job, status: 'staged_declined' };
+}
+
+// P4: the two clocks and applyLapses (brief section 4). Each is a pure
+// function of stored timestamps and an injected `now` -- no timers, no
+// cron, no background process, nothing that wakes up on its own. Each
+// refuses on any other starting status by returning the job UNCHANGED
+// (never throwing): a clock is consulted wherever a job is read, so a
+// status irrelevant to a given clock is the overwhelmingly common case,
+// not an error condition. Each is idempotent: once a job has lapsed,
+// re-running the same clock (or applyLapses) against it is a no-op,
+// because the job's status no longer matches the clock's own starting
+// status.
+//
+// The boundary is STRICTLY after the deadline, matching STALE_AFTER_DAYS'
+// own day-count convention: exactly N days out is not yet lapsed, one
+// instant past it is.
+export const EXPIRE_UNSTAGED_AFTER_DAYS = 30;
+export const LAPSE_AT_STAGED_AFTER_DAYS = 7;
+export const DEEM_COMPLETED_AFTER_DAYS = 7;
+
+// confirmed with no staging, EXPIRE_UNSTAGED_AFTER_DAYS after confirmedAt,
+// becomes expired_unstaged (terminal). confirmedAt is always set on a
+// confirmed job (confirmSpec's own writer pairing), so the null check
+// below is a type guard, not a real branch a confirmed row can hit.
+export function expireUnstaged(job: Job, now: Date): Job {
+  if (job.status !== 'confirmed' || job.confirmedAt === null) return job;
+  const deadline = job.confirmedAt.getTime() + EXPIRE_UNSTAGED_AFTER_DAYS * 86_400_000;
+  if (now.getTime() <= deadline) return job;
+  return { ...job, status: 'expired_unstaged' };
+}
+
+// staged with no balance settled, LAPSE_AT_STAGED_AFTER_DAYS after
+// stagedAt, becomes closed_unpaid (terminal). "The code never leaves
+// staging": nothing here touches stagedCommit or stagedAt, so a lapsed
+// row still carries exactly what was staged, for whatever the attestation
+// card eventually shows against a closed_unpaid job.
+export function lapseAtStaged(job: Job, now: Date): Job {
+  if (job.status !== 'staged' || job.stagedAt === null) return job;
+  const deadline = job.stagedAt.getTime() + LAPSE_AT_STAGED_AFTER_DAYS * 86_400_000;
+  if (now.getTime() <= deadline) return job;
+  return { ...job, status: 'closed_unpaid' };
+}
+
+// submitted, neither merged nor closed, DEEM_COMPLETED_AFTER_DAYS after
+// submittedAt, becomes deemed_completed (terminal). Fires long before
+// STALE_AFTER_DAYS' 30-day mark (see the transition table's comment on
+// `submitted`), which is why stale is now effectively unreachable on a
+// paid job -- a retirement left to its own card, not resolved here.
+//
+// deemed_completed issues a credential of a DISTINCT type (a later
+// card's job, per the brief). This function must not and does not issue
+// one: it writes only the status, leaving mergeCommit and mergedAt null
+// exactly as completeJob's own null-until-observed contract already
+// promises for every non-merged job. If a future completion path were
+// ever tempted to fire a credential off this status, that must be gated
+// off explicitly there, not assumed safe because this function is quiet
+// about it.
+export function deemCompleted(job: Job, now: Date): Job {
+  if (job.status !== 'submitted' || job.submittedAt === null) return job;
+  const deadline = job.submittedAt.getTime() + DEEM_COMPLETED_AFTER_DAYS * 86_400_000;
+  if (now.getTime() <= deadline) return job;
+  return { ...job, status: 'deemed_completed' };
+}
+
+// Runs the three clocks in order and returns the job unchanged when none
+// applies -- called wherever a job is read (the route layer's GET and the
+// exchange skeleton's load-for-mutation path), so a job that lapsed while
+// nobody was looking reports the truth on the next read. Nothing here
+// schedules a re-check: a status that only changes when someone looks at
+// it is honest, and a scheduler (cron, a worker) is a separate decision
+// this card does not make.
+export function applyLapses(job: Job, now: Date): Job {
+  return deemCompleted(lapseAtStaged(expireUnstaged(job, now), now), now);
+}
+
 export function submitPullRequest(job: Job, pullRequestUrl: string, now: Date): Job {
   validateJobTransition(job.status, 'submitted');
   return {
@@ -367,6 +536,15 @@ export function decline(job: Job): Job {
   return { ...job, status: 'declined' };
 }
 
+// OPEN FAIRNESS QUESTION (do not resolve here, brief section "An open
+// question you must not resolve"): an agent may still decline a job at
+// confirmed, after the buyer's deposit has already reached the operator
+// (confirmSpec's own deposit gate runs before this edge is ever reached).
+// The platform holds nothing and reverses nothing (MISSION.md invariant
+// 12), so that deposit is gone from the buyer's side with no refund path
+// and no penalty on the agent. This function adds neither: the edge stays
+// exactly as it already was, and the fairness question awaits the owner's
+// ruling on a later card.
 
 // The acceptance-criteria exchange R-8 owns (ENT-6, D2). The first propose
 // walks draft -> proposed, the edge the transition table already records;

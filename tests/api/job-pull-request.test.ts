@@ -40,6 +40,7 @@ import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { createJob, type Job, type JobStatus } from '../../src/domain/job.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
+import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 
 let buyer: SigningIdentity;
 let agent: SigningIdentity;
@@ -172,6 +173,8 @@ async function startWith(
     undefined,
     undefined,
     sessionAdapter,
+    undefined,
+    alwaysSettledGate(),
   ).listen(0);
   await new Promise<void>((resolve) => s.once('listening', resolve));
   const address = s.address();
@@ -203,6 +206,15 @@ async function walkToConfirm(jobId: string, base: string = baseUrl): Promise<Rec
   const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, buyer, base);
   expect(confirmed.status).toBe(200);
   return (await confirmed.json()) as Record<string, unknown>;
+}
+
+// P4: confirmed no longer walks straight to submitted; the agent stages
+// the work first. This helper drives that one extra hop so every existing
+// "confirm -> pull-request" walk in this file still reaches submitted.
+async function walkToStaged(jobId: string, base: string = baseUrl): Promise<Record<string, unknown>> {
+  const staged = await postSigned(`/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agent, base);
+  expect(staged.status).toBe(200);
+  return (await staged.json()) as Record<string, unknown>;
 }
 
 async function openDraft(
@@ -245,6 +257,7 @@ describe('job pull-request (R-10)', () => {
     const confirmedBody = await walkToConfirm(jobId);
     happySpecHash = confirmedBody.specHash;
     expect(confirmedBody.status).toBe('confirmed');
+    await walkToStaged(jobId);
 
     const pr = await postSigned(`/jobs/${jobId}/pull-request`, {}, agent);
     expect(pr.status).toBe(200);
@@ -270,6 +283,8 @@ describe('job pull-request (R-10)', () => {
       'pullRequestUrl',
       'repository',
       'specHash',
+      'stagedAt',
+      'stagedCommit',
       'status',
       'submittedAt',
     ]);
@@ -378,18 +393,21 @@ describe('job pull-request, faulted legs (R-10)', () => {
       expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agent, scripted.baseUrl)).status).toBe(200);
       expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyer, scripted.baseUrl)).status).toBe(200);
 
+      const stage = await postSigned(`/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agent, scripted.baseUrl);
+      expect(stage.status).toBe(200);
+
       const pr = await postSigned(`/jobs/${jobId}/pull-request`, {}, agent, scripted.baseUrl);
       expect(pr.status).toBe(503);
       expect(await pr.json()).toEqual({ error: 'github unavailable' });
       // The cause goes to the log, not the body.
       expect(errorLog).toHaveBeenCalled();
       // The fake recorded the attempt, but nothing persisted: read back and
-      // the job is STILL confirmed with no URL. A failed side effect leaves
+      // the job is STILL staged with no URL. A failed side effect leaves
       // no half-state behind.
       expect(faults.forkAndOpenPullRequest.length).toBe(1);
       const read = await get(`/jobs/${jobId}`, scripted.baseUrl);
       const readBack = (await read.json()) as Record<string, unknown>;
-      expect(readBack.status).toBe('confirmed');
+      expect(readBack.status).toBe('staged');
       expect(readBack.pullRequestUrl).toBeUndefined();
       expect(readBack.submittedAt).toBeUndefined();
     } finally {
@@ -496,6 +514,7 @@ describe('pull-request, invariant 1 and Gate 2 (R-10)', () => {
     prBriefHash = briefHash;
     const confirmedBody = await walkToConfirm(jobId);
     confirmedSpecHash = confirmedBody.specHash;
+    await walkToStaged(jobId);
 
     const pr = await postSigned(`/jobs/${jobId}/pull-request`, {}, agent);
     expect(pr.status).toBe(200);

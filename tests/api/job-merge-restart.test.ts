@@ -27,6 +27,7 @@ import {
   MemoryObservedKeyRepository,
 } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 
 const FORK_OWNER = 'freeagents-platform';
 const FORK_REPO = 'target-repo';
@@ -128,6 +129,7 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
       undefined,
       undefined,
       observedKeyRepo,
+      alwaysSettledGate(),
     );
     const first = await listen(app1);
     servers.push(first.server);
@@ -161,6 +163,7 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(first.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agentIdentity)).status).toBe(200);
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(200);
 
     // The process exits. Nothing about process 1 survives into process 2

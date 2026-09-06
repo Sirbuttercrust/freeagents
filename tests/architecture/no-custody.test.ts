@@ -177,6 +177,8 @@ describe('the settlement state is structurally singular until the payment state 
       submittedAt: new Date('2026-01-01T18:00:00Z'),
       deadline: null,
       createdAt: new Date('2026-01-01T00:00:00Z'),
+      stagedAt: null,
+      stagedCommit: null,
     };
     const state: SettlementState = recordSettlementIntent(job).state;
     expect(state).toBe('recorded_intent');
