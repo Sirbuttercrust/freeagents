@@ -51,6 +51,18 @@ export interface UsdcObservedTransfer {
   readonly chainId: number;
 }
 
+// S1 review round 1, D1 and D2: a transaction hash is resolved
+// case-insensitively by an Ethereum node (verified live, read-only,
+// against the same RPC this rail's config names: one transaction, two
+// spellings, one receipt). Every hash is normalized to lower case at the
+// single boundary where it first arrives from a caller -- onWalletResponse
+// for the rail, the wallet-response route for the Case D refusal -- and
+// never compared in its raw form again, so the spent-hash check and the
+// price-equals-fee refusal cannot be walked past by respelling a hash.
+export function normalizeUsdcTxHash(hash: string): string {
+  return hash.toLowerCase();
+}
+
 // The one chain call this rail needs before broadcast: reading the token's
 // own decimals (P3 brief, "read token decimals from the contract; do not
 // hardcode 6"), isolated behind an interface so tests never construct a
@@ -278,8 +290,8 @@ export function createUsdcPaymentRail(options: CreateUsdcPaymentRailOptions = {}
         tokenContract: config.tokenContract,
         operatorAddress: input.operatorAddress,
         feeAddress: config.feeAddress,
-        priceTxHash: input.priceTxHash,
-        feeTxHash: input.feeTx.signed ? input.feeTx.hash : null,
+        priceTxHash: normalizeUsdcTxHash(input.priceTxHash),
+        feeTxHash: input.feeTx.signed ? normalizeUsdcTxHash(input.feeTx.hash) : null,
         expectedPriceBaseUnits: priceBaseUnits,
         expectedFeeBaseUnits: feeBaseUnits,
       };
@@ -385,9 +397,13 @@ async function legStatus(
   hash: string,
   expected: ExpectedLegTransfer,
 ): Promise<UsdcLegStatus> {
-  const receipt = await chainClient.getTransactionReceipt(hash);
+  // S1 review round 1, D1: normalized again here, not merely trusted from
+  // the caller, so a ref built anywhere other than onWalletResponse still
+  // cannot compare a raw hash against a normalized spent-transfer row.
+  const normalizedHash = normalizeUsdcTxHash(hash);
+  const receipt = await chainClient.getTransactionReceipt(normalizedHash);
   if (receipt === null || receipt.status !== 1) {
-    return { status: 'not_confirmed', hash };
+    return { status: 'not_confirmed', hash: normalizedHash };
   }
   const { transfer } = receipt;
   const paysWhatWasExpected =
@@ -397,7 +413,7 @@ async function legStatus(
     transfer.tokenContract.toLowerCase() === expected.tokenContract.toLowerCase() &&
     transfer.chainId === expected.chainId;
   if (!paysWhatWasExpected) {
-    return { status: 'mismatched', hash };
+    return { status: 'mismatched', hash: normalizedHash };
   }
 
   // Spent-hash check (S1 scope item 4, the anchor's Case C): a receipt
@@ -406,10 +422,10 @@ async function legStatus(
   // confirming the SAME (job, leg, role) is the ordinary idempotent path
   // and falls through to record() below, which upserts rather than
   // duplicating.
-  const spent = await spentTransferStorage.findByHash(hash);
+  const spent = await spentTransferStorage.findByHash(normalizedHash);
   if (spent !== null && (spent.jobId !== expected.jobId || spent.leg !== expected.leg || spent.role !== expected.role)) {
-    return { status: 'mismatched', hash };
+    return { status: 'mismatched', hash: normalizedHash };
   }
-  await spentTransferStorage.record({ hash, jobId: expected.jobId, leg: expected.leg, role: expected.role });
-  return { status: 'confirmed', hash };
+  await spentTransferStorage.record({ hash: normalizedHash, jobId: expected.jobId, leg: expected.leg, role: expected.role });
+  return { status: 'confirmed', hash: normalizedHash };
 }

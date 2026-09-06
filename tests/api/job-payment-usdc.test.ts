@@ -53,10 +53,15 @@ async function postSigned(baseUrl: string, path: string, body: unknown, identity
 // against -- never merely a status.
 type ReceiptSpec = { readonly status: number | null; readonly transfer: UsdcObservedTransfer | null };
 
+// S1: receipts are keyed case-insensitively, mirroring a real node's own
+// behaviour (review round 1, D1): a fake keyed by exact string is
+// stricter than the chain it fakes and would hide a defect the real
+// chain would never exhibit.
 function fakeUsdcChainClient(receipts: Record<string, ReceiptSpec | null> = {}): UsdcChainClient {
+  const normalized = new Map(Object.entries(receipts).map(([hash, receipt]) => [hash.toLowerCase(), receipt]));
   return {
     decimals: async () => 6,
-    getTransactionReceipt: async (hash: string) => receipts[hash] ?? null,
+    getTransactionReceipt: async (hash: string) => normalized.get(hash.toLowerCase()) ?? null,
   };
 }
 
@@ -438,6 +443,34 @@ describe('S1: priceTxHash equal to feeTx.hash is refused as a malformed request,
         baseUrl,
         `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
         { operatorAddress: USDC_OPERATOR_ADDRESS, priceTxHash: '0xsame', feeTx: { signed: true, hash: '0xsame' } },
+        buyer,
+      );
+      expect(res.status).toBe(400);
+      expect(await settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
+    } finally {
+      server.close();
+    }
+  });
+
+  it('answers 400 when the two hashes are the SAME transaction respelled in a different letter case (D2, review round 1)', async () => {
+    const usdcRail = withUsdcEnv(() =>
+      createUsdcPaymentRail({
+        chainClient: fakeUsdcChainClient({
+          '0xsame': { status: 1, transfer: depositPriceTransfer() },
+        }),
+        rateSource: async () => '1',
+        halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
+      }),
+    );
+    const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
+    try {
+      const jobId = await walkToConfirmed(baseUrl, buyer, agent);
+      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, { operatorAddress: USDC_OPERATOR_ADDRESS }, buyer);
+      const res = await postSigned(
+        baseUrl,
+        `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
+        { operatorAddress: USDC_OPERATOR_ADDRESS, priceTxHash: '0xsame', feeTx: { signed: true, hash: '0xSAME' } },
         buyer,
       );
       expect(res.status).toBe(400);
