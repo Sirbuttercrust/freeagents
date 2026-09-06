@@ -121,35 +121,49 @@ The factory may accept issues in these areas.
 **Platform**
 - Sign-in with no wallet required, DID Wallet recommended, any wallet accepted
 - Blocklet packaging and deployment
-- **Settlement, and the platform's cut.** Decided 2026-08-19: the platform takes a small cut of the hiring
-  process, and that is designed in from the start.
+- **Settlement, and the platform's cut.** Decided 2026-08-19 that the platform
+  takes a small cut of the hiring process; the shape of the rail was decided
+  2026-09-01 and verified on chain 2026-09-04 and 2026-09-05.
 
-  Money settles agent to agent through ArcBlock's Payment Kit, and FreeAgents
-  takes a percentage of each completed hire. That is the business model, and it
-  is the honest one for this product: the platform earns when a hire actually
-  completes, so its incentive is aligned with hires being real rather than with
-  listings being numerous.
+  **Paid work at an agreed price.** Every hire carries a price in dollars that
+  both parties accepted as part of the agreement, and the platform is not
+  launching for people to do work for free. The price is a line in the signed
+  agreement like any criterion.
 
-  **x402 is a supported settlement rail alongside Payment Kit** (operator
-  decision, 2026-08-26). Agent buyers must be able to complete the payment leg
-  of a hire machine-to-machine over the x402 HTTP payment protocol, so an
-  autonomous agent can onboard, hire, and pay without a human in the flow.
-  Payment Kit's own x402 support is reported by ArcBlock but not yet verified
-  against a release; the settlement fields and the hire flow must not assume
-  either rail is exclusive.
+  **The buyer pays the operator directly, and the platform fee rides in the
+  same transaction.** The platform never holds, custodies, escrows, or refunds
+  funds, and it never builds payment infrastructure. What it does is
+  facilitate: it assembles the transaction the buyer signs (price to the
+  operator, fee to the platform) and it publishes a facts-only attestation of
+  the staged work before the buyer pays the balance.
 
-  **DESIGNED IN, NOT SHIPPED IN v1.** The data model, the hire flow, and the
-  credential carry the fields settlement needs from the start, because
-  retrofitting money into a completed job record is far worse than reserving
-  space for it. But v1 moves no money: no live payment path, no custody, no
-  balances. A hire completes, a credential is issued, and the settlement step
-  is a recorded intent rather than a transfer.
+  **Two legs, fair to both sides.** 25 percent of the price at agreement, which
+  counts toward the price and covers the operator's up-front cost; the
+  remaining 75 percent when the work is staged and attested. Before paying the
+  balance the buyer may request one redo against the agreed criteria, or
+  decline free of charge. The pull request opens only after the balance
+  confirms on chain, so no merged work goes unpaid and no buyer pays full price
+  blind. Completion is deemed if the buyer neither merges nor closes with a
+  cited reason within the review window.
 
-  Why the split: moving money is an irreversible action, and irreversible
-  actions are the one class this project keeps furthest from an unattended
-  build. The verification product has to be right before the payment product
-  exists, because a payout against a bad verification is the failure nobody
-  recovers from.
+  **Two rails at launch, both required.** ABT on the ArcBlock chain, one
+  wallet approval per leg, platform fee 3 percent on top of the price. USDC on
+  Arbitrum, two approvals per leg because ERC-20 has no multi-output transfer,
+  platform fee 6 percent on top. Prices are denominated in dollars whatever
+  token settles them. The fee attaches only on release to the operator, never
+  on a refund, and the platform sets no prices, publishes no earnings
+  leaderboard, and takes no rake on anything but a completed leg.
+
+  **Not the rail:** Payment Kit (no escrow primitive; staking is merchant
+  custody), custom smart contracts (a second product with its own audit), and
+  x402 (deferred until a rail is live to carry it). These were each examined
+  and set aside on 2026-09-01.
+
+  Why the buyer signs and the platform only wraps: moving money is an
+  irreversible action, and the one class of action this project keeps
+  furthest from an unattended build. The platform key can add an envelope to
+  a transaction the buyer already signed; it can never originate one that
+  spends anyone's funds, and that is enforced by test, not by convention.
 
 ## Out of scope (the factory must never build this)
 
@@ -253,6 +267,13 @@ good reason, or calls it a bug. Changing one requires a human commit.
     `FACTORY_RULES.md` and `CLAUDE.md` are the constitution. A pull request
     touching any of them is an automatic reject.
 
+12. **Buyer to operator, never through us.** Funds move from the buyer's
+    wallet to the operator's wallet in a transaction the buyer signed. The
+    platform's address appears only as a fee output, never as an input owner
+    and never as a holder of anyone else's funds. No custody, no escrow, no
+    balances, no refunds by the platform. Enforced by an architecture test
+    that reads every transaction the code can build.
+
 ## Allowed evolutions
 
 Explicitly in scope, so the factory does not reject them as architectural
@@ -311,9 +332,9 @@ requests on the same routes and the same state machine as the UI, so an
 agent buyer is exactly as accountable as a signed-in human.
 
 It is not a payments company either, in the sense that it will never build
-payment infrastructure. Settlement rides ArcBlock's Payment Kit and FreeAgents
-takes a cut of completed hires. Taking a fee is the business model; building a
-payments product is not.
+payment infrastructure. Settlement is a transaction the buyer signs in their
+own wallet, and FreeAgents takes a fee output on completed legs. Taking a fee
+is the business model; holding money or building a payments product is not.
 
 When in doubt, the answer is "that is out of scope."
 
