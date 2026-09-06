@@ -20,11 +20,11 @@ import { createCredentialsAdapter, publicBaseUrlFromEnv } from '../../src/adapte
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import type { DidDocument, IdentityAdapter } from '../../src/adapters/identity/types.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
-import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import type { GithubAdapter, PullRequestRef, PullRequestSummary } from '../../src/adapters/github/types.js';
 import { MemoryAgentRepository, MemoryCredentialRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { createJob, type Job } from '../../src/domain/job.js';
 import { signingIdentityFromSeed, signRequest } from '../helpers/sign-request.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
 const ISSUER_DID = 'did:abt:test-platform-issuer';
 const ISSUER_SEED = new Uint8Array(32).fill(9);
@@ -34,7 +34,7 @@ const ISSUER_SEED = new Uint8Array(32).fill(9);
 const buyerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(61));
 const AGENT_DID = 'did:abt:agent-resolvability';
 const BUYER_DID = buyerIdentity.did;
-const FORK_OWNER = 'freeagents-platform';
+const FORK_OWNER = 'buyer';
 const FORK_REPO = 'target-repo';
 const PR_NUMBER = 3;
 const MERGE_SHA = 'merge-commit-sha-resolvability';
@@ -47,7 +47,9 @@ function fakeIdentity(): IdentityAdapter {
 }
 
 function mergedGithub(): GithubAdapter {
+  const { github: staging } = createStagingLifecycleGithubFake();
   return {
+    ...staging,
     getPullRequest: (ref: PullRequestRef): Promise<PullRequestSummary> =>
       Promise.resolve({
         ref,
@@ -60,9 +62,7 @@ function mergedGithub(): GithubAdapter {
         filesChanged: 1,
         repositoryPublic: true,
       }),
-    getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
-    getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
-    forkAndOpenPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: PR_NUMBER }),
+    openStagedPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: PR_NUMBER }),
   };
 }
 

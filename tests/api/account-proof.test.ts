@@ -129,7 +129,11 @@ function fakeGithub(gists: Map<string, Gist | null>): GithubAdapter {
       }
       return Promise.resolve(gist);
     },
-    forkAndOpenPullRequest: () => Promise.reject(new NotImplementedError('github', 'forkAndOpenPullRequest')),
+    createStagingRepository: () => Promise.reject(new NotImplementedError('github', 'createStagingRepository')),
+    grantPush: () => Promise.reject(new NotImplementedError('github', 'grantPush')),
+    getCommit: () => Promise.reject(new NotImplementedError('github', 'getCommit')),
+    getDefaultBranchHead: () => Promise.reject(new NotImplementedError('github', 'getDefaultBranchHead')),
+    openStagedPullRequest: () => Promise.reject(new NotImplementedError('github', 'openStagedPullRequest')),
   };
 }
 

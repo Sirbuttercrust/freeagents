@@ -152,7 +152,12 @@ const CREDENTIALS_VALIDATORS = { FREEAGENTS_PLATFORM_SEED: isValidPlatformSeedHe
 
 const GITHUB_SIGN_IN_VARS = ['FREEAGENTS_GITHUB_CLIENT_ID', 'FREEAGENTS_GITHUB_CLIENT_SECRET'] as const;
 
-const GITHUB_API_VARS = ['FREEAGENTS_GITHUB_TOKEN'] as const;
+// B14a: the token alone is not enough. Every mutating staging-lifecycle
+// call (createStagingRepository, grantPush, openStagedPullRequest) fences
+// itself to FREEAGENTS_GITHUB_PLATFORM_LOGIN and fails closed with
+// NotPlatformOwnerError without it, so a deployment with only the token
+// set is not actually configured for the hire loop's write path.
+const GITHUB_API_VARS = ['FREEAGENTS_GITHUB_TOKEN', 'FREEAGENTS_GITHUB_PLATFORM_LOGIN'] as const;
 
 export function buildConfigReport(env: Record<string, string | undefined> = process.env): ConfigReport {
   return {
@@ -178,4 +183,79 @@ export function formatConfigReport(report: ConfigReport): string {
     return `  ${cap.capability}: not configured (missing ${cap.missing.join(', ')})`;
   });
   return ['configuration report:', ...lines].join('\n');
+}
+
+// B14a constraint: "the platform token needs `repo` scope now, not
+// `public_repo` ... Update the comment at github.ts:21 and the config
+// report so the startup line says which scope is required and whether the
+// token has it (a GET on /user returns x-oauth-scopes)." github.ts:21's
+// own comment names the requirement in full; this is the live check, read
+// once at startup alongside the rest of the report.
+export const GITHUB_REQUIRED_SCOPE = 'repo';
+const GITHUB_DEFAULT_API_BASE = 'https://api.github.com';
+
+export interface GithubScopeProbe {
+  readonly requiredScope: string;
+  // The raw x-oauth-scopes header value, verbatim -- never a secret, this
+  // is a list of scope names GitHub itself already discloses to anyone
+  // holding the token. Null when the header is absent (a fine-grained
+  // PAT does not send it; see github.ts:21's own comment on why the
+  // classic-scope model does not apply to those tokens the same way).
+  readonly scopesHeader: string | null;
+  // true: the header lists the required scope. false: the header is
+  // present but does not list it. null: no header came back at all, so
+  // this report has no basis to say either way (github.ts's real adapter
+  // is what actually fails closed at call time; this is only a startup
+  // hint).
+  readonly hasRequiredScope: boolean | null;
+}
+
+// The one live network call this module makes: a GET /user, read ONLY for
+// its x-oauth-scopes response header, never its body (which is why this
+// never needs to parse JSON or handle a non-2xx specially beyond noting
+// the header is absent). Injectable fetchImpl, same shape
+// createGithubAdapter takes, so a test never touches the real network.
+// Answers null -- nothing to probe -- when no token is configured, the
+// same "unconfigured deployment announces itself, does not throw" stance
+// every other capability in this report already takes.
+export async function probeGithubTokenScope(
+  env: Record<string, string | undefined> = process.env,
+  fetchImpl: typeof fetch = fetch,
+): Promise<GithubScopeProbe | null> {
+  const token = readEnv(env, 'FREEAGENTS_GITHUB_TOKEN');
+  if (token === '') return null;
+  const apiBase = readEnv(env, 'FREEAGENTS_GITHUB_API_BASE') || GITHUB_DEFAULT_API_BASE;
+  const response = await fetchImpl(`${apiBase}/user`, {
+    headers: {
+      accept: 'application/vnd.github+json',
+      authorization: `Bearer ${token}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  const scopesHeader = response.headers.get('x-oauth-scopes');
+  const hasRequiredScope =
+    scopesHeader === null
+      ? null
+      : scopesHeader
+          .split(',')
+          .map((scope) => scope.trim())
+          .includes(GITHUB_REQUIRED_SCOPE);
+  return { requiredScope: GITHUB_REQUIRED_SCOPE, scopesHeader, hasRequiredScope };
+}
+
+// The startup line probeGithubTokenScope's result becomes. Names the
+// scope, never the token -- the same invariant formatConfigReport itself
+// keeps (this report's header comment: "never prints or returns a value,
+// only names and the words 'set' / 'missing'").
+export function formatGithubScopeLine(probe: GithubScopeProbe | null): string {
+  if (probe === null) {
+    return `  githubTokenScope: not probed (FREEAGENTS_GITHUB_TOKEN is not set)`;
+  }
+  if (probe.hasRequiredScope === true) {
+    return `  githubTokenScope: has ${probe.requiredScope}`;
+  }
+  if (probe.hasRequiredScope === false) {
+    return `  githubTokenScope: MISSING ${probe.requiredScope} (has: ${probe.scopesHeader ?? ''})`;
+  }
+  return `  githubTokenScope: cannot verify ${probe.requiredScope} (no x-oauth-scopes header returned; fine-grained tokens do not send one)`;
 }

@@ -114,6 +114,9 @@ const jobFixture = {
   createdAt: new Date('2026-01-01T00:00:00Z'),
   stagedAt: null,
   stagedCommit: null,
+  stagingRepo: null,
+  baseCommit: null,
+  stagingRepoDeleteAfter: null,
   citedCloseCriterionIndex: null,
   citedCloseReasonText: null,
   citedCloseAuthorDid: null,
@@ -728,8 +731,16 @@ describe('PrismaJobRepository', () => {
 
     // Every domain field crosses the wire: the brief in particular is the
     // field this issue exists to keep (R-27), and a projection that dropped
-    // it would make the round-trip below fail.
-    expect(mock.jobCreate).toHaveBeenCalledWith({ data: { ...jobFixture } });
+    // it would make the round-trip below fail. B14a: stagingRepo is a
+    // nested owner/repo pair in the domain but two flat columns in the
+    // row, so the wire assertion spreads the fixture then replaces that
+    // one field with its column shape rather than asserting `{
+    // ...jobFixture }` verbatim.
+    const stagingRepoOmitted = { ...jobFixture };
+    delete (stagingRepoOmitted as { stagingRepo?: unknown }).stagingRepo;
+    expect(mock.jobCreate).toHaveBeenCalledWith({
+      data: { ...stagingRepoOmitted, stagingRepoOwner: null, stagingRepoName: null },
+    });
     expect(row).toEqual(jobFixture);
     expect(Object.keys(row).sort()).toEqual(
       [
@@ -768,6 +779,9 @@ describe('PrismaJobRepository', () => {
         'citedCloseAuthorDid',
         'citedCloseAt',
         'deemedCompletedAt',
+        'stagingRepo',
+        'baseCommit',
+        'stagingRepoDeleteAfter',
       ].sort(),
     );
   });
@@ -850,6 +864,10 @@ describe('PrismaJobRepository', () => {
         citedCloseAuthorDid: updated.citedCloseAuthorDid,
         citedCloseAt: updated.citedCloseAt,
         deemedCompletedAt: updated.deemedCompletedAt,
+        stagingRepoOwner: (updated.stagingRepo as { owner: string; repo: string } | null)?.owner ?? null,
+        stagingRepoName: (updated.stagingRepo as { owner: string; repo: string } | null)?.repo ?? null,
+        baseCommit: updated.baseCommit,
+        stagingRepoDeleteAfter: updated.stagingRepoDeleteAfter,
       },
     });
     expect(row).toEqual(updated);
@@ -1071,6 +1089,10 @@ describe('PrismaJobRepository', () => {
         citedCloseAuthorDid: completedFixture.citedCloseAuthorDid,
         citedCloseAt: completedFixture.citedCloseAt,
         deemedCompletedAt: completedFixture.deemedCompletedAt,
+        stagingRepoOwner: (completedFixture.stagingRepo as { owner: string; repo: string } | null)?.owner ?? null,
+        stagingRepoName: (completedFixture.stagingRepo as { owner: string; repo: string } | null)?.repo ?? null,
+        baseCommit: completedFixture.baseCommit,
+        stagingRepoDeleteAfter: completedFixture.stagingRepoDeleteAfter,
       },
     });
     expect(row).toEqual(completedFixture);

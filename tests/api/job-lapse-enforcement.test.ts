@@ -16,21 +16,22 @@ import {
   MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import { createJob, requestRedo, stageWork, type Job } from '../../src/domain/job.js';
-import type { GithubAdapter, ForkAndOpenPullRequestInput, PullRequestRef } from '../../src/adapters/github/types.js';
+import type { GithubAdapter, OpenStagedPullRequestInput, PullRequestRef } from '../../src/adapters/github/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
-function fakeGithub(recorded: ForkAndOpenPullRequestInput[], mergeCalls: PullRequestRef[] = []): GithubAdapter {
+function fakeGithub(recorded: OpenStagedPullRequestInput[], mergeCalls: PullRequestRef[] = []): GithubAdapter {
+  const { github: staging } = createStagingLifecycleGithubFake();
   return {
+    ...staging,
     getPullRequest: (ref) => {
       mergeCalls.push(ref);
       return Promise.reject(new NotImplementedError('github', 'getPullRequest'));
     },
-    getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
-    getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
-    forkAndOpenPullRequest: (input) => {
+    openStagedPullRequest: (input) => {
       recorded.push(input);
-      const ref: PullRequestRef = { owner: 'freeagents-platform', repo: 'target-repo', number: 1 };
+      const ref: PullRequestRef = { owner: input.sourceOwner, repo: input.sourceRepo, number: 1 };
       return Promise.resolve(ref);
     },
   };
@@ -69,6 +70,12 @@ function confirmedJob(id: string, confirmedAt: Date): Job {
     priceAcceptedByBuyer: true,
     priceAcceptedByAgent: true,
     criteria: [{ text: 'Login works', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+    // B14a: these rows are planted directly (this file drives stage and
+    // pull-request straight from a status this test controls, never
+    // through confirm), so the staging repository confirm would have
+    // created has to be planted too.
+    stagingRepo: { owner: 'freeagents-platform', repo: `staging-${id}` },
+    baseCommit: 'base-commit-1',
   };
 }
 
@@ -79,7 +86,7 @@ describe('lapse enforcement binds to mutation routes, not only GET (P4, anchor)'
   let agentRepo: MemoryAgentRepository;
   let accounts: MemoryAccountRepository;
   let gate: MemorySettlementGate;
-  let forkCalls: ForkAndOpenPullRequestInput[];
+  let forkCalls: OpenStagedPullRequestInput[];
 
   beforeAll(async () => {
     accounts = new MemoryAccountRepository();

@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createGithubAdapter } from '../../../src/adapters/github/github.js';
 import { GistNotFoundError } from '../../../src/adapters/github/types.js';
-import type { ForkAndOpenPullRequestInput, PullRequestRef } from '../../../src/adapters/github/types.js';
+import type { PullRequestRef } from '../../../src/adapters/github/types.js';
 import { NotImplementedError } from '../../../src/adapters/not-implemented.js';
 
 const TOKEN = 'ghp_test_token_not_real';
@@ -55,12 +55,11 @@ describe('createGithubAdapter, fails closed with no token', () => {
 
       await expect(adapter.getPublicGist({ id: 'g1' })).rejects.toThrow();
       await expect(
-        adapter.forkAndOpenPullRequest({
+        adapter.createStagingRepository({
+          jobId: 'job_1',
           sourceOwner: 'buyer',
           sourceRepo: 'target-repo',
-          branch: 'freeagents/j-1',
-          title: 't',
-          body: 'b',
+          baseCommit: 'base-sha',
         }),
       ).rejects.toThrow();
       await expect(
@@ -219,162 +218,12 @@ describe('createGithubAdapter, getPullRequest (R-11 observation, R-17 repository
   });
 });
 
-describe('createGithubAdapter, forkAndOpenPullRequest (R-10, invariant 1: fork and PR, never write access)', () => {
-  const input: ForkAndOpenPullRequestInput = {
-    sourceOwner: 'buyer',
-    sourceRepo: 'target-repo',
-    branch: 'freeagents/j-1',
-    title: 'FreeAgents job j-1',
-    body: 'Job: j-1\nThis pull request was opened by FreeAgents against a fork it controls; the platform holds no write access to the source repository.',
-  };
-
-  function scriptHappyPath(): { fetchImpl: typeof fetch; calls: RecordedRequest[] } {
-    return scriptedFetch([
-      // 1. fork the source repo to the platform account (sanctioned write
-      //    against the buyer's repo path: this IS the fork exception).
-      jsonResponse(202, { owner: { login: 'freeagents-platform' }, name: 'target-repo', default_branch: 'main' }),
-      // 2. read the fork's own default-branch head (the fork, never the source).
-      jsonResponse(200, { object: { sha: 'fork-head-sha' } }),
-      // 3. create the working branch on the fork (the fork, never the source).
-      jsonResponse(201, { ref: 'refs/heads/freeagents/j-1', object: { sha: 'fork-head-sha' } }),
-      // 4. open the pull request against the source (the second and only
-      //    other sanctioned write against the buyer's repo path).
-      jsonResponse(201, { number: 7 }),
-    ]);
-  }
-
-  it('forks, branches on the fork, and opens the PR against the source, in that order', async () => {
-    const { fetchImpl, calls } = scriptHappyPath();
-    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
-
-    const ref = await adapter.forkAndOpenPullRequest(input);
-
-    expect(calls.map((c) => [c.method, c.url])).toEqual([
-      ['POST', 'https://api.github.com/repos/buyer/target-repo/forks'],
-      ['GET', 'https://api.github.com/repos/freeagents-platform/target-repo/git/ref/heads/main'],
-      ['POST', 'https://api.github.com/repos/freeagents-platform/target-repo/git/refs'],
-      ['POST', 'https://api.github.com/repos/buyer/target-repo/pulls'],
-    ]);
-    // R-10, D1 fix (Review finding, run 100, changes_requested): GitHub allocates the
-    // pull request number in the BASE repository's namespace, not the
-    // fork's - POST /repos/{source}/pulls returns a PR that resolves at
-    // https://github.com/{source}/pull/{n}. Returning the fork's owner/repo
-    // with that number names a ref that does not exist, which is exactly
-    // why the merge route's getPullRequest 404s later. The ref this adapter
-    // hands back has to be the one GitHub will actually answer to.
-    expect(ref).toEqual({ owner: 'buyer', repo: 'target-repo', number: 7 });
-  });
-
-  // MUTATION PROOF (D1): forkAndOpenPullRequest's return value is not just
-  // shaped right, it has to be the SAME address getPullRequest can read back
-  // - chaining the two closes the gap the review found, where the adapter suite
-  // and the api-level fake each hard-coded the fork-owner ref and agreed
-  // with each other instead of with GitHub. Here the second call is driven
-  // by the first call's own output, through the same fetchImpl, so a
-  // regression back to the fork-owner ref fails this test the same way it
-  // failed against real GitHub (404, not merged).
-  it('the ref returned by forkAndOpenPullRequest is the one getPullRequest can read back (chained, not assumed)', async () => {
-    const { fetchImpl, calls } = scriptedFetch([
-      // fork, read fork ref, create branch, open PR - the same four calls
-      // as the happy path above.
-      jsonResponse(202, { owner: { login: 'freeagents-platform' }, name: 'target-repo', default_branch: 'main' }),
-      jsonResponse(200, { object: { sha: 'fork-head-sha' } }),
-      jsonResponse(201, { ref: 'refs/heads/freeagents/j-1', object: { sha: 'fork-head-sha' } }),
-      jsonResponse(201, { number: 7 }),
-      // The merge observation GitHub actually serves PR 7 at: the source
-      // repo (buyer/target-repo), not the fork.
-      jsonResponse(200, {
-        state: 'closed',
-        merged: true,
-        merge_commit_sha: 'deadbeef',
-        merged_at: '2026-08-25T09:00:00Z',
-        head: { sha: 'headsha123' },
-        additions: 1,
-        deletions: 1,
-        changed_files: 1,
-        base: { repo: { private: false } },
-      }),
-    ]);
-    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
-
-    const ref = await adapter.forkAndOpenPullRequest(input);
-    const summary = await adapter.getPullRequest(ref);
-
-    // The 5th call is the observation, driven entirely by what
-    // forkAndOpenPullRequest handed back - if that ref still named the
-    // fork, this URL would 404 against real GitHub.
-    expect(calls[4]).toEqual({
-      url: 'https://api.github.com/repos/buyer/target-repo/pulls/7',
-      method: 'GET',
-      body: undefined,
-    });
-    expect(summary.state).toBe('merged');
-  });
-
-  it('the pull request names head as fork-owner:branch and base as the fork default branch, carrying the title and body verbatim', async () => {
-    const { fetchImpl, calls } = scriptHappyPath();
-    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
-
-    await adapter.forkAndOpenPullRequest(input);
-
-    expect(calls[3]?.body).toEqual({
-      title: input.title,
-      body: input.body,
-      head: 'freeagents-platform:freeagents/j-1',
-      base: 'main',
-    });
-  });
-
-  it('the branch is created on the fork with the sha read from the fork itself, not invented', async () => {
-    const { fetchImpl, calls } = scriptHappyPath();
-    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
-
-    await adapter.forkAndOpenPullRequest(input);
-
-    expect(calls[2]?.body).toEqual({ ref: 'refs/heads/freeagents/j-1', sha: 'fork-head-sha' });
-  });
-
-  // MUTATION PROOF (invariant 1): every write call (non-GET) against the
-  // SOURCE (buyer's) repository path is one of the two sanctioned
-  // exceptions the scope names -- forking it and opening the PR against it
-  // -- and nothing else. A future change that routed the branch-ref write
-  // at the buyer's repo instead of the fork goes red here.
-  it('no write call targets the buyer repo except the fork request and the pull request', async () => {
-    const { fetchImpl, calls } = scriptHappyPath();
-    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
-
-    await adapter.forkAndOpenPullRequest(input);
-
-    const buyerRepoPrefix = 'https://api.github.com/repos/buyer/target-repo';
-    const writesAgainstBuyerRepo = calls.filter((c) => c.method !== 'GET' && c.url.startsWith(buyerRepoPrefix));
-    expect(writesAgainstBuyerRepo.map((c) => c.url)).toEqual([`${buyerRepoPrefix}/forks`, `${buyerRepoPrefix}/pulls`]);
-
-    // And the branch-creating write landed on the fork, never the buyer repo.
-    const forkRepoPrefix = 'https://api.github.com/repos/freeagents-platform/target-repo';
-    expect(calls.some((c) => c.method === 'POST' && c.url === `${forkRepoPrefix}/git/refs`)).toBe(true);
-  });
-
-  it('propagates a fork failure without reading a ref, creating a branch, or opening a pull request', async () => {
-    const { fetchImpl, calls } = scriptedFetch([jsonResponse(403, { message: 'blocked' })]);
-    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
-
-    await expect(adapter.forkAndOpenPullRequest(input)).rejects.toThrow();
-    expect(calls).toHaveLength(1);
-  });
-
-  it('propagates a pull-request-open failure after the fork and branch already happened', async () => {
-    const { fetchImpl, calls } = scriptedFetch([
-      jsonResponse(202, { owner: { login: 'freeagents-platform' }, name: 'target-repo', default_branch: 'main' }),
-      jsonResponse(200, { object: { sha: 'fork-head-sha' } }),
-      jsonResponse(201, { ref: 'refs/heads/freeagents/j-1', object: { sha: 'fork-head-sha' } }),
-      jsonResponse(422, { message: 'validation failed' }),
-    ]);
-    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
-
-    await expect(adapter.forkAndOpenPullRequest(input)).rejects.toThrow();
-    expect(calls).toHaveLength(4);
-  });
-});
+// forkAndOpenPullRequest's own coverage moved to
+// tests/adapters/github/github-staging.test.ts's openStagedPullRequest
+// suite (B14a): the fork mechanism this adapter used is gone -- a
+// private repository under the platform account IS the platform's copy
+// now, so there is no fork step left to fork, read a fork ref for, or
+// branch on.
 
 describe('createGithubAdapter, FREEAGENTS_GITHUB_API_BASE override (B4)', () => {
   it('honours the env override for every call the adapter makes', async () => {

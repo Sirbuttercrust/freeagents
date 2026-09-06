@@ -95,9 +95,9 @@ import { fromRandom, type WalletObject } from '@ocap/wallet';
 import { createApp } from '../../src/api/app.js';
 import {
   GistNotFoundError,
-  type ForkAndOpenPullRequestInput,
   type Gist,
   type GithubAdapter,
+  type OpenStagedPullRequestInput,
   type PullRequestRef,
 } from '../../src/adapters/github/types.js';
 import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
@@ -111,6 +111,7 @@ import { signRequest, signingIdentityFromSeed, signingIdentityFromWallet, type S
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
 let server: Server;
 let base: string;
@@ -359,10 +360,10 @@ let proofSigningWallet: WalletObject | null = null;
 // adapter in this test.
 const gists = new Map<string, Gist | null>();
 
-// R-10: what the hire flow asked github to do. The fake records its input so
-// the flow can assert the buyer's repository was referenced READ-ONLY and
-// the write went to the fork this platform created.
-const forkCalls: ForkAndOpenPullRequestInput[] = [];
+// R-10 / B14a: what the hire flow asked github to do. The fake records its
+// input so the flow can assert the buyer's repository was referenced
+// READ-ONLY and every write went to the platform's own staging repo.
+const forkCalls: OpenStagedPullRequestInput[] = [];
 
 // R-11 (ENT-7.1): what the hire flow asked github about a pull request's
 // merge state. The fake always reports merged, so the flow proves the merge
@@ -374,7 +375,13 @@ const E2E_MERGED_AT = new Date('2026-08-20T12:00:00Z');
 // R-21: avatars served for agents delegated along the way. The first lets a
 // later flow prove a different DID renders differently over the wire.
 const delegatedAvatars: string[] = [];
+// B14a: confirm grants push to the agent's VERIFIED GitHub login, so this
+// module-scoped repo (instead of a fresh one per describe) lets every flow
+// test below verify its own freshly delegated agent right after `/agents`
+// registers it, before that flow's own confirm call.
+const agentRepo = new MemoryAgentRepository();
 const githubAdapter: GithubAdapter = {
+  ...createStagingLifecycleGithubFake().github,
   getPullRequest: (ref) => {
     getPullRequestCalls.push(ref);
     return Promise.resolve({
@@ -389,7 +396,6 @@ const githubAdapter: GithubAdapter = {
       repositoryPublic: true,
     });
   },
-  getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
   getPublicGist: (ref) => {
     const gist = gists.get(ref.id);
     if (gist === null) {
@@ -400,11 +406,12 @@ const githubAdapter: GithubAdapter = {
     }
     return Promise.resolve(gist);
   },
-  forkAndOpenPullRequest: (input) => {
+  openStagedPullRequest: (input) => {
     forkCalls.push(input);
-    // Models a fork of buyer/target-repo that THIS platform created - the
-    // owner differs from the source, which is what keeps invariant 1 true.
-    return Promise.resolve({ owner: 'freeagents-platform', repo: 'target-repo', number: 1 });
+    // R-10 / B14a: the PR opens against the SOURCE repository (buyer's),
+    // from the staging repository the platform created -- the owner
+    // differs from the source, which is what keeps invariant 1 true.
+    return Promise.resolve({ owner: input.sourceOwner, repo: input.sourceRepo, number: 1 });
   },
 };
 
@@ -445,7 +452,7 @@ beforeAll(async () => {
   const sessionAdapter = testSessionAdapter();
   const app = createApp(
     new MemoryAccountRepository(),
-    new MemoryAgentRepository(),
+    agentRepo,
     identityAdapter,
     githubAdapter,
     undefined,
@@ -1103,6 +1110,7 @@ describe('the API starts and answers', () => {
       skills: ['triage'],
     }, await signingIdentityFromWallet(operatorWallet));
     expect(delegated.status).toBe(201);
+    await agentRepo.updateGithubBinding(agentWallet.toDid(), { handle: 'scout-e2e-confirm', status: 'verified' });
 
     // 3. Open the draft.
     const draft = await postSigned('/jobs', {
@@ -1152,6 +1160,7 @@ describe('the API starts and answers', () => {
     const readBack = (await read.json()) as Record<string, unknown>;
     expect(Object.keys(readBack).sort()).toEqual([
       'agentDid',
+      'baseCommit',
       'brief',
       'briefHash',
       'buyerDid',
@@ -1162,6 +1171,7 @@ describe('the API starts and answers', () => {
       'price',
       'repository',
       'specHash',
+      'stagingRepo',
       'status',
     ]);
 
@@ -1229,6 +1239,7 @@ describe('the API starts and answers', () => {
       skills: ['triage'],
     }, await signingIdentityFromWallet(operatorWallet));
     expect(delegated.status).toBe(201);
+    await agentRepo.updateGithubBinding(agentWallet.toDid(), { handle: 'scout-e2e-pr', status: 'verified' });
 
     // 3. Open the draft.
     const draft = await postSigned('/jobs', {
@@ -1270,14 +1281,14 @@ describe('the API starts and answers', () => {
     expect(pr.status).toBe(200);
     const prBody = (await pr.json()) as Record<string, unknown>;
     expect(prBody.status).toBe('submitted');
-    expect(String(prBody.pullRequestUrl)).toContain('freeagents-platform');
+    expect(String(prBody.pullRequestUrl)).toContain('buyer/target-repo');
     expect(typeof prBody.submittedAt).toBe('string');
     // R-12: the deadline rides the submission, 30 days out from the domain.
     expect(typeof prBody.deadline).toBe('string');
 
     // 7. What github was asked to do: source named read-only is the BUYER's
     // repo; branch, title and body carry the job id.
-    const call = forkCalls.at(-1) as ForkAndOpenPullRequestInput;
+    const call = forkCalls.at(-1) as OpenStagedPullRequestInput;
     expect(call.sourceOwner).toBe('buyer');
     expect(call.sourceRepo).toBe('target-repo');
     expect(call.title).toContain(jobId);
@@ -1310,6 +1321,7 @@ describe('the API starts and answers', () => {
       skills: ['triage'],
     }, await signingIdentityFromWallet(operatorWallet));
     expect(delegated.status).toBe(201);
+    await agentRepo.updateGithubBinding(agentWallet.toDid(), { handle: 'scout-e2e-merge', status: 'verified' });
 
     // 3. Open the draft.
     const draft = await postSigned('/jobs', {
@@ -1356,6 +1368,7 @@ describe('the API starts and answers', () => {
     // The submitted keys, plus exactly mergeCommit, mergedAt and credential.
     expect(Object.keys(mergeBody).sort()).toEqual([
       'agentDid',
+      'baseCommit',
       'brief',
       'briefHash',
       'buyerDid',
@@ -1373,6 +1386,7 @@ describe('the API starts and answers', () => {
       'specHash',
       'stagedAt',
       'stagedCommit',
+      'stagingRepo',
       'status',
       'submittedAt',
     ]);
@@ -1523,6 +1537,7 @@ describe('the API starts and answers', () => {
       skills: ['triage'],
     }, operatorWallet);
     expect(delegated.status).toBe(201);
+    await agentRepo.updateGithubBinding(agentWallet.toDid(), { handle: 'scout-e2e-r34', status: 'verified' });
 
     // 4. Open the draft, signed by the buyer.
     const draft = await postSigned(
@@ -1569,6 +1584,7 @@ describe('the API starts and answers', () => {
     const readBack = (await read.json()) as Record<string, unknown>;
     expect(Object.keys(readBack).sort()).toEqual([
       'agentDid',
+      'baseCommit',
       'brief',
       'briefHash',
       'buyerDid',
@@ -1579,6 +1595,7 @@ describe('the API starts and answers', () => {
       'price',
       'repository',
       'specHash',
+      'stagingRepo',
       'status',
     ]);
   });
