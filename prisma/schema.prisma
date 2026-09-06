@@ -300,3 +300,21 @@ model Review {
 
   @@index([agentDid])
 }
+
+// P2: durable DID Connect session storage (invariant 12, this card's scope
+// item 5). One row per DID Connect protocol token; `data` carries every
+// other bookkeeping field the library's WalletHandlers reads and writes
+// (challenge, sharedKey, currentStep, did, pk, extraParams, ...) verbatim,
+// the same way Agent.delegation stores a credential verbatim (R-2's
+// comment): the library's session shape is not this schema's to name
+// field-by-field, and Json keeps every future field it adds from requiring
+// a migration. Ephemeral by nature (a session lives minutes), so no
+// relation to Job/Account: nothing else in the schema should ever join
+// against it.
+model DidConnectSession {
+  token     String   @id
+  status    String
+  data      Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
