@@ -3,10 +3,13 @@ import { createHash, randomBytes } from 'node:crypto';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 
 import { createCredentialsAdapter } from '../adapters/credentials/credentials.js';
-import type {
-  CredentialsAdapter,
-  VerifiableCredential,
-  WorkHistoryClaim,
+import {
+  isCompletedHireCredential,
+  type CredentialsAdapter,
+  type DeemedCompletionClaim,
+  type IssuedCredentialDocument,
+  type VerifiableCredential,
+  type WorkHistoryClaim,
 } from '../adapters/credentials/types.js';
 import { createGithubAdapter } from '../adapters/github/github.js';
 import {
@@ -85,12 +88,16 @@ import {
   JobPriceError,
   JobTransitionError,
   proposeCriteria,
+  recordCitedClose,
   recordClosedUnmerged,
   recordStale,
   recordStagedDeclined,
   decline,
   recordWithdrawn,
+  refuseRedo,
   requestChanges,
+  requestRedo,
+  RedoAllowanceExhaustedError,
   stageWork,
   submitPullRequest,
   validateJobTransition,
@@ -243,6 +250,33 @@ function compromiseReportProjection(report: CompromiseReport): Record<string, un
   };
 }
 
+// P6: agentWorkRecord's tiers (verified-hire, verified-prior-work,
+// portfolio) are built ONLY from a completed merge (ENT-8), so a stored
+// deemed-completion credential must never reach this pipeline -- a job
+// nobody merged is not a hire, however the platform reports it stopped.
+// Every reader of listBySubjectDid narrows through this one function
+// (isCompletedHireCredential, src/adapters/credentials/types.ts), so a
+// non-hire document quietly widening into a browse card or a profile's
+// verified-hire count fails here, structurally, once, rather than at
+// each of the three call sites this pipeline has.
+function credentialEvidenceOf(
+  stored: readonly { readonly document: IssuedCredentialDocument; readonly repositoryPublic: boolean }[],
+): CredentialEvidence[] {
+  return stored
+    .filter((entry): entry is { document: VerifiableCredential; repositoryPublic: boolean } =>
+      isCompletedHireCredential(entry.document),
+    )
+    .map((entry) => ({
+      credentialId: entry.document.id,
+      repository: entry.document.credentialSubject.hire.repository,
+      pullRequest: entry.document.credentialSubject.hire.pullRequest,
+      mergedAt: entry.document.credentialSubject.hire.mergedAt,
+      mergeCommit: entry.document.credentialSubject.hire.mergeCommit,
+      buyerDid: entry.document.credentialSubject.hire.buyer,
+      repositoryPublic: entry.repositoryPublic,
+    }));
+}
+
 // R-22 (ENT-10): the review projection. Exactly these five fields, nothing
 // more, and no numeric field anywhere (ENT-10.2): text, attributed to the
 // buyer DID, tied to the job it came from. Never mixed into agentProjection,
@@ -330,6 +364,47 @@ function jobProjection(row: Job): Record<string, unknown> {
     row.stagedCommit !== null && row.stagedAt !== null
       ? { stagedCommit: row.stagedCommit, stagedAt: row.stagedAt.toISOString() }
       : {};
+  // P6: the redo record joins the projection only once a redo has ever
+  // been requested (redoRequestedAt !== null survives both an operator
+  // refusal and an eventual acceptance, so this rides beside staging
+  // rather than being cleared by either). refusedAt and the extension
+  // are both included unconditionally inside this object once it exists,
+  // because a caller reading the redo record needs the refusal fact and
+  // the earned extension in the same place, not scattered.
+  const redo =
+    row.redoRequestedAt !== null
+      ? {
+          redo: {
+            requestedCriterionIndex: row.redoRequestedCriterionIndex,
+            requestedAt: row.redoRequestedAt.toISOString(),
+            refusedAt: row.redoRefusedAt === null ? null : row.redoRefusedAt.toISOString(),
+            usedCount: row.redoUsedCount,
+            stagedLapseExtensionDays: row.stagedLapseExtensionDays,
+          },
+        }
+      : {};
+  // P6: the cited close (design record row 4). Joins the projection only
+  // on a cited_closed job -- the four fields are one group with one
+  // writer (recordCitedClose). moneyReturned rides beside the fact
+  // itself so the API response states plainly that no money returns,
+  // before any screen (P8) ever renders it (invariant 12: no refund
+  // vocabulary is added anywhere else in this domain, and none is
+  // spelled out in this identifier either).
+  const citedClose =
+    row.citedCloseAt !== null &&
+    row.citedCloseCriterionIndex !== null &&
+    row.citedCloseReasonText !== null &&
+    row.citedCloseAuthorDid !== null
+      ? {
+          citedClose: {
+            criterionIndex: row.citedCloseCriterionIndex,
+            reasonText: row.citedCloseReasonText,
+            authorDid: row.citedCloseAuthorDid,
+            at: row.citedCloseAt.toISOString(),
+            moneyReturned: false,
+          },
+        }
+      : {};
   return {
     id: row.id,
     buyerDid: row.buyerDid,
@@ -342,8 +417,10 @@ function jobProjection(row: Job): Record<string, unknown> {
     ...price,
     ...confirmation,
     ...staging,
+    ...redo,
     ...submission,
     ...completion,
+    ...citedClose,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -879,15 +956,7 @@ export function createApp(
       const unsorted: BrowseCard[] = await Promise.all(
         ownAgents.map(async (row) => {
           const stored = await credentialRepo.listBySubjectDid(row.did);
-          const evidence: CredentialEvidence[] = stored.map((entry) => ({
-            credentialId: entry.document.id,
-            repository: entry.document.credentialSubject.hire.repository,
-            pullRequest: entry.document.credentialSubject.hire.pullRequest,
-            mergedAt: entry.document.credentialSubject.hire.mergedAt,
-            mergeCommit: entry.document.credentialSubject.hire.mergeCommit,
-            buyerDid: entry.document.credentialSubject.hire.buyer,
-            repositoryPublic: entry.repositoryPublic,
-          }));
+          const evidence = credentialEvidenceOf(stored);
           const record = agentWorkRecord(evidence);
           return toBrowseCard(row, record);
         }),
@@ -1069,15 +1138,7 @@ export function createApp(
       const cards: BrowseCard[] = await Promise.all(
         rows.map(async (row) => {
           const stored = await credentialRepo.listBySubjectDid(row.did);
-          const evidence: CredentialEvidence[] = stored.map((entry) => ({
-            credentialId: entry.document.id,
-            repository: entry.document.credentialSubject.hire.repository,
-            pullRequest: entry.document.credentialSubject.hire.pullRequest,
-            mergedAt: entry.document.credentialSubject.hire.mergedAt,
-            mergeCommit: entry.document.credentialSubject.hire.mergeCommit,
-            buyerDid: entry.document.credentialSubject.hire.buyer,
-            repositoryPublic: entry.repositoryPublic,
-          }));
+          const evidence = credentialEvidenceOf(stored);
           const record = agentWorkRecord(evidence);
           return toBrowseCard(row, record);
         }),
@@ -1111,15 +1172,7 @@ export function createApp(
       // as a tier column, so a private repository can never be relisted
       // into a verified tier just by not re-checking it.
       const stored = await credentialRepo.listBySubjectDid(did);
-      const evidence: CredentialEvidence[] = stored.map((entry) => ({
-        credentialId: entry.document.id,
-        repository: entry.document.credentialSubject.hire.repository,
-        pullRequest: entry.document.credentialSubject.hire.pullRequest,
-        mergedAt: entry.document.credentialSubject.hire.mergedAt,
-        mergeCommit: entry.document.credentialSubject.hire.mergeCommit,
-        buyerDid: entry.document.credentialSubject.hire.buyer,
-        repositoryPublic: entry.repositoryPublic,
-      }));
+      const evidence = credentialEvidenceOf(stored);
 
       // R-37: freshness as a visible fact (ENT-2, ENT-4), never a
       // denormalised column. findCompletedByAgent is optional on
@@ -1673,6 +1726,17 @@ export function createApp(
       return;
     }
 
+    // P6: this route's whole meaning is "was the signature on a completed
+    // hire made inside a reported compromise window" -- a question only a
+    // CompletedHireCredential's signedBy/mergedAt pair can even pose. A
+    // deemed-completion credential observed no merge and carries no
+    // signature to check, so it is 404 here the same way an unknown id is:
+    // there is no signed-work status to report.
+    if (!isCompletedHireCredential(document)) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+
     const subject = document.credentialSubject.id;
     const signedBy = document.credentialSubject.hire.signedBy;
     const signedAt = document.credentialSubject.hire.mergedAt;
@@ -1857,13 +1921,17 @@ export function createApp(
     const lapsed = await applyLiveLapses('GET /jobs/:jobId', row, res);
     if (lapsed === null) return;
     row = lapsed;
-    // Only a completed job can carry one, so an unmerged row never pays for
-    // the lookup.
-    if (row.mergeCommit === null) {
+    // Only a completed or deemed-completed job can carry a credential, so
+    // every other row never pays for the lookup. P6 widens this guard:
+    // deemed_completed carries a distinct credential type but no
+    // mergeCommit (deemCompleted never sets one -- no merge was
+    // observed), so the mergeCommit-only guard from before this card
+    // would silently skip the lookup for every deemed-completed job.
+    if (row.mergeCommit === null && row.status !== 'deemed_completed') {
       res.status(200).json(jobProjection(row));
       return;
     }
-    let credential: VerifiableCredential | null;
+    let credential: IssuedCredentialDocument | null;
     try {
       // The lookup key is the job id: credentialLookupKey takes the last
       // path segment, and a bare id is its own key - the same key the merge
@@ -1956,6 +2024,40 @@ export function createApp(
     }
     const lapsed = applyLapses(job, new Date(), remainderIsSettled);
     if (lapsed.status === job.status) return job;
+    // P6 (design record row 3): the deemed-completion credential is issued
+    // exactly once, the instant the live check itself observes the
+    // transition -- the same "issue before persisting the outcome" order
+    // POST /jobs/:jobId/merge already keeps for the work-history credential,
+    // so a crash between issuance and this persist leaves the same kind of
+    // named, recoverable residual (a lapsed row with no credential row,
+    // re-derivable from the stored job and the platform key) rather than a
+    // silently skipped issuance. Deliberately best-effort like the rest of
+    // this function: a failure here must not turn an otherwise-successful
+    // read or mutation into a 503, since the lapse itself already happened
+    // and the job's OWN row is the source of truth this function persists
+    // regardless.
+    if (lapsed.status === 'deemed_completed' && lapsed.stagedCommit !== null) {
+      try {
+        const claim: DeemedCompletionClaim = {
+          jobId: lapsed.id,
+          stagedCommit: lapsed.stagedCommit,
+          buyerDid: lapsed.buyerDid,
+        };
+        const credential = await credentialsAdapter.issueDeemedCompletionCredential(lapsed.agentDid, claim);
+        await credentialRepo.save({
+          completedJobId: lapsed.id,
+          subjectDid: lapsed.agentDid,
+          document: credential,
+          // R-17's evidence-tier fact has no meaning for a deemed
+          // completion (no merge was ever observed to check publicity
+          // against); false is the same fail-closed default every other
+          // non-hire path in this file already uses.
+          repositoryPublic: false,
+        });
+      } catch (err) {
+        console.error(`${label}: deemed-completion credential issuance failed`, err);
+      }
+    }
     try {
       const persisted = await jobRepo.update(lapsed);
       return persisted ?? lapsed;
@@ -2003,6 +2105,13 @@ export function createApp(
         return;
       }
       if (err instanceof JobTransitionError) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
+      // P6: the redo allowance is exhausted -- a state conflict on the
+      // agreement's own redo budget, the same 409 shape JobPriceError and
+      // JobTransitionError already answer with.
+      if (err instanceof RedoAllowanceExhaustedError) {
         res.status(409).json({ error: err.message });
         return;
       }
@@ -2582,6 +2691,45 @@ export function createApp(
     }),
   );
 
+  // P6 (design record row 2): the buyer's one redo at staged. Party rule
+  // mirrors staged-decline: buyer-only, since this is one of the buyer's
+  // three moves at staged (pay, redo, decline). The body names which
+  // confirmed criterion the redo cites; requestRedo itself validates the
+  // index is in range and that the allowance is not exhausted, mapping to
+  // 400 (malformed) and 409 (state conflict) respectively through the
+  // same applyAndPersist error legs every other lifecycle route shares.
+  app.post(
+    '/jobs/:jobId/redo',
+    didSignature,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/redo';
+      const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
+      if (gate === null) return;
+      const body = (req.body ?? {}) as { criterionIndex?: unknown };
+      if (typeof body.criterionIndex !== 'number' || !Number.isInteger(body.criterionIndex)) {
+        res.status(400).json({ error: 'body must be { criterionIndex: number }: the confirmed criterion this redo cites' });
+        return;
+      }
+      const criterionIndex = body.criterionIndex;
+      await applyAndPersist(label, res, gate.job, (job) => requestRedo(job, criterionIndex, new Date()));
+    }),
+  );
+
+  // P6 (design record row 2): the operator's refusal, returning the job to
+  // staged untouched except for the recorded refusal (refuseRedo's own
+  // header comment). Party rule: the agent, the same seat that stages the
+  // work and is the only other party to a redo request.
+  app.post(
+    '/jobs/:jobId/redo-refuse',
+    didSignature,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/redo-refuse';
+      const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['agent']);
+      if (gate === null) return;
+      await applyAndPersist(label, res, gate.job, (job) => refuseRedo(job, new Date()));
+    }),
+  );
+
   // R-10 (ENT-4.3, ENT-4.5): fork the buyer's repository and open the pull
   // request carrying the job id. The route owns only what the domain cannot
   // know: splitting the stored owner/name pair, formatting the public
@@ -2945,6 +3093,35 @@ export function createApp(
       }
 
       res.status(200).json({ ...jobProjection(row), credential });
+    }),
+  );
+
+  // P6 (design record row 4): the buyer's cited close after paying. Party
+  // rule: buyer-only (recordCitedClose's own header comment -- the author
+  // is copied from the job, never taken as input). The body names the
+  // confirmed criterion and the one sentence of reasoning; recordCitedClose
+  // validates both, mapping to 400 through the same applyAndPersist leg
+  // every other lifecycle route shares. No payment gate: the balance
+  // already settled at pull-request time (P4), so there is nothing left to
+  // check before a paid buyer can close.
+  app.post(
+    '/jobs/:jobId/cited-close',
+    didSignature,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/cited-close';
+      const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
+      if (gate === null) return;
+      const body = (req.body ?? {}) as { criterionIndex?: unknown; reasonText?: unknown };
+      if (typeof body.criterionIndex !== 'number' || !Number.isInteger(body.criterionIndex)) {
+        res.status(400).json({ error: 'body must be { criterionIndex: number, reasonText: string }: the confirmed criterion and reasoning this close cites' });
+        return;
+      }
+      if (typeof body.reasonText !== 'string') {
+        res.status(400).json({ error: 'body must be { criterionIndex: number, reasonText: string }: the confirmed criterion and reasoning this close cites' });
+        return;
+      }
+      const input = { criterionIndex: body.criterionIndex, reasonText: body.reasonText };
+      await applyAndPersist(label, res, gate.job, (job) => recordCitedClose(job, input, new Date()));
     }),
   );
 

@@ -3,7 +3,7 @@
 import { Prisma, PrismaClient } from '../../generated/prisma/index.js';
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
-import type { VerifiableCredential } from '../credentials/types.js';
+import type { IssuedCredentialDocument } from '../credentials/types.js';
 import type { CompletedJob, Criterion, Job, JobStatus } from '../../domain/job.js';
 import { DEPOSIT_PERCENT, REDO_ALLOWANCE } from '../../domain/job.js';
 import type { Attestation } from '../../domain/attestation.js';
@@ -357,6 +357,20 @@ interface JobRow {
   // carries.
   stagedAt?: Date | null;
   stagedCommit?: string | null;
+  // P6: optional, same reasoning as stagedAt above -- a worktree generated
+  // before these columns exist types the row without them, and an absent
+  // column means "never redone" / "never cited-closed", the same meaning
+  // a stored default or null already carries.
+  redoUsedCount?: number;
+  redoRequestedCriterionIndex?: number | null;
+  redoRequestedAt?: Date | null;
+  redoRefusedAt?: Date | null;
+  stagedLapseExtensionDays?: number;
+  citedCloseCriterionIndex?: number | null;
+  citedCloseReasonText?: string | null;
+  citedCloseAuthorDid?: string | null;
+  citedCloseAt?: Date | null;
+  deemedCompletedAt?: Date | null;
 }
 
 export class PrismaJobRepository implements JobRepository {
@@ -391,6 +405,16 @@ export class PrismaJobRepository implements JobRepository {
           deliveryWindowDays: job.deliveryWindowDays,
           stagedAt: job.stagedAt,
           stagedCommit: job.stagedCommit,
+          redoUsedCount: job.redoUsedCount,
+          redoRequestedCriterionIndex: job.redoRequestedCriterionIndex,
+          redoRequestedAt: job.redoRequestedAt,
+          redoRefusedAt: job.redoRefusedAt,
+          stagedLapseExtensionDays: job.stagedLapseExtensionDays,
+          citedCloseCriterionIndex: job.citedCloseCriterionIndex,
+          citedCloseReasonText: job.citedCloseReasonText,
+          citedCloseAuthorDid: job.citedCloseAuthorDid,
+          citedCloseAt: job.citedCloseAt,
+          deemedCompletedAt: job.deemedCompletedAt,
         } as unknown as Prisma.JobCreateInput,
       });
       return toJob(row as unknown as JobRow);
@@ -433,6 +457,16 @@ export class PrismaJobRepository implements JobRepository {
           deliveryWindowDays: job.deliveryWindowDays,
           stagedAt: job.stagedAt,
           stagedCommit: job.stagedCommit,
+          redoUsedCount: job.redoUsedCount,
+          redoRequestedCriterionIndex: job.redoRequestedCriterionIndex,
+          redoRequestedAt: job.redoRequestedAt,
+          redoRefusedAt: job.redoRefusedAt,
+          stagedLapseExtensionDays: job.stagedLapseExtensionDays,
+          citedCloseCriterionIndex: job.citedCloseCriterionIndex,
+          citedCloseReasonText: job.citedCloseReasonText,
+          citedCloseAuthorDid: job.citedCloseAuthorDid,
+          citedCloseAt: job.citedCloseAt,
+          deemedCompletedAt: job.deemedCompletedAt,
         } as unknown as Prisma.JobUpdateInput,
       });
       return toJob(row as unknown as JobRow);
@@ -483,6 +517,16 @@ export class PrismaJobRepository implements JobRepository {
           deliveryWindowDays: job.deliveryWindowDays,
           stagedAt: job.stagedAt,
           stagedCommit: job.stagedCommit,
+          redoUsedCount: job.redoUsedCount,
+          redoRequestedCriterionIndex: job.redoRequestedCriterionIndex,
+          redoRequestedAt: job.redoRequestedAt,
+          redoRefusedAt: job.redoRefusedAt,
+          stagedLapseExtensionDays: job.stagedLapseExtensionDays,
+          citedCloseCriterionIndex: job.citedCloseCriterionIndex,
+          citedCloseReasonText: job.citedCloseReasonText,
+          citedCloseAuthorDid: job.citedCloseAuthorDid,
+          citedCloseAt: job.citedCloseAt,
+          deemedCompletedAt: job.deemedCompletedAt,
         } as unknown as Prisma.JobUpdateInput,
       });
       return toJob(row as unknown as JobRow);
@@ -554,7 +598,7 @@ export class PrismaCredentialRepository implements CredentialRepository {
   async save(input: {
     readonly completedJobId: string;
     readonly subjectDid: string;
-    readonly document: VerifiableCredential;
+    readonly document: IssuedCredentialDocument;
     readonly repositoryPublic?: boolean;
   }): Promise<void> {
     try {
@@ -584,13 +628,13 @@ export class PrismaCredentialRepository implements CredentialRepository {
     }
   }
 
-  async findByDocumentId(documentId: string): Promise<VerifiableCredential | null> {
+  async findByDocumentId(documentId: string): Promise<IssuedCredentialDocument | null> {
     const row = await db().credential.findUnique({
       where: { completedJobId: credentialLookupKey(documentId) },
     });
     // The Json column round-trips as unknown; storage does not re-validate
     // (same stance as the delegation column), it serves the stored bytes.
-    return row === null ? null : (row.document as unknown as VerifiableCredential);
+    return row === null ? null : (row.document as unknown as IssuedCredentialDocument);
   }
 
   async listBySubjectDid(subjectDid: string): Promise<readonly StoredCredential[]> {
@@ -605,7 +649,7 @@ export class PrismaCredentialRepository implements CredentialRepository {
     // column existed reads back null, which the pair maps to false, not
     // undefined: an unrecorded visibility fact must never read as verified.
     return rows.map((row) => ({
-      document: row.document as unknown as VerifiableCredential,
+      document: row.document as unknown as IssuedCredentialDocument,
       repositoryPublic: row.repositoryPublic ?? false,
     }));
   }
@@ -643,6 +687,16 @@ function toJob(row: JobRow): Job {
     deliveryWindowDays: row.deliveryWindowDays ?? null,
     stagedAt: row.stagedAt ?? null,
     stagedCommit: row.stagedCommit ?? null,
+    redoUsedCount: row.redoUsedCount ?? 0,
+    redoRequestedCriterionIndex: row.redoRequestedCriterionIndex ?? null,
+    redoRequestedAt: row.redoRequestedAt ?? null,
+    redoRefusedAt: row.redoRefusedAt ?? null,
+    stagedLapseExtensionDays: row.stagedLapseExtensionDays ?? 0,
+    citedCloseCriterionIndex: row.citedCloseCriterionIndex ?? null,
+    citedCloseReasonText: row.citedCloseReasonText ?? null,
+    citedCloseAuthorDid: row.citedCloseAuthorDid ?? null,
+    citedCloseAt: row.citedCloseAt ?? null,
+    deemedCompletedAt: row.deemedCompletedAt ?? null,
   };
 }
 
@@ -751,31 +805,43 @@ export class PrismaObservedKeyRepository implements ObservedKeyRepository {
   }
 }
 
-// P5: one attestation per job (design record, 2026-09-01), IMMUTABLE once
-// written (AttestationRepository's own header comment,
-// src/adapters/storage/types.ts). Both `document` and `signed` go in
-// verbatim, the same "the bytes that verified are the bytes served back"
-// stance PrismaCredentialRepository already keeps for work-history
-// credentials.
+// P5/P6: many attestation records per job (design record, 2026-09-01;
+// widened by P6's redo), each row IMMUTABLE once written
+// (AttestationRepository's own header comment, src/adapters/storage/types.ts).
+// Both `document` and `signed` go in verbatim, the same "the bytes that
+// verified are the bytes served back" stance PrismaCredentialRepository
+// already keeps for work-history credentials. sequence is computed from
+// a count of the job's existing rows rather than a database identity
+// column, so the memory driver and this one derive it the same way.
 export class PrismaAttestationRepository implements AttestationRepository {
   async save(input: {
     readonly jobId: string;
     readonly attestation: Attestation;
     readonly signed: SignedAttestation;
-  }): Promise<void> {
+  }): Promise<StoredAttestation> {
+    const existingCount = await db().attestation.count({ where: { jobId: input.jobId } });
+    const sequence = existingCount + 1;
     try {
-      await db().attestation.create({
+      const row = await db().attestation.create({
         data: {
           jobId: input.jobId,
+          sequence,
           document: input.attestation as unknown as Prisma.InputJsonValue,
           signed: input.signed as unknown as Prisma.InputJsonValue,
         },
       });
+      return {
+        jobId: row.jobId,
+        sequence: row.sequence,
+        attestation: input.attestation,
+        signed: input.signed,
+      };
     } catch (err) {
       // P2002 is Prisma's "unique constraint failed" error code: the only
-      // unique constraint reachable here is jobId, so a P2002 from
-      // create() means the job already has an attestation, and the API
-      // layer maps the domain error to 409.
+      // unique constraint reachable here is the (jobId, sequence) pair, so
+      // a P2002 from create() means a genuine write race computed the
+      // identical next sequence concurrently, and the API layer maps the
+      // domain error to 409.
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         throw new AttestationAlreadyStoredError(input.jobId);
       }
@@ -784,15 +850,26 @@ export class PrismaAttestationRepository implements AttestationRepository {
   }
 
   async findByJobId(jobId: string): Promise<StoredAttestation | null> {
-    const row = await db().attestation.findUnique({ where: { jobId } });
+    const row = await db().attestation.findFirst({ where: { jobId }, orderBy: { sequence: 'desc' } });
     if (row === null) return null;
     return {
       jobId: row.jobId,
+      sequence: row.sequence,
       // The Json columns round-trip as unknown; storage does not
       // re-validate (same stance as every other Json column in this
       // file), it serves the stored bytes.
       attestation: row.document as unknown as Attestation,
       signed: row.signed as unknown as SignedAttestation,
     };
+  }
+
+  async listByJobId(jobId: string): Promise<readonly StoredAttestation[]> {
+    const rows = await db().attestation.findMany({ where: { jobId }, orderBy: { sequence: 'asc' } });
+    return rows.map((row) => ({
+      jobId: row.jobId,
+      sequence: row.sequence,
+      attestation: row.document as unknown as Attestation,
+      signed: row.signed as unknown as SignedAttestation,
+    }));
   }
 }

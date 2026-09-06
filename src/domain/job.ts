@@ -17,11 +17,23 @@ import { hashSpec } from './hashing.js';
 // The other four are terminal outcomes the two clocks and the buyer's
 // staged-time choices can reach: see the transition table on
 // validateJobTransition below for exactly which edges reach each one.
+// P6 (design record, 2026-09-01, rows 2 and 4): two more statuses.
+// `redo_requested` sits between `staged` and `staged` again -- the buyer
+// has asked for a redo and the operator has not yet answered; it is
+// non-terminal because both its edges (accept via stageWork, refuse via
+// refuseRedo) lead back into the loop. `cited_closed` is terminal: the
+// buyer's deliberate, reasoned close after paying, distinct from
+// closed_unmerged (the merge route's OBSERVATION of a closed PR with no
+// reason attached) because a reader must be able to tell "the buyer chose
+// to stop, on the record, citing a reason" from "GitHub reports this PR
+// closed" without inspecting a second field. See recordCitedClose's own
+// header comment for why the two never share one status.
 export type JobStatus =
   | 'draft'
   | 'proposed'
   | 'confirmed'
   | 'staged'
+  | 'redo_requested'
   | 'submitted'
   | 'completed'
   | 'declined'
@@ -31,7 +43,8 @@ export type JobStatus =
   | 'staged_declined'
   | 'closed_unpaid'
   | 'expired_unstaged'
-  | 'deemed_completed';
+  | 'deemed_completed'
+  | 'cited_closed';
 
 const TERMINAL_STATUSES: readonly JobStatus[] = [
   'completed',
@@ -46,6 +59,9 @@ const TERMINAL_STATUSES: readonly JobStatus[] = [
   'closed_unpaid',
   'expired_unstaged',
   'deemed_completed',
+  // P6: the buyer's deliberate, reasoned close after paying. Terminal like
+  // every other closed outcome above -- once made, it cannot be walked back.
+  'cited_closed',
 ];
 
 // A party to the hire loop: whoever is doing the accepting. Named apart
@@ -107,6 +123,28 @@ export interface Job {
   // carries it and a later card can open it (P1 brief, scope item 1).
   readonly depositPercent: number;
   readonly redoAllowance: number;
+  // P6: how many redos this job has consumed. Compared against
+  // redoAllowance by requestRedo; never decremented back down by a
+  // refusal or by anything else (design record row 2: "the allowance is
+  // not refunded by a refusal").
+  readonly redoUsedCount: number;
+  // P6: the redo currently awaiting the operator's answer, at
+  // redo_requested. All three null outside that window; written together
+  // by requestRedo, the same one-writer pairing confirmSpec keeps.
+  readonly redoRequestedCriterionIndex: number | null;
+  readonly redoRequestedAt: Date | null;
+  // P6: the instant the operator refused the redo, null until a refusal
+  // happens. Distinct from redoRequestedAt (which survives a refusal, so
+  // the buyer's record shows what was asked) and never cleared once set,
+  // because it is exactly the fact the design record's surviving attack
+  // (prepayment farming, refusing every redo) makes visible.
+  readonly redoRefusedAt: Date | null;
+  // P6: the accumulated extension to the staged lapse deadline from every
+  // accepted redo, in days, added to LAPSE_AT_STAGED_AFTER_DAYS by
+  // lapseAtStaged. A stored fact rather than a recomputation from
+  // redoUsedCount, so a future redo shape (e.g. a variable extension)
+  // does not have to touch this field's meaning.
+  readonly stagedLapseExtensionDays: number;
   // Agent-proposed, default 14 days, set alongside the price.
   readonly deliveryWindowDays: number | null;
   readonly confirmedSpecHash: string | null;
@@ -125,6 +163,25 @@ export interface Job {
   // for confirmedSpecHash/confirmedAt.
   readonly stagedAt: Date | null;
   readonly stagedCommit: string | null;
+  // P6: the buyer's deliberate, reasoned close after paying (cited_closed).
+  // All four null outside that status; written together by
+  // recordCitedClose, the same one-writer pairing every other terminal
+  // fact in this file keeps. citedCloseAuthorDid is always the job's own
+  // buyerDid (recordCitedClose copies it, never takes it as a separate
+  // input) so this field can never disagree with who actually has
+  // standing to close.
+  readonly citedCloseCriterionIndex: number | null;
+  readonly citedCloseReasonText: string | null;
+  readonly citedCloseAuthorDid: string | null;
+  readonly citedCloseAt: Date | null;
+
+  // P6: the instant deemCompleted actually fired (design record row 3):
+  // the fact a deemed-completion credential needs and completeJob's own
+  // mergedAt has no equivalent for, since GitHub never reports a fact
+  // here. Null until deemed_completed, written by deemCompleted alone.
+  readonly deemedCompletedAt: Date | null;
+
+
   // The instant the pull request goes stale (R-12, D3 2026-08-22): written
   // by submitPullRequest as submittedAt + STALE_AFTER_DAYS, null until
   // submitted and for rows written before R-12.
@@ -205,6 +262,11 @@ export function createJob(
     priceAcceptedByAgent: false,
     depositPercent: DEPOSIT_PERCENT,
     redoAllowance: REDO_ALLOWANCE,
+    redoUsedCount: 0,
+    redoRequestedCriterionIndex: null,
+    redoRequestedAt: null,
+    redoRefusedAt: null,
+    stagedLapseExtensionDays: 0,
     deliveryWindowDays: null,
     pullRequestUrl: null,
     mergeCommit: null,
@@ -213,6 +275,11 @@ export function createJob(
     submittedAt: null,
     stagedAt: null,
     stagedCommit: null,
+    citedCloseCriterionIndex: null,
+    citedCloseReasonText: null,
+    citedCloseAuthorDid: null,
+    citedCloseAt: null,
+    deemedCompletedAt: null,
     deadline: null,
     createdAt: now,
   };
@@ -258,7 +325,16 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
     draft: ['proposed', 'declined', 'withdrawn'],
     proposed: ['confirmed', 'declined', 'withdrawn'],
     confirmed: ['staged', 'expired_unstaged', 'declined', 'withdrawn'],
-    staged: ['submitted', 'staged_declined', 'closed_unpaid'],
+    // P6: staged gains one edge, to redo_requested (requestRedo, design
+    // record row 2). staged -> withdrawn and staged -> declined stay
+    // absent for the same reasons the P4 comment above already names.
+    staged: ['submitted', 'staged_declined', 'closed_unpaid', 'redo_requested'],
+    // P6: redo_requested has exactly two edges out. Accepting the redo is
+    // NOT a transition of its own -- stageWork repeats the confirmed ->
+    // staged edge (its own header comment), which this table therefore
+    // also has to permit starting FROM redo_requested, not only from
+    // confirmed. Refusing is refuseRedo's own edge, back to staged.
+    redo_requested: ['staged'],
     // R-12 (ENT-7.2): non-merge outcomes are recorded, not hidden. The
     // stale -> closed_unmerged edge is legal (R-31): an outcome update
     // after stale, not a new state. P4: deemed_completed joins the same
@@ -270,7 +346,11 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
     // own card (a status removal ripples through both storage drivers
     // and the lifecycle routes); this table keeps `stale` exactly as it
     // was and adds no new edge to it.
-    submitted: ['completed', 'closed_unmerged', 'deemed_completed', 'stale', 'declined', 'withdrawn'],
+    // P6: submitted gains cited_closed (recordCitedClose, design record
+    // row 4): the buyer's deliberate, reasoned close after paying,
+    // distinct from closed_unmerged (see recordCitedClose's own header
+    // comment for why the two never share one status).
+    submitted: ['completed', 'closed_unmerged', 'deemed_completed', 'stale', 'declined', 'withdrawn', 'cited_closed'],
     stale: ['completed', 'closed_unmerged', 'declined', 'withdrawn'],
     closed_unmerged: [],
     completed: [],
@@ -282,6 +362,8 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
     closed_unpaid: [],
     expired_unstaged: [],
     deemed_completed: [],
+    // P6 terminal outcome: no edge back out, once made.
+    cited_closed: [],
   };
   
   const allowedTransitions = validTransitions[fromStatus];
@@ -382,6 +464,69 @@ export function stageWork(job: Job, stagedCommit: string, now: Date): Job {
   };
 }
 
+// P6 (design record, 2026-09-01, row 2): the redo mechanic requestRedo /
+// refuseRedo fills the seam stageWork's own header comment names. Named
+// beside LAPSE_AT_STAGED_AFTER_DAYS, per the brief: a redo extends
+// delivery 7 days, the same length as the base staged lapse window.
+export const REDO_LAPSE_EXTENSION_DAYS = 7;
+
+// A redo requested on a job with no allowance left. Distinct from the
+// plain JobError an out-of-range criterion index throws: this is a state
+// conflict (the agreement's redo budget is exhausted), not malformed
+// input, mirroring JobPriceError's own split from JobError for the same
+// reason (a caller-mapped 409, not a 400).
+export class RedoAllowanceExhaustedError extends Error {
+  constructor(jobId: string) {
+    super(`job ${jobId} has no redo allowance left`);
+    this.name = 'RedoAllowanceExhaustedError';
+  }
+}
+
+// The buyer's one redo at staged (design record row 2): cites a confirmed
+// criterion index, no price change, extends the staged lapse deadline by
+// REDO_LAPSE_EXTENSION_DAYS. Party enforcement (buyer only) is the route
+// layer's job, the same split stageWork keeps from its own agent-only
+// rule. Consumption is unconditional here: requestRedo either succeeds
+// and increments redoUsedCount, or throws and changes nothing, so a
+// caught throw can never leave a half-consumed allowance.
+export function requestRedo(job: Job, criterionIndex: number, now: Date): Job {
+  validateJobTransition(job.status, 'redo_requested');
+  if (!Number.isInteger(criterionIndex) || criterionIndex < 0 || criterionIndex >= job.criteria.length) {
+    throw new JobError(`no confirmed criterion at index ${criterionIndex}`);
+  }
+  if (job.redoUsedCount >= job.redoAllowance) {
+    throw new RedoAllowanceExhaustedError(job.id);
+  }
+  return {
+    ...job,
+    status: 'redo_requested',
+    redoUsedCount: job.redoUsedCount + 1,
+    redoRequestedCriterionIndex: criterionIndex,
+    redoRequestedAt: now,
+    // The extension is a stored fact from the moment the redo is
+    // requested, not deferred to acceptance: lapseAtStaged reads it off
+    // whatever status the job is actually in, and a refused redo (which
+    // returns to staged, never to redo_requested) still needs the
+    // extension it already earned by being asked -- see refuseRedo's own
+    // header comment.
+    stagedLapseExtensionDays: job.stagedLapseExtensionDays + REDO_LAPSE_EXTENSION_DAYS,
+  };
+}
+
+// The operator's refusal (design record row 2): returns the job to
+// staged, where the buyer pays or declines, exactly as if no redo had
+// been asked -- except the refusal itself is a permanent, recorded fact
+// (redoRefusedAt), and redoUsedCount is NOT decremented: the allowance
+// was already spent the instant it was asked for, per the brief ("the
+// allowance is not refunded by a refusal"). The extension earned at
+// request time survives the refusal too (the buyer already lost a
+// redo's worth of leverage; losing the extension as well would double
+// the operator's advantage from one refusal).
+export function refuseRedo(job: Job, now: Date): Job {
+  validateJobTransition(job.status, 'staged');
+  return { ...job, status: 'staged', redoRefusedAt: now };
+}
+
 // P4: the buyer declines the staged work, free of charge, before paying
 // the balance (design record, 2026-09-01: "the buyer has exactly three
 // moves there and nowhere else: pay the balance, request the one redo, or
@@ -449,7 +594,13 @@ export function expireUnstaged(job: Job, now: Date): Job {
 // than relying on this default.
 export function lapseAtStaged(job: Job, now: Date, remainderIsSettled = false): Job {
   if (job.status !== 'staged' || job.stagedAt === null || remainderIsSettled) return job;
-  const deadline = job.stagedAt.getTime() + LAPSE_AT_STAGED_AFTER_DAYS * 86_400_000;
+  // P6: a redo requested and accepted earlier on this job extends the
+  // window by stagedLapseExtensionDays (a stored fact, never
+  // recomputed from redoUsedCount -- see requestRedo's own header
+  // comment). Zero for a job that was never redone, so this is a pure
+  // widening, never a narrowing, of the base deadline.
+  const deadline =
+    job.stagedAt.getTime() + (LAPSE_AT_STAGED_AFTER_DAYS + job.stagedLapseExtensionDays) * 86_400_000;
   if (now.getTime() <= deadline) return job;
   return { ...job, status: 'closed_unpaid' };
 }
@@ -472,7 +623,7 @@ export function deemCompleted(job: Job, now: Date): Job {
   if (job.status !== 'submitted' || job.submittedAt === null) return job;
   const deadline = job.submittedAt.getTime() + DEEM_COMPLETED_AFTER_DAYS * 86_400_000;
   if (now.getTime() <= deadline) return job;
-  return { ...job, status: 'deemed_completed' };
+  return { ...job, status: 'deemed_completed', deemedCompletedAt: now };
 }
 
 // Runs the three clocks in order and returns the job unchanged when none
@@ -517,6 +668,50 @@ export function submitPullRequest(job: Job, pullRequestUrl: string, now: Date): 
 export function recordClosedUnmerged(job: Job): Job {
   validateJobTransition(job.status, 'closed_unmerged');
   return { ...job, status: 'closed_unmerged' };
+}
+
+// P6 (design record, 2026-09-01, row 4): the buyer's deliberate, reasoned
+// close after paying. Kept as a DIFFERENT status from closed_unmerged on
+// purpose: closed_unmerged is the merge route's OBSERVATION of a closed
+// pull request (recordClosedUnmerged's own header comment), with no
+// reason attached and no buyer intent behind it as far as this domain
+// knows -- a buyer could go silent and let GitHub's PR close for any
+// reason, or none. cited_closed is the opposite: a specific act, with a
+// specific reason, attributed to a specific party, that stops the
+// credential outright. Sharing one status would force a reader to open
+// the reason field just to learn whether a close was deliberate at all;
+// two statuses make that fact visible from the status alone. "No index
+// means the clock keeps running" (the absorbed counter-demand) follows
+// from this split by construction: a buyer who closes the PR on GitHub
+// without calling this function never reaches cited_closed, so
+// deemCompleted's own clock is untouched and keeps counting toward
+// deemed_completed on its own schedule.
+export interface CitedCloseInput {
+  readonly criterionIndex: number;
+  readonly reasonText: string;
+}
+
+export function recordCitedClose(job: Job, input: CitedCloseInput, now: Date): Job {
+  validateJobTransition(job.status, 'cited_closed');
+  if (!Number.isInteger(input.criterionIndex) || input.criterionIndex < 0 || input.criterionIndex >= job.criteria.length) {
+    throw new JobError(`no confirmed criterion at index ${input.criterionIndex}`);
+  }
+  const reasonText = input.reasonText.trim();
+  if (reasonText === '') {
+    throw new JobError('a cited close needs at least one sentence of the buyer\'s own prose: an empty string is not a sentence');
+  }
+  return {
+    ...job,
+    status: 'cited_closed',
+    citedCloseCriterionIndex: input.criterionIndex,
+    citedCloseReasonText: reasonText,
+    // Copied from the job, never taken as a separate input (mirrors
+    // completeJob's own stance on buyerDid/agentDid): the platform never
+    // authors this field, and the author can never disagree with who
+    // actually has standing to close.
+    citedCloseAuthorDid: job.buyerDid,
+    citedCloseAt: now,
+  };
 }
 
 // Records that the pull request went stale past its deadline (R-12, ENT-7.2).
