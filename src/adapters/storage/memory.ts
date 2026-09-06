@@ -29,6 +29,8 @@ import {
   AttestationAlreadyStoredError,
   type AttestationRepository,
   type StoredAttestation,
+  type ObservedSettlementRecord,
+  type SettlementRepository,
   credentialLookupKey,
 } from './types.js';
 
@@ -393,5 +395,25 @@ export class MemoryAttestationRepository implements AttestationRepository {
 
   async findByJobId(jobId: string): Promise<StoredAttestation | null> {
     return this.rows.get(jobId) ?? null;
+  }
+}
+
+// P10: the observed settlement record (brief scope item 1), keyed by
+// (jobId, leg). record() upserts, never throws on a repeat write: a
+// repeated confirm() on the same ref must leave exactly one row, with the
+// latest observation winning (the interface's own idempotency stance).
+export class MemorySettlementRepository implements SettlementRepository {
+  private readonly rows = new Map<string, ObservedSettlementRecord>();
+
+  private key(jobId: string, leg: 'deposit' | 'remainder'): string {
+    return `${jobId}:${leg}`;
+  }
+
+  async record(input: ObservedSettlementRecord): Promise<void> {
+    this.rows.set(this.key(input.jobId, input.leg), { ...input });
+  }
+
+  async findByJobAndLeg(jobId: string, leg: 'deposit' | 'remainder'): Promise<ObservedSettlementRecord | null> {
+    return this.rows.get(this.key(jobId, leg)) ?? null;
   }
 }
