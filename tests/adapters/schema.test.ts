@@ -188,3 +188,35 @@ describe('prisma/migrations, the Account unique constraints are actually migrate
     expect(sql).toMatch(/CREATE UNIQUE INDEX[^;]*"Account"\("passkeySubject"\)/);
   });
 });
+
+// P10 review round 4 (D5, schema-change-without-migration): ObservedSettlement
+// was added to schema.prisma with no migration, so PrismaSettlementRepository's
+// upsert/findUnique calls throw on any deployed database because the table
+// never exists there. This pins the migration the same way the Account block
+// above pins its two unique indexes: against the SQL Postgres would actually
+// run, not against schema.prisma's text.
+describe('prisma/migrations, the ObservedSettlement table is actually migrated (P10 review round 4, D5)', () => {
+  const migrationsDir = new URL('../../prisma/migrations/', import.meta.url);
+
+  function allMigrationSql(): string {
+    const dir = fileURLToPath(migrationsDir);
+    if (!existsSync(dir)) return '';
+    const entries = readdirSync(dir, { withFileTypes: true });
+    return entries
+      .filter((e) => e.isDirectory())
+      .map((e) => join(dir, e.name, 'migration.sql'))
+      .filter((p) => existsSync(p))
+      .map((p) => readFileSync(p, 'utf8'))
+      .join('\n');
+  }
+
+  it('a migration creates the ObservedSettlement table', () => {
+    const sql = allMigrationSql();
+    expect(sql).toMatch(/CREATE TABLE\s+"ObservedSettlement"/);
+  });
+
+  it('a migration creates a unique index on ObservedSettlement(jobId, leg)', () => {
+    const sql = allMigrationSql();
+    expect(sql).toMatch(/CREATE UNIQUE INDEX[^;]*"ObservedSettlement"\("jobId",\s*"leg"\)/);
+  });
+});

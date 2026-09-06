@@ -31,6 +31,8 @@ import {
   AttestationAlreadyStoredError,
   type AttestationRepository,
   type StoredAttestation,
+  type ObservedSettlementRecord,
+  type SettlementRepository,
   credentialLookupKey,
 } from './types.js';
 
@@ -871,5 +873,45 @@ export class PrismaAttestationRepository implements AttestationRepository {
       attestation: row.document as unknown as Attestation,
       signed: row.signed as unknown as SignedAttestation,
     }));
+  }
+}
+
+// P10: the observed settlement record (payment surface brief, scope item
+// 1), on the ObservedSettlement model. record() upserts on the (jobId,
+// leg) unique key, mirroring PrismaUsdcHalfPaidStorage's own
+// upsert-by-key shape: a repeat confirm() on the same ref must leave
+// exactly one row, never a P2002 the route layer would have to catch.
+export class PrismaSettlementRepository implements SettlementRepository {
+  async record(input: ObservedSettlementRecord): Promise<void> {
+    const data = {
+      rail: input.rail,
+      hash: input.hash,
+      secondaryHash: input.secondaryHash,
+      operatorAddress: input.operatorAddress,
+      feeAddress: input.feeAddress,
+      amountUsd: input.amountUsd,
+      observedAt: input.observedAt,
+    };
+    await db().observedSettlement.upsert({
+      where: { jobId_leg: { jobId: input.jobId, leg: input.leg } },
+      create: { jobId: input.jobId, leg: input.leg, ...data },
+      update: data,
+    });
+  }
+
+  async findByJobAndLeg(jobId: string, leg: 'deposit' | 'remainder'): Promise<ObservedSettlementRecord | null> {
+    const row = await db().observedSettlement.findUnique({ where: { jobId_leg: { jobId, leg } } });
+    if (row === null) return null;
+    return {
+      jobId: row.jobId,
+      leg: row.leg as 'deposit' | 'remainder',
+      rail: row.rail as 'abt' | 'usdc',
+      hash: row.hash,
+      secondaryHash: row.secondaryHash,
+      operatorAddress: row.operatorAddress,
+      feeAddress: row.feeAddress,
+      amountUsd: row.amountUsd,
+      observedAt: row.observedAt,
+    };
   }
 }

@@ -345,3 +345,39 @@ export interface AttestationRepository {
   // read of what they were shown before a redo and after it (P6 brief).
   listByJobId(jobId: string): Promise<readonly StoredAttestation[]>;
 }
+
+// P10: what confirm() OBSERVED on chain, one row per (jobId, leg). Never
+// written from a caller's claim (the anchor: "a settlement is written
+// because confirm() read a receipt off a chain, never because a caller
+// said a payment happened"). Named 'remainder', not 'balance': this file
+// sits outside src/adapters/payment, and
+// tests/architecture/no-custody.test.ts bans that substring here, the
+// same reason src/domain/payment.ts's remainderUsd carries its own name
+// instead of the brief's own prose. secondaryHash is null on the ABT
+// rail (one broadcast hash) and, on USDC, is the fee transfer's hash
+// (never a price/fee label here either, for the same architecture-test
+// reason: the two-hash shape is named generically).
+export interface ObservedSettlementRecord {
+  readonly jobId: string;
+  readonly leg: 'deposit' | 'remainder';
+  readonly rail: 'abt' | 'usdc';
+  readonly hash: string;
+  readonly secondaryHash: string | null;
+  readonly operatorAddress: string;
+  readonly feeAddress: string;
+  // Decimal string, from the job's signed price via the domain's
+  // depositUsd/remainderUsd helpers, never a JS number (brief scope
+  // item 1).
+  readonly amountUsd: string;
+  readonly observedAt: Date;
+}
+
+// A repository interface matching the pattern AttestationRepository sets
+// (P10 brief scope item 1): idempotent per (jobId, leg), written once per
+// leg. record() upserts rather than throwing on a repeat, because
+// confirm() on the same ref twice must produce one row, never two, and
+// never an error a caller has to specially handle.
+export interface SettlementRepository {
+  record(input: ObservedSettlementRecord): Promise<void>;
+  findByJobAndLeg(jobId: string, leg: 'deposit' | 'remainder'): Promise<ObservedSettlementRecord | null>;
+}

@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 
 import { createCredentialsAdapter } from '../adapters/credentials/credentials.js';
+import { publicBaseUrlFromEnv } from '../adapters/credentials/credentials.js';
 import {
   isCompletedHireCredential,
   type CredentialsAdapter,
@@ -112,6 +113,20 @@ import {
 } from '../domain/job.js';
 import { depositUsd, remainderUsd } from '../domain/payment.js';
 import { createSettlementGate, remainderSettled, type SettlementGate } from '../adapters/payment/gate.js';
+import type { AbtPaymentRail } from '../adapters/payment/abt.js';
+import type { UsdcPaymentRailShim } from '../adapters/payment/usdc.js';
+import { createAbtPaymentRailOrNull, createUsdcPaymentRailOrNull } from '../adapters/payment/rail-factory.js';
+import { attachAbtPaymentHandlers, type AbtTxEncoder } from '../adapters/payment/abt-did-connect.js';
+import { createTxEncoder as createAbtTxEncoder } from '@ocap/client/encode';
+import {
+  confirmPayment,
+  processWalletResponse,
+  requestPayment,
+  type RouteLeg,
+} from '../adapters/payment/route-support.js';
+import type { PaymentRef, PaymentRequest } from '../adapters/payment/types.js';
+import { createSettlementRepository } from '../adapters/storage/storage.js';
+import type { SettlementRepository } from '../adapters/storage/types.js';
 import { rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
 import { buyerDiversity, type HireFacts } from '../domain/buyer-diversity.js';
 import {
@@ -643,6 +658,32 @@ export function createApp(
   // repository, matching every other storage capability's stance in this
   // file.
   attestationRepo: AttestationRepository = createAttestationRepository(),
+  // P10: the ABT payment rail (brief scope item 5). createAbtPaymentRailOrNull
+  // never throws (unlike createAbtPaymentRail itself): env vars are read
+  // once per createApp() call and answered null when the rail is
+  // unconfigured, matching every other env-derived default in this file.
+  // A default that threw eagerly would break the 100+ existing tests that
+  // construct createApp with no payment env set at all.
+  abtPaymentRail: AbtPaymentRail | null = createAbtPaymentRailOrNull(),
+  // P10: the USDC payment rail (brief scope item 5), the identical
+  // null-safe stance as abtPaymentRail above.
+  usdcPaymentRail: UsdcPaymentRailShim | null = createUsdcPaymentRailOrNull(),
+  // P10: the observed settlement record (brief scope item 1). Defaults to
+  // the env-derived repository, matching every other storage capability's
+  // stance in this file. Injectable so a test can share one durable store
+  // across two separate createApp calls and the settlement gate built from
+  // it, the way every other storage capability in this codebase proves a
+  // restart does not lose the observation.
+  settlementRepo: SettlementRepository = createSettlementRepository(),
+  // P10: encodes an ABT transaction to the bytes DID Connect's protocol
+  // carries (brief, "the working reference... the txEncoder"). Defaults
+  // to @ocap/client/encode's real network-backed encoder; tests inject a
+  // pure local one (no network in the test suite, FACTORY_RULES.md).
+  // Constructing the real default here never throws and never touches the
+  // network itself (createTxEncoder() only builds the closure; the fetch
+  // happens lazily inside it, on first actual use), so this is always
+  // safe to default even when no ABT env var is set.
+  abtTxEncoder: AbtTxEncoder = createAbtTxEncoder() as AbtTxEncoder,
 ): Express {
   // One repository behind both halves of the capability when the caller
   // supplies neither. createCredentialRepository() hands the memory driver a
@@ -2968,6 +3009,310 @@ export function createApp(
       await runExchange('POST /jobs/:jobId/pull-request', jobId, res, (job) =>
         submitPullRequest(job, pullRequestUrl, new Date()),
       );
+    }),
+  );
+
+  // ==========================================================================
+  // P10: the payment surface (brief, "routes to both rails and the observed
+  // settlement record"). One contiguous block, per the region fence: every
+  // payment route and the ABT DID Connect handler attachment live here, so a
+  // rebase against P6's own app.ts changes is one hunk.
+  // ==========================================================================
+
+  // The route-safe leg a path segment names. Only 'deposit' | 'remainder'
+  // parses; anything else is a 400, never silently coerced.
+  function parseRouteLeg(raw: string): RouteLeg | null {
+    return raw === 'deposit' || raw === 'remainder' ? raw : null;
+  }
+
+  // RULE (brief, "the whole security of this section"): the leg amount
+  // comes from the JOB's signed price via the domain's depositUsd /
+  // remainderUsd helpers, never from the request body. A body carrying its
+  // own amount is refused, not honoured -- callers below never read an
+  // amount field off req.body at all, so there is nothing to honour.
+  function legAmountUsdFromJob(job: Job, leg: RouteLeg): string {
+    return leg === 'deposit'
+      ? depositUsd(String(job.priceUsd), job.depositPercent)
+      : remainderUsd(String(job.priceUsd), job.depositPercent);
+  }
+
+  // Review round 1, D2: did-connect-js's own attachExpress mounts
+  // `{prefix}/{action}/token` (here, /api/did/pay/token) with NO
+  // middleware at all (node_modules/@arcblock/did-connect-js/dist/
+  // adapters/express.js: `app.get(pathname, generateSession)` and the
+  // POST sibling, neither one guarded). Reached directly rather than
+  // through the /start route below, it minted a valid, job-bound
+  // session token for any jobId a caller named, without a signature of
+  // any kind. onAuth (abt-did-connect.ts) still refused to let that
+  // session ever settle a payment, so this was never a fund-loss path,
+  // but it let a stranger mint sessions for jobs they have no
+  // relationship to, which is exactly what the /start route's own gate
+  // is supposed to prevent. Registered here, before
+  // attachAbtPaymentHandlers mounts its own routes on the same path
+  // below: Express matches handlers for one path in the order they were
+  // registered, and app.use with an exact path matches every method on
+  // it, so this runs in front of did-connect-js's own token handler for
+  // both GET and POST. It reuses the exact same requireSignedParty gate
+  // /start uses, naming the buyer as the only allowed party; onAuth's
+  // buyerDid check is unchanged and remains the party check that gates
+  // whether a payment actually lands.
+  //
+  // Review round 2, D3: this guard used to read jobId from req.body on
+  // POST and never looked at req.query. did-connect-js's own
+  // generateSession (dist/handlers/util.js) builds the session's
+  // extraParams as `{ ...req.body, ...req.query, ...req.params }`, so on
+  // a POST carrying both, the QUERY value is the one that lands in the
+  // session (object spread: later keys win). A caller could name their
+  // OWN job in the body, where this guard used to look, and a VICTIM's
+  // job in the query, where the session was actually bound. The guard now
+  // reads jobId (and leg, operatorAddress, which ride the same merge)
+  // with the exact same precedence generateSession applies, so it always
+  // authorizes the value the session will actually carry.
+  function mintExtraParam(req: Request, key: string): string {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const query = (req.query ?? {}) as Record<string, unknown>;
+    const params = (req.params ?? {}) as Record<string, unknown>;
+    const merged = { ...body, ...query, ...params };
+    return String(merged[key] ?? '');
+  }
+  const requireBuyerToMintAbtSession = (req: Request, res: Response, next: NextFunction): void => {
+    void (async () => {
+      const jobId = mintExtraParam(req, 'jobId');
+      if (jobId === '') {
+        res.status(400).json({ error: 'jobId is required to mint an abt payment session' });
+        return;
+      }
+      const gate = await requireSignedParty('GET/POST /api/did/pay/token', jobId, req, res, ['buyer']);
+      if (gate === null) return;
+      next();
+    })().catch(next);
+  };
+
+  // The ABT DID Connect handlers are attached ONCE at app construction
+  // (brief scope item 3), only when the rail is configured: an unwired
+  // deployment mounts no DID Connect routes at all, and its /start route
+  // (below) answers the same clean 503 every other unconfigured rail
+  // answers, rather than a route that exists but can never complete.
+  if (abtPaymentRail !== null) {
+    app.use('/api/did/pay/token', didSignature, requireBuyerToMintAbtSession);
+  }
+  const abtHandlers =
+    abtPaymentRail === null
+      ? null
+      : attachAbtPaymentHandlers({
+          app,
+          rail: abtPaymentRail,
+          jobRepo,
+          settlementRepo,
+          platformSk: process.env.FREEAGENTS_ABT_PLATFORM_SK || '',
+          chainHost: process.env.FREEAGENTS_ABT_CHAIN_HOST || '',
+          baseUrl: publicBaseUrlFromEnv(),
+          txEncoder: abtTxEncoder,
+        });
+
+  // The buyer's browser calls this to START an ABT payment for a named
+  // job and leg (brief scope item 3). It returns whatever the DID Connect
+  // session token generator needs; the web layer renders the scan from
+  // the response's own `url` field. RULE: the paying party is checked at
+  // onAuth time (abt-did-connect.ts), against the job's own buyerDid --
+  // that is the check that gates whether a payment can ever settle.
+  // Review round 1, D2: this route's own buyer gate covers only calls
+  // that go through this path. The `requireBuyerToMintAbtSession`
+  // middleware registered above, in front of did-connect-js's own
+  // /api/did/pay/token mount, is what stops a stranger reaching that
+  // route directly and minting a session token for someone else's job
+  // without ever touching this route at all.
+  app.post(
+    '/jobs/:jobId/payments/:leg/abt/start',
+    didSignature,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/payments/:leg/abt/start';
+      const leg = parseRouteLeg(String(req.params.leg));
+      if (leg === null) {
+        res.status(400).json({ error: 'leg must be "deposit" or "remainder"' });
+        return;
+      }
+      const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
+      if (gate === null) return;
+      if (abtPaymentRail === null || abtHandlers === null) {
+        res.status(503).json({ error: 'the abt payment rail is not configured on this deployment' });
+        return;
+      }
+      const body = (req.body ?? {}) as { operatorAddress?: unknown };
+      if (typeof body.operatorAddress !== 'string' || body.operatorAddress.trim() === '') {
+        res.status(400).json({ error: 'body must be { operatorAddress: string }' });
+        return;
+      }
+      if (gate.job.priceUsd === null) {
+        res.status(409).json({ error: 'this job has no agreed price to pay against' });
+        return;
+      }
+      // The did-connect-js generateSession route reads req.query,
+      // req.body and req.params into extraParams (protocol.js's own
+      // mechanism); jobId/leg/operatorAddress ride through req.query so
+      // the web layer's GET-based QR flow carries them the same way
+      // qr-server.mjs's own reference does.
+      req.query = {
+        ...req.query,
+        jobId: String(req.params.jobId),
+        leg,
+        operatorAddress: body.operatorAddress,
+      };
+      // Review round 1, D1: did-connect-js's own generateSession builds the
+      // wallet callback URL from req.originalUrl (preparePathname,
+      // node_modules/@arcblock/did-connect-js/dist/handlers/util.js). It
+      // expects to be invoked as the handler mounted directly at
+      // /api/did/pay/token (attachExpress's own mount point) and strips
+      // that exact path back out of whatever it is given. Calling
+      // generateSession from this route's own different path left the
+      // whole /jobs/.../abt/start prefix stuck on the front of the
+      // callback URL, so a real wallet fetched a path that 404s. Only
+      // the pathname half of preparePathname's split matters (the query
+      // string plays no part in it), so rewriting originalUrl to the
+      // path attachAbtPaymentHandlers actually mounted the token route at
+      // is enough to make preparePathname resolve the same callback path
+      // that route would have produced. Nothing downstream of this call
+      // reads the pre-rewrite value.
+      req.originalUrl = '/api/did/pay/token';
+      await abtHandlers.generateSession(req, res);
+    }),
+  );
+
+  // The USDC deposit/remainder start route (brief scope item 4). Answers
+  // the rail's PaymentRequest, which already carries the two transfer
+  // intents as a TUPLE (types.ts), so the web layer cannot receive one or
+  // three of them.
+  app.post(
+    '/jobs/:jobId/payments/:leg/usdc/start',
+    didSignature,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/payments/:leg/usdc/start';
+      const leg = parseRouteLeg(String(req.params.leg));
+      if (leg === null) {
+        res.status(400).json({ error: 'leg must be "deposit" or "remainder"' });
+        return;
+      }
+      const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
+      if (gate === null) return;
+      if (usdcPaymentRail === null) {
+        res.status(503).json({ error: 'the usdc payment rail is not configured on this deployment' });
+        return;
+      }
+      const body = (req.body ?? {}) as { operatorAddress?: unknown };
+      if (typeof body.operatorAddress !== 'string' || body.operatorAddress.trim() === '') {
+        res.status(400).json({ error: 'body must be { operatorAddress: string }' });
+        return;
+      }
+      if (gate.job.priceUsd === null) {
+        res.status(409).json({ error: 'this job has no agreed price to pay against' });
+        return;
+      }
+      // RULE: the amount comes from the job's signed price, never a body
+      // field. A body carrying its own amount is refused, not honoured:
+      // this call reads no amount from `body` at all.
+      const amountUsd = legAmountUsdFromJob(gate.job, leg);
+      let request: PaymentRequest;
+      try {
+        const quote = await usdcPaymentRail.quote({ priceUsd: amountUsd });
+        request = await requestPayment(usdcPaymentRail, {
+          jobId: gate.job.id,
+          leg,
+          operatorAddress: body.operatorAddress,
+          amountToken: quote.amountToken,
+          feeToken: quote.feeToken,
+        });
+      } catch (err) {
+        console.error(`${label}: rail failed`, err);
+        res.status(503).json({ error: 'the usdc payment rail is unavailable' });
+        return;
+      }
+      res.status(200).json(request);
+    }),
+  );
+
+  // The USDC wallet-response route (brief scope item 4): accepts what the
+  // wallet reported, the price hash and the fee outcome as either a hash
+  // or an explicit "the wallet never signed it". Passed straight into
+  // onWalletResponse, whose input type already models all three cases;
+  // this route never substitutes an empty string for a missing hash.
+  app.post(
+    '/jobs/:jobId/payments/:leg/usdc/wallet-response',
+    didSignature,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/payments/:leg/usdc/wallet-response';
+      const leg = parseRouteLeg(String(req.params.leg));
+      if (leg === null) {
+        res.status(400).json({ error: 'leg must be "deposit" or "remainder"' });
+        return;
+      }
+      const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
+      if (gate === null) return;
+      if (usdcPaymentRail === null) {
+        res.status(503).json({ error: 'the usdc payment rail is not configured on this deployment' });
+        return;
+      }
+      const body = (req.body ?? {}) as {
+        operatorAddress?: unknown;
+        priceTxHash?: unknown;
+        feeTx?: unknown;
+      };
+      const feeTxRaw = body.feeTx as { signed?: unknown; hash?: unknown } | undefined;
+      const feeTxWellFormed =
+        typeof feeTxRaw === 'object' &&
+        feeTxRaw !== null &&
+        (feeTxRaw.signed === false || (feeTxRaw.signed === true && typeof feeTxRaw.hash === 'string' && feeTxRaw.hash.length > 0));
+      if (
+        typeof body.operatorAddress !== 'string' ||
+        body.operatorAddress.trim() === '' ||
+        typeof body.priceTxHash !== 'string' ||
+        body.priceTxHash.trim() === '' ||
+        !feeTxWellFormed
+      ) {
+        res.status(400).json({
+          error:
+            'body must be { operatorAddress, priceTxHash, feeTx }; feeTx is { signed: true, hash } or { signed: false }',
+        });
+        return;
+      }
+      const feeTx = feeTxRaw as { signed: true; hash: string } | { signed: false };
+
+      let ref: PaymentRef;
+      let confirmation;
+      try {
+        ref = await processWalletResponse(usdcPaymentRail, leg, {
+          rail: 'usdc',
+          jobId: gate.job.id,
+          operatorAddress: body.operatorAddress,
+          priceTxHash: body.priceTxHash,
+          feeTx,
+        });
+        confirmation = await confirmPayment(usdcPaymentRail, ref);
+      } catch (err) {
+        console.error(`${label}: rail failed`, err);
+        res.status(503).json({ error: 'the usdc payment rail is unavailable' });
+        return;
+      }
+
+      // RULE: the settlement row is written ONLY here, and ONLY when
+      // confirm() answered confirmed: true. The half-paid case writes no
+      // settlement (the rail itself already wrote its own half-paid row);
+      // this route leaves the gate refusing and answers the per-leg
+      // statuses confirm() carries.
+      if (confirmation.confirmed && ref.rail === 'usdc') {
+        await settlementRepo.record({
+          jobId: gate.job.id,
+          leg,
+          rail: 'usdc',
+          hash: ref.priceTxHash,
+          secondaryHash: ref.feeTxHash,
+          operatorAddress: ref.operatorAddress,
+          feeAddress: ref.feeAddress,
+          amountUsd: legAmountUsdFromJob(gate.job, leg),
+          observedAt: new Date(),
+        });
+      }
+
+      res.status(200).json(confirmation);
     }),
   );
 
