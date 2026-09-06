@@ -149,7 +149,7 @@ describe('prisma/schema.prisma, the Account model (R-39 completion, ENT-1.4)', (
   });
 });
 
-// D3 (Proof round 1, uniqueness-untested-at-schema): the mutation proof the
+// D3 (Review finding, round 1, uniqueness-untested-at-schema): the mutation proof the
 // card requires ("drop the unique constraint, a test goes red") must hold
 // against the actual applied migration, not only against schema.prisma's
 // text -- a schema whose model declares @unique but whose migration never

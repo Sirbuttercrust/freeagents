@@ -122,7 +122,7 @@ describe('createIdentityAdapter, verify (real, local-only)', () => {
   });
 });
 
-// D2 (Proof round 1, task t_8a82c865): identity resolution must not depend
+// D2 (Review finding, round 1, task t_8a82c865): identity resolution must not depend
 // on process warmth. The anchor: "a stranger derives the same
 // verificationMethod from the keyid whether or not this process happened
 // to be running when the agent last signed" -- so this process must not

@@ -1,4 +1,4 @@
-// Proof follow-up (t_d1b82a77, F2): the served /signin page must say which
+// Review follow-up (t_d1b82a77, F2): the served /signin page must say which
 // half of sign-in exists and which does not, not read as "the flow exists,
 // this page just lacks the button." Two things pinned together on purpose:
 // the copy itself, and the fact that backs it (no HTTP route mints a

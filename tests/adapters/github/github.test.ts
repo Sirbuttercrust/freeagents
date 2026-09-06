@@ -255,7 +255,7 @@ describe('createGithubAdapter, forkAndOpenPullRequest (R-10, invariant 1: fork a
       ['POST', 'https://api.github.com/repos/freeagents-platform/target-repo/git/refs'],
       ['POST', 'https://api.github.com/repos/buyer/target-repo/pulls'],
     ]);
-    // R-10, D1 fix (Proof run 100, changes_requested): GitHub allocates the
+    // R-10, D1 fix (Review finding, run 100, changes_requested): GitHub allocates the
     // pull request number in the BASE repository's namespace, not the
     // fork's - POST /repos/{source}/pulls returns a PR that resolves at
     // https://github.com/{source}/pull/{n}. Returning the fork's owner/repo
@@ -267,7 +267,7 @@ describe('createGithubAdapter, forkAndOpenPullRequest (R-10, invariant 1: fork a
 
   // MUTATION PROOF (D1): forkAndOpenPullRequest's return value is not just
   // shaped right, it has to be the SAME address getPullRequest can read back
-  // - chaining the two closes the gap Proof found, where the adapter suite
+  // - chaining the two closes the gap the review found, where the adapter suite
   // and the api-level fake each hard-coded the fork-owner ref and agreed
   // with each other instead of with GitHub. Here the second call is driven
   // by the first call's own output, through the same fetchImpl, so a

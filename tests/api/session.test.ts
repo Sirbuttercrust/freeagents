@@ -243,7 +243,7 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
   });
 
   it('refuses a signature naming an operator different from the one who signed, with 403', async () => {
-    // Proof (t_8b63ee9e, D2/credential-not-bound-to-party): the signature
+    // Review finding (t_8b63ee9e, D2/credential-not-bound-to-party): the signature
     // path on POST /agents never called signerDidOf(), so a registered
     // operator could sign a body naming a DIFFERENT operator DID and still
     // get 201 -- the same party-binding rule POST /jobs already enforces
@@ -284,7 +284,7 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
   });
 
   it('refuses an invalid signature outright, even when a live session is also present', async () => {
-    // Proof (t_8b63ee9e, D3): requireSessionOrSignature's own comment says
+    // Review finding (t_8b63ee9e, D3): requireSessionOrSignature's own comment says
     // an invalid signature is "refused outright... rather than silently
     // falling back to a session check that might also fail". Mutation
     // proof at t_80cd7d4e found that swapping the early return for a
@@ -416,7 +416,7 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
   });
 
   it('a fresh deployment can onboard its first operator with no session and no signature', async () => {
-    // Proof (t_8b63ee9e, D1/bootstrap-deadlock): createApp() with EVERY
+    // Review finding (t_8b63ee9e, D1/bootstrap-deadlock): createApp() with EVERY
     // default is exactly what src/api/server.ts runs. POST /accounts is
     // account CREATION (issue 83's anchor names hire and list, not
     // registration), and a route that mints the only credential a caller
