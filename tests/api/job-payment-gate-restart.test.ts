@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
 import { createUsdcPaymentRail, type UsdcChainClient } from '../../src/adapters/payment/usdc.js';
+import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from '../../src/adapters/payment/usdc-spent-transfer-storage-types.js';
 import { MemorySettlementRepository } from '../../src/adapters/storage/memory.js';
 import {
   MemoryAgentRepository,
@@ -51,10 +52,33 @@ function withUsdcEnv<T>(fn: () => T): T {
   }
 }
 
+// S1: the deposit leg on a 500.00 USD job at the default 25% deposit and
+// 1:1 rate is 125.00 USDC price / 7.50 USDC fee (6% of 125.00). Both
+// hashes this test posts resolve through the same fake, keyed so each
+// leg's hash pays the recipient and amount that leg actually expects.
 function fakeUsdcChainClient(): UsdcChainClient {
   return {
     decimals: async () => 6,
-    getTransactionReceipt: async () => ({ status: 1 }),
+    getTransactionReceipt: async (hash: string) => {
+      if (hash.includes('fee')) {
+        return { status: 1, transfer: { to: USDC_FEE_ADDRESS, value: '7500000', tokenContract: USDC_TOKEN, chainId: 421614 } };
+      }
+      return { status: 1, transfer: { to: USDC_OPERATOR_ADDRESS, value: '125000000', tokenContract: USDC_TOKEN, chainId: 421614 } };
+    },
+  };
+}
+
+// S1: a stateful fake of the spent-transfer storage, so this restart test
+// never touches Prisma (DATABASE_URL is unset here).
+function fakeSpentTransferStorage(): UsdcSpentTransferStorage {
+  const rows = new Map<string, UsdcSpentTransferRow>();
+  return {
+    async record(row) {
+      rows.set(row.hash, { ...row });
+    },
+    async findByHash(hash) {
+      return rows.get(hash) ?? null;
+    },
   };
 }
 
@@ -118,6 +142,7 @@ describe('the settlement gate reads durably across a process restart, sharing on
         chainClient: fakeUsdcChainClient(),
         rateSource: async () => '1',
         halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
       }),
     );
 
@@ -187,6 +212,7 @@ describe('the settlement gate reads durably across a process restart, sharing on
         chainClient: fakeUsdcChainClient(),
         rateSource: async () => '1',
         halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
       }),
     );
     const app2 = createApp(
