@@ -160,6 +160,68 @@ export default tseslint.config(
     },
   },
 
+  // GUARD AGAINST A BARE DUAL-STACK .listen(0) IN TESTS.
+  //
+  // t_1a902961 fixed 69 call sites where a test server bound with a bare
+  // `.listen(0)`. On this OS a dual-stack listen(0) can be handed a port
+  // number a *different*, unrelated process already holds fixed to
+  // 127.0.0.1, and the test's own `fetch('http://127.0.0.1:<port>/...')`
+  // then silently reaches that foreign process instead of the test's own
+  // server. Proof measured 5 mismatches / 4000 cycles bare vs 0 / 4000 with
+  // the host pinned, confirmed via lsof that the collisions were real
+  // foreign listeners. Nothing stopped a new test file from reintroducing
+  // the bare form, so it is enforced here instead of re-discovered by hand.
+  //
+  // Three selectors instead of one, each catching a different way the
+  // second argument can be wrong, so the failure message tells you exactly
+  // what shape was found:
+  //   1. no second argument at all -- `.listen(0)`.
+  //   2. a second argument that exists but is not a plain string literal --
+  //      most commonly the readiness callback landing in that slot, e.g.
+  //      `.listen(0, () => { ... })` or `.listen(0, resolve)`.
+  //   3. a second argument that IS a string literal but not '127.0.0.1' --
+  //      e.g. 'localhost', which resolves differently across machines.
+  //
+  // tests/manual/seed-server.ts is exempted below: it is a manual dev
+  // fixture, not a suite test, and deliberately binds a fixed `PORT` (so
+  // a human can point a browser at a stable address) rather than an
+  // ephemeral one -- the flake this rule guards against cannot occur on a
+  // server nothing else on the box is contending for.
+  {
+    files: ['tests/**/*.ts'],
+    ignores: ['tests/manual/seed-server.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          // esquery has no `arguments.N` index syntax (see
+          // estools/esquery#130) -- `.arguments` is a pseudo-class matched
+          // against each direct child of the CallExpression, so the second
+          // argument is selected with `.arguments:nth-child(2)`
+          // (nth-child is 1-based). `[arguments.length<2]` is a genuine
+          // attribute path though, since `.length` is a real property of
+          // the arguments array, which is why selector 1 below can use it
+          // directly while 2 and 3 need the nth-child idiom.
+          selector: "CallExpression[callee.property.name='listen'][arguments.length<2]",
+          message:
+            "Bare .listen(port) dual-stack-binds and can collide with an unrelated 127.0.0.1 daemon holding the same port (see t_1a902961). Use .listen(port, '127.0.0.1').",
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='listen'] > .arguments:nth-child(2):not(Literal)",
+          message:
+            "The second argument to .listen() in tests must be the literal string '127.0.0.1' (see t_1a902961), not a callback or variable.",
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='listen'] > Literal.arguments:nth-child(2)[value!='127.0.0.1']",
+          message:
+            "The second argument to .listen() in tests must be exactly '127.0.0.1' (see t_1a902961) to force loopback-only binding.",
+        },
+      ],
+    },
+  },
+
   // BUILD SCRIPTS. Node modules under scripts/, run by npm rather than
   // imported by the app, so tsconfig does not cover them. They are still
   // linted rather than ignored: `npm run build` calls them, and a typo in a
