@@ -2,7 +2,10 @@
 // interface only, mirroring session-storage-types.ts's own split of
 // interface from driver so tests can substitute a memory implementation
 // without touching this shape.
-export type UsdcTransferStatus = 'confirmed' | 'not_confirmed' | 'not_signed';
+// S1: 'mismatched' names a transfer that landed on chain but did not pay
+// what this leg expected (wrong recipient, amount, token, or chain), a
+// different fact from 'not_confirmed' (nothing has landed yet).
+export type UsdcTransferStatus = 'confirmed' | 'not_confirmed' | 'not_signed' | 'mismatched';
 
 export interface UsdcHalfPaidRow {
   readonly jobId: string;
