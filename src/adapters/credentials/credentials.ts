@@ -2,10 +2,11 @@ import { Ed25519Signature2020 } from '@digitalbazaar/ed25519-signature-2020';
 import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-key-2020';
 import { securityLoader } from '@digitalbazaar/security-document-loader';
 import * as vc from '@digitalbazaar/vc';
+import { type Attestation } from '../../domain/attestation.js';
 import { NotImplementedError } from '../not-implemented.js';
 import { createCredentialRepository } from '../storage/storage.js';
 import { CredentialNotFoundError, type CredentialRepository } from '../storage/types.js';
-import type { CredentialsAdapter, CredentialsIssuer, VerifiableCredential, WorkHistoryClaim } from './types.js';
+import type { CredentialsAdapter, CredentialsIssuer, SignedAttestation, VerifiableCredential, WorkHistoryClaim } from './types.js';
 
 const CAPABILITY = 'credentials';
 const DEFAULT_PLATFORM_DID = 'did:abt:freeagents-platform';
@@ -71,6 +72,84 @@ async function resolveStoredCredential(
     throw new CredentialNotFoundError(credentialId);
   }
   return document;
+}
+
+// Shared by issueWorkHistoryCredential and signAttestation: the one
+// Ed25519Signature2020 proof construction this service signs with (P5's
+// brief: "do not create a second key, a second seed environment variable,
+// or a second signing implementation"). Registers the issuer's key and DID
+// document statically so the same process that signs can also verify its
+// own output, exactly as jsigs.sign requires a document loader either way.
+async function signWithPlatformKey(
+  issuer: CredentialsIssuer,
+  credential: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const key = await Ed25519VerificationKey2020.generate({ seed: issuer.seed, controller: issuer.did });
+  key.id = `${issuer.did}#${key.publicKeyMultibase}`;
+
+  const loader = securityLoader();
+  loader.addStatic(key.id, {
+    '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+    ...key.export({ publicKey: true }),
+  });
+  loader.addStatic(issuer.did, {
+    '@context': 'https://www.w3.org/ns/did/v1',
+    id: issuer.did,
+    assertionMethod: [key.id],
+    verificationMethod: [
+      {
+        '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+        ...key.export({ publicKey: true }),
+      },
+    ],
+  });
+  const documentLoader = loader.build();
+
+  return (await vc.issue({
+    credential,
+    suite: new Ed25519Signature2020({ key }),
+    documentLoader,
+  })) as unknown as Record<string, unknown>;
+}
+
+// P5: the platform signature over an attestation (design record,
+// 2026-09-01). The id is rooted at the staged commit, not a random nonce,
+// for the same ENT-8 reason the work-history credential id is rooted at
+// the job id (see issueWorkHistoryCredential's own comment on R-40): a
+// stranger holding the attestation can recompute this id from its own
+// stagedCommit field, without calling this service. The subject carries
+// no buyer/agent DID (an attestation is not about a party's identity, it
+// is a measurement of a commit), so credentialSubject.id names the staged
+// commit itself through a urn, and credentialSubject.attestation carries
+// the Attestation verbatim -- the exact accepted-field document
+// buildAttestation produced, nothing added, nothing removed.
+async function signAttestationDocument(
+  issuer: CredentialsIssuer,
+  publicBaseUrl: string,
+  attestation: Attestation,
+): Promise<SignedAttestation> {
+  const base = publicBaseUrl.replace(/\/+$/, '');
+  const credential = {
+    '@context': [
+      'https://www.w3.org/ns/credentials/v2',
+      'https://w3id.org/security/suites/ed25519-2020/v1',
+      { '@vocab': 'https://freeagents.dev/terms#' },
+    ],
+    id: `${base}/v1/attestations/${attestation.stagedCommit}`,
+    type: ['VerifiableCredential', 'JobAttestation'],
+    issuer: issuer.did,
+    validFrom: new Date().toISOString(),
+    credentialSubject: {
+      id: `urn:freeagents:staged-commit:${attestation.stagedCommit}`,
+      // The full Attestation object rides here verbatim: it already
+      // carries exactly the accepted fields and nothing else
+      // (src/domain/attestation.ts), so nothing is re-derived or
+      // re-summarized on the way to the wire.
+      attestation,
+    },
+  };
+  const signed = await signWithPlatformKey(issuer, credential);
+  return signed as unknown as SignedAttestation;
 }
 
 // Issuance signs with the W3C-conformant Ed25519Signature2020 suite
@@ -142,32 +221,7 @@ export function createCredentialsAdapter(
         },
       };
 
-      const key = await Ed25519VerificationKey2020.generate({ seed: issuer.seed, controller: issuer.did });
-      key.id = `${issuer.did}#${key.publicKeyMultibase}`;
-
-      const loader = securityLoader();
-      loader.addStatic(key.id, {
-        '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
-        ...key.export({ publicKey: true }),
-      });
-      loader.addStatic(issuer.did, {
-        '@context': 'https://www.w3.org/ns/did/v1',
-        id: issuer.did,
-        assertionMethod: [key.id],
-        verificationMethod: [
-          {
-            '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
-            ...key.export({ publicKey: true }),
-          },
-        ],
-      });
-      const documentLoader = loader.build();
-
-      const signed = await vc.issue({
-        credential,
-        suite: new Ed25519Signature2020({ key }),
-        documentLoader,
-      });
+      const signed = await signWithPlatformKey(issuer, credential);
       return signed as unknown as VerifiableCredential;
     },
     verifyCredential(_credential: VerifiableCredential): Promise<boolean> {
@@ -177,6 +231,9 @@ export function createCredentialsAdapter(
     // Resolve a stored credential by id (R-15): the linked-data bytes the
     // platform stored, verbatim, so the proof still verifies off-platform.
     getCredential: (credentialId: string) => resolveStoredCredential(credentialRepo, credentialId),
+    // P5: sign an attestation with the same platform key and the same
+    // Ed25519Signature2020 construction issuance already uses above.
+    signAttestation: (attestation: Attestation) => signAttestationDocument(issuer, base, attestation),
   };
 }
 
@@ -198,5 +255,11 @@ export function createCredentialResolver(
       throw new NotImplementedError(CAPABILITY, 'verifyCredential');
     },
     getCredential: (credentialId: string) => resolveStoredCredential(credentialRepo, credentialId),
+    // Same stance as issueWorkHistoryCredential above: signing goes through
+    // createCredentialsAdapter, which the stage route calls (see
+    // src/api/app.ts); this serve-only adapter never signs.
+    signAttestation(_attestation: Attestation): Promise<SignedAttestation> {
+      throw new NotImplementedError(CAPABILITY, 'signAttestation');
+    },
   };
 }

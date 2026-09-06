@@ -28,6 +28,7 @@ import {
 } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 
 const FORK_OWNER = 'freeagents-platform';
 const FORK_REPO = 'target-repo';
@@ -130,6 +131,7 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
       undefined,
       observedKeyRepo,
       alwaysSettledGate(),
+      anyCommitStagingObserver(),
     );
     const first = await listen(app1);
     servers.push(first.server);

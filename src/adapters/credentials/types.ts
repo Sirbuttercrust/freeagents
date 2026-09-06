@@ -3,6 +3,11 @@
 // third party verifies it with an off-the-shelf W3C VC verifier and nothing
 // else, so it carries only facts a merged pull request already proves.
 //
+// P5 adds signAttestation (design record, 2026-09-01): the platform
+// signature over a machine-produced attestation (src/domain/attestation.ts),
+// through the SAME Ed25519Signature2020 proof construction and the SAME
+// platform key as issueWorkHistoryCredential -- never a second signing path.
+//
 // Sources, in order:
 // - the six original fields: the merged pull request's own outcome facts
 // - specHash: ENT-8 / D2, the confirmed spec hash ties the credential to what
@@ -18,6 +23,7 @@
 // `credentialSubject.hire` nesting the spec's wire shape defines (see
 // `WorkHistoryHire` below). The `@vocab` object still applies under v2: it is
 // a plain JSON-LD term default, not a v1-only construct.
+import type { Attestation } from '../../domain/attestation.js';
 
 export interface WorkHistoryClaim {
   readonly jobId: string;
@@ -87,8 +93,37 @@ export interface VerifiableCredential {
   readonly proof: Readonly<Record<string, unknown>>;
 }
 
+// The signed attestation document (P5): the same VerifiableCredential
+// envelope, carrying the Attestation verbatim under credentialSubject
+// rather than a WorkHistoryHire. A distinct wire type from
+// VerifiableCredential above because the subject shape differs (no
+// buyer/agent DID pair to name as `id` in the usual sense -- see
+// signAttestation's own header comment in credentials.ts for the subject
+// id this uses instead) and callers must not accidentally treat one as
+// the other.
+export interface SignedAttestation {
+  readonly '@context': readonly (string | Readonly<Record<string, unknown>>)[];
+  readonly id: string;
+  readonly type: readonly string[];
+  readonly issuer: string;
+  readonly validFrom: string;
+  readonly credentialSubject: {
+    readonly id: string;
+    readonly attestation: Attestation;
+  };
+  readonly proof: Readonly<Record<string, unknown>>;
+}
+
 export interface CredentialsAdapter {
   issueWorkHistoryCredential(subjectDid: string, claim: WorkHistoryClaim): Promise<VerifiableCredential>;
   verifyCredential(credential: VerifiableCredential): Promise<boolean>;
   getCredential(credentialId: string): Promise<VerifiableCredential>;
+  // P5: sign the canonical serialization of an attestation (see
+  // src/domain/attestation.ts's serializeAttestation) with the platform
+  // key, through the same Ed25519Signature2020 construction
+  // issueWorkHistoryCredential already uses. The id is a stable, resolvable
+  // handle keyed on the staged commit (ENT-8's stance, restated): a
+  // stranger can recompute it from the attestation's own stagedCommit
+  // field without calling this service.
+  signAttestation(attestation: Attestation): Promise<SignedAttestation>;
 }
