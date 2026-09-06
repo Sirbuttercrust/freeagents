@@ -325,6 +325,8 @@ describe('PrismaAgentRepository', () => {
         skills: ['triage'],
         githubLogin: null,
         floorPriceUsd: null,
+        minBuyerMerges: null,
+        maxWalkedAfterConfirm: null,
       },
     });
     expect(row).toEqual({
@@ -338,7 +340,45 @@ describe('PrismaAgentRepository', () => {
       createdAt,
       keyRotations: [],
       floorPriceUsd: null,
+      minBuyerMerges: null,
+      maxWalkedAfterConfirm: null,
     });
+  });
+
+  // P7: the operator's listing filters travel through create exactly like
+  // floorPriceUsd already does.
+  it('create: a caller-set threshold is sent to the database and round-trips', async () => {
+    const createdAt = new Date('2026-08-20T05:00:00.000Z');
+    vi.mocked(mock.agentCreate).mockResolvedValue({
+      did: 'did:abt:agent-thresholds',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+      proofStatus: 'unverified',
+      createdAt,
+      minBuyerMerges: 2,
+      maxWalkedAfterConfirm: 0,
+    });
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.create({
+      did: 'did:abt:agent-thresholds',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+      minBuyerMerges: 2,
+      maxWalkedAfterConfirm: 0,
+    });
+
+    expect(mock.agentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ minBuyerMerges: 2, maxWalkedAfterConfirm: 0 }),
+    });
+    expect(row.minBuyerMerges).toBe(2);
+    expect(row.maxWalkedAfterConfirm).toBe(0);
   });
 
   it('create: a P2002 unique-constraint failure is the domain duplicate error', async () => {
@@ -428,6 +468,8 @@ describe('PrismaAgentRepository', () => {
       createdAt,
       keyRotations: [],
       floorPriceUsd: null,
+      minBuyerMerges: null,
+      maxWalkedAfterConfirm: null,
     });
   });
 
@@ -512,7 +554,7 @@ describe('PrismaAgentRepository', () => {
       where: { did: 'did:abt:agent-1' },
       data: { githubLogin: 'scout-agent', proofStatus: 'pending' },
     });
-    expect(row).toEqual({ ...updatedRow, keyRotations: [], floorPriceUsd: null });
+    expect(row).toEqual({ ...updatedRow, keyRotations: [], floorPriceUsd: null, minBuyerMerges: null, maxWalkedAfterConfirm: null });
   });
 
   it('updateGithubBinding: a P2025 not-found comes back as null, not an error', async () => {
@@ -1141,6 +1183,28 @@ describe('PrismaJobRepository', () => {
 
     const repo = new PrismaJobRepository();
     const rows = await repo.findCompletedByAgent('did:example:agent');
+
+    expect(rows).toEqual([]);
+  });
+
+  // P7: every job for one buyer DID, in any status, projected exactly like
+  // findById already does.
+  it('findByBuyerDid: queries by buyerDid and projects every returned row', async () => {
+    vi.mocked(mock.jobFindMany).mockResolvedValue([{ ...jobFixture, id: 'job_a' }, { ...jobFixture, id: 'job_b', status: 'withdrawn' }]);
+
+    const repo = new PrismaJobRepository();
+    const rows = await repo.findByBuyerDid('did:example:buyer');
+
+    expect(mock.jobFindMany).toHaveBeenCalledWith({ where: { buyerDid: 'did:example:buyer' } });
+    expect(rows.map((r) => r.id)).toEqual(['job_a', 'job_b']);
+    expect(rows.map((r) => r.status)).toEqual(['draft', 'withdrawn']);
+  });
+
+  it('findByBuyerDid: no rows comes back as an empty array, not null', async () => {
+    vi.mocked(mock.jobFindMany).mockResolvedValue([]);
+
+    const repo = new PrismaJobRepository();
+    const rows = await repo.findByBuyerDid('did:example:no-jobs');
 
     expect(rows).toEqual([]);
   });

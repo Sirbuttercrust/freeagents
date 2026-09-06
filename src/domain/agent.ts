@@ -56,6 +56,11 @@ export interface Agent {
   // this is the agent's own stated minimum, nothing more. Null when the
   // agent has not set one, which places no floor on a proposal at all.
   readonly floorPriceUsd: string | null;
+  // P7: the operator's own listing filters on buyer conduct (committee
+  // synthesis row 7). Both null by default: null means no filter is set,
+  // and the platform sets no default and suggests no value.
+  readonly minBuyerMerges: number | null;
+  readonly maxWalkedAfterConfirm: number | null;
 }
 
 // The structural half of "the delegation proof verifies" (R-2 accept). The

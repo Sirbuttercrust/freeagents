@@ -3,8 +3,9 @@
 // and replaces the stored binding when a later check passes for a different
 // handle. No test had executed either branch.
 import { describe, expect, it } from 'vitest';
-import { MemoryAgentRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryJobRepository } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
+import type { Job } from '../../src/domain/job.js';
 
 // The stored delegation only needs its shape: create() does not re-verify.
 const delegation: Delegation = {
@@ -157,5 +158,95 @@ describe('MemoryAgentRepository.updateGithubBinding', () => {
     const stored = await repo.findByDid(did);
     expect(stored?.githubLogin).toBe('scout-agent-2');
     expect(stored?.proofStatus).toBe('verified');
+  });
+});
+
+// P7: the operator's listing filters, both null by default when the
+// caller omits them, matching floorPriceUsd's own stance.
+describe('MemoryAgentRepository: buyer conduct filters', () => {
+  it('create() defaults both thresholds to null when omitted', async () => {
+    const repo = new MemoryAgentRepository();
+    const agent = await repo.create({
+      did: 'did:abt:zAgentNoThresholds',
+      operatorDid: 'did:abt:zOperatorKeyHash',
+      delegation,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    expect(agent.minBuyerMerges).toBeNull();
+    expect(agent.maxWalkedAfterConfirm).toBeNull();
+  });
+
+  it('create() stores whatever thresholds the caller sets, and round-trips them', async () => {
+    const repo = new MemoryAgentRepository();
+    const did = 'did:abt:zAgentWithThresholds';
+    const agent = await repo.create({
+      did,
+      operatorDid: 'did:abt:zOperatorKeyHash',
+      delegation,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+      minBuyerMerges: 2,
+      maxWalkedAfterConfirm: 0,
+    });
+    expect(agent.minBuyerMerges).toBe(2);
+    expect(agent.maxWalkedAfterConfirm).toBe(0);
+    const stored = await repo.findByDid(did);
+    expect(stored?.minBuyerMerges).toBe(2);
+    expect(stored?.maxWalkedAfterConfirm).toBe(0);
+  });
+});
+
+// P7: every job for one buyer DID, in any status. Empty for a buyer with
+// none, never null (the same "zero renders as zero" stance
+// findCompletedByAgent already takes).
+function jobFixture(): Job {
+  return {
+    id: 'job_x',
+    buyerDid: 'did:example:buyer',
+    agentDid: 'did:example:agent',
+    repository: 'buyer/target-repo',
+    brief: 'Fix the login bug on the checkout page',
+    briefHash: 'sha256:brief',
+    confirmedSpecHash: null,
+    status: 'draft',
+    criteria: [],
+    priceUsd: null,
+    rail: null,
+    priceAcceptedByBuyer: false,
+    priceAcceptedByAgent: false,
+    depositPercent: 25,
+    redoAllowance: 1,
+    deliveryWindowDays: null,
+    pullRequestUrl: null,
+    mergeCommit: null,
+    mergedAt: null,
+    confirmedAt: null,
+    submittedAt: null,
+    deadline: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    stagedAt: null,
+    stagedCommit: null,
+  };
+}
+
+describe('MemoryJobRepository.findByBuyerDid', () => {
+  it('is empty for a buyer with no jobs', async () => {
+    const repo = new MemoryJobRepository();
+    expect(await repo.findByBuyerDid('did:abt:zNoJobs')).toEqual([]);
+  });
+
+  it('returns every job for the buyer, regardless of status, and none for another buyer', async () => {
+    const repo = new MemoryJobRepository();
+    const buyer = 'did:abt:zBuyerConduct';
+    const other = 'did:abt:zOtherBuyer';
+    await repo.create({ ...jobFixture(), id: 'job_a', buyerDid: buyer, status: 'draft' });
+    await repo.create({ ...jobFixture(), id: 'job_b', buyerDid: buyer, status: 'withdrawn' });
+    await repo.create({ ...jobFixture(), id: 'job_c', buyerDid: other, status: 'completed' });
+
+    const rows = await repo.findByBuyerDid(buyer);
+    expect(rows.map((r) => r.id).sort()).toEqual(['job_a', 'job_b']);
   });
 });

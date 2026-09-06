@@ -16,6 +16,10 @@ export interface HireFacts {
   readonly agentDid: string;
   readonly mergeCommit: string;
   readonly completedAt: Date | string;
+  // P7: the buyer's verified GitHub login at hire time, when known.
+  // Optional so every existing caller (which never had this fact to
+  // supply) keeps compiling; absent is treated identically to null.
+  readonly buyerGithubLogin?: string | null;
 }
 
 export interface LabelledHire {
@@ -55,18 +59,42 @@ function parseInstant(value: unknown): number | null {
 }
 
 // A self-hire is a same-key comparison, never a same-string one. Wallet form
-// (`z...`) and registry form (`did:abt:z...`) name the same key
-// (src/domain/agent.ts:33-37), and every other DID comparison in this
-// codebase reconciles them first with `didSuffix`. A raw `===` would let one
-// operator hire its own agent under the wallet form and read as an
-// independent buyer - exactly the invariant-5 failure this issue exists to
-// prevent. A null, empty, or non-string `agentOperatorDid` makes every hire
-// not-a-self-hire: an unresolvable operator is not evidence of a self-hire,
-// and inventing one would label an honest buyer.
-export function isSelfHire(buyerDid: unknown, agentOperatorDid: unknown): boolean {
-  if (typeof buyerDid !== 'string' || buyerDid === '') return false;
-  if (typeof agentOperatorDid !== 'string' || agentOperatorDid === '') return false;
-  return didSuffix(buyerDid) === didSuffix(agentOperatorDid);
+// (`z...`) and registry form (`did:abt:z...`) name the same key, and
+// every other DID comparison in this codebase reconciles them first with
+// `didSuffix`. A raw `===` would let one operator hire its own agent under
+// the wallet form and read as an independent buyer - exactly the
+// invariant-5 failure this issue exists to prevent. A null, empty, or
+// non-string `agentOperatorDid` makes every hire not-a-self-hire: an
+// unresolvable operator is not evidence of a self-hire, and inventing one
+// would label an honest buyer.
+//
+// P7 (committee synthesis, attack 2): the DID check alone is free for an
+// attacker to defeat (DIDs cost nothing to mint fresh). A second,
+// independent comparison on the verified GitHub logins raises that cost
+// to one aged GitHub account per fake hire - it does not replace the DID
+// check, it rides beside it: EITHER comparison matching is a self-hire.
+// The same null discipline as the DID half applies to logins: an absent
+// buyer or operator login is never a match, and two absent logins are not
+// equal to each other (both null out to `false`, never `true`).
+export function isSelfHire(
+  buyerDid: unknown,
+  agentOperatorDid: unknown,
+  buyerGithubLogin?: unknown,
+  agentOperatorGithubLogin?: unknown,
+): boolean {
+  const didMatches =
+    typeof buyerDid === 'string' &&
+    buyerDid !== '' &&
+    typeof agentOperatorDid === 'string' &&
+    agentOperatorDid !== '' &&
+    didSuffix(buyerDid) === didSuffix(agentOperatorDid);
+  const loginMatches =
+    typeof buyerGithubLogin === 'string' &&
+    buyerGithubLogin !== '' &&
+    typeof agentOperatorGithubLogin === 'string' &&
+    agentOperatorGithubLogin !== '' &&
+    buyerGithubLogin === agentOperatorGithubLogin;
+  return didMatches || loginMatches;
 }
 
 // The full hire record: counts and labelled rows, derived at read time.
@@ -75,7 +103,18 @@ export function isSelfHire(buyerDid: unknown, agentOperatorDid: unknown): boolea
 // liveness.ts's parseInstant swallows bad input rather than throwing.
 // `entries` preserves the caller's order: ordering is the storage layer's
 // job, and a pure rule does not re-sort.
-export function buyerDiversity(hires: readonly HireFacts[], agentOperatorDid: string | null): BuyerDiversity {
+//
+// P7: agentOperatorGithubLogin is the operator's own verified GitHub
+// login, read once for the whole call (the operator is fixed per agent);
+// each hire's own buyerGithubLogin travels on the HireFacts row, since
+// the buyer varies per hire. Optional and defaults to undefined, so
+// every existing caller that never had this fact keeps compiling and
+// keeps getting DID-only self-hire detection.
+export function buyerDiversity(
+  hires: readonly HireFacts[],
+  agentOperatorDid: string | null,
+  agentOperatorGithubLogin?: string | null,
+): BuyerDiversity {
   const rows: HireFacts[] = Array.isArray(hires) ? [...hires] : [];
 
   const entries: LabelledHire[] = rows.map((hire) => {
@@ -86,7 +125,7 @@ export function buyerDiversity(hires: readonly HireFacts[], agentOperatorDid: st
       agentDid: hire?.agentDid ?? '',
       mergeCommit: hire?.mergeCommit ?? '',
       completedAt: completedMs === null ? '' : new Date(completedMs).toISOString(),
-      selfHire: isSelfHire(hire?.buyerDid, agentOperatorDid),
+      selfHire: isSelfHire(hire?.buyerDid, agentOperatorDid, hire?.buyerGithubLogin, agentOperatorGithubLogin),
     };
   });
 
