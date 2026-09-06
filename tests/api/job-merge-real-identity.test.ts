@@ -56,14 +56,6 @@ function fakeGithub(): GithubAdapter {
   };
 }
 
-async function post(base: string, path: string, body: unknown = {}): Promise<Response> {
-  return fetch(`${base}${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-}
-
 async function postSigned(base: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
   const bodyText = JSON.stringify(body);
   const targetUri = `${base}${path}`;
@@ -192,9 +184,9 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
     expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
-    expect((await post(baseUrl, `/jobs/${jobId}/pull-request`)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(200);
 
-    const merge = await post(baseUrl, `/jobs/${jobId}/merge`);
+    const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, buyerIdentity);
     expect(merge.status).toBe(200);
     const mergeBody = (await merge.json()) as Record<string, unknown>;
     expect(mergeBody.status).toBe('completed');
@@ -297,9 +289,9 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
       expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
       expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
       expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
-      expect((await post(baseUrl, `/jobs/${jobId}/pull-request`)).status).toBe(200);
+      expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(200);
 
-      const merge = await post(baseUrl, `/jobs/${jobId}/merge`);
+      const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, buyerIdentity);
       expect(merge.status).toBe(200);
       const mergeBody = (await merge.json()) as Record<string, unknown>;
       const credential = mergeBody.credential as Record<string, unknown>;

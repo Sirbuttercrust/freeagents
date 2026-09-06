@@ -54,14 +54,6 @@ function fakeGithub(): GithubAdapter {
   };
 }
 
-async function post(base: string, path: string, body: unknown = {}): Promise<Response> {
-  return fetch(`${base}${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-}
-
 async function postSigned(base: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
   const bodyText = JSON.stringify(body);
   const targetUri = `${base}${path}`;
@@ -169,7 +161,7 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
-    expect((await post(first.baseUrl, `/jobs/${jobId}/pull-request`)).status).toBe(200);
+    expect((await postSigned(first.baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(200);
 
     // The process exits. Nothing about process 1 survives into process 2
     // except the durable repositories.
@@ -193,7 +185,7 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
     const second = await listen(app2);
     servers.push(second.server);
 
-    const merge = await post(second.baseUrl, `/jobs/${jobId}/merge`);
+    const merge = await postSigned(second.baseUrl, `/jobs/${jobId}/merge`, {}, buyerIdentity);
     expect(merge.status).toBe(200);
     const mergeBody = (await merge.json()) as Record<string, unknown>;
     expect(mergeBody.status).toBe('completed');
