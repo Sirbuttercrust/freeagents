@@ -113,6 +113,13 @@ model Agent {
   // never a float); null means no floor is set. Never a platform-suggested
   // price (locked).
   floorPriceUsd String?
+  // P7: the operator's own listing filters on buyer conduct (committee
+  // synthesis row 7). Both nullable, both null by default: null means no
+  // filter, and the platform sets no default and suggests no value. Read
+  // at hire time by POST /jobs against the buyer's conduct record, keyed
+  // to the buyer's verified GitHub account rather than their DID.
+  minBuyerMerges        Int?
+  maxWalkedAfterConfirm Int?
 
   operator Account @relation(fields: [operatorDid], references: [did])
 
