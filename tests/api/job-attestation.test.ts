@@ -7,7 +7,7 @@ import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
-import { fixedStagingObserverFor } from '../helpers/staging-fixtures.js';
+import { anyCommitStagingObserver, fixedStagingObserverFor } from '../helpers/staging-fixtures.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
 import { createUnwiredStagingObserver } from '../../src/adapters/staging/types.js';
@@ -309,5 +309,98 @@ describe('attestation signing failure fails the whole stage (P5 anchor: staged m
     expect(await active.attestationRepo.findByJobId(jobId)).toBeNull();
 
     active.attestationRepo.save = originalSave;
+  });
+});
+
+// This card (t_767701e6, follow-up from the P6 audit at t_604e3f2a review
+// round 4): storage already keeps every attestation row after a redo
+// restages, but the only HTTP surface (GET /jobs/:jobId/attestation)
+// served just the latest, so the pre-redo document was durable but
+// buyer-unreachable through the platform. GET /jobs/:jobId/attestations
+// is the fix; these tests exercise it as a ROUTE, not through the
+// repository, which is exactly what the shipped pin
+// (tests/api/job-redo.test.ts's "still readable after a redo restages"
+// test) did not do.
+describe('GET /jobs/:jobId/attestations: the full history, party-gated, reachable after a redo', () => {
+  it('after a redo restages, a signed buyer request retrieves the sequence-1 document and its stagedCommit is the pre-redo commit', async () => {
+    active = await startApp({ stagingObserver: anyCommitStagingObserver() });
+    const jobId = await walkToConfirmed(active.baseUrl);
+    expect((await postSigned(active.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agent)).status).toBe(200);
+    expect((await postSigned(active.baseUrl, `/jobs/${jobId}/redo`, { criterionIndex: 0 }, buyer)).status).toBe(200);
+    expect((await postSigned(active.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-2' }, agent)).status).toBe(200);
+
+    const res = await getSigned(active.baseUrl, `/jobs/${jobId}/attestations`, buyer);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { attestations: Array<{ sequence: number; document: Record<string, unknown> }> };
+    expect(body.attestations).toHaveLength(2);
+    expect(body.attestations[0]?.sequence).toBe(1);
+    const firstSubject = body.attestations[0]?.document.credentialSubject as Record<string, unknown>;
+    const firstAttestation = firstSubject.attestation as Record<string, unknown>;
+    expect(firstAttestation.stagedCommit).toBe('commit-sha-1');
+    expect(body.attestations[1]?.sequence).toBe(2);
+    const secondSubject = body.attestations[1]?.document.credentialSubject as Record<string, unknown>;
+    const secondAttestation = secondSubject.attestation as Record<string, unknown>;
+    expect(secondAttestation.stagedCommit).toBe('commit-sha-2');
+  });
+
+  it('the agent (the other party on the job) reads the full history too', async () => {
+    active = await startApp({ stagingObserver: anyCommitStagingObserver() });
+    const jobId = await walkToConfirmed(active.baseUrl);
+    expect((await postSigned(active.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agent)).status).toBe(200);
+    expect((await postSigned(active.baseUrl, `/jobs/${jobId}/redo`, { criterionIndex: 0 }, buyer)).status).toBe(200);
+    expect((await postSigned(active.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-2' }, agent)).status).toBe(200);
+
+    const res = await getSigned(active.baseUrl, `/jobs/${jobId}/attestations`, agent);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { attestations: Array<{ sequence: number }> };
+    expect(body.attestations).toHaveLength(2);
+  });
+
+  it('a stranger is refused with 403 on the new surface', async () => {
+    active = await startApp({ stagingObserver: fixedStagingObserverFor('commit-hist-stranger') });
+    const jobId = await walkToConfirmed(active.baseUrl);
+    await postSigned(active.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-hist-stranger' }, agent);
+
+    const res = await getSigned(active.baseUrl, `/jobs/${jobId}/attestations`, stranger);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'signature does not name a party to this job' });
+  });
+
+  it('an unsigned request is refused: 401', async () => {
+    active = await startApp({ stagingObserver: fixedStagingObserverFor('commit-hist-unsigned') });
+    const jobId = await walkToConfirmed(active.baseUrl);
+    await postSigned(active.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-hist-unsigned' }, agent);
+
+    const res = await fetch(`${active.baseUrl}/jobs/${jobId}/attestations`);
+    expect(res.status).toBe(401);
+  });
+
+  it('an unknown job is 404', async () => {
+    active = await startApp();
+    const res = await getSigned(active.baseUrl, '/jobs/never-existed/attestations', buyer);
+    expect(res.status).toBe(404);
+  });
+
+  it('a confirmed job with no attestation yet returns an empty list, not 404', async () => {
+    active = await startApp();
+    const jobId = await walkToConfirmed(active.baseUrl);
+    const res = await getSigned(active.baseUrl, `/jobs/${jobId}/attestations`, buyer);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ attestations: [] });
+  });
+
+  it('GET /jobs/:jobId/attestation (singular) still serves only the latest, unchanged, after a redo', async () => {
+    active = await startApp({ stagingObserver: anyCommitStagingObserver() });
+    const jobId = await walkToConfirmed(active.baseUrl);
+    expect((await postSigned(active.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agent)).status).toBe(200);
+    expect((await postSigned(active.baseUrl, `/jobs/${jobId}/redo`, { criterionIndex: 0 }, buyer)).status).toBe(200);
+    expect((await postSigned(active.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-2' }, agent)).status).toBe(200);
+
+    const res = await getSigned(active.baseUrl, `/jobs/${jobId}/attestation`, buyer);
+    expect(res.status).toBe(200);
+    const wire = (await res.json()) as Record<string, unknown>;
+    const subject = wire.credentialSubject as Record<string, unknown>;
+    const attestation = subject.attestation as Record<string, unknown>;
+    expect(attestation.stagedCommit).toBe('commit-sha-2');
   });
 });
