@@ -3,8 +3,8 @@
 // this module never throws and never replaces a guard, it only answers
 // "what is configured on this deployment" from the same environment those
 // guards already read.
-import { describe, expect, it } from 'vitest';
-import { buildConfigReport, formatConfigReport } from '../../../src/adapters/config/report.js';
+import { describe, expect, it, vi } from 'vitest';
+import { buildConfigReport, formatConfigReport, probeGithubTokenScope, formatGithubScopeLine } from '../../../src/adapters/config/report.js';
 
 describe('buildConfigReport: database capability', () => {
   it('reports database as configured when DATABASE_URL is set', () => {
@@ -152,7 +152,29 @@ describe('buildConfigReport: credentials, github sign-in, github api', () => {
     const report = buildConfigReport({});
     const githubApi = report.capabilities.find((c) => c.capability === 'githubApi');
     expect(githubApi?.configured).toBe(false);
-    expect(githubApi?.missing).toEqual(['FREEAGENTS_GITHUB_TOKEN']);
+    expect(githubApi?.missing).toEqual(['FREEAGENTS_GITHUB_TOKEN', 'FREEAGENTS_GITHUB_PLATFORM_LOGIN']);
+  });
+
+  // B14a: the staging-lifecycle methods fence every mutating call to
+  // FREEAGENTS_GITHUB_PLATFORM_LOGIN (invariant 1's adapter-level guard).
+  // A token with no platform login configured still fails closed on every
+  // mutating call, so the report must not call githubApi configured with
+  // only the token set.
+  it('githubApi needs the platform login too, not the token alone', () => {
+    const report = buildConfigReport({ FREEAGENTS_GITHUB_TOKEN: 'ghp_example' });
+    const githubApi = report.capabilities.find((c) => c.capability === 'githubApi');
+    expect(githubApi?.configured).toBe(false);
+    expect(githubApi?.missing).toEqual(['FREEAGENTS_GITHUB_PLATFORM_LOGIN']);
+  });
+
+  it('githubApi is configured with both the token and the platform login set', () => {
+    const report = buildConfigReport({
+      FREEAGENTS_GITHUB_TOKEN: 'ghp_example',
+      FREEAGENTS_GITHUB_PLATFORM_LOGIN: 'freeagents-platform',
+    });
+    const githubApi = report.capabilities.find((c) => c.capability === 'githubApi');
+    expect(githubApi?.configured).toBe(true);
+    expect(githubApi?.missing).toEqual([]);
   });
 });
 
@@ -234,3 +256,87 @@ describe('formatConfigReport: never prints a value', () => {
     expect(output).toContain('usdcRail: not configured (missing FREEAGENTS_USDC_RPC_URL');
   });
 });
+
+// B14a constraint: "the platform token needs `repo` scope now, not
+// `public_repo`... Update the comment at github.ts:21 and the config
+// report so the startup line says which scope is required and whether
+// the token has it (a GET on /user returns x-oauth-scopes)." The comment
+// is done (github.ts); this is the report half. probeGithubTokenScope is
+// the one live network call this module makes -- a GET /user, reading
+// ONLY the x-oauth-scopes response header, never the body -- so it takes
+// an injectable fetchImpl exactly like createGithubAdapter does, and a
+// test never needs the real network.
+describe('probeGithubTokenScope: reads x-oauth-scopes from a real GET /user', () => {
+  it('answers null (nothing to probe) when FREEAGENTS_GITHUB_TOKEN is not set', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 200 }));
+    const probe = await probeGithubTokenScope({}, fetchImpl as unknown as typeof fetch);
+    expect(probe).toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('reports hasRequiredScope true when x-oauth-scopes includes repo', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(null, { status: 200, headers: { 'x-oauth-scopes': 'repo, read:org' } }),
+    );
+    const probe = await probeGithubTokenScope({ FREEAGENTS_GITHUB_TOKEN: 'ghp_example' }, fetchImpl as unknown as typeof fetch);
+    expect(probe).toEqual({ requiredScope: 'repo', scopesHeader: 'repo, read:org', hasRequiredScope: true });
+    // Reads /user with the token, never a different endpoint.
+    const call = fetchImpl.mock.calls[0];
+    expect(call).toBeDefined();
+    const [url] = call as unknown as [string, unknown];
+    expect(url).toBe('https://api.github.com/user');
+  });
+
+  it('reports hasRequiredScope false when x-oauth-scopes is present but missing repo', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(null, { status: 200, headers: { 'x-oauth-scopes': 'public_repo, gist' } }),
+    );
+    const probe = await probeGithubTokenScope({ FREEAGENTS_GITHUB_TOKEN: 'ghp_example' }, fetchImpl as unknown as typeof fetch);
+    expect(probe).toEqual({ requiredScope: 'repo', scopesHeader: 'public_repo, gist', hasRequiredScope: false });
+  });
+
+  it('reports hasRequiredScope null when no x-oauth-scopes header comes back (fine-grained PAT)', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 200, headers: {} }));
+    const probe = await probeGithubTokenScope({ FREEAGENTS_GITHUB_TOKEN: 'github_pat_example' }, fetchImpl as unknown as typeof fetch);
+    expect(probe).toEqual({ requiredScope: 'repo', scopesHeader: null, hasRequiredScope: null });
+  });
+
+  it('respects FREEAGENTS_GITHUB_API_BASE like the real adapter does', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 200, headers: {} }));
+    await probeGithubTokenScope({
+      FREEAGENTS_GITHUB_TOKEN: 'ghp_example',
+      FREEAGENTS_GITHUB_API_BASE: 'https://example.test',
+    }, fetchImpl as unknown as typeof fetch);
+    const call = fetchImpl.mock.calls[0];
+    expect(call).toBeDefined();
+    const [url] = call as unknown as [string, unknown];
+    expect(url).toBe('https://example.test/user');
+  });
+});
+
+describe('formatGithubScopeLine: names the scope, never the token', () => {
+  it('says not probed when there is no token to check', () => {
+    expect(formatGithubScopeLine(null)).toContain('not probed');
+    expect(formatGithubScopeLine(null)).toContain('FREEAGENTS_GITHUB_TOKEN');
+  });
+
+  it('says the token has the required scope', () => {
+    const line = formatGithubScopeLine({ requiredScope: 'repo', scopesHeader: 'repo', hasRequiredScope: true });
+    expect(line).toContain('has repo');
+  });
+
+  it('says the token is MISSING the required scope, and never prints the raw token', () => {
+    const plantedSecret = 'zzTOPSECRETTOKENVALUE';
+    const line = formatGithubScopeLine({ requiredScope: 'repo', scopesHeader: 'public_repo', hasRequiredScope: false });
+    expect(line).toContain('MISSING');
+    expect(line).toContain('repo');
+    expect(line).not.toContain(plantedSecret);
+  });
+
+  it('says the scope cannot be verified when no header came back, still naming the requirement', () => {
+    const line = formatGithubScopeLine({ requiredScope: 'repo', scopesHeader: null, hasRequiredScope: null });
+    expect(line).toContain('cannot verify');
+    expect(line).toContain('repo');
+  });
+});
+

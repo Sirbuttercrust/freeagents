@@ -163,6 +163,26 @@ export interface Job {
   // for confirmedSpecHash/confirmedAt.
   readonly stagedAt: Date | null;
   readonly stagedCommit: string | null;
+  // B14a: the platform-created repository the staged commit lives in
+  // (owner/repo under the platform account), and the base commit the
+  // platform pinned when it created that repository. Both null until the
+  // repository exists (confirm creates it -- see the API route's own
+  // header comment). baseCommit is distinct from stagedCommit: baseCommit
+  // is the seed the repository was created from, stagedCommit (above) is
+  // whatever the agent has staged since, and the stage route walks from
+  // one to the other (bounded ancestry check) to prove a staged commit
+  // actually descends from what the platform pinned.
+  readonly stagingRepo: { readonly owner: string; readonly repo: string } | null;
+  readonly baseCommit: string | null;
+  // B14a scope item 5: the cleanup policy, RECORDED not built -- this
+  // field is set by a later sweep card, never by anything in this card.
+  // Null outside a terminal status; computeStagingRepoDeleteAfter below
+  // is the domain function that computes the value a terminal-transition
+  // caller would write, but no transition function in this file calls it
+  // (the card's own instruction: "never delete in this card", extended
+  // here to "never even schedule deletion automatically" until the sweep
+  // card exists to honour the field).
+  readonly stagingRepoDeleteAfter: Date | null;
   // P6: the buyer's deliberate, reasoned close after paying (cited_closed).
   // All four null outside that status; written together by
   // recordCitedClose, the same one-writer pairing every other terminal
@@ -275,6 +295,9 @@ export function createJob(
     submittedAt: null,
     stagedAt: null,
     stagedCommit: null,
+    stagingRepo: null,
+    baseCommit: null,
+    stagingRepoDeleteAfter: null,
     citedCloseCriterionIndex: null,
     citedCloseReasonText: null,
     citedCloseAuthorDid: null,
@@ -471,6 +494,24 @@ export function stageWork(job: Job, stagedCommit: string, now: Date): Job {
   };
 }
 
+// B14a: attaches the staging repository facts onto an already-confirmed
+// job. A pure function, not a transition: confirm's own status edge
+// (draft/proposed -> confirmed) is confirmSpec's job alone, and this
+// function does not touch status. The route calls this AFTER confirmSpec
+// has already validated the transition and AFTER the github adapter has
+// already created the repository and granted push -- so a repository
+// creation failure never reaches this function at all, and the caller
+// simply does not persist the confirmed job (leaving the prior persisted
+// row, still 'proposed', untouched -- see the API route's own header
+// comment on the fail-closed order).
+export function attachStagingRepository(
+  job: Job,
+  stagingRepo: { readonly owner: string; readonly repo: string },
+  baseCommit: string,
+): Job {
+  return { ...job, stagingRepo, baseCommit };
+}
+
 // P6 (design record, 2026-09-01, row 2): the redo mechanic requestRedo /
 // refuseRedo fills the seam stageWork's own header comment names. Named
 // beside LAPSE_AT_STAGED_AFTER_DAYS, per the brief: a redo extends
@@ -566,6 +607,20 @@ export function recordStagedDeclined(job: Job): Job {
 export const EXPIRE_UNSTAGED_AFTER_DAYS = 30;
 export const LAPSE_AT_STAGED_AFTER_DAYS = 7;
 export const DEEM_COMPLETED_AFTER_DAYS = 7;
+
+// B14a scope item 5: staging repos are deleted 30 days after a terminal
+// state -- RECORDED here, not built. This function computes the value a
+// later sweep card writes onto stagingRepoDeleteAfter; nothing in this
+// file calls it (no transition function here sets stagingRepoDeleteAfter,
+// deliberately -- see the field's own header comment on Job). Named
+// distinctly from the other *_AFTER_DAYS constants above rather than
+// merged into their pattern, since this one governs a resource
+// (a repository) rather than a job status.
+export const STAGING_REPO_CLEANUP_AFTER_DAYS = 30;
+
+export function computeStagingRepoDeleteAfter(terminalAt: Date): Date {
+  return new Date(terminalAt.getTime() + STAGING_REPO_CLEANUP_AFTER_DAYS * 86_400_000);
+}
 
 // confirmed with no staging, EXPIRE_UNSTAGED_AFTER_DAYS after confirmedAt,
 // becomes expired_unstaged (terminal). confirmedAt is always set on a

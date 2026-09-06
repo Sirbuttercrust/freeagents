@@ -20,7 +20,6 @@ import { createCredentialsAdapter } from '../../src/adapters/credentials/credent
 import type { GithubAdapter, PullRequestRef, PullRequestSummary } from '../../src/adapters/github/types.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter } from '../../src/adapters/identity/types.js';
-import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import {
   MemoryAgentRepository,
   MemoryCredentialRepository,
@@ -31,14 +30,13 @@ import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../h
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
 const ISSUER_DID = 'did:abt:test-platform-issuer-reachability';
 const ISSUER_SEED = new Uint8Array(32).fill(3);
-const FORK_OWNER = 'freeagents-platform';
-const FORK_REPO = 'target-repo';
-const PR_NUMBER = 11;
 const MERGE_SHA = 'reachability-merge-sha';
 const MERGED_AT = new Date('2026-08-27T10:00:00Z');
+const AGENT_GITHUB_LOGIN = 'scout-reachability';
 
 function fakeIdentity(): IdentityAdapter {
   return {
@@ -51,9 +49,12 @@ function fakeIdentity(): IdentityAdapter {
 // The one variable under test: whether GitHub reports the base repository as
 // public. Everything else about the merge is identical between the two
 // tests below, so a difference in the resulting tier can only come from this
-// one fact.
+// one fact. Layers getPullRequest (for the merge route's own observation)
+// on top of the shared staging-lifecycle fake (for confirm/stage/pull-request).
 function scriptedGithub(repositoryPublic: boolean): GithubAdapter {
+  const { github: staging } = createStagingLifecycleGithubFake();
   return {
+    ...staging,
     getPullRequest: (ref: PullRequestRef): Promise<PullRequestSummary> =>
       Promise.resolve({
         ref,
@@ -66,9 +67,6 @@ function scriptedGithub(repositoryPublic: boolean): GithubAdapter {
         filesChanged: 2,
         repositoryPublic,
       }),
-    getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
-    getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
-    forkAndOpenPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: PR_NUMBER }),
   };
 }
 
@@ -84,8 +82,13 @@ async function startWith(
     delegation: { fixture: true } as never,
     name: 'scout',
     skills: ['triage'],
-    githubLogin: null,
+    githubLogin: AGENT_GITHUB_LOGIN,
   });
+  // B14a: confirm grants push to the agent's VERIFIED GitHub login; a
+  // create() alone leaves proofStatus 'unverified' (memory.ts's own
+  // stance), so this fixture verifies it the same way a real account
+  // proof would (updateGithubBinding).
+  await agentRepo.updateGithubBinding(agentDid, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
   const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyerDid, githubLogin: 'buyer-reachability' });
   const credentialRepo = new MemoryCredentialRepository();
@@ -173,11 +176,13 @@ async function walkToMerge(
   expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agent)).status).toBe(200);
   expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyer)).status).toBe(200);
   expect((await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agent)).status).toBe(200);
-  expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agent)).status).toBe(200);
+  const pr = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agent);
+  expect(pr.status).toBe(200);
+  const prBody = (await pr.json()) as Record<string, unknown>;
 
   const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, buyer);
   expect(merge.status).toBe(200);
-  return (await merge.json()) as Record<string, unknown>;
+  return { ...((await merge.json()) as Record<string, unknown>), pullRequestUrl: prBody.pullRequestUrl };
 }
 
 describe('GET /agents/:agentDid, verified-hire reachability from a REAL merge (R-17 proof gate finding)', () => {
@@ -197,7 +202,7 @@ describe('GET /agents/:agentDid, verified-hire reachability from a REAL merge (R
         {
           credentialId: credential.id,
           repository: 'buyer/target-repo',
-          pullRequest: `https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/${PR_NUMBER}`,
+          pullRequest: mergeBody.pullRequestUrl,
           mergedAt: MERGED_AT.toISOString(),
           mergeCommit: MERGE_SHA,
           buyerDid: buyer.did,

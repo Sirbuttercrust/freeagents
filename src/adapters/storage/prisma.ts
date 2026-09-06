@@ -359,6 +359,14 @@ interface JobRow {
   // carries.
   stagedAt?: Date | null;
   stagedCommit?: string | null;
+  // B14a: optional, same reasoning as stagedAt above -- a worktree
+  // generated before these columns exist types the row without them,
+  // and an absent column means "no staging repository yet", the same
+  // meaning a stored null already carries.
+  stagingRepoOwner?: string | null;
+  stagingRepoName?: string | null;
+  baseCommit?: string | null;
+  stagingRepoDeleteAfter?: Date | null;
   // P6: optional, same reasoning as stagedAt above -- a worktree generated
   // before these columns exist types the row without them, and an absent
   // column means "never redone" / "never cited-closed", the same meaning
@@ -407,6 +415,10 @@ export class PrismaJobRepository implements JobRepository {
           deliveryWindowDays: job.deliveryWindowDays,
           stagedAt: job.stagedAt,
           stagedCommit: job.stagedCommit,
+          stagingRepoOwner: job.stagingRepo?.owner ?? null,
+          stagingRepoName: job.stagingRepo?.repo ?? null,
+          baseCommit: job.baseCommit,
+          stagingRepoDeleteAfter: job.stagingRepoDeleteAfter,
           redoUsedCount: job.redoUsedCount,
           redoRequestedCriterionIndex: job.redoRequestedCriterionIndex,
           redoRequestedAt: job.redoRequestedAt,
@@ -459,6 +471,10 @@ export class PrismaJobRepository implements JobRepository {
           deliveryWindowDays: job.deliveryWindowDays,
           stagedAt: job.stagedAt,
           stagedCommit: job.stagedCommit,
+          stagingRepoOwner: job.stagingRepo?.owner ?? null,
+          stagingRepoName: job.stagingRepo?.repo ?? null,
+          baseCommit: job.baseCommit,
+          stagingRepoDeleteAfter: job.stagingRepoDeleteAfter,
           redoUsedCount: job.redoUsedCount,
           redoRequestedCriterionIndex: job.redoRequestedCriterionIndex,
           redoRequestedAt: job.redoRequestedAt,
@@ -519,6 +535,10 @@ export class PrismaJobRepository implements JobRepository {
           deliveryWindowDays: job.deliveryWindowDays,
           stagedAt: job.stagedAt,
           stagedCommit: job.stagedCommit,
+          stagingRepoOwner: job.stagingRepo?.owner ?? null,
+          stagingRepoName: job.stagingRepo?.repo ?? null,
+          baseCommit: job.baseCommit,
+          stagingRepoDeleteAfter: job.stagingRepoDeleteAfter,
           redoUsedCount: job.redoUsedCount,
           redoRequestedCriterionIndex: job.redoRequestedCriterionIndex,
           redoRequestedAt: job.redoRequestedAt,
@@ -689,6 +709,12 @@ function toJob(row: JobRow): Job {
     deliveryWindowDays: row.deliveryWindowDays ?? null,
     stagedAt: row.stagedAt ?? null,
     stagedCommit: row.stagedCommit ?? null,
+    stagingRepo:
+      row.stagingRepoOwner != null && row.stagingRepoName != null
+        ? { owner: row.stagingRepoOwner, repo: row.stagingRepoName }
+        : null,
+    baseCommit: row.baseCommit ?? null,
+    stagingRepoDeleteAfter: row.stagingRepoDeleteAfter ?? null,
     redoUsedCount: row.redoUsedCount ?? 0,
     redoRequestedCriterionIndex: row.redoRequestedCriterionIndex ?? null,
     redoRequestedAt: row.redoRequestedAt ?? null,

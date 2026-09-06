@@ -21,6 +21,7 @@ import {
 } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
 const USDC_TOKEN = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d';
 const USDC_FEE_ADDRESS = '0xFeeAddress000000000000000000000000000';
@@ -129,8 +130,9 @@ describe('the settlement gate reads durably across a process restart, sharing on
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
-      githubLogin: null,
+      githubLogin: 'scout-durable-gate',
     });
+    await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-durable-gate', status: 'verified' });
     const jobRepo = new MemoryJobRepository();
     // The ONLY thing shared between the two processes below: everything
     // else (the gate instance, the rail instance) is constructed fresh
@@ -146,11 +148,12 @@ describe('the settlement gate reads durably across a process restart, sharing on
       }),
     );
 
+    const { github: github1 } = createStagingLifecycleGithubFake();
     const app1 = createApp(
       operatorRepo,
       agentRepo,
       undefined,
-      undefined,
+      github1,
       jobRepo,
       undefined,
       undefined,
@@ -215,11 +218,12 @@ describe('the settlement gate reads durably across a process restart, sharing on
         spentTransferStorage: fakeSpentTransferStorage(),
       }),
     );
+    const { github: github2 } = createStagingLifecycleGithubFake();
     const app2 = createApp(
       operatorRepo,
       agentRepo,
       undefined,
-      undefined,
+      github2,
       jobRepo,
       undefined,
       undefined,

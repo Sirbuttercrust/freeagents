@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver, fixedStagingObserverFor } from '../helpers/staging-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
 import { createUnwiredStagingObserver } from '../../src/adapters/staging/types.js';
@@ -84,17 +85,19 @@ async function startApp(options: {
     delegation: { fixture: true } as never,
     name: 'scout',
     skills: ['triage'],
-    githubLogin: null,
+    githubLogin: 'scout-attestation',
   });
+  await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-attestation', status: 'verified' });
   const jobRepo = new MemoryJobRepository();
   const attestationRepo = new MemoryAttestationRepository();
   const credentialRepo = new MemoryCredentialRepository();
   const credentials = options.credentials ?? createCredentialsAdapter(undefined, credentialRepo);
+  const { github } = createStagingLifecycleGithubFake();
   const app = createApp(
     operatorRepo,
     agentRepo,
     undefined,
-    undefined,
+    github,
     jobRepo,
     credentials,
     undefined,

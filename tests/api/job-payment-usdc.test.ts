@@ -21,6 +21,7 @@ import {
 } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
@@ -142,17 +143,19 @@ async function startApp(usdcRail: ReturnType<typeof createUsdcPaymentRail> | nul
     delegation: { fixture: true } as never,
     name: 'scout',
     skills: ['triage'],
-    githubLogin: null,
+    githubLogin: 'scout-usdc-surface',
   });
+  await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-usdc-surface', status: 'verified' });
   const jobRepo = new MemoryJobRepository();
   const settlementRepo = new MemorySettlementRepository();
   const gate = new PrismaSettlementGate(settlementRepo);
+  const { github } = createStagingLifecycleGithubFake();
 
   const app = createApp(
     operatorRepo,
     agentRepo,
     undefined,
-    undefined,
+    github,
     jobRepo,
     undefined,
     undefined,
@@ -557,26 +560,19 @@ describe('the remainder leg confirms independently of the deposit leg, and unloc
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
-      githubLogin: null,
+      githubLogin: 'scout-usdc-remainder',
     });
+    await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-usdc-remainder', status: 'verified' });
     const jobRepo = new MemoryJobRepository();
     const settlementRepo = new MemorySettlementRepository();
     const gate = new PrismaSettlementGate(settlementRepo);
-    const forkCalls: unknown[] = [];
-    const github = {
-      getPullRequest: () => Promise.reject(new Error('unused')),
-      getMergeCommitSignature: () => Promise.reject(new Error('unused')),
-      getPublicGist: () => Promise.reject(new Error('unused')),
-      forkAndOpenPullRequest: (input: unknown) => {
-        forkCalls.push(input);
-        return Promise.resolve({ owner: 'freeagents-platform', repo: 'target-repo', number: 1 });
-      },
-    };
+    const { github, calls } = createStagingLifecycleGithubFake();
+    const forkCalls = calls.openStagedPullRequest;
     const app = createApp(
       operatorRepo,
       agentRepo,
       undefined,
-      github as never,
+      github,
       jobRepo,
       undefined,
       undefined,

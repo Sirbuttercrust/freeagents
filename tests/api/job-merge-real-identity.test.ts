@@ -31,15 +31,18 @@ import {
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
-const FORK_OWNER = 'freeagents-platform';
+const FORK_OWNER = 'buyer';
 const FORK_REPO = 'target-repo';
 const PR_NUMBER = 11;
 const MERGE_SHA = 'h1-real-identity-merge-sha';
 const MERGED_AT = new Date('2026-08-30T10:00:00Z');
 
 function fakeGithub(): GithubAdapter {
+  const { github: staging } = createStagingLifecycleGithubFake();
   return {
+    ...staging,
     getPullRequest: (ref: PullRequestRef) =>
       Promise.resolve({
         ref,
@@ -52,9 +55,7 @@ function fakeGithub(): GithubAdapter {
         filesChanged: 2,
         repositoryPublic: true,
       }),
-    getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
-    getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
-    forkAndOpenPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: PR_NUMBER }),
+    openStagedPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: PR_NUMBER }),
   };
 }
 
@@ -114,8 +115,9 @@ async function startApp(): Promise<{
     delegation: { fixture: true } as never,
     name: 'scout',
     skills: ['triage'],
-    githubLogin: null,
+    githubLogin: 'scout-h1-real-identity',
   });
+  await agentRepo.updateGithubBinding(agentIdentity.did, { handle: 'scout-h1-real-identity', status: 'verified' });
   const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyerIdentity.did, githubLogin: 'buyer-h1-real-identity' });
 
@@ -229,8 +231,9 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
-      githubLogin: null,
+      githubLogin: 'scout-h1-mutation',
     });
+    await agentRepo.updateGithubBinding(agentIdentity.did, { handle: 'scout-h1-mutation', status: 'verified' });
     const operatorRepo = new MemoryAccountRepository();
     const buyerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(102));
     await operatorRepo.register({ did: buyerIdentity.did, githubLogin: 'buyer-h1-mutation' });

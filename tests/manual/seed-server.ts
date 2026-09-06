@@ -8,7 +8,6 @@
 // what the service really serves.
 import { createApp } from '../../src/api/app.js';
 import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
-import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import type { GithubAdapter, PullRequestRef, PullRequestSummary } from '../../src/adapters/github/types.js';
 import {
   MemoryAgentRepository,
@@ -18,13 +17,16 @@ import {
   MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
 const PORT = Number(process.env['PORT'] ?? 3141);
 const MERGE_SHA = 'a3f91c7d5e2b48c1f0a97d63b8e254c1f9a02d7b';
 
 function stubbedGithub(): GithubAdapter {
+  const { github: staging } = createStagingLifecycleGithubFake();
   return {
-    forkAndOpenPullRequest: () => Promise.resolve({ owner: 'northsound', repo: 'commerce', number: 4471 }),
+    ...staging,
+    openStagedPullRequest: () => Promise.resolve({ owner: 'northsound', repo: 'commerce', number: 4471 }),
     getPullRequest: (ref: PullRequestRef): Promise<PullRequestSummary> =>
       Promise.resolve({
         ref,
@@ -38,8 +40,6 @@ function stubbedGithub(): GithubAdapter {
         // R-17: GitHub reports base repo visibility; the seed repo is public.
         repositoryPublic: true,
       }),
-    getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
-    getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
   };
 }
 

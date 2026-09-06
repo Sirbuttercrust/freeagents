@@ -18,7 +18,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
 import type { GithubAdapter, PullRequestRef } from '../../src/adapters/github/types.js';
-import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import {
   MemoryAgentRepository,
   MemoryCredentialRepository,
@@ -29,15 +28,18 @@ import {
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
-const FORK_OWNER = 'freeagents-platform';
+const FORK_OWNER = 'buyer';
 const FORK_REPO = 'target-repo';
 const PR_NUMBER = 21;
 const MERGE_SHA = 'restart-merge-sha';
 const MERGED_AT = new Date('2026-08-31T10:00:00Z');
 
 function fakeGithub(): GithubAdapter {
+  const { github: staging } = createStagingLifecycleGithubFake();
   return {
+    ...staging,
     getPullRequest: (ref: PullRequestRef) =>
       Promise.resolve({
         ref,
@@ -50,9 +52,7 @@ function fakeGithub(): GithubAdapter {
         filesChanged: 1,
         repositoryPublic: true,
       }),
-    getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
-    getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
-    forkAndOpenPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: PR_NUMBER }),
+    openStagedPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: PR_NUMBER }),
   };
 }
 
@@ -101,8 +101,9 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
-      githubLogin: null,
+      githubLogin: 'scout-restart',
     });
+    await agentRepo.updateGithubBinding(agentIdentity.did, { handle: 'scout-restart', status: 'verified' });
     const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: buyerIdentity.did, githubLogin: 'buyer-restart' });
     const jobRepo = new MemoryJobRepository();
