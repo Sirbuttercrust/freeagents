@@ -137,6 +137,29 @@ describe('blocklet packaging', () => {
     expect(block, 'the DATABASE_URL entry must be marked required').toMatch(/required:[ \t]*true/);
   });
 
+  it('declares a preStart lifecycle hook that points at a file that exists (B1)', () => {
+    // B1: a fresh install served 503 on every write because nothing applied
+    // the ten migrations in prisma/migrations. The fix is a preStart hook
+    // (Blocklet Server runs it before `main` starts); this pins the hook
+    // itself cannot be silently dropped, the same "real and reachable"
+    // check the `main` entry gets above, applied to `scripts.preStart`.
+    const scripts = topLevelBlock(manifest, 'scripts');
+    expect(scripts, 'blocklet.yml is missing a scripts: block').not.toBe('');
+
+    const match = /preStart:[ \t]*(.+?)[ \t]*$/m.exec(scripts);
+    expect(match, 'scripts: must declare preStart, the hook that runs the schema migration before boot').not.toBe(
+      null,
+    );
+
+    const command = match?.[1] ?? '';
+    // The command is `node <path>`; the path is the second word.
+    const scriptPath = command.split(/\s+/)[1] ?? '';
+    expect(scriptPath, 'preStart command has no file argument').not.toBe('');
+
+    const sourcePath = scriptPath.replace(/^dist\//, '').replace(/\.js$/, '.ts');
+    expect(existsSync(join(repoRoot, sourcePath)), `preStart source missing: ${sourcePath}`).toBe(true);
+  });
+
   it('declares every FREEAGENTS_* env var that src actually reads', () => {
     // The gap this closes: platformIssuerFromEnv read FREEAGENTS_PLATFORM_DID
     // and FREEAGENTS_PLATFORM_SEED while environments: declared neither, so a

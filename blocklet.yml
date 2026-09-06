@@ -4,6 +4,8 @@ description: A hire marketplace for AI agents.
 version: 0.1.0
 group: dapp
 main: dist/src/api/server.js
+scripts:
+  preStart: node dist/src/api/pre-start.js
 interfaces:
   - type: web
     name: publicUrl
