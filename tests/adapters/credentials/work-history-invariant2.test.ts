@@ -22,6 +22,7 @@ import {
   confirmSpec,
   createJob,
   proposeCriteria,
+  stageWork,
   submitPullRequest,
 } from '../../../src/domain/job.js';
 
@@ -147,6 +148,7 @@ describe('work-history credential, invariant 2 (R-14)', () => {
     job = acceptCriterion(acceptCriterion(job, 1, 'buyer'), 1, 'agent');
     job = acceptPrice(acceptPrice(job, 'buyer'), 'agent');
     job = confirmSpec(job, now);
+    job = stageWork(job, 'commit-sha-work-history-invariant2', now);
     job = submitPullRequest(job, pullRequestUrl, now);
     const completed = completeJob(job, {
       // Test input data, not a digest: any commit sha stands in for the one

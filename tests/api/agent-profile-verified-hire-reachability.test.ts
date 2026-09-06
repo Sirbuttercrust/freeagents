@@ -29,6 +29,7 @@ import {
 } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
+import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 
 const ISSUER_DID = 'did:abt:test-platform-issuer-reachability';
 const ISSUER_SEED = new Uint8Array(32).fill(3);
@@ -102,6 +103,8 @@ async function startWith(
     undefined,
     undefined,
     sessionAdapter,
+    undefined,
+    alwaysSettledGate(),
   );
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -167,6 +170,7 @@ async function walkToMerge(
   expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyer)).status).toBe(200);
   expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agent)).status).toBe(200);
   expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyer)).status).toBe(200);
+  expect((await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agent)).status).toBe(200);
   expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agent)).status).toBe(200);
 
   const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, buyer);

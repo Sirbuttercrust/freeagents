@@ -71,6 +71,7 @@ import type { Account } from '../domain/account.js';
 import {
   acceptCriterion,
   acceptPrice,
+  applyLapses,
   assertPriceAboveFloor,
   completeJob,
   confirmSpec,
@@ -81,9 +82,11 @@ import {
   proposeCriteria,
   recordClosedUnmerged,
   recordStale,
+  recordStagedDeclined,
   decline,
   recordWithdrawn,
   requestChanges,
+  stageWork,
   submitPullRequest,
   validateJobTransition,
   type CompletedJob,
@@ -92,6 +95,8 @@ import {
   type Party,
   type PriceProposal,
 } from '../domain/job.js';
+import { depositUsd, remainderUsd } from '../domain/payment.js';
+import { createSettlementGate, remainderSettled, type SettlementGate } from '../adapters/payment/gate.js';
 import { rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
 import { buyerDiversity } from '../domain/buyer-diversity.js';
 import {
@@ -298,6 +303,14 @@ function jobProjection(row: Job): Record<string, unknown> {
     row.mergeCommit !== null && row.mergedAt !== null
       ? { mergeCommit: row.mergeCommit, mergedAt: row.mergedAt.toISOString() }
       : {};
+  // P4: the same one-writer rule for stage (stageWork writes both fields
+  // together or neither), riding between confirmation and submission --
+  // staged sits between confirmed and submitted in the transition table,
+  // and its two fields join the projection the same conditional way.
+  const staging =
+    row.stagedCommit !== null && row.stagedAt !== null
+      ? { stagedCommit: row.stagedCommit, stagedAt: row.stagedAt.toISOString() }
+      : {};
   return {
     id: row.id,
     buyerDid: row.buyerDid,
@@ -309,6 +322,7 @@ function jobProjection(row: Job): Record<string, unknown> {
     ...(row.criteria.length > 0 ? { criteria: row.criteria } : {}),
     ...price,
     ...confirmation,
+    ...staging,
     ...submission,
     ...completion,
     createdAt: row.createdAt.toISOString(),
@@ -437,6 +451,12 @@ export function createApp(
   // it shares any other repository, to prove a restart does not lose the
   // observation.
   observedKeyRepo: ObservedKeyRepository = createObservedKeyRepository(),
+  // P4: the payment settlement gate (design record, 2026-09-01). Defaults
+  // to the fail-closed UnwiredSettlementGate (see
+  // src/adapters/payment/gate.ts's header comment for the wiring seam a
+  // later card lands on): an unwired build refuses to confirm a job and
+  // refuses to open a pull request, which is loud and correct.
+  settlementGate: SettlementGate = createSettlementGate(),
 ): Express {
   // One repository behind both halves of the capability when the caller
   // supplies neither. createCredentialRepository() hands the memory driver a
@@ -1659,6 +1679,9 @@ export function createApp(
       res.status(404).json({ error: 'not found' });
       return;
     }
+    const lapsed = await applyLiveLapses('GET /jobs/:jobId', row, res);
+    if (lapsed === null) return;
+    row = lapsed;
     // Only a completed job can carry one, so an unmerged row never pays for
     // the lookup.
     if (row.mergeCommit === null) {
@@ -1707,6 +1730,16 @@ export function createApp(
   // storage-fault tests pin the exact call sequence a route makes, and a
   // second read would be an observable, untested behaviour change for no
   // reason.
+  //
+  // P4, review round 1 (D2/D3, t_cb5d35cd): the clocks used to bind only
+  // to GET, so a job that lapsed while nobody was looking could still be
+  // ACTED ON by a mutation route -- staging or opening a pull request on
+  // an already-expired confirmed job, or opening one on a staged job that
+  // had gone seven days unpaid. Applying the live lapse check here, in the
+  // one load every mutation and exchange route shares, closes that gap at
+  // its single choke point instead of one route at a time, and removes
+  // the order dependency GET introduced: the outcome no longer depends on
+  // whether some unrelated caller issued a read first.
   async function loadForExchange(label: string, jobId: string, res: Response): Promise<Job | null> {
     let current: Job | null;
     try {
@@ -1720,7 +1753,56 @@ export function createApp(
       res.status(404).json({ error: 'not found' });
       return null;
     }
-    return current;
+    return applyLiveLapses(label, current, res);
+  }
+
+  // The live half of applyLapses: lapseAtStaged is the one clock that
+  // needs a fact beyond the row itself (whether the balance has settled),
+  // so this is where the settlement gate is actually asked, only for a
+  // staged job (the other two clocks never consult it). A gate failure
+  // here is treated exactly like any other settlement-gate failure in
+  // this file (POST /jobs/:jobId/pull-request's own leg): 503, not a
+  // silent fail-closed guess, because reporting a status this call could
+  // not actually verify is the same defect class the fail-closed default
+  // gate exists to prevent. The persistence half stays best-effort (as
+  // GET's stance always was): a write failure here must not turn an
+  // otherwise-successful read or mutation into a false 503, so the
+  // computed row is still what the caller sees either way.
+  async function applyLiveLapses(label: string, job: Job, res: Response): Promise<Job | null> {
+    let remainderIsSettled = false;
+    if (job.status === 'staged') {
+      try {
+        remainderIsSettled = await remainderSettled(settlementGate, job.id);
+      } catch (err) {
+        console.error(`${label}: settlement gate failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return null;
+      }
+    }
+    const lapsed = applyLapses(job, new Date(), remainderIsSettled);
+    if (lapsed.status === job.status) return job;
+    try {
+      const persisted = await jobRepo.update(lapsed);
+      return persisted ?? lapsed;
+    } catch (err) {
+      console.error(`${label}: failed to persist a lapsed status`, err);
+      return lapsed;
+    }
+  }
+
+  // P4: the payment gate parameter every gated route (confirm,
+  // pull-request) shares. Optional and inserted BETWEEN the pure apply
+  // and the persist, so the existing 400/409 answers for a bad body,
+  // outstanding criteria or a wrong transition keep firing first exactly
+  // as before (the pure `apply` above still throws on those, unchanged) --
+  // the money check runs only once the domain has already agreed the
+  // transition itself is legal, and it runs before anything is written.
+  interface PaymentGateCheck {
+    // Answers whether the leg this route cares about is settled.
+    readonly settled: (jobId: string) => Promise<boolean>;
+    // The 402 body once `apply` has already succeeded but the leg has
+    // not settled -- carries what the buyer must still pay.
+    readonly unsettledBody: (updated: Job) => Record<string, unknown>;
   }
 
   async function applyAndPersist(
@@ -1728,6 +1810,7 @@ export function createApp(
     res: Response,
     current: Job,
     apply: (job: Job) => Job,
+    paymentGate?: PaymentGateCheck,
   ): Promise<void> {
     let updated: Job;
     try {
@@ -1749,6 +1832,25 @@ export function createApp(
         return;
       }
       throw err;
+    }
+
+    // P4 anchor: unpaid work never becomes visible. The domain has already
+    // agreed the transition is otherwise legal (the try block above did
+    // not throw); the money question is the LAST gate, after every
+    // agreement problem, and before anything persists.
+    if (paymentGate !== undefined) {
+      let settled: boolean;
+      try {
+        settled = await paymentGate.settled(current.id);
+      } catch (err) {
+        console.error(`${label}: settlement gate failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (!settled) {
+        res.status(402).json(paymentGate.unsettledBody(updated));
+        return;
+      }
     }
 
     try {
@@ -1851,6 +1953,7 @@ export function createApp(
     req: Request,
     res: Response,
     apply: (job: Job, party: Party) => Job,
+    paymentGate?: PaymentGateCheck,
   ): Promise<void> {
     const current = await loadForExchange(label, jobId, res);
     if (current === null) return;
@@ -1867,7 +1970,7 @@ export function createApp(
       res.status(403).json({ error: 'signature does not name a party to this job' });
       return;
     }
-    await applyAndPersist(label, res, current, (job) => apply(job, signedParty));
+    await applyAndPersist(label, res, current, (job) => apply(job, signedParty), paymentGate);
   }
 
   // The agent proposes acceptance criteria, or re-proposes after pushback
@@ -2065,12 +2168,31 @@ export function createApp(
   // gate still applies (ENT-6.2): confirm is itself an exchange action, and
   // the gate this whole issue exists to close is that a single party could
   // call this route and lock in an agreement the other side never made.
+  //
+  // P4 anchor: a hire cannot confirm until the deposit is settled. The
+  // check runs in this route layer, immediately before persistence and
+  // after every existing 400/409 agreement-problem answer (confirmSpec
+  // itself is unchanged and stays synchronous) -- a caller sees the
+  // agreement problems first, the money problem last, and the response
+  // carries the depositUsd amount so a 402 is actionable, not just a
+  // refusal.
   app.post(
     '/jobs/:jobId/confirm',
     didSignature,
     forwarded(async (req: Request, res: Response) => {
-      await runPartyExchange('POST /jobs/:jobId/confirm', String(req.params.jobId), req, res, (job) =>
-        confirmSpec(job, new Date()),
+      await runPartyExchange(
+        'POST /jobs/:jobId/confirm',
+        String(req.params.jobId),
+        req,
+        res,
+        (job) => confirmSpec(job, new Date()),
+        {
+          settled: (jobId) => settlementGate.depositSettled(jobId),
+          unsettledBody: (updated) => ({
+            error: 'the deposit has not settled; this job cannot confirm until it does',
+            depositUsd: depositUsd(String(updated.priceUsd), updated.depositPercent),
+          }),
+        },
       );
     }),
   );
@@ -2104,6 +2226,47 @@ export function createApp(
     }),
   );
 
+  // P4: the agent stages the work (confirmed -> staged), posting the
+  // commit SHA it staged. Party rule mirrors pull-request: only the agent
+  // stages, the same way only the agent opens a pull request. The
+  // attestation document itself is a later card; this route stores only
+  // the SHA and the instant (stageWork's own scope). No payment gate
+  // here: staging is unpaid by design (the anchor is precisely that the
+  // work sits in staging, unpaid and unseen, until the balance settles at
+  // pull-request time).
+  app.post(
+    '/jobs/:jobId/stage',
+    didSignature,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/stage';
+      const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['agent']);
+      if (gate === null) return;
+      const body = (req.body ?? {}) as { stagedCommit?: unknown };
+      if (typeof body.stagedCommit !== 'string' || body.stagedCommit.trim() === '') {
+        res.status(400).json({ error: 'body must be { stagedCommit: string }: the commit SHA the agent staged' });
+        return;
+      }
+      const stagedCommit = body.stagedCommit;
+      await applyAndPersist(label, res, gate.job, (job) => stageWork(job, stagedCommit, new Date()));
+    }),
+  );
+
+  // P4: the buyer declines the staged work, free of charge, before paying
+  // the remainder (design record, 2026-09-01: pay, request the one redo,
+  // or decline for free). Buyer-only, terminal, body-less like withdraw
+  // and decline -- no money moves and none is owed (recordStagedDeclined's
+  // own header comment).
+  app.post(
+    '/jobs/:jobId/staged-decline',
+    didSignature,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/staged-decline';
+      const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
+      if (gate === null) return;
+      await applyAndPersist(label, res, gate.job, recordStagedDeclined);
+    }),
+  );
+
   // R-10 (ENT-4.3, ENT-4.5): fork the buyer's repository and open the pull
   // request carrying the job id. The route owns only what the domain cannot
   // know: splitting the stored owner/name pair, formatting the public
@@ -2122,6 +2285,29 @@ export function createApp(
       const gate = await requireSignedParty('POST /jobs/:jobId/pull-request', jobId, req, res, ['agent']);
       if (gate === null) return;
       const current: Job = gate.job;
+
+      // P4 anchor: the pull request cannot open until the balance is
+      // settled. This check sits in FRONT of both the state machine check
+      // and the fork call below, because a fork is a public act (the
+      // brief's own wording) -- unlike confirm, where the money question
+      // is the LAST agreement gate, here it is the FIRST side-effect gate:
+      // nothing publicly visible may happen before the money is verified,
+      // whatever the job's status turns out to be.
+      let remainderIsSettled: boolean;
+      try {
+        remainderIsSettled = await remainderSettled(settlementGate, jobId);
+      } catch (err) {
+        console.error('POST /jobs/:jobId/pull-request: settlement gate failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (!remainderIsSettled) {
+        res.status(402).json({
+          error: 'the remainder has not settled; this job cannot open a pull request until it does',
+          remainderUsd: current.priceUsd === null ? null : remainderUsd(current.priceUsd, current.depositPercent),
+        });
+        return;
+      }
 
       // Opening a PR is a public external side effect, so the state machine
       // is consulted before it can fire at all: a draft or proposed job gets
@@ -2229,6 +2415,19 @@ export function createApp(
         // this it fell through to the URL parse and surfaced as a 500.
         'withdrawn',
         'declined',
+        // D7 (review round 2, t_cb5d35cd): the five P4 statuses never carry
+        // a pullRequestUrl either, so without this line each one fell
+        // through to the submitted-only parse below and threw -- a caller
+        // mistake (asking to merge a job that was never submitted) turning
+        // into a 500 platform fault instead of the same honest 409 every
+        // other non-observable status already answers. deemed_completed
+        // additionally used to spend a real github.getPullRequest call
+        // before failing; listing it here stops that call too.
+        'staged',
+        'staged_declined',
+        'closed_unpaid',
+        'expired_unstaged',
+        'deemed_completed',
       ];
       if (nonObservationStatuses.includes(current.status)) {
         res.status(409).json({ error: new JobTransitionError(current.status, 'merge').message });
