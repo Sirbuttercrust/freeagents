@@ -438,7 +438,7 @@ export function expireUnstaged(job: Job, now: Date): Job {
 // tests/architecture/no-custody.test.ts reason src/domain/payment.ts's
 // remainderUsd is not named balanceUsd: invariant 12 bans the substring
 // "balance" in any src file outside src/adapters/payment, and this file
-// is outside that directory). Proof round 1 (D4, t_cb5d35cd) found the
+// is outside that directory). Review round 1 (D4, t_cb5d35cd) found the
 // first cut checked only status and elapsed time, so a buyer who had
 // already paid could still have their job closed unpaid by an unrelated
 // read -- destroying delivered, paid-for work. Defaults to false (fail
@@ -481,7 +481,7 @@ export function deemCompleted(job: Job, now: Date): Job {
 // Defaults to false (fail closed), matching lapseAtStaged's own default
 // -- a caller that has not looked up settlement gets the safe answer.
 //
-// Call site (P4, Proof round 1 fix, t_cb5d35cd -- D1/D2/D3): this domain
+// Call site (P4, review round 1 fix, t_cb5d35cd -- D1/D2/D3): this domain
 // function has exactly one caller, src/api/app.ts's applyLiveLapses,
 // which is itself called from two places -- GET /jobs/:jobId, and
 // loadForExchange, the one load EVERY mutation and exchange route in

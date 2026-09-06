@@ -9,7 +9,7 @@
 // make it pass. "remainderUsd" is the same function (price minus the
 // already-rounded deposit) under a name that does not collide with the
 // architecture test; the collision and this choice are called out in the
-// handoff for Temper/Proof to confirm or override.
+// handoff for review to confirm or override.
 //
 // THE TRAP THIS FILE PINS: 25 percent of 99.99 is 24.9975, which has no
 // exact cent representation. Whatever convention rounds the deposit, the
