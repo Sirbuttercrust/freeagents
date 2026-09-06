@@ -424,6 +424,18 @@ function jobProjection(row: Job): Record<string, unknown> {
           },
         }
       : {};
+  // B14a: attachStagingRepository writes stagingRepo and baseCommit
+  // together or neither (see that function's own header comment), so the
+  // pair rides one conditional here the same way every other one-writer
+  // pair in this projection does. Once confirm has created the platform's
+  // staging repository, the agent it just granted push to has to be told
+  // which repository that is -- the anchor's whole point is that the
+  // staged commit lives somewhere the platform named, and the wire is
+  // where that name has to surface.
+  const stagingRepoFacts =
+    row.stagingRepo !== null && row.baseCommit !== null
+      ? { stagingRepo: row.stagingRepo, baseCommit: row.baseCommit }
+      : {};
   return {
     id: row.id,
     buyerDid: row.buyerDid,
@@ -435,6 +447,7 @@ function jobProjection(row: Job): Record<string, unknown> {
     ...(row.criteria.length > 0 ? { criteria: row.criteria } : {}),
     ...price,
     ...confirmation,
+    ...stagingRepoFacts,
     ...staging,
     ...redo,
     ...submission,

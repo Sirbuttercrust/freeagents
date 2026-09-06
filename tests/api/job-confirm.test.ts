@@ -40,7 +40,7 @@ import { createJob, type Job } from '../../src/domain/job.js';
 import { signingIdentityFromSeed, signingIdentityFromWallet, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
-import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
+import { createStagingLifecycleGithubFake, PLATFORM_LOGIN } from '../helpers/github-staging-fixtures.js';
 
 const AGENT_GITHUB_LOGIN = 'scout-confirm';
 const STRANGER_GITHUB_LOGIN = 'stranger-confirm';
@@ -240,9 +240,11 @@ describe('job confirm (R-9)', () => {
     expect(String(confirmedBody.specHash)).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(typeof confirmedBody.confirmedAt).toBe('string');
     // A confirmed job projects base eight + criteria + specHash + confirmedAt
-    // + the agreed price (P1), and nothing else.
+    // + the agreed price (P1) + the staging repository the confirm route
+    // just created (B14a), and nothing else.
     expect(Object.keys(confirmedBody).sort()).toEqual([
       'agentDid',
+      'baseCommit',
       'brief',
       'briefHash',
       'buyerDid',
@@ -253,8 +255,16 @@ describe('job confirm (R-9)', () => {
       'price',
       'repository',
       'specHash',
+      'stagingRepo',
       'status',
     ]);
+    // B14a: the agent just granted push has to be told which repository
+    // to push to. The fixture's createStagingRepository names the repo
+    // deterministically from the job id and seeds it at the source
+    // repository's default-branch head (never configured for this job,
+    // so the fixture's own deterministic default applies).
+    expect(confirmedBody.stagingRepo).toEqual({ owner: PLATFORM_LOGIN, repo: `staging-${jobId}` });
+    expect(confirmedBody.baseCommit).toBe('buyer-target-repo-head-sha');
     // The brief's own verifiable fact rides through unchanged.
     expect(confirmedBody.briefHash).toBe(draftBody.briefHash);
     confirmedJobId = jobId;

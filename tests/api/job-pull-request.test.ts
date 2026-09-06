@@ -242,6 +242,7 @@ describe('job pull-request (R-10, B14a)', () => {
     // one exists, and nothing else.
     expect(Object.keys(prBody).sort()).toEqual([
       'agentDid',
+      'baseCommit',
       'brief',
       'briefHash',
       'buyerDid',
@@ -256,6 +257,7 @@ describe('job pull-request (R-10, B14a)', () => {
       'specHash',
       'stagedAt',
       'stagedCommit',
+      'stagingRepo',
       'status',
       'submittedAt',
     ]);
