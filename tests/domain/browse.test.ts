@@ -233,7 +233,7 @@ describe('sortBrowseCards', () => {
   // Proof (t_698205aa, defect sort-mutation-guard-too-weak): the guard above
   // only exercises a hire+portfolio blend, and its fixture pins
   // verifiedPriorWorkCount to 0 on every card, so a comparator blended with
-  // verifiedPriorWorkCount instead (Proof's own mutation:
+  // verifiedPriorWorkCount instead (the review's own mutation:
   // (b.verifiedHireCount + b.verifiedPriorWorkCount) - (a...)) was invisible
   // to it -- the full suite stayed green. This fixture makes
   // verifiedPriorWorkCount the one that would flip the order under that
@@ -354,7 +354,7 @@ describe('toBrowseCard: structural no-blend sweep', () => {
     }
   });
 
-  // Positive control (mirrors Proof's reproduction with an injected
+  // Positive control (mirrors the reproduction from review with an injected
   // combinedEvidence field): the sweep instrument itself must catch a
   // genuinely blended field. Run against the SAME card and forbidden-sum
   // set as the test above, so this proves the sweep bites on the resident
