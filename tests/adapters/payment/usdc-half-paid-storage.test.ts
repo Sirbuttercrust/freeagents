@@ -8,6 +8,7 @@ import { describe, expect, it, vi, afterEach, beforeAll } from 'vitest';
 const mock = vi.hoisted(() => ({
   upsert: vi.fn(),
   findUnique: vi.fn(),
+  deleteMany: vi.fn(),
 }));
 
 vi.mock('../../../src/generated/prisma/index.js', async () => {
@@ -19,6 +20,7 @@ vi.mock('../../../src/generated/prisma/index.js', async () => {
       usdcHalfPaidSettlement = {
         upsert: mock.upsert,
         findUnique: mock.findUnique,
+        deleteMany: mock.deleteMany,
       };
     },
     Prisma: actual.Prisma,
@@ -32,6 +34,7 @@ const { createPrismaUsdcHalfPaidStorage } = await import(
 function resetAll(): void {
   vi.mocked(mock.upsert).mockReset();
   vi.mocked(mock.findUnique).mockReset();
+  vi.mocked(mock.deleteMany).mockReset();
 }
 
 describe('createPrismaUsdcHalfPaidStorage', () => {
@@ -112,5 +115,14 @@ describe('createPrismaUsdcHalfPaidStorage', () => {
     const row = await storage.read('job_1', 'deposit');
 
     expect(row).toBeNull();
+  });
+
+  it('clear: deletes the row for a job id and leg using deleteMany, so clearing a row that does not exist is a no-op rather than throwing', async () => {
+    vi.mocked(mock.deleteMany).mockResolvedValue({ count: 0 });
+
+    const storage = createPrismaUsdcHalfPaidStorage();
+    await expect(storage.clear('job_1', 'deposit')).resolves.toBeUndefined();
+
+    expect(mock.deleteMany).toHaveBeenCalledWith({ where: { jobId: 'job_1', leg: 'deposit' } });
   });
 });

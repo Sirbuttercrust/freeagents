@@ -211,6 +211,16 @@ export function createUsdcPaymentRail(options: CreateUsdcPaymentRailOptions = {}
           feeTxHash: ref.feeTxHash,
           feeStatus: fee.status,
         });
+      } else {
+        // A settlement that is no longer half-paid must not leave a stale
+        // half-paid row behind (P3 review round 1, D2): a late-landing
+        // second signature is the ordinary case on a two-transaction rail,
+        // and every confirm() call re-evaluates the current chain state
+        // regardless of what a prior call wrote, matching this rail's own
+        // idempotency stance. clear() is a no-op when there is no row to
+        // remove, so this costs nothing on the far more common path where
+        // the settlement was never half-paid to begin with.
+        await halfPaidStorage.clear(ref.jobId, ref.leg);
       }
 
       return {

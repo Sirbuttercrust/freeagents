@@ -19,4 +19,12 @@ export interface UsdcHalfPaidStorage {
   // confirm() stays idempotent as the interface requires.
   record(row: UsdcHalfPaidRow): Promise<void>;
   read(jobId: string, leg: 'deposit' | 'balance'): Promise<UsdcHalfPaidRow | null>;
+  // Removes a settlement's half-paid row once confirm() observes it is no
+  // longer half-paid (both legs confirmed, review round 1, D2): a
+  // late-landing second signature is the ordinary case on a two-transaction
+  // rail, and a stale half-paid row left behind would tell P4's state
+  // machine a settlement is half-paid after it has actually completed. A
+  // clear() on a row that does not exist is a no-op, not an error, since
+  // most confirm() calls are on settlements that were never half-paid.
+  clear(jobId: string, leg: 'deposit' | 'balance'): Promise<void>;
 }

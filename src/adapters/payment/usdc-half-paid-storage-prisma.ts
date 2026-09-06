@@ -39,5 +39,13 @@ export function createPrismaUsdcHalfPaidStorage(): UsdcHalfPaidStorage {
         feeStatus: row.feeStatus as UsdcHalfPaidRow['feeStatus'],
       };
     },
+
+    async clear(jobId: string, leg: 'deposit' | 'balance'): Promise<void> {
+      // deleteMany, not delete: delete throws when the row does not exist,
+      // and most confirm() calls are on settlements that were never
+      // half-paid, so "nothing to clear" must be a no-op (P3 review round
+      // 1, D2).
+      await db().usdcHalfPaidSettlement.deleteMany({ where: { jobId, leg } });
+    },
   };
 }

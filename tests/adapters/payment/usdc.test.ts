@@ -196,6 +196,36 @@ function fakeHalfPaidStorage(): { storage: UsdcHalfPaidStorage; records: unknown
       async read() {
         return null;
       },
+      async clear() {
+        // no-op: these tests only assert on what record() received.
+      },
+    },
+  };
+}
+
+// A stateful fake keyed by (jobId, leg), mirroring the Prisma driver's own
+// upsert-by-key semantics closely enough to prove a later clear() call
+// actually removes a row a prior record() call wrote, not just that both
+// calls happened (fakeHalfPaidStorage above only ever appends, so it cannot
+// tell a stale row from a cleared one).
+function statefulHalfPaidStorage(): {
+  storage: UsdcHalfPaidStorage;
+  read: (jobId: string, leg: 'deposit' | 'balance') => unknown;
+} {
+  const rows = new Map<string, unknown>();
+  const key = (jobId: string, leg: string) => `${jobId}:${leg}`;
+  return {
+    read: (jobId, leg) => rows.get(key(jobId, leg)) ?? null,
+    storage: {
+      async record(row) {
+        rows.set(key(row.jobId, row.leg), row);
+      },
+      async clear(jobId, leg) {
+        rows.delete(key(jobId, leg));
+      },
+      async read(jobId, leg) {
+        return (rows.get(key(jobId, leg)) as never) ?? null;
+      },
     },
   };
 }
@@ -320,5 +350,33 @@ describe('createUsdcPaymentRail: confirm fails closed on the half-paid state (th
     expect(confirmation.halfPaid).toBe(true);
     expect(confirmation.legs?.fee).toEqual({ status: 'not_signed' });
     expect(records[0]).toMatchObject({ feeTxHash: null, feeStatus: 'not_signed' });
+  });
+
+  it('a late-landing fee transfer clears the stale half-paid record once both legs confirm (the ordinary case on a two-transaction rail)', async () => {
+    let feeCalls = 0;
+    const chainClient = fakeChainClient({
+      getTransactionReceipt: async (hash) => {
+        if (hash === '0xprice') return { status: 1 };
+        feeCalls += 1;
+        // First poll: the wallet has not yet signed/landed the fee
+        // transfer. Second poll: the buyer's second signature lands.
+        return feeCalls === 1 ? null : { status: 1 };
+      },
+    });
+    const { storage, read } = statefulHalfPaidStorage();
+    const rail = withEnv(envConfig(), () => createUsdcPaymentRail({ chainClient, halfPaidStorage: storage }));
+
+    const first = await rail.confirm(usdcRef());
+    expect(first.confirmed).toBe(false);
+    expect(first.halfPaid).toBe(true);
+    expect(read('job_1', 'deposit')).toMatchObject({ priceStatus: 'confirmed', feeStatus: 'not_confirmed' });
+
+    const second = await rail.confirm(usdcRef());
+    expect(second.confirmed).toBe(true);
+    expect(second.halfPaid).toBe(false);
+    // The stale half-paid row must not survive a settlement that has since
+    // fully confirmed: P4's state machine would otherwise read a half-paid
+    // record for a job that is actually fully paid.
+    expect(read('job_1', 'deposit')).toBeNull();
   });
 });
