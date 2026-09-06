@@ -8,11 +8,16 @@
 // it as a sibling of the projection the same way a merge credential rides.
 import type { Server } from 'node:http';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
 import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
-import { isCompletedHireCredential, type DeemedCompletionCredential } from '../../src/adapters/credentials/types.js';
+import {
+  isCompletedHireCredential,
+  type CredentialsAdapter,
+  type DeemedCompletionCredential,
+  type DeemedCompletionClaim,
+} from '../../src/adapters/credentials/types.js';
 import { MemoryAgentRepository, MemoryCredentialRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { createJob, type Job } from '../../src/domain/job.js';
 import { signingIdentityFromSeed, type SigningIdentity } from '../helpers/sign-request.js';
@@ -147,5 +152,101 @@ describe('deemed-completion credential issuance (P6, design record row 3)', () =
     const stored = await credentialRepo.findByDocumentId(jobId);
     if (stored === null) throw new Error('expected a stored credential');
     expect((secondBody.credential as DeemedCompletionCredential).id).toBe(stored.id);
+  });
+
+  // P6 review round 3, D5 (t_604e3f2a): issuance used to be attempted
+  // exactly once, on the instant applyLiveLapses observes the transition
+  // (`if (lapsed.status === job.status) return job;` skipped every later
+  // read before issuance was ever reconsidered). A transient signing fault
+  // on that one attempt destroyed the credential permanently, with no
+  // retry route -- unlike the merge route, which a caller retries and
+  // which re-enters issuance. This test wraps the real signer so it fails
+  // on its first call for the flaky job and succeeds after, with a
+  // healthy job proven alive through the identical path as a positive
+  // control (a test that only checked the failing leg would pass on a
+  // build where issuance never fires at all).
+  it('a transient issuance failure is recovered on a later read, proven against a healthy positive control', async () => {
+    const flakyJobId = 'j-deemed-flaky';
+    const healthyJobId = 'j-deemed-healthy';
+    await jobRepo.create(submittedJob(flakyJobId));
+    await jobRepo.create(submittedJob(healthyJobId));
+
+    const realCredentials = createCredentialsAdapter({ did: ISSUER_DID, seed: ISSUER_SEED }, credentialRepo);
+    let flakyAttempts = 0;
+    const flakyCredentials: CredentialsAdapter = {
+      ...realCredentials,
+      issueDeemedCompletionCredential(subjectDid: string, claim: DeemedCompletionClaim) {
+        if (claim.jobId === flakyJobId) {
+          flakyAttempts += 1;
+          if (flakyAttempts === 1) {
+            return Promise.reject(new Error('signing key unavailable'));
+          }
+        }
+        return realCredentials.issueDeemedCompletionCredential(subjectDid, claim);
+      },
+    };
+    const flakyApp = createApp(
+      new MemoryAccountRepository(),
+      new MemoryAgentRepository(),
+      undefined,
+      undefined,
+      jobRepo,
+      flakyCredentials,
+      undefined,
+      credentialRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      alwaysSettledGate(),
+      anyCommitStagingObserver(),
+    );
+    const flakyServer = flakyApp.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => flakyServer.once('listening', resolve));
+    const address = flakyServer.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('expected server to listen on a port');
+    }
+    const flakyBaseUrl = `http://127.0.0.1:${address.port}`;
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // Positive control: the healthy job issues on the very first read,
+      // proving the instrument (this app, this adapter) actually fires
+      // issuance through this exact path.
+      const controlRes = await get(flakyBaseUrl, `/jobs/${healthyJobId}`);
+      const controlBody = (await controlRes.json()) as Record<string, unknown>;
+      expect(controlBody.status).toBe('deemed_completed');
+      expect(controlBody.credential).toBeDefined();
+
+      // The flaky job: first read observes the transition but the signer
+      // fails, so the job is deemed_completed with no credential.
+      const firstRes = await get(flakyBaseUrl, `/jobs/${flakyJobId}`);
+      const firstBody = (await firstRes.json()) as Record<string, unknown>;
+      expect(firstBody.status).toBe('deemed_completed');
+      expect(firstBody.credential).toBeUndefined();
+      expect(await credentialRepo.findByDocumentId(flakyJobId)).toBeNull();
+
+      // A later read, signer healthy again: the credential is recovered,
+      // not lost forever. This is the behavior the old code's comment
+      // claimed ("re-derivable ... rather than a silently skipped
+      // issuance") without actually providing.
+      const secondRes = await get(flakyBaseUrl, `/jobs/${flakyJobId}`);
+      const secondBody = (await secondRes.json()) as Record<string, unknown>;
+      expect(secondBody.status).toBe('deemed_completed');
+      expect(secondBody.credential).toBeDefined();
+      const recovered = secondBody.credential as DeemedCompletionCredential;
+      expect(recovered.type).toContain('DeemedCompletionCredential');
+      expect(await credentialRepo.findByDocumentId(flakyJobId)).not.toBeNull();
+
+      // Exactly one credential row for the flaky job even though issuance
+      // was attempted twice: the repository's own duplicate guard
+      // (CredentialAlreadyIssuedError) is what makes a retry safe, and it
+      // must not fire here since the first attempt never reached save.
+      expect(flakyAttempts).toBe(2);
+    } finally {
+      errorLog.mockRestore();
+      await new Promise<void>((resolve) => flakyServer.close(() => resolve()));
+    }
   });
 });

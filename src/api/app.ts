@@ -28,6 +28,7 @@ import { createUnwiredStagingObserver, type StagingObserver } from '../adapters/
 import {
   AgentAlreadyExistsError,
   AttestationAlreadyStoredError,
+  CredentialAlreadyIssuedError,
   CredentialNotFoundError,
   JobAlreadyExistsError,
   AccountAlreadyExistsError,
@@ -2020,6 +2021,53 @@ export function createApp(
   // best-effort (as GET's stance always was): a write failure here must
   // not turn an otherwise-successful read or mutation into a false 503,
   // so the computed row is still what the caller sees either way.
+  // P6 review round 3, D5 (t_604e3f2a): a deemed-completion credential is
+  // recoverable, not one-shot. The transition itself (submitted ->
+  // deemed_completed) still happens exactly once, the moment applyLapses
+  // observes it, but issuance is decoupled from that single instant: any
+  // later read of a job that is ALREADY deemed_completed and still has no
+  // stored credential retries issuance instead of accepting the residual
+  // as permanent. Unlike POST /jobs/:jobId/merge, nothing ever calls this
+  // path again on a caller's behalf (there is no retry route, no
+  // scheduler), so the retry has to live at the one choke point every
+  // read and mutation already shares. findByDocumentId is checked first
+  // so a job that already has its credential never pays for a second
+  // signature, and CredentialAlreadyIssuedError (thrown by every
+  // CredentialRepository.save on a duplicate key) is the belt-and-braces
+  // guard against the narrow race between that check and this save.
+  async function issueDeemedCompletionCredentialIfMissing(label: string, job: Job): Promise<void> {
+    if (job.stagedCommit === null) return;
+    let existing: IssuedCredentialDocument | null;
+    try {
+      existing = await credentialRepo.findByDocumentId(job.id);
+    } catch (err) {
+      console.error(`${label}: deemed-completion credential lookup failed`, err);
+      return;
+    }
+    if (existing !== null) return;
+    try {
+      const claim: DeemedCompletionClaim = {
+        jobId: job.id,
+        stagedCommit: job.stagedCommit,
+        buyerDid: job.buyerDid,
+      };
+      const credential = await credentialsAdapter.issueDeemedCompletionCredential(job.agentDid, claim);
+      await credentialRepo.save({
+        completedJobId: job.id,
+        subjectDid: job.agentDid,
+        document: credential,
+        // R-17's evidence-tier fact has no meaning for a deemed
+        // completion (no merge was ever observed to check publicity
+        // against); false is the same fail-closed default every other
+        // non-hire path in this file already uses.
+        repositoryPublic: false,
+      });
+    } catch (err) {
+      if (err instanceof CredentialAlreadyIssuedError) return;
+      console.error(`${label}: deemed-completion credential issuance failed`, err);
+    }
+  }
+
   async function applyLiveLapses(label: string, job: Job, res: Response): Promise<Job | null> {
     let remainderIsSettled = false;
     if (LAPSE_AT_STAGED_STATUSES.has(job.status)) {
@@ -2032,40 +2080,29 @@ export function createApp(
       }
     }
     const lapsed = applyLapses(job, new Date(), remainderIsSettled);
-    if (lapsed.status === job.status) return job;
-    // P6 (design record row 3): the deemed-completion credential is issued
-    // exactly once, the instant the live check itself observes the
-    // transition -- the same "issue before persisting the outcome" order
-    // POST /jobs/:jobId/merge already keeps for the work-history credential,
-    // so a crash between issuance and this persist leaves the same kind of
-    // named, recoverable residual (a lapsed row with no credential row,
-    // re-derivable from the stored job and the platform key) rather than a
-    // silently skipped issuance. Deliberately best-effort like the rest of
-    // this function: a failure here must not turn an otherwise-successful
-    // read or mutation into a 503, since the lapse itself already happened
-    // and the job's OWN row is the source of truth this function persists
-    // regardless.
-    if (lapsed.status === 'deemed_completed' && lapsed.stagedCommit !== null) {
-      try {
-        const claim: DeemedCompletionClaim = {
-          jobId: lapsed.id,
-          stagedCommit: lapsed.stagedCommit,
-          buyerDid: lapsed.buyerDid,
-        };
-        const credential = await credentialsAdapter.issueDeemedCompletionCredential(lapsed.agentDid, claim);
-        await credentialRepo.save({
-          completedJobId: lapsed.id,
-          subjectDid: lapsed.agentDid,
-          document: credential,
-          // R-17's evidence-tier fact has no meaning for a deemed
-          // completion (no merge was ever observed to check publicity
-          // against); false is the same fail-closed default every other
-          // non-hire path in this file already uses.
-          repositoryPublic: false,
-        });
-      } catch (err) {
-        console.error(`${label}: deemed-completion credential issuance failed`, err);
+    if (lapsed.status === job.status) {
+      // Already settled at this status on an earlier read -- but if that
+      // earlier read is the one whose issuance attempt failed, this is
+      // the read that recovers it (see the function's own header comment
+      // above for why the retry has to live here rather than a caller).
+      if (job.status === 'deemed_completed') {
+        await issueDeemedCompletionCredentialIfMissing(label, job);
       }
+      return job;
+    }
+    // P6 (design record row 3): the deemed-completion credential is
+    // issued the instant the live check itself observes the transition,
+    // the same "issue before persisting the outcome" order POST
+    // /jobs/:jobId/merge already keeps for the work-history credential.
+    // Deliberately best-effort like the rest of this function: a failure
+    // here must not turn an otherwise-successful read or mutation into a
+    // 503, since the lapse itself already happened and the job's OWN row
+    // is the source of truth this function persists regardless. A crash
+    // or a transient signing fault here no longer loses the credential
+    // for good -- the very next read of this now-deemed_completed job
+    // retries through the branch above.
+    if (lapsed.status === 'deemed_completed') {
+      await issueDeemedCompletionCredentialIfMissing(label, lapsed);
     }
     try {
       const persisted = await jobRepo.update(lapsed);
