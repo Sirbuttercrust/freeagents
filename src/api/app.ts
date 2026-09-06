@@ -103,7 +103,14 @@ import {
 import { depositUsd, remainderUsd } from '../domain/payment.js';
 import { createSettlementGate, remainderSettled, type SettlementGate } from '../adapters/payment/gate.js';
 import { rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
-import { buyerDiversity } from '../domain/buyer-diversity.js';
+import { buyerDiversity, type HireFacts } from '../domain/buyer-diversity.js';
+import {
+  buyerConductRecord,
+  buyerConductThresholdFailure,
+  type BuyerConduct,
+  type BuyerConductThresholdFailure,
+  type BuyerJobFacts,
+} from '../domain/buyer-conduct.js';
 import {
   disputedBy,
   reportWellFormed,
@@ -215,6 +222,13 @@ function agentProjection(row: Agent): Record<string, unknown> {
     // null when the agent never set one, which places no floor on a
     // proposal at all.
     floorPriceUsd: row.floorPriceUsd,
+    // P7: the operator's own listing filters ride the base key set
+    // unconditionally, the same stance floorPriceUsd already takes: null
+    // when the operator never set one, which places no filter on a hire
+    // at all. A buyer reads an agent's terms here before wasting a hire
+    // attempt on them.
+    minBuyerMerges: row.minBuyerMerges,
+    maxWalkedAfterConfirm: row.maxWalkedAfterConfirm,
   };
 }
 
@@ -422,6 +436,82 @@ async function resolveActingParty(req: Request, repo: AccountRepository): Promis
       ? await repo.findByPasskeySubject(sessioned.sessionSubject)
       : await repo.findByGithubLogin(sessioned.sessionSubject);
   return account?.did ?? null;
+}
+
+// P7: resolves a buyer DID's own conduct record. Null when the DID
+// resolves to no registered Account: a distinct answer from a record of
+// zeroes, modelling "no verified GitHub account" honestly rather than as
+// clean counts. jobRepo.findByBuyerDid is optional on JobRepository (the
+// same stance findCompletedByAgent already takes); a driver that omits it
+// throws here, and the two call sites below map that the same way an
+// actual storage outage is mapped (503), never a silent pass.
+async function buyerConductForDid(
+  buyerDid: string,
+  accountRepo: AccountRepository,
+  jobRepo: JobRepository,
+): Promise<BuyerConduct | null> {
+  const account = await accountRepo.findByDid(buyerDid);
+  if (account === null) return null;
+  if (typeof jobRepo.findByBuyerDid !== 'function') {
+    throw new Error('storage does not support findByBuyerDid');
+  }
+  const jobs = await jobRepo.findByBuyerDid(buyerDid);
+  const facts: BuyerJobFacts[] = jobs.map((job) => ({ status: job.status, confirmedAt: job.confirmedAt }));
+  return buyerConductRecord(facts);
+}
+
+// P7: the same lookup, keyed by the buyer's verified GitHub login instead
+// of their DID (the read surface, scope item 6). One account may hold
+// several DIDs over time (the brief's own wording); this schema records
+// one live DID per Account row, so the record aggregates every job whose
+// buyer DID matches that account's current DID. Null when no Account
+// claims the login at all.
+async function buyerConductForLogin(
+  githubLogin: string,
+  accountRepo: AccountRepository,
+  jobRepo: JobRepository,
+): Promise<BuyerConduct | null> {
+  const account = await accountRepo.findByGithubLogin(githubLogin);
+  if (account === null) return null;
+  return buyerConductForDid(account.did, accountRepo, jobRepo);
+}
+
+// P7: the buyer is entitled to know why they were refused, because the
+// counts are theirs. States which threshold and the buyer's own count
+// (or, for an unkeyed buyer, that no verified GitHub account resolves).
+function buyerConductFailureMessage(failure: BuyerConductThresholdFailure): string {
+  if (failure.kind === 'not-keyed') {
+    return `hiring this agent requires a verified GitHub account meeting ${failure.threshold} (${failure.required}); no verified GitHub account resolves for this buyer`;
+  }
+  if (failure.kind === 'below-minimum') {
+    return `this agent requires ${failure.threshold} of at least ${failure.required}; your account has ${failure.actual}`;
+  }
+  return `this agent requires ${failure.threshold} of at most ${failure.required}; your account has ${failure.actual}`;
+}
+
+// P7 (review round 1, D1): the self-hire label's GitHub comparison is only
+// as good as the logins actually reaching isSelfHire. Resolves each
+// distinct buyer DID in `hires` to its own verified GitHub login (one
+// lookup per distinct buyer, not per hire) and attaches it to the row,
+// so buyerDiversity's login comparison compares real accounts rather
+// than the undefined isSelfHire silently treats as never-a-match.
+// A buyer DID with no registered Account resolves to a null login,
+// exactly like an unkeyed buyer elsewhere in this file: absent is never
+// invented as a match.
+async function withBuyerGithubLogins(
+  hires: readonly CompletedJob[],
+  accountRepo: AccountRepository,
+): Promise<HireFacts[]> {
+  const loginByBuyerDid = new Map<string, string | null>();
+  for (const hire of hires) {
+    if (loginByBuyerDid.has(hire.buyerDid)) continue;
+    const account = await accountRepo.findByDid(hire.buyerDid);
+    loginByBuyerDid.set(hire.buyerDid, account?.githubLogin ?? null);
+  }
+  return hires.map((hire) => ({
+    ...hire,
+    buyerGithubLogin: loginByBuyerDid.get(hire.buyerDid) ?? null,
+  }));
 }
 
 export function createApp(
@@ -838,6 +928,14 @@ export function createApp(
     const skills = body.skills;
     const githubLogin = body.githubLogin;
     const floorPriceUsd = body.floorPriceUsd;
+    const minBuyerMerges = body.minBuyerMerges;
+    const maxWalkedAfterConfirm = body.maxWalkedAfterConfirm;
+
+    // P7: both thresholds validate as non-negative integers when present.
+    // Omitted or explicitly null means no filter, the same stance
+    // floorPriceUsd already takes.
+    const isValidThreshold = (value: unknown): boolean =>
+      value === undefined || value === null || (typeof value === 'number' && Number.isInteger(value) && value >= 0);
 
     if (
       typeof did !== 'string' || did.length === 0 ||
@@ -847,10 +945,12 @@ export function createApp(
       skills.some((s) => typeof s !== 'string' || s.length === 0) ||
       (githubLogin !== undefined && (typeof githubLogin !== 'string' || githubLogin.length === 0)) ||
       (floorPriceUsd !== undefined && floorPriceUsd !== null &&
-        (typeof floorPriceUsd !== 'string' || !/^\d+\.\d{2}$/.test(floorPriceUsd)))
+        (typeof floorPriceUsd !== 'string' || !/^\d+\.\d{2}$/.test(floorPriceUsd))) ||
+      !isValidThreshold(minBuyerMerges) ||
+      !isValidThreshold(maxWalkedAfterConfirm)
     ) {
       res.status(400).json({
-        error: 'body must be { did, delegation, name, skills, operator?, githubLogin?, floorPriceUsd? }; did, name non-empty strings, skills non-empty list of strings, operator (if present) a string, floorPriceUsd (if present) a decimal string with exactly two places',
+        error: 'body must be { did, delegation, name, skills, operator?, githubLogin?, floorPriceUsd?, minBuyerMerges?, maxWalkedAfterConfirm? }; did, name non-empty strings, skills non-empty list of strings, operator (if present) a string, floorPriceUsd (if present) a decimal string with exactly two places, minBuyerMerges and maxWalkedAfterConfirm (if present) non-negative integers',
       });
       return;
     }
@@ -932,6 +1032,8 @@ export function createApp(
         skills,
         githubLogin: githubLogin ?? null,
         floorPriceUsd: (floorPriceUsd as string | undefined) ?? null,
+        minBuyerMerges: (minBuyerMerges as number | undefined) ?? null,
+        maxWalkedAfterConfirm: (maxWalkedAfterConfirm as number | undefined) ?? null,
       });
       res.status(201).json(agentProjection(row));
     } catch (err) {
@@ -1486,7 +1588,17 @@ export function createApp(
 
     try {
       const hires = await jobRepo.findCompletedByAgent(row.did);
-      const { counts, entries } = buyerDiversity(hires, row.operatorDid);
+      // P7: the operator's own verified GitHub login, resolved once per
+      // request (the operator is fixed per agent), and each buyer's own
+      // login resolved per distinct buyer (withBuyerGithubLogins). Both
+      // travel to buyerDiversity so isSelfHire's GitHub comparison
+      // compares real accounts, not the undefined it silently treated
+      // as never-a-match before this fix (review round 1, D1). A storage
+      // failure in either lookup falls through to the same 503 the
+      // existing catch below already maps every other failure here to.
+      const operatorAccount = await repo.findByDid(row.operatorDid);
+      const hiresWithLogins = await withBuyerGithubLogins(hires, repo);
+      const { counts, entries } = buyerDiversity(hiresWithLogins, row.operatorDid, operatorAccount?.githubLogin ?? null);
       res.status(200).json({ agentDid: did, counts, entries });
     } catch (err) {
       console.error('GET /agents/:agentDid/hires: storage failed', err);
@@ -1496,6 +1608,28 @@ export function createApp(
 
   app.get('/agents/:agentDid/card', notImplemented);
   app.get('/agents/:agentDid/credentials', notImplemented);
+
+  // P7 (scope item 6): the buyer conduct record, keyed to the buyer's
+  // verified GitHub account, public because this is the record that is
+  // supposed to be visible - the counts are already publicly checkable on
+  // GitHub by anyone who cares to look. Counts only: never the job ids,
+  // the repositories, the briefs, or the counterparties. `keyed: false`
+  // is a distinct answer from a record of zeroes, never rendered as clean
+  // counts, so a fresh throwaway identity cannot read as a spotless buyer.
+  app.get('/buyers/:githubLogin/conduct', async (req: Request, res: Response) => {
+    const githubLogin = String(req.params.githubLogin);
+    try {
+      const counts = await buyerConductForLogin(githubLogin, repo, jobRepo);
+      if (counts === null) {
+        res.status(200).json({ githubLogin, keyed: false });
+        return;
+      }
+      res.status(200).json({ githubLogin, keyed: true, counts });
+    } catch (err) {
+      console.error('GET /buyers/:githubLogin/conduct: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
 
   // R-15 (ENT-8): resolve an issued credential by its stable id. The
   // credential is a linked-data document, so it is served as
@@ -1649,6 +1783,31 @@ export function createApp(
         error: `agent ${agentDid} is not registered; delegate an agent on this DID before opening a job for it`,
       });
       return;
+    }
+
+    // P7: the operator's own listing filters on buyer conduct. Enforced
+    // here, after the acting party resolves and after the agent row
+    // loads, so a caller sees the earlier failures (unresolved party,
+    // unregistered agent) first. Null means no filter: skip the read
+    // entirely when the operator set neither threshold, so an honest
+    // agent with no filters never pays for a lookup it never asked for.
+    if (agentRow.minBuyerMerges !== null || agentRow.maxWalkedAfterConfirm !== null) {
+      let buyerCounts: BuyerConduct | null;
+      try {
+        buyerCounts = await buyerConductForDid(buyerDid, repo, jobRepo);
+      } catch (err) {
+        console.error('POST /jobs: storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      const failure = buyerConductThresholdFailure(buyerCounts, {
+        minBuyerMerges: agentRow.minBuyerMerges,
+        maxWalkedAfterConfirm: agentRow.maxWalkedAfterConfirm,
+      });
+      if (failure !== null) {
+        res.status(403).json({ error: buyerConductFailureMessage(failure) });
+        return;
+      }
     }
 
     const id = 'j-' + randomBytes(8).toString('hex');

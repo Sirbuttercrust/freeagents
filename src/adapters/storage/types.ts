@@ -65,6 +65,10 @@ export interface AgentInput {
   // P1, scope item 5: optional, decimal string, never caller-suggested by
   // the platform. Omitted (or explicitly null) means no floor.
   readonly floorPriceUsd?: string | null;
+  // P7: the operator's own listing filters on buyer conduct. Omitted (or
+  // explicitly null) means no filter, matching floorPriceUsd's own stance.
+  readonly minBuyerMerges?: number | null;
+  readonly maxWalkedAfterConfirm?: number | null;
 }
 
 // One rotation record, in the shape the API accepts (R-30). Carries only
@@ -147,6 +151,17 @@ export interface JobRepository {
   // always implement it; the /hires route treats a stand-in that omits it
   // as storage-unavailable, the same 503 an actual outage produces.
   findCompletedByAgent?(agentDid: string): Promise<readonly CompletedJob[]>;
+  // P7: every job for one buyer DID, in any status, no ordering guarantee
+  // required (buyerConductRecord counts, it does not display in order).
+  // Empty array for a buyer with none, never null (the same "zero renders
+  // as zero" stance findCompletedByAgent already takes). Optional for the
+  // same reason findCompletedByAgent is: hand-rolled JobRepository
+  // stand-ins in unrelated route tests never touch the buyer conduct
+  // record and are not forced to grow a method they are never asked to
+  // call. Both real drivers always implement it; the threshold-enforcement
+  // gate in POST /jobs treats a stand-in that omits it as
+  // storage-unavailable, the same 503 an actual outage produces.
+  findByBuyerDid?(buyerDid: string): Promise<readonly Job[]>;
 }
 
 // Thrown by CredentialRepository.save when the job already has a credential,
