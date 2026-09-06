@@ -35,6 +35,7 @@ import {
   ReviewAlreadyExistsError,
   type AgentRepository,
   type AttestationRepository,
+  type StoredAttestation,
   type CompromiseRepository,
   type CredentialRepository,
   type JobRepository,
@@ -2718,6 +2719,91 @@ export function createApp(
         return;
       }
       res.status(200).json(stored.signed);
+    }),
+  );
+
+  // Follow-up from the P6 audit (t_604e3f2a review round 4, filed as
+  // t_767701e6): both storage drivers already keep every attestation row
+  // (AttestationRepository.listByJobId, append-only since P6), but until
+  // this route existed no HTTP surface reached anything but the latest
+  // one. After a redo restages, the document the buyer was shown before
+  // the redo was bytes-durable but buyer-unreachable through the
+  // platform -- the exact "make an unflattering measurement disappear"
+  // failure the append-only rule exists to prevent, just moved from
+  // storage (where P6 closed it) to the reader (where it was still open).
+  //
+  // Shape: a LISTING route, not a per-sequence route
+  // (`/jobs/:jobId/attestations/:sequence`). A listing is a strict
+  // superset of what a per-sequence route offers here -- every consumer
+  // named in this card's brief (a buyer diffing what they saw before and
+  // after a redo) wants the whole history in one call, oldest first, the
+  // same order listByJobId already returns it in. A per-sequence route
+  // would additionally need its own 400/404 vocabulary for an
+  // out-of-range or non-numeric sequence with no caller this brief names
+  // needing that address form; the listing route only needs the 401/403
+  // gate every other attestation route already carries, plus the 200/404
+  // job-existence split GET /jobs/:jobId/attestation already uses.
+  //
+  // Party rule is copied from GET /jobs/:jobId/attestation verbatim
+  // (buyer and agent, never a stranger), and deliberately NOT routed
+  // through requireSignedParty/loadForExchange: that helper runs
+  // applyLiveLapses as a side effect, which can persist a lapse
+  // transition on what is supposed to be a plain read -- the exact
+  // reason the single-attestation route above already reimplements the
+  // gate by hand instead of calling the shared helper. This route keeps
+  // that same read-only stance for the same reason.
+  //
+  // Envelope: each entry is { sequence, document }, sequence sitting
+  // beside the signed document rather than inside it. buildAttestation's
+  // field list and the VerifiableCredential envelope
+  // (`@context,id,type,issuer,validFrom,credentialSubject,proof`) both
+  // stay byte-for-byte what they already are -- the brief forbids
+  // touching buildAttestation's fields, and folding sequence into the
+  // signed object would change what a third party's signature
+  // verification sees versus what this platform originally signed. The
+  // buyer's inability to tell which restage they are reading (this
+  // card's other named gap) is fixed here, once, without touching the
+  // singular route's response shape at all.
+  app.get(
+    '/jobs/:jobId/attestations',
+    didSignature,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'GET /jobs/:jobId/attestations';
+      const jobId = String(req.params.jobId);
+      let job: Job | null;
+      try {
+        job = await jobRepo.findById(jobId);
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (job === null) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      const signerDid = signerDidOf(req);
+      if (signerDid === null) {
+        res.status(401).json({
+          error: 'this route requires a verified request signature (R-34); sign the request naming this job\'s buyer or agent DID',
+        });
+        return;
+      }
+      if (partyForDid(job, signerDid) === null) {
+        res.status(403).json({ error: 'signature does not name a party to this job' });
+        return;
+      }
+      let stored: readonly StoredAttestation[];
+      try {
+        stored = await attestationRepo.listByJobId(jobId);
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      res.status(200).json({
+        attestations: stored.map((row) => ({ sequence: row.sequence, document: row.signed })),
+      });
     }),
   );
 
