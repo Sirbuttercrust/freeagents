@@ -612,9 +612,19 @@ export function expireUnstaged(job: Job, now: Date): Job {
 // non-payment. src/api/app.ts is the only call site with an actual
 // SettlementGate to ask; it passes the real answer explicitly rather
 // than relying on this default.
+// The statuses lapseAtStaged treats as "still staged, clock running":
+// staged itself, and redo_requested (a pending redo sits between staged
+// and staged again, per job.ts's own header comment on the status). A
+// named, exported set rather than an inline check in two places, so the
+// API layer's applyLiveLapses (the one caller with a live settlement
+// gate to ask) can derive which statuses need that live fact instead of
+// repeating a second literal that can fall out of sync with this
+// function's own starting statuses (P6 review round 2, D3, t_604e3f2a).
+export const LAPSE_AT_STAGED_STATUSES: ReadonlySet<JobStatus> = new Set(['staged', 'redo_requested']);
+
 export function lapseAtStaged(job: Job, now: Date, remainderIsSettled = false): Job {
   if (
-    (job.status !== 'staged' && job.status !== 'redo_requested') ||
+    !LAPSE_AT_STAGED_STATUSES.has(job.status) ||
     job.stagedAt === null ||
     remainderIsSettled
   ) {
