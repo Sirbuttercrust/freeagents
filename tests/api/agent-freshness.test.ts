@@ -107,7 +107,7 @@ function credentialDoc(id: string, subjectDid: string, mergeCommit: string, merg
 // every merge, never one without the other). repositoryPublic controls
 // which tier evidenceTier assigns the credential to (invariant 4): a
 // private-repo merge demotes to portfolio, so lastHireCompletedAt (D1,
-// Proof task t_28c5458e) must read this same tier boundary, not the wider
+// review's task t_28c5458e) must read this same tier boundary, not the wider
 // jobRepo population alone.
 async function completeJobWithCredential(
   jobRepo: MemoryJobRepository,
@@ -195,7 +195,7 @@ describe('GET /agents/:agentDid, freshness (R-37)', () => {
       true,
     );
 
-    // D1 (Proof, task t_28c5458e): an agent whose only completed hire merged
+    // D1 (review, task t_28c5458e): an agent whose only completed hire merged
     // into a private repository. evidenceTier demotes it to portfolio, so
     // verifiedHires stays empty for this agent even though jobRepo carries a
     // completed job dated 2026-07-04. lastHireCompletedAt must not read past
