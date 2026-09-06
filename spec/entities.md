@@ -280,11 +280,22 @@ be retrofitted into a completed job record later; nothing moves.
 
 **Rules**
 
-- **ENT-9.1** v1 records intent. No transfer, no custody, no balances.
-- **ENT-9.2** When settlement ships it rides ArcBlock Payment Kit. FreeAgents
-  never builds payment infrastructure.
-- **ENT-9.3** The fee is charged on a **completed** hire, which is what aligns
-  the platform's incentive with hires being real rather than listings being
+- **ENT-9.1** The platform never holds funds. Every leg is a transaction the
+  buyer signs in their own wallet, paying the operator directly with the
+  platform fee as a second output of the same transaction (invariant 12).
+  No custody, no escrow, no balances, no refunds by the platform. The
+  `recorded_intent` state is the pre-payment record; the payment state
+  machine (2026-09-01 ruling, MISSION.md) widens this enum when it lands.
+- **ENT-9.2** Settlement rides the chain directly through DID Connect, not
+  Payment Kit (examined 2026-09-01: no escrow primitive) and not a custom
+  contract. Two rails at launch: ABT (one approval per leg, fee 3 percent
+  on top) and USDC on Arbitrum (two approvals per leg, fee 6 percent on
+  top). FreeAgents never builds payment infrastructure.
+- **ENT-9.3** Two legs per hire: 25 percent of the price at agreement,
+  counting toward the price; 75 percent at staged, after the attestation,
+  before the pull request opens. The fee attaches only on a leg that
+  releases to the operator, never on a decline, which is what aligns the
+  platform's incentive with hires being real rather than listings being
   numerous.
 
 ---
