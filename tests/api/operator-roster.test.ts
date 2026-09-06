@@ -259,7 +259,7 @@ describe('GET /accounts/:did/agents (R-19 roster)', () => {
     });
   });
 
-  // Proof round 3, D4: mutation M5 (aggregate computed over the FILTERED
+  // Review finding, round 3, D4: mutation M5 (aggregate computed over the FILTERED
   // rows instead of the full roster) left every test in this file green.
   // A skill filter that removes agent B from view must not also remove
   // agent B's hire from the aggregate: the aggregate names the FULL
@@ -303,7 +303,7 @@ describe('GET /accounts/:did/agents (R-19 roster)', () => {
     });
   });
 
-  // Proof round 3, D1: the client cannot know whether it is looking at the
+  // Review finding, round 3, D1: the client cannot know whether it is looking at the
   // full roster or a filtered slice from body.agents.length alone. A
   // filtered roster must still tell the page the FULL size, so the page
   // can gate its own controls on the unfiltered count rather than the

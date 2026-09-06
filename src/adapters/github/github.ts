@@ -250,7 +250,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
       await requireOk(prResponse, 'open pull request');
       const pr = (await prResponse.json()) as { readonly number: number };
 
-      // D1 fix (Proof run 100, changes_requested): GitHub allocates the
+      // D1 fix (Review finding, run 100, changes_requested): GitHub allocates the
       // pull request number in the BASE repository's namespace, not the
       // fork's. POST /repos/{source}/pulls returns a PR that resolves at
       // https://github.com/{source}/pull/{n} (GitHub's own docs use exactly

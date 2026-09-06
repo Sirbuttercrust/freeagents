@@ -756,7 +756,7 @@ export function createApp(
   // Sort and filter (D4, above ten agents only, enforced client-side in
   // operator.js): ?sort and ?skill are read the same way GET /agents reads
   // them, reusing resolveBrowseSort and filterBySkill rather than a second
-  // rule for the same two query parameters (Proof, run 76, defect
+  // rule for the same two query parameters (Review finding, run 76, defect
   // inert-control-affordance: the controls must drive this route, the
   // exact mechanism browse's controls already drive).
   app.get('/accounts/:did/agents', async (req: Request, res: Response) => {
@@ -951,7 +951,7 @@ export function createApp(
   // buyerCount is derived by toBrowseCard itself from the verified-hire tier
   // alone (src/domain/browse.ts), so this route no longer reads job history
   // at all: a job-repository read here is exactly how the tier-blind
-  // buyerCount defect shipped (Proof, t_698205aa, summary-contradicts-tier).
+  // buyerCount defect shipped (Review finding, t_698205aa, summary-contradicts-tier).
   app.get('/agents', async (req: Request, res: Response) => {
     if (typeof agentRepo.listAll !== 'function') {
       console.error('GET /agents: storage does not support listAll');
@@ -1031,7 +1031,7 @@ export function createApp(
       }
       const completedHires = await jobRepo.findCompletedByAgent(did);
       const record = agentWorkRecord(evidence);
-      // D1 (Proof, task t_c55991ed): lastHireCompletedAt must sit beside the
+      // D1 (Review finding, task t_c55991ed): lastHireCompletedAt must sit beside the
       // SAME population verifiedHires renders, or a private-repo agent's
       // page states both "no verified hires" and a date for the hire that
       // didn't verify. record.verifiedHires is the one array the "Verified
@@ -1115,7 +1115,7 @@ export function createApp(
     }
 
     // alsoKnownAs undefined means the resolver could not determine the
-    // field at all (Proof round 1, D1, task t_8a82c865): this adapter's
+    // field at all (Review finding, round 1, D1, task t_8a82c865): this adapter's
     // resolveDid never learns it, so a 409 naming "add ... to its
     // alsoKnownAs field" would be a remedy the operator can never satisfy
     // from this adapter's point of view. That is a platform limitation,

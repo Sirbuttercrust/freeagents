@@ -1,4 +1,4 @@
-// D2 fix (Proof round 1, task t_8a82c865): identity resolution must not
+// D2 fix (Review finding, round 1, task t_8a82c865): identity resolution must not
 // depend on process warmth. The anchor: "a stranger derives the same
 // verificationMethod from the keyid whether or not this process happened
 // to be running when the agent last signed" -- so this process must not
@@ -6,7 +6,7 @@
 // durable backing: a restart between an agent's last signed request and
 // POST /jobs/:jobId/merge permanently 503'd the merge, with no
 // agent-drivable recovery (every re-teaching route 409s once the job is
-// submitted). This test reproduces the restart exactly as Proof did: one
+// submitted). This test reproduces the restart exactly as the review did: one
 // app instance walks the H1 chain up through the pull request, is closed
 // (simulating the process exiting), and a SECOND app instance -- sharing
 // only durable storage, with a fresh in-process KnownKeyStore, the same

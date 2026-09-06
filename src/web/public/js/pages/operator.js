@@ -14,13 +14,14 @@
    controls only above ten agents; a single-agent operator sees the same
    table with one row. There is no second layout for the small case.
 
-   SORT AND FILTER ARE QUERY PARAMETERS, browse.js's own mechanism (Proof,
-   run 76, defect inert-control-affordance): operating either control reads
-   its value and navigates to /accounts/<did>?sort=...&skill=..., the same
-   round-trip-through-the-URL browse.js uses for #sort and #skill, so the
-   roster stays bookmarkable and the server (GET /accounts/:did/agents) is
-   the one place that decides what a sort or filter value means. There is
-   no second, client-only sort or filter rule for these eleven-plus rows. */
+   SORT AND FILTER ARE QUERY PARAMETERS, browse.js's own mechanism (Review
+   finding, run 76, defect inert-control-affordance): operating either
+   control reads its value and navigates to
+   /accounts/<did>?sort=...&skill=..., the same round-trip-through-the-URL
+   browse.js uses for #sort and #skill, so the roster stays bookmarkable
+   and the server (GET /accounts/:did/agents) is the one place that decides
+   what a sort or filter value means. There is no second, client-only sort
+   or filter rule for these eleven-plus rows. */
 
 (function () {
   "use strict";
@@ -222,21 +223,21 @@
       });
     }
 
-    /* Two different truths share one element (Proof round 3, defect
-       empty-state-contradicts-roster): a roster with zero agents and a
-       roster that a filter narrowed to zero rows are not the same fact,
-       and the copy must say which one happened. Gated on rosterSize
+    /* Two different truths share one element (Review finding, round 3,
+       defect empty-state-contradicts-roster): a roster with zero agents
+       and a roster that a filter narrowed to zero rows are not the same
+       fact, and the copy must say which one happened. Gated on rosterSize
        (agentCount, the FULL roster), the same fix D1 applied to the
        controls one block above, never on the post-filter row count. */
     renderEmptyState(agents, rosterSize);
 
     /* D4: controls appear only above ten agents. Below that the table
        renders plain, one layout either way. Gated on the FULL roster size
-       (agentCount), never the filtered row count on screen (Proof round 3,
-       defect control-hides-itself-under-its-own-effect): filtering an
-       above-ten roster down to a handful of rows must not remove the
-       controls that produced the filter. Browse keeps its controls
-       visible in the identical case; this matches it. */
+       (agentCount), never the filtered row count on screen (Review
+       finding, round 3, defect control-hides-itself-under-its-own-effect):
+       filtering an above-ten roster down to a handful of rows must not
+       remove the controls that produced the filter. Browse keeps its
+       controls visible in the identical case; this matches it. */
     A.showById("roster-controls", rosterSize > ROSTER_CONTROL_THRESHOLD);
 
     renderSummary(body.aggregate, rosterSize, agents.length);
@@ -254,10 +255,10 @@
 
        The aggregate is always over the FULL roster (src/api/app.ts), even
        when a skill filter narrows what is on screen: an operator's
-       accountability does not shrink because a visitor filtered. Proof
-       round 3, defect summary-contradicts-tier: the wording must say
-       whose count this is, honestly, rather than claiming "every agent
-       listed here" over rows that are a strict subset. */
+       accountability does not shrink because a visitor filtered. Review
+       finding, round 3, defect summary-contradicts-tier: the wording must
+       say whose count this is, honestly, rather than claiming "every
+       agent listed here" over rows that are a strict subset. */
     var subject = shownCount < rosterSize ? "Across every agent this operator runs" : "Across every agent listed here";
     A.setTextById(
       "roster-summary",
@@ -321,10 +322,11 @@
 
     row.appendChild(body);
 
-    /* THE DATE (Proof round 3, defect roster-row-drifts-from-browse-card):
-       browse's cardRow appends a .when span with the same last-verified-
-       or-registered date rule; a roster row must carry it too, so the two
-       surfaces cannot drift on any field, not just the tier counts. */
+    /* THE DATE (Review finding, round 3, defect
+       roster-row-drifts-from-browse-card): browse's cardRow appends a .when
+       span with the same last-verified-or-registered date rule; a roster
+       row must carry it too, so the two surfaces cannot drift on any field,
+       not just the tier counts. */
     var when = document.createElement("span");
     when.className = "when";
     var date = A.readableDate(agent.lastVerifiedAt) || A.readableDate(agent.createdAt);

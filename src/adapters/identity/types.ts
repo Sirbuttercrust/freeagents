@@ -22,7 +22,7 @@ export interface DidDocument {
   // (a 503: the operator cannot fix what this adapter has no path to
   // check). Collapsing the third state into null is what let a resolver
   // that can never learn alsoKnownAs hand out a 409 whose remedy it can
-  // never observe being satisfied (Proof round 1, D1, task t_8a82c865).
+  // never observe being satisfied (Review finding, round 1, D1, task t_8a82c865).
   readonly alsoKnownAs: readonly string[] | null | undefined;
 }
 
