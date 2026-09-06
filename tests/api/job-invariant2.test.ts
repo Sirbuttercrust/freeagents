@@ -32,6 +32,7 @@ import { createJob, type Job } from '../../src/domain/job.js';
 import { signingIdentityFromWallet, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 
 // The ArcBlock wallet's secretKey is seed(32)||public(32) in hex.
 function hexToBytes(h: string): Uint8Array {
@@ -299,6 +300,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
       sessionAdapter,
       undefined,
       alwaysSettledGate(),
+      anyCommitStagingObserver(),
     ).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();

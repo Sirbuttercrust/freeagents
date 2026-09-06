@@ -41,6 +41,7 @@ import { createJob, type Job, type JobStatus } from '../../src/domain/job.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 
 let buyer: SigningIdentity;
 let agent: SigningIdentity;
@@ -175,6 +176,7 @@ async function startWith(
     sessionAdapter,
     undefined,
     alwaysSettledGate(),
+    anyCommitStagingObserver(),
   ).listen(0);
   await new Promise<void>((resolve) => s.once('listening', resolve));
   const address = s.address();

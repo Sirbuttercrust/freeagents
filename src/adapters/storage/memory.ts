@@ -7,7 +7,8 @@ import type { CompromiseReport } from '../../domain/compromise.js';
 import type { Account } from '../../domain/account.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
 import type { Review } from '../../domain/review.js';
-import type { VerifiableCredential } from '../credentials/types.js';
+import type { VerifiableCredential, SignedAttestation } from '../credentials/types.js';
+import type { Attestation } from '../../domain/attestation.js';
 import {
   AgentAlreadyExistsError,
   type AgentInput,
@@ -25,6 +26,9 @@ import {
   ReviewAlreadyExistsError,
   type ReviewRepository,
   type ObservedKeyRepository,
+  AttestationAlreadyStoredError,
+  type AttestationRepository,
+  type StoredAttestation,
   credentialLookupKey,
 } from './types.js';
 
@@ -344,5 +348,36 @@ export class MemoryObservedKeyRepository implements ObservedKeyRepository {
 
   async get(did: string): Promise<string | null> {
     return this.rows.get(did) ?? null;
+  }
+}
+
+// P5: one attestation per job, keyed by job id, IMMUTABLE once written
+// (the interface's own header comment). A second save for a job that
+// already has one is refused, never overwritten: a redo that later
+// restages the same job writes a NEW record under a scheme the next card
+// owns, not an edit of this one.
+export class MemoryAttestationRepository implements AttestationRepository {
+  private readonly rows = new Map<string, StoredAttestation>();
+
+  async save(input: {
+    readonly jobId: string;
+    readonly attestation: Attestation;
+    readonly signed: SignedAttestation;
+  }): Promise<void> {
+    // Check-then-set is safe here: Node is single-threaded and this method
+    // awaits nothing, so two concurrent saves of one job cannot both pass
+    // the check.
+    if (this.rows.has(input.jobId)) {
+      throw new AttestationAlreadyStoredError(input.jobId);
+    }
+    this.rows.set(input.jobId, {
+      jobId: input.jobId,
+      attestation: input.attestation,
+      signed: input.signed,
+    });
+  }
+
+  async findByJobId(jobId: string): Promise<StoredAttestation | null> {
+    return this.rows.get(jobId) ?? null;
   }
 }

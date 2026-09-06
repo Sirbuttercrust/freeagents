@@ -30,6 +30,7 @@ import {
 } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 
 const FORK_OWNER = 'freeagents-platform';
 const FORK_REPO = 'target-repo';
@@ -141,6 +142,7 @@ async function startApp(): Promise<{
     undefined,
     undefined,
     alwaysSettledGate(),
+    anyCommitStagingObserver(),
   );
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -266,6 +268,7 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
       undefined,
       undefined,
       alwaysSettledGate(),
+      anyCommitStagingObserver(),
     );
     const s = app.listen(0);
     await new Promise<void>((resolve) => s.once('listening', resolve));

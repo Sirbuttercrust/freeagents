@@ -110,6 +110,7 @@ import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { signRequest, signingIdentityFromSeed, signingIdentityFromWallet, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 
 let server: Server;
 let base: string;
@@ -457,6 +458,7 @@ beforeAll(async () => {
     sessionAdapter,
     undefined,
     alwaysSettledGate(),
+    anyCommitStagingObserver(),
   );
   server = await new Promise<Server>((resolve, reject) => {
     const s = app.listen(0, '127.0.0.1');

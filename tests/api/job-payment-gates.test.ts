@@ -16,6 +16,7 @@ import type { GithubAdapter, ForkAndOpenPullRequestInput, PullRequestRef } from 
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
@@ -82,6 +83,7 @@ async function startApp(settlementGate: MemorySettlementGate, github?: GithubAda
     undefined,
     undefined,
     settlementGate,
+    anyCommitStagingObserver(),
   );
   // Bound explicitly to 127.0.0.1 (not the dual-stack default): on a
   // dev machine with other fixed-port daemons bound to 127.0.0.1, a

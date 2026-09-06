@@ -6,9 +6,11 @@ import type { CompromiseReport } from '../../domain/compromise.js';
 import type { VerifiableCredential } from '../credentials/types.js';
 import type { CompletedJob, Criterion, Job, JobStatus } from '../../domain/job.js';
 import { DEPOSIT_PERCENT, REDO_ALLOWANCE } from '../../domain/job.js';
+import type { Attestation } from '../../domain/attestation.js';
 import type { Account } from '../../domain/account.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
 import type { Review } from '../../domain/review.js';
+import type { SignedAttestation } from '../credentials/types.js';
 import {
   AgentAlreadyExistsError,
   type AgentInput,
@@ -26,6 +28,9 @@ import {
   type ReviewRepository,
   type StoredCredential,
   type ObservedKeyRepository,
+  AttestationAlreadyStoredError,
+  type AttestationRepository,
+  type StoredAttestation,
   credentialLookupKey,
 } from './types.js';
 
@@ -726,5 +731,51 @@ export class PrismaObservedKeyRepository implements ObservedKeyRepository {
   async get(did: string): Promise<string | null> {
     const row = await observedKeyDb().observedKey.findUnique({ where: { did } });
     return row?.verificationMethod ?? null;
+  }
+}
+
+// P5: one attestation per job (design record, 2026-09-01), IMMUTABLE once
+// written (AttestationRepository's own header comment,
+// src/adapters/storage/types.ts). Both `document` and `signed` go in
+// verbatim, the same "the bytes that verified are the bytes served back"
+// stance PrismaCredentialRepository already keeps for work-history
+// credentials.
+export class PrismaAttestationRepository implements AttestationRepository {
+  async save(input: {
+    readonly jobId: string;
+    readonly attestation: Attestation;
+    readonly signed: SignedAttestation;
+  }): Promise<void> {
+    try {
+      await db().attestation.create({
+        data: {
+          jobId: input.jobId,
+          document: input.attestation as unknown as Prisma.InputJsonValue,
+          signed: input.signed as unknown as Prisma.InputJsonValue,
+        },
+      });
+    } catch (err) {
+      // P2002 is Prisma's "unique constraint failed" error code: the only
+      // unique constraint reachable here is jobId, so a P2002 from
+      // create() means the job already has an attestation, and the API
+      // layer maps the domain error to 409.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new AttestationAlreadyStoredError(input.jobId);
+      }
+      throw err;
+    }
+  }
+
+  async findByJobId(jobId: string): Promise<StoredAttestation | null> {
+    const row = await db().attestation.findUnique({ where: { jobId } });
+    if (row === null) return null;
+    return {
+      jobId: row.jobId,
+      // The Json columns round-trip as unknown; storage does not
+      // re-validate (same stance as every other Json column in this
+      // file), it serves the stored bytes.
+      attestation: row.document as unknown as Attestation,
+      signed: row.signed as unknown as SignedAttestation,
+    };
   }
 }
