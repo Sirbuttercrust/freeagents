@@ -431,8 +431,24 @@ export function expireUnstaged(job: Job, now: Date): Job {
 // staging": nothing here touches stagedCommit or stagedAt, so a lapsed
 // row still carries exactly what was staged, for whatever the attestation
 // card eventually shows against a closed_unpaid job.
-export function lapseAtStaged(job: Job, now: Date): Job {
-  if (job.status !== 'staged' || job.stagedAt === null) return job;
+//
+// remainderIsSettled is the caller's answer to the ONE fact this clock is
+// defined against (brief section 4: "staged with NO BALANCE SETTLED" --
+// named remainderIsSettled, not balanceIsSettled, for the same
+// tests/architecture/no-custody.test.ts reason src/domain/payment.ts's
+// remainderUsd is not named balanceUsd: invariant 12 bans the substring
+// "balance" in any src file outside src/adapters/payment, and this file
+// is outside that directory). Proof round 1 (D4, t_cb5d35cd) found the
+// first cut checked only status and elapsed time, so a buyer who had
+// already paid could still have their job closed unpaid by an unrelated
+// read -- destroying delivered, paid-for work. Defaults to false (fail
+// closed): an unwired caller that forgets to pass the settlement fact
+// gets the safe answer, a lapse, not a silent skip that could mask a real
+// non-payment. src/api/app.ts is the only call site with an actual
+// SettlementGate to ask; it passes the real answer explicitly rather
+// than relying on this default.
+export function lapseAtStaged(job: Job, now: Date, remainderIsSettled = false): Job {
+  if (job.status !== 'staged' || job.stagedAt === null || remainderIsSettled) return job;
   const deadline = job.stagedAt.getTime() + LAPSE_AT_STAGED_AFTER_DAYS * 86_400_000;
   if (now.getTime() <= deadline) return job;
   return { ...job, status: 'closed_unpaid' };
@@ -460,14 +476,25 @@ export function deemCompleted(job: Job, now: Date): Job {
 }
 
 // Runs the three clocks in order and returns the job unchanged when none
-// applies -- called wherever a job is read (the route layer's GET and the
-// exchange skeleton's load-for-mutation path), so a job that lapsed while
-// nobody was looking reports the truth on the next read. Nothing here
-// schedules a re-check: a status that only changes when someone looks at
-// it is honest, and a scheduler (cron, a worker) is a separate decision
-// this card does not make.
-export function applyLapses(job: Job, now: Date): Job {
-  return deemCompleted(lapseAtStaged(expireUnstaged(job, now), now), now);
+// applies. remainderIsSettled answers the ONE live fact lapseAtStaged
+// needs (see its own header comment); the two other clocks ignore it.
+// Defaults to false (fail closed), matching lapseAtStaged's own default
+// -- a caller that has not looked up settlement gets the safe answer.
+//
+// Call site (P4, Proof round 1 fix, t_cb5d35cd -- D1/D2/D3): this domain
+// function has exactly one caller, src/api/app.ts's applyLiveLapses,
+// which is itself called from two places -- GET /jobs/:jobId, and
+// loadForExchange, the one load EVERY mutation and exchange route in
+// this file shares (confirm, stage, pull-request, staged-decline,
+// withdraw, decline, the criteria and price exchange). Routing every
+// mutation through the same load as GET, rather than leaving the clocks
+// bound to GET alone, is what closes D2 (a lapsed job could still be
+// acted on) and D3 (the outcome depended on whether someone had GET'd
+// the job first). Nothing here schedules a re-check: a status that only
+// changes when someone looks is honest, and a scheduler (cron, a worker)
+// is a separate decision this card does not make.
+export function applyLapses(job: Job, now: Date, remainderIsSettled = false): Job {
+  return deemCompleted(lapseAtStaged(expireUnstaged(job, now), now, remainderIsSettled), now);
 }
 
 export function submitPullRequest(job: Job, pullRequestUrl: string, now: Date): Job {

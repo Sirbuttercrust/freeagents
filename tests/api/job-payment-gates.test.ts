@@ -83,7 +83,13 @@ async function startApp(settlementGate: MemorySettlementGate, github?: GithubAda
     undefined,
     settlementGate,
   );
-  const server = app.listen(0);
+  // Bound explicitly to 127.0.0.1 (not the dual-stack default): on a
+  // dev machine with other fixed-port daemons bound to 127.0.0.1, a
+  // dual-stack listen(0) can be handed a port number that daemon
+  // already owns, and this test's own fetch to that port is then free
+  // to be routed to either listener by the OS (diagnose-flaky-server-
+  // port-tests skill). Matches the baseUrl this function already builds.
+  const server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
   if (address === null || typeof address === 'string') {
