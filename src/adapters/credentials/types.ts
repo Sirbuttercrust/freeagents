@@ -114,10 +114,60 @@ export interface SignedAttestation {
   readonly proof: Readonly<Record<string, unknown>>;
 }
 
+// P6 (design record, 2026-09-01, row 3): what deemCompleted's own header
+// comment calls "a later card's job" -- the distinct credential type a
+// deemed-completed job issues. Deliberately NOT the same document as
+// CompletedHireCredential: without a distinct type the platform would
+// mint completion credentials indistinguishable from a real merge (the
+// brief's own reason). noMerge is a literal `true`, never an omission or
+// a null a reader might miss: a verifier reading the document with no
+// knowledge of this platform must be able to tell it apart from a merged
+// credential by this field alone, without comparing it to anything else.
+export interface DeemedCompletionSubject {
+  readonly stagedCommit: string;
+  readonly noMerge: true;
+  readonly buyer: string;
+}
+
+export interface DeemedCompletionCredential {
+  readonly '@context': readonly (string | Readonly<Record<string, unknown>>)[];
+  readonly id: string;
+  readonly type: readonly string[];
+  readonly issuer: string;
+  readonly validFrom: string;
+  readonly credentialSubject: {
+    readonly id: string;
+    readonly deemedCompletion: DeemedCompletionSubject;
+  };
+  readonly proof: Readonly<Record<string, unknown>>;
+}
+
+export interface DeemedCompletionClaim {
+  readonly jobId: string;
+  readonly stagedCommit: string;
+  readonly buyerDid: string;
+}
+
+// The two document shapes this service ever issues to CredentialRepository.
+// A stored credential is one or the other, never a blend: agentWorkRecord's
+// evidence tiers only ever read the CompletedHireCredential shape (a
+// verified hire proves a merge), so any reader over listBySubjectDid must
+// narrow with isCompletedHireCredential below before touching `.hire`.
+export type IssuedCredentialDocument = VerifiableCredential | DeemedCompletionCredential;
+
+export function isCompletedHireCredential(document: IssuedCredentialDocument): document is VerifiableCredential {
+  return document.type.includes('CompletedHireCredential');
+}
+
 export interface CredentialsAdapter {
   issueWorkHistoryCredential(subjectDid: string, claim: WorkHistoryClaim): Promise<VerifiableCredential>;
   verifyCredential(credential: VerifiableCredential): Promise<boolean>;
-  getCredential(credentialId: string): Promise<VerifiableCredential>;
+  // R-15: the credential is a linked-data document of whichever type this
+  // service issued (P6 widens the union to include
+  // DeemedCompletionCredential -- "same resolution route", the brief's
+  // own line): the route serves the stored bytes verbatim regardless of
+  // type, so it must be able to resolve either.
+  getCredential(credentialId: string): Promise<IssuedCredentialDocument>;
   // P5: sign the attestation exactly as buildAttestation returned it (see
   // src/domain/attestation.ts's own header: that function's output is
   // already the canonical, order-invariant serialization the signature
@@ -127,4 +177,12 @@ export interface CredentialsAdapter {
   // restated): a stranger can recompute it from the attestation's own
   // stagedCommit field without calling this service.
   signAttestation(attestation: Attestation): Promise<SignedAttestation>;
+  // P6: the distinct deemed-completion credential (design record row 3).
+  // Same platform key, same Ed25519Signature2020 construction, same
+  // resolution route (P5's brief drew this line: never a second signing
+  // path or a second key) -- only the claim shape and the wire type differ.
+  issueDeemedCompletionCredential(
+    subjectDid: string,
+    claim: DeemedCompletionClaim,
+  ): Promise<DeemedCompletionCredential>;
 }

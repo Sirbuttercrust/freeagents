@@ -8,7 +8,7 @@ import type { CompletedJob, Job } from '../../domain/job.js';
 import type { Attestation } from '../../domain/attestation.js';
 import type { Account } from '../../domain/account.js';
 import type { Review } from '../../domain/review.js';
-import type { VerifiableCredential, SignedAttestation } from '../credentials/types.js';
+import type { SignedAttestation, IssuedCredentialDocument } from '../credentials/types.js';
 
 // Thrown by register when the DID already exists, so the API layer can map
 // it to 409 without inspecting error messages.
@@ -203,29 +203,37 @@ export function credentialLookupKey(id: string): string {
 // ENT-8.3 forbids a judgement inside the signature envelope, and
 // repository visibility is exactly the kind of platform-observed fact that
 // travels beside the document the same way subjectDid already does.
+// document is the union of every document type this service ever issues
+// (P6 widens it to include DeemedCompletionCredential): a reader must
+// narrow with isCompletedHireCredential (src/adapters/credentials/types.ts)
+// before touching the CompletedHireCredential-only `.hire` shape.
 export interface StoredCredential {
-  readonly document: VerifiableCredential;
+  readonly document: IssuedCredentialDocument;
   readonly repositoryPublic: boolean;
 }
 
-// One work-history credential per completed job (ENT-8). The document goes
-// in verbatim: the bytes that verified are the bytes that are stored, so a
-// resolved credential keeps verifying off-platform (invariant 2).
+// One work-history OR deemed-completion credential per completed/deemed
+// job (ENT-8; P6 widens the type). The document goes in verbatim: the
+// bytes that verified are the bytes that are stored, so a resolved
+// credential keeps verifying off-platform (invariant 2).
 export interface CredentialRepository {
   // Throws CredentialAlreadyIssuedError when the job already has a
   // credential. repositoryPublic defaults to false when the caller omits
   // it: an unrecorded visibility fact must never read as verified (R-17,
   // PR 70's rejected finding), so silence fails closed the same direction
-  // as a private repository would.
+  // as a private repository would. Meaningless for a deemed-completion
+  // credential (no merge was ever observed to have a repository
+  // visibility); callers of that path simply never pass it, and it
+  // defaults false the same way.
   save(input: {
     readonly completedJobId: string;
     readonly subjectDid: string;
-    readonly document: VerifiableCredential;
+    readonly document: IssuedCredentialDocument;
     readonly repositoryPublic?: boolean;
   }): Promise<void>;
   // documentId may be the full credential id or its lookup key. Null when
   // no credential carries that id, so the adapter maps it to a 404.
-  findByDocumentId(documentId: string): Promise<VerifiableCredential | null>;
+  findByDocumentId(documentId: string): Promise<IssuedCredentialDocument | null>;
   // R-17: every credential issued to this agent DID, oldest first, paired
   // with the repositoryPublic fact evidenceTier needs. Empty array for an
   // agent with none, never null and never a throw on an unknown subject:
@@ -285,40 +293,57 @@ export interface ObservedKeyRepository {
   get(did: string): Promise<string | null>;
 }
 
-// Thrown by AttestationRepository.save when the job already has an
-// attestation, so the API layer can map it to 409 without inspecting
-// error messages. One attestation per job, and IMMUTABLE once written
-// (P5's brief, section 4): a redo that later restages the same job writes
-// a NEW attestation record under a scheme the next card owns, never an
-// edit of this one. This repository intentionally has no update method.
+// Thrown by AttestationRepository.save on a genuine write race for the
+// same (jobId, sequence) pair -- a concurrent save computing the identical
+// next sequence number. Not the common case: unlike P5's original v1
+// (one attestation per job, ever), a job may accumulate many attestation
+// records across redos (P6 brief, "the redo must not make an unflattering
+// measurement disappear"), so this error no longer fires on an ordinary
+// second save.
 export class AttestationAlreadyStoredError extends Error {
   constructor(jobId: string) {
-    super(`job ${jobId} already has a stored attestation`);
+    super(`job ${jobId} already has an attestation at that sequence`);
     this.name = 'AttestationAlreadyStoredError';
   }
 }
 
-// One stored attestation per job (P5). `attestation` is the unsigned
-// accepted-field document (src/domain/attestation.ts); `signed` is the
-// platform-signed wire document (src/adapters/credentials's
+// One stored attestation per job PER SEQUENCE (P5's original "one
+// attestation per job, ever" pin is widened by P6's redo: a restage
+// produces a NEW record, never an edit of an existing one). `attestation`
+// is the unsigned accepted-field document (src/domain/attestation.ts);
+// `signed` is the platform-signed wire document (src/adapters/credentials's
 // SignedAttestation) the read route serves. Both are stored verbatim, the
 // same "the bytes that verified are the bytes served back" stance
-// CredentialRepository already keeps.
+// CredentialRepository already keeps. sequence starts at 1 and increases
+// by one per job, so the buyer can always tell which redo cycle a given
+// record belongs to.
 export interface StoredAttestation {
   readonly jobId: string;
+  readonly sequence: number;
   readonly attestation: Attestation;
   readonly signed: SignedAttestation;
 }
 
 export interface AttestationRepository {
-  // Throws AttestationAlreadyStoredError when the job already has one.
+  // Appends a new attestation record for this job, at the next sequence
+  // number (1 for the first, incrementing thereafter). Never edits or
+  // replaces an existing record -- see the type's own header comment.
+  // Returns the row actually written, sequence included, so a caller
+  // never has to re-derive it.
   save(input: {
     readonly jobId: string;
     readonly attestation: Attestation;
     readonly signed: SignedAttestation;
-  }): Promise<void>;
-  // Null when no attestation is stored for this job.
+  }): Promise<StoredAttestation>;
+  // The LATEST attestation for a job (the highest sequence): the document
+  // the buyer currently decides against. Null when no attestation is
+  // stored for this job.
   findByJobId(jobId: string): Promise<StoredAttestation | null>;
+  // Every attestation for a job, oldest first (sequence ascending). Empty
+  // array for a job with none, never null (the same "zero renders as
+  // zero" stance every other listing in this file takes). The buyer's
+  // read of what they were shown before a redo and after it (P6 brief).
+  listByJobId(jobId: string): Promise<readonly StoredAttestation[]>;
 }
 
 // P10: what confirm() OBSERVED on chain, one row per (jobId, leg). Never

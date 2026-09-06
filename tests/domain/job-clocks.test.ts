@@ -12,6 +12,7 @@ import {
   expireUnstaged,
   JobTransitionError,
   lapseAtStaged,
+  requestRedo,
   stageWork,
   type Job,
 } from '../../src/domain/job.js';
@@ -126,6 +127,45 @@ describe('lapseAtStaged: staged with no balance settled, 7 days after stagedAt',
   it('defaults to treating the balance as unsettled when the caller passes no third argument (fail closed)', () => {
     const now = new Date(stagedAt.getTime() + SEVEN_DAYS_MS + 1000);
     const result = lapseAtStaged(stagedJob(), now);
+    expect(result.status).toBe('closed_unpaid');
+  });
+});
+
+// P6 review round 1 (D2): a redo requested and never answered used to stop
+// this clock outright -- lapseAtStaged returned the job unchanged the
+// moment it left `staged` for `redo_requested`, and nothing else in
+// applyLapses covered that status, so an operator who simply never
+// answered left the job immortal. redo_requested sits between staged and
+// staged again (job.ts's own header comment on the status): the buyer has
+// still not paid, so the same clock that protects an unanswered staged job
+// must protect an unanswered redo request the same way, using the same
+// extended deadline the request itself already earned.
+describe('lapseAtStaged also covers redo_requested: a pending redo does not stop the clock', () => {
+  const stagedAt = new Date('2026-01-10T00:00:00Z');
+  const requestedAt = new Date('2026-01-11T00:00:00Z');
+  const redoRequestedJob = (): Job => requestRedo(stageWork(baseJob(), 'abc123def', stagedAt), 0, requestedAt);
+
+  it('one second before the extended deadline, the job is unchanged', () => {
+    const now = new Date(stagedAt.getTime() + SEVEN_DAYS_MS - 1000);
+    const job = redoRequestedJob();
+    expect(lapseAtStaged(job, now)).toEqual(job);
+  });
+
+  it('one second after the extended deadline, the job becomes closed_unpaid', () => {
+    const now = new Date(stagedAt.getTime() + (7 + 7) * 86_400_000 + 1000);
+    const result = lapseAtStaged(redoRequestedJob(), now);
+    expect(result.status).toBe('closed_unpaid');
+  });
+
+  it('does not lapse a redo_requested job whose balance IS settled, even past the deadline', () => {
+    const now = new Date(stagedAt.getTime() + (7 + 7) * 86_400_000 + 1000);
+    const job = redoRequestedJob();
+    expect(lapseAtStaged(job, now, true)).toEqual(job);
+  });
+
+  it('a full year of silence from the operator still ends in closed_unpaid, never left immortal', () => {
+    const oneYearLater = new Date(requestedAt.getTime() + 365 * 86_400_000);
+    const result = applyLapses(redoRequestedJob(), oneYearLater, false);
     expect(result.status).toBe('closed_unpaid');
   });
 });
