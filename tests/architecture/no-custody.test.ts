@@ -169,6 +169,11 @@ describe('the settlement state is structurally singular until the payment state 
       priceAcceptedByAgent: true,
       depositPercent: 25,
       redoAllowance: 1,
+      redoUsedCount: 0,
+      redoRequestedCriterionIndex: null,
+      redoRequestedAt: null,
+      redoRefusedAt: null,
+      stagedLapseExtensionDays: 0,
       deliveryWindowDays: 14,
       pullRequestUrl: null,
       mergeCommit: 'abc123',
@@ -179,6 +184,11 @@ describe('the settlement state is structurally singular until the payment state 
       createdAt: new Date('2026-01-01T00:00:00Z'),
       stagedAt: null,
       stagedCommit: null,
+      citedCloseCriterionIndex: null,
+      citedCloseReasonText: null,
+      citedCloseAuthorDid: null,
+      citedCloseAt: null,
+      deemedCompletedAt: null,
     };
     const state: SettlementState = recordSettlementIntent(job).state;
     expect(state).toBe('recorded_intent');
