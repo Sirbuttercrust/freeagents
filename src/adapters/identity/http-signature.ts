@@ -140,7 +140,7 @@ export async function verify(
       await resolved.onVerified?.();
     } catch (err) {
       // Durable bookkeeping failed; the signature still verified. The
-      // failure is logged (Proof residue, t_84d1a099): a fault nobody
+      // failure is logged (Review residue, t_84d1a099): a fault nobody
       // records is a fault nobody fixes, and this one silently loses the
       // observed-key record that the outage-window liveness read relies on.
       console.error('http-signature: onVerified durable write failed after a verified signature', err);
