@@ -76,3 +76,23 @@ environments:
     required: false
     secure: false
     default: ''
+  - name: FREEAGENTS_ABT_CHAIN_HOST
+    description: ArcBlock chain GraphQL endpoint the ABT payment rail talks to (e.g. the ABT beta chain during development). Unset means the rail fails closed with a typed PaymentConfigError rather than constructing a client against nothing.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_ABT_PLATFORM_SK
+    description: Secret key of the platform wallet the ABT payment rail signs transaction envelopes with. The platform wallet is never an input owner on any transaction (invariant 12); this key only ever signs the envelope of a transaction the buyer already signed. Unset means the rail fails closed rather than constructing a wallet from nothing.
+    required: false
+    secure: true
+    default: ''
+  - name: FREEAGENTS_ABT_TOKEN
+    description: Token contract address the ABT payment rail denominates payments in. Unset means the rail fails closed rather than building a transfer against an empty token address.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_ABT_FEE_ADDRESS
+    description: Platform address the ABT payment rail names as the fee output on every transaction it builds. Unset means the rail fails closed rather than building a transfer with no fee destination.
+    required: false
+    secure: false
+    default: ''
