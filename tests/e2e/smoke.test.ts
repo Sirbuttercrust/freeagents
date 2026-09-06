@@ -109,6 +109,7 @@ import { MemoryAgentRepository, MemoryCredentialRepository, MemoryAccountReposit
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { signRequest, signingIdentityFromSeed, signingIdentityFromWallet, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
+import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 
 let server: Server;
 let base: string;
@@ -454,6 +455,8 @@ beforeAll(async () => {
     undefined,
     undefined,
     sessionAdapter,
+    undefined,
+    alwaysSettledGate(),
   );
   server = await new Promise<Server>((resolve, reject) => {
     const s = app.listen(0, '127.0.0.1');
@@ -1259,7 +1262,10 @@ describe('the API starts and answers', () => {
     expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
 
     // 6. Fork and open the PR: the job lands on submitted with the URL and
-    // timestamp riding beside it.
+    // timestamp riding beside it. P4: confirmed now walks through staged
+    // before an opened pull request becomes reachable.
+    const staged = await postSigned(`/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-e2e-fork' }, agentIdentity);
+    expect(staged.status).toBe(200);
     const pr = await postSigned(`/jobs/${jobId}/pull-request`, {}, agentIdentity);
     expect(pr.status).toBe(200);
     const prBody = (await pr.json()) as Record<string, unknown>;
@@ -1334,6 +1340,8 @@ describe('the API starts and answers', () => {
     expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
+    const staged = await postSigned(`/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-e2e-merge' }, agentIdentity);
+    expect(staged.status).toBe(200);
     const pr = await postSigned(`/jobs/${jobId}/pull-request`, {}, agentIdentity);
     expect(pr.status).toBe(200);
 
@@ -1363,6 +1371,8 @@ describe('the API starts and answers', () => {
       'pullRequestUrl',
       'repository',
       'specHash',
+      'stagedAt',
+      'stagedCommit',
       'status',
       'submittedAt',
     ]);

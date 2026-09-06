@@ -69,25 +69,34 @@ function mergedGithub(): GithubAdapter {
 // A row already in submitted, in the exact shape submitPullRequest itself
 // writes, so the merge route's own regex parses it (same pattern
 // tests/api/job-merge.test.ts's scripted legs use).
+//
+// P4: submittedAt is anchored to "now" rather than a fixed historical
+// date. The merge route now loads through the same lapse-aware path GET
+// uses (review round 1, D2/D3, t_cb5d35cd): a submitted job neither merged
+// nor closed within DEEM_COMPLETED_AFTER_DAYS (7) becomes deemed_completed
+// before merge ever runs its own logic. A fixed date from early in this
+// project's history would silently read back as deemed_completed by the
+// time this suite runs, for a test whose purpose has nothing to do with
+// that clock (credential id resolvability).
 function submittedJob(): Job {
-  const submittedAt = new Date('2026-08-20T00:00:00Z');
+  const submittedAt = new Date(Date.now() - 60 * 60 * 1000);
   return {
     ...createJob(
       { id: JOB_ID, buyerDid: BUYER_DID, agentDid: AGENT_DID, repository: 'buyer/target-repo', brief: 'Fix the checkout bug' },
-      new Date('2026-08-19T00:00:00Z'),
+      new Date(submittedAt.getTime() - 24 * 60 * 60 * 1000),
     ),
     status: 'submitted',
     pullRequestUrl: `https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/${PR_NUMBER}`,
     submittedAt,
     deadline: new Date(submittedAt.getTime() + 30 * 86_400_000),
     confirmedSpecHash: 'b'.repeat(64),
-    confirmedAt: new Date('2026-08-19T12:00:00Z'),
+    confirmedAt: new Date(submittedAt.getTime() - 12 * 60 * 60 * 1000),
   };
 }
 
 function listen(app: ReturnType<typeof createApp>): Promise<Server> {
   return new Promise((resolve) => {
-    const s = app.listen(0, () => resolve(s));
+    const s = app.listen(0, '127.0.0.1', () => resolve(s));
   });
 }
 

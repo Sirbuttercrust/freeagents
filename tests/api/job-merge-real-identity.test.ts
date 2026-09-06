@@ -29,6 +29,7 @@ import {
   MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 
 const FORK_OWNER = 'freeagents-platform';
 const FORK_REPO = 'target-repo';
@@ -134,6 +135,12 @@ async function startApp(): Promise<{
     credentials,
     undefined,
     credentialRepo,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    alwaysSettledGate(),
   );
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -184,6 +191,7 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
     expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agentIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(200);
 
     const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, buyerIdentity);
@@ -252,6 +260,12 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
       credentials,
       undefined,
       credentialRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      alwaysSettledGate(),
     );
     const s = app.listen(0);
     await new Promise<void>((resolve) => s.once('listening', resolve));
@@ -289,6 +303,7 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
       expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
       expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
       expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
+      expect((await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agentIdentity)).status).toBe(200);
       expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(200);
 
       const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, buyerIdentity);

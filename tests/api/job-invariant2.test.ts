@@ -31,6 +31,7 @@ import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { createJob, type Job } from '../../src/domain/job.js';
 import { signingIdentityFromWallet, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
+import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 
 // The ArcBlock wallet's secretKey is seed(32)||public(32) in hex.
 function hexToBytes(h: string): Uint8Array {
@@ -296,6 +297,8 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
       undefined,
       undefined,
       sessionAdapter,
+      undefined,
+      alwaysSettledGate(),
     ).listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
@@ -345,6 +348,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, operatorIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, operatorIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agentIdentity)).status).toBe(200);
 
     const pr = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity);
     expect(pr.status).toBe(200);
@@ -387,11 +391,24 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
   });
 
   it('a stale outcome projects no merge facts either', async () => {
-    // A submitted row whose deadline has already passed: relative to the
-    // wall clock, so the leg holds under any run date. No honest HTTP path
-    // can write this, so it is planted, the way the merge suite scripts its
-    // unreachable rows.
-    const submittedAt = new Date(Date.now() - 31 * 86_400_000);
+    // A submitted row whose deadline has already passed, but whose
+    // submittedAt is recent: relative to the wall clock, so the leg holds
+    // under any run date. No honest HTTP path can write this combination
+    // (submitPullRequest always pairs submittedAt with deadline =
+    // submittedAt + 30 days), so it is planted, the way the merge suite
+    // scripts its unreachable rows.
+    //
+    // P4: submittedAt must stay inside DEEM_COMPLETED_AFTER_DAYS (7) of
+    // now, or the merge route's own lapse-aware load (review round 1,
+    // D2/D3, t_cb5d35cd) flips the row to deemed_completed before this
+    // test's stale-observation path ever runs -- exactly the brief's own
+    // prediction that stale becomes unreachable past 7 days on a paid
+    // job. Decoupling deadline from submittedAt (both independently
+    // planted, like the rest of this fixture) keeps this test's actual
+    // target -- the deadline-passed-plus-still-open stale observation --
+    // reachable without retiring `stale` itself, which the brief leaves
+    // to its own card.
+    const submittedAt = new Date(Date.now() - 3 * 86_400_000);
     const planted: Job = {
       ...createJob(
         {
@@ -406,7 +423,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
       status: 'submitted',
       pullRequestUrl: `https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/1`,
       submittedAt,
-      deadline: new Date(submittedAt.getTime() + 30 * 86_400_000),
+      deadline: new Date(Date.now() - 86_400_000),
     };
     class PlantedJobRepository implements JobRepository {
       async create(): Promise<never> {

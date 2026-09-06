@@ -336,6 +336,12 @@ interface JobRow {
   depositPercent?: number;
   redoAllowance?: number;
   deliveryWindowDays?: number | null;
+  // P4: optional, same reasoning as priceUsd above -- a worktree generated
+  // before these columns exist types the row without them, and an absent
+  // column means "never staged", the same meaning a stored null already
+  // carries.
+  stagedAt?: Date | null;
+  stagedCommit?: string | null;
 }
 
 export class PrismaJobRepository implements JobRepository {
@@ -368,6 +374,8 @@ export class PrismaJobRepository implements JobRepository {
           depositPercent: job.depositPercent,
           redoAllowance: job.redoAllowance,
           deliveryWindowDays: job.deliveryWindowDays,
+          stagedAt: job.stagedAt,
+          stagedCommit: job.stagedCommit,
         } as unknown as Prisma.JobCreateInput,
       });
       return toJob(row as unknown as JobRow);
@@ -408,6 +416,8 @@ export class PrismaJobRepository implements JobRepository {
           depositPercent: job.depositPercent,
           redoAllowance: job.redoAllowance,
           deliveryWindowDays: job.deliveryWindowDays,
+          stagedAt: job.stagedAt,
+          stagedCommit: job.stagedCommit,
         } as unknown as Prisma.JobUpdateInput,
       });
       return toJob(row as unknown as JobRow);
@@ -456,6 +466,8 @@ export class PrismaJobRepository implements JobRepository {
           depositPercent: job.depositPercent,
           redoAllowance: job.redoAllowance,
           deliveryWindowDays: job.deliveryWindowDays,
+          stagedAt: job.stagedAt,
+          stagedCommit: job.stagedCommit,
         } as unknown as Prisma.JobUpdateInput,
       });
       return toJob(row as unknown as JobRow);
@@ -607,6 +619,8 @@ function toJob(row: JobRow): Job {
     depositPercent: row.depositPercent ?? DEPOSIT_PERCENT,
     redoAllowance: row.redoAllowance ?? REDO_ALLOWANCE,
     deliveryWindowDays: row.deliveryWindowDays ?? null,
+    stagedAt: row.stagedAt ?? null,
+    stagedCommit: row.stagedCommit ?? null,
   };
 }
 
