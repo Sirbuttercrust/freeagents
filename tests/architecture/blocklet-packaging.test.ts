@@ -160,6 +160,28 @@ describe('blocklet packaging', () => {
     expect(existsSync(join(repoRoot, sourcePath)), `preStart source missing: ${sourcePath}`).toBe(true);
   });
 
+  it('runs the same migration hook on `npm start`, not only on the Blocklet Server preStart hook (B1)', () => {
+    // Review round 1 found the actual gap: blocklet.yml's preStart hook only
+    // fires under Blocklet Server's own lifecycle. `npm start` (and the
+    // README's documented deploy path) called `node dist/src/api/server.js`
+    // directly and never ran a migration, reproducing B1 for anyone who
+    // followed the README. npm runs a `pre<script>` automatically before the
+    // matching script, so a `prestart` entry that invokes the same file
+    // closes that path without a second copy of the migration logic.
+    const scripts = topLevelBlock(manifest, 'scripts');
+    const match = /preStart:[ \t]*(.+?)[ \t]*$/m.exec(scripts);
+    const preStartCommand = match?.[1] ?? '';
+
+    expect(
+      packageJson.scripts['prestart'],
+      'package.json is missing a "prestart" script; without it `npm start` skips the schema migration entirely',
+    ).toBeDefined();
+    expect(
+      packageJson.scripts['prestart'],
+      'the "prestart" script must run the same hook file as blocklet.yml\'s preStart, so there is one migration entry point, not two',
+    ).toBe(preStartCommand);
+  });
+
   it('declares every FREEAGENTS_* env var that src actually reads', () => {
     // The gap this closes: platformIssuerFromEnv read FREEAGENTS_PLATFORM_DID
     // and FREEAGENTS_PLATFORM_SEED while environments: declared neither, so a

@@ -100,11 +100,13 @@ fail-closed guard when the environment it needs is not configured.
    environment variable is optional; see `blocklet.yml`'s `environments:`
    block and `.env.example` for what each one does.
 2. **Install and build:** `npm install && npm run build`.
-3. **Start it:** `npm start` (or, on Blocklet Server, install the bundle and
-   let it run the `main` entry point). Before the server accepts its first
-   request, a schema migration step applies every migration in
-   `prisma/migrations` with `prisma migrate deploy`. Nobody runs a database
-   command by hand.
+3. **Start it:** `npm start`, or on Blocklet Server, install the bundle and
+   let it run the `main` entry point. Both paths apply every migration in
+   `prisma/migrations` with `prisma migrate deploy` before the server
+   accepts its first request: `npm start` runs it automatically through
+   npm's own `prestart` lifecycle script, and Blocklet Server runs it
+   through the `preStart` hook declared in `blocklet.yml`. Nobody runs a
+   database command by hand either way.
 
 What the migration step does in each case an operator actually hits:
 
