@@ -59,6 +59,12 @@ enum JobStatus {
   closed_unpaid
   expired_unstaged
   deemed_completed
+  // P6 (design record, 2026-09-01, rows 2 and 4): the redo awaiting the
+  // operator's answer, and the buyer's deliberate reasoned close after
+  // paying. See src/domain/job.ts's validateJobTransition for the exact
+  // edges this enum backs.
+  redo_requested
+  cited_closed
 }
 
 // ENT-9: v1 records intent and nothing else. Exactly one member, on purpose:
@@ -186,13 +192,37 @@ model Job {
   // confirmedAt already keeps.
   stagedAt          DateTime?
   stagedCommit      String?
+  // P6 (design record, 2026-09-01, row 2): the redo mechanic. redoUsedCount
+  // is compared against redoAllowance by requestRedo; never decremented
+  // back down by a refusal. The three redoRequested* columns are one
+  // group with one writer (requestRedo), null outside redo_requested.
+  // redoRefusedAt is set once by refuseRedo and never cleared: it is
+  // exactly the fact a buyer needs when reading an operator's record
+  // later (the brief's own wording). stagedLapseExtensionDays is a
+  // stored fact lapseAtStaged reads, never recomputed from redoUsedCount.
+  redoUsedCount     Int       @default(0)
+  redoRequestedCriterionIndex Int?
+  redoRequestedAt   DateTime?
+  redoRefusedAt     DateTime?
+  stagedLapseExtensionDays Int @default(0)
+  // P6 (design record, 2026-09-01, row 4): the cited close. One group with
+  // one writer (recordCitedClose), null outside cited_closed.
+  // citedCloseAuthorDid is always this job's own buyerDid (recordCitedClose
+  // copies it, never takes it as a separate input).
+  citedCloseCriterionIndex Int?
+  citedCloseReasonText String?
+  citedCloseAuthorDid String?
+  citedCloseAt      DateTime?
+  // P6 (design record, 2026-09-01, row 3): the instant deemCompleted
+  // actually fired, the fact the deemed-completion credential needs.
+  deemedCompletedAt DateTime?
 
   agent        Agent         @relation(fields: [agentDid], references: [did])
   completedJob CompletedJob?
   credential   Credential?
   settlement   Settlement?
   review       Review?
-  attestation  Attestation?
+  attestations Attestation[]
 
   @@index([agentDid])
   @@index([buyerDid])
@@ -385,11 +415,15 @@ model UsdcHalfPaidSettlement {
 }
 
 // P5 (design record, 2026-09-01): the attestation the platform publishes
-// when a job reaches `staged`. One row per job, and IMMUTABLE once written
-// (AttestationRepository's own header comment, src/adapters/storage/types.ts):
-// neither storage driver offers an update method, and a redo that later
-// restages the same job is a NEW row under a scheme a later card owns, not
-// an edit of this one. `document` is the unsigned accepted-field facts
+// when a job reaches `staged`. Widened by P6's redo (design record, same
+// date): a job may accumulate MANY rows, one per stage/restage cycle,
+// distinguished by `sequence` (1, 2, 3, ...). Each row is IMMUTABLE once
+// written (AttestationRepository's own header comment,
+// src/adapters/storage/types.ts): neither storage driver offers an update
+// method, and a redo that later restages the same job appends a NEW row
+// at the next sequence, never an edit of an existing one -- the buyer
+// must be able to read the attestation they were shown before a redo and
+// after it (P6 brief). `document` is the unsigned accepted-field facts
 // (src/domain/attestation.ts's Attestation, exactly the fields the design
 // record's synthesis accepted and none of the fields it refused);
 // `signed` is the platform-signed wire document the read route serves,
@@ -402,10 +436,14 @@ model UsdcHalfPaidSettlement {
 // CompletedJob could never be satisfied here either.
 model Attestation {
   id        String   @id @default(cuid())
-  jobId     String   @unique
+  jobId     String
+  sequence  Int
   document  Json
   signed    Json
   createdAt DateTime @default(now())
 
   job Job @relation(fields: [jobId], references: [id])
+
+  @@unique([jobId, sequence])
+  @@index([jobId])
 }
