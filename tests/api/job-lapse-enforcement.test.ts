@@ -15,7 +15,7 @@ import {
   MemoryJobRepository,
   MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
-import { createJob, stageWork, type Job } from '../../src/domain/job.js';
+import { createJob, requestRedo, stageWork, type Job } from '../../src/domain/job.js';
 import type { GithubAdapter, ForkAndOpenPullRequestInput, PullRequestRef } from '../../src/adapters/github/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
@@ -181,6 +181,34 @@ describe('lapse enforcement binds to mutation routes, not only GET (P4, anchor)'
     expect(pr.status).toBe(200);
     const body = (await pr.json()) as Record<string, unknown>;
     expect(body.status).toBe('submitted');
+  });
+
+  // P6 review round 2 (D3, t_604e3f2a): the round-1 fix widened
+  // lapseAtStaged to also run at redo_requested, but applyLiveLapses only
+  // ever asked the settlement gate `if (job.status === 'staged')`. A paid
+  // buyer whose redo the operator has not yet answered was fed a
+  // fabricated "not settled" answer on every read, so a job that had
+  // already collected the remainder could still be terminated
+  // closed_unpaid -- rewriting a fact that already happened. Both
+  // branches must read the same live gate the staged branch already does.
+  it('a redo_requested job whose balance HAS settled is NOT lapsed past the extended deadline', async () => {
+    const stagedAt = new Date(Date.now() - 20 * 86_400_000);
+    const requestedAt = new Date(Date.now() - 15 * 86_400_000);
+    const job = requestRedo(
+      stageWork(confirmedJob('j-lapse-redo-paid', new Date(stagedAt.getTime() - 86_400_000)), 'commit-sha-6', stagedAt),
+      0,
+      requestedAt,
+    );
+    await jobRepo.create(job);
+    gate.markBalanceSettled(job.id);
+
+    const read = await fetch(`${baseUrl}/jobs/${job.id}`);
+    expect(read.status).toBe(200);
+    const body = (await read.json()) as Record<string, unknown>;
+    expect(body.status).toBe('redo_requested');
+
+    const stored = await jobRepo.findById(job.id);
+    expect(stored?.status).toBe('redo_requested');
   });
 });
 

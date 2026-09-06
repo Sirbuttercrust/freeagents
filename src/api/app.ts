@@ -87,6 +87,7 @@ import {
   JobError,
   JobPriceError,
   JobTransitionError,
+  LAPSE_AT_STAGED_STATUSES,
   proposeCriteria,
   recordCitedClose,
   recordClosedUnmerged,
@@ -2001,19 +2002,27 @@ export function createApp(
 
   // The live half of applyLapses: lapseAtStaged is the one clock that
   // needs a fact beyond the row itself (whether the balance has settled),
-  // so this is where the settlement gate is actually asked, only for a
-  // staged job (the other two clocks never consult it). A gate failure
-  // here is treated exactly like any other settlement-gate failure in
-  // this file (POST /jobs/:jobId/pull-request's own leg): 503, not a
-  // silent fail-closed guess, because reporting a status this call could
-  // not actually verify is the same defect class the fail-closed default
-  // gate exists to prevent. The persistence half stays best-effort (as
-  // GET's stance always was): a write failure here must not turn an
-  // otherwise-successful read or mutation into a false 503, so the
-  // computed row is still what the caller sees either way.
+  // so this is where the settlement gate is actually asked, for staged
+  // AND redo_requested (P6 review round 2, D3, t_604e3f2a: the round-1
+  // fix widened lapseAtStaged to also cover redo_requested, but this
+  // function still asked the gate only for staged, so a paid buyer with a
+  // pending redo was fed a fabricated "not settled" answer and could be
+  // terminated closed_unpaid with the gate never consulted -- the other
+  // clock, deemCompleted, still never consults it). Deriving the set from
+  // lapseAtStaged's own starting statuses, rather than repeating a second
+  // literal here, is what keeps this call site from silently falling
+  // behind the domain function again the next time that set changes. A
+  // gate failure here is treated exactly like any other settlement-gate
+  // failure in this file (POST /jobs/:jobId/pull-request's own leg): 503,
+  // not a silent fail-closed guess, because reporting a status this call
+  // could not actually verify is the same defect class the fail-closed
+  // default gate exists to prevent. The persistence half stays
+  // best-effort (as GET's stance always was): a write failure here must
+  // not turn an otherwise-successful read or mutation into a false 503,
+  // so the computed row is still what the caller sees either way.
   async function applyLiveLapses(label: string, job: Job, res: Response): Promise<Job | null> {
     let remainderIsSettled = false;
-    if (job.status === 'staged') {
+    if (LAPSE_AT_STAGED_STATUSES.has(job.status)) {
       try {
         remainderIsSettled = await remainderSettled(settlementGate, job.id);
       } catch (err) {
