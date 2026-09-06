@@ -5,6 +5,9 @@
 // asserted the wiring itself: reverting to
 // `Number(process.env['PORT'] ?? 3000)` here would drop BLOCKLET_PORT support
 // and fail nothing.
+//
+// P9: it must also print the configuration report exactly once at startup
+// (scope item 1), additive to the listen wiring above, never replacing it.
 import { describe, expect, it, vi } from 'vitest';
 
 const mock = vi.hoisted(() => ({
@@ -13,12 +16,20 @@ const mock = vi.hoisted(() => ({
   }),
   createApp: vi.fn(),
   resolveListenPort: vi.fn(() => 4242),
+  buildConfigReport: vi.fn(() => ({ capabilities: [] })),
+  formatConfigReport: vi.fn(() => 'configuration report:\n  database: configured'),
 }));
 
 mock.createApp.mockImplementation(() => ({ listen: mock.listen }));
 
 vi.mock('../../src/api/app.js', () => ({ createApp: mock.createApp }));
 vi.mock('../../src/adapters/runtime/runtime.js', () => ({ resolveListenPort: mock.resolveListenPort }));
+vi.mock('../../src/adapters/config/report.js', () => ({
+  buildConfigReport: mock.buildConfigReport,
+  formatConfigReport: mock.formatConfigReport,
+}));
+
+const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
 // Side-effecting on import, like the real process boot: resolveListenPort()
 // runs and its result is handed straight to app.listen().
@@ -29,5 +40,11 @@ describe('src/api/server.ts', () => {
     expect(mock.resolveListenPort).toHaveBeenCalledTimes(1);
     expect(mock.createApp).toHaveBeenCalledTimes(1);
     expect(mock.listen).toHaveBeenCalledWith(4242, expect.any(Function));
+  });
+
+  it('builds and logs the configuration report exactly once at startup', () => {
+    expect(mock.buildConfigReport).toHaveBeenCalledTimes(1);
+    expect(mock.formatConfigReport).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith('configuration report:\n  database: configured');
   });
 });

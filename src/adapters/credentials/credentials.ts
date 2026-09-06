@@ -14,6 +14,16 @@ const DEFAULT_PLATFORM_DID = 'did:abt:freeagents-platform';
 // default the app already ships with.
 const DEFAULT_PUBLIC_BASE_URL = 'http://localhost:3000';
 
+// Shape check for FREEAGENTS_PLATFORM_SEED, shared with the P9 startup
+// configuration report (report.ts): "configured" must mean the same thing
+// in both places, so the report never claims a seed is set when it is a
+// value platformIssuerFromEnv would reject and fall back away from. An
+// empty string fails this the same as any other malformed value, since
+// regex length 64 never matches length 0.
+export function isValidPlatformSeedHex(value: string): boolean {
+  return /^(0x)?[0-9a-f]{64}$/i.test(value);
+}
+
 // Mirrors the storage factory's stance (storage.ts:12-17): an unconfigured
 // deployment announces itself rather than pretending to be configured. A
 // missing or malformed seed still returns a usable issuer (dev/test mode)
@@ -25,7 +35,7 @@ export function platformIssuerFromEnv(): CredentialsIssuer {
   // nullish fallback would issue credentials under an empty issuer DID.
   const did = process.env.FREEAGENTS_PLATFORM_DID || DEFAULT_PLATFORM_DID;
   const hex = process.env.FREEAGENTS_PLATFORM_SEED;
-  if (hex !== undefined && /^(0x)?[0-9a-f]{64}$/i.test(hex)) {
+  if (hex !== undefined && isValidPlatformSeedHex(hex)) {
     return { did, seed: Uint8Array.from(Buffer.from(hex.replace(/^0x/i, ''), 'hex')) };
   }
   console.warn(
