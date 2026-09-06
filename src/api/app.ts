@@ -84,6 +84,7 @@ import {
   acceptPrice,
   applyLapses,
   assertPriceAboveFloor,
+  attachStagingRepository,
   completeJob,
   confirmSpec,
   createJob,
@@ -2579,24 +2580,144 @@ export function createApp(
   // agreement problems first, the money problem last, and the response
   // carries the depositUsd amount so a 402 is actionable, not just a
   // refusal.
+  //
+  // B14a anchor: "every staged commit lives in a repository the platform
+  // created, at a base the platform pinned". confirm is where that
+  // repository comes into being: once the deposit has settled, this route
+  // reads the buyer's repository's current default-branch head (the base
+  // the platform pins), creates a private staging repository seeded from
+  // it, and grants the agent's verified GitHub login push. This route no
+  // longer shares runPartyExchange/applyAndPersist's generic skeleton,
+  // because those two async GitHub calls sit BETWEEN the money gate and
+  // persistence -- a shape no other route in this file needs. Any
+  // failure creating the repository or granting push fails confirm
+  // closed: nothing is persisted, so the job stays at whatever status it
+  // was already stored at (proposed), and the deposit settlement row
+  // already recorded is untouched (it settled on chain; this route never
+  // reverses that, matching invariant 12's own stance everywhere else).
   app.post(
     '/jobs/:jobId/confirm',
     didSignature,
     forwarded(async (req: Request, res: Response) => {
-      await runPartyExchange(
-        'POST /jobs/:jobId/confirm',
-        String(req.params.jobId),
-        req,
-        res,
-        (job) => confirmSpec(job, new Date()),
-        {
-          settled: (jobId) => settlementGate.depositSettled(jobId),
-          unsettledBody: (updated) => ({
-            error: 'the deposit has not settled; this job cannot confirm until it does',
-            depositUsd: depositUsd(String(updated.priceUsd), updated.depositPercent),
-          }),
-        },
-      );
+      const label = 'POST /jobs/:jobId/confirm';
+      const jobId = String(req.params.jobId);
+      const current = await loadForExchange(label, jobId, res);
+      if (current === null) return;
+
+      const signerDid = signerDidOf(req);
+      if (signerDid === null) {
+        res.status(401).json({
+          error: 'this route requires a verified request signature (R-34); sign the request naming this job\'s buyer or agent DID',
+        });
+        return;
+      }
+      if (partyForDid(current, signerDid) === null) {
+        res.status(403).json({ error: 'signature does not name a party to this job' });
+        return;
+      }
+
+      let confirmed: Job;
+      try {
+        confirmed = confirmSpec(current, new Date());
+      } catch (err) {
+        if (err instanceof JobError) {
+          res.status(400).json({ error: err.message });
+          return;
+        }
+        // P1: the price gate is a state conflict, the same 409 a
+        // criteria-outstanding confirm already answers with.
+        if (err instanceof JobPriceError) {
+          res.status(409).json({ error: err.message });
+          return;
+        }
+        if (err instanceof JobTransitionError) {
+          res.status(409).json({ error: err.message });
+          return;
+        }
+        throw err;
+      }
+
+      let depositIsSettled: boolean;
+      try {
+        depositIsSettled = await settlementGate.depositSettled(current.id);
+      } catch (err) {
+        console.error(`${label}: settlement gate failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (!depositIsSettled) {
+        res.status(402).json({
+          error: 'the deposit has not settled; this job cannot confirm until it does',
+          depositUsd: depositUsd(String(confirmed.priceUsd), confirmed.depositPercent),
+        });
+        return;
+      }
+
+      // B14a: the agent's VERIFIED GitHub login is the only login
+      // grantPush may ever target -- an agent with no verified binding
+      // yet cannot be granted push on a repository nobody proved it
+      // controls.
+      let agent: Agent | null;
+      try {
+        agent = await agentRepo.findByDid(current.agentDid);
+      } catch (err) {
+        console.error(`${label}: storage failed reading agent`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (agent === null || agent.githubLogin === null || agent.proofStatus !== 'verified') {
+        console.error(`${label}: agent ${current.agentDid} has no verified GitHub login; cannot grant push on a staging repository`);
+        res.status(503).json({ error: 'github unavailable' });
+        return;
+      }
+
+      // repository was regex-checked to exactly one slash at POST /jobs
+      // time (same slice every other github-facing route in this file
+      // uses).
+      const slashAt = current.repository.indexOf('/');
+      const sourceOwner = current.repository.slice(0, slashAt);
+      const sourceRepo = current.repository.slice(slashAt + 1);
+
+      let withStagingRepo: Job;
+      try {
+        const head = await github.getDefaultBranchHead({ owner: sourceOwner, repo: sourceRepo });
+        const stagingRepo = await github.createStagingRepository({
+          jobId: current.id,
+          sourceOwner,
+          sourceRepo,
+          baseCommit: head.sha,
+        });
+        await github.grantPush({
+          owner: stagingRepo.owner,
+          repo: stagingRepo.repo,
+          githubLogin: agent.githubLogin,
+          verifiedGithubLogin: agent.githubLogin,
+        });
+        withStagingRepo = attachStagingRepository(
+          confirmed,
+          { owner: stagingRepo.owner, repo: stagingRepo.repo },
+          stagingRepo.baseCommit,
+        );
+      } catch (err) {
+        // Fails closed: nothing persists, so the row stays at whatever
+        // status it was already stored at (proposed) -- see this route's
+        // own header comment.
+        console.error(`${label}: staging repository creation failed`, err);
+        res.status(503).json({ error: 'github unavailable' });
+        return;
+      }
+
+      try {
+        const row = await jobRepo.update(withStagingRepo);
+        if (row === null) {
+          res.status(404).json({ error: 'not found' });
+          return;
+        }
+        res.status(200).json(jobProjection(row));
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+      }
     }),
   );
 
@@ -2647,6 +2768,37 @@ export function createApp(
   // this card exists to prevent. Any failure in the staging observation,
   // the attestation build, the signature, or the attestation storage fails
   // the whole stage: the job stays confirmed.
+  //
+  // B14a anchor: before any of that, this route verifies the commit
+  // exists in the staging repository (getCommit) and descends from
+  // baseCommit (a bounded ancestry walk). A SHA the agent posts that is
+  // not actually in the staging repo -- or that does not descend from
+  // the base the platform pinned at confirm -- is 409, naming the repo,
+  // before the observer or the attestation ever sees it.
+  const MAX_ANCESTRY_WALK_DEPTH = 500;
+
+  // Walks parent commits from `sha` looking for `target`, bounded so a
+  // pathological or forged history cannot spin this route forever. A
+  // commit's own sha counts as descending from itself (depth 0): staging
+  // a job at exactly baseCommit -- no work yet -- is legitimate.
+  async function descendsFrom(owner: string, repo: string, sha: string, target: string): Promise<boolean> {
+    let frontier = [sha];
+    const visited = new Set<string>();
+    for (let depth = 0; depth <= MAX_ANCESTRY_WALK_DEPTH; depth += 1) {
+      const next: string[] = [];
+      for (const candidate of frontier) {
+        if (candidate === target) return true;
+        if (visited.has(candidate)) continue;
+        visited.add(candidate);
+        const commit = await github.getCommit({ owner, repo, sha: candidate });
+        next.push(...commit.parents);
+      }
+      if (next.length === 0) return false;
+      frontier = next;
+    }
+    return false;
+  }
+
   app.post(
     '/jobs/:jobId/stage',
     didSignature,
@@ -2662,9 +2814,14 @@ export function createApp(
       const stagedCommit = body.stagedCommit;
       const current = gate.job;
 
-      let staged: Job;
+      // The transition guard runs BEFORE any github call: a job past its
+      // lapse window (or otherwise ineligible) is a 409, not a 503 --
+      // github never needs to hear about a stage attempt the state
+      // machine was always going to refuse. stageWork re-validates below
+      // (it is pure and cheap), so this is not a second source of truth,
+      // only an ordering guarantee.
       try {
-        staged = stageWork(current, stagedCommit, new Date());
+        validateJobTransition(current.status, 'staged');
       } catch (err) {
         if (err instanceof JobTransitionError) {
           res.status(409).json({ error: err.message });
@@ -2673,17 +2830,57 @@ export function createApp(
         throw err;
       }
 
-      // P5: measure the staging repository. No base commit or
-      // criteria-to-path mapping exists on Job today (and the refused
-      // list forbids ever building the latter, design record 2026-09-01):
-      // the real observer's card is where this seam gets filled in, per
-      // src/adapters/staging/types.ts's own header comment. The unwired
-      // default ignores its input entirely and refuses regardless.
+      // B14a: a job cannot stage before confirm created its staging
+      // repository. Every honestly-reached `confirmed` job carries one
+      // (confirm's own route sets it before it ever persists the
+      // transition); a job missing one here is a fault this route
+      // cannot recover from, not a client error.
+      if (current.stagingRepo === null || current.baseCommit === null) {
+        console.error(`${label}: job ${current.id} has no staging repository; confirm must create one before stage can verify a commit`);
+        res.status(503).json({ error: 'staging repository unavailable' });
+        return;
+      }
+      const stagingRepo = current.stagingRepo;
+      const baseCommit = current.baseCommit;
+
+      try {
+        await github.getCommit({ owner: stagingRepo.owner, repo: stagingRepo.repo, sha: stagedCommit });
+      } catch (err) {
+        console.error(`${label}: staged commit ${stagedCommit} not found in staging repository`, err);
+        res.status(409).json({
+          error: `staged commit ${stagedCommit} does not exist in the staging repository ${stagingRepo.owner}/${stagingRepo.repo}`,
+        });
+        return;
+      }
+
+      let isDescendant: boolean;
+      try {
+        isDescendant = await descendsFrom(stagingRepo.owner, stagingRepo.repo, stagedCommit, baseCommit);
+      } catch (err) {
+        console.error(`${label}: ancestry walk failed`, err);
+        res.status(503).json({ error: 'github unavailable' });
+        return;
+      }
+      if (!isDescendant) {
+        res.status(409).json({
+          error: `staged commit ${stagedCommit} does not descend from base commit ${baseCommit} in the staging repository ${stagingRepo.owner}/${stagingRepo.repo}`,
+        });
+        return;
+      }
+
+      // stageWork re-validates the transition (cheap, pure); the guard
+      // above is what keeps this route's ordering honest, not a
+      // duplicated rule.
+      const staged: Job = stageWork(current, stagedCommit, new Date());
+
+      // P5: measure the staging repository. baseCommit now comes from
+      // the job (B14a), the base the platform pinned at confirm -- not
+      // an empty string.
       let observation;
       try {
         observation = await stagingObserver.observe({
           stagedCommit,
-          baseCommit: '',
+          baseCommit,
           criteriaPaths: [],
         });
       } catch (err) {
@@ -2934,30 +3131,33 @@ export function createApp(
     }),
   );
 
-  // R-10 (ENT-4.3, ENT-4.5): fork the buyer's repository and open the pull
-  // request carrying the job id. The route owns only what the domain cannot
-  // know: splitting the stored owner/name pair, formatting the public
-  // artifacts (branch, title, body), and sequencing - the adapter fires
-  // BEFORE anything persists, because a pull request is an external side
-  // effect no storage rollback can undo.
+  // R-10 (ENT-4.3, ENT-4.5), B14a: opens the pull request from the
+  // staging repository at the attested SHA (job.stagedCommit), never
+  // from a fork or an assumed branch tip. The route owns only what the
+  // domain cannot know: splitting the stored owner/name pair, formatting
+  // the public artifacts (branch, title, body), and sequencing - the
+  // adapter fires BEFORE anything persists, because a pull request is an
+  // external side effect no storage rollback can undo.
   app.post(
     '/jobs/:jobId/pull-request',
     didSignature,
     forwarded(async (req: Request, res: Response) => {
       const jobId = String(req.params.jobId);
 
-      // Only the agent submits its own work (B7): the fork and the pull
-      // request are public side effects under the platform account, so the
-      // party check sits before the state machine and before GitHub.
+      // Only the agent submits its own work (B7): the branch creation and
+      // pull request are public side effects under the platform account,
+      // so the party check sits before the state machine and before
+      // GitHub.
       const gate = await requireSignedParty('POST /jobs/:jobId/pull-request', jobId, req, res, ['agent']);
       if (gate === null) return;
       const current: Job = gate.job;
 
       // P4 anchor: the pull request cannot open until the balance is
       // settled. This check sits in FRONT of both the state machine check
-      // and the fork call below, because a fork is a public act (the
-      // brief's own wording) -- unlike confirm, where the money question
-      // is the LAST agreement gate, here it is the FIRST side-effect gate:
+      // and the branch/PR calls below, because opening a branch on a
+      // repository under the platform account and opening the PR are
+      // public acts -- unlike confirm, where the money question is the
+      // LAST agreement gate, here it is the FIRST side-effect gate:
       // nothing publicly visible may happen before the money is verified,
       // whatever the job's status turns out to be.
       let remainderIsSettled: boolean;
@@ -2993,6 +3193,19 @@ export function createApp(
         return;
       }
 
+      // B14a: the PR opens from the staging repository at the attested
+      // commit. A staged job always carries both (stageWork's own
+      // one-writer pairing, confirmed before this by the state machine
+      // check above); a job missing either here is a fault this route
+      // cannot recover from.
+      if (current.stagingRepo === null || current.stagedCommit === null) {
+        console.error(`POST /jobs/:jobId/pull-request: job ${jobId} has no staging repository or staged commit`);
+        res.status(503).json({ error: 'github unavailable' });
+        return;
+      }
+      const stagingRepo = current.stagingRepo;
+      const stagedCommit = current.stagedCommit;
+
       // repository was regex-checked to exactly one slash at POST /jobs time,
       // so slicing around the single separator always yields both parts -
       // no array destructuring, whose undefined members strict mode would
@@ -3012,7 +3225,7 @@ export function createApp(
         `Brief hash: ${current.briefHash}`,
         `Spec hash: ${String(current.confirmedSpecHash)}`,
         '',
-        'This pull request was opened by FreeAgents against a fork it controls; the platform holds no write access to the source repository.',
+        'This pull request was opened by FreeAgents from a staging repository it controls, at the attested commit; the platform holds no write access to the source repository.',
       ].join('\n');
 
       // Any failure here is platform-side unavailability, not caller error:
@@ -3020,7 +3233,10 @@ export function createApp(
       // account-proof github leg, so both github-facing routes answer alike.
       let ref: PullRequestRef;
       try {
-        ref = await github.forkAndOpenPullRequest({
+        ref = await github.openStagedPullRequest({
+          stagingOwner: stagingRepo.owner,
+          stagingRepo: stagingRepo.repo,
+          stagedCommit,
           sourceOwner,
           sourceRepo,
           branch: `freeagents/${jobId}`,

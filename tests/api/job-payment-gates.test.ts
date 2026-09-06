@@ -12,25 +12,25 @@ import {
   MemoryJobRepository,
   MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
-import type { GithubAdapter, ForkAndOpenPullRequestInput, PullRequestRef } from '../../src/adapters/github/types.js';
-import { NotImplementedError } from '../../src/adapters/not-implemented.js';
+import type { GithubAdapter, OpenStagedPullRequestInput, PullRequestRef } from '../../src/adapters/github/types.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
+const AGENT_GITHUB_LOGIN = 'scout-payment-gate';
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
   { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
 ];
 
-function fakeGithub(recorded: ForkAndOpenPullRequestInput[]): GithubAdapter {
+function fakeGithub(recorded: OpenStagedPullRequestInput[]): GithubAdapter {
+  const { github: staging } = createStagingLifecycleGithubFake();
   return {
-    getPullRequest: () => Promise.reject(new NotImplementedError('github', 'getPullRequest')),
-    getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
-    getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
-    forkAndOpenPullRequest: (input) => {
+    ...staging,
+    openStagedPullRequest: (input) => {
       recorded.push(input);
-      const ref: PullRequestRef = { owner: 'freeagents-platform', repo: 'target-repo', number: 1 };
+      const ref: PullRequestRef = { owner: input.sourceOwner, repo: input.sourceRepo, number: 1 };
       return Promise.resolve(ref);
     },
   };
@@ -64,10 +64,11 @@ async function startApp(settlementGate: MemorySettlementGate, github?: GithubAda
     delegation: { fixture: true } as never,
     name: 'scout',
     skills: ['triage'],
-    githubLogin: null,
+    githubLogin: AGENT_GITHUB_LOGIN,
   });
+  await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
   const jobRepo = new MemoryJobRepository();
-  const forkCalls: ForkAndOpenPullRequestInput[] = [];
+  const forkCalls: OpenStagedPullRequestInput[] = [];
   const app = createApp(
     operatorRepo,
     agentRepo,

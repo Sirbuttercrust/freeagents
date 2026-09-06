@@ -69,9 +69,14 @@ environments:
     secure: false
     default: ''
   - name: FREEAGENTS_GITHUB_TOKEN
-    description: Personal access token for the platform's GitHub account, used by the real github adapter (fork, pull request, gist, merge observation). public_repo scope is sufficient; see src/adapters/github/github.ts for the exact call list. Unset means the adapter fails closed with 503 rather than calling the GitHub API unauthenticated.
+    description: Personal access token for the platform's GitHub account, used by the real github adapter (staging repository creation, push grants, commit reads, pull request open, gist, merge observation -- B14a). Needs the repo scope, not public_repo (creating a private staging repository, reading a private source repository's git objects, and adding a collaborator all require it); see src/adapters/github/github.ts for the exact call list. Unset means the adapter fails closed with 503 rather than calling the GitHub API unauthenticated.
     required: false
     secure: true
+    default: ''
+  - name: FREEAGENTS_GITHUB_PLATFORM_LOGIN
+    description: The platform's own GitHub login (B14a). Every mutating staging-lifecycle call (createStagingRepository, grantPush, openStagedPullRequest) is fenced to this owner, so a misconfigured token can never write anywhere else -- invariant 1 enforced at the adapter boundary, not by discipline. Unset means every mutating call fails closed with NotPlatformOwnerError.
+    required: false
+    secure: false
     default: ''
   - name: FREEAGENTS_GITHUB_API_BASE
     description: Base URL the github adapter calls instead of https://api.github.com. Unset means the real GitHub API. Intended for pointing the adapter at a test double during rehearsal, never for production traffic.

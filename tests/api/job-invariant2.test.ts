@@ -24,7 +24,6 @@ import { fromRandom, type WalletObject } from '@ocap/wallet';
 
 import { createApp } from '../../src/api/app.js';
 import type { GithubAdapter, PullRequestSummary } from '../../src/adapters/github/types.js';
-import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import { MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
@@ -33,6 +32,7 @@ import { signingIdentityFromWallet, signRequest, type SigningIdentity } from '..
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
 // The ArcBlock wallet's secretKey is seed(32)||public(32) in hex.
 function hexToBytes(h: string): Uint8Array {
@@ -263,7 +263,9 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
   // The PR state is scripted per leg: the outcome comes from github's own
   // report, exactly as the merge route requires (ENT-7.1).
   let prState: PullRequestSummary['state'];
+  const { github: stagingGithub } = createStagingLifecycleGithubFake();
   const github: GithubAdapter = {
+    ...stagingGithub,
     getPullRequest: (ref) =>
       Promise.resolve({
         ref,
@@ -276,18 +278,16 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
         filesChanged: 0,
         repositoryPublic: true,
       }),
-    getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
-    getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
-    forkAndOpenPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: 1 }),
   };
 
   beforeAll(async () => {
     operatorIdentity = await signingIdentityFromWallet(operatorWallet);
     agentIdentity = await signingIdentityFromWallet(agentWallet);
     const sessionAdapter = testSessionAdapter();
+    const agentRepo = new MemoryAgentRepository();
     server = createApp(
       new MemoryAccountRepository(),
-      new MemoryAgentRepository(),
+      agentRepo,
       undefined,
       github,
       new MemoryJobRepository(),
@@ -324,6 +324,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
       skills: ['triage'],
     }, operatorIdentity);
     expect(delegated.status).toBe(201);
+    await agentRepo.updateGithubBinding(agentWallet.toDid(), { handle: 'scout-outcome-inv2', status: 'verified' });
   });
 
   afterAll(() => {

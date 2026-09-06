@@ -12,6 +12,7 @@ import { MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } f
 import type { Delegation } from '../../src/domain/agent.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
 function delegationFixture(agentDid: string): Delegation {
   return {
@@ -99,8 +100,9 @@ describe('DID-signed hire-loop routes (R-34)', () => {
       delegation: delegationFixture(agent.did),
       name: 'scout',
       skills: ['triage'],
-      githubLogin: null,
+      githubLogin: 'scout-signed-routes',
     });
+    await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-signed-routes', status: 'verified' });
     // stranger is a registered agent DID -- registered, but not a party to
     // any job this file creates, so it is the fixture for "signature
     // verifies but names the wrong party" (cases 6 and 7).
@@ -110,11 +112,13 @@ describe('DID-signed hire-loop routes (R-34)', () => {
       delegation: delegationFixture(stranger.did),
       name: 'stranger',
       skills: ['triage'],
-      githubLogin: null,
+      githubLogin: 'stranger-signed-routes',
     });
+    await agentRepo.updateGithubBinding(stranger.did, { handle: 'stranger-signed-routes', status: 'verified' });
 
     jobRepo = new MemoryJobRepository();
-    server = createApp(operatorRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, alwaysSettledGate()).listen(0, '127.0.0.1');
+    const { github } = createStagingLifecycleGithubFake();
+    server = createApp(operatorRepo, agentRepo, undefined, github, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, alwaysSettledGate()).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
