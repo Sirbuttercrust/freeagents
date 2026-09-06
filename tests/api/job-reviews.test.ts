@@ -149,7 +149,7 @@ beforeAll(async () => {
     undefined,
     reviewRepo,
   );
-  server = app.listen(0);
+  server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
   if (address === null || typeof address === 'string') {
@@ -369,7 +369,7 @@ describe('POST /jobs/:jobId/reviews and GET .../reviews, storage branches', () =
       undefined,
       failingReviewRepo,
     );
-    const s = app.listen(0);
+    const s = app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => s.once('listening', resolve));
     const address = s.address();
     if (address === null || typeof address === 'string') throw new Error('expected a port');
@@ -421,7 +421,7 @@ describe('POST /jobs/:jobId/reviews and GET .../reviews, storage branches', () =
       undefined,
       failingReviewRepo,
     );
-    const s = app.listen(0);
+    const s = app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => s.once('listening', resolve));
     const address = s.address();
     if (address === null || typeof address === 'string') throw new Error('expected a port');

@@ -18,7 +18,7 @@ let server: Server;
 let baseUrl: string;
 
 beforeAll(async () => {
-  server = createApp().listen(0);
+  server = createApp().listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${address.port}`;

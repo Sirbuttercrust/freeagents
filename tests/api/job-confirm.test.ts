@@ -149,7 +149,7 @@ async function startWith(repo: JobRepository): Promise<{ server: Server; baseUrl
   });
   const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-confirm-scripted' });
-  const s = createApp(operatorRepo, agentRepo, undefined, undefined, repo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, alwaysSettledGate()).listen(0);
+  const s = createApp(operatorRepo, agentRepo, undefined, undefined, repo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, alwaysSettledGate()).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => s.once('listening', resolve));
   const address = s.address();
   if (address === null || typeof address === 'string') {
@@ -183,7 +183,7 @@ describe('job confirm (R-9)', () => {
       skills: ['triage'],
       githubLogin: null,
     });
-    server = createApp(operatorRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, alwaysSettledGate()).listen(0);
+    server = createApp(operatorRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, alwaysSettledGate()).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
@@ -389,7 +389,7 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
       sessionAdapter,
       undefined,
       alwaysSettledGate(),
-    ).listen(0);
+    ).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {

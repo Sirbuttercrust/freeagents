@@ -73,7 +73,7 @@ async function postSigned(base: string, path: string, body: unknown, identity: S
 }
 
 async function listen(app: ReturnType<typeof createApp>): Promise<{ server: Server; baseUrl: string }> {
-  const server = app.listen(0);
+  const server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
   if (address === null || typeof address === 'string') {

@@ -122,7 +122,7 @@ async function startWith(jobRepo: JobRepository): Promise<{ server: Server; base
     undefined,
     undefined,
     sessionAdapter,
-  ).listen(0);
+  ).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
   if (address === null || typeof address === 'string') {
@@ -194,7 +194,7 @@ describe('job criteria exchange (R-8)', () => {
       undefined,
       undefined,
       sessionAdapter,
-    ).listen(0);
+    ).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
@@ -425,7 +425,7 @@ describe('job criteria exchange (R-8)', () => {
       undefined,
       undefined,
       new FailingRead(),
-    ).listen(0);
+    ).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => failingServer.once('listening', resolve));
     const address = failingServer.address();
     if (address === null || typeof address === 'string') {

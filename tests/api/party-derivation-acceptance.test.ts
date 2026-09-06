@@ -65,7 +65,7 @@ describe('R-39 completion acceptance: party derived, never declared', () => {
       undefined,
       undefined,
       sessionAdapter,
-    ).listen(0);
+    ).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
@@ -127,7 +127,7 @@ describe('R-39 completion acceptance: party derived, never declared', () => {
     await repo.register({ did: buyer.did, githubLogin: 'pd-buyer-sig' });
     await repo.register({ did: stranger.did, githubLogin: 'pd-stranger-sig' });
 
-    const server = createApp(repo, agentRepo).listen(0);
+    const server = createApp(repo, agentRepo).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
@@ -232,7 +232,7 @@ describe('R-39 completion acceptance: party derived, never declared', () => {
       githubLogin: null,
     });
 
-    const server = createApp(repo, agentRepo, undefined, undefined, jobRepo).listen(0);
+    const server = createApp(repo, agentRepo, undefined, undefined, jobRepo).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
@@ -365,7 +365,7 @@ describe('R-39 completion acceptance: party derived, never declared', () => {
       undefined,
       undefined,
       sessionAdapter,
-    ).listen(0);
+    ).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {

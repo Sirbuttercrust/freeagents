@@ -114,7 +114,7 @@ describe('DID-signed hire-loop routes (R-34)', () => {
     });
 
     jobRepo = new MemoryJobRepository();
-    server = createApp(operatorRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, alwaysSettledGate()).listen(0);
+    server = createApp(operatorRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, alwaysSettledGate()).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {

@@ -58,7 +58,7 @@ let baseUrl: string;
 beforeAll(async () => {
   // Deliberately EMPTY repositories. Every record below is one that does
   // not exist, which is the state under test.
-  server = createApp(new MemoryAccountRepository(), new MemoryAgentRepository()).listen(0);
+  server = createApp(new MemoryAccountRepository(), new MemoryAgentRepository()).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });

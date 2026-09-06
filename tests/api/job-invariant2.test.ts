@@ -141,7 +141,7 @@ describe('job draft, invariant 2 (R-28): the brief hash is verifiable off-platfo
       undefined,
       undefined,
       sessionAdapter,
-    ).listen(0);
+    ).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
@@ -301,7 +301,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
       undefined,
       alwaysSettledGate(),
       anyCommitStagingObserver(),
-    ).listen(0);
+    ).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
@@ -460,7 +460,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
       undefined,
       github,
       repo,
-    ).listen(0);
+    ).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server2.once('listening', resolve));
     const address = server2.address();
     if (address === null || typeof address === 'string') {
