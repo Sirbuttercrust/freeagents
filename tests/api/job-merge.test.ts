@@ -34,6 +34,7 @@ import { createJob, type CompletedJob, type Job, type JobStatus } from '../../sr
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 
 const agentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(91));
 const buyerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(92));
@@ -262,6 +263,7 @@ async function startWith(
     sessionAdapter,
     undefined,
     alwaysSettledGate(),
+    anyCommitStagingObserver(),
   ).listen(0);
   await new Promise<void>((resolve) => s.once('listening', resolve));
   const address = s.address();
@@ -590,6 +592,7 @@ describe('job merge, credential-issuance faulted legs (R-36)', () => {
       issueWorkHistoryCredential: () => Promise.reject(new Error('signing key unavailable')),
       verifyCredential: () => Promise.reject(new NotImplementedError('credentials', 'verifyCredential')),
       getCredential: () => Promise.reject(new NotImplementedError('credentials', 'getCredential')),
+      signAttestation: () => Promise.reject(new NotImplementedError('credentials', 'signAttestation')),
     };
     const scripted = await startWith(repo, mergedGithub(faults), { credentials: failingCredentials });
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -682,6 +685,7 @@ describe("createApp's credentials default, no credentials adapter given (R-36)",
       sessionAdapter,
       undefined,
       alwaysSettledGate(),
+      anyCommitStagingObserver(),
     ).listen(0);
     await new Promise<void>((resolve) => s.once('listening', resolve));
     const address = s.address();

@@ -185,6 +185,7 @@ model Job {
   credential   Credential?
   settlement   Settlement?
   review       Review?
+  attestation  Attestation?
 
   @@index([agentDid])
   @@index([buyerDid])
@@ -374,4 +375,30 @@ model UsdcHalfPaidSettlement {
   // (the interface's own idempotency requirement) upserts onto the same
   // row rather than accumulating a fresh one per call.
   @@unique([jobId, leg])
+}
+
+// P5 (design record, 2026-09-01): the attestation the platform publishes
+// when a job reaches `staged`. One row per job, and IMMUTABLE once written
+// (AttestationRepository's own header comment, src/adapters/storage/types.ts):
+// neither storage driver offers an update method, and a redo that later
+// restages the same job is a NEW row under a scheme a later card owns, not
+// an edit of this one. `document` is the unsigned accepted-field facts
+// (src/domain/attestation.ts's Attestation, exactly the fields the design
+// record's synthesis accepted and none of the fields it refused);
+// `signed` is the platform-signed wire document the read route serves,
+// stored verbatim so it keeps verifying off-platform (invariant 2), the
+// same stance Credential.document already takes for work-history
+// credentials. jobId targets Job.id directly (not a join through
+// CompletedJob), mirroring the R-35 lap B repoint Credential and Review
+// already made, for the identical reason: an attestation is published at
+// `staged`, long before a job is ever completed, so a foreign key into
+// CompletedJob could never be satisfied here either.
+model Attestation {
+  id        String   @id @default(cuid())
+  jobId     String   @unique
+  document  Json
+  signed    Json
+  createdAt DateTime @default(now())
+
+  job Job @relation(fields: [jobId], references: [id])
 }
