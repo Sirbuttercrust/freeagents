@@ -21,6 +21,11 @@ function job(overrides: Partial<Job> = {}): Job {
     priceAcceptedByAgent: true,
     depositPercent: 25,
     redoAllowance: 1,
+    redoUsedCount: 0,
+    redoRequestedCriterionIndex: null,
+    redoRequestedAt: null,
+    redoRefusedAt: null,
+    stagedLapseExtensionDays: 0,
     deliveryWindowDays: 14,
     pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1',
     mergeCommit: 'abc123',
@@ -31,6 +36,11 @@ function job(overrides: Partial<Job> = {}): Job {
     createdAt: new Date('2026-01-01T00:00:00Z'),
     stagedAt: null,
     stagedCommit: null,
+    citedCloseCriterionIndex: null,
+    citedCloseReasonText: null,
+    citedCloseAuthorDid: null,
+    citedCloseAt: null,
+    deemedCompletedAt: null,
     ...overrides,
   };
 }

@@ -6,7 +6,16 @@ import { type Attestation } from '../../domain/attestation.js';
 import { NotImplementedError } from '../not-implemented.js';
 import { createCredentialRepository } from '../storage/storage.js';
 import { CredentialNotFoundError, type CredentialRepository } from '../storage/types.js';
-import type { CredentialsAdapter, CredentialsIssuer, SignedAttestation, VerifiableCredential, WorkHistoryClaim } from './types.js';
+import type {
+  CredentialsAdapter,
+  CredentialsIssuer,
+  DeemedCompletionClaim,
+  DeemedCompletionCredential,
+  IssuedCredentialDocument,
+  SignedAttestation,
+  VerifiableCredential,
+  WorkHistoryClaim,
+} from './types.js';
 
 const CAPABILITY = 'credentials';
 const DEFAULT_PLATFORM_DID = 'did:abt:freeagents-platform';
@@ -66,7 +75,7 @@ export function publicBaseUrlFromEnv(): string {
 async function resolveStoredCredential(
   credentialRepo: CredentialRepository,
   credentialId: string,
-): Promise<VerifiableCredential> {
+): Promise<IssuedCredentialDocument> {
   const document = await credentialRepo.findByDocumentId(credentialId);
   if (document === null) {
     throw new CredentialNotFoundError(credentialId);
@@ -152,6 +161,47 @@ async function signAttestationDocument(
   return signed as unknown as SignedAttestation;
 }
 
+// P6 (design record, 2026-09-01, row 3): the distinct deemed-completion
+// credential deemCompleted's own header comment calls "a later card's
+// job". The id is rooted at the job id, the same R-40 stance
+// issueWorkHistoryCredential's own comment takes for a work-history
+// credential -- one resolution route serves both types (P5's brief drew
+// this line, restated here: never a second signing path or a second
+// key). type carries 'DeemedCompletionCredential', never
+// 'CompletedHireCredential': a verifier must be able to tell the two
+// apart from the type array alone. credentialSubject.deemedCompletion.
+// noMerge is a literal `true`, a present positive field, never an
+// omission a reader might miss.
+async function signDeemedCompletionDocument(
+  issuer: CredentialsIssuer,
+  publicBaseUrl: string,
+  subjectDid: string,
+  claim: DeemedCompletionClaim,
+): Promise<DeemedCompletionCredential> {
+  const base = publicBaseUrl.replace(/\/+$/, '');
+  const credential = {
+    '@context': [
+      'https://www.w3.org/ns/credentials/v2',
+      'https://w3id.org/security/suites/ed25519-2020/v1',
+      { '@vocab': 'https://freeagents.dev/terms#' },
+    ],
+    id: `${base}/v1/credentials/${claim.jobId}`,
+    type: ['VerifiableCredential', 'DeemedCompletionCredential'],
+    issuer: issuer.did,
+    validFrom: new Date().toISOString(),
+    credentialSubject: {
+      id: subjectDid,
+      deemedCompletion: {
+        stagedCommit: claim.stagedCommit,
+        noMerge: true as const,
+        buyer: claim.buyerDid,
+      },
+    },
+  };
+  const signed = await signWithPlatformKey(issuer, credential);
+  return signed as unknown as DeemedCompletionCredential;
+}
+
 // Issuance signs with the W3C-conformant Ed25519Signature2020 suite
 // (@digitalbazaar/*), not @arcblock/vc: the ArcBlock suite emits a `jws`
 // proof that no standard W3C verifier recognizes, and invariant 2 requires
@@ -234,6 +284,11 @@ export function createCredentialsAdapter(
     // P5: sign an attestation with the same platform key and the same
     // Ed25519Signature2020 construction issuance already uses above.
     signAttestation: (attestation: Attestation) => signAttestationDocument(issuer, base, attestation),
+    // P6: the distinct deemed-completion credential, same platform key,
+    // same Ed25519Signature2020 construction as every other issuance path
+    // in this factory.
+    issueDeemedCompletionCredential: (subjectDid: string, claim: DeemedCompletionClaim) =>
+      signDeemedCompletionDocument(issuer, base, subjectDid, claim),
   };
 }
 
@@ -260,6 +315,11 @@ export function createCredentialResolver(
     // src/api/app.ts); this serve-only adapter never signs.
     signAttestation(_attestation: Attestation): Promise<SignedAttestation> {
       throw new NotImplementedError(CAPABILITY, 'signAttestation');
+    },
+    // Same stance again: issuance goes through createCredentialsAdapter,
+    // which the deemed-completion issuance path calls (see src/api/app.ts).
+    issueDeemedCompletionCredential(_subjectDid: string, _claim: DeemedCompletionClaim): Promise<DeemedCompletionCredential> {
+      throw new NotImplementedError(CAPABILITY, 'issueDeemedCompletionCredential');
     },
   };
 }

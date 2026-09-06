@@ -57,6 +57,11 @@ function jobFixture(overrides: Partial<Job> & { id: string; agentDid: string }):
     priceAcceptedByAgent: false,
     depositPercent: 25,
     redoAllowance: 1,
+    redoUsedCount: 0,
+    redoRequestedCriterionIndex: null,
+    redoRequestedAt: null,
+    redoRefusedAt: null,
+    stagedLapseExtensionDays: 0,
     deliveryWindowDays: null,
     pullRequestUrl: null,
     mergeCommit: null,
@@ -67,6 +72,11 @@ function jobFixture(overrides: Partial<Job> & { id: string; agentDid: string }):
     createdAt: new Date('2026-08-01T00:00:00Z'),
     stagedAt: null,
     stagedCommit: null,
+    citedCloseCriterionIndex: null,
+    citedCloseReasonText: null,
+    citedCloseAuthorDid: null,
+    citedCloseAt: null,
+    deemedCompletedAt: null,
     ...overrides,
   };
 }

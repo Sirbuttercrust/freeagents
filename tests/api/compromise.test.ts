@@ -417,6 +417,7 @@ describe('GET /v1/credentials/:credentialId/status, storage branches', () => {
       verifyCredential: () => Promise.reject(new Error('unused')),
       getCredential: () => Promise.reject(new Error('db down')),
       signAttestation: () => Promise.reject(new Error('unused')),
+      issueDeemedCompletionCredential: () => Promise.reject(new Error('unused')),
     };
     const app = createApp(undefined, undefined, undefined, undefined, undefined, failing, new MemoryCompromiseRepository());
     await withApp(app, async (url) => {
