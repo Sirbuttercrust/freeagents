@@ -177,7 +177,7 @@ async function startWith(
     undefined,
     alwaysSettledGate(),
     anyCommitStagingObserver(),
-  ).listen(0);
+  ).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => s.once('listening', resolve));
   const address = s.address();
   if (address === null || typeof address === 'string') {

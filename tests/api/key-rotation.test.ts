@@ -62,7 +62,7 @@ describe('POST /agents/:agentDid/key-rotation (R-30, ENT-8.4)', () => {
       githubLogin: null,
     });
     const app = createApp(new MemoryAccountRepository(), agentRepo);
-    server = app.listen(0);
+    server = app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
@@ -193,7 +193,7 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
   // A storage failure is a logged operator concern, not output the test
   // needs; silence it so the branch under test is the response, not the log.
   async function withApp(app: Express, run: (url: string) => Promise<void>): Promise<void> {
-    const server = app.listen(0);
+    const server = app.listen(0, '127.0.0.1');
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       await new Promise<void>((resolve) => server.once('listening', resolve));

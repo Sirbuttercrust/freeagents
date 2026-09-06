@@ -204,7 +204,7 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
       undefined,
       alwaysSettledGate(),
       anyCommitStagingObserver(),
-    ).listen(0);
+    ).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => s.once('listening', resolve));
     const address = s.address();
     if (address === null || typeof address === 'string') {

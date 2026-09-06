@@ -93,7 +93,7 @@ describe('app', () => {
       undefined,
       undefined,
       sessionAdapter,
-    ).listen(0);
+    ).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
@@ -505,7 +505,7 @@ describe('app, storage failures', () => {
       undefined,
       undefined,
       sessionAdapter,
-    ).listen(0);
+    ).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
@@ -609,7 +609,7 @@ describe('app, job storage failures', () => {
     const sessionAdapter = testSessionAdapter();
 
     const start = async (app: ReturnType<typeof createApp>): Promise<[Server, string]> => {
-      const s = app.listen(0);
+      const s = app.listen(0, '127.0.0.1');
       await new Promise<void>((resolve) => s.once('listening', resolve));
       const address = s.address();
       if (address === null || typeof address === 'string') {
@@ -771,7 +771,7 @@ describe('app, job id collision', () => {
       undefined,
       undefined,
       sessionAdapter,
-    ).listen(0);
+    ).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
@@ -839,7 +839,7 @@ describe('app, default storage parameter', () => {
       undefined,
       undefined,
       sessionAdapter,
-    ).listen(0);
+    ).listen(0, '127.0.0.1');
     warn.mockRestore();
     if (originalUrl !== undefined) {
       process.env.DATABASE_URL = originalUrl;

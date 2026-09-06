@@ -154,7 +154,7 @@ describe('DID-signed requests, invariant 2 (R-34): third-party verifiability', (
         undefined,
         undefined,
         sessionAdapter,
-      ).listen(0);
+      ).listen(0, '127.0.0.1');
       await new Promise<void>((resolve) => server?.once('listening', resolve));
       const address = server.address();
       if (address === null || typeof address === 'string') {
