@@ -17,9 +17,15 @@ import { createApp } from '../../src/api/app.js';
 import { MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { createJob, type Job, type JobStatus } from '../../src/domain/job.js';
+import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
-const AGENT_DID = 'did:abt:agent-withdraw';
-const BUYER_DID = 'did:abt:buyer-withdraw';
+// Real key-backed identities: withdraw is a signed, buyer-only route since
+// the launch rehearsal found it unauthenticated (bug ledger B6, 2026-09-01).
+const agentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(71));
+const buyerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(72));
+const strangerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(73));
+const AGENT_DID = agentIdentity.did;
+const BUYER_DID = buyerIdentity.did;
 
 // The submitted keyset, exactly as tests/api/job-merge.test.ts pins it: the
 // base eight plus criteria, specHash and confirmedAt, then the submission
@@ -66,6 +72,7 @@ function plantedJob(id: string, status: JobStatus): Job {
 
 class PlantedJobRepository implements JobRepository {
   private row: Job;
+  readonly updates: Job[] = [];
   constructor(row: Job, private readonly updateImpl: (row: Job) => Promise<Job | null>) {
     this.row = row;
   }
@@ -76,6 +83,7 @@ class PlantedJobRepository implements JobRepository {
     return this.row.id === id ? this.row : null;
   }
   async update(row: Job): Promise<Job | null> {
+    this.updates.push(row);
     const result = await this.updateImpl(row);
     // The row only moves when the write resolves: a write that fails left
     // nothing on record.
@@ -93,8 +101,15 @@ class PlantedJobRepository implements JobRepository {
 }
 
 async function startWith(repo: JobRepository): Promise<{ server: Server; baseUrl: string }> {
+  // A signature only verifies for a registered DID (R-34), so every party
+  // is an account here; the stranger is registered too, so its 403 is a
+  // party refusal and not an unregistered-key 401.
+  const accounts = new MemoryAccountRepository();
+  await accounts.register({ did: BUYER_DID, githubLogin: 'buyer-withdraw' });
+  await accounts.register({ did: AGENT_DID, githubLogin: 'agent-withdraw' });
+  await accounts.register({ did: strangerIdentity.did, githubLogin: 'stranger-withdraw' });
   const server = createApp(
-    new MemoryAccountRepository(),
+    accounts,
     undefined,
     undefined,
     undefined,
@@ -112,12 +127,11 @@ function stop(server: Server): Promise<void> {
   return new Promise((resolve) => server.close(() => resolve()));
 }
 
-async function postWithdraw(baseUrl: string, jobId: string): Promise<Response> {
-  return fetch(`${baseUrl}/jobs/${jobId}/withdraw`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: '{}',
-  });
+async function postWithdraw(baseUrl: string, jobId: string, identity: SigningIdentity | null = buyerIdentity): Promise<Response> {
+  const targetUri = `${baseUrl}/jobs/${jobId}/withdraw`;
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (identity !== null) Object.assign(headers, signRequest(identity, 'POST', targetUri, { body: '{}' }));
+  return fetch(targetUri, { method: 'POST', headers, body: '{}' });
 }
 
 describe('job withdraw (R-31)', () => {
@@ -215,6 +229,94 @@ describe('job withdraw (R-31)', () => {
       expect(readBack.status).toBe('submitted');
     } finally {
       errorLog.mockRestore();
+      await stop(server);
+    }
+  });
+});
+
+describe('job withdraw, who may (B6, 2026-09-01)', () => {
+  it('refuses an unsigned withdraw with 401 and moves nothing', async () => {
+    const row = plantedJob('j-w-unsigned', 'submitted');
+    const repo = new PlantedJobRepository(row, (r) => Promise.resolve(r));
+    const { server, baseUrl } = await startWith(repo);
+    try {
+      expect((await postWithdraw(baseUrl, row.id, null)).status).toBe(401);
+      expect(repo.updates).toHaveLength(0);
+    } finally {
+      await stop(server);
+    }
+  });
+
+  it('refuses a stranger with 403 and moves nothing', async () => {
+    const row = plantedJob('j-w-stranger', 'submitted');
+    const repo = new PlantedJobRepository(row, (r) => Promise.resolve(r));
+    const { server, baseUrl } = await startWith(repo);
+    try {
+      expect((await postWithdraw(baseUrl, row.id, strangerIdentity)).status).toBe(403);
+      expect(repo.updates).toHaveLength(0);
+    } finally {
+      await stop(server);
+    }
+  });
+
+  it('refuses the agent with 403: withdraw is the buyer walking away', async () => {
+    const row = plantedJob('j-w-agent', 'submitted');
+    const repo = new PlantedJobRepository(row, (r) => Promise.resolve(r));
+    const { server, baseUrl } = await startWith(repo);
+    try {
+      expect((await postWithdraw(baseUrl, row.id, agentIdentity)).status).toBe(403);
+      expect(repo.updates).toHaveLength(0);
+    } finally {
+      await stop(server);
+    }
+  });
+});
+
+describe('job decline (B10, 2026-09-01): the agent walking away', () => {
+  async function postDecline(baseUrl: string, jobId: string, identity: SigningIdentity | null): Promise<Response> {
+    const targetUri = `${baseUrl}/jobs/${jobId}/decline`;
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (identity !== null) Object.assign(headers, signRequest(identity, 'POST', targetUri, { body: '{}' }));
+    return fetch(targetUri, { method: 'POST', headers, body: '{}' });
+  }
+
+  it('the agent declines a proposed job: status declined, read-back agrees', async () => {
+    const row = plantedJob('j-d-agent', 'proposed');
+    const repo = new PlantedJobRepository(row, (r) => Promise.resolve(r));
+    const { server, baseUrl } = await startWith(repo);
+    try {
+      const res = await postDecline(baseUrl, row.id, agentIdentity);
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { status: string }).status).toBe('declined');
+      expect(repo.updates).toHaveLength(1);
+      expect(repo.updates[0]?.status).toBe('declined');
+    } finally {
+      await stop(server);
+    }
+  });
+
+  it('refuses the buyer (403), a stranger (403) and no signature (401)', async () => {
+    const row = plantedJob('j-d-others', 'proposed');
+    const repo = new PlantedJobRepository(row, (r) => Promise.resolve(r));
+    const { server, baseUrl } = await startWith(repo);
+    try {
+      expect((await postDecline(baseUrl, row.id, buyerIdentity)).status).toBe(403);
+      expect((await postDecline(baseUrl, row.id, strangerIdentity)).status).toBe(403);
+      expect((await postDecline(baseUrl, row.id, null)).status).toBe(401);
+      expect(repo.updates).toHaveLength(0);
+    } finally {
+      await stop(server);
+    }
+  });
+
+  it('answers 409 from a terminal status', async () => {
+    const row = plantedJob('j-d-terminal', 'completed');
+    const repo = new PlantedJobRepository(row, (r) => Promise.resolve(r));
+    const { server, baseUrl } = await startWith(repo);
+    try {
+      expect((await postDecline(baseUrl, row.id, agentIdentity)).status).toBe(409);
+      expect(repo.updates).toHaveLength(0);
+    } finally {
       await stop(server);
     }
   });

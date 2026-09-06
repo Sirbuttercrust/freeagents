@@ -1260,7 +1260,7 @@ describe('the API starts and answers', () => {
 
     // 6. Fork and open the PR: the job lands on submitted with the URL and
     // timestamp riding beside it.
-    const pr = await post(`/jobs/${jobId}/pull-request`);
+    const pr = await postSigned(`/jobs/${jobId}/pull-request`, {}, agentIdentity);
     expect(pr.status).toBe(200);
     const prBody = (await pr.json()) as Record<string, unknown>;
     expect(prBody.status).toBe('submitted');
@@ -1278,7 +1278,7 @@ describe('the API starts and answers', () => {
     expect(call.body).toContain(jobId);
 
     // 8. Locked: posting again conflicts and opens no second PR.
-    expect((await post(`/jobs/${jobId}/pull-request`)).status).toBe(409);
+    expect((await postSigned(`/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(409);
   });
 
   it('observes the merge and completes the job (R-11)', async () => {
@@ -1334,12 +1334,12 @@ describe('the API starts and answers', () => {
     expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
-    const pr = await post(`/jobs/${jobId}/pull-request`);
+    const pr = await postSigned(`/jobs/${jobId}/pull-request`, {}, agentIdentity);
     expect(pr.status).toBe(200);
 
     // 7. Merge: github's own report stamps the completion facts.
     const before = getPullRequestCalls.length;
-    const merge = await post(`/jobs/${jobId}/merge`);
+    const merge = await postSigned(`/jobs/${jobId}/merge`, {}, buyerIdentity);
     expect(merge.status).toBe(200);
     const mergeBody = (await merge.json()) as Record<string, unknown>;
     expect(mergeBody.status).toBe('completed');
@@ -1388,7 +1388,7 @@ describe('the API starts and answers', () => {
     expect(await read.json()).toEqual(mergeBody);
 
     // 9. Locked: posting again conflicts, and github is not asked again.
-    const secondMerge = await post(`/jobs/${jobId}/merge`);
+    const secondMerge = await postSigned(`/jobs/${jobId}/merge`, {}, buyerIdentity);
     expect(secondMerge.status).toBe(409);
     expect(getPullRequestCalls.length).toBe(before + 1);
   });
