@@ -30,6 +30,7 @@ import {
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 
 // The did:abt suffix derives from the public key, exactly like agent DIDs, so
 // the proof's verification method binds back to the DID without any lookup in
@@ -202,6 +203,7 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
       sessionAdapter,
       undefined,
       alwaysSettledGate(),
+      anyCommitStagingObserver(),
     ).listen(0);
     await new Promise<void>((resolve) => s.once('listening', resolve));
     const address = s.address();

@@ -21,13 +21,16 @@ import { verify as verifySignature } from '../adapters/identity/http-signature.j
 import { createIdentityAdapter } from '../adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter } from '../adapters/identity/types.js';
 import { createRateLimiter, type RateLimiter } from '../adapters/identity/verify-rate-limit.js';
+import { createUnwiredStagingObserver, type StagingObserver } from '../adapters/staging/types.js';
 import {
   AgentAlreadyExistsError,
+  AttestationAlreadyStoredError,
   CredentialNotFoundError,
   JobAlreadyExistsError,
   AccountAlreadyExistsError,
   ReviewAlreadyExistsError,
   type AgentRepository,
+  type AttestationRepository,
   type CompromiseRepository,
   type CredentialRepository,
   type JobRepository,
@@ -37,6 +40,7 @@ import {
 } from '../adapters/storage/types.js';
 import {
   createAgentRepository,
+  createAttestationRepository,
   createCompromiseRepository,
   createCredentialRepository,
   createJobRepository,
@@ -46,6 +50,7 @@ import {
 } from '../adapters/storage/storage.js';
 import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
+import { buildAttestation, AttestationError } from '../domain/attestation.js';
 import { lastHireCompletedAt, recordLastChangedAt } from '../domain/freshness.js';
 import {
   filterBySkill,
@@ -457,6 +462,17 @@ export function createApp(
   // later card lands on): an unwired build refuses to confirm a job and
   // refuses to open a pull request, which is loud and correct.
   settlementGate: SettlementGate = createSettlementGate(),
+  // P5: the staging observer port (design record, 2026-09-01). Defaults
+  // to the refusing UnwiredStagingObserver (see
+  // src/adapters/staging/types.ts's header comment for the sandboxing
+  // decision the real observer is deliberately not this card's to make):
+  // an unwired build fails the stage route loudly rather than publishing
+  // an attestation full of zeroes.
+  stagingObserver: StagingObserver = createUnwiredStagingObserver(),
+  // P5: the durable attestation record. Defaults to the env-derived
+  // repository, matching every other storage capability's stance in this
+  // file.
+  attestationRepo: AttestationRepository = createAttestationRepository(),
 ): Express {
   // One repository behind both halves of the capability when the caller
   // supplies neither. createCredentialRepository() hands the memory driver a
@@ -2228,12 +2244,22 @@ export function createApp(
 
   // P4: the agent stages the work (confirmed -> staged), posting the
   // commit SHA it staged. Party rule mirrors pull-request: only the agent
-  // stages, the same way only the agent opens a pull request. The
-  // attestation document itself is a later card; this route stores only
-  // the SHA and the instant (stageWork's own scope). No payment gate
-  // here: staging is unpaid by design (the anchor is precisely that the
-  // work sits in staging, unpaid and unseen, until the balance settles at
-  // pull-request time).
+  // stages, the same way only the agent opens a pull request. No payment
+  // gate here: staging is unpaid by design (the anchor is precisely that
+  // the work sits in staging, unpaid and unseen, until the balance
+  // settles at pull-request time).
+  //
+  // P5 anchor: `staged` is the state whose whole meaning is "there is
+  // something to read", so a job does not reach it without a published
+  // attestation. The attestation is generated, signed and STORED before
+  // the job is persisted as staged, deliberately in that order: storing
+  // first and flipping the status second means a crash between the two
+  // leaves a job stuck at `confirmed` with an orphaned attestation record,
+  // which is recoverable (restage), rather than a job sitting at `staged`
+  // with nothing behind it for the buyer to read, which is the exact lie
+  // this card exists to prevent. Any failure in the staging observation,
+  // the attestation build, the signature, or the attestation storage fails
+  // the whole stage: the job stays confirmed.
   app.post(
     '/jobs/:jobId/stage',
     didSignature,
@@ -2247,7 +2273,137 @@ export function createApp(
         return;
       }
       const stagedCommit = body.stagedCommit;
-      await applyAndPersist(label, res, gate.job, (job) => stageWork(job, stagedCommit, new Date()));
+      const current = gate.job;
+
+      let staged: Job;
+      try {
+        staged = stageWork(current, stagedCommit, new Date());
+      } catch (err) {
+        if (err instanceof JobTransitionError) {
+          res.status(409).json({ error: err.message });
+          return;
+        }
+        throw err;
+      }
+
+      // P5: measure the staging repository. No base commit or
+      // criteria-to-path mapping exists on Job today (and the refused
+      // list forbids ever building the latter, design record 2026-09-01):
+      // the real observer's card is where this seam gets filled in, per
+      // src/adapters/staging/types.ts's own header comment. The unwired
+      // default ignores its input entirely and refuses regardless.
+      let observation;
+      try {
+        observation = await stagingObserver.observe({
+          stagedCommit,
+          baseCommit: '',
+          criteriaPaths: [],
+        });
+      } catch (err) {
+        console.error(`${label}: staging observation failed`, err);
+        res.status(503).json({ error: 'staging observation unavailable' });
+        return;
+      }
+
+      let attestation;
+      try {
+        attestation = buildAttestation(staged, observation, new Date());
+      } catch (err) {
+        if (err instanceof AttestationError) {
+          console.error(`${label}: attestation build failed`, err);
+          res.status(503).json({ error: 'attestation generation failed' });
+          return;
+        }
+        throw err;
+      }
+
+      let signed;
+      try {
+        signed = await credentialsAdapter.signAttestation(attestation);
+      } catch (err) {
+        console.error(`${label}: attestation signing failed`, err);
+        res.status(503).json({ error: 'attestation signing unavailable' });
+        return;
+      }
+
+      try {
+        await attestationRepo.save({ jobId: current.id, attestation, signed });
+      } catch (err) {
+        if (err instanceof AttestationAlreadyStoredError) {
+          res.status(409).json({ error: err.message });
+          return;
+        }
+        console.error(`${label}: attestation storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+
+      try {
+        const row = await jobRepo.update(staged);
+        if (row === null) {
+          // The row vanished between the read and the write; the id the
+          // caller named does not resolve either way. The attestation
+          // this call just stored is now orphaned against a job that no
+          // longer exists at this id -- the same shape of anomaly a
+          // vanished row already represents everywhere else in this file.
+          res.status(404).json({ error: 'not found' });
+          return;
+        }
+        res.status(200).json(jobProjection(row));
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+      }
+    }),
+  );
+
+  // P5: the read route the buyer pays against. Party rule: the buyer and
+  // the agent on the job -- this is the document the buyer decides on, so
+  // a stranger does not get it (the anchor's own wording: "a buyer who
+  // reads the attestation must not be able to reconstruct the diff",
+  // which presumes the buyer is the one reading it, not the public).
+  app.get(
+    '/jobs/:jobId/attestation',
+    didSignature,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'GET /jobs/:jobId/attestation';
+      const jobId = String(req.params.jobId);
+      let job: Job | null;
+      try {
+        job = await jobRepo.findById(jobId);
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (job === null) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      const signerDid = signerDidOf(req);
+      if (signerDid === null) {
+        res.status(401).json({
+          error: 'this route requires a verified request signature (R-34); sign the request naming this job\'s buyer or agent DID',
+        });
+        return;
+      }
+      if (partyForDid(job, signerDid) === null) {
+        res.status(403).json({ error: 'signature does not name a party to this job' });
+        return;
+      }
+      let stored;
+      try {
+        stored = await attestationRepo.findByJobId(jobId);
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (stored === null) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      res.status(200).json(stored.signed);
     }),
   );
 

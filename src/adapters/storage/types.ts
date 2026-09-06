@@ -5,9 +5,10 @@
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
+import type { Attestation } from '../../domain/attestation.js';
 import type { Account } from '../../domain/account.js';
 import type { Review } from '../../domain/review.js';
-import type { VerifiableCredential } from '../credentials/types.js';
+import type { VerifiableCredential, SignedAttestation } from '../credentials/types.js';
 
 // Thrown by register when the DID already exists, so the API layer can map
 // it to 409 without inspecting error messages.
@@ -267,4 +268,40 @@ export interface ObservedKeyRepository {
   record(did: string, verificationMethod: string): Promise<void>;
   // Null when this DID has never passed the binding check durably.
   get(did: string): Promise<string | null>;
+}
+
+// Thrown by AttestationRepository.save when the job already has an
+// attestation, so the API layer can map it to 409 without inspecting
+// error messages. One attestation per job, and IMMUTABLE once written
+// (P5's brief, section 4): a redo that later restages the same job writes
+// a NEW attestation record under a scheme the next card owns, never an
+// edit of this one. This repository intentionally has no update method.
+export class AttestationAlreadyStoredError extends Error {
+  constructor(jobId: string) {
+    super(`job ${jobId} already has a stored attestation`);
+    this.name = 'AttestationAlreadyStoredError';
+  }
+}
+
+// One stored attestation per job (P5). `attestation` is the unsigned
+// accepted-field document (src/domain/attestation.ts); `signed` is the
+// platform-signed wire document (src/adapters/credentials's
+// SignedAttestation) the read route serves. Both are stored verbatim, the
+// same "the bytes that verified are the bytes served back" stance
+// CredentialRepository already keeps.
+export interface StoredAttestation {
+  readonly jobId: string;
+  readonly attestation: Attestation;
+  readonly signed: SignedAttestation;
+}
+
+export interface AttestationRepository {
+  // Throws AttestationAlreadyStoredError when the job already has one.
+  save(input: {
+    readonly jobId: string;
+    readonly attestation: Attestation;
+    readonly signed: SignedAttestation;
+  }): Promise<void>;
+  // Null when no attestation is stored for this job.
+  findByJobId(jobId: string): Promise<StoredAttestation | null>;
 }

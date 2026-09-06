@@ -2,9 +2,9 @@
 // selected mode, not a fallback: an unconfigured deployment announces
 // itself at startup, and a configured-but-dead database fails closed with
 // a 503 on the first query (invariant 9: portability, fail closed, loud).
-import { MemoryAgentRepository, MemoryCompromiseRepository, MemoryCredentialRepository, MemoryJobRepository, MemoryAccountRepository, MemoryReviewRepository, MemoryObservedKeyRepository } from './memory.js';
-import { PrismaAgentRepository, PrismaCompromiseRepository, PrismaCredentialRepository, PrismaJobRepository, PrismaAccountRepository, PrismaReviewRepository, PrismaObservedKeyRepository } from './prisma.js';
-import type { AgentRepository, CompromiseRepository, CredentialRepository, JobRepository, AccountRepository, ReviewRepository, ObservedKeyRepository } from './types.js';
+import { MemoryAgentRepository, MemoryCompromiseRepository, MemoryCredentialRepository, MemoryJobRepository, MemoryAccountRepository, MemoryReviewRepository, MemoryObservedKeyRepository, MemoryAttestationRepository } from './memory.js';
+import { PrismaAgentRepository, PrismaCompromiseRepository, PrismaCredentialRepository, PrismaJobRepository, PrismaAccountRepository, PrismaReviewRepository, PrismaObservedKeyRepository, PrismaAttestationRepository } from './prisma.js';
+import type { AgentRepository, CompromiseRepository, CredentialRepository, JobRepository, AccountRepository, ReviewRepository, ObservedKeyRepository, AttestationRepository } from './types.js';
 
 export function createAccountRepository(): AccountRepository {
   if (process.env.DATABASE_URL) {
@@ -84,4 +84,18 @@ export function createObservedKeyRepository(): ObservedKeyRepository {
       'Data does not survive a restart. This is a dev/test mode, not production storage.'
   );
   return new MemoryObservedKeyRepository();
+}
+
+// P5: the attestation repository (design record, 2026-09-01). Same
+// selection stance as every repository above: Prisma when configured,
+// in-memory (with the same restart-does-not-survive warning) otherwise.
+export function createAttestationRepository(): AttestationRepository {
+  if (process.env.DATABASE_URL) {
+    return new PrismaAttestationRepository();
+  }
+  console.warn(
+    'storage: DATABASE_URL is not set; using in-memory storage. ' +
+      'Data does not survive a restart. This is a dev/test mode, not production storage.'
+  );
+  return new MemoryAttestationRepository();
 }

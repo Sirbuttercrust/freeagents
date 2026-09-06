@@ -30,6 +30,7 @@ import {
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 
 const ISSUER_DID = 'did:abt:test-platform-issuer-reachability';
 const ISSUER_SEED = new Uint8Array(32).fill(3);
@@ -105,6 +106,7 @@ async function startWith(
     sessionAdapter,
     undefined,
     alwaysSettledGate(),
+    anyCommitStagingObserver(),
   );
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
