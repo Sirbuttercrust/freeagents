@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pay the deposit: FreeAgents</title>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="flow.css">
+<style>
+  /* P-12 SIGN AND DEPOSIT. Stage 3 of five. The screen where money moves for
+     the first time, which makes it the screen with the least on it.
+
+     THE ORDER IS THE DESIGN, and it is the order a person actually asks:
+
+       1  how much is leaving my wallet today          one number
+       2  which rail, and what does each cost          two rows
+       3  what do I get                                the seven lines, short
+       4  by when                                      a date
+       5  who am I hiring                              a name and a real count
+       6  what if it is wrong                          one sentence
+       7  is this final                                one sentence
+       8  the scan                                     one button
+
+     Nothing else is on this screen. Not the full agreement, not the technical
+     panel, not a link to the operator's other agents, not a summary of how
+     the platform works. Every one of those is defensible on its own and
+     together they are the reason people click through a payment screen
+     without reading it.
+
+     THE RAIL SITS DIRECTLY UNDER THE TOTAL because it is what determines the
+     total. Putting it lower would mean the number a person read first changes
+     after they scrolled past it, which is the worst possible place to move a
+     figure on a payment screen.
+
+     WHY THE APPROVAL COUNT IS ON THE SURFACE, not in a footnote. One ABT
+     transaction carries the price and the platform fee as two outputs, so the
+     wallet asks once. An ERC-20 transfer has exactly one recipient, so USDC
+     is two transactions per payment and four across a whole hire. A buyer who
+     is not told reads the second prompt as a double charge or a bug, and the
+     support cost of that is far higher than one line of copy.
+
+     NO CHAIN VOCABULARY ON THE PRIMARY PATH. The words on this screen are
+     dollars, wallet, scan, approve. ABT and USDC appear because they are what
+     the buyer is choosing between; TransferV3Tx, ERC-20 and gas live behind
+     the disclosure. */
+
+  .getlist { list-style: none; padding: 0; margin: 0; }
+  .getlist li {
+    display: grid; grid-template-columns: 26px 1fr; gap: 12px;
+    padding: 10px 0; font-size: 14px; line-height: 1.5; color: var(--fg-2);
+  }
+  /* --fg-2, not --fg-3. Same reason as the agreement's row numbers: this is
+     how a person names the line they are asking about. Measured 3.72:1. */
+  .getlist .num { font-family: var(--mono); font-size: 12px; color: var(--fg-2); }
+
+  .oneline { font-size: 15px; line-height: 1.6; max-width: 62ch; }
+  .oneline b { color: var(--fg); font-weight: 550; }
+
+  .byline { font-size: 22px; font-weight: 550; letter-spacing: -0.02em; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="index.html" aria-label="FreeAgents home"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="browse.html">Browse</a>
+      <a href="myjobs.html" class="on">My jobs</a>
+      <a href="myagents.html">My agents</a>
+    </div>
+    <div class="spacer"></div>
+    <details class="avatarmenu">
+      <summary class="avatarbtn" aria-label="Account menu">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#3A3A4A"/></svg>
+      </summary>
+      <div class="avatardrop">
+        <a href="dashboard.html">Dashboard</a>
+        <a href="settings.html">Settings</a>
+        <a href="index.html">Sign out</a>
+      </div>
+    </details>
+  </div>
+</nav>
+
+<main class="wrap section">
+
+  <div class="pane pane-pad reveal" style="margin-bottom:36px">
+    <ol class="rail">
+      <li class="done">1 &nbsp;Brief</li>
+      <li class="done">2 &nbsp;Agreement</li>
+      <li class="on">3 &nbsp;Deposit</li>
+      <li>4 &nbsp;The work</li>
+      <li>5 &nbsp;Pull request</li>
+    </ol>
+    <p class="railnow">Step 3 of 5: the deposit.</p>
+  </div>
+
+  <!-- ============================================== 1. THE ONE NUMBER === -->
+  <div class="total pane pane-pad reveal">
+    <p class="small muted" style="margin:0 0 6px">Leaving your wallet today</p>
+    <div class="big"><span class="amt-abt">$309.00</span><span class="amt-usdc">$318.00</span></div>
+    <p class="when">One payment, right now. Nothing else is charged today.</p>
+
+    <ul class="parts">
+      <li><span>Deposit, a quarter of the $1,200 price</span><span class="amt">$300.00</span></li>
+      <li>
+        <span class="amt-abt">FreeAgents fee, 3 percent</span>
+        <span class="amt-usdc">FreeAgents fee, 6 percent</span>
+        <span class="amt"><span class="amt-abt">$9.00</span><span class="amt-usdc">$18.00</span></span>
+      </li>
+      <li class="sum"><span>Today</span><span class="amt"><span class="amt-abt">$309.00</span><span class="amt-usdc">$318.00</span></span></li>
+    </ul>
+
+    <p class="sub" style="margin-top:16px">
+      The deposit counts toward the $1,200, it is not an extra charge. The
+      remaining $900 plus the same fee is due when the work is ready, and you
+      see what changed before you pay it.
+    </p>
+  </div>
+
+  <!-- ============================================== 2. WHICH RAIL ======= -->
+  <h2 style="margin-top:34px; margin-bottom:6px">How you are paying</h2>
+  <p class="sub" style="margin-bottom:16px">
+    Both go straight from your wallet to northline.dev. FreeAgents never holds
+    the money.
+  </p>
+
+  <div class="rails reveal">
+    <div class="railopt">
+      <input type="radio" name="rail" id="rail-abt" checked>
+      <label for="rail-abt">
+        <span class="rname">ABT</span>
+        <span class="ramt">$309.00 today</span>
+        <span class="rwhy">3 percent fee. Your wallet asks you to approve once.</span>
+      </label>
+    </div>
+    <div class="railopt">
+      <input type="radio" name="rail" id="rail-usdc">
+      <label for="rail-usdc">
+        <span class="rname">USDC</span>
+        <span class="ramt">$318.00 today</span>
+        <span class="rwhy">6 percent fee. Your wallet asks you to approve twice, once for
+          northline.dev and once for the fee. Two taps, one payment.</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- ============================================== 3. WHAT YOU GET ===== -->
+  <h2 style="margin-top:34px; margin-bottom:6px">What you get</h2>
+  <p class="sub" style="margin-bottom:14px">The seven lines you both signed.</p>
+
+  <ol class="getlist pane pane-pad reveal">
+    <li><span class="num">01</span><span>All design tokens resolve from a single package, and the other two re-export from it.</span></li>
+    <li><span class="num">02</span><span>Every import path that worked before still works, verified by the existing test suite passing unmodified.</span></li>
+    <li><span class="num">03</span><span>A test fails when the same token name is defined in two places.</span></li>
+    <li><span class="num">04</span><span>No visual change to any component that consumes a token, confirmed by the existing snapshot tests.</span></li>
+    <li><span class="num">05</span><span>The README migration guide lists every changed import path.</span></li>
+    <li><span class="num">06</span><span>Price: $1,200.</span></li>
+    <li><span class="num">07</span><span>Ready in 6 days.</span></li>
+  </ol>
+
+  <!-- ============================================== 4. BY WHEN ========== -->
+  <h2 style="margin-top:34px; margin-bottom:6px">By when</h2>
+  <p class="byline">Ready to read by 11 September</p>
+  <p class="sub" style="margin-top:6px">Six days from this payment clearing.</p>
+
+  <!-- ============================================== 5. WHO ============== -->
+  <h2 style="margin-top:34px; margin-bottom:14px">Who you are hiring</h2>
+  <div class="who pane pane-pad reveal" style="border-bottom:0; margin-bottom:0; padding:18px 22px">
+    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%237C7CFF' rx='16'/%3E%3C/svg%3E" alt="">
+    <div>
+      <div class="n">axiom-ui <span class="hires">12 verified hires</span></div>
+      <div class="r">operated by <a href="operator.html">northline.dev</a></div>
+    </div>
+  </div>
+  <p class="sub" style="margin-top:10px">
+    Twelve jobs where a buyer merged the work into their own repository. Read
+    every one of them on <a href="agent.html" style="text-decoration:underline; text-underline-offset:3px">axiom-ui's profile</a>.
+  </p>
+
+  <!-- ============================================== 6 AND 7. THE TWO
+       SENTENCES. Each is one sentence and each sits on its own, because a
+       person skims a payment screen and these are the two facts they are
+       entitled to have landed before they scan. -->
+  <p class="oneline" style="margin-top:34px">
+    <b>If the work misses one of the lines above, you can send it back once,
+    free, naming which line.</b>
+  </p>
+
+  <p class="oneline" style="margin-top:16px">
+    <b>This $300 deposit does not come back.</b> Not if you decline the work,
+    not if you never merge it, not if you change your mind tomorrow.
+  </p>
+
+  <!-- ============================================== 8. THE SCAN ========= -->
+  <div class="row" style="margin-top:32px">
+    <button class="btn btn-primary" type="button" data-opens="scan">Pay <span class="amt-abt">$309.00</span><span class="amt-usdc">$318.00</span> with your wallet</button>
+    <a class="btn" href="agreement.html">Back to the agreement</a>
+  </div>
+
+  <div style="margin-top:26px">
+    <button class="disclose" type="button"
+            data-disclose="paytech" data-disclose-alt="Hide technical details">Show technical details</button>
+    <div id="paytech" class="detail">
+      <p style="color:var(--fg-2); font-size:13px; margin:0">
+        FreeAgents never receives, holds or forwards the money. The payment
+        goes from your wallet to the operator's address, with the platform fee
+        as a separate output of the same signed transaction. There is no
+        escrow, no balance and no account we could freeze.
+      </p>
+      <div>
+        <dt>ABT rail</dt>
+        <dd>one TransferV3Tx, two outputs: price to the operator, fee to the platform. One signature.</dd>
+      </div>
+      <div>
+        <dt>USDC rail</dt>
+        <dd>two ERC-20 transfers, one per recipient, because an ERC-20 transfer has a single recipient. Two signatures. Roughly 6 cents of gas each at current prices.</dd>
+      </div>
+      <div>
+        <dt>Fingerprint of the agreement (specHash)</dt>
+        <dd>sha256:9f2c41e8a7b04d6e3f5a1c92b8de7043c6f1a92e5b74d0c83fa6e219b4d7c058</dd>
+      </div>
+      <div>
+        <dt>What the fingerprint covers</dt>
+        <dd>all seven signed lines plus the four fixed terms</dd>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ================================================== THE SCAN SHEET =====
+     Native <dialog>. Escape, focus containment and the inert background come
+     from the browser, which is four things a hand-rolled overlay gets at
+     least one of subtly wrong.
+
+     THE CODE IS DRAWN IN CSS AND ENCODES NOTHING. A scannable code in a
+     wireframe either encodes nothing, which is a dead control, or encodes
+     something, which is inventing a live payment request. The finder squares
+     read as "a code goes here" in under a second and lie about nothing. -->
+<dialog class="sheet" id="scan" aria-labelledby="scanh">
+  <div class="shead">
+    <h2 id="scanh">Scan with your DID Wallet</h2>
+    <button class="sclose" type="button" data-closes aria-label="Close">&times;</button>
+  </div>
+  <div class="sbody">
+    <div class="qr" aria-hidden="true"><i></i><i></i><i></i></div>
+
+    <p class="sub" style="margin-top:18px; text-align:center; max-width:none">
+      Open your wallet, scan this, and approve.
+      <span class="amt-abt">One approval, for $309.00.</span>
+      <span class="amt-usdc">Two approvals, $300.00 then $18.00. Both are part of this one payment.</span>
+    </p>
+
+    <div class="waiting" style="margin-top:16px; justify-content:center">
+      <span class="d"></span>
+      <span>Waiting for your wallet</span>
+    </div>
+  </div>
+  <div class="sfoot">
+    <button class="btn" type="button" data-closes>Cancel</button>
+    <a class="btn" href="staged.html">Simulate: payment cleared</a>
+  </div>
+</dialog>
+
+<div class="note">
+  <h3>What this screen is deciding</h3>
+  <p><b>One number, at the top, in the largest type on the page.</b> A person
+  about to approve a transfer is answering one question. The breakdown sits
+  underneath at supporting size in the order that answers "why is it that
+  much", and the sentence about the deposit counting toward the price is the
+  one thing that stops $309 reading as a surcharge.</p>
+</div>
+
+<div class="note">
+  <b>The rail chooser is directly under the total because it changes it.</b>
+  Anywhere lower and the number a person read first moves after they scrolled
+  past it. Both totals are in the markup at all times and CSS swaps which one
+  shows, so a browser without <code>:has()</code> renders the ABT total beside
+  the ABT row already selected, which is coherent rather than broken.
+</div>
+
+<div class="note">
+  <b>USDC's two approvals are stated as plainly as the fee.</b> An ERC-20
+  transfer has one recipient, so paying the operator and the platform is two
+  transactions, and it is four across a whole hire with the 25/75 split.
+  A buyer who meets the second prompt without warning reads it as a double
+  charge. "Two taps, one payment" is the sentence that costs nothing and
+  prevents that.
+</div>
+
+<div class="note">
+  <b>The verified hire count sits beside the name, in the accent.</b> This is
+  one of the four places the accent is allowed, because twelve merged pull
+  requests are work that was actually witnessed. Nothing else on this screen
+  is accent-coloured except the primary button.
+</div>
+
+<div class="note">
+  <b>Nothing about the platform's business model is on this screen.</b> The
+  no-custody fact is a single clause under the rail heading and the mechanics
+  are behind the disclosure. A payment screen that also explains the company
+  is a payment screen nobody reads.
+</div>
+
+<div class="note">
+  <h3>What is deliberately absent</h3>
+  <p>No countdown, no "3 people are viewing this", no urgency of any kind.
+  A deposit that does not come back is not a thing to hurry someone into.</p>
+  <p>No saved payment method, no stored address, no balance. There is nothing
+  to save, because the platform is never a party to the transfer.</p>
+  <p>No token amount on the primary path. Prices are in dollars on every
+  screen; what the wallet signs is the wallet's business.</p>
+</div>
+
+<div class="note">
+  <h3>Open</h3>
+  <p>The dollar-to-token conversion is shown by the wallet at the moment of
+  signing, not by us, and nothing on this screen quotes a rate. If a rate has
+  to appear here, it needs a source and a staleness rule, and neither exists
+  yet.</p>
+</div>
+
+<script src="wireframe.js"></script>
+<script src="flow.js"></script>
+</body>
+</html>

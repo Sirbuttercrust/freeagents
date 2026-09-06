@@ -37,34 +37,56 @@ PUBLIC, no account needed
 SIGNED IN, hiring
   P-9  Dashboard ............... what needs your attention
   P-10 Hire: brief ............. describe the work
-  P-11 Hire: criteria .......... agree what "done" means
-  P-12 Hire: confirm ........... the gate; the job exists after this
-  P-13 Job .................... one job, live
-  P-14 My jobs ................ everything you have hired
-  P-15 Write a review ......... only after a completed hire
+  P-11 Hire: agreement ......... the terms, signed line by line
+  P-12 Hire: deposit ........... the total, the rail, one scan
+  P-13 Staged .................. the work exists, unpaid, three moves
+  P-14 Pull request ............ paid, open, one button
+  P-15 Job ..................... one job, live
+  P-16 My jobs ................. everything you have hired
+  P-17 Write a review .......... only after a completed hire
+  P-31 How a hire ends ......... the five endings, public
 
 SIGNED IN, listing
-  P-16 My agents .............. everything you operate
-  P-17 List an agent .......... create one
-  P-18 Agent settings ......... edit, retire
-  P-19 Prove GitHub ........... the one-click proof
-  P-20 Add prior work ......... work from before this platform
-  P-21 Add a portfolio claim .. work we cannot check
-  P-22 Incoming jobs .......... work offered to your agents
+  P-18 My agents ............... everything you operate
+  P-19 List an agent ........... create one
+  P-20 Agent settings .......... edit, retire
+  P-21 Prove GitHub ............ the one-click proof
+  P-22 Add prior work .......... work from before this platform
+  P-23 Add a portfolio claim ... work we cannot check
+  P-24 Incoming jobs ........... work offered to your agents
+  P-25 Operator: one job ....... the other side of P-11 to P-14
 
 ACCOUNT
-  P-23 Settings ............... identity, keys, notifications
-  P-24 Key rotation ........... replace a key, mark a compromise window
+  P-26 Settings ................ identity, keys, notifications
+  P-27 Key rotation ............ replace a key, mark a compromise window
+  P-28 Conduct record .......... counts, both sides, never a score
 
 SYSTEM
-  P-25 Not found
-  P-26 Error
+  P-29 Not found
+  P-30 Error
 ```
 
 **Public means public.** P-1 to P-8 render fully with no session. A person can
-read an entire agent's record, follow it to GitHub, and verify a credential
-before ever creating an account. That is `MISSION` invariant 2 expressed as
-navigation: if the proof needed our login, it would not be proof.
+read an entire agent's record, follow it to GitHub, verify a credential, and
+read every way a hire can end before ever creating an account. That is
+`MISSION` invariant 2 expressed as navigation: if the proof needed our login,
+it would not be proof.
+
+**Renumbered 2026-09-05, and this is the one exception to the never-renumber
+rule.** The payment flow added six pages inside a range that was numbered
+contiguously, and the alternative was P-10a through P-10f, which is worse than
+one clean renumber while the product has no users and nothing links to a page
+id externally. Ids are stable again from this point. The old numbers, for
+anyone reading a document written before this date: old P-11 criteria became
+P-11 agreement, old P-12 confirm was deleted (see below), old P-13 job is now
+P-15, and everything after it shifted by four.
+
+**P-12 "Confirm" was deleted, not renamed.** It was a page whose whole content
+was a button one party pressed to make an agreement real. Under the two-party
+signing model the agreement locks when the last signature lands, which is a
+state transition rather than a control, so there is no page for it to be. The
+gate it represented still exists; it just is not a click. `confirm.html`
+remains in the directory as the pre-payment design, marked superseded.
 
 ---
 
@@ -166,7 +188,7 @@ Aggregate record, then every agent with its own counts. Per-agent numbers stay
 dominant (`R-19`).
 
 ### P-5 Credential
-**Not built.** `ENT-8`, `R-15`.
+Built as `credential.html`. `ENT-8`, `R-15`.
 
 One job: be the public, permanent record of one completed job.
 
@@ -188,7 +210,7 @@ Carries the disputed state when a key compromise window covers it (`R-16`).
 Nothing is hidden or deleted; the window is shown.
 
 ### P-6 Verify
-**Not built.** `MISSION` invariant 2, `R-14`.
+Built as `verify.html`. `MISSION` invariant 2, `R-14`.
 
 One job: prove the claim without trusting us.
 
@@ -202,7 +224,7 @@ that our word is not required. Verification runs client-side against public
 data.
 
 ### P-7 How it works
-**Not built.**
+Built as `how.html`.
 
 One job: explain the model to someone with no background.
 
@@ -229,7 +251,7 @@ Every path lands on **P-9**.
 ## 4. Hiring
 
 ### P-9 Dashboard
-**Not built.**
+Built as `dashboard.html`.
 
 One job: show what needs your attention, and nothing else.
 
@@ -245,69 +267,154 @@ rows, each with a link to its full list:
 Empty state is a single sentence and one action: browse agents, or list one.
 
 ### P-10 Hire: brief
-Built as `hire.html` step 1. `ENT-4`, `R-7`.
+Built as `hire.html`. `ENT-4`, `R-7`.
 
 One job: describe the work in plain prose.
 
-Repository field, brief field, and a clear statement that **nothing exists
-yet**: this is a draft, no job, no record, no obligation, nothing on the
-agent's profile until confirm (`ENT-4.1`).
+**Two controls and no others.** A repository chosen from the ones the buyer's
+confirmed GitHub account owns, prefilled when there is one, and a single prose
+box. No price field, no deadline field, no title, no criteria, no budget
+range: the agent drafts all of those from the brief, because it is the party
+that just read it.
+
+A clear statement that **nothing exists yet**: no job, no record, no
+obligation, nothing on the agent's profile until both parties have signed
+(`ENT-4.1`).
 
 | action | goes to |
 |---|---|
-| Ask for criteria | P-11 |
+| Send the brief | P-11 |
 | Back to profile | P-3 |
 
-### P-11 Hire: criteria
-**Not built.** `ENT-6`, `R-8`, Q2/D2.
+**Never:** a suggested price, a recommended range, or any other price guidance.
+A venue taking a percentage of the deal may not shape the number.
 
-One job: agree what "done" means, before any work starts.
+### P-11 Hire: agreement
+Built as `agreement.html`. `ENT-6`, `R-8`, D2, and the 2026-09-01 payment
+rulings.
 
-The agent proposes a checklist. The buyer accepts, edits, or asks for changes,
-and the loop may run repeatedly **without creating a job**. Either party may
-propose; both must accept (`ENT-6.2`).
+One job: agree every term, line by line, with a signature per party per line.
 
-A criterion is checkable by reading a diff or running the buyer's tests.
-"Well written" is not a criterion (`ENT-6.1`), and the UI says so.
+The agent's draft comes back as numbered criteria (one checkable sentence
+each), a price in dollars, and a delivery window in days. **Price and delivery
+are rows in the same list**, carrying the same two marks and the same edit
+control as every criterion, because structure encodes negotiability and a term
+in its own panel reads as fixed.
 
-### P-12 Hire: confirm
-**Not built.** `ENT-4.1`, `ENT-4.2`, `R-9`, `ENT-9`.
+Four fixed terms are shown and **carry no controls at all**: deposit 25 percent
+at the lock, balance 75 percent when the work is ready, one redo included, and
+the cancellation terms in one paragraph. The absence of an edit affordance is
+the message, the same argument the missing verify button makes on a claim.
 
-One job: the gate. **The job exists after this and not before.**
+**Editing one line clears that line's signatures and nothing else**, and the
+screen previews exactly which marks before the click: hovering or focusing an
+edit control renders that row's signed marks as the dashed rings they are about
+to become.
 
-Shows the agreed criteria one last time, states plainly that neither side can
-change them afterwards, and shows the settlement line as **recorded intent**
-with no money moving in v1 (`ENT-9.1`).
+**There is no confirm button, and none may be added.** The agreement locks when
+the last signature lands. A lone control one party presses contradicts the
+two-party model it would exist to enforce.
 
-Confirming computes `specHash`, which is immutable. Changing criteria later
-means a new job (`ENT-4.2`), and the UI must say that before the click, not
-after.
+| action | behaviour |
+|---|---|
+| sign a line | one signature, that party, that line |
+| edit a line | clears that line's marks only, returns it to the other party |
+| the last signature | locks the agreement and computes the fingerprint. Not a button |
+| Leave this for now | P-16, nothing is lost |
 
-### P-13 Job
-**Not built.** `ENT-4`, `ENT-7`, `R-10`, `R-11`, `R-12`.
+**Never:** an accept-all control, a message thread, a price suggestion, or a
+single `accepted` boolean standing for both parties.
 
-One job: the live state of one hire.
+### P-12 Hire: deposit
+Built as `deposit.html`. `ENT-9`, and the 2026-09-01 fee ruling.
 
-State rail: draft → criteria → confirmed → pull request open → shipped, or
-closed without shipping, or stale.
+One job: pay the deposit, having read one screen.
 
+**Eight things in this order and nothing else:** the total leaving the wallet
+today as one number, the rail chooser with each rail's fee and approval count,
+what you get, by when, who you are hiring with the verified hire count, one
+sentence on the redo, one sentence that the deposit is final, and the scan.
+
+The rail sits directly under the total because it changes it. ABT is 3 percent
+and one approval; USDC is 6 percent and **two approvals**, because an ERC-20
+transfer has one recipient, and the screen says so in words.
+
+| action | goes to |
+|---|---|
+| choose a rail | changes the total in place |
+| pay | the DID Connect scan, then P-13 when the chain confirms |
+| Back to the agreement | P-11 |
+
+**Never:** a countdown, a saved payment method, a token amount on the primary
+path, or an explanation of the business model.
+
+### P-13 Staged
+Built as `staged.html`. The `staged` state.
+
+One job: decide whether to pay for work you have not seen.
+
+The attestation renders as **facts with no verdict**: files changed, lines
+added and removed, every changed path, the buyer's own test command and its
+result, tests deleted, tests newly skipped, files outside the agreed paths, and
+commits signed by the hired agent. Every row at the same weight, in a fixed
+order, no colour and no ranking. Deciding which facts are concerning is a
+judgement about the work, which the platform does not make.
+
+**Three buttons and only three.** A 7 day clock is visible with its consequence
+named beside it.
+
+| action | behaviour |
+|---|---|
+| Pay the balance | 75 percent plus fee, then the PR opens, then P-14 |
+| Request the one redo | picker of the agreed criteria plus one sentence. Free, adds 7 days, once per hire |
+| Decline | free, final, recorded on both records. The deposit stays with the operator |
+| silence for 7 days | the job closes, the code never leaves staging |
+
+**Never:** a preview of the code, a file tree, a quality signal, or a fourth
+control.
+
+### P-14 Pull request
+Built as `pullrequest.html`. `ENT-7.1`, `R-15`.
+
+One job: send the buyer to GitHub, where code is read and merged.
+
+Nearly empty on purpose: the link to the pull request, a 7 day review clock,
+and **one button, Close with a reason** (a picker of the agreed criteria plus
+one sentence). Merging is not a control here because merging happens on GitHub
+under the buyer's own account.
+
+**The clock reverses here and the page says so.** At P-13 silence closed the
+job; here silence completes it, because the operator has delivered and been
+paid in full. Deemed completion issues a **distinct credential type** carrying
+the staged commit and an explicit no-merge field, never the same document as a
+merge credential.
+
+| action | behaviour |
+|---|---|
+| Open the pull request | GitHub |
+| Close with a reason | cites a criterion index plus one sentence. Stops the credential, refunds nothing, attributed to the buyer never to us |
+| merge, on GitHub | observed, the credential issues, P-15 |
+| silence for 7 days | deemed completed, distinct credential |
+
+### P-15 Job
+Built as `job.html`. `ENT-4`, `ENT-7`, `R-10`, `R-11`, `R-12`.
+
+One job: the live state and full history of one hire.
+
+State rail: draft, proposed, confirmed, staged, submitted, then an outcome.
 Shows the pull request once opened, updating from GitHub rather than from
-either party asserting anything (`ENT-7.1`). On merge, links to the credential
-(P-5).
+either party asserting anything (`ENT-7.1`).
 
 **The interface never implies write access.** The agent forks and opens a pull
 request; the buyer merges, themselves, on GitHub (`ENT-4.3`, `ENT-4.4`).
 
-Behind **Show technical details**: job id, `specHash`, the criteria as
-confirmed, the diff counts.
+### P-16 My jobs
+Built as `myjobs.html`.
 
-### P-14 My jobs
-**Not built.**
+One job: every job you have hired, filterable by state. Rows link to P-15.
 
-One job: every job you have hired, filterable by state. Rows link to P-13.
-
-### P-15 Write a review
-**Not built.** `ENT-10`, `R-22`.
+### P-17 Write a review
+Built as `review.html`. `ENT-10`, `R-22`.
 
 One job: say something about a completed hire.
 
@@ -316,20 +423,47 @@ Free text, welded to the job id, with the pull request shown beside it so a
 reader can look at the work. **No star rating, no score, no average anywhere**
 (`ENT-10.2`).
 
+### P-31 How a hire ends
+Built as `outcomes.html`. The five terminal states, and the 2026-09-01 rulings
+on where the money sits in each.
+
+One job: let anyone read every way a hire can end **before** they start one.
+
+Public, in the P-1 to P-8 sense: it is linked from the landing page and needs
+no session, because the endings a person is least likely to enjoy are exactly
+the ones they should be able to read without signing up first.
+
+Five endings, three facts each, in the same shape every time: what happened,
+where the money is, what goes on whose record. No colour scale and no ordering
+from good to bad, because two of the five are ordinary outcomes that the
+grammar of a red row would misdescribe.
+
+| ending | the money | the record |
+|---|---|---|
+| Completed | full price with the operator | verified hire, plus one merge for the buyer |
+| Completed without a decision | full price with the operator | completed hire marked no merge seen, distinct receipt |
+| Closed with a reason | full price with the operator, closing refunds nothing | a job that did not ship, and the buyer's sentence published as theirs |
+| Declined | deposit stays with the operator, balance never charged | a declined hire on both sides |
+| Lapsed | deposit stays with the operator, balance never charged | delivered and never paid for, on the buyer's record |
+
+**Numbered P-31 rather than inserted.** The 2026-09-05 renumber bought id
+stability, and this page arrived after it. Appending costs one out-of-order id
+in section 4 and keeps every other id where a reader last saw it.
+
 ---
 
 ## 5. Listing
 
-### P-16 My agents
-**Not built.**
+### P-18 My agents
+Built as `myagents.html`.
 
 One job: everything you operate, and what each one needs.
 
-Per agent: counts, and any attention item ("GitHub not confirmed", "3 jobs
-waiting"). Links to P-3, P-18, P-22.
+Per agent: counts, the price floor when one is set, and any attention item
+("GitHub not confirmed", "3 jobs waiting"). Links to P-3, P-20, P-24.
 
-### P-17 List an agent
-**Not built.** `ENT-2`, `ENT-3`, `R-2`.
+### P-19 List an agent
+Built as `listagent.html`. `ENT-2`, `ENT-3`, `R-2`.
 
 One job: create an agent, in the fewest steps that are honest.
 
@@ -338,19 +472,26 @@ Name, one-line description, discipline from the bounded vocabulary
 are created behind the scenes; the person is never asked to sign anything
 (`invariant 8`).
 
-Ends by offering the GitHub proof (P-19), **optional**, with the ceiling stated
+Ends by offering the GitHub proof (P-21), **optional**, with the ceiling stated
 plainly: skip it and this agent's work can never rise above unchecked claims.
 A wall at signup loses the operator; a visible ceiling converts them later.
 
-### P-18 Agent settings
-**Not built.** `ENT-2`, `ENT-3.2`.
+### P-20 Agent settings
+Built as `agentsettings.html`. `ENT-2`, `ENT-3.2`.
 
-Edit description, skills, discipline. Retire the agent, which revokes the
-delegation going forward and **does not invalidate credentials already issued**
-(`ENT-3.2`). The UI says exactly that before the confirm.
+Edit description, skills, discipline, and the **optional price floor**. Retire
+the agent, which revokes the delegation going forward and **does not invalidate
+credentials already issued** (`ENT-3.2`). The UI says exactly that before the
+confirm.
 
-### P-19 Prove GitHub
-**Not built.** `ENT-5`, `R-3`, `R-4`.
+The floor is one number per agent, never per skill tag, and it is optional: an
+unset floor renders as nothing at all, never as `0` and never as "no minimum
+set". Its purpose is stated where it is set, because "minimum price" alone
+reads as a haggling tool: it is a circuit breaker on the operator's own agent,
+the one number an agent negotiating on its own cannot be talked below.
+
+### P-21 Prove GitHub
+Built as `provegithub.html`. `ENT-5`, `R-3`, `R-4`.
 
 One job: confirm the operator controls a GitHub account, in one click.
 
@@ -365,8 +506,11 @@ States: not started, in progress, confirmed, and **stopped resolving** (the
 `ENT-5.3` demotion). The last one is not an error the person caused, and the
 copy reflects that.
 
-### P-20 Add prior work
-**Not built.** `ENT-11`, and gap G2 below.
+This proof is also what keys the conduct record (P-28) and what supplies the
+repository list on P-10.
+
+### P-22 Add prior work
+Built as `priorwork.html`. `ENT-11`, and gap G2 below.
 
 One job: list work from before this platform, on a repo the agent can prove.
 
@@ -376,8 +520,8 @@ wearing a verified badge (`ENT-11.2`). The commit author must resolve to the
 handle in the linked proof (`ENT-11.3`), and the UI explains a rejection in
 those terms.
 
-### P-21 Add a portfolio claim
-**Not built.** `ENT-12`.
+### P-23 Add a portfolio claim
+Built as `claim.html`. `ENT-12`.
 
 One job: list work we cannot check, labelled honestly.
 
@@ -386,26 +530,53 @@ fetched by us** (`ENT-12.4`). The form states plainly that this will show as an
 unchecked claim, and there is **no verify affordance and no "pending" state**
 anywhere on it (`ENT-12.1`).
 
-### P-22 Incoming jobs
-**Not built.** `ENT-4`, `ENT-6`.
+### P-24 Incoming jobs
+Built as `incoming.html`. `ENT-4`, `ENT-6`.
 
 One job: work offered to your agents, and what each one is waiting on.
 
-This is the operator's side of P-11: proposing criteria, accepting a brief.
+The operator's side of P-11 at its earliest stage: a brief arrived, the agent
+drafted an agreement, or the buyer edited a line and it is back with you. Rows
+link to P-25.
+
+### P-25 Operator: one job
+Built as `operatorjob.html`.
+
+One job: the other side of P-11 to P-14, on one page.
+
+**One page rather than five, and the asymmetry is the design.** Four of the
+five states need nothing from the operator: the deposit lands, the balance
+lands, the pull request opens. Their two real moves are drafting the agreement
+and answering a redo, and everything else they do happens in their own code.
+Building four screens whose content is "nothing to do here" would be building
+four screens for nobody.
+
+| action | behaviour |
+|---|---|
+| Accept the redo | delivery moves 7 days, price unchanged, the allowance is spent |
+| Refuse the redo | the work returns to the buyer as it is, who pays or declines. Counted on the operator's record |
+| review the draft | the brief, and what the agent quoted against the floor |
+
+Shows the money as amounts that have moved or have not, **never as a balance**,
+because there is no balance: every payment goes wallet to wallet.
+
+**Never:** an hour-by-hour countdown on the buyer's window, view counts on the
+attestation, or any control that contacts the buyer. A date so the operator can
+plan, and nothing that lets them lean.
 
 ---
 
 ## 6. Account
 
-### P-23 Settings
-**Not built.** `ENT-1`, `ENT-5`.
+### P-26 Settings
+Built as `settings.html`. `ENT-1`, `ENT-5`.
 
 Identity (with the DID behind a disclosure), connected accounts, notification
 preferences. Deleting an account **does not delete issued credentials**
 (`ENT-1.3`), and the UI states that before the confirm.
 
-### P-24 Key rotation
-**Not built.** `ENT-8.4`, `R-6`, `R-16`.
+### P-27 Key rotation
+Built as `keys.html`. `ENT-8.4`, `R-6`, `R-16`.
 
 Replace a signing key. Credentials signed by the old key still verify
 (`ENT-8.4`), and the profile shows the rotation with dates.
@@ -413,14 +584,40 @@ Replace a signing key. Credentials signed by the old key still verify
 Reporting a compromise marks work signed inside the window as **disputed**.
 Nothing is deleted or hidden and the window is visible (`R-16`).
 
+### P-28 Conduct record
+Built as `conduct.html`.
+
+One job: what an account has done, on both sides of a hire.
+
+Six buyer counts (hires started, merged, completed without a decision, closed
+with a reason, redos requested, walked away) and two operator counts (delivered
+and never paid for, redos refused).
+
+**Counts only, that account's own, never a score.** No star, no percentage, no
+letter, no computed reliability, no total, and no sort derived from any of
+them. The two sides are never summed, because one account can play both roles
+and they are different populations.
+
+**Keyed to the verified GitHub account, not the DID.** A DID is free, so a
+record attached to one resets in a second. Keying to the already-verified
+GitHub account raises the price of a clean slate from nothing to one aged
+account. It does not close the hole; it makes it expensive, and that should be
+said out loud rather than claimed as a fix.
+
+Zeros render as zeros: a new account shows the same eight rows, all zero, with
+no "new" badge and nothing hidden.
+
+Operators may filter incoming work on these counts. **FreeAgents sets no
+thresholds and recommends none.**
+
 ---
 
 ## 7. System
 
-### P-25 Not found
+### P-29 Not found
 What was not found, and the two most useful ways on: browse, or how it works.
 
-### P-26 Error
+### P-30 Error
 What failed, what it means for anything in flight, and what to do. Never a
 stack trace, never a bare code.
 

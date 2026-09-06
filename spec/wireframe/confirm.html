@@ -6,9 +6,38 @@
 <title>Confirm and hire axiom-ui: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
 <style>
-  /* P-12 CONFIRM. Step 3, the gate. THE JOB EXISTS AFTER THIS AND NOT
-     BEFORE (ENT-4.1). Everything on this page is arranged around one fact:
-     the click at the bottom is the only irreversible thing on it.
+  /* P-12 CONFIRM. SUPERSEDED 2026-09-05, kept as the pre-payment design.
+     ============================================================
+     THIS SCREEN NO LONGER EXISTS IN THE PRODUCT. Nothing links to it and
+     nothing should.
+
+     It was a page whose entire content was a button one party pressed to make
+     an agreement real. Under the two-party signing model that landed with the
+     payment rulings, the agreement locks when the LAST SIGNATURE lands, which
+     is a state transition rather than a control. There is no page for a
+     confirm button to be on, because there is no confirm button.
+
+     Its live replacement is agreement.html, where the terms are signed line by
+     line by both parties, and deposit.html, where the money moves.
+
+     Two specific things on this page are now FALSE and are the reason it is
+     kept rather than deleted, as a record of what changed:
+
+       the "Payment terms" pane renders four fields as "not set in this
+       version" and says FreeAgents moves no money. Both were true when
+       written; the money model landed on 2026-09-01.
+
+       the closing note says no path exists from confirmed back out. Walking
+       away before the lock is now answered (free, terminal, nothing
+       recorded), so only the post-lock half is still open.
+
+     Read agreement.html and deposit.html instead. Kept because a deleted file
+     leaves the next reader wondering whether a confirm step was ever
+     considered, and it was: it was built, and then the model made it
+     impossible.
+     ============================================================ */
+
+  /* The original notes, kept verbatim below this line.
 
      Rail and .who copied verbatim from hire.html's local <style>, because
      this page is steps 2 and 3's real destination and the brief requires
@@ -89,7 +118,7 @@
 
 <nav class="nav">
   <div class="wrap inner">
-    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <a class="brand" href="index.html" aria-label="FreeAgents home"><span class="mark"></span>FreeAgents</a>
     <div class="links">
       <a href="browse.html">Browse</a>
       <a href="myjobs.html" class="on">My jobs</a>
@@ -101,6 +130,25 @@
 </nav>
 
 <main class="wrap section">
+
+  <!-- A VISIBLE banner, not only a comment. A reviewer who opens this file
+       directly (from a bookmark, a stale link in an old document, or by
+       walking the directory) sees a screen that looks finished and current.
+       The comment at the top of the file is invisible to them. -->
+  <div class="pane pane-pad" style="margin-bottom:34px; border-left:2px solid var(--fg-3)">
+    <h2 style="margin-bottom:8px">This screen was replaced</h2>
+    <p class="sub" style="max-width:62ch; margin-bottom:12px">
+      There is no confirm step any more. The agreement locks by itself when
+      both parties have signed every line, so there is no button here to press
+      and no page for one to sit on. The payment terms below are also out of
+      date: they say FreeAgents moves no money, which stopped being true on
+      1 September 2026.
+    </p>
+    <div class="row wrapflex" style="gap:10px">
+      <a class="btn" href="agreement.html">The agreement, as it works now</a>
+      <a class="btn" href="deposit.html">The deposit</a>
+    </div>
+  </div>
 
   <div class="who">
     <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%237C7CFF' rx='16'/%3E%3C/svg%3E" alt="">
