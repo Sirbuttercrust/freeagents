@@ -16,6 +16,14 @@
 // createSettlementGate below, and add a PrismaSettlementGate class beside
 // UnwiredSettlementGate and MemorySettlementGate in this file (or a
 // sibling file in this same directory).
+//
+// P10 (this card): that seam is now filled. PrismaSettlementGate reads
+// the durable ObservedSettlementRecord (src/adapters/storage/types.ts)
+// through a SettlementRepository, so its answer is exactly "did confirm()
+// observe a receipt for this job and leg", never anything a caller said.
+import type { SettlementRepository } from '../storage/types.js';
+import { createSettlementRepository } from '../storage/storage.js';
+
 export interface SettlementGate {
   depositSettled(jobId: string): Promise<boolean>;
   balanceSettled(jobId: string): Promise<boolean>;
@@ -61,12 +69,42 @@ export class MemorySettlementGate implements SettlementGate {
   }
 }
 
+// P10: reads a confirmed row for the job and leg from the durable
+// settlement record, and from nothing else (brief scope item 2). Named
+// 'remainder', not 'balance', on the repository's own leg type; this
+// class lives INSIDE src/adapters/payment (the exempted directory), so
+// it may still say "balance" freely in its own method names, matching
+// UnwiredSettlementGate and MemorySettlementGate's identical method
+// names above.
+export class PrismaSettlementGate implements SettlementGate {
+  constructor(private readonly repository: SettlementRepository) {}
+
+  async depositSettled(jobId: string): Promise<boolean> {
+    return (await this.repository.findByJobAndLeg(jobId, 'deposit')) !== null;
+  }
+
+  async balanceSettled(jobId: string): Promise<boolean> {
+    return (await this.repository.findByJobAndLeg(jobId, 'remainder')) !== null;
+  }
+}
+
 // The createApp default (mirrors createJobRepository's stance in
-// src/adapters/storage/storage.ts): fail closed until the wiring card
-// lands. No environment branching here yet, because there is nothing to
-// branch to -- the durable settlement record does not exist in this
-// repository until that card merges.
-export function createSettlementGate(): SettlementGate {
+// src/adapters/storage/storage.ts): Prisma-backed when DATABASE_URL is
+// configured, the fail-closed UnwiredSettlementGate otherwise. NEVER a
+// memory gate as a production default (P10 brief, scope item 2): an
+// in-memory gate that answers true after a route call is a gate that
+// forgets a payment on restart, and the job it was protecting would then
+// be permanently stuck. repository is injectable so a test can share one
+// durable store across two separate createApp calls, the way every other
+// storage capability in this codebase proves a restart does not lose the
+// observation. Undefined, not a default-parameter call: constructing the
+// default repository eagerly would print storage's own dev-mode warning
+// on every unwired call site (100+ existing tests), for a repository the
+// fail-closed branch below never touches.
+export function createSettlementGate(repository?: SettlementRepository): SettlementGate {
+  if (process.env.DATABASE_URL) {
+    return new PrismaSettlementGate(repository ?? createSettlementRepository());
+  }
   return new UnwiredSettlementGate();
 }
 

@@ -15,6 +15,7 @@ const {
   createJobRepository,
   createAccountRepository,
   createReviewRepository,
+  createSettlementRepository,
 } = await import('../../src/adapters/storage/storage.js');
 const {
   MemoryCompromiseRepository,
@@ -22,6 +23,7 @@ const {
   MemoryJobRepository,
   MemoryAccountRepository,
   MemoryReviewRepository,
+  MemorySettlementRepository,
 } = await import('../../src/adapters/storage/memory.js');
 const {
   PrismaCompromiseRepository,
@@ -29,6 +31,7 @@ const {
   PrismaJobRepository,
   PrismaAccountRepository,
   PrismaReviewRepository,
+  PrismaSettlementRepository,
 } = await import('../../src/adapters/storage/prisma.js');
 const { CredentialAlreadyIssuedError, JobAlreadyExistsError, ReviewAlreadyExistsError, credentialLookupKey } =
   await import('../../src/adapters/storage/types.js');
@@ -314,6 +317,47 @@ describe('createCompromiseRepository', () => {
     delete process.env.DATABASE_URL;
     const repo = createCompromiseRepository();
     expect(repo).toBeInstanceOf(MemoryCompromiseRepository);
+  });
+});
+
+describe('createSettlementRepository', () => {
+  const original = process.env.DATABASE_URL;
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    if (original === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = original;
+    }
+    vi.restoreAllMocks();
+  });
+
+  it('DATABASE_URL set selects the Prisma driver', () => {
+    vi.stubEnv('DATABASE_URL', 'postgresql://user:***@127.0.0.1:5432/freeagents');
+    const repo = createSettlementRepository();
+    expect(repo).toBeInstanceOf(PrismaSettlementRepository);
+    expect(repo.constructor.name).toBe('PrismaSettlementRepository');
+  });
+
+  it('DATABASE_URL empty selects the in-memory driver, with the loud warning', () => {
+    vi.stubEnv('DATABASE_URL', '');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const repo = createSettlementRepository();
+    expect(repo).toBeInstanceOf(MemorySettlementRepository);
+    expect(repo.constructor.name).toBe('MemorySettlementRepository');
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain('DATABASE_URL');
+    expect(message).toContain('in-memory');
+  });
+
+  it('DATABASE_URL unset selects the in-memory driver, with the loud warning', () => {
+    vi.unstubAllEnvs();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    delete process.env.DATABASE_URL;
+    const repo = createSettlementRepository();
+    expect(repo).toBeInstanceOf(MemorySettlementRepository);
   });
 });
 

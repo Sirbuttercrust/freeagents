@@ -447,3 +447,44 @@ model Attestation {
   @@unique([jobId, sequence])
   @@index([jobId])
 }
+
+// P10: the observed settlement record (payment surface brief, scope item
+// 1). A NEW model, not an extension of Settlement above: Settlement is
+// @unique on jobId (one row per job) and its SettlementState enum is
+// pinned to exactly one member by
+// tests/architecture/no-custody.test.ts, whose own comment says "P4 (the
+// payment state machine) is expected to widen this enum; when it does,
+// it replaces this block with the new members and their legal
+// transitions" -- naming the STATE MACHINE, not the settlement record,
+// as the enum's intended successor. A hire has two legs (deposit and
+// remainder) that settle independently and at different times, so one
+// job needs up to two rows; Settlement's own @unique(jobId) cannot hold
+// that without dropping the constraint every other reader of that model
+// relies on. This card does not touch SettlementState at all (the
+// preferred path the brief names), so the enum stays exactly as pinned.
+//
+// One row per (jobId, leg), written only once confirm() has observed a
+// receipt on chain (never from a caller's claim). secondaryHash is null
+// on the ABT rail (one broadcast hash settles both outputs) and, on
+// USDC, carries the fee transfer's hash. amountUsd is a decimal STRING
+// end to end, matching Job.priceUsd and this file's own Settlement.amount
+// stance -- never a JS float.
+model ObservedSettlement {
+  id               String   @id @default(cuid())
+  jobId            String
+  leg              String
+  rail             Rail
+  hash             String
+  secondaryHash    String?
+  operatorAddress  String
+  feeAddress       String
+  amountUsd        String
+  observedAt       DateTime @default(now())
+
+  // One durable row per (job, leg): a repeat confirm() on the same ref
+  // (the rail interface's own idempotency requirement, src/adapters/
+  // payment/types.ts) upserts onto this row rather than accumulating a
+  // second one, mirroring UsdcHalfPaidSettlement's identical @@unique
+  // shape above.
+  @@unique([jobId, leg])
+}
