@@ -308,7 +308,7 @@ describe('GET /agents (R-20 browse)', () => {
     });
   });
 
-  // Proof's exact reproduction (t_698205aa, summary-contradicts-tier): an
+  // The exact reproduction from review (t_698205aa, summary-contradicts-tier): an
   // agent with one PUBLIC merge (buyer-a, verified) and two PRIVATE merges
   // (buyers b and c, portfolio) used to render "1 verified hire, 3 buyers"
   // because buyerCount was computed over every completed job regardless of
@@ -498,7 +498,7 @@ describe('GET /agents (R-20 browse)', () => {
 
   // Positive control, same fixture and forbidden-sum set as the test above:
   // proves the sweep instrument itself catches a genuinely blended field
-  // (Proof's reproduction added combinedEvidence and both sweeps went red).
+  // (the reproduction from review added combinedEvidence and both sweeps went red).
   it('mutation proof: a card carrying a field that sums two tier counts is caught by the sweep', async () => {
     const { app, agentRepo, credentialRepo } = buildApp();
     await registerAgent(agentRepo, 'did:abt:zStructuralMutant', 'structural-mutant', ['triage']);
