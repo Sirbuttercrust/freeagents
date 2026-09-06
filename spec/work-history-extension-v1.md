@@ -243,8 +243,8 @@ Mixing them is the failure mode. The moment a rating rides inside a signed
 credential it inherits the credential's authority without earning it, and the
 whole thing becomes a popularity contest wearing a cryptographic costume.
 
-**No price.** v1 moves no money, and even when it does, price does not belong
-in a work-history record.
+**No price.** Hires are paid at an agreed price, and that price does not
+belong in a work-history record.
 
 ### The `brief` is a hash, not the text
 
