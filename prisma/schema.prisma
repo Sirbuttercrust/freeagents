@@ -318,3 +318,36 @@ model DidConnectSession {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// P3: what confirm() actually observed for one ERC-20 transfer, USDC rail
+// only. Three states because "the wallet never signed this" and "signed
+// but the chain has not confirmed it" are different facts a caller must be
+// able to tell apart (see UsdcLegStatus in src/adapters/payment/types.ts).
+enum UsdcTransferStatus {
+  confirmed
+  not_confirmed
+  not_signed
+}
+
+// P3: the durable record of a half-paid USDC settlement (one leg confirmed,
+// the other did not), so P4's state machine can read the truth instead of
+// re-deriving it from two chain calls every time. Written only when
+// confirm() actually observes exactly one leg confirmed (P3 brief, "fail
+// closed on the half-paid state"); a fully-paid or fully-unpaid confirm
+// writes no row here. feeTxHash is nullable: it is null exactly when the
+// wallet never signed the fee transfer at all.
+model UsdcHalfPaidSettlement {
+  id          String             @id @default(cuid())
+  jobId       String
+  leg         String
+  priceTxHash String
+  priceStatus UsdcTransferStatus
+  feeTxHash   String?
+  feeStatus   UsdcTransferStatus
+  recordedAt  DateTime           @default(now())
+
+  // One durable row per settlement leg: a repeat confirm() on the same ref
+  // (the interface's own idempotency requirement) upserts onto the same
+  // row rather than accumulating a fresh one per call.
+  @@unique([jobId, leg])
+}

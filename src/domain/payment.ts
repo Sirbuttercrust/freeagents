@@ -131,3 +131,28 @@ export function usdToTokenAmount(amountUsd: string, usdPerToken: string): string
   const trimmedFraction = fraction.replace(/0+$/, '');
   return trimmedFraction === '' ? whole.toString() : `${whole.toString()}.${trimmedFraction}`;
 }
+
+// Converts a decimal token amount to its integer smallest-unit string at
+// `decimals` places (P3, USDC: 6, read from the contract, never assumed).
+// Rounding convention: FLOOR, never round-half-up. Chosen so a buyer is
+// never asked to sign a base-unit amount larger than the exact quoted
+// price, matching the direction usdToTokenAmount already errs in at its own
+// 8-decimal-place limit (that function's header comment): the platform
+// would rather collect a fraction of a base unit less than owed than ask a
+// wallet to sign more than it was quoted. A fraction of a base unit is
+// worth a fraction of a cent even at USDC's own precision, so this favours
+// the buyer, never the operator or the platform. Excess fractional digits
+// beyond `decimals` are simply dropped (truncated), not rounded either
+// direction, which is what "floor" means for a non-negative amount.
+export function toBaseUnits(amountToken: string, decimals: number): string {
+  if (!Number.isInteger(decimals) || decimals < 0) {
+    throw new PaymentDomainError(`decimals must be a non-negative integer, got ${String(decimals)}`);
+  }
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(amountToken.trim());
+  if (match === null) {
+    throw new PaymentDomainError(`amountToken must be a non-negative decimal number, got "${amountToken}"`);
+  }
+  const whole = match[1] ?? '0';
+  const fraction = (match[2] ?? '').padEnd(decimals, '0').slice(0, decimals);
+  return (BigInt(whole) * 10n ** BigInt(decimals) + BigInt(fraction === '' ? '0' : fraction)).toString();
+}
