@@ -114,7 +114,7 @@ import {
 import { depositUsd, remainderUsd } from '../domain/payment.js';
 import { createSettlementGate, remainderSettled, type SettlementGate } from '../adapters/payment/gate.js';
 import type { AbtPaymentRail } from '../adapters/payment/abt.js';
-import type { UsdcPaymentRailShim } from '../adapters/payment/usdc.js';
+import { normalizeUsdcTxHash, type UsdcPaymentRailShim } from '../adapters/payment/usdc.js';
 import { createAbtPaymentRailOrNull, createUsdcPaymentRailOrNull } from '../adapters/payment/rail-factory.js';
 import { attachAbtPaymentHandlers, type AbtTxEncoder } from '../adapters/payment/abt-did-connect.js';
 import { createTxEncoder as createAbtTxEncoder } from '@ocap/client/encode';
@@ -3307,6 +3307,18 @@ export function createApp(
       }
       const feeTx = feeTxRaw as { signed: true; hash: string } | { signed: false };
 
+      // S1 scope item 4: priceTxHash equal to feeTx.hash is refused here,
+      // at the route, as a malformed request (400) -- not answered by the
+      // rail as a chain observation. One transfer can never satisfy both
+      // legs of a payment. Normalized before comparison (S1 review round
+      // 1, D2): a real node resolves a transaction hash case-insensitively,
+      // so the same transaction respelled in a different letter case is
+      // still the same transaction and must still be refused.
+      if (feeTx.signed && normalizeUsdcTxHash(feeTx.hash) === normalizeUsdcTxHash(body.priceTxHash)) {
+        res.status(400).json({ error: 'priceTxHash and feeTx.hash must not be the same transaction' });
+        return;
+      }
+
       let ref: PaymentRef;
       let confirmation;
       try {
@@ -3316,6 +3328,7 @@ export function createApp(
           operatorAddress: body.operatorAddress,
           priceTxHash: body.priceTxHash,
           feeTx,
+          amountUsd: legAmountUsdFromJob(gate.job, leg),
         });
         confirmation = await confirmPayment(usdcPaymentRail, ref);
       } catch (err) {
