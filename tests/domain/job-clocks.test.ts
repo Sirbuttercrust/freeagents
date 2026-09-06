@@ -110,6 +110,24 @@ describe('lapseAtStaged: staged with no balance settled, 7 days after stagedAt',
     const result = lapseAtStaged(stagedJob(), now);
     expect(result.stagedCommit).toBe('abc123def');
   });
+
+  // D4 (Proof round 1, t_cb5d35cd): the brief defines this clock as "staged
+  // WITH NO BALANCE SETTLED, 7 days after stagedAt". A buyer who already
+  // paid must never have their job closed unpaid from under them by an
+  // unrelated read -- that would destroy work they paid for and invert the
+  // card's own acceptance sentence ("protect both buyer and seller in a
+  // fair way").
+  it('does not lapse a job whose balance IS settled, even past the deadline', () => {
+    const now = new Date(stagedAt.getTime() + SEVEN_DAYS_MS + 1000);
+    const job = stagedJob();
+    expect(lapseAtStaged(job, now, true)).toEqual(job);
+  });
+
+  it('defaults to treating the balance as unsettled when the caller passes no third argument (fail closed)', () => {
+    const now = new Date(stagedAt.getTime() + SEVEN_DAYS_MS + 1000);
+    const result = lapseAtStaged(stagedJob(), now);
+    expect(result.status).toBe('closed_unpaid');
+  });
 });
 
 describe('deemCompleted: submitted neither merged nor closed, 7 days after submittedAt', () => {

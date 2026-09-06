@@ -1679,22 +1679,9 @@ export function createApp(
       res.status(404).json({ error: 'not found' });
       return;
     }
-    // P4: a job that lapsed while nobody was looking reports the truth on
-    // the next read (brief section 4). applyLapses is pure and idempotent;
-    // when it changes nothing, the persistence attempt below is skipped.
-    // When it does change the status, the write is best-effort: a storage
-    // failure here must not turn an honest GET into a 503, so the computed
-    // (lapsed) row is still what gets projected either way.
-    const lapsed = applyLapses(row, new Date());
-    if (lapsed.status !== row.status) {
-      try {
-        const persisted = await jobRepo.update(lapsed);
-        row = persisted ?? lapsed;
-      } catch (err) {
-        console.error('GET /jobs/:jobId: failed to persist a lapsed status', err);
-        row = lapsed;
-      }
-    }
+    const lapsed = await applyLiveLapses('GET /jobs/:jobId', row, res);
+    if (lapsed === null) return;
+    row = lapsed;
     // Only a completed job can carry one, so an unmerged row never pays for
     // the lookup.
     if (row.mergeCommit === null) {
@@ -1743,6 +1730,16 @@ export function createApp(
   // storage-fault tests pin the exact call sequence a route makes, and a
   // second read would be an observable, untested behaviour change for no
   // reason.
+  //
+  // P4, Proof round 1 (D2/D3, t_cb5d35cd): the clocks used to bind only
+  // to GET, so a job that lapsed while nobody was looking could still be
+  // ACTED ON by a mutation route -- staging or opening a pull request on
+  // an already-expired confirmed job, or opening one on a staged job that
+  // had gone seven days unpaid. Applying the live lapse check here, in the
+  // one load every mutation and exchange route shares, closes that gap at
+  // its single choke point instead of one route at a time, and removes
+  // the order dependency GET introduced: the outcome no longer depends on
+  // whether some unrelated caller issued a read first.
   async function loadForExchange(label: string, jobId: string, res: Response): Promise<Job | null> {
     let current: Job | null;
     try {
@@ -1756,7 +1753,41 @@ export function createApp(
       res.status(404).json({ error: 'not found' });
       return null;
     }
-    return current;
+    return applyLiveLapses(label, current, res);
+  }
+
+  // The live half of applyLapses: lapseAtStaged is the one clock that
+  // needs a fact beyond the row itself (whether the balance has settled),
+  // so this is where the settlement gate is actually asked, only for a
+  // staged job (the other two clocks never consult it). A gate failure
+  // here is treated exactly like any other settlement-gate failure in
+  // this file (POST /jobs/:jobId/pull-request's own leg): 503, not a
+  // silent fail-closed guess, because reporting a status this call could
+  // not actually verify is the same defect class the fail-closed default
+  // gate exists to prevent. The persistence half stays best-effort (as
+  // GET's stance always was): a write failure here must not turn an
+  // otherwise-successful read or mutation into a false 503, so the
+  // computed row is still what the caller sees either way.
+  async function applyLiveLapses(label: string, job: Job, res: Response): Promise<Job | null> {
+    let remainderIsSettled = false;
+    if (job.status === 'staged') {
+      try {
+        remainderIsSettled = await remainderSettled(settlementGate, job.id);
+      } catch (err) {
+        console.error(`${label}: settlement gate failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return null;
+      }
+    }
+    const lapsed = applyLapses(job, new Date(), remainderIsSettled);
+    if (lapsed.status === job.status) return job;
+    try {
+      const persisted = await jobRepo.update(lapsed);
+      return persisted ?? lapsed;
+    } catch (err) {
+      console.error(`${label}: failed to persist a lapsed status`, err);
+      return lapsed;
+    }
   }
 
   // P4: the payment gate parameter every gated route (confirm,
