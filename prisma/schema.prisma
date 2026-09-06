@@ -192,6 +192,24 @@ model Job {
   // confirmedAt already keeps.
   stagedAt          DateTime?
   stagedCommit      String?
+  // B14a: the platform-created repository the staged commit lives in,
+  // and the base commit the platform pinned when it created it. Both
+  // null until the repository exists (set at confirm). Stored as two
+  // scalar columns rather than a nested Json object (owner/repo split,
+  // not a single "owner/repo" string) so a query can filter on either
+  // half independently without parsing, matching how `repository` above
+  // is stored as one slash-joined string only because it is never
+  // filtered on its own -- stagingRepo IS filtered (the cleanup sweep,
+  // a later card, will query "every job whose staging repo still
+  // exists").
+  stagingRepoOwner  String?
+  stagingRepoName   String?
+  baseCommit        String?
+  // B14a scope item 5: the cleanup policy, recorded not built. Null
+  // outside a terminal status; no code in this card ever sets it (see
+  // src/domain/job.ts's own header comment on the field and on
+  // computeStagingRepoDeleteAfter).
+  stagingRepoDeleteAfter DateTime?
   // P6 (design record, 2026-09-01, row 2): the redo mechanic. redoUsedCount
   // is compared against redoAllowance by requestRedo; never decremented
   // back down by a refusal. The three redoRequested* columns are one

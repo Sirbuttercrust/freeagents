@@ -152,7 +152,12 @@ const CREDENTIALS_VALIDATORS = { FREEAGENTS_PLATFORM_SEED: isValidPlatformSeedHe
 
 const GITHUB_SIGN_IN_VARS = ['FREEAGENTS_GITHUB_CLIENT_ID', 'FREEAGENTS_GITHUB_CLIENT_SECRET'] as const;
 
-const GITHUB_API_VARS = ['FREEAGENTS_GITHUB_TOKEN'] as const;
+// B14a: the token alone is not enough. Every mutating staging-lifecycle
+// call (createStagingRepository, grantPush, openStagedPullRequest) fences
+// itself to FREEAGENTS_GITHUB_PLATFORM_LOGIN and fails closed with
+// NotPlatformOwnerError without it, so a deployment with only the token
+// set is not actually configured for the hire loop's write path.
+const GITHUB_API_VARS = ['FREEAGENTS_GITHUB_TOKEN', 'FREEAGENTS_GITHUB_PLATFORM_LOGIN'] as const;
 
 export function buildConfigReport(env: Record<string, string | undefined> = process.env): ConfigReport {
   return {

@@ -40,6 +40,10 @@ import { createJob, type Job } from '../../src/domain/job.js';
 import { signingIdentityFromSeed, signingIdentityFromWallet, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
+
+const AGENT_GITHUB_LOGIN = 'scout-confirm';
+const STRANGER_GITHUB_LOGIN = 'stranger-confirm';
 
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
@@ -145,11 +149,13 @@ async function startWith(repo: JobRepository): Promise<{ server: Server; baseUrl
     delegation: delegationFixture(agent.did) as never,
     name: 'scout',
     skills: ['triage'],
-    githubLogin: null,
+    githubLogin: AGENT_GITHUB_LOGIN,
   });
+  await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
   const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-confirm-scripted' });
-  const s = createApp(operatorRepo, agentRepo, undefined, undefined, repo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, alwaysSettledGate()).listen(0, '127.0.0.1');
+  const { github } = createStagingLifecycleGithubFake();
+  const s = createApp(operatorRepo, agentRepo, undefined, github, repo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, alwaysSettledGate()).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => s.once('listening', resolve));
   const address = s.address();
   if (address === null || typeof address === 'string') {
@@ -173,17 +179,20 @@ describe('job confirm (R-9)', () => {
       delegation: delegationFixture(agent.did) as never,
       name: 'scout',
       skills: ['triage'],
-      githubLogin: null,
+      githubLogin: AGENT_GITHUB_LOGIN,
     });
+    await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
     await agentRepo.create({
       did: stranger.did,
       operatorDid: 'did:abt:op-confirm',
       delegation: delegationFixture(stranger.did) as never,
       name: 'stranger',
       skills: ['triage'],
-      githubLogin: null,
+      githubLogin: STRANGER_GITHUB_LOGIN,
     });
-    server = createApp(operatorRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, alwaysSettledGate()).listen(0, '127.0.0.1');
+    await agentRepo.updateGithubBinding(stranger.did, { handle: STRANGER_GITHUB_LOGIN, status: 'verified' });
+    const { github } = createStagingLifecycleGithubFake();
+    server = createApp(operatorRepo, agentRepo, undefined, github, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, alwaysSettledGate()).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
     if (address === null || typeof address === 'string') {
@@ -374,11 +383,13 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
 
   beforeAll(async () => {
     const sessionAdapter = testSessionAdapter();
+    const agentRepo = new MemoryAgentRepository();
+    const { github } = createStagingLifecycleGithubFake();
     server = createApp(
       new MemoryAccountRepository(),
-      new MemoryAgentRepository(),
+      agentRepo,
       undefined,
-      undefined,
+      github,
       undefined,
       undefined,
       undefined,
@@ -412,6 +423,7 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
         }, await signingIdentityFromWallet(operatorWallet))
       ).status,
     ).toBe(201);
+    await agentRepo.updateGithubBinding(agentWallet.toDid(), { handle: 'scout-wallet-confirm', status: 'verified' });
   });
 
   afterAll(() => {

@@ -9,34 +9,22 @@ import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
-import type { GithubAdapter, PullRequestRef } from '../../src/adapters/github/types.js';
-import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import { MemoryAgentRepository, MemoryCredentialRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import type { SettlementGate } from '../../src/adapters/payment/gate.js';
 
 let buyer: SigningIdentity;
 let agent: SigningIdentity;
-const FORK_OWNER = 'freeagents-platform';
-const FORK_REPO = 'target-repo';
+const AGENT_GITHUB_LOGIN = 'scout-cited-close';
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
   { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
 ];
-
-function fakeGithub(): GithubAdapter {
-  return {
-    getPullRequest: () => Promise.reject(new NotImplementedError('github', 'getPullRequest')),
-    getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
-    getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
-    forkAndOpenPullRequest: (): Promise<PullRequestRef> =>
-      Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: 1 }),
-  };
-}
 
 async function postSigned(base: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
   const bodyText = JSON.stringify(body);
@@ -62,16 +50,18 @@ async function startWith(repo: JobRepository, credentialRepo: MemoryCredentialRe
     delegation: { fixture: true } as never,
     name: 'scout',
     skills: ['triage'],
-    githubLogin: null,
+    githubLogin: AGENT_GITHUB_LOGIN,
   });
+  await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
   const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-cited-close-scripted' });
   const sessionAdapter = testSessionAdapter();
+  const { github } = createStagingLifecycleGithubFake();
   const s = createApp(
     operatorRepo,
     agentRepo,
     undefined,
-    fakeGithub(),
+    github,
     repo,
     undefined,
     undefined,

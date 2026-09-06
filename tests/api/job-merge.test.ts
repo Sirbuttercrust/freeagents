@@ -35,12 +35,14 @@ import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../h
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
 const agentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(91));
 const buyerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(92));
 const AGENT_DID = agentIdentity.did;
 const BUYER_DID = buyerIdentity.did;
-const FORK_OWNER = 'freeagents-platform';
+const AGENT_GITHUB_LOGIN = 'scout-merge';
+const FORK_OWNER = 'buyer';
 const FORK_REPO = 'target-repo';
 const PR_NUMBER = 7;
 const MERGE_SHA = 'merge-commit-sha-abc123';
@@ -74,23 +76,24 @@ function emptyRecordings(): RecordedCalls {
   return { getPullRequest: [] };
 }
 
-// Only getPullRequest and forkAndOpenPullRequest ever resolve; the other two
-// reject with the same honest shape as the real adapter, matching
-// tests/api/job-pull-request.test.ts's fake.
+// Only getPullRequest and openStagedPullRequest ever resolve out of band;
+// the staging lifecycle (createStagingRepository/grantPush/getCommit/
+// getDefaultBranchHead) is the shared working fake, matching
+// tests/api/job-pull-request.test.ts's fixture.
 function fakeGithub(
   recorded: RecordedCalls,
   script: (ref: PullRequestRef) => Promise<PullRequestSummary>,
 ): GithubAdapter {
+  const { github: staging } = createStagingLifecycleGithubFake();
   return {
+    ...staging,
     getPullRequest: (ref) => {
       recorded.getPullRequest.push(ref);
       return script(ref);
     },
-    getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
-    getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
-    // Every job in this file walks through the same fork, so the fake merge
+    // Every job in this file walks through the same PR, so the fake merge
     // route can always parse the ref straight back out of pullRequestUrl.
-    forkAndOpenPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: PR_NUMBER }),
+    openStagedPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: PR_NUMBER }),
   };
 }
 
@@ -239,8 +242,9 @@ async function startWith(
     delegation: { fixture: true } as never,
     name: 'scout',
     skills: ['triage'],
-    githubLogin: null,
+    githubLogin: AGENT_GITHUB_LOGIN,
   });
+  await agentRepo.updateGithubBinding(AGENT_DID, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
   const credentialRepo = extras.credentialRepo ?? new MemoryCredentialRepository();
   const credentials =
     extras.credentials ?? createCredentialsAdapter({ did: ISSUER_DID, seed: ISSUER_SEED }, credentialRepo);
@@ -666,8 +670,9 @@ describe("createApp's credentials default, no credentials adapter given (R-36)",
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
-      githubLogin: null,
+      githubLogin: AGENT_GITHUB_LOGIN,
     });
+    await agentRepo.updateGithubBinding(AGENT_DID, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
     const credentialRepo = new MemoryCredentialRepository();
     const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: BUYER_DID, githubLogin: 'buyer-merge-default' });

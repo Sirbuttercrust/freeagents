@@ -15,10 +15,12 @@ import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../h
 import { testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
 let buyer: SigningIdentity;
 let agent: SigningIdentity;
 let stranger: SigningIdentity;
+const AGENT_GITHUB_LOGIN = 'scout-redo';
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
   { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
@@ -48,8 +50,9 @@ async function startWith(repo: JobRepository, attestationRepo: MemoryAttestation
     delegation: { fixture: true } as never,
     name: 'scout',
     skills: ['triage'],
-    githubLogin: null,
+    githubLogin: AGENT_GITHUB_LOGIN,
   });
+  await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
   const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-redo-scripted' });
   // P6 review round 3, D6 (t_604e3f2a): a stranger's signature must be
@@ -59,11 +62,12 @@ async function startWith(repo: JobRepository, attestationRepo: MemoryAttestation
   // signature verification step, to be what refuses them.
   await operatorRepo.register({ did: stranger.did, githubLogin: 'stranger-redo-scripted' });
   const sessionAdapter = testSessionAdapter();
+  const { github } = createStagingLifecycleGithubFake();
   const s = createApp(
     operatorRepo,
     agentRepo,
     undefined,
-    undefined,
+    github,
     repo,
     undefined,
     undefined,

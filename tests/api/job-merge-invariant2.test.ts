@@ -20,7 +20,6 @@ import { createCredentialsAdapter } from '../../src/adapters/credentials/credent
 import type { GithubAdapter, PullRequestRef } from '../../src/adapters/github/types.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter } from '../../src/adapters/identity/types.js';
-import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import {
   MemoryAgentRepository,
   MemoryCredentialRepository,
@@ -31,6 +30,7 @@ import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../h
 import { testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
 // The did:abt suffix derives from the public key, exactly like agent DIDs, so
 // the proof's verification method binds back to the DID without any lookup in
@@ -99,9 +99,6 @@ async function verifyIndependent(credential: Record<string, unknown>): Promise<b
   }
 }
 
-const FORK_OWNER = 'freeagents-platform';
-const FORK_REPO = 'target-repo';
-const PR_NUMBER = 3;
 const MERGE_SHA = 'inv2-merge-commit-sha';
 const MERGED_AT = new Date('2026-08-25T09:00:00Z');
 
@@ -155,8 +152,9 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
-      githubLogin: null,
+      githubLogin: 'scout-merge-invariant2',
     });
+    await agentRepo.updateGithubBinding(agentDid, { handle: 'scout-merge-invariant2', status: 'verified' });
 
     const identity: IdentityAdapter = {
       ...createIdentityAdapter(),
@@ -164,7 +162,9 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
         Promise.resolve({ id: did, controller: null, verificationMethod: [`${did}#key-1`], alsoKnownAs: null }),
     };
 
+    const { github: staging } = createStagingLifecycleGithubFake();
     const github: GithubAdapter = {
+      ...staging,
       getPullRequest: (ref: PullRequestRef) =>
         Promise.resolve({
           ref,
@@ -177,9 +177,6 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
           filesChanged: 3,
           repositoryPublic: true,
         }),
-      getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
-      getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
-      forkAndOpenPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: PR_NUMBER }),
     };
 
     const credentialRepo = new MemoryCredentialRepository();

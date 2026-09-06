@@ -152,7 +152,29 @@ describe('buildConfigReport: credentials, github sign-in, github api', () => {
     const report = buildConfigReport({});
     const githubApi = report.capabilities.find((c) => c.capability === 'githubApi');
     expect(githubApi?.configured).toBe(false);
-    expect(githubApi?.missing).toEqual(['FREEAGENTS_GITHUB_TOKEN']);
+    expect(githubApi?.missing).toEqual(['FREEAGENTS_GITHUB_TOKEN', 'FREEAGENTS_GITHUB_PLATFORM_LOGIN']);
+  });
+
+  // B14a: the staging-lifecycle methods fence every mutating call to
+  // FREEAGENTS_GITHUB_PLATFORM_LOGIN (invariant 1's adapter-level guard).
+  // A token with no platform login configured still fails closed on every
+  // mutating call, so the report must not call githubApi configured with
+  // only the token set.
+  it('githubApi needs the platform login too, not the token alone', () => {
+    const report = buildConfigReport({ FREEAGENTS_GITHUB_TOKEN: 'ghp_example' });
+    const githubApi = report.capabilities.find((c) => c.capability === 'githubApi');
+    expect(githubApi?.configured).toBe(false);
+    expect(githubApi?.missing).toEqual(['FREEAGENTS_GITHUB_PLATFORM_LOGIN']);
+  });
+
+  it('githubApi is configured with both the token and the platform login set', () => {
+    const report = buildConfigReport({
+      FREEAGENTS_GITHUB_TOKEN: 'ghp_example',
+      FREEAGENTS_GITHUB_PLATFORM_LOGIN: 'freeagents-platform',
+    });
+    const githubApi = report.capabilities.find((c) => c.capability === 'githubApi');
+    expect(githubApi?.configured).toBe(true);
+    expect(githubApi?.missing).toEqual([]);
   });
 });
 
