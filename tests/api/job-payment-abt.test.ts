@@ -635,3 +635,22 @@ describe('review round 2, D3: the token-route buyer gate must check the jobId th
     expect(res.status).toBe(403);
   });
 });
+
+describe('review round 3, D4: the job\'s own agent is a real party to the job but not its buyer, and starting an abt payment is refused', () => {
+  it('the agent cannot start a payment for the job it was hired on, and no settlement is written', async () => {
+    const fakeChain7 = fakeAbtChainClient(true);
+    const started7 = await startAbtApp(fakeChain7.client);
+    try {
+      const res = await postSigned(
+        started7.baseUrl,
+        `/jobs/${started7.jobId}/payments/deposit/abt/start`,
+        { operatorAddress: OPERATOR_ADDRESS },
+        started7.agent,
+      );
+      expect(res.status).toBe(403);
+      expect(await started7.settlementRepo.findByJobAndLeg(started7.jobId, 'deposit')).toBeNull();
+    } finally {
+      started7.server.close();
+    }
+  });
+});

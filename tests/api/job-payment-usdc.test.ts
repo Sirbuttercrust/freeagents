@@ -365,6 +365,51 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/wallet-response: confirm write
   });
 });
 
+describe('review round 3, D4: the job\'s own agent is a real party to the job but not its buyer, and starting or confirming a usdc payment is refused', () => {
+  it('the agent cannot start a usdc payment for the job it was hired on, and no settlement is written', async () => {
+    const usdcRail = withUsdcEnv(() =>
+      createUsdcPaymentRail({
+        chainClient: fakeUsdcChainClient(),
+        rateSource: async () => '1',
+        halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+      }),
+    );
+    const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
+    try {
+      const jobId = await walkToConfirmed(baseUrl, buyer, agent);
+      const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, { operatorAddress: USDC_OPERATOR_ADDRESS }, agent);
+      expect(res.status).toBe(403);
+      expect(await settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
+    } finally {
+      server.close();
+    }
+  });
+
+  it('the agent cannot post a wallet response and settle the job\'s own remainder leg', async () => {
+    const usdcRail = withUsdcEnv(() =>
+      createUsdcPaymentRail({
+        chainClient: fakeUsdcChainClient(() => 1),
+        rateSource: async () => '1',
+        halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+      }),
+    );
+    const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
+    try {
+      const jobId = await walkToConfirmed(baseUrl, buyer, agent);
+      const res = await postSigned(
+        baseUrl,
+        `/jobs/${jobId}/payments/remainder/usdc/wallet-response`,
+        { operatorAddress: USDC_OPERATOR_ADDRESS, priceTxHash: '0xagentprice', feeTx: { signed: true, hash: '0xagentfee' } },
+        agent,
+      );
+      expect(res.status).toBe(403);
+      expect(await settlementRepo.findByJobAndLeg(jobId, 'remainder')).toBeNull();
+    } finally {
+      server.close();
+    }
+  });
+});
+
 describe('the remainder leg confirms independently of the deposit leg, and unlocks pull-request', () => {
   it('a settled remainder leg lets pull-request pass its settlement gate, driven through the route', async () => {
     const usdcRail = withUsdcEnv(() =>
