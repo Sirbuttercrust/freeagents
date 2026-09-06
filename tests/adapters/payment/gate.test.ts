@@ -6,14 +6,16 @@
 // to confirm a job and refuse to open a pull request, never silently let
 // unpaid work through. The default gate answering true would be the
 // failure.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, afterEach } from 'vitest';
 import {
   createSettlementGate,
   MemorySettlementGate,
+  PrismaSettlementGate,
   remainderSettled,
   UnwiredSettlementGate,
   type SettlementGate,
 } from '../../../src/adapters/payment/gate.js';
+import { MemorySettlementRepository } from '../../../src/adapters/storage/memory.js';
 
 describe('UnwiredSettlementGate: the fail-closed default', () => {
   it('answers false for depositSettled on any job id', async () => {
@@ -70,5 +72,87 @@ describe('remainderSettled: the payment-safe wrapper the route layer calls (arch
 
   it('through the fail-closed default, remainderSettled is also false', async () => {
     expect(await remainderSettled(new UnwiredSettlementGate(), 'job_1')).toBe(false);
+  });
+});
+
+describe('PrismaSettlementGate: reads a confirmed row for the job and leg, and from nothing else', () => {
+  it('depositSettled is true only once a deposit-leg row is recorded for that job', async () => {
+    const repo = new MemorySettlementRepository();
+    const gate = new PrismaSettlementGate(repo);
+    expect(await gate.depositSettled('job_1')).toBe(false);
+    await repo.record({
+      jobId: 'job_1',
+      leg: 'deposit',
+      rail: 'abt',
+      hash: 'hash-1',
+      secondaryHash: null,
+      operatorAddress: 'z1Operator',
+      feeAddress: 'z1Fee',
+      amountUsd: '125.00',
+      observedAt: new Date('2026-01-01T00:00:00Z'),
+    });
+    expect(await gate.depositSettled('job_1')).toBe(true);
+    // A different job's row never leaks in.
+    expect(await gate.depositSettled('job_2')).toBe(false);
+  });
+
+  it('balanceSettled is true only once a remainder-leg row is recorded, independent of the deposit leg', async () => {
+    const repo = new MemorySettlementRepository();
+    const gate = new PrismaSettlementGate(repo);
+    await repo.record({
+      jobId: 'job_1',
+      leg: 'deposit',
+      rail: 'abt',
+      hash: 'hash-1',
+      secondaryHash: null,
+      operatorAddress: 'z1Operator',
+      feeAddress: 'z1Fee',
+      amountUsd: '125.00',
+      observedAt: new Date('2026-01-01T00:00:00Z'),
+    });
+    expect(await gate.balanceSettled('job_1')).toBe(false);
+    await repo.record({
+      jobId: 'job_1',
+      leg: 'remainder',
+      rail: 'abt',
+      hash: 'hash-2',
+      secondaryHash: null,
+      operatorAddress: 'z1Operator',
+      feeAddress: 'z1Fee',
+      amountUsd: '375.00',
+      observedAt: new Date('2026-01-02T00:00:00Z'),
+    });
+    expect(await gate.balanceSettled('job_1')).toBe(true);
+  });
+});
+
+describe('createSettlementGate: branches on DATABASE_URL like every other storage factory', () => {
+  const original = process.env.DATABASE_URL;
+
+  afterEach(() => {
+    if (original === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = original;
+    }
+  });
+
+  it('DATABASE_URL set selects the Prisma-backed gate', () => {
+    process.env.DATABASE_URL = 'postgresql://user:***@127.0.0.1:5432/freeagents';
+    const gate = createSettlementGate();
+    expect(gate).toBeInstanceOf(PrismaSettlementGate);
+  });
+
+  it('DATABASE_URL unset selects the fail-closed gate, never a memory gate', () => {
+    delete process.env.DATABASE_URL;
+    const gate = createSettlementGate();
+    expect(gate).toBeInstanceOf(UnwiredSettlementGate);
+    expect(gate).not.toBeInstanceOf(MemorySettlementGate);
+  });
+
+  it('DATABASE_URL empty also selects the fail-closed gate', () => {
+    process.env.DATABASE_URL = '';
+    const gate = createSettlementGate();
+    expect(gate).toBeInstanceOf(UnwiredSettlementGate);
   });
 });
