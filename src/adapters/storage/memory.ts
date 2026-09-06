@@ -7,7 +7,7 @@ import type { CompromiseReport } from '../../domain/compromise.js';
 import type { Account } from '../../domain/account.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
 import type { Review } from '../../domain/review.js';
-import type { VerifiableCredential, SignedAttestation } from '../credentials/types.js';
+import type { SignedAttestation, IssuedCredentialDocument } from '../credentials/types.js';
 import type { Attestation } from '../../domain/attestation.js';
 import {
   AgentAlreadyExistsError,
@@ -26,11 +26,10 @@ import {
   ReviewAlreadyExistsError,
   type ReviewRepository,
   type ObservedKeyRepository,
-  AttestationAlreadyStoredError,
-  type AttestationRepository,
   type StoredAttestation,
   type ObservedSettlementRecord,
   type SettlementRepository,
+  type AttestationRepository,
   credentialLookupKey,
 } from './types.js';
 
@@ -284,7 +283,7 @@ export class MemoryJobRepository implements JobRepository {
 // even nest credentialSubject.hire the current way).
 interface CredentialRow {
   readonly subjectDid: string;
-  readonly document: VerifiableCredential;
+  readonly document: IssuedCredentialDocument;
   readonly repositoryPublic: boolean;
 }
 
@@ -294,7 +293,7 @@ export class MemoryCredentialRepository implements CredentialRepository {
   async save(input: {
     readonly completedJobId: string;
     readonly subjectDid: string;
-    readonly document: VerifiableCredential;
+    readonly document: IssuedCredentialDocument;
     readonly repositoryPublic?: boolean;
   }): Promise<void> {
     const key = credentialLookupKey(input.completedJobId);
@@ -315,7 +314,7 @@ export class MemoryCredentialRepository implements CredentialRepository {
     });
   }
 
-  async findByDocumentId(documentId: string): Promise<VerifiableCredential | null> {
+  async findByDocumentId(documentId: string): Promise<IssuedCredentialDocument | null> {
     return this.rows.get(credentialLookupKey(documentId))?.document ?? null;
   }
 
@@ -367,34 +366,42 @@ export class MemoryObservedKeyRepository implements ObservedKeyRepository {
   }
 }
 
-// P5: one attestation per job, keyed by job id, IMMUTABLE once written
-// (the interface's own header comment). A second save for a job that
-// already has one is refused, never overwritten: a redo that later
-// restages the same job writes a NEW record under a scheme the next card
-// owns, not an edit of this one.
+// P5/P6: many attestation records per job, keyed by job id, each row
+// IMMUTABLE once written (the interface's own header comment). save
+// always appends at the next sequence number; it never overwrites an
+// existing row, so a redo that later restages a job writes a NEW record
+// beside the old one, exactly the fact the P6 brief protects ("the buyer
+// must be able to read the attestation they were shown before the redo,
+// after the redo").
 export class MemoryAttestationRepository implements AttestationRepository {
-  private readonly rows = new Map<string, StoredAttestation>();
+  private readonly rows = new Map<string, StoredAttestation[]>();
 
   async save(input: {
     readonly jobId: string;
     readonly attestation: Attestation;
     readonly signed: SignedAttestation;
-  }): Promise<void> {
-    // Check-then-set is safe here: Node is single-threaded and this method
-    // awaits nothing, so two concurrent saves of one job cannot both pass
-    // the check.
-    if (this.rows.has(input.jobId)) {
-      throw new AttestationAlreadyStoredError(input.jobId);
-    }
-    this.rows.set(input.jobId, {
+  }): Promise<StoredAttestation> {
+    const existing = this.rows.get(input.jobId) ?? [];
+    const row: StoredAttestation = {
       jobId: input.jobId,
+      sequence: existing.length + 1,
       attestation: input.attestation,
       signed: input.signed,
-    });
+    };
+    // Append, never replace: existing records are untouched by this call.
+    this.rows.set(input.jobId, [...existing, row]);
+    return row;
   }
 
   async findByJobId(jobId: string): Promise<StoredAttestation | null> {
-    return this.rows.get(jobId) ?? null;
+    const existing = this.rows.get(jobId);
+    if (existing === undefined || existing.length === 0) return null;
+    // The LATEST record: the last entry, since save only ever appends.
+    return existing[existing.length - 1] ?? null;
+  }
+
+  async listByJobId(jobId: string): Promise<readonly StoredAttestation[]> {
+    return [...(this.rows.get(jobId) ?? [])];
   }
 }
 
