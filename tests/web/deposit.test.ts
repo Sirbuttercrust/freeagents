@@ -752,11 +752,9 @@ describe('the deposit screen, driven end to end against the real app', () => {
       }
     });
 
-    // D3 (Proof review round 1): the four remaining scope-item-8 shapes --
-    // 401, 409, both 503s from pay-start, plus 401/409 from confirm --
-    // via mocking one route's response on one already-rendered page. The
-    // ABT 503's "nothing was charged" wording is pinned directly: a
-    // generic sentence there is the collapse this test exists to catch.
+    // D3 (Proof review round 1): 401, 409, both 503s from pay-start, plus
+    // 401/409 from confirm, via mocking one route on one rendered page.
+    // The ABT 503's "nothing was charged" wording is pinned directly.
     it('the 401, 409 and both 503 sentences from pay-start, and the 401/409 sentences from confirm, all differ (D3)', async () => {
       const page = await renderDeposit(baseUrl, 'job-fully-agreed', { token: buyerToken });
       const originalFetch = global.fetch;
