@@ -200,49 +200,6 @@ describe('the deposit screen, driven end to end against the real app', () => {
       }),
     );
 
-    // D3 (Proof review round 1): dedicated jobs for the pay-start 409 (a
-    // race where the price is cleared server-side between load and
-    // press) and the confirm 409 (a race where another actor confirms
-    // the job between load and press). Separate ids from job-for-403 so
-    // this suite's own mid-test jobRepo mutations never collide with the
-    // 403 test's own fixture.
-    await jobRepo.create(
-      jobFixture({
-        id: 'job-for-409-price-race',
-        status: 'proposed',
-        criteria: [{ text: 'x', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
-        priceUsd: '100.00',
-        rail: 'abt',
-        priceAcceptedByBuyer: true,
-        priceAcceptedByAgent: true,
-      }),
-    );
-    await jobRepo.create(
-      jobFixture({
-        id: 'job-for-409-confirm-race',
-        status: 'proposed',
-        criteria: [{ text: 'x', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
-        priceUsd: '100.00',
-        rail: 'abt',
-        priceAcceptedByBuyer: true,
-        priceAcceptedByAgent: true,
-      }),
-    );
-    // D3: a job for the 401 tests, whose session is invalidated between
-    // page load and the press (the load itself needs a live session to
-    // reach deposit-body at all).
-    await jobRepo.create(
-      jobFixture({
-        id: 'job-for-401-race',
-        status: 'proposed',
-        criteria: [{ text: 'x', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
-        priceUsd: '100.00',
-        rail: 'abt',
-        priceAcceptedByBuyer: true,
-        priceAcceptedByAgent: true,
-      }),
-    );
-
     // For the real confirm round trip: fully agreed, deposit unsettled at
     // first, marked settled mid-test.
     await jobRepo.create(
@@ -258,12 +215,9 @@ describe('the deposit screen, driven end to end against the real app', () => {
       }),
     );
 
-    // D1 (Proof review round 1): a SEPARATE agent with a genuinely
-    // completed hire, driven through create then complete exactly like
-    // tests/web/browse.test.ts's own fixture. Kept off AGENT_DID on
-    // purpose: AGENT_DID backs job-fully-agreed, whose own test below
-    // pins the negative case (no count), so the two paths need two
-    // different agents rather than one agent asserting both facts.
+    // D1 (Proof review round 1): a SEPARATE agent with a completed hire
+    // (AGENT_DID stays negative-case-only below), driven through create
+    // then complete like tests/web/browse.test.ts's own fixture.
     await agentRepo.create({
       did: HIRED_AGENT_DID,
       operatorDid: 'did:abt:deposit-page-hired-operator',
@@ -272,25 +226,13 @@ describe('the deposit screen, driven end to end against the real app', () => {
       skills: ['triage'],
       githubLogin: null,
     });
-    const completedHireDraft = jobFixture({
-      id: 'deposit-page-completed-hire',
-      buyerDid: 'did:example:deposit-page-past-buyer',
-      agentDid: HIRED_AGENT_DID,
-      status: 'draft',
-    });
+    const completedHireDraft = jobFixture({ id: 'deposit-page-completed-hire', buyerDid: 'did:example:deposit-page-past-buyer', agentDid: HIRED_AGENT_DID, status: 'draft' });
     await jobRepo.create(completedHireDraft);
     await jobRepo.complete(
       { ...completedHireDraft, status: 'completed', mergeCommit: 'deposit-page-commit-1', mergedAt: new Date('2026-08-30T00:00:00Z') },
-      {
-        jobId: completedHireDraft.id,
-        buyerDid: completedHireDraft.buyerDid,
-        agentDid: HIRED_AGENT_DID,
-        mergeCommit: 'deposit-page-commit-1',
-        completedAt: new Date('2026-08-30T00:00:00Z'),
-      },
+      { jobId: completedHireDraft.id, buyerDid: completedHireDraft.buyerDid, agentDid: HIRED_AGENT_DID, mergeCommit: 'deposit-page-commit-1', completedAt: new Date('2026-08-30T00:00:00Z') },
     );
-    // The job the positive-path test itself renders: same buyer, fully
-    // agreed, hired agent HAS a verified hire.
+    // The job the positive-path test itself renders.
     await jobRepo.create(
       jobFixture({
         id: 'job-hired-agent-has-hires',
@@ -563,25 +505,19 @@ describe('the deposit screen, driven end to end against the real app', () => {
           res.end(JSON.stringify({ error: 'storage unavailable' }));
           return;
         }
-        const upstream = http.request(
-          { hostname: '127.0.0.1', port: realPort, path: req.url, method: req.method, headers: req.headers },
-          (upstreamRes) => {
-            res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
-            upstreamRes.pipe(res);
-          },
-        );
+        const upstream = http.request({ hostname: '127.0.0.1', port: realPort, path: req.url, method: req.method, headers: req.headers }, (upstreamRes) => {
+          res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+          upstreamRes.pipe(res);
+        });
         req.pipe(upstream);
       });
       await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
       const proxyBaseUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
       try {
         const page = await renderDeposit(proxyBaseUrl, 'job-hired-agent-has-hires', { token: buyerToken });
-        try {
-          expect(page.document.getElementById('agent-name')?.textContent).toBe('deposit-page-hired-scout');
-          expect(page.document.getElementById('agent-hires')?.textContent ?? '').toBe('');
-        } finally {
-          page.close();
-        }
+        expect(page.document.getElementById('agent-name')?.textContent).toBe('deposit-page-hired-scout');
+        expect(page.document.getElementById('agent-hires')?.textContent ?? '').toBe('');
+        page.close();
       } finally {
         await new Promise<void>((resolve) => proxy.close(() => resolve()));
       }
@@ -816,6 +752,73 @@ describe('the deposit screen, driven end to end against the real app', () => {
         missing404.close();
       }
     });
+
+    // D3 (Proof review round 1): the four remaining scope-item-8 shapes the
+    // distinctness test above never touched -- 401, 409, and the two 503s
+    // (ABT rail unconfigured vs. storage unavailable) -- driven by mocking
+    // one route's response on one already-rendered page rather than
+    // standing up new job fixtures and servers per case. The ABT 503's own
+    // "nothing was charged" wording is pinned directly: a generic sentence
+    // in its place is exactly the collapse this test exists to catch.
+    it('the 401, 409 and both 503 refusal sentences from pay-start all differ and name their own cause (D3)', async () => {
+      const page = await renderDeposit(baseUrl, 'job-fully-agreed', { token: buyerToken });
+      try {
+        const payBtn = page.document.getElementById('pay-btn') as HTMLButtonElement;
+        const originalFetch = global.fetch;
+        const sentences: string[] = [];
+        for (const [status, body] of [
+          [401, { error: 'expired' }],
+          [409, { error: 'this job has no agreed price to pay against' }],
+          [503, { error: 'the abt payment rail is not configured on this deployment' }],
+          [503, { error: 'storage unavailable' }],
+        ] as [number, { error: string }][]) {
+          Object.defineProperty(page.window, 'fetch', {
+            writable: true,
+            value: async (input: string, init?: RequestInit) =>
+              String(input).includes('/abt/start')
+                ? new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+                : originalFetch(new URL(input, baseUrl), init),
+          });
+          payBtn.click();
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          sentences.push(page.document.getElementById('pay-error-detail')?.textContent ?? '');
+        }
+        expect(new Set(sentences).size).toBe(4);
+        expect((sentences[2] ?? '').toLowerCase()).toContain('nothing was charged');
+        expect((sentences[3] ?? '').toLowerCase()).not.toContain('nothing was charged');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('the 401 and 409 refusal sentences from confirm differ from each other and from pay-start (D3)', async () => {
+      const page = await renderDeposit(baseUrl, 'job-fully-agreed', { token: buyerToken });
+      try {
+        const approvedBtn = page.document.getElementById('approved-btn') as HTMLButtonElement;
+        const originalFetch = global.fetch;
+        const sentences: string[] = [];
+        for (const [status, body] of [
+          [401, { error: 'expired' }],
+          [409, { error: 'confirm needs every criterion accepted by both parties' }],
+        ] as [number, { error: string }][]) {
+          Object.defineProperty(page.window, 'fetch', {
+            writable: true,
+            value: async (input: string, init?: RequestInit) =>
+              String(input).includes('/confirm')
+                ? new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+                : originalFetch(new URL(input, baseUrl), init),
+          });
+          approvedBtn.click();
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          sentences.push(page.document.getElementById('confirm-error-detail')?.textContent ?? '');
+        }
+        expect(new Set(sentences).size).toBe(2);
+        expect(sentences[0]).not.toContain('pay the deposit');
+        expect(sentences[1]).not.toContain('agreed price to pay against');
+      } finally {
+        page.close();
+      }
+    });
   });
 
   describe('the agreement page routes a fully signed agreement to this screen (scope item 4)', () => {
@@ -882,7 +885,7 @@ describe('the deposit screen, driven end to end against the real app', () => {
       }
     });
 
-    it('the rail option labels keep their two-column grid, not a wrapper-crushed block (D2)', async () => {
+    it('the rail option labels and the totals rows keep their real layout, not a wrapper-crushed block (D2)', async () => {
       const page = await renderDeposit(baseUrl, 'job-fully-agreed', { token: buyerToken });
       try {
         const labels = page.document.querySelectorAll('.railopt label');
@@ -894,14 +897,6 @@ describe('the deposit screen, driven end to end against the real app', () => {
           expect(parseFloat(style.minHeight)).toBeGreaterThanOrEqual(44);
           expect(parseFloat(style.paddingLeft)).toBeGreaterThanOrEqual(44);
         });
-      } finally {
-        page.close();
-      }
-    });
-
-    it('the totals rows keep their space-between flex layout, not a wrapper-crushed block (D2)', async () => {
-      const page = await renderDeposit(baseUrl, 'job-fully-agreed', { token: buyerToken });
-      try {
         const rows = page.document.querySelectorAll('.total .parts li');
         expect(rows.length).toBeGreaterThanOrEqual(3);
         rows.forEach((row) => {
