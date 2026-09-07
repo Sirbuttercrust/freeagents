@@ -19,10 +19,10 @@ import { fakeGitHubConfig, fakeGitHubFetch } from '../helpers/session-fixtures.j
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 
-// The thirteen page shells the web surface serves, per src/web/static.ts's
+// The fourteen page shells the web surface serves, per src/web/static.ts's
 // own PAGE_FILES map (auth-callback-success/error are not routed pages;
 // they are rendered directly by the callback route and carry no nav).
-const NAV_PAGES = ['/', '/how', '/browse', '/signin', '/verify', '/agents/x', '/accounts/x', '/v1/credentials/x', '/jobs/x', '/hire', '/agreement', '/deposit', '/no-such-page'] as const;
+const NAV_PAGES = ['/', '/how', '/browse', '/signin', '/verify', '/agents/x', '/accounts/x', '/v1/credentials/x', '/jobs/x', '/hire', '/agreement', '/deposit', '/staged', '/no-such-page'] as const;
 
 let server: Server;
 let baseUrl: string;
