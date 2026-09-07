@@ -1,6 +1,6 @@
 # Proposed MISSION.md addition: the intermediary rule
 
-Written by anvil for Temper to carry to Keaton. MISSION.md is a governance
+Drafted by the build for the operator's decision. MISSION.md is a governance
 file; this card does not edit it directly. The paragraph below is meant to
 land under "Settlement, and the platform's cut" (MISSION.md, the section
 already describing the attestation), stated as its own line the same way
@@ -8,7 +8,7 @@ the section's existing settlement rulings are stated.
 
 ## Source
 
-Keaton, 2026-09-07, on why the attestation dropped the buyer's test run:
+The operator, 2026-09-07, on why the attestation dropped the buyer's test run:
 
 > "Like is the purpose to review their code? I thought we were just a
 > intermediary between the two parties"

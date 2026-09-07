@@ -351,7 +351,7 @@ commit messages, raw test output, per-criterion file mapping, and any summary
 of the approach. Each publishes the work before it is paid for. The platform
 never runs the buyer's test command or any other agent-authored code: it is
 an intermediary between the two parties, never an inspector of the work
-(Keaton, 2026-09-07). The buyer's own test run, and the failing test names
+(the operator, 2026-09-07). The buyer's own test run, and the failing test names
 it produced, are gone for the same reason -- they were only ever produced
 by executing the suite.
 
