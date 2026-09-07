@@ -407,57 +407,70 @@ describe('POST /agents/:agentDid/key-rotation, caller gating (S3)', () => {
     }
   });
 
-  // Proof audit round 1, D2: resolveActingParty returning null (a session
-  // that names nobody registered) must refuse 403, the same as any other
-  // non-operator, and store nothing. Nothing pinned this branch before.
-  it('a session that resolves to no registered account is refused 403, and stores nothing (D2)', async () => {
-    const sessionAdapter = testSessionAdapter();
-    const accountRepo = new MemoryAccountRepository();
-    const sessionAgentRepo = new MemoryAgentRepository();
-    const realOperator = await signingIdentityFromSeed(new Uint8Array(32).fill(228));
-    await accountRepo.register({ did: realOperator.did, githubLogin: 'key-rotation-d2-real-operator' });
-    const sessionAgentDid = 'did:abt:zSessionUnregisteredAgent';
-    await sessionAgentRepo.create({
-      did: sessionAgentDid,
-      operatorDid: realOperator.did,
-      delegation: delegationFor(sessionAgentDid, realOperator.did),
-      name: 'scout',
-      skills: ['triage'],
-      githubLogin: null,
-    });
-    const app = createApp(
-      accountRepo,
-      sessionAgentRepo,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      sessionAdapter,
-    );
-    const server2 = app.listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server2.once('listening', resolve));
-    const address2 = server2.address();
-    if (address2 === null || typeof address2 === 'string') throw new Error('expected a port');
-    const url2 = `http://127.0.0.1:${address2.port}`;
+  // Proof audit round 1, D2: a caller who is not the agent's operator
+  // must refuse 403 and store nothing. P8d widened what "resolves to no
+  // registered account" means: a live session now always provisions one
+  // (auto-provisioning at first sign-in), so the refusal this test pins
+  // now comes from the operator MISMATCH check, not from an unresolved
+  // party -- the session's own provisioned account is real, just not
+  // this agent's operator.
+  it('a session that resolves to a freshly provisioned account, not the agent operator, is refused 403 and stores nothing (D2)', async () => {
+    const original = process.env.FREEAGENTS_PLATFORM_SEED;
+    process.env.FREEAGENTS_PLATFORM_SEED = 'a'.repeat(64);
     try {
-      // testSessionAdapter's bearer token resolves to githubLogin
-      // 'test-session-user', which no account here is registered under.
-      const auth = await sessionHeader(sessionAdapter);
-      const res = await fetch(`${url2}/agents/${sessionAgentDid}/key-rotation`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...auth },
-        body: JSON.stringify({ fromKey: `${sessionAgentDid}#zOld`, toKey: `${sessionAgentDid}#zNew` }),
+      const sessionAdapter = testSessionAdapter();
+      const accountRepo = new MemoryAccountRepository();
+      const sessionAgentRepo = new MemoryAgentRepository();
+      const realOperator = await signingIdentityFromSeed(new Uint8Array(32).fill(228));
+      await accountRepo.register({ did: realOperator.did, githubLogin: 'key-rotation-d2-real-operator' });
+      const sessionAgentDid = 'did:abt:zSessionUnregisteredAgent';
+      await sessionAgentRepo.create({
+        did: sessionAgentDid,
+        operatorDid: realOperator.did,
+        delegation: delegationFor(sessionAgentDid, realOperator.did),
+        name: 'scout',
+        skills: ['triage'],
+        githubLogin: null,
       });
-      expect(res.status).toBe(403);
-      const stored = await sessionAgentRepo.findByDid(sessionAgentDid);
-      expect(stored?.keyRotations.length ?? 0).toBe(0);
+      const app = createApp(
+        accountRepo,
+        sessionAgentRepo,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        sessionAdapter,
+      );
+      const server2 = app.listen(0, '127.0.0.1');
+      await new Promise<void>((resolve) => server2.once('listening', resolve));
+      const address2 = server2.address();
+      if (address2 === null || typeof address2 === 'string') throw new Error('expected a port');
+      const url2 = `http://127.0.0.1:${address2.port}`;
+      try {
+        // testSessionAdapter's bearer token resolves to githubLogin
+        // 'test-session-user', which no account here is registered
+        // under, so this session PROVISIONS a fresh account -- one that
+        // is real, but is not this agent's operator.
+        const auth = await sessionHeader(sessionAdapter);
+        const res = await fetch(`${url2}/agents/${sessionAgentDid}/key-rotation`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...auth },
+          body: JSON.stringify({ fromKey: `${sessionAgentDid}#zOld`, toKey: `${sessionAgentDid}#zNew` }),
+        });
+        expect(res.status).toBe(403);
+        const stored = await sessionAgentRepo.findByDid(sessionAgentDid);
+        expect(stored?.keyRotations.length ?? 0).toBe(0);
+      } finally {
+        server2.close();
+      }
     } finally {
-      server2.close();
+      if (original === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
+      else process.env.FREEAGENTS_PLATFORM_SEED = original;
     }
   });
 });
