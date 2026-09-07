@@ -42,6 +42,15 @@ export interface AccountRepository {
   // R-39 completion: the passkey sibling of findByGithubLogin. Null when
   // no account claims that passkey subject.
   findByPasskeySubject(passkeySubject: string): Promise<Account | null>;
+  // S3, Ruling 4: sets the USDC recipient address on the account's own
+  // row, overwriting any prior value (an operator changing wallets sets
+  // a fresh one; there is no history to preserve here, unlike
+  // KeyRotation's append-only stance -- an EVM address is not a signing
+  // key an old credential could still verify against). Null when the DID
+  // is not a registered account, mirroring updateGithubBinding's own
+  // stance on AgentRepository, so the route maps it to 404 without a
+  // second lookup.
+  setOperatorAddressEvm(did: string, operatorAddressEvm: string): Promise<Account | null>;
 }
 
 // Thrown by AgentRepository.create when the agent DID is already delegated,

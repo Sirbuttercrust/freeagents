@@ -89,6 +89,14 @@ model Account {
   githubLogin    String   @unique
   passkeySubject String?  @unique
   createdAt      DateTime @default(now())
+  // S3: the EVM address this account is paid at on the USDC rail, set by
+  // the account itself through PATCH /accounts/:did/operator-address.
+  // Nullable, no default: an account has no address on record until it
+  // sets one, and a USDC payment for a job hiring this account's agent
+  // must refuse to start until it does (Ruling 5, fail closed). On
+  // Account, not Agent: it is a property of the party being paid, and
+  // one account may operate many agents (Ruling 3).
+  operatorAddressEvm String?
 
   agents Agent[]
 }

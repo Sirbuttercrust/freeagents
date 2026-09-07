@@ -321,7 +321,13 @@ class TwoDidsOneLoginAccountRepository implements AccountRepository {
   }
 
   seed(did: string, githubLogin: string): void {
-    this.byDid.set(did, { did, githubLogin, passkeySubject: null, createdAt: new Date('2026-01-01T00:00:00Z') });
+    this.byDid.set(did, {
+      did,
+      githubLogin,
+      passkeySubject: null,
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      operatorAddressEvm: null,
+    });
   }
 
   async findByDid(did: string): Promise<Account | null> {
@@ -337,6 +343,10 @@ class TwoDidsOneLoginAccountRepository implements AccountRepository {
 
   async findByPasskeySubject(): Promise<Account | null> {
     return null;
+  }
+
+  async setOperatorAddressEvm(): Promise<Account | null> {
+    throw new Error('unused: this stand-in never sets an operator address');
   }
 }
 
