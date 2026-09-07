@@ -9,7 +9,7 @@
 // own header). It clones nothing, spawns nothing, and executes no line of
 // the agent's code -- the anchor this card exists to enforce is
 // "the platform reports what git plainly says about the staged commit
-// and never executes a line of the agent's code" (Keaton, 2026-09-07: "I
+// and never executes a line of the agent's code" (the operator, 2026-09-07: "I
 // thought we were just an intermediary between the two parties").
 // tests/architecture/no-execution.test.ts is the mechanical fence: it
 // fails the build if this directory (or src/domain/attestation.ts) ever

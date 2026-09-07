@@ -1,6 +1,6 @@
 // B14b: the scope fence. The anchor: "the platform reports what git
 // plainly says about the staged commit and never executes a line of the
-// agent's code" (Keaton, 2026-09-07). Two mechanical checks, both
+// agent's code" (the operator, 2026-09-07). Two mechanical checks, both
 // structural (they read the files, never trust convention, the same
 // stance tests/architecture/domain-purity.test.ts and
 // tests/architecture/no-custody.test.ts already take):

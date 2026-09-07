@@ -15,7 +15,7 @@
 // B14b: the buyer's own test command is GONE, permanently. Running it
 // against the staged commit means the platform executes untrusted
 // agent-authored code and reports a verdict on it -- an inspector, not
-// the intermediary the platform is (Keaton, 2026-09-07: "I thought we
+// the intermediary the platform is (the operator, 2026-09-07: "I thought we
 // were just an intermediary between the two parties"). Every field that
 // survives below is something git or GitHub plainly says about the
 // staged commit: a diff stat, a path, a signature check. `testsDeleted`
