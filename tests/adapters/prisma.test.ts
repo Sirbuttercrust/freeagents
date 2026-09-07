@@ -288,6 +288,61 @@ describe('PrismaAccountRepository', () => {
     expect(row).toBeNull();
   });
 
+  // P8d guard: Postgres UNIQUE does not treat NULL as colliding with
+  // NULL, so a naive findUnique({ where: { githubLogin: null } }) would
+  // hit the database and could return an arbitrary null-login row. This
+  // must short-circuit before ever calling findUnique at all, which this
+  // test pins by asserting the mock was never invoked.
+  it('findByGithubLogin(null) refuses before ever querying the database', async () => {
+    const repo = new PrismaAccountRepository();
+    const row = await repo.findByGithubLogin(null);
+
+    expect(row).toBeNull();
+    expect(mock.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('findByGithubLogin("") refuses before ever querying the database', async () => {
+    const repo = new PrismaAccountRepository();
+    const row = await repo.findByGithubLogin('');
+
+    expect(row).toBeNull();
+    expect(mock.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('findByPasskeySubject(null) refuses before ever querying the database', async () => {
+    const repo = new PrismaAccountRepository();
+    const row = await repo.findByPasskeySubject(null);
+
+    expect(row).toBeNull();
+    expect(mock.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('findByPasskeySubject("") refuses before ever querying the database', async () => {
+    const repo = new PrismaAccountRepository();
+    const row = await repo.findByPasskeySubject('');
+
+    expect(row).toBeNull();
+    expect(mock.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('findByGithubLogin: a real login still queries and resolves normally', async () => {
+    const createdAt = new Date('2026-08-20T05:00:00.000Z');
+    vi.mocked(mock.findUnique).mockResolvedValue({
+      did: 'did:abt:prisma-real-login',
+      githubLogin: 'operator-prisma-real-login',
+      passkeySubject: null,
+      createdAt,
+      operatorAddressEvm: null,
+      operatorAddressAbt: null,
+    });
+
+    const repo = new PrismaAccountRepository();
+    const row = await repo.findByGithubLogin('operator-prisma-real-login');
+
+    expect(mock.findUnique).toHaveBeenCalledWith({ where: { githubLogin: 'operator-prisma-real-login' } });
+    expect(row?.did).toBe('did:abt:prisma-real-login');
+  });
+
   it('setOperatorAddressEvm: an updated row comes back as the operator projection with the new address', async () => {
     const createdAt = new Date('2026-08-20T05:00:00.000Z');
     vi.mocked(mock.update).mockResolvedValue({

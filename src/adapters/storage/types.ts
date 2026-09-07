@@ -21,15 +21,17 @@ export class AccountAlreadyExistsError extends Error {
 
 export interface AccountRepository {
   // Throws AccountAlreadyExistsError when the DID is already registered.
-  // passkeySubject is optional: an account may register with a GitHub
-  // login only, and bind a passkey subject later. The schema's unique
-  // constraint on passkeySubject (prisma/schema.prisma) means a second
-  // register naming an already-bound subject throws the same error a
-  // duplicate DID would; the caller-facing distinction is not this
-  // repository's job (see AccountAlreadyExistsError's single shape).
+  // githubLogin and passkeySubject are each optional: an account may
+  // register with a GitHub login only, a passkey subject only, or (P8d)
+  // neither yet supplied by the caller and provisioned with exactly one
+  // of the two set. The schema's unique constraint on each column (prisma/
+  // schema.prisma) means a second register naming an already-bound value
+  // throws the same error a duplicate DID would; the caller-facing
+  // distinction is not this repository's job (see AccountAlreadyExistsError's
+  // single shape).
   register(input: {
     readonly did: string;
-    readonly githubLogin: string;
+    readonly githubLogin?: string | null;
     readonly passkeySubject?: string | null;
   }): Promise<Account>;
   findByDid(did: string): Promise<Account | null>;
@@ -37,11 +39,18 @@ export interface AccountRepository {
   // GitHub login the OAuth exchange proved; this is the ONLY lookup that
   // may resolve a session to an account, because githubLogin is the
   // unique key the schema enforces. Null when no account claims that
-  // login, exactly like findByDid on an unknown DID.
-  findByGithubLogin(githubLogin: string): Promise<Account | null>;
+  // login, exactly like findByDid on an unknown DID. P8d: a null or
+  // empty-string githubLogin must never resolve a row whose own column is
+  // null (guard-without-a-test: the mutation proof for this file removes
+  // exactly that guard and expects a red test) -- two accounts holding a
+  // null githubLogin (every passkey-only provisioned account) would
+  // otherwise collide into whichever one this lookup happens to see
+  // first, which is an authentication bypass, not a cosmetic bug.
+  findByGithubLogin(githubLogin: string | null): Promise<Account | null>;
   // R-39 completion: the passkey sibling of findByGithubLogin. Null when
-  // no account claims that passkey subject.
-  findByPasskeySubject(passkeySubject: string): Promise<Account | null>;
+  // no account claims that passkey subject. The identical null-subject
+  // guard applies here for the identical reason.
+  findByPasskeySubject(passkeySubject: string | null): Promise<Account | null>;
   // S3, Ruling 4: sets the USDC recipient address on the account's own
   // row, overwriting any prior value (an operator changing wallets sets
   // a fresh one; there is no history to preserve here, unlike

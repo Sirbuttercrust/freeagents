@@ -138,9 +138,12 @@ describe('prisma/schema.prisma, the review model (R-22, ENT-10, issue 29)', () =
 });
 
 describe('prisma/schema.prisma, the Account model (R-39 completion, ENT-1.4)', () => {
+  // P8d: githubLogin is now nullable (a passkey-only provisioned account
+  // has no GitHub identity), but @unique still holds: a session can
+  // resolve to at most one account through it.
   it('githubLogin is @unique: a session can resolve to at most one account', () => {
     const account = modelBody('Account');
-    expect(account).toMatch(/githubLogin\s+String\s+@unique/);
+    expect(account).toMatch(/githubLogin\s+String\?\s+@unique/);
   });
 
   it('passkeySubject is @unique and nullable: a passkey session can resolve to at most one account', () => {
@@ -325,5 +328,36 @@ describe('prisma/migrations, Account.operatorAddressAbt is actually migrated (P8
   it('the same migration backfills operatorAddressAbt from the DID suffix, not merely adding the column', () => {
     const sql = allMigrationSqlP8c();
     expect(sql).toMatch(/UPDATE\s+"Account"[\s\S]*SET\s+"operatorAddressAbt"/i);
+  });
+});
+
+// P8d (this card, schema-change-without-migration): Account.githubLogin
+// becomes nullable, so a passkey-only account never invents a synthetic
+// GitHub login just to satisfy a NOT NULL column. No backfill: every
+// existing row already carries a real login, and the scope line says none
+// may be written for this change.
+describe('prisma/migrations, Account.githubLogin is nullable (P8d)', () => {
+  const migrationsDirP8d = new URL('../../prisma/migrations/', import.meta.url);
+
+  function allMigrationSqlP8d(): string {
+    const dir = fileURLToPath(migrationsDirP8d);
+    if (!existsSync(dir)) return '';
+    const entries = readdirSync(dir, { withFileTypes: true });
+    return entries
+      .filter((e) => e.isDirectory())
+      .map((e) => join(dir, e.name, 'migration.sql'))
+      .filter((p) => existsSync(p))
+      .map((p) => readFileSync(p, 'utf8'))
+      .join('\n');
+  }
+
+  it('a migration drops the NOT NULL constraint on Account.githubLogin', () => {
+    const sql = allMigrationSqlP8d();
+    expect(sql).toMatch(/ALTER TABLE\s+"Account"\s+ALTER COLUMN\s+"githubLogin"\s+DROP NOT NULL/i);
+  });
+
+  it('the schema declares githubLogin as nullable', () => {
+    const account = modelBody('Account');
+    expect(account).toMatch(/githubLogin\s+String\?\s+@unique/);
   });
 });

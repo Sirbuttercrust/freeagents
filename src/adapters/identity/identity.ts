@@ -1,14 +1,36 @@
-import { createPublicKey, verify as nodeVerify } from 'node:crypto';
+import { createPublicKey, hkdfSync, verify as nodeVerify } from 'node:crypto';
 import { Ed25519Signature2020 } from '@digitalbazaar/ed25519-signature-2020';
 import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-key-2020';
 import * as vc from '@digitalbazaar/vc';
+import { fromPublicKey } from '@arcblock/did';
 import { didSuffix, type Delegation } from '../../domain/agent.js';
 import { NotImplementedError } from '../not-implemented.js';
+import { isValidPlatformSeedHex } from '../credentials/credentials.js';
 import type { ObservedKeyRepository } from '../storage/types.js';
 import { buildDidAbtLoader, createKnownKeyStore, type KnownKeyStore } from './did-abt-resolver.js';
 import type { DidDocument, DidKeyPair, IdentityAdapter, SignedPayload } from './types.js';
 
 const CAPABILITY = 'identity';
+
+// P8d: thrown when FREEAGENTS_PLATFORM_SEED is unset or malformed at the
+// moment a provisioning derivation is attempted. Named rather than a bare
+// Error so app.ts can map it to 503 without inspecting the message, the
+// same stance every other adapter failure in this file already takes.
+export class PlatformSeedUnavailableError extends Error {
+  constructor() {
+    super('FREEAGENTS_PLATFORM_SEED is not set (or is not 64 hex characters); cannot derive an operator DID');
+    this.name = 'PlatformSeedUnavailableError';
+  }
+}
+
+// P8d: the HKDF info string that names this exact use of the platform
+// seed. HKDF's info parameter is what keeps two different derivations
+// from the same seed from ever landing on the same output: this string
+// must never be reused for another purpose (an agent DID, a signing key,
+// anything else), or a collision between two unrelated derivations
+// becomes possible in principle.
+const OPERATOR_DID_HKDF_INFO = 'freeagents:operator-did:v1';
+const ED25519_SEED_LENGTH = 32;
 
 // Thrown by resolveDid and verify when a DID's key has never been observed
 // in this process (KnownKeyStore has no entry). Named rather than a bare
@@ -31,11 +53,12 @@ export class DidNotResolvableError extends Error {
 // discipline (R-3 + R-4 completion, B5): a DID's verification method is
 // derived from key material this process has itself independently checked
 // (the R-34 signing-key resolver's binding check, recorded into knownKeys),
-// never fetched over a network and never guessed. createOperatorDid,
-// createAgentDid and sign stay NotImplementedError: nothing on main calls
-// them (grep src/api/app.ts -- neither identity.createOperatorDid,
-// identity.createAgentDid nor identity.sign appears there), so building them
-// ahead of need would violate FACTORY_RULES.md 2.5.
+// never fetched over a network and never guessed. createOperatorDid is a
+// real implementation as of P8d (auto-provisioning at first sign-in needs
+// it); createAgentDid and sign stay NotImplementedError: nothing on main
+// calls them (grep src/api/app.ts -- neither identity.createAgentDid nor
+// identity.sign appears there), so building them ahead of need would
+// violate FACTORY_RULES.md 2.5.
 export function createIdentityAdapter(
   knownKeys: KnownKeyStore = createKnownKeyStore(),
   observedKeys?: ObservedKeyRepository,
@@ -51,8 +74,36 @@ export function createIdentityAdapter(
     return (await observedKeys?.get(did)) ?? null;
   }
   return {
-    createOperatorDid(): Promise<DidKeyPair> {
-      throw new NotImplementedError(CAPABILITY, 'createOperatorDid');
+    // P8d: derives a real ed25519 keypair from FREEAGENTS_PLATFORM_SEED
+    // and `subject` via HKDF (node:crypto, no network, no new
+    // dependency), then builds the did:abt value with @arcblock/did's own
+    // fromPublicKey -- the same call did-abt-resolver.ts and
+    // tests/helpers/sign-request.ts already use, so this never hand-rolls
+    // the address encoding. Deterministic: the same subject always
+    // derives the same 32-byte seed and therefore the same DID, which is
+    // the property that makes signing in twice never mint a second
+    // account. No private key is stored anywhere; only the derived
+    // public key and DID are returned, and the secret stays
+    // re-derivable from the seed and the subject alone.
+    async createOperatorDid(subject: string): Promise<DidKeyPair> {
+      const hex = process.env.FREEAGENTS_PLATFORM_SEED;
+      if (hex === undefined || !isValidPlatformSeedHex(hex)) {
+        throw new PlatformSeedUnavailableError();
+      }
+      const seedBytes = Buffer.from(hex.replace(/^0x/i, ''), 'hex');
+      const derived = hkdfSync('sha256', seedBytes, '', `${OPERATOR_DID_HKDF_INFO}:${subject}`, ED25519_SEED_LENGTH);
+      const key = await Ed25519VerificationKey2020.generate({
+        seed: new Uint8Array(derived),
+        controller: 'did:abt:pending',
+      });
+      const raw = (key as unknown as { _publicKeyBuffer: Uint8Array })._publicKeyBuffer;
+      if (key.publicKeyMultibase === undefined) {
+        throw new Error('createOperatorDid: key generation did not produce a publicKeyMultibase');
+      }
+      return {
+        did: `did:abt:${fromPublicKey(raw)}`,
+        publicKeyMultibase: key.publicKeyMultibase,
+      };
     },
     // Verify a W3C Verifiable Credential with Ed25519Signature2020 proof.
     // The proof type and proofValue presence are already checked in
