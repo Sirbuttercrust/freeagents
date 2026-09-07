@@ -438,6 +438,24 @@ model UsdcSpentTransfer {
   @@index([jobId, leg])
 }
 
+// S2: durable record of every ABT transaction hash that has already
+// backed a settlement leg, the same anchor Case C this card closes on the
+// second rail: "one receipt confirms unlimited jobs". One row per hash: a
+// hash presented again for the SAME (jobId, leg) is the ordinary
+// idempotent re-confirm and upserts onto this same row; presented for a
+// different job or leg it is refused before this table is ever written a
+// second time for that hash (abt.ts's confirm checks findByHash first).
+// No role column: ABT settles both outputs of a leg in one TransferV3Tx,
+// unlike USDC's two separate ERC-20 transfers.
+model AbtSpentTransfer {
+  hash       String   @id
+  jobId      String
+  leg        String
+  recordedAt DateTime @default(now())
+
+  @@index([jobId, leg])
+}
+
 // P3: the durable record of a half-paid USDC settlement (one leg confirmed,
 // the other did not), so P4's state machine can read the truth instead of
 // re-deriving it from two chain calls every time. Written only when

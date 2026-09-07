@@ -127,6 +127,25 @@ export type WalletResponseInput =
       readonly jobId: string;
       readonly leg: 'deposit' | 'balance';
       readonly finalTx: string;
+      // S2: the leg's agreed USD amount (route's legAmountUsdFromJob),
+      // carried through so onWalletResponse can compute the expected
+      // operator and fee amounts confirm() must bind the chain's own
+      // observed outputs against. Never read from a caller-supplied body
+      // field at the route (S2 brief, "the amount must come from the
+      // job's agreed price"); this is the rail's own input contract,
+      // mirroring the USDC arm's amountUsd below (added by S1).
+      readonly amountUsd: string;
+      // S2 review round 2, D1: the operator address the PLATFORM itself
+      // named when it built the payment request (the same value
+      // createRequest's CreateRequestInput carried, read at the route
+      // from the session's own extraParams, never from the wallet's
+      // returned finalTx). onWalletResponse must never re-derive this by
+      // decoding finalTx: finalTx is the artifact under test, and a
+      // wallet that redirects the operator output to a different address
+      // controls both sides of that comparison if the expected side also
+      // comes from finalTx. Mirrors the USDC arm's operatorAddress below,
+      // which faces the identical requirement for the identical reason.
+      readonly operatorAddress: string;
     }
   | {
       readonly rail: 'usdc';
@@ -158,17 +177,25 @@ export type WalletResponseInput =
     };
 
 // Opaque per rail: what confirm() and every downstream caller address a
-// settlement by. ABT: the broadcast transaction hash, plus the two output
-// addresses onWalletResponse read out of the finalTx it broadcast, so
-// confirm() can check the balances those very outputs paid into (D4,
-// Review round 1: confirm previously checked only getTx's code, while the
-// card defines confirm as "code OK AND reading the two output balances").
+// settlement by. ABT: the broadcast transaction hash, the operator
+// address onWalletResponse was TOLD to expect (input.operatorAddress,
+// never decoded from the finalTx being confirmed -- S2 review round 2,
+// D1), the configured fee address, the job and leg the ref belongs to
+// (S2: needed so confirm() can refuse a hash that already backed a
+// different job or leg), and the expected operator/fee amounts in the
+// chain's smallest unit, computed once from the job's own agreed price
+// (S2, mirroring expectedPriceBaseUnits below, added by S1 on the USDC
+// arm).
 export type PaymentRef =
   | {
       readonly rail: 'abt';
       readonly hash: string;
       readonly operatorAddress: string;
       readonly feeAddress: string;
+      readonly jobId: string;
+      readonly leg: 'deposit' | 'balance';
+      readonly expectedOperatorUnit: string;
+      readonly expectedFeeUnit: string;
     }
   | {
       readonly rail: 'usdc';
@@ -207,6 +234,15 @@ export type UsdcLegStatus =
   | { readonly status: 'not_signed' }
   | { readonly status: 'mismatched'; readonly hash: string };
 
+// S2: the single ABT settlement's outcome, the same three-way split
+// legStatus already answers on the USDC rail (minus not_signed, which has
+// no ABT equivalent: a single TransferV3Tx either was broadcast or it was
+// not). 'mismatched' names a transaction that landed with code OK but did
+// not pay what this leg expected (wrong recipient, amount, or token) --
+// a different fact from 'not_confirmed' (nothing has landed, or the
+// chain's own code was not OK).
+export type AbtSettlementStatus = 'confirmed' | 'not_confirmed' | 'mismatched';
+
 export interface Confirmation {
   readonly rail: Rail;
   // ABT: the single broadcast tx hash. USDC: the price transfer's hash,
@@ -214,8 +250,20 @@ export interface Confirmation {
   // WalletResponseInput above).
   readonly hash: string;
   readonly confirmed: boolean;
-  // Present once confirmed is true (ABT): the operator's and platform fee
-  // address's token balance, read fresh from the chain, in token units.
+  // ABT only (S2): the settlement status legStatus-equivalent binding
+  // actually observed, so a caller can tell "nothing landed yet" apart
+  // from "something landed on this exact hash, but it paid the wrong
+  // recipient, amount or token" -- confirmed is derived from this
+  // (confirmed === true iff status === 'confirmed') and is kept for
+  // shape symmetry with the USDC arm.
+  readonly status?: AbtSettlementStatus;
+  // ABT only: account snapshots read fresh from the chain AFTER the
+  // binding check above already decided confirmed/status. These are NOT
+  // evidence of anything by themselves (S2 anchor: an address that
+  // already held tokens reads the same whether this transaction paid it
+  // or not) -- they are reported for a caller that wants to display a
+  // balance, never compared against anything, and never the basis for
+  // `confirmed`. Present only when confirmed is true.
   readonly operatorBalance?: string;
   readonly feeBalance?: string;
   // USDC only: each leg's own observed status, so a caller never has to

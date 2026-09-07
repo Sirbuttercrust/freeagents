@@ -9,16 +9,18 @@
 // buyer's input); itx.outputs pay the operator and the platform fee.
 import { describe, expect, it } from 'vitest';
 import { fromRandom } from '@ocap/wallet';
-import { fromTokenToUnit, bytesToHex } from '@ocap/util';
+import { fromTokenToUnit, bytesToHex, fromBase58 } from '@ocap/util';
 import { encodeTx, decodeTx as cborDecodeTx } from '@ocap/message/cbor';
 import { createAbtPaymentRail } from '../../../src/adapters/payment/abt.js';
 import { PaymentConfigError, RateUnavailableError } from '../../../src/adapters/payment/types.js';
 import type { AbtChainClient } from '../../../src/adapters/payment/abt.js';
 
 const TOKEN = 'z1Token00000000000000000000000000000000';
+const OTHER_TOKEN = 'z1OtherToken000000000000000000000000000';
 const platformWallet = fromRandom();
 const operatorAddress = 'z1Operator0000000000000000000000000000';
 const feeAddress = 'z1FeeAddress00000000000000000000000000';
+const strangerAddress = 'z1Stranger0000000000000000000000000000';
 
 function envConfig(): Record<string, string> {
   return {
@@ -197,7 +199,7 @@ function fakeChainClient(overrides: Partial<AbtChainClient> = {}): {
     },
     getTx: async (input) => {
       calls.getTx.push(input);
-      return overrides.getTx ? overrides.getTx(input) : { code: 'OK' };
+      return overrides.getTx ? overrides.getTx(input) : { code: 'OK', outputs: [] };
     },
     getAccountState: async (input) =>
       overrides.getAccountState ? overrides.getAccountState(input) : { state: null },
@@ -209,9 +211,15 @@ function fakeChainClient(overrides: Partial<AbtChainClient> = {}): {
 // createRequest() claim, adds a buyer input, and returns it base58-encoded
 // -- exactly what the DID Connect claim answer's `finalTx` field carries in
 // the working reference (qr-server.mjs: `client.decodeTx(fromBase58(c.finalTx))`).
-async function walletSignedFinalTxBase58(claim: {
-  readonly partialTx: { readonly from: string; readonly pk: string; readonly itx: { readonly outputs: unknown } };
-}): Promise<{ base58: string; buyerAddress: string }> {
+// `outputsOverride`, when supplied, replaces the outputs the claim itself
+// named before signing -- simulating a WALLET that redirects a payment,
+// the exact shape review round 2's D1 reproduction used.
+async function walletSignedFinalTxBase58(
+  claim: {
+    readonly partialTx: { readonly from: string; readonly pk: string; readonly itx: { readonly outputs: unknown } };
+  },
+  outputsOverride?: unknown,
+): Promise<{ base58: string; buyerAddress: string }> {
   const { toBase58 } = await import('@ocap/util');
   const buyer = fromRandom();
   const decoded = {
@@ -221,7 +229,7 @@ async function walletSignedFinalTxBase58(claim: {
       type: 'TransferV3Tx',
       value: {
         inputs: [{ owner: buyer.toAddress() }],
-        outputs: claim.partialTx.itx.outputs,
+        outputs: outputsOverride ?? claim.partialTx.itx.outputs,
       },
     },
     signatures: [{ signer: buyer.toAddress() }],
@@ -242,11 +250,23 @@ describe('createAbtPaymentRail: onWalletResponse (decode, sign the envelope, bro
     });
     const { base58: finalTx } = await walletSignedFinalTxBase58(request.claim);
     const { client, calls } = fakeChainClient();
-    const rail2 = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client }));
+    const rail2 = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, rateSource: async () => '1' }));
 
-    const ref = await rail2.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'deposit', finalTx });
+    const ref = await rail2.onWalletResponse({
+      rail: 'abt',
+      jobId: 'job_1',
+      leg: 'deposit',
+      finalTx,
+      amountUsd: '2.00',
+      operatorAddress,
+    });
 
-    expect(ref).toEqual({ rail: 'abt', hash: 'fakehash', operatorAddress, feeAddress });
+    expect(ref.rail).toBe('abt');
+    expect(ref.hash).toBe('fakehash');
+    expect(ref.operatorAddress).toBe(operatorAddress);
+    expect(ref.feeAddress).toBe(feeAddress);
+    expect(ref.jobId).toBe('job_1');
+    expect(ref.leg).toBe('deposit');
     expect(calls.decodeTx).toHaveLength(1);
     expect(calls.sendTx).toHaveLength(1);
     const sent = calls.sendTx[0] as { tx: string; commit: boolean };
@@ -258,6 +278,71 @@ describe('createAbtPaymentRail: onWalletResponse (decode, sign the envelope, bro
     const sentTx = cborDecodeTx(fromBase64(sent.tx)) as { from: string; signature: Uint8Array };
     expect(sentTx.from).toBe(platformWallet.toAddress());
     expect(sentTx.signature.length).toBeGreaterThan(0);
+  });
+
+  // S2: the expected operator/fee amounts are computed ONCE here, from the
+  // amountUsd the caller supplied (the route reads this from the job's
+  // agreed price, never from a body field -- see abt-did-connect.ts), the
+  // exact same quote math createRequest already used (usdToTokenAmount +
+  // fromTokenToUnit at the injected rate). confirm() has nothing else to
+  // compare the chain's observed outputs against.
+  it('computes expectedOperatorUnit and expectedFeeUnit from amountUsd, at the injected rate and the domain fee rate', async () => {
+    const { client } = fakeChainClient();
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, rateSource: async () => '1' }));
+    const request = await rail.createRequest({
+      jobId: 'job_1',
+      leg: 'deposit',
+      operatorAddress,
+      amountToken: '100',
+      feeToken: '3',
+    });
+    const { base58: finalTx } = await walletSignedFinalTxBase58(request.claim);
+
+    const ref = await rail.onWalletResponse({
+      rail: 'abt',
+      jobId: 'job_1',
+      leg: 'deposit',
+      finalTx,
+      amountUsd: '100.00',
+      operatorAddress,
+    });
+
+    // At a 1:1 rate, 100.00 USD is 100 ABT; the 3 percent ABT fee on top
+    // is 3 ABT. fromTokenToUnit's default is 18 decimals.
+    expect(ref.expectedOperatorUnit).toBe(fromTokenToUnit('100').toString());
+    expect(ref.expectedFeeUnit).toBe(fromTokenToUnit('3').toString());
+  });
+
+  // MUTATION PROOF target (the brief's "a test proves a caller-supplied
+  // amount cannot override"): a caller cannot make onWalletResponse derive
+  // a smaller expected amount than the job actually agreed by passing a
+  // different amountUsd than what the route would have supplied -- there
+  // is no path here that reads an amount from anywhere but this single
+  // argument, so this test pins that the argument IS what governs the
+  // computed expectation, closing the gap that a route-level trust of a
+  // body field would otherwise open.
+  it('a different amountUsd produces a correspondingly different expected amount (nothing else feeds the computation)', async () => {
+    const { client } = fakeChainClient();
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, rateSource: async () => '1' }));
+    const request = await rail.createRequest({
+      jobId: 'job_1',
+      leg: 'deposit',
+      operatorAddress,
+      amountToken: '100',
+      feeToken: '3',
+    });
+    const { base58: finalTx } = await walletSignedFinalTxBase58(request.claim);
+
+    const cheapRef = await rail.onWalletResponse({
+      rail: 'abt',
+      jobId: 'job_1',
+      leg: 'deposit',
+      finalTx,
+      amountUsd: '1.00',
+      operatorAddress,
+    });
+    expect(cheapRef.expectedOperatorUnit).toBe(fromTokenToUnit('1').toString());
+    expect(cheapRef.expectedOperatorUnit).not.toBe(fromTokenToUnit('100').toString());
   });
 
   // Proves the envelope is actually signed correctly and reproducibly: the
@@ -286,9 +371,16 @@ describe('createAbtPaymentRail: onWalletResponse (decode, sign the envelope, bro
         return { hash: 'fakehash2' };
       },
     });
-    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client }));
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, rateSource: async () => '1' }));
 
-    await rail.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'deposit', finalTx });
+    await rail.onWalletResponse({
+      rail: 'abt',
+      jobId: 'job_1',
+      leg: 'deposit',
+      finalTx,
+      amountUsd: '2.00',
+      operatorAddress,
+    });
 
     expect(broadcastTxBase64).toBeDefined();
     const { fromBase64: fromB64 } = await import('@ocap/util');
@@ -300,53 +392,288 @@ describe('createAbtPaymentRail: onWalletResponse (decode, sign the envelope, bro
   });
 });
 
-describe('createAbtPaymentRail: confirm (idempotent, by hash)', () => {
-  it('reads the transaction status and reports confirmed when the chain answers code OK', async () => {
-    const { client } = fakeChainClient({ getTx: async () => ({ code: 'OK' }) });
-    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client }));
+// S2: a ref carrying the two expected amounts (in the chain's smallest
+// unit) and the two output addresses, matching what onWalletResponse
+// would have built from amountUsd '100.00' at a 1:1 rate: 100 ABT to the
+// operator, 3 ABT (the 3 percent fee) to the platform.
+function refFor(hash: string): {
+  readonly rail: 'abt';
+  readonly hash: string;
+  readonly operatorAddress: string;
+  readonly feeAddress: string;
+  readonly jobId: string;
+  readonly leg: 'deposit' | 'balance';
+  readonly expectedOperatorUnit: string;
+  readonly expectedFeeUnit: string;
+} {
+  return {
+    rail: 'abt',
+    hash,
+    operatorAddress,
+    feeAddress,
+    jobId: 'job_1',
+    leg: 'deposit',
+    expectedOperatorUnit: fromTokenToUnit('100').toString(),
+    expectedFeeUnit: fromTokenToUnit('3').toString(),
+  };
+}
 
-    const confirmation = await rail.confirm({
-      rail: 'abt',
-      hash: 'abc123',
-      operatorAddress,
-      feeAddress,
-    });
-    expect(confirmation.rail).toBe('abt');
-    expect(confirmation.hash).toBe('abc123');
+// The chain's own record of a transaction that paid exactly what refFor
+// expects: two outputs, operator and fee, in the configured token.
+function okGetTxOutputs(overrides: {
+  readonly operatorOwner?: string;
+  readonly operatorValue?: string;
+  readonly operatorToken?: string;
+  readonly feeOwner?: string;
+  readonly feeValue?: string;
+  readonly feeToken?: string;
+} = {}) {
+  return {
+    code: 'OK',
+    outputs: [
+      {
+        owner: overrides.operatorOwner ?? operatorAddress,
+        tokens: [{ address: overrides.operatorToken ?? TOKEN, value: overrides.operatorValue ?? fromTokenToUnit('100').toString() }],
+      },
+      {
+        owner: overrides.feeOwner ?? feeAddress,
+        tokens: [{ address: overrides.feeToken ?? TOKEN, value: overrides.feeValue ?? fromTokenToUnit('3').toString() }],
+      },
+    ],
+  };
+}
+
+// S2: a stateful fake of the spent-transfer storage, so a route test never
+// touches Prisma and a re-confirm within one test still sees what an
+// earlier record() wrote, mirroring the identical USDC fake
+// (tests/api/job-payment-usdc.test.ts's fakeSpentTransferStorage).
+function fakeAbtSpentTransferStorage(): {
+  storage: { record: (row: { hash: string; jobId: string; leg: 'deposit' | 'balance' }) => Promise<void>; findByHash: (hash: string) => Promise<{ hash: string; jobId: string; leg: 'deposit' | 'balance' } | null> };
+  rows: Map<string, { hash: string; jobId: string; leg: 'deposit' | 'balance' }>;
+} {
+  const rows = new Map<string, { hash: string; jobId: string; leg: 'deposit' | 'balance' }>();
+  return {
+    rows,
+    storage: {
+      async record(row) {
+        rows.set(row.hash, { ...row });
+      },
+      async findByHash(hash) {
+        return rows.get(hash) ?? null;
+      },
+    },
+  };
+}
+
+describe('createAbtPaymentRail: confirm (S2, binds the chain\'s own record to what this leg expects)', () => {
+  // The positive control (brief, "the first thing to prove"): a binding
+  // that confirms nothing is not a fix.
+  it('confirms when the chain\'s own outputs pay the operator and the fee address the expected amounts, in the configured token', async () => {
+    const { storage } = fakeAbtSpentTransferStorage();
+    const { client } = fakeChainClient({ getTx: async () => okGetTxOutputs() });
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, spentTransferStorage: storage }));
+
+    const confirmation = await rail.confirm(refFor('abc123'));
+
     expect(confirmation.confirmed).toBe(true);
+    expect(confirmation.status).toBe('confirmed');
   });
 
-  it('reports not confirmed when the chain answers any other code', async () => {
-    const { client } = fakeChainClient({ getTx: async () => ({ code: 'PENDING' }) });
+  it('reports not_confirmed when the chain answers any other code', async () => {
+    const { client } = fakeChainClient({ getTx: async () => ({ code: 'PENDING', outputs: [] }) });
     const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client }));
 
-    const confirmation = await rail.confirm({
-      rail: 'abt',
-      hash: 'abc123',
-      operatorAddress,
-      feeAddress,
-    });
+    const confirmation = await rail.confirm(refFor('abc123'));
     expect(confirmation.confirmed).toBe(false);
+    expect(confirmation.status).toBe('not_confirmed');
   });
 
-  it('confirming the same hash twice asks the chain twice and answers identically both times (idempotent)', async () => {
-    const { client, calls } = fakeChainClient({ getTx: async () => ({ code: 'OK' }) });
+  // MUTATION PROOF 1: restoring `confirmed = result.code === 'OK'` as the
+  // whole check makes this go red, because code OK alone says nothing
+  // about who was paid.
+  it('a transaction that paid the wrong recipient answers mismatched, not confirmed, even though code is OK', async () => {
+    const { client } = fakeChainClient({ getTx: async () => okGetTxOutputs({ operatorOwner: strangerAddress }) });
     const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client }));
 
-    const ref = { rail: 'abt' as const, hash: 'abc123', operatorAddress, feeAddress };
+    const confirmation = await rail.confirm(refFor('abc123'));
+    expect(confirmation.confirmed).toBe(false);
+    expect(confirmation.status).toBe('mismatched');
+  });
+
+  // Review round 2, D1: a hand-built ref cannot prove the recipient check
+  // binds, because a ref built by hand can always name the correct
+  // address regardless of what onWalletResponse would actually have put
+  // there. This test drives the REAL path end to end: createRequest ->
+  // a WALLET that returns a finalTx with the operator output's owner
+  // swapped to an attacker (amounts and fee output untouched) ->
+  // onWalletResponse -> confirm, with a getTx fake that honestly replays
+  // the outputs the finalTx itself carried, exactly as the review's own
+  // reproduction did. If onWalletResponse ever derived the ref's expected
+  // operatorAddress by decoding that same finalTx (rather than from
+  // input.operatorAddress, the address the platform itself named when it
+  // built the request), both sides of the comparison would move together
+  // and this would wrongly confirm.
+  it('a wallet that redirects the operator output to an attacker does not confirm, even though it signs and broadcasts cleanly', async () => {
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail());
+    const request = await rail.createRequest({
+      jobId: 'job_1',
+      leg: 'deposit',
+      operatorAddress,
+      amountToken: '100',
+      feeToken: '3',
+    });
+    const tamperedOutputs = [
+      { owner: strangerAddress, tokens: request.claim.partialTx.itx.outputs[0].tokens, assets: [] },
+      request.claim.partialTx.itx.outputs[1],
+    ];
+    const { base58: finalTx } = await walletSignedFinalTxBase58(request.claim, tamperedOutputs);
+    const { client } = fakeChainClient({
+      // Honestly replays whatever finalTx actually carried, the same
+      // posture job-payment-abt.test.ts's fakeAbtChainClient already
+      // takes: getTx must answer THE CHAIN's own record of what was
+      // broadcast, never an invented list.
+      getTx: async () => {
+        const decoded = (await cborDecodeTx(fromBase58(finalTx))) as {
+          itx: { outputs: readonly { owner: string; tokens: readonly { address: string; value: string }[] }[] };
+        };
+        return { code: 'OK', outputs: decoded.itx.outputs };
+      },
+    });
+    const rail2 = withEnv(envConfig(), () =>
+      createAbtPaymentRail({ chainClient: client, rateSource: async () => '1', spentTransferStorage: fakeAbtSpentTransferStorage().storage }),
+    );
+
+    const ref = await rail2.onWalletResponse({
+      rail: 'abt',
+      jobId: 'job_1',
+      leg: 'deposit',
+      finalTx,
+      amountUsd: '100.00',
+      operatorAddress,
+    });
+    const confirmation = await rail2.confirm(ref);
+
+    expect(confirmation.confirmed).toBe(false);
+    expect(confirmation.status).toBe('mismatched');
+  });
+
+  // MUTATION PROOF 2: dropping the amount comparison makes this go red.
+  it('a transaction that paid the right recipient the wrong amount answers mismatched', async () => {
+    const { client } = fakeChainClient({
+      getTx: async () => okGetTxOutputs({ operatorValue: fromTokenToUnit('1').toString() }),
+    });
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client }));
+
+    const confirmation = await rail.confirm(refFor('abc123'));
+    expect(confirmation.confirmed).toBe(false);
+    expect(confirmation.status).toBe('mismatched');
+  });
+
+  it('a transaction carrying a different token answers mismatched', async () => {
+    const { client } = fakeChainClient({
+      getTx: async () => okGetTxOutputs({ operatorToken: OTHER_TOKEN }),
+    });
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client }));
+
+    const confirmation = await rail.confirm(refFor('abc123'));
+    expect(confirmation.confirmed).toBe(false);
+    expect(confirmation.status).toBe('mismatched');
+  });
+
+  it('a transaction that paid the fee address the wrong amount also answers mismatched', async () => {
+    const { client } = fakeChainClient({
+      getTx: async () => okGetTxOutputs({ feeValue: fromTokenToUnit('0.5').toString() }),
+    });
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client }));
+
+    const confirmation = await rail.confirm(refFor('abc123'));
+    expect(confirmation.confirmed).toBe(false);
+    expect(confirmation.status).toBe('mismatched');
+  });
+
+  // MUTATION PROOF 4: reading the outputs from `ref` instead of `getTx`
+  // makes this go red, because a ref built with the CORRECT addresses
+  // would still confirm even though the chain's own outputs (returned by
+  // this fake) name a stranger. This is the load-bearing distinction the
+  // brief names: "do not confirm against ref fields that came from the
+  // same wallet response being checked".
+  it('binds to the outputs getTx actually returns, not to the ref\'s own operatorAddress/feeAddress fields', async () => {
+    const { client } = fakeChainClient({
+      getTx: async () => okGetTxOutputs({ operatorOwner: strangerAddress, feeOwner: strangerAddress }),
+    });
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client }));
+
+    // The ref itself still names the correct operatorAddress/feeAddress;
+    // only the chain's OWN record (getTx) disagrees. If confirm() ever
+    // trusted ref over getTx, this would wrongly confirm.
+    const confirmation = await rail.confirm(refFor('abc123'));
+    expect(confirmation.confirmed).toBe(false);
+    expect(confirmation.status).toBe('mismatched');
+  });
+
+  // MUTATION PROOF 3: dropping the spent-hash check makes this go red.
+  it('a hash that already backed one job\'s leg cannot confirm a second job', async () => {
+    const { storage, rows } = fakeAbtSpentTransferStorage();
+    rows.set('abc123', { hash: 'abc123', jobId: 'job_OTHER', leg: 'deposit' });
+    const { client } = fakeChainClient({ getTx: async () => okGetTxOutputs() });
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, spentTransferStorage: storage }));
+
+    const confirmation = await rail.confirm(refFor('abc123'));
+    expect(confirmation.confirmed).toBe(false);
+    expect(confirmation.status).toBe('mismatched');
+  });
+
+  it('a hash that already backed one leg cannot confirm the other leg of the same job', async () => {
+    const { storage, rows } = fakeAbtSpentTransferStorage();
+    rows.set('abc123', { hash: 'abc123', jobId: 'job_1', leg: 'balance' });
+    const { client } = fakeChainClient({ getTx: async () => okGetTxOutputs() });
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, spentTransferStorage: storage }));
+
+    // refFor names leg: 'deposit'; the stored row already spent this hash
+    // on 'balance'.
+    const confirmation = await rail.confirm(refFor('abc123'));
+    expect(confirmation.confirmed).toBe(false);
+    expect(confirmation.status).toBe('mismatched');
+  });
+
+  it('re-confirming the same (job, leg) is idempotent and stays confirmed', async () => {
+    const { storage } = fakeAbtSpentTransferStorage();
+    const { client, calls } = fakeChainClient({ getTx: async () => okGetTxOutputs() });
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, spentTransferStorage: storage }));
+
+    const ref = refFor('abc123');
     const first = await rail.confirm(ref);
     const second = await rail.confirm(ref);
-    expect(first).toEqual(second);
+    expect(first.confirmed).toBe(true);
+    expect(second.confirmed).toBe(true);
     expect(calls.getTx).toHaveLength(2);
   });
 
-  // D4 (review, round 1): confirm() previously checked only getTx's code.
-  // The card defines confirm as "getTx code OK AND reading the two output
-  // balances", and this is the one place a caller can actually see that a
-  // payment landed where it was supposed to.
+  // MUTATION PROOF 5 (silent-success-on-failure): swallowing a spent-store
+  // failure makes this go red, because confirm() would then answer a
+  // success shape instead of propagating the failure the way the USDC
+  // rail's legStatus already does (no try/catch around the storage call).
+  it('a spent-store failure refuses (propagates), rather than answering confirmed', async () => {
+    const failingStorage = {
+      record: async () => {},
+      findByHash: async () => {
+        throw new Error('spent-transfer storage unavailable');
+      },
+    };
+    const { client } = fakeChainClient({ getTx: async () => okGetTxOutputs() });
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, spentTransferStorage: failingStorage }));
+
+    await expect(rail.confirm(refFor('abc123'))).rejects.toThrow('spent-transfer storage unavailable');
+  });
+
+  // D4 (review, round 1, retained by S2): confirm reads both output
+  // balances once the transaction confirms, for a caller that wants to
+  // display them. types.ts's own comment on these fields is now explicit
+  // that they are not evidence of anything by themselves.
   it('reads both output balances from the chain once the transaction confirms', async () => {
+    const { storage } = fakeAbtSpentTransferStorage();
     const { client, calls } = fakeChainClient({
-      getTx: async () => ({ code: 'OK' }),
+      getTx: async () => okGetTxOutputs(),
       getAccountState: async (input) => {
         if (input.address === operatorAddress) {
           return { state: { tokens: [{ address: TOKEN, value: fromTokenToUnit(2).toString() }] } };
@@ -357,14 +684,9 @@ describe('createAbtPaymentRail: confirm (idempotent, by hash)', () => {
         return { state: null };
       },
     });
-    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client }));
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, spentTransferStorage: storage }));
 
-    const confirmation = await rail.confirm({
-      rail: 'abt',
-      hash: 'abc123',
-      operatorAddress,
-      feeAddress,
-    });
+    const confirmation = await rail.confirm(refFor('abc123'));
 
     expect(confirmation.operatorBalance).toBe('2');
     expect(confirmation.feeBalance).toBe('0.06');
@@ -373,19 +695,29 @@ describe('createAbtPaymentRail: confirm (idempotent, by hash)', () => {
 
   it('does not read balances when the transaction is not yet confirmed', async () => {
     const { client } = fakeChainClient({
-      getTx: async () => ({ code: 'PENDING' }),
+      getTx: async () => ({ code: 'PENDING', outputs: [] }),
       getAccountState: async () => {
         throw new Error('getAccountState must not be called before the transaction confirms');
       },
     });
     const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client }));
 
-    const confirmation = await rail.confirm({
-      rail: 'abt',
-      hash: 'abc123',
-      operatorAddress,
-      feeAddress,
+    const confirmation = await rail.confirm(refFor('abc123'));
+    expect(confirmation.confirmed).toBe(false);
+    expect(confirmation.operatorBalance).toBeUndefined();
+    expect(confirmation.feeBalance).toBeUndefined();
+  });
+
+  it('does not read balances when the outputs mismatch (a landed transaction that paid the wrong thing)', async () => {
+    const { client } = fakeChainClient({
+      getTx: async () => okGetTxOutputs({ operatorOwner: strangerAddress }),
+      getAccountState: async () => {
+        throw new Error('getAccountState must not be called on a mismatched transaction');
+      },
     });
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client }));
+
+    const confirmation = await rail.confirm(refFor('abc123'));
     expect(confirmation.confirmed).toBe(false);
     expect(confirmation.operatorBalance).toBeUndefined();
     expect(confirmation.feeBalance).toBeUndefined();

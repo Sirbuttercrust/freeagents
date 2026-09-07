@@ -19,7 +19,7 @@ import { fromRandom, type WalletObject } from '@ocap/wallet';
 import { decode as jwtDecode, sign as jwtSign } from '@arcblock/jwt';
 import { encodeTx as clientEncodeTx } from '@ocap/client/encode';
 import { decodeTx as cborDecodeTx, encodeTx as cborEncodeTx } from '@ocap/message/cbor';
-import { fromBase58, toBase58 } from '@ocap/util';
+import { fromBase58, fromBase64, toBase58 } from '@ocap/util';
 import { createApp } from '../../src/api/app.js';
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
 import { createAbtPaymentRail, type AbtChainClient } from '../../src/adapters/payment/abt.js';
@@ -112,7 +112,19 @@ function fakeAbtChainClient(confirmed = true): { client: AbtChainClient; sentTx:
       sent = input.tx;
       return { hash };
     },
-    getTx: async () => ({ code: confirmed ? 'OK' : 'FAILED' }),
+    // S2: getTx must answer THE CHAIN's own record of what this
+    // transaction actually paid, read from the exact bytes that were
+    // broadcast (sent), never invented -- confirm() binds against
+    // outputs, so a fake that echoed back an empty list would make every
+    // route-level test here fail confirm() for the wrong reason (no
+    // outputs to bind against) rather than proving the real path.
+    getTx: async () => {
+      if (!confirmed || sent === undefined) {
+        return { code: 'FAILED', outputs: [] };
+      }
+      const decoded = cborDecodeTx(fromBase64(sent)) as { itx: { outputs: readonly { owner: string; tokens: readonly { address: string; value: string }[] }[] } };
+      return { code: 'OK', outputs: decoded.itx.outputs };
+    },
     getAccountState: async () => ({ state: null }),
   };
   return { client, sentTx: () => sent, hash };
@@ -142,7 +154,10 @@ async function walletResponseJwt(
 // abt.ts's own onWalletResponse decodes); cborEncodeTx's own input shape
 // is the nested type/value envelope, exactly mirroring
 // tests/adapters/payment/never-input-owner.test.ts's identical helper.
-async function walletSignsPartialTx(partialTxBase58: string, buyer: WalletObject): Promise<string> {
+// `outputsOverride`, when supplied, replaces the outputs the partial tx
+// itself named before signing -- simulating a MALICIOUS wallet that
+// redirects a payment (review round 2, D1's own reproduction shape).
+async function walletSignsPartialTx(partialTxBase58: string, buyer: WalletObject, outputsOverride?: unknown): Promise<string> {
   const decoded = cborDecodeTx(fromBase58(partialTxBase58)) as Record<string, unknown>;
   const itx = decoded.itx as { readonly typeUrl: string; readonly outputs: unknown };
   const signed = {
@@ -150,7 +165,7 @@ async function walletSignsPartialTx(partialTxBase58: string, buyer: WalletObject
     itx: {
       typeUrl: itx.typeUrl,
       inputs: [{ owner: buyer.address }],
-      outputs: itx.outputs,
+      outputs: outputsOverride ?? itx.outputs,
     },
     signatures: [{ signer: buyer.address }],
   };
@@ -252,6 +267,7 @@ async function driveAbtPayment(
   starter: SigningIdentity,
   wallet: WalletObject,
   params: { readonly jobId: string; readonly leg: 'deposit' | 'remainder'; readonly operatorAddress: string },
+  outputsOverride?: unknown,
 ): Promise<{ readonly confirmed: boolean; readonly error?: string }> {
   const { sessionToken, authCallbackUrl } = await startAbtSession(baseUrl, starter, params);
   const authPath = new URL(authCallbackUrl).pathname;
@@ -278,7 +294,7 @@ async function driveAbtPayment(
     throw new Error('expected a prepareTx claim at step 1');
   }
 
-  const finalTx = await walletSignsPartialTx(prepareTxClaim.partialTx, wallet);
+  const finalTx = await walletSignsPartialTx(prepareTxClaim.partialTx, wallet, outputsOverride);
 
   const step1SubmitRes = await fetch(`${baseUrl}${authPath}`, {
     method: 'POST',
@@ -317,7 +333,19 @@ async function startAbtApp(chainClient: AbtChainClient): Promise<StartedAbtApp> 
   return withEnv(abtEnv(baseUrl), async () => {
     const buyerWallet = fromRandom();
     const agentWallet = fromRandom();
-    const abtRail = createAbtPaymentRail({ chainClient, rateSource: async () => '1' });
+    // S2: an in-memory spent-transfer store so this route test never
+    // touches Prisma (DATABASE_URL is unset here), mirroring
+    // tests/api/job-payment-usdc.test.ts's own fakeSpentTransferStorage.
+    const spentTransferRows = new Map<string, { hash: string; jobId: string; leg: 'deposit' | 'balance' }>();
+    const spentTransferStorage = {
+      async record(row: { hash: string; jobId: string; leg: 'deposit' | 'balance' }): Promise<void> {
+        spentTransferRows.set(row.hash, { ...row });
+      },
+      async findByHash(hash: string) {
+        return spentTransferRows.get(hash) ?? null;
+      },
+    };
+    const abtRail = createAbtPaymentRail({ chainClient, rateSource: async () => '1', spentTransferStorage });
 
     const buyer = await signingIdentityFromWallet(buyerWallet);
     const agent = await signingIdentityFromWallet(agentWallet);
@@ -407,6 +435,75 @@ describe('the ABT DID Connect payment flow, driven end to end over HTTP', () => 
     expect(row?.amountUsd).toBe('100.00');
 
     expect(await started.gate.depositSettled(started.jobId)).toBe(true);
+  });
+});
+
+describe('the ABT payment flow refuses a wallet that redirects the operator output to an attacker (review round 2, D1)', () => {
+  it('a wallet that signs and broadcasts cleanly but names a different owner for the operator output does not confirm', async () => {
+    const fakeChain8 = fakeAbtChainClient(true);
+    const started8 = await startAbtApp(fakeChain8.client);
+    try {
+      // Drive the full DID Connect wallet protocol, but the WALLET step
+      // swaps the operator output's owner to an attacker before signing
+      // (amounts and the fee output untouched): the honest sequence a
+      // real mobile wallet would follow right up until the moment it
+      // decides who actually gets paid. fakeAbtChainClient's own getTx
+      // replays the exact bytes sendTx received, so this is the chain's
+      // real record of what was broadcast, never an invented list.
+      const attacker = 'z1Attacker0000000000000000000000000000';
+      const { sessionToken, authCallbackUrl } = await startAbtSession(started8.baseUrl, started8.buyer, {
+        jobId: started8.jobId,
+        leg: 'deposit',
+        operatorAddress: OPERATOR_ADDRESS,
+      });
+      const authPath = new URL(authCallbackUrl).pathname;
+      const step0Res = await fetch(authCallbackUrl);
+      const step0Body = (await step0Res.json()) as DidConnectClaimResponse;
+      const step0 = decodeClaimBody(step0Body);
+      const step0SubmitRes = await fetch(`${started8.baseUrl}${authPath}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          _t_: sessionToken,
+          userPk: started8.buyerWallet.publicKey,
+          userInfo: await walletResponseJwt(started8.buyerWallet, step0.challenge, [{ type: 'authPrincipal' }]),
+        }),
+      });
+      const step1Body = (await step0SubmitRes.json()) as DidConnectClaimResponse;
+      const step1 = decodeClaimBody(step1Body);
+      const prepareTxClaim = step1.requestedClaims.find((c) => c.type === 'prepareTx') as
+        | { readonly partialTx: string }
+        | undefined;
+      if (prepareTxClaim === undefined) {
+        throw new Error('expected a prepareTx claim at step 1');
+      }
+      const decodedPartial = cborDecodeTx(fromBase58(prepareTxClaim.partialTx)) as {
+        itx: { outputs: readonly { owner: string; tokens: unknown; assets: unknown }[] };
+      };
+      const tamperedOutputs = [
+        { ...decodedPartial.itx.outputs[0], owner: attacker },
+        decodedPartial.itx.outputs[1],
+      ];
+      const finalTx = await walletSignsPartialTx(prepareTxClaim.partialTx, started8.buyerWallet, tamperedOutputs);
+      const step1SubmitRes = await fetch(`${started8.baseUrl}${authPath}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          _t_: sessionToken,
+          userPk: started8.buyerWallet.publicKey,
+          userInfo: await walletResponseJwt(started8.buyerWallet, step1.challenge, [{ type: 'prepareTx', finalTx }]),
+        }),
+      });
+      const finalBody = (await step1SubmitRes.json()) as { appPk: string; authInfo: string };
+      const decoded = jwtDecode(finalBody.authInfo) as unknown as Record<string, unknown>;
+      const response = decoded.response as { confirmed: boolean };
+
+      expect(response.confirmed).toBe(false);
+      expect(await started8.settlementRepo.findByJobAndLeg(started8.jobId, 'deposit')).toBeNull();
+      expect(await started8.gate.depositSettled(started8.jobId)).toBe(false);
+    } finally {
+      started8.server.close();
+    }
   });
 });
 
