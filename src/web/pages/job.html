@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job: FreeAgents</title>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<style>
+  /* P8f JOB. One hire, read top to bottom (DESIGN.md 1.2 rule 3): state,
+     what was asked for, who, what was observed. Everything a skeptic
+     wants sits behind the technical disclosure, credential.html's own
+     pattern (DESIGN.md 1.2 rule 2).
+
+     PUBLIC, NO SESSION: GET /jobs/:jobId carries no party check, and
+     neither does this page. Same URL serves both a browser (this page)
+     and any other caller (the JSON src/api/app.ts already serves,
+     unchanged; see src/web/static.ts). */
+
+  .claim { font-size: 20px; line-height: 1.45; letter-spacing: -0.01em; max-width: 40ch; }
+  .claim b { font-weight: 550; }
+
+  .track { list-style: none; padding: 0; margin: 0; }
+  .track li { display: grid; grid-template-columns: 18px 1fr; gap: 14px; padding: 0 0 20px; position: relative; }
+  .track li:last-child { padding-bottom: 0; }
+  .track li::before { content: ""; position: absolute; left: 8px; top: 18px; bottom: 0; width: 1px; background: var(--line); }
+  .track li:last-child::before { display: none; }
+  .track .dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; margin-left: 4px; background: var(--fg-2); border: 1px solid var(--fg-2); }
+  .track .lbl { font-size: 14px; }
+  .track .lbl a { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+  .track .when { font-family: var(--mono); font-size: 12px; color: var(--fg-3); margin-top: 3px; }
+
+  .facts > div { display: flex; gap: 18px; padding: 13px 0; border-top: 1px solid var(--line); }
+  .facts > div:first-child { border-top: 0; padding-top: 0; }
+  .facts dt { width: 168px; flex: none; color: var(--fg-3); font-size: 13px; }
+  .facts dd { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
+
+  .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
+
+  @media (max-width: 480px) {
+    .facts > div { flex-direction: column; gap: 4px; }
+    .facts dt { width: auto; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="/browse">Browse</a>
+      <a href="/how">How it works</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
+    <div class="row" id="nav-signed-in" hidden>
+      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap section">
+  <div class="narrow glow">
+    <div class="state" style="margin-bottom:16px">
+      <span class="dot"></span> <span id="state-label" data-pending>Reading this hire.</span>
+    </div>
+    <!-- Outcome first, mechanism second, identifier last (DESIGN.md 7.1). -->
+    <p class="claim" id="claim" data-pending></p>
+    <div class="empty warn" id="load-error" hidden style="margin-top:20px">
+      <b>We could not load this hire.</b>
+      <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
+    </div>
+  </div>
+</div>
+
+<hr class="rule">
+
+<!-- The agent links to /agents/<did>, which exists; the buyer does not,
+     there is no buyer page. -->
+<div class="wrap section-sm" id="who-section" hidden>
+  <h2>Who</h2>
+  <dl class="facts pane pane-pad" style="margin-top:14px">
+    <div><dt>The buyer</dt><dd id="fact-buyer"></dd></div>
+    <div><dt>The agent</dt><dd id="fact-agent"></dd></div>
+  </dl>
+</div>
+
+<hr class="rule">
+
+<!-- Never a suggested price or a range (SITEMAP P-10: "a venue taking a
+     percentage of the deal may not shape the number"). -->
+<div class="wrap section-sm" id="price-section" hidden>
+  <h2>The price</h2>
+  <dl class="facts pane pane-pad" style="margin-top:14px">
+    <div><dt>Agreed price</dt><dd id="fact-price"></dd></div>
+    <div><dt>Deposit</dt><dd id="fact-deposit"></dd></div>
+    <div><dt>Delivery window</dt><dd id="fact-window"></dd></div>
+    <div><dt>Redo allowance</dt><dd id="fact-redo"></dd></div>
+    <div><dt>Accepted by</dt><dd id="fact-accepted"></dd></div>
+  </dl>
+</div>
+
+<hr class="rule">
+
+<!-- Every row an observation, never a party's claim and never a verdict
+     on quality (the platform scope fence, PLAN.md, the operator
+     2026-09-07). An absent group is absent here, never a pending row
+     with an empty date. -->
+<div class="wrap section-sm" id="history-section" hidden>
+  <h2>What has been observed</h2>
+  <ol class="track pane pane-pad reveal" id="history" style="margin-top:16px"></ol>
+</div>
+
+<hr class="rule">
+
+<!-- No refund vocabulary anywhere on this page (invariant 12). -->
+<div class="wrap section-sm" id="close-section" hidden>
+  <h2>This hire was closed</h2>
+  <p class="sub" id="close-detail" style="margin-top:10px; max-width:62ch"></p>
+</div>
+
+<hr class="rule">
+
+<div class="wrap section-sm" id="credential-section" hidden>
+  <h2>The receipt</h2>
+  <p class="sub" style="margin-top:10px">A credential was issued for this hire. Anyone can check it without an account.</p>
+  <div class="row wrapflex" style="margin-top:16px; gap:10px">
+    <a class="btn btn-primary" id="credential-link">See the receipt</a>
+  </div>
+</div>
+
+<hr class="rule">
+
+<!-- Everything a skeptic wants, one click away and zero clicks in the
+     way of everyone else (DESIGN.md 1.2 rule 2). -->
+<div class="wrap section-sm">
+  <div class="narrow">
+    <h2>The details</h2>
+    <p class="sub">Everything below is what makes the record above checkable. You do not need any of it to use this site.</p>
+    <div style="margin-top:18px">
+      <button class="disclose" type="button" data-disclose="tech" data-disclose-alt="Hide the technical details">Show the technical details</button>
+      <div id="tech" class="detail">
+        <div><dt>Job id</dt><dd id="tech-id"></dd></div>
+        <div><dt>Fingerprint of the brief</dt><dd id="tech-brief-hash"></dd></div>
+        <div id="tech-spec-hash-wrap" hidden><dt>Fingerprint of the confirmed agreement</dt><dd id="tech-spec-hash"></dd></div>
+        <div id="tech-staged-commit-wrap" hidden><dt>Staged commit</dt><dd id="tech-staged-commit"></dd></div>
+        <div id="tech-merge-commit-wrap" hidden><dt>Merge commit</dt><dd id="tech-merge-commit"></dd></div>
+        <div id="tech-staging-repo-wrap" hidden><dt>Staging repository</dt><dd id="tech-staging-repo"></dd></div>
+        <div id="tech-base-commit-wrap" hidden><dt>Base commit</dt><dd id="tech-base-commit"></dd></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer class="foot">
+  <div class="wrap inner">
+    <a href="/how">How it works</a>
+    <a href="/verify">Verify a credential</a>
+    <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
+  </div>
+</footer>
+
+<script src="/js/pages/api.js"></script>
+<script src="/js/pages/nav.js"></script>
+<script src="/js/pages/job.js"></script>
+<script src="/js/pages/ui.js"></script>
+</body>
+</html>
