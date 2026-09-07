@@ -43,6 +43,24 @@ describe('/signin offers the two real controls, and no longer says sign-in does 
     expect(body).not.toContain('Sign-in is not wired up on this page yet.');
     expect(body).not.toContain('does not yet carry a button that starts the flow');
   });
+
+  // D1 descoped by review ruling (P8b, 2026-09-07): a session and a
+  // registered account are two different things, and this build does not
+  // yet create the second one for a person automatically. The page must
+  // say so up front rather than let either control's success path end at
+  // a 403 with no explanation. Static because it has to be true before
+  // either button is even clicked: the GitHub half never renders anything
+  // on this page after a real redirect round trip (the callback route
+  // answers JSON directly, unchanged by this card), so a message tied only
+  // to a button's success handler would never reach that path at all.
+  it('tells a visitor up front that signing in is not the same as having a registered account', async () => {
+    const res = await fetch(`${baseUrl}/signin`, { headers: { Accept: HTML } });
+    const body = await res.text();
+
+    expect(body).toContain('id="account-notice"');
+    expect(body).toContain('registered account');
+    expect(body).toContain('does not create one for you automatically yet');
+  });
 });
 
 // This is the fact the page's controls rest on. Every route named here
