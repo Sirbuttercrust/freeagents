@@ -133,6 +133,16 @@
     A.setTextById("did-short", A.shortDid(agent.did));
     setCopy("did-copy", agent.did);
 
+    /* P8g: the hire CTA's one and only destination. Taken from agent.did,
+       the same field did-short and tech-did already render from, never a
+       second read: the query string carries the DID (public, fine to be
+       there) and never a session token (the brief's own line: the token
+       rides in no URL anywhere). */
+    var hireCta = A.el("hire-cta");
+    if (hireCta && typeof agent.did === "string" && agent.did !== "") {
+      hireCta.setAttribute("href", "/hire?agent=" + encodeURIComponent(agent.did));
+    }
+
     var operator = A.el("operator-link");
     if (operator && typeof agent.operatorDid === "string") {
       operator.setAttribute("href", "/accounts/" + encodeURIComponent(agent.operatorDid));

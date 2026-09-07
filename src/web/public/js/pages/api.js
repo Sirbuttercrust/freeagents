@@ -1,6 +1,6 @@
 /* The API client the marketplace pages share.
 
-   Every page here reads the SAME public routes a third party can call, with
+   Every read here uses the SAME public routes a third party can call, with
    no session and no private endpoint, because a page that needed privileged
    access would be a page a skeptic cannot reproduce (MISSION invariant 2).
 
@@ -19,7 +19,25 @@
       through textContent, never innerHTML, so a name or a repository string
       is content rather than markup. The one exception is the avatar, which
       the API serves as an SVG string it generated itself from a DID, and it
-      is inserted through a parser that keeps only shape elements. */
+      is inserted through a parser that keeps only shape elements.
+
+   P8g adds two things scoped narrowly; the three rules above still govern
+   every public GET, unchanged.
+
+   `getStoredSession` was a private function inside nav.js's IIFE
+   (`readStoredSession`); hire.js needs the identical read to attach a
+   bearer token to a write, so it moved here rather than being copied
+   (the defect class P8e was written against). nav.js now calls it and
+   still owns clearing the key and re-rendering.
+
+   `postAuthed` is this file's first authenticated write. `get` never
+   carries a session, because every read here is one a third party can
+   reproduce with no privileges; a hire is a WRITE by an authenticated
+   buyer, and POST /jobs requires exactly that proof
+   (requireSessionOrSignature, src/api/app.ts). It carries `Authorization:
+   Bearer <token>` and nothing else privileged: `credentials: "omit"`
+   still holds (the 2026-09-06 sweep's cookie finding is unaffected, since
+   the token rides a header a cookie could never forge). */
 
 (function (global) {
   "use strict";
@@ -53,6 +71,60 @@
         if (res.status === 404) return absent();
         if (!res.ok) return failed("http " + res.status);
         return res.json().then(ok, function () { return failed("unreadable response"); });
+      })
+      .catch(function () { return failed("network"); });
+  }
+
+  /* -------------------------------------------------------------- write */
+
+  /* The one storage key a session ever lives under, on this whole site.
+     nav.js and signin.js used to each carry their own idea of it; this is
+     now the single place that spells it. */
+  var SESSION_STORAGE_KEY = "fa_session";
+
+  /* The session a person is signed in with, or null. Moved from nav.js's
+     private readStoredSession (P8g scope item 5): hire.js needs the same
+     token to post, and a page gaining a second need for the same fact
+     must not grow a second implementation of it. Malformed storage reads
+     as signed out, never as a crash. */
+  function getStoredSession() {
+    var raw;
+    try {
+      raw = global.sessionStorage.getItem(SESSION_STORAGE_KEY);
+    } catch (e) {
+      return null;
+    }
+    if (!raw) return null;
+    try {
+      var parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.token === "string" && parsed.token !== "") return parsed;
+    } catch (e) {
+      /* malformed storage reads as signed out below */
+    }
+    return null;
+  }
+
+  /* A write by an authenticated buyer, JSON in, JSON out. Unlike `get`,
+     this always resolves ok() with the response body attached even on a
+     non-2xx status, because the CALLER needs the route's own status and
+     message to distinguish several refusals (P8g scope item 9). A
+     request that never reached the server is the only failed() case. */
+  function postAuthed(path, token, body) {
+    return fetch(path, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Accept: "application/json",
+        Authorization: "Bearer " + token,
+      },
+      credentials: "omit",
+      body: JSON.stringify(body),
+    })
+      .then(function (res) {
+        return res.json().then(
+          function (parsed) { return ok({ status: res.status, body: parsed }); },
+          function () { return ok({ status: res.status, body: null }); },
+        );
       })
       .catch(function () { return failed("network"); });
   }
@@ -211,6 +283,8 @@
   global.FAApi = {
     get: get,
     getLinkedData: getLinkedData,
+    postAuthed: postAuthed,
+    getStoredSession: getStoredSession,
     el: el,
     setText: setText,
     setTextById: setTextById,
