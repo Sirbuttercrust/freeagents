@@ -754,67 +754,50 @@ describe('the deposit screen, driven end to end against the real app', () => {
     });
 
     // D3 (Proof review round 1): the four remaining scope-item-8 shapes the
-    // distinctness test above never touched -- 401, 409, and the two 503s
-    // (ABT rail unconfigured vs. storage unavailable) -- driven by mocking
-    // one route's response on one already-rendered page rather than
-    // standing up new job fixtures and servers per case. The ABT 503's own
-    // "nothing was charged" wording is pinned directly: a generic sentence
-    // in its place is exactly the collapse this test exists to catch.
-    it('the 401, 409 and both 503 refusal sentences from pay-start all differ and name their own cause (D3)', async () => {
+    // distinctness test above never touched -- 401, 409, both 503s (ABT
+    // rail unconfigured vs. storage unavailable) from pay-start, and 401,
+    // 409 from confirm -- driven by mocking one route's response on one
+    // already-rendered page. The ABT 503's "nothing was charged" wording
+    // is pinned directly: a generic sentence there is the collapse this
+    // test exists to catch.
+    it('the 401, 409 and both 503 sentences from pay-start, and the 401/409 sentences from confirm, all differ (D3)', async () => {
       const page = await renderDeposit(baseUrl, 'job-fully-agreed', { token: buyerToken });
-      try {
-        const payBtn = page.document.getElementById('pay-btn') as HTMLButtonElement;
-        const originalFetch = global.fetch;
-        const sentences: string[] = [];
-        for (const [status, body] of [
-          [401, { error: 'expired' }],
-          [409, { error: 'this job has no agreed price to pay against' }],
-          [503, { error: 'the abt payment rail is not configured on this deployment' }],
-          [503, { error: 'storage unavailable' }],
-        ] as [number, { error: string }][]) {
+      const originalFetch = global.fetch;
+      async function mocked(route: string, targetId: string, cases: [number, string][]): Promise<string[]> {
+        const btn = page.document.getElementById(route === 'abt/start' ? 'pay-btn' : 'approved-btn') as HTMLButtonElement;
+        const out: string[] = [];
+        for (const [status, error] of cases) {
           Object.defineProperty(page.window, 'fetch', {
             writable: true,
             value: async (input: string, init?: RequestInit) =>
-              String(input).includes('/abt/start')
-                ? new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+              String(input).includes(route)
+                ? new Response(JSON.stringify({ error }), { status, headers: { 'content-type': 'application/json' } })
                 : originalFetch(new URL(input, baseUrl), init),
           });
-          payBtn.click();
+          btn.click();
           await new Promise((resolve) => setTimeout(resolve, 100));
-          sentences.push(page.document.getElementById('pay-error-detail')?.textContent ?? '');
+          out.push(page.document.getElementById(targetId)?.textContent ?? '');
         }
-        expect(new Set(sentences).size).toBe(4);
-        expect((sentences[2] ?? '').toLowerCase()).toContain('nothing was charged');
-        expect((sentences[3] ?? '').toLowerCase()).not.toContain('nothing was charged');
-      } finally {
-        page.close();
+        return out;
       }
-    });
-
-    it('the 401 and 409 refusal sentences from confirm differ from each other and from pay-start (D3)', async () => {
-      const page = await renderDeposit(baseUrl, 'job-fully-agreed', { token: buyerToken });
       try {
-        const approvedBtn = page.document.getElementById('approved-btn') as HTMLButtonElement;
-        const originalFetch = global.fetch;
-        const sentences: string[] = [];
-        for (const [status, body] of [
-          [401, { error: 'expired' }],
-          [409, { error: 'confirm needs every criterion accepted by both parties' }],
-        ] as [number, { error: string }][]) {
-          Object.defineProperty(page.window, 'fetch', {
-            writable: true,
-            value: async (input: string, init?: RequestInit) =>
-              String(input).includes('/confirm')
-                ? new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
-                : originalFetch(new URL(input, baseUrl), init),
-          });
-          approvedBtn.click();
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          sentences.push(page.document.getElementById('confirm-error-detail')?.textContent ?? '');
-        }
-        expect(new Set(sentences).size).toBe(2);
-        expect(sentences[0]).not.toContain('pay the deposit');
-        expect(sentences[1]).not.toContain('agreed price to pay against');
+        const payStart = await mocked('abt/start', 'pay-error-detail', [
+          [401, 'expired'],
+          [409, 'this job has no agreed price to pay against'],
+          [503, 'the abt payment rail is not configured on this deployment'],
+          [503, 'storage unavailable'],
+        ]);
+        expect(new Set(payStart).size).toBe(4);
+        expect((payStart[2] ?? '').toLowerCase()).toContain('nothing was charged');
+        expect((payStart[3] ?? '').toLowerCase()).not.toContain('nothing was charged');
+
+        const confirmRefusals = await mocked('/confirm', 'confirm-error-detail', [
+          [401, 'expired'],
+          [409, 'confirm needs every criterion accepted by both parties'],
+        ]);
+        expect(new Set(confirmRefusals).size).toBe(2);
+        expect(confirmRefusals[0]).not.toContain('pay the deposit');
+        expect(confirmRefusals[1]).not.toContain('agreed price to pay against');
       } finally {
         page.close();
       }
