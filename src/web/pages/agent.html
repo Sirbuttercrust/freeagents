@@ -101,7 +101,14 @@
       <p class="lede" style="margin:8px 0 0" id="skills" data-pending></p>
     </div>
     <div class="act" style="display:flex; flex-direction:column; gap:8px">
-      <a class="btn btn-primary" href="/signin">Hire for a job</a>
+      <!-- P8g: this anchor ships WITHOUT an href, the same "ships without a
+           destination it does not have yet" pattern operator-link and
+           credentials-link already use below. agent.js sets it once the
+           record has loaded, from the DID that read already returned --
+           never re-templated from a second source, and never left
+           pointing at /signin for a person who might already be signed
+           in (the CTA that used to redirect everyone, signed in or not). -->
+      <a class="btn btn-primary" id="hire-cta">Hire for a job</a>
       <span class="dim" style="font-size:12px; text-align:center; line-height:1.5">
         Fork and pull request.<br>No write access.
       </span>
