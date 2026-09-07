@@ -94,6 +94,7 @@
     renderCredential(job);
     renderTechnical(job);
     renderAgreementCta(job);
+    renderStagedCta(job);
   }
 
   function renderWho(job) {
@@ -269,6 +270,17 @@
     var link = A.el("agreement-link");
     if (link) link.setAttribute("href", "/agreement?job=" + encodeURIComponent(job.id));
     A.showById("agreement-cta", true);
+  }
+
+  // P8j: a staged job's own control (inert-declared-control, ninth
+  // occurrence). Party is not checked client-side; the staged page's
+  // own attestation-read probe is the real boundary, the same stance
+  // P8h took for the agreement page.
+  function renderStagedCta(job) {
+    if (job.status !== "staged" || typeof job.id !== "string" || job.id === "") return;
+    var link = A.el("staged-link");
+    if (link) link.setAttribute("href", "/staged?job=" + encodeURIComponent(job.id));
+    A.showById("staged-cta", true);
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", start);
