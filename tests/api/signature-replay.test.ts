@@ -233,9 +233,44 @@ describe('S5+S6: signature replay is refused and future-dated signatures are ref
 
   // SIGNATURE_MAX_AGE_SECONDS is imported so this file breaks loudly (a
   // compile error) if a future edit ever removes the export nothing else
-  // in this test references -- it also documents the backward window's
+  // in this file references -- it also documents the backward window's
   // named size for the reader without repeating the literal 300 here.
   it('the backward-looking freshness window keeps its documented size', () => {
     expect(SIGNATURE_MAX_AGE_SECONDS).toBe(300);
+  });
+
+  // D1 (QA review round 1, task t_05b14bcc): decided, documented trade-off.
+  // Section 3 of this card's brief forbids adding a nonce parameter to the
+  // protocol, and ed25519 signing is deterministic -- the same signer,
+  // method, target-uri, body and `created` second always produce the same
+  // signature bytes. There is therefore no way, short of a nonce, to tell
+  // "one request replayed" from "two genuinely independent requests whose
+  // signer happened to sign identical content in the same wall-clock
+  // second" apart. The shop's decision, recorded here as a pinned test
+  // rather than a silent side effect: the spend store treats both cases
+  // the same and refuses the second one. This means a caller must not
+  // rely on being able to send two byte-for-byte identical requests (same
+  // method, URI, body) within the same second and have both succeed --
+  // a real retry should be a freshly signed request, which naturally gets
+  // a new `created` value from the caller's own clock.
+  it('D1: two independently-signed, byte-identical requests in the same second are indistinguishable from a replay by design; the second is refused', async () => {
+    const jobId = await createDraftJob();
+    const targetUri = `${baseUrl}/jobs/${jobId}/attestation`;
+    const wall = Math.floor(Date.now() / 1000);
+
+    const a = signRequest(buyer, 'GET', targetUri, { created: wall });
+    const b = signRequest(buyer, 'GET', targetUri, { created: wall });
+
+    // The determinism this test pins: two calls to signRequest for the
+    // exact same inputs produce identical bytes. This is not a bug in
+    // signRequest, it is what makes the refusal below inevitable without
+    // a nonce.
+    expect(a.signature).toBe(b.signature);
+
+    const first = await replayGet(`/jobs/${jobId}/attestation`, a);
+    const second = await replayGet(`/jobs/${jobId}/attestation`, b);
+
+    expect(first.status).toBe(404);
+    expect(second.status).toBe(401);
   });
 });
