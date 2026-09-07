@@ -91,6 +91,14 @@ export interface SignRequestOptions {
 // mistake an earlier, forward-counting version of this fixture made).
 // Never overrides an explicitly-passed `created` (the freshness-window
 // tests in tests/api/did-signature.test.ts all pin their own).
+// D3 (QA review round 1, task t_05b14bcc): the bucket has a real ceiling.
+// Once it has walked back SIGNATURE_MAX_AGE_SECONDS - 1 seconds inside one
+// wall-clock second, the next `created` it would hand out is already
+// stale, and a caller relying on the default would see a real, but
+// unexplained, "signature rejected" failure with nothing pointing at the
+// fixture. Fail loudly and by name instead, so an exhausted bucket reads
+// as "fixture exhausted", never as "signature rejected".
+const BUCKET_CEILING = 300;
 let bucketSecond = 0;
 let bucketOffset = 0;
 function nextCreated(): number {
@@ -100,6 +108,12 @@ function nextCreated(): number {
     bucketOffset = 0;
   } else {
     bucketOffset += 1;
+  }
+  if (bucketOffset >= BUCKET_CEILING) {
+    throw new Error(
+      `signRequest: fixture bucket exhausted (${bucketOffset} calls in one wall-clock second). ` +
+        'Pin an explicit `created` for this call instead of relying on the default.',
+    );
   }
   return now - bucketOffset;
 }
