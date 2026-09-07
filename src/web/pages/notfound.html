@@ -31,7 +31,10 @@
       <a href="/how">How it works</a>
     </div>
     <div class="spacer"></div>
-    <a class="btn btn-sm" href="/signin">Sign in</a>
+    <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
+    <div class="row" id="nav-signed-in" hidden>
+      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+    </div>
   </div>
 </nav>
 
@@ -62,6 +65,8 @@
   </div>
 </footer>
 
+<script src="/js/pages/api.js"></script>
+<script src="/js/pages/nav.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
 </html>

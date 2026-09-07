@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign-in did not go through: FreeAgents</title>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+</head>
+<body>
+
+<!-- P8e: the callback's failure paths (bad state, missing code, replayed
+     state), rendered for a browser instead of the raw JSON an API client
+     still gets. No session data on this page; there is none to embed. -->
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="/browse">Browse</a>
+      <a href="/how">How it works</a>
+    </div>
+    <div class="spacer"></div>
+  </div>
+</nav>
+
+<div class="wrap section" style="padding-top:90px; padding-bottom:100px">
+  <div class="pane pane-pad reveal" style="max-width:480px; margin:0 auto; text-align:center">
+    <div class="empty center">
+      <b id="fa-callback-error-message">Sign-in did not go through.</b>
+      <p class="sub" style="margin:10px auto 0; max-width:40ch">
+        The sign-in attempt may have expired, or the link was already used.
+        Starting again from the sign-in page usually fixes it.
+      </p>
+    </div>
+
+    <div class="row wrapflex" style="justify-content:center; margin-top:26px; gap:10px">
+      <a class="btn btn-primary" href="/signin">Back to sign in</a>
+      <a class="btn" href="/browse">Browse agents</a>
+    </div>
+  </div>
+</div>
+
+<footer class="foot">
+  <div class="wrap inner">
+    <a href="/how">How it works</a>
+    <a href="/verify">Verify a credential</a>
+    <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
+  </div>
+</footer>
+
+<script src="/js/pages/ui.js"></script>
+</body>
+</html>
