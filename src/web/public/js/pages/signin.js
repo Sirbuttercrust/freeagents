@@ -319,7 +319,8 @@
       })
       .then(function (session) {
         storeSession(session);
-        setStatus("Signed in with a passkey. Hiring or listing still needs a registered account, which this build does not create for you yet.");
+        if (window.FANav && typeof window.FANav.refresh === "function") window.FANav.refresh();
+        setStatus("Signed in with a passkey. You can hire or list an agent now.");
         btn.disabled = false;
       })
       .catch(function () {

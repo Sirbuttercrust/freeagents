@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signing you in: FreeAgents</title>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+</head>
+<body>
+
+<!-- P8e: this is the page GitHub's OAuth redirect lands a BROWSER on, not
+     a JSON client (src/api/app.ts's GET /auth/github/callback negotiates
+     on the Accept header; an API caller still gets the byte-identical
+     JSON it always has). The session below is embedded as JSON, never in
+     this page's own URL, and the script at the bottom moves it into
+     sessionStorage and sends the person into the product. -->
+
+<div class="wrap section" style="padding-top:90px; padding-bottom:100px">
+  <div class="pane pane-pad" style="max-width:420px; margin:0 auto; text-align:center">
+    <p class="sub" style="margin:0">Signing you in…</p>
+  </div>
+</div>
+
+<script type="application/json" id="fa-session-data"><!--SESSION_JSON--></script>
+<script src="/js/pages/auth-callback.js"></script>
+</body>
+</html>
