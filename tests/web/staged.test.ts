@@ -103,8 +103,18 @@ interface Rendered {
   close: () => void;
 }
 
-async function renderStaged(baseUrl: string, jobId: string, session: { token: string } | null): Promise<Rendered> {
-  const path = `/staged?job=${encodeURIComponent(jobId)}`;
+// Generic renderer: fetches path over HTTP with an HTML Accept header,
+// hydrates it in jsdom with scripts running, and waits for the page's own
+// async work to settle. onFetch, when given, observes every request the
+// page makes (method and raw input) BEFORE it is dispatched, installed
+// before any page script runs, so an on-load call is captured and not
+// only whatever fires later (mutation proofs 11 and D3's own requirement).
+async function renderPage(
+  baseUrl: string,
+  path: string,
+  session: { token: string } | null,
+  onFetch?: (input: string, init?: RequestInit) => void,
+): Promise<Rendered> {
   const virtualConsole = new VirtualConsole();
   const failures: string[] = [];
   virtualConsole.on('jsdomError', (error: Error) => failures.push(error.message));
@@ -121,7 +131,10 @@ async function renderStaged(baseUrl: string, jobId: string, session: { token: st
       if (session !== null) window.sessionStorage.setItem('fa_session', JSON.stringify(session));
       Object.defineProperty(window, 'fetch', {
         writable: true,
-        value: (input: string, init?: RequestInit) => fetch(new URL(input, baseUrl), init),
+        value: (input: string, init?: RequestInit) => {
+          if (onFetch) onFetch(input, init);
+          return fetch(new URL(input, baseUrl), init);
+        },
       });
     },
   });
@@ -133,6 +146,15 @@ async function renderStaged(baseUrl: string, jobId: string, session: { token: st
   await new Promise((resolve) => setTimeout(resolve, 350));
   if (failures.length > 0) throw new Error(`page script failed on ${path}: ${failures.join('; ')}`);
   return { window: dom.window, document: dom.window.document, close: () => dom.window.close() };
+}
+
+function renderStaged(
+  baseUrl: string,
+  jobId: string,
+  session: { token: string } | null,
+  onFetch?: (input: string, init?: RequestInit) => void,
+): Promise<Rendered> {
+  return renderPage(baseUrl, `/staged?job=${encodeURIComponent(jobId)}`, session, onFetch);
 }
 
 describe('the staged screen, driven end to end against the real app', () => {
@@ -270,31 +292,29 @@ describe('the staged screen, driven end to end against the real app', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  describe('a signed-out visitor', () => {
-    it('is told to sign in and is not shown a pay control that cannot work', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', null);
+  describe('a signed-out visitor, an unknown job id, and a staged job with no attestation on record', () => {
+    it('each renders its own readable panel, never a blank screen', async () => {
+      const signedOut = await renderStaged(baseUrl, 'job-fully-staged', null);
+      const unknownJob = await renderStaged(baseUrl, 'no-such-job', { token: buyerToken });
+      const noAttestation = await renderStaged(baseUrl, 'job-no-attestation', { token: buyerToken });
       try {
-        const notice = page.document.getElementById('signin-required');
+        const notice = signedOut.document.getElementById('signin-required');
         expect(notice).not.toBeNull();
         expect(notice!.hidden).toBe(false);
         expect((notice!.textContent ?? '').toLowerCase()).toContain('sign in');
-        const body = page.document.getElementById('staged-body');
-        expect(body!.hidden).toBe(true);
-      } finally {
-        page.close();
-      }
-    });
-  });
+        expect(signedOut.document.getElementById('staged-body')!.hidden).toBe(true);
 
-  describe('an unknown job id', () => {
-    it('answers a readable page, not a blank screen', async () => {
-      const page = await renderStaged(baseUrl, 'no-such-job', { token: buyerToken });
-      try {
-        const notice = page.document.getElementById('load-error');
-        expect(notice).not.toBeNull();
-        expect(notice!.hidden).toBe(false);
+        const loadError = unknownJob.document.getElementById('load-error');
+        expect(loadError).not.toBeNull();
+        expect(loadError!.hidden).toBe(false);
+
+        const fault = noAttestation.document.getElementById('fault-error');
+        expect(fault).not.toBeNull();
+        expect(fault!.hidden).toBe(false);
       } finally {
-        page.close();
+        signedOut.close();
+        unknownJob.close();
+        noAttestation.close();
       }
     });
   });
@@ -352,21 +372,8 @@ describe('the staged screen, driven end to end against the real app', () => {
     });
   });
 
-  describe('a staged job with no attestation on record', () => {
-    it('renders the fault sentence, distinct from a missing job', async () => {
-      const page = await renderStaged(baseUrl, 'job-no-attestation', { token: buyerToken });
-      try {
-        const notice = page.document.getElementById('fault-error');
-        expect(notice).not.toBeNull();
-        expect(notice!.hidden).toBe(false);
-      } finally {
-        page.close();
-      }
-    });
-  });
-
   describe('the account of the work: six facts, same weight, fixed order, ruling 2 omitted', () => {
-    it('renders exactly six fact rows in the fixed order, with the full path list untruncated (mutation proofs 5, 6)', async () => {
+    it('renders exactly six fact rows in the fixed order, with the full path list untruncated, one shared class vocabulary, and no test-vocabulary anywhere (mutation proofs 5, 6)', async () => {
       const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
       try {
         const rows = page.document.querySelectorAll('#facts > li');
@@ -381,7 +388,14 @@ describe('the staged screen, driven end to end against the real app', () => {
           'Commits signed by the agent',
         ]);
         // No row's label or value ever mentions the outside-agreed-paths
-        // concept, in any wording (ruling 2).
+        // concept, in any wording (ruling 2). No row carries a colour,
+        // badge or per-row distinction (facts, no verdict).
+        Array.from(rows).forEach((row) => {
+          expect(row.className).toBe('');
+          expect(row.querySelector('[class*="warn"]')).toBeNull();
+          expect(row.querySelector('[class*="danger"]')).toBeNull();
+          expect(row.querySelector('[class*="bad"]')).toBeNull();
+        });
         const wholeText = (page.document.getElementById('facts')?.textContent ?? '').toLowerCase();
         expect(wholeText).not.toContain('outside');
         expect(wholeText).not.toContain('agreed paths');
@@ -392,33 +406,11 @@ describe('the staged screen, driven end to end against the real app', () => {
           const text = Array.from(paths).map((li) => li.textContent);
           expect(text).toContain(p);
         });
-      } finally {
-        page.close();
-      }
-    });
 
-    it('every row shares one class vocabulary with no colour, badge or per-row distinction', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
-      try {
-        const rows = Array.from(page.document.querySelectorAll('#facts > li'));
-        rows.forEach((row) => {
-          expect(row.className).toBe('');
-          expect(row.querySelector('[class*="warn"]')).toBeNull();
-          expect(row.querySelector('[class*="danger"]')).toBeNull();
-          expect(row.querySelector('[class*="bad"]')).toBeNull();
-        });
-      } finally {
-        page.close();
-      }
-    });
-
-    it('no test-command, test-result or pass/fail vocabulary appears anywhere in the rendered document', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
-      try {
-        const text = (page.document.querySelector('main')?.textContent ?? '').toLowerCase();
-        expect(text).not.toContain('test command');
-        expect(text).not.toContain('tests passed');
-        expect(text).not.toContain('tests failed');
+        const mainText = (page.document.querySelector('main')?.textContent ?? '').toLowerCase();
+        expect(mainText).not.toContain('test command');
+        expect(mainText).not.toContain('tests passed');
+        expect(mainText).not.toContain('tests failed');
       } finally {
         page.close();
       }
@@ -439,7 +431,7 @@ describe('the staged screen, driven end to end against the real app', () => {
   });
 
   describe('the clock (ruling 4, mutation proofs 1 and 2)', () => {
-    it('states the deadline as stagedAt plus LAPSE_AT_STAGED_AFTER_DAYS for a job never redone', async () => {
+    it('states the deadline as stagedAt plus LAPSE_AT_STAGED_AFTER_DAYS for a job never redone, with no draining bar or countdown element', async () => {
       const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
       try {
         const expectedDeadline = new Date(RECENT.getTime() + LAPSE_AT_STAGED_AFTER_DAYS * 86_400_000);
@@ -448,6 +440,8 @@ describe('the staged screen, driven end to end against the real app', () => {
         expect(days).toContain(expectedDeadline.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }));
         const then = page.document.getElementById('clock-then')?.textContent ?? '';
         expect(then.toLowerCase()).toContain('nothing further is charged');
+        expect(page.document.querySelector('progress')).toBeNull();
+        expect(page.document.querySelector('[role="progressbar"]')).toBeNull();
       } finally {
         page.close();
       }
@@ -464,20 +458,10 @@ describe('the staged screen, driven end to end against the real app', () => {
         page.close();
       }
     });
-
-    it('never renders a draining bar, progress meter, or countdown element', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
-      try {
-        expect(page.document.querySelector('progress')).toBeNull();
-        expect(page.document.querySelector('[role="progressbar"]')).toBeNull();
-      } finally {
-        page.close();
-      }
-    });
   });
 
   describe('the three choices, computed from the projection and pinned against src/domain/payment.ts', () => {
-    it('the pay amount, the fee row and the total agree with remainderUsd/calculateFee for the same inputs (mutation proofs 3, 4)', async () => {
+    it('the pay amount, fee and total agree with remainderUsd/calculateFee, all three choices render as prose with no button for redo or decline, and the pay button is the only acting control (ruling 1, mutation proof 13, mutation proofs 3, 4)', async () => {
       const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
       try {
         const remainder = remainderUsd('1200.00', 25);
@@ -487,9 +471,27 @@ describe('the staged screen, driven end to end against the real app', () => {
         expect(payBtn.textContent).toContain(`$${total}`);
 
         const choices = page.document.querySelectorAll('#choices > li');
+        expect(choices.length).toBe(3);
         const payRow = choices[0];
         expect(payRow?.querySelector('.v')?.textContent).toBe(`$${total}`);
         expect(payRow?.querySelector('.para')?.textContent ?? '').toContain(`$${parseFloat(remainder).toFixed(2)}`);
+        expect(choices[1]?.querySelector('.k')?.textContent).toContain('Send it back');
+        expect(choices[1]?.querySelector('button')).toBeNull();
+        expect(choices[1]?.querySelector('a')).toBeNull();
+        expect(choices[2]?.querySelector('.k')?.textContent).toContain('Decline');
+        expect(choices[2]?.querySelector('button')).toBeNull();
+        expect(choices[2]?.querySelector('a')).toBeNull();
+
+        // Exactly one button on the primary surface issues a network
+        // request: the pay control (mutation proof 13). The disclose
+        // control and the copy buttons do not themselves post anywhere.
+        const main = page.document.querySelector('main');
+        const buttons = Array.from(main?.querySelectorAll('button') ?? []);
+        const actingButtons = buttons.filter((b) => b.id === 'pay-btn');
+        expect(actingButtons.length).toBe(1);
+        buttons.forEach((b) => {
+          expect(['pay-btn', undefined].includes(b.id) || b.classList.contains('disclose') || b.hasAttribute('data-copy')).toBe(true);
+        });
       } finally {
         page.close();
       }
@@ -504,40 +506,6 @@ describe('the staged screen, driven end to end against the real app', () => {
         expect(fee).toBe('0.02');
         const payBtn = page.document.getElementById('pay-btn') as HTMLButtonElement;
         expect(payBtn.textContent).toContain('$0.52');
-      } finally {
-        page.close();
-      }
-    });
-
-    it('renders all three choices as prose, with exactly the redo and decline text and no button for either (ruling 1, mutation proof 13)', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
-      try {
-        const choices = page.document.querySelectorAll('#choices > li');
-        expect(choices.length).toBe(3);
-        expect(choices[1]?.querySelector('.k')?.textContent).toContain('Send it back');
-        expect(choices[1]?.querySelector('button')).toBeNull();
-        expect(choices[1]?.querySelector('a')).toBeNull();
-        expect(choices[2]?.querySelector('.k')?.textContent).toContain('Decline');
-        expect(choices[2]?.querySelector('button')).toBeNull();
-        expect(choices[2]?.querySelector('a')).toBeNull();
-      } finally {
-        page.close();
-      }
-    });
-
-    it('exactly one button on the primary surface issues a network request: the pay button (mutation proof 13)', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
-      try {
-        const main = page.document.querySelector('main');
-        const buttons = Array.from(main?.querySelectorAll('button') ?? []).filter((b) => b.id !== undefined);
-        const actingButtons = buttons.filter((b) => b.id === 'pay-btn');
-        expect(actingButtons.length).toBe(1);
-        // The disclose control is present but does not itself post
-        // anywhere; every other button on the primary surface is either
-        // the pay control or the disclosure toggle.
-        buttons.forEach((b) => {
-          expect(['pay-btn', undefined].includes(b.id) || b.classList.contains('disclose') || b.hasAttribute('data-copy')).toBe(true);
-        });
       } finally {
         page.close();
       }
@@ -607,11 +575,13 @@ describe('the staged screen, driven end to end against the real app', () => {
     });
   });
 
-  describe('the session token never rides in the document (constraint: no cookie, no URL)', () => {
-    it('the token does not appear anywhere in the rendered document, including inside the dialog', async () => {
+  describe('the session token never rides in the document, and the nav flips to signed-in (constraint: no cookie, no URL)', () => {
+    it('the token does not appear anywhere in the rendered document, including inside the dialog, and the nav shows signed-in', async () => {
       const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
       try {
         expect(page.document.documentElement.outerHTML).not.toContain(buyerToken);
+        const signedIn = page.document.getElementById('nav-signed-in');
+        expect(signedIn?.hidden).toBe(false);
       } finally {
         page.close();
       }
@@ -719,56 +689,103 @@ describe('the staged screen, driven end to end against the real app', () => {
 
   describe('the pull-request re-read control fires only on a press, never on load (ruling 6, mutation proof 11)', () => {
     it('the call count is zero until pressed, and the link renders once pullRequestUrl is present', async () => {
-      const path = `/staged?job=job-with-pr`;
-      const virtualConsole = new VirtualConsole();
-      const failures: string[] = [];
-      virtualConsole.on('jsdomError', (error: Error) => failures.push(error.message));
-      const response = await fetch(`${baseUrl}${path}`, { headers: { Accept: HTML } });
-      const markup = await response.text();
       let getJobCalls = 0;
-      const dom = new JSDOM(markup, {
-        url: `${baseUrl}${path}`,
-        runScripts: 'dangerously',
-        resources: 'usable',
-        pretendToBeVisual: true,
-        virtualConsole,
-        beforeParse(window) {
-          window.sessionStorage.setItem('fa_session', JSON.stringify({ token: buyerToken }));
-          // Installed BEFORE any page script runs, so a call this
-          // script makes during its own load (not only after) is
-          // observed too (mutation proof 11's own requirement).
-          Object.defineProperty(window, 'fetch', {
-            writable: true,
-            value: (input: string, init?: RequestInit) => {
-              if (/\/jobs\/job-with-pr$/.test(String(input))) getJobCalls += 1;
-              return fetch(new URL(input, baseUrl), init);
-            },
-          });
-        },
+      const page = await renderStaged(baseUrl, 'job-with-pr', { token: buyerToken }, (input) => {
+        if (/\/jobs\/job-with-pr$/.test(String(input))) getJobCalls += 1;
       });
-      await new Promise<void>((resolve) => {
-        if (dom.window.document.readyState === 'complete') resolve();
-        else dom.window.addEventListener('load', () => resolve());
-      });
-      await new Promise((resolve) => setTimeout(resolve, 350));
       try {
-        if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
         // Exactly one GET /jobs/:jobId happens on load (the page's own
         // Promise.all read used to render itself). Mutation proof 11:
         // an extra read anywhere else in the load path (e.g. inside
         // renderWho) must turn this into a red test, not just the
         // click-delta below.
         expect(getJobCalls).toBe(1);
-        const checkBtn = dom.window.document.getElementById('check-pr-btn') as HTMLButtonElement;
+        const checkBtn = page.document.getElementById('check-pr-btn') as HTMLButtonElement;
         checkBtn.click();
         await new Promise((resolve) => setTimeout(resolve, 200));
         expect(getJobCalls).toBe(2);
-        const link = dom.window.document.getElementById('scan-pr-link') as HTMLAnchorElement | null;
+        const link = page.document.getElementById('scan-pr-link') as HTMLAnchorElement | null;
         expect(link?.getAttribute('href')).toBe('https://github.com/buyer/staged-repo/pull/9');
-        const wrap = dom.window.document.getElementById('scan-pr-wrap');
+        const wrap = page.document.getElementById('scan-pr-wrap');
         expect(wrap?.hidden).toBe(false);
       } finally {
-        dom.window.close();
+        page.close();
+      }
+    });
+  });
+
+  describe('the full set of requests the page makes, recorded from before the first script runs (scope items 3/5, done-means: "assert by recording every request the page makes")', () => {
+    it('on load the page reads exactly the job, the attestation, the agent and its hires, and pressing pay adds exactly one remainder-leg POST, never a usdc, deposit, redo, staged-decline or pull-request path', async () => {
+      const requests: string[] = [];
+      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken }, (input, init) => {
+        requests.push(`${(init?.method ?? 'GET').toUpperCase()} ${new URL(String(input), baseUrl).pathname}`);
+      });
+      try {
+        expect(requests).toEqual([
+          'GET /jobs/job-fully-staged',
+          'GET /jobs/job-fully-staged/attestation',
+          'GET /agents/did%3Aabt%3Astaged-page-agent',
+          'GET /agents/did%3Aabt%3Astaged-page-agent/hires',
+        ]);
+
+        const payBtn = page.document.getElementById('pay-btn') as HTMLButtonElement;
+        payBtn.click();
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        expect(requests.length).toBe(5);
+        expect(requests[4]).toBe('POST /jobs/job-fully-staged/payments/remainder/abt/start');
+
+        // Named negatives, verbatim from done-means: none of these five
+        // paths is ever requested, on load or after the press.
+        const wholeRecord = requests.join('\n').toLowerCase();
+        expect(wholeRecord).not.toContain('usdc');
+        expect(wholeRecord).not.toContain('/payments/deposit/');
+        expect(wholeRecord).not.toMatch(/\/jobs\/[^/]+\/redo\b/);
+        expect(wholeRecord).not.toContain('staged-decline');
+        expect(wholeRecord).not.toContain('pull-request');
+      } finally {
+        page.close();
+      }
+    });
+  });
+
+  describe('every refusal in scope item 10 renders its own distinct sentence, so a future edit cannot collapse them (mutation proof: D1)', () => {
+    it('the 401, 403, 409 and both 503 sentences from pay-start all differ from each other', async () => {
+      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
+      const originalFetch = global.fetch;
+      async function mockedPayStart(cases: [number, string][]): Promise<string[]> {
+        const btn = page.document.getElementById('pay-btn') as HTMLButtonElement;
+        const out: string[] = [];
+        for (const [status, error] of cases) {
+          Object.defineProperty(page.window, 'fetch', {
+            writable: true,
+            value: async (input: string, init?: RequestInit) =>
+              String(input).includes('/payments/remainder/abt/start')
+                ? new Response(JSON.stringify({ error }), { status, headers: { 'content-type': 'application/json' } })
+                : originalFetch(new URL(input, baseUrl), init),
+          });
+          btn.click();
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          out.push(page.document.getElementById('pay-error-detail')?.textContent ?? '');
+        }
+        return out;
+      }
+      try {
+        const sentences = await mockedPayStart([
+          [401, ''],
+          [403, ''],
+          [409, 'internal: price_missing'],
+          [503, 'the abt payment rail is not configured on this deployment'],
+          [503, 'storage unavailable'],
+        ]);
+        expect(new Set(sentences).size).toBe(5);
+        expect((sentences[0] ?? '').toLowerCase()).toContain('sign in');
+        expect((sentences[1] ?? '').toLowerCase()).toContain('not a party');
+        expect((sentences[2] ?? '').toLowerCase()).toContain('no agreed price');
+        expect((sentences[3] ?? '').toLowerCase()).toContain('nothing was charged');
+        expect((sentences[4] ?? '').toLowerCase()).not.toContain('nothing was charged');
+      } finally {
+        page.close();
       }
     });
   });
@@ -818,46 +835,11 @@ describe('the staged screen, driven end to end against the real app', () => {
 
   describe('the job page routes a staged job to this screen (scope item 4)', () => {
     it("resolves the job page's own control to /staged?job=<id> (mutation proof: a missing href leaves the test red)", async () => {
-      const response = await fetch(`${baseUrl}/jobs/job-fully-staged`, { headers: { Accept: HTML } });
-      const markup = await response.text();
-      const virtualConsole = new VirtualConsole();
-      const failures: string[] = [];
-      virtualConsole.on('jsdomError', (error: Error) => failures.push(error.message));
-      const dom = new JSDOM(markup, {
-        url: `${baseUrl}/jobs/job-fully-staged`,
-        runScripts: 'dangerously',
-        resources: 'usable',
-        pretendToBeVisual: true,
-        virtualConsole,
-        beforeParse(window) {
-          Object.defineProperty(window, 'fetch', {
-            writable: true,
-            value: (input: string, init?: RequestInit) => fetch(new URL(input, baseUrl), init),
-          });
-        },
-      });
-      await new Promise<void>((resolve) => {
-        if (dom.window.document.readyState === 'complete') resolve();
-        else dom.window.addEventListener('load', () => resolve());
-      });
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      const page = await renderPage(baseUrl, '/jobs/job-fully-staged', null);
       try {
-        if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
-        const link = dom.window.document.getElementById('staged-link') as HTMLAnchorElement | null;
+        const link = page.document.getElementById('staged-link') as HTMLAnchorElement | null;
         expect(link).not.toBeNull();
         expect(link!.getAttribute('href')).toBe('/staged?job=job-fully-staged');
-      } finally {
-        dom.window.close();
-      }
-    });
-  });
-
-  describe('the nav on /staged flips to signed-in', () => {
-    it('shows the signed-in nav for a person with a session', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
-      try {
-        const signedIn = page.document.getElementById('nav-signed-in');
-        expect(signedIn?.hidden).toBe(false);
       } finally {
         page.close();
       }
@@ -865,32 +847,44 @@ describe('the staged screen, driven end to end against the real app', () => {
   });
 
   describe('layout: no wrapper div breaks the facts or choices grid (layout-broken-at-desktop)', () => {
-    it('the scan dialog close control is at least 44px', async () => {
+    it('the scan dialog close control is at least 44px, and every fact row and choice row is a direct child of its grid container with the grid declarations a wrapper div would break (D2)', async () => {
       const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
       try {
         const closeBtn = page.document.querySelector('.sclose');
         expect(closeBtn).not.toBeNull();
-        const style = page.window.getComputedStyle(closeBtn as Element);
-        expect(parseFloat(style.width)).toBeGreaterThanOrEqual(44);
-        expect(parseFloat(style.height)).toBeGreaterThanOrEqual(44);
-      } finally {
-        page.close();
-      }
-    });
+        const closeStyle = page.window.getComputedStyle(closeBtn as Element);
+        expect(parseFloat(closeStyle.width)).toBeGreaterThanOrEqual(44);
+        expect(parseFloat(closeStyle.height)).toBeGreaterThanOrEqual(44);
 
-    it('the facts and choices lists keep their real grid layout, not a wrapper-crushed block (D2-style)', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
-      try {
-        const factRows = page.document.querySelectorAll('#facts > li');
+        const factsGrid = page.document.getElementById('facts');
+        const factRows = Array.from(page.document.querySelectorAll('#facts > li'));
+        expect(factRows.length).toBe(6);
         factRows.forEach((row) => {
+          expect(row.parentElement).toBe(factsGrid);
           const style = page.window.getComputedStyle(row as Element);
           expect(style.display).toBe('grid');
+          expect(style.gridTemplateColumns).toBe('1fr auto');
         });
-        const choiceRows = page.document.querySelectorAll('#choices > li');
+
+        const pathsList = page.document.querySelector('#facts .paths');
+        expect(pathsList).not.toBeNull();
+        const pathsStyle = page.window.getComputedStyle(pathsList as Element);
+        expect(pathsStyle.gridColumn).toBe('1 / -1');
+
+        const choicesGrid = page.document.getElementById('choices');
+        const choiceRows = Array.from(page.document.querySelectorAll('#choices > li'));
+        expect(choiceRows.length).toBe(3);
         choiceRows.forEach((row) => {
+          expect(row.parentElement).toBe(choicesGrid);
           const style = page.window.getComputedStyle(row as Element);
           expect(style.display).toBe('grid');
+          expect(style.gridTemplateColumns).toBe('1fr auto');
         });
+
+        const paraCell = page.document.querySelector('#choices .para');
+        expect(paraCell).not.toBeNull();
+        const paraStyle = page.window.getComputedStyle(paraCell as Element);
+        expect(paraStyle.gridColumn).toBe('1 / -1');
       } finally {
         page.close();
       }
