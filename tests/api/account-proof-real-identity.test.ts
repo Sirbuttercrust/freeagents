@@ -18,13 +18,28 @@ import { createApp } from '../../src/api/app.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import { createKnownKeyStore } from '../../src/adapters/identity/did-abt-resolver.js';
 import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
-import { signingIdentityFromSeed } from '../helpers/sign-request.js';
+import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
-async function post(base: string, path: string, body: unknown = {}): Promise<Response> {
-  return fetch(`${base}${path}`, {
+async function post(base: string, path: string, body: unknown = {}, identity?: SigningIdentity): Promise<Response> {
+  const bodyText = JSON.stringify(body);
+  if (identity === undefined) {
+    return fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: bodyText,
+    });
+  }
+  const targetUri = `${base}${path}`;
+  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText });
+  return fetch(targetUri, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    headers: {
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+    body: bodyText,
   });
 }
 
@@ -37,23 +52,26 @@ describe('POST /agents/:agentDid/account-proof, the real identity adapter, direc
 
   it('answers 503, not an unsatisfiable 409, when the key is observed but alsoKnownAs cannot be derived locally', async () => {
     const agentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(111));
+    const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(112));
     const knownKeys = createKnownKeyStore();
     // The binding this DID document rests on: the same check the R-34
     // signing-key resolver performs before recording an entry (mirrors
     // tests/adapters/identity/identity.test.ts's own setup).
     knownKeys.record(agentIdentity.did, agentIdentity.keyid);
 
+    const accountRepo = new MemoryAccountRepository();
+    await accountRepo.register({ did: operator.did, githubLogin: 'account-proof-real-identity-operator' });
     const agentRepo = new MemoryAgentRepository();
     await agentRepo.create({
       did: agentIdentity.did,
-      operatorDid: 'did:abt:op-account-proof-real-identity',
+      operatorDid: operator.did,
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
       githubLogin: null,
     });
 
-    const app = createApp(new MemoryAccountRepository(), agentRepo, createIdentityAdapter(knownKeys));
+    const app = createApp(accountRepo, agentRepo, createIdentityAdapter(knownKeys));
     server = app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
@@ -62,7 +80,7 @@ describe('POST /agents/:agentDid/account-proof, the real identity adapter, direc
     }
     const baseUrl = `http://127.0.0.1:${address.port}`;
 
-    const res = await post(baseUrl, `/agents/${agentIdentity.did}/account-proof`, { handle: 'scout-agent' });
+    const res = await post(baseUrl, `/agents/${agentIdentity.did}/account-proof`, { handle: 'scout-agent' }, operator);
     expect(res.status).toBe(503);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe('identity resolution unavailable');

@@ -26,30 +26,49 @@ import {
 } from '../../src/adapters/storage/memory.js';
 import type { AgentRepository, CompromiseRepository } from '../../src/adapters/storage/types.js';
 import type { Agent, Delegation } from '../../src/domain/agent.js';
+import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
 const AGENT_DID = 'did:abt:zAgentKeyHash';
 
-const delegation: Delegation = {
-  '@context': ['https://www.w3.org/2018/credentials/v1'],
-  id: 'urn:uuid:compromise-test',
-  type: ['VerifiableCredential', 'AgentDelegation'],
-  issuer: 'did:abt:zOperatorKeyHash',
-  issuanceDate: '2026-08-21T05:00:00.000Z',
-  credentialSubject: { id: AGENT_DID },
-  proof: {
-    type: 'Ed25519Signature2020',
-    created: '2026-08-21T05:00:00.000Z',
-    verificationMethod: 'did:abt:zOperatorKeyHash#zOperatorKeyHash',
-    proofPurpose: 'assertionMethod',
-    proofValue: 'zMockProofValue',
-  },
-};
+function delegationFor(agentDid: string, operatorDid: string): Delegation {
+  return {
+    '@context': ['https://www.w3.org/2018/credentials/v1'],
+    id: 'urn:uuid:compromise-test',
+    type: ['VerifiableCredential', 'AgentDelegation'],
+    issuer: operatorDid,
+    issuanceDate: '2026-08-21T05:00:00.000Z',
+    credentialSubject: { id: agentDid },
+    proof: {
+      type: 'Ed25519Signature2020',
+      created: '2026-08-21T05:00:00.000Z',
+      verificationMethod: `${operatorDid}#zOperatorKeyHash`,
+      proofPurpose: 'assertionMethod',
+      proofValue: 'zMockProofValue',
+    },
+  };
+}
 
 async function postJson(baseUrl: string, path: string, body: unknown): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
+  });
+}
+
+async function postSigned(baseUrl: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
+  const bodyText = JSON.stringify(body);
+  const targetUri = `${baseUrl}${path}`;
+  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText });
+  return fetch(targetUri, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+    body: bodyText,
   });
 }
 
@@ -87,18 +106,22 @@ describe('POST /agents/:agentDid/compromise-report (R-16, ENT-8.4)', () => {
   let baseUrl: string;
   const agentRepo = new MemoryAgentRepository();
   const compromiseRepo = new MemoryCompromiseRepository();
+  let operator: SigningIdentity;
 
   beforeAll(async () => {
+    const accountRepo = new MemoryAccountRepository();
+    operator = await signingIdentityFromSeed(new Uint8Array(32).fill(231));
+    await accountRepo.register({ did: operator.did, githubLogin: 'compromise-operator' });
     await agentRepo.create({
       did: AGENT_DID,
-      operatorDid: 'did:abt:zOperatorKeyHash',
-      delegation,
+      operatorDid: operator.did,
+      delegation: delegationFor(AGENT_DID, operator.did),
       name: 'scout',
       skills: ['triage'],
       githubLogin: null,
     });
     const app = createApp(
-      new MemoryAccountRepository(),
+      accountRepo,
       agentRepo,
       undefined,
       undefined,
@@ -117,7 +140,7 @@ describe('POST /agents/:agentDid/compromise-report (R-16, ENT-8.4)', () => {
   it('201: a well-formed report is recorded, body is exactly { key, since, reportedAt }', async () => {
     const key = `${AGENT_DID}#zKey`;
     const since = '2026-08-10T00:00:00.000Z';
-    const res = await postJson(baseUrl, `/agents/${AGENT_DID}/compromise-report`, { key, since });
+    const res = await postSigned(baseUrl, `/agents/${AGENT_DID}/compromise-report`, { key, since }, operator);
     expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toEqual({ key, since, reportedAt: expect.any(String) });
@@ -133,7 +156,7 @@ describe('POST /agents/:agentDid/compromise-report (R-16, ENT-8.4)', () => {
   });
 
   it('two reports for one agent both persist, oldest first: append-only, nothing replaced', async () => {
-    const res = await postJson(baseUrl, `/agents/${AGENT_DID}/compromise-report`, { key: `${AGENT_DID}#zSecond`, since: '2026-08-11T00:00:00.000Z' });
+    const res = await postSigned(baseUrl, `/agents/${AGENT_DID}/compromise-report`, { key: `${AGENT_DID}#zSecond`, since: '2026-08-11T00:00:00.000Z' }, operator);
     expect(res.status).toBe(201);
 
     const read = await fetch(`${baseUrl}/agents/${AGENT_DID}/compromise-reports`);
@@ -148,18 +171,26 @@ describe('POST /agents/:agentDid/compromise-report (R-16, ENT-8.4)', () => {
     ['a key with no #', { key: AGENT_DID, since: '2026-08-10T00:00:00.000Z' }],
     ['a missing since', { key: `${AGENT_DID}#zBad` }],
     ['an unparseable since', { key: `${AGENT_DID}#zBad`, since: 'not a date' }],
-  ])('400: a malformed body (%s) records nothing', async (_label, body) => {
+  ])('400: a malformed body (%s), signed as the operator, records nothing', async (_label, body) => {
     const before = (await compromiseRepo.listByAgentDid(AGENT_DID)).length;
-    const res = await postJson(baseUrl, `/agents/${AGENT_DID}/compromise-report`, body);
+    const res = await postSigned(baseUrl, `/agents/${AGENT_DID}/compromise-report`, body, operator);
     expect(res.status).toBe(400);
     const after = (await compromiseRepo.listByAgentDid(AGENT_DID)).length;
     expect(after).toBe(before);
   });
 
-  it('400: a since in the future records nothing', async () => {
+  it('400: an unsigned malformed body is still refused with 400, before authentication', async () => {
+    const before = (await compromiseRepo.listByAgentDid(AGENT_DID)).length;
+    const res = await postJson(baseUrl, `/agents/${AGENT_DID}/compromise-report`, { since: '2026-08-10T00:00:00.000Z' });
+    expect(res.status).toBe(400);
+    const after = (await compromiseRepo.listByAgentDid(AGENT_DID)).length;
+    expect(after).toBe(before);
+  });
+
+  it('400: a since in the future, signed as the operator, records nothing', async () => {
     const before = (await compromiseRepo.listByAgentDid(AGENT_DID)).length;
     const future = new Date(Date.now() + 60_000).toISOString();
-    const res = await postJson(baseUrl, `/agents/${AGENT_DID}/compromise-report`, { key: `${AGENT_DID}#zBad`, since: future });
+    const res = await postSigned(baseUrl, `/agents/${AGENT_DID}/compromise-report`, { key: `${AGENT_DID}#zBad`, since: future }, operator);
     expect(res.status).toBe(400);
     const body = (await res.json()) as Record<string, unknown>;
     expect(String(body.error)).toContain('future');
@@ -167,8 +198,8 @@ describe('POST /agents/:agentDid/compromise-report (R-16, ENT-8.4)', () => {
     expect(after).toBe(before);
   });
 
-  it('404: a well-formed body for an unregistered agent', async () => {
-    const res = await postJson(baseUrl, '/agents/did:abt:nobody/compromise-report', { key: 'did:abt:nobody#zKey', since: '2026-08-10T00:00:00.000Z' });
+  it('404: a well-formed body, signed by a real caller, for an unregistered agent', async () => {
+    const res = await postSigned(baseUrl, '/agents/did:abt:nobody/compromise-report', { key: 'did:abt:nobody#zKey', since: '2026-08-10T00:00:00.000Z' }, operator);
     expect(res.status).toBe(404);
   });
 
@@ -178,12 +209,116 @@ describe('POST /agents/:agentDid/compromise-report (R-16, ENT-8.4)', () => {
   });
 });
 
+// S4 (security sweep, medium): no authentication mounted at all, so an
+// unsigned stranger could file compromise reports against any listed
+// agent's key in bulk (60 unsigned reports in 9 seconds against one victim
+// in the sweep). The route now requires the agent's own operator.
+describe('POST /agents/:agentDid/compromise-report, caller gating (S4)', () => {
+  let server: Server;
+  let baseUrl: string;
+  let agentRepo: MemoryAgentRepository;
+  let compromiseRepo: MemoryCompromiseRepository;
+  let operator: SigningIdentity;
+  let stranger: SigningIdentity;
+  let did: string;
+
+  beforeAll(async () => {
+    operator = await signingIdentityFromSeed(new Uint8Array(32).fill(232));
+    stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(233));
+    did = 'did:abt:zS4GateAgent';
+    agentRepo = new MemoryAgentRepository();
+    compromiseRepo = new MemoryCompromiseRepository();
+    const accountRepo = new MemoryAccountRepository();
+    await accountRepo.register({ did: operator.did, githubLogin: 'compromise-s4-operator' });
+    await accountRepo.register({ did: stranger.did, githubLogin: 'compromise-s4-stranger' });
+    await agentRepo.create({
+      did,
+      operatorDid: operator.did,
+      delegation: delegationFor(did, operator.did),
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    const app = createApp(
+      accountRepo,
+      agentRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      compromiseRepo,
+    );
+    server = await listen(app);
+    baseUrl = `http://127.0.0.1:${portOf(server)}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it('401: a request with no session and no signature is refused, and stores nothing', async () => {
+    const res = await postJson(baseUrl, `/agents/${did}/compromise-report`, {
+      key: `${did}#zKey`,
+      since: '2026-08-10T00:00:00.000Z',
+    });
+    expect(res.status).toBe(401);
+    expect((await compromiseRepo.listByAgentDid(did)).length).toBe(0);
+  });
+
+  it('403: a registered stranger (not this agent\'s operator) is refused, and stores nothing', async () => {
+    const res = await postSigned(baseUrl, `/agents/${did}/compromise-report`, {
+      key: `${did}#zKey`,
+      since: '2026-08-10T00:00:00.000Z',
+    }, stranger);
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(String(body.error)).not.toContain(operator.did);
+    expect((await compromiseRepo.listByAgentDid(did)).length).toBe(0);
+  });
+
+  it('the bulk case from the sweep is closed: 60 unsigned reports against one agent all refuse, zero rows', async () => {
+    const results = await Promise.all(
+      Array.from({ length: 60 }, () =>
+        postJson(baseUrl, `/agents/${did}/compromise-report`, { key: `${did}#zKey`, since: '2026-08-10T00:00:00.000Z' }),
+      ),
+    );
+    for (const res of results) expect(res.status).toBe(401);
+    expect((await compromiseRepo.listByAgentDid(did)).length).toBe(0);
+  });
+
+  it('an unauthenticated request cannot tell a real agent from a nonexistent one: both are 401', async () => {
+    const real = await postJson(baseUrl, `/agents/${did}/compromise-report`, {
+      key: `${did}#zKey`,
+      since: '2026-08-10T00:00:00.000Z',
+    });
+    const fake = await postJson(baseUrl, '/agents/did:abt:zDoesNotExist/compromise-report', {
+      key: 'did:abt:zDoesNotExist#zKey',
+      since: '2026-08-10T00:00:00.000Z',
+    });
+    expect(real.status).toBe(401);
+    expect(fake.status).toBe(401);
+  });
+
+  it('the operator filing a report on their own agent still succeeds (positive control unchanged)', async () => {
+    const res = await postSigned(baseUrl, `/agents/${did}/compromise-report`, {
+      key: `${did}#zKey`,
+      since: '2026-08-10T00:00:00.000Z',
+    }, operator);
+    expect(res.status).toBe(201);
+    expect((await compromiseRepo.listByAgentDid(did)).length).toBe(1);
+  });
+});
+
 // The storage branches the real repositories never exercise, the same way
-// tests/api/key-rotation.test.ts drives them with wrapped repositories.
+// tests/api/key-rotation.test.ts drives them with wrapped repositories. The
+// caller on every POST case is a real R-34 signature naming the agent's
+// operator, registered as an Account, so the branch under test is reached
+// past the caller gate the S4 fix added.
 describe('POST /agents/:agentDid/compromise-report and GET .../compromise-reports, storage branches', () => {
   function makeApp(overrides: {
     findByDid?: (did: string) => Promise<Agent | null>;
     compromiseRepo?: CompromiseRepository;
+    accountRepo?: MemoryAccountRepository;
   }): Express {
     const baseAgents = new MemoryAgentRepository();
     const agentRepo: AgentRepository = {
@@ -193,7 +328,7 @@ describe('POST /agents/:agentDid/compromise-report and GET .../compromise-report
       recordKeyRotation: (did, input) => baseAgents.recordKeyRotation(did, input),
     };
     return createApp(
-      new MemoryAccountRepository(),
+      overrides.accountRepo ?? new MemoryAccountRepository(),
       agentRepo,
       undefined,
       undefined,
@@ -204,22 +339,38 @@ describe('POST /agents/:agentDid/compromise-report and GET .../compromise-report
   }
 
   it('POST 503: the agent lookup throws', async () => {
-    const app = makeApp({ findByDid: () => Promise.reject(new Error('db down')) });
+    const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(234));
+    const accountRepo = new MemoryAccountRepository();
+    await accountRepo.register({ did: operator.did, githubLogin: 'compromise-branch-1' });
+    // Only the target agent's own lookup fails: the signing-key resolver's
+    // isRegistered check calls findByDid(operator.did) first, and that call
+    // must succeed so the request reaches the route's own failing lookup.
+    const app = makeApp({
+      findByDid: (did) => (did === AGENT_DID ? Promise.reject(new Error('db down')) : Promise.resolve(null)),
+      accountRepo,
+    });
     await withApp(app, async (url) => {
-      const res = await postJson(url, `/agents/${AGENT_DID}/compromise-report`, { key: `${AGENT_DID}#zKey`, since: '2026-08-10T00:00:00.000Z' });
+      const res = await postSigned(url, `/agents/${AGENT_DID}/compromise-report`, { key: `${AGENT_DID}#zKey`, since: '2026-08-10T00:00:00.000Z' }, operator);
       expect(res.status).toBe(503);
       expect(await res.json()).toEqual({ error: 'storage unavailable' });
     });
   });
 
   it('POST 503: the write throws', async () => {
+    const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(235));
+    const accountRepo = new MemoryAccountRepository();
+    await accountRepo.register({ did: operator.did, githubLogin: 'compromise-branch-2' });
     const failing: CompromiseRepository = {
       record: () => Promise.reject(new Error('db down')),
       listByAgentDid: () => Promise.resolve([]),
     };
-    const app = makeApp({ findByDid: () => Promise.resolve({ did: AGENT_DID } as Agent), compromiseRepo: failing });
+    const app = makeApp({
+      findByDid: () => Promise.resolve({ did: AGENT_DID, operatorDid: operator.did } as Agent),
+      compromiseRepo: failing,
+      accountRepo,
+    });
     await withApp(app, async (url) => {
-      const res = await postJson(url, `/agents/${AGENT_DID}/compromise-report`, { key: `${AGENT_DID}#zKey`, since: '2026-08-10T00:00:00.000Z' });
+      const res = await postSigned(url, `/agents/${AGENT_DID}/compromise-report`, { key: `${AGENT_DID}#zKey`, since: '2026-08-10T00:00:00.000Z' }, operator);
       expect(res.status).toBe(503);
       expect(await res.json()).toEqual({ error: 'storage unavailable' });
     });
@@ -292,27 +443,32 @@ describe('GET /v1/credentials/:credentialId/status (R-16)', () => {
   const agentRepo = new MemoryAgentRepository();
   const compromiseRepo = new MemoryCompromiseRepository();
   const credentialRepo = new MemoryCredentialRepository();
+  let operator: SigningIdentity;
 
   async function saveCredential(completedJobId: string, subjectDid: string, signedBy: string, mergedAt: string): Promise<void> {
     await credentialRepo.save({ completedJobId, subjectDid, document: shapedCredential(subjectDid, signedBy, mergedAt) });
   }
 
-  // Registers the agent (the POST route requires it) and files the report.
+  // Registers the agent (the POST route requires it) and files the report,
+  // signed as the agent's own operator (S4: the route now requires it).
   async function fileReport(subjectDid: string, key: string, since: string): Promise<void> {
     await agentRepo.create({
       did: subjectDid,
-      operatorDid: 'did:abt:zOperatorKeyHash',
-      delegation: { ...delegation, credentialSubject: { id: subjectDid } },
+      operatorDid: operator.did,
+      delegation: { ...delegationFor(subjectDid, operator.did), credentialSubject: { id: subjectDid } },
       name: 'scout',
       skills: ['triage'],
       githubLogin: null,
     });
-    await postJson(baseUrl, `/agents/${subjectDid}/compromise-report`, { key, since });
+    await postSigned(baseUrl, `/agents/${subjectDid}/compromise-report`, { key, since }, operator);
   }
 
   beforeAll(async () => {
+    const accountRepo = new MemoryAccountRepository();
+    operator = await signingIdentityFromSeed(new Uint8Array(32).fill(236));
+    await accountRepo.register({ did: operator.did, githubLogin: 'compromise-status-operator' });
     const app = createApp(
-      new MemoryAccountRepository(),
+      accountRepo,
       agentRepo,
       undefined,
       undefined,
@@ -515,10 +671,14 @@ describe('invariant 2: a third party still verifies, unaided (R-16)', () => {
   const compromiseRepo = new MemoryCompromiseRepository();
   const credentialRepo = new MemoryCredentialRepository();
   const COMPLETED_JOB_ID = 'job-invariant2-compromise';
+  let operator: SigningIdentity;
 
   beforeAll(async () => {
+    const accountRepo = new MemoryAccountRepository();
+    operator = await signingIdentityFromSeed(new Uint8Array(32).fill(237));
+    await accountRepo.register({ did: operator.did, githubLogin: 'compromise-invariant2-operator' });
     const app = createApp(
-      new MemoryAccountRepository(),
+      accountRepo,
       agentRepo,
       undefined,
       undefined,
@@ -547,8 +707,8 @@ describe('invariant 2: a third party still verifies, unaided (R-16)', () => {
 
     await agentRepo.create({
       did: agentDid,
-      operatorDid: 'did:abt:zOperatorKeyHash',
-      delegation: { ...delegation, credentialSubject: { id: agentDid } },
+      operatorDid: operator.did,
+      delegation: { ...delegationFor(agentDid, operator.did), credentialSubject: { id: agentDid } },
       name: 'scout',
       skills: ['triage'],
       githubLogin: null,
@@ -582,10 +742,10 @@ describe('invariant 2: a third party still verifies, unaided (R-16)', () => {
     const beforeReport = JSON.parse(beforeText) as Record<string, unknown>;
 
     // Step 3: report the key compromised, in a window that covers mergedAt.
-    const reportRes = await postJson(baseUrl, `/agents/${agentDid}/compromise-report`, {
+    const reportRes = await postSigned(baseUrl, `/agents/${agentDid}/compromise-report`, {
       key: signedBy,
       since: '2026-08-10T00:00:00.000Z',
-    });
+    }, operator);
     expect(reportRes.status).toBe(201);
 
     // Step 4: GET the credential again. Byte-identical, deep-equal.
