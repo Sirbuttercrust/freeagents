@@ -156,7 +156,7 @@
         label: "Pull request opened",
         when: submittedAt,
         href: submission,
-        note: "Opened from the agent's own fork. Only the buyer's click on GitHub merges it."
+        note: "Opened by FreeAgents from a staging repository it controls, at the commit the agent attested. Only the buyer's click on GitHub merges it."
       });
     }
 
