@@ -51,7 +51,7 @@ function fakeChainClient(): { client: AbtChainClient; sentTx: () => string | und
       sent = input.tx;
       return { hash: 'fakehash' };
     },
-    getTx: async () => ({ code: 'OK' }),
+    getTx: async () => ({ code: 'OK', outputs: [] }),
     getAccountState: async () => ({ state: null }),
   };
   return { client, sentTx: () => sent };
@@ -101,9 +101,9 @@ describe('invariant 12: the platform wallet is never an input owner on any trans
     });
     const finalTx = await walletSignedFinalTxBase58(request.claim);
     const { client, sentTx } = fakeChainClient();
-    const rail2 = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client }));
+    const rail2 = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, rateSource: async () => '1' }));
 
-    await rail2.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'deposit', finalTx });
+    await rail2.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'deposit', finalTx, amountUsd: '2.00' });
 
     const broadcastBase64 = sentTx();
     expect(broadcastBase64).toBeDefined();

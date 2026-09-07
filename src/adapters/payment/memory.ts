@@ -91,7 +91,16 @@ export function createMemoryPaymentRail(): MemoryPaymentRail & MemoryPaymentRail
       const hash = `memory-hash-${input.jobId}-${input.leg}-${String(hashCounter)}`;
       // Unconfirmed by default: a test opts in with setConfirmed.
       confirmations.set(hash, false);
-      return { rail: 'abt', hash, operatorAddress: 'z1MemoryOperator', feeAddress: 'z1MemoryFeeAddress' };
+      return {
+        rail: 'abt',
+        hash,
+        operatorAddress: 'z1MemoryOperator',
+        feeAddress: 'z1MemoryFeeAddress',
+        jobId: input.jobId,
+        leg: input.leg,
+        expectedOperatorUnit: '0',
+        expectedFeeUnit: '0',
+      };
     },
 
     async confirm(ref: AbtPaymentRef): Promise<Confirmation> {

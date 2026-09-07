@@ -23,8 +23,8 @@ describe('createMemoryPaymentRail: createRequest records the request', () => {
 describe('createMemoryPaymentRail: onWalletResponse returns a distinct ref per call', () => {
   it('returns a PaymentRef with a hash, different for each call', async () => {
     const rail = createMemoryPaymentRail();
-    const ref1 = await rail.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'deposit', finalTx: 'x' });
-    const ref2 = await rail.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'balance', finalTx: 'y' });
+    const ref1 = await rail.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'deposit', finalTx: 'x', amountUsd: '10.00' });
+    const ref2 = await rail.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'balance', finalTx: 'y', amountUsd: '30.00' });
     expect(ref1.rail).toBe('abt');
     expect(ref1.hash).not.toBe(ref2.hash);
   });
@@ -33,7 +33,7 @@ describe('createMemoryPaymentRail: onWalletResponse returns a distinct ref per c
 describe('createMemoryPaymentRail: confirm is driven by setConfirmed, not by any external truth', () => {
   it('a fresh ref is unconfirmed until setConfirmed marks it true', async () => {
     const rail = createMemoryPaymentRail();
-    const ref = await rail.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'deposit', finalTx: 'x' });
+    const ref = await rail.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'deposit', finalTx: 'x', amountUsd: '10.00' });
 
     const before = await rail.confirm(ref);
     expect(before.confirmed).toBe(false);
@@ -45,7 +45,7 @@ describe('createMemoryPaymentRail: confirm is driven by setConfirmed, not by any
 
   it('confirm is idempotent: calling it twice after setConfirmed answers identically both times', async () => {
     const rail = createMemoryPaymentRail();
-    const ref = await rail.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'deposit', finalTx: 'x' });
+    const ref = await rail.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'deposit', finalTx: 'x', amountUsd: '10.00' });
     rail.setConfirmed(ref.hash, true);
 
     const first = await rail.confirm(ref);
