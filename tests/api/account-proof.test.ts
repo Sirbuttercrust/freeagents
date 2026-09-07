@@ -6,6 +6,11 @@
 // from resolveDid until a resolver is wired, and the production 503 branch is
 // exactly what that exercises. Everything else runs on the real logic, the
 // same way the R-1/R-2 tests inject repositories.
+//
+// S3+S4 follow-on (security sweep, item 3): the route now requires the
+// agent's own operator (requireCallerIsAgentOperator). Every call past the
+// body-shape check signs as the agent's registered operator; a dedicated
+// caller-gating block pins the refusal shapes.
 import type { Express } from 'express';
 import * as nodeCrypto from 'node:crypto';
 import type { Server } from 'node:http';
@@ -20,24 +25,27 @@ import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import type { DidDocument, IdentityAdapter, SignedPayload } from '../../src/adapters/identity/types.js';
 import { gistProofPayload } from '../../src/domain/account-proof.js';
 import type { Agent, Delegation, ProofStatus } from '../../src/domain/agent.js';
+import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
-// The stored delegation only needs its shape here: create() does not
-// re-verify, and the proof under test in this file is the DID document.
-const delegation: Delegation = {
-  '@context': ['https://www.w3.org/2018/credentials/v1'],
-  id: 'urn:uuid:account-proof-test',
-  type: ['VerifiableCredential', 'AgentDelegation'],
-  issuer: 'did:abt:zOperatorKeyHash',
-  issuanceDate: '2026-08-20T05:00:00.000Z',
-  credentialSubject: { id: 'did:abt:zAgentKeyHash' },
-  proof: {
-    type: 'Ed25519Signature2020',
-    created: '2026-08-20T05:00:00.000Z',
-    verificationMethod: 'did:abt:zOperatorKeyHash#zOperatorKeyHash',
-    proofPurpose: 'assertionMethod',
-    proofValue: 'zMockProofValue',
-  },
-};
+function delegationFor(agentDid: string, operatorDid: string): Delegation {
+  return {
+    '@context': ['https://www.w3.org/2018/credentials/v1'],
+    id: 'urn:uuid:account-proof-test',
+    type: ['VerifiableCredential', 'AgentDelegation'],
+    issuer: operatorDid,
+    issuanceDate: '2026-08-20T05:00:00.000Z',
+    credentialSubject: { id: agentDid },
+    proof: {
+      type: 'Ed25519Signature2020',
+      created: '2026-08-20T05:00:00.000Z',
+      verificationMethod: `${operatorDid}#zOperatorKeyHash`,
+      proofPurpose: 'assertionMethod',
+      proofValue: 'zMockProofValue',
+    },
+  };
+}
+
+// Retained for fixtures that only need the shape (create() never re-verifies).
 
 function standardDocument(id: string, alsoKnownAs: readonly string[] | null): DidDocument {
   return {
@@ -145,16 +153,35 @@ async function postJson(baseUrl: string, path: string, body: unknown): Promise<R
   });
 }
 
+async function postSigned(baseUrl: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
+  const bodyText = JSON.stringify(body);
+  const targetUri = `${baseUrl}${path}`;
+  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText });
+  return fetch(targetUri, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+    body: bodyText,
+  });
+}
+
 describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
   let server: Server;
   let baseUrl: string;
   const repo = new MemoryAccountRepository();
   const agentRepo = new MemoryAgentRepository();
+  let operator: SigningIdentity;
 
   const documents = new Map<string, DidDocument>();
   const gists = new Map<string, Gist | null>();
 
   beforeAll(async () => {
+    operator = await signingIdentityFromSeed(new Uint8Array(32).fill(241));
+    await repo.register({ did: operator.did, githubLogin: 'account-proof-operator' });
     const app = createApp(repo, agentRepo, fakeIdentity(documents), fakeGithub(gists));
     server = app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -172,8 +199,8 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
   async function registerAgent(did: string): Promise<void> {
     const created = await agentRepo.create({
       did,
-      operatorDid: 'did:abt:zOperatorKeyHash',
-      delegation,
+      operatorDid: operator.did,
+      delegation: delegationFor(did, operator.did),
       name: 'scout',
       skills: ['triage'],
       githubLogin: null,
@@ -188,7 +215,7 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
     // and mixed case: both name the same account and must be tolerated.
     documents.set(did, standardDocument(did, ['https://github.com/Scout-Agent/']));
 
-    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent' });
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent' }, operator);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.did).toBe(did);
@@ -204,7 +231,7 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
     expect(readBody.proofStatus).toBe('pending');
   });
 
-  it('400: malformed handles', async () => {
+  it('400: malformed handles, unsigned: body shape is checked before authentication', async () => {
     const did = 'did:abt:zAgentProof1';
     for (const body of [{}, { handle: '' }, { handle: 'a b' }, { handle: 42 }, { handle: null }]) {
       const res = await postJson(baseUrl, `/agents/${did}/account-proof`, body);
@@ -216,10 +243,10 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
     expect(stored?.proofStatus).toBe('pending');
   });
 
-  it('404: an unknown agent', async () => {
-    const res = await postJson(baseUrl, '/agents/did:abt:zNobody/account-proof', {
+  it('404: an unknown agent, signed by a real registered caller', async () => {
+    const res = await postSigned(baseUrl, '/agents/did:abt:zNobody/account-proof', {
       handle: 'scout-agent',
-    });
+    }, operator);
     expect(res.status).toBe(404);
   });
 
@@ -228,7 +255,7 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
     await registerAgent(did);
     documents.set(did, standardDocument(did, null));
 
-    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent' });
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent' }, operator);
     expect(res.status).toBe(409);
     const body = (await res.json()) as Record<string, unknown>;
     // The message names the DID and the exact URL to author.
@@ -241,7 +268,7 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
     await registerAgent(did);
     documents.set(did, standardDocument(did, ['https://github.com/someone-else']));
 
-    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent' });
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent' }, operator);
     expect(res.status).toBe(409);
 
     // The failed check recorded nothing.
@@ -256,7 +283,7 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
     // No document registered: the fake throws NotImplementedError, the same
     // shape the production adapter has today.
 
-    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent' });
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent' }, operator);
     expect(res.status).toBe(503);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe('identity resolution unavailable');
@@ -272,10 +299,10 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
       files: { 'proof.txt': signedStatementFor(did, 'https://github.com/scout-agent') },
     });
 
-    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/abc123',
-    });
+    }, operator);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     // ENT-5.1: verified is the whole point of direction two.
@@ -299,10 +326,10 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
       files: { 'proof.txt': signedStatementFor(did, 'https://github.com/scout-agent') },
     });
 
-    const first = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+    const first = await postSigned(baseUrl, `/agents/${did}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/rsv321',
-    });
+    }, operator);
     expect(first.status).toBe(200);
     let body = (await first.json()) as Record<string, unknown>;
     expect(body.proofStatus).toBe('verified');
@@ -310,10 +337,10 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
     // The operator deleted the gist; the next check must not read that as an
     // outage but as the proof no longer standing.
     gists.set('rsv321', null);
-    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/rsv321',
-    });
+    }, operator);
     expect(res.status).toBe(200);
     body = (await res.json()) as Record<string, unknown>;
     expect(body.proofStatus).toBe('unverified');
@@ -334,17 +361,17 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
     documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
 
     // Direction one alone: the binding is pending, never verified.
-    const first = await postJson(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent' });
+    const first = await postSigned(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent' }, operator);
     expect(first.status).toBe(200);
     const firstBody = (await first.json()) as Record<string, unknown>;
     expect(firstBody.proofStatus).toBe('pending');
 
     // Now the same re-check arrives with a gist that no longer resolves.
     gists.set('tuv543', null);
-    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/tuv543',
-    });
+    }, operator);
     expect(res.status).toBe(409);
     const body = (await res.json()) as Record<string, unknown>;
     // A missing gist is operator-fixable: the message says recreate it.
@@ -357,10 +384,10 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
     expect(stored?.proofStatus).toBe('pending');
   });
 
-  it('400: a gist that is not a parseable gist URL', async () => {
+  it('400: a gist that is not a parseable gist URL, signed as the operator', async () => {
     const did = 'did:abt:zAgentProof1';
     for (const gist of [42, 'https://github.com/scout-agent/x', 'https://gist.github.com/only-owner', 'not a url']) {
-      const res = await postJson(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent', gist });
+      const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent', gist }, operator);
       expect(res.status, JSON.stringify(gist)).toBe(400);
     }
   });
@@ -375,10 +402,10 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
       files: { 'proof.txt': signedStatementFor(did, 'https://github.com/scout-agent') },
     });
 
-    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/def456',
-    });
+    }, operator);
     expect(res.status).toBe(409);
     const body = (await res.json()) as Record<string, unknown>;
     expect(String(body.error)).toContain('direction one (DID document)');
@@ -395,10 +422,10 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
     await registerAgent(did);
     documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
 
-    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/someone-else/abc123',
-    });
+    }, operator);
     expect(res.status).toBe(409);
     const body = (await res.json()) as Record<string, unknown>;
     expect(String(body.error)).toContain('direction two (signed gist)');
@@ -414,10 +441,10 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
       files: { 'proof.txt': signedStatementFor(did, 'https://github.com/scout-agent') },
     });
 
-    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/ghi789',
-    });
+    }, operator);
     expect(res.status).toBe(409);
     const body = (await res.json()) as Record<string, unknown>;
     expect(String(body.error)).toContain('direction two (signed gist)');
@@ -433,10 +460,10 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
       files: { 'readme.md': 'some notes without any statement keys' },
     });
 
-    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/jkl012',
-    });
+    }, operator);
     expect(res.status).toBe(409);
     const body = (await res.json()) as Record<string, unknown>;
     expect(String(body.error)).toContain('direction two (signed gist)');
@@ -454,10 +481,10 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
       files: { 'proof.txt': signedStatementFor('did:abt:zSomeOtherAgent', 'https://github.com/scout-agent') },
     });
 
-    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/mno345',
-    });
+    }, operator);
     expect(res.status).toBe(409);
     const body = (await res.json()) as Record<string, unknown>;
     expect(String(body.error)).toContain('direction two (signed gist)');
@@ -473,10 +500,10 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
       files: { 'proof.txt': signedStatementFor(did, 'https://github.com/someone-else') },
     });
 
-    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/pqr678',
-    });
+    }, operator);
     expect(res.status).toBe(409);
     const body = (await res.json()) as Record<string, unknown>;
     expect(String(body.error)).toContain('direction two (signed gist)');
@@ -500,10 +527,10 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
       files: { 'proof.txt': forged },
     });
 
-    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/stu901',
-    });
+    }, operator);
     expect(res.status).toBe(409);
     const body = (await res.json()) as Record<string, unknown>;
     expect(String(body.error)).toContain('direction two (signed gist)');
@@ -531,10 +558,10 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
         files: { 'proof.txt': gistStatementContent(did, 'https://github.com/scout-agent', signature) },
       });
 
-      const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+      const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, {
         handle: 'scout-agent',
         gist: `https://gist.github.com/scout-agent/${gistId}`,
-      });
+      }, operator);
       expect(res.status).toBe(409);
       const body = (await res.json()) as Record<string, unknown>;
       // The message names what the operator can fix; asserting it also kills
@@ -556,10 +583,10 @@ describe('POST /agents/:agentDid/account-proof (R-3, direction one)', () => {
     documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
     // The id is not in the fake's map, so getPublicGist rejects.
 
-    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, {
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/does-not-exist',
-    });
+    }, operator);
     expect(res.status).toBe(503);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe('github unavailable');
@@ -573,8 +600,9 @@ describe('POST /agents/:agentDid/account-proof, identity verification failure', 
   const documents = new Map<string, DidDocument>();
   const gists = new Map<string, Gist | null>();
   const base = new MemoryAgentRepository();
+  const accountRepo = new MemoryAccountRepository();
   const app = createApp(
-    new MemoryAccountRepository(),
+    accountRepo,
     base,
     fakeIdentity(documents, () => {
       throw new Error('verify down');
@@ -583,11 +611,13 @@ describe('POST /agents/:agentDid/account-proof, identity verification failure', 
   );
 
   it('503: the verifier throws', async () => {
+    const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(242));
+    await accountRepo.register({ did: operator.did, githubLogin: 'account-proof-verify-down-operator' });
     const did = 'did:abt:zAgentVerifyDown';
     await base.create({
       did,
-      operatorDid: 'did:abt:zOperatorKeyHash',
-      delegation,
+      operatorDid: operator.did,
+      delegation: delegationFor(did, operator.did),
       name: 'scout',
       skills: ['triage'],
       githubLogin: null,
@@ -607,10 +637,10 @@ describe('POST /agents/:agentDid/account-proof, identity verification failure', 
       if (address === null || typeof address === 'string') {
         throw new Error('expected server to listen on a port');
       }
-      const res = await postJson(`http://127.0.0.1:${address.port}`, `/agents/${did}/account-proof`, {
+      const res = await postSigned(`http://127.0.0.1:${address.port}`, `/agents/${did}/account-proof`, {
         handle: 'scout-agent',
         gist: 'https://gist.github.com/scout-agent/vwx234',
-      });
+      }, operator);
       expect(res.status).toBe(503);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('identity verification unavailable');
@@ -625,7 +655,10 @@ describe('POST /agents/:agentDid/account-proof, identity verification failure', 
 // exercises: a failing lookup, a failing update, and an update that reports
 // the agent as not stored even though the lookup succeeded, on both the
 // normal and the R-5 downgrade write. Each gets its own app with a wrapped
-// repository, the same way the R-1/R-2 tests inject them.
+// repository, the same way the R-1/R-2 tests inject them. The caller in
+// every case is a real R-34 signature naming the agent's operator,
+// registered as an Account, so the branch under test is reached past the
+// caller gate the S3+S4 fix added.
 describe('POST /agents/:agentDid/account-proof, storage branches', () => {
   const documents = new Map<string, DidDocument>();
   const gists = new Map<string, Gist | null>();
@@ -637,6 +670,7 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
       did: string,
       input: { readonly handle: string; readonly status: ProofStatus },
     ) => Promise<Agent | null>;
+    accountRepo?: MemoryAccountRepository;
   } = {}): Express {
     const repo: AgentRepository = {
       create: (input) => base.create(input),
@@ -645,7 +679,7 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
         overrides.updateGithubBinding ?? ((did, input) => base.updateGithubBinding(did, input)),
       recordKeyRotation: (did, input) => base.recordKeyRotation(did, input),
     };
-    return createApp(new MemoryAccountRepository(), repo, fakeIdentity(documents), fakeGithub(gists));
+    return createApp(overrides.accountRepo ?? new MemoryAccountRepository(), repo, fakeIdentity(documents), fakeGithub(gists));
   }
 
   // A storage failure is a logged operator concern, not output the test
@@ -666,11 +700,11 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
     }
   }
 
-  async function registerAgent(did: string): Promise<void> {
+  async function registerAgent(did: string, operatorDid: string): Promise<void> {
     await base.create({
       did,
-      operatorDid: 'did:abt:zOperatorKeyHash',
-      delegation,
+      operatorDid,
+      delegation: delegationFor(did, operatorDid),
       name: 'scout',
       skills: ['triage'],
       githubLogin: null,
@@ -679,11 +713,19 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
 
   it('503: the agent lookup throws', async () => {
     const did = 'did:abt:zAgentLookupFail';
+    const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(243));
+    const accountRepo = new MemoryAccountRepository();
+    await accountRepo.register({ did: operator.did, githubLogin: 'account-proof-branch-1' });
+    // Only the target agent's own lookup fails: the signing-key resolver's
+    // isRegistered check resolves the operator through the real account
+    // repository (repo.findByDid), so this wrapped agent repository never
+    // needs to answer for the operator's own DID.
     const app = makeApp({
-      findByDid: () => Promise.reject(new Error('storage down')),
+      findByDid: (lookupDid) => (lookupDid === did ? Promise.reject(new Error('storage down')) : Promise.resolve(null)),
+      accountRepo,
     });
     await withApp(app, async (url) => {
-      const res = await postJson(url, `/agents/${did}/account-proof`, { handle: 'scout-agent' });
+      const res = await postSigned(url, `/agents/${did}/account-proof`, { handle: 'scout-agent' }, operator);
       expect(res.status).toBe(503);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('storage unavailable');
@@ -692,13 +734,17 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
 
   it('404: the update reports the agent as not stored, after the lookup succeeded', async () => {
     const did = 'did:abt:zAgentUpdateNull';
-    await registerAgent(did);
+    const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(244));
+    const accountRepo = new MemoryAccountRepository();
+    await accountRepo.register({ did: operator.did, githubLogin: 'account-proof-branch-2' });
+    await registerAgent(did, operator.did);
     documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
     const app = makeApp({
       updateGithubBinding: () => Promise.resolve(null),
+      accountRepo,
     });
     await withApp(app, async (url) => {
-      const res = await postJson(url, `/agents/${did}/account-proof`, { handle: 'scout-agent' });
+      const res = await postSigned(url, `/agents/${did}/account-proof`, { handle: 'scout-agent' }, operator);
       expect(res.status).toBe(404);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe(`agent ${did} is not registered`);
@@ -707,13 +753,17 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
 
   it('503: the binding update throws', async () => {
     const did = 'did:abt:zAgentUpdateFail';
-    await registerAgent(did);
+    const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(245));
+    const accountRepo = new MemoryAccountRepository();
+    await accountRepo.register({ did: operator.did, githubLogin: 'account-proof-branch-3' });
+    await registerAgent(did, operator.did);
     documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
     const app = makeApp({
       updateGithubBinding: () => Promise.reject(new Error('storage down')),
+      accountRepo,
     });
     await withApp(app, async (url) => {
-      const res = await postJson(url, `/agents/${did}/account-proof`, { handle: 'scout-agent' });
+      const res = await postSigned(url, `/agents/${did}/account-proof`, { handle: 'scout-agent' }, operator);
       expect(res.status).toBe(503);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('storage unavailable');
@@ -727,7 +777,10 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
 
   it('503: the downgrade write throws on a dead-gist re-check (R-5)', async () => {
     const did = 'did:abt:zAgentDowngradeFail';
-    await registerAgent(did);
+    const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(246));
+    const accountRepo = new MemoryAccountRepository();
+    await accountRepo.register({ did: operator.did, githubLogin: 'account-proof-branch-4' });
+    await registerAgent(did, operator.did);
     documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
     gists.set('xyz789', {
       id: 'xyz789',
@@ -736,12 +789,12 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
     });
 
     // First check verifies the binding, through the same wrapped repository.
-    const app = makeApp();
+    const app = makeApp({ accountRepo });
     await withApp(app, async (url) => {
-      const res = await postJson(url, `/agents/${did}/account-proof`, {
+      const res = await postSigned(url, `/agents/${did}/account-proof`, {
         handle: 'scout-agent',
         gist: 'https://gist.github.com/scout-agent/xyz789',
-      });
+      }, operator);
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.proofStatus).toBe('verified');
@@ -751,12 +804,13 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
     gists.set('xyz789', null);
     const failingApp = makeApp({
       updateGithubBinding: () => Promise.reject(new Error('storage down')),
+      accountRepo,
     });
     await withApp(failingApp, async (url) => {
-      const res = await postJson(url, `/agents/${did}/account-proof`, {
+      const res = await postSigned(url, `/agents/${did}/account-proof`, {
         handle: 'scout-agent',
         gist: 'https://gist.github.com/scout-agent/xyz789',
-      });
+      }, operator);
       expect(res.status).toBe(503);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('storage unavailable');
@@ -765,7 +819,10 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
 
   it('404: the downgrade write reports the agent as not stored (R-5)', async () => {
     const did = 'did:abt:zAgentDowngradeNull';
-    await registerAgent(did);
+    const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(247));
+    const accountRepo = new MemoryAccountRepository();
+    await accountRepo.register({ did: operator.did, githubLogin: 'account-proof-branch-5' });
+    await registerAgent(did, operator.did);
     documents.set(did, standardDocument(did, ['https://github.com/scout-agent']));
     gists.set('uvw321', {
       id: 'uvw321',
@@ -773,12 +830,12 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
       files: { 'proof.txt': signedStatementFor(did, 'https://github.com/scout-agent') },
     });
 
-    const app = makeApp();
+    const app = makeApp({ accountRepo });
     await withApp(app, async (url) => {
-      const res = await postJson(url, `/agents/${did}/account-proof`, {
+      const res = await postSigned(url, `/agents/${did}/account-proof`, {
         handle: 'scout-agent',
         gist: 'https://gist.github.com/scout-agent/uvw321',
-      });
+      }, operator);
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.proofStatus).toBe('verified');
@@ -787,15 +844,72 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
     gists.set('uvw321', null);
     const nullApp = makeApp({
       updateGithubBinding: () => Promise.resolve(null),
+      accountRepo,
     });
     await withApp(nullApp, async (url) => {
-      const res = await postJson(url, `/agents/${did}/account-proof`, {
+      const res = await postSigned(url, `/agents/${did}/account-proof`, {
         handle: 'scout-agent',
         gist: 'https://gist.github.com/scout-agent/uvw321',
-      });
+      }, operator);
       expect(res.status).toBe(404);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe(`agent ${did} is not registered`);
     });
+  });
+});
+
+// S3+S4 follow-on (security sweep, item 3 of the brief): this route is in
+// the same ungated /agents/:agentDid/* family; the sweep could not observe
+// it (503 in that environment) but the brief names it explicitly.
+describe('POST /agents/:agentDid/account-proof, caller gating', () => {
+  let server: Server;
+  let baseUrl: string;
+  let agentRepo: MemoryAgentRepository;
+  let operator: SigningIdentity;
+  let stranger: SigningIdentity;
+  let did: string;
+
+  beforeAll(async () => {
+    const documents = new Map<string, DidDocument>();
+    const gists = new Map<string, Gist | null>();
+    operator = await signingIdentityFromSeed(new Uint8Array(32).fill(248));
+    stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(249));
+    did = 'did:abt:zAccountProofGateAgent';
+    agentRepo = new MemoryAgentRepository();
+    const accountRepo = new MemoryAccountRepository();
+    await accountRepo.register({ did: operator.did, githubLogin: 'account-proof-gate-operator' });
+    await accountRepo.register({ did: stranger.did, githubLogin: 'account-proof-gate-stranger' });
+    await agentRepo.create({
+      did,
+      operatorDid: operator.did,
+      delegation: delegationFor(did, operator.did),
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    const app = createApp(accountRepo, agentRepo, fakeIdentity(documents), fakeGithub(gists));
+    server = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('expected a port');
+    baseUrl = `http://127.0.0.1:${address.port}`;
+  });
+
+  afterAll(() => {
+    server.close();
+  });
+
+  it('401: a request with no session and no signature is refused, and stores nothing', async () => {
+    const res = await postJson(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent' });
+    expect(res.status).toBe(401);
+    expect((await agentRepo.findByDid(did))?.githubLogin ?? null).toBeNull();
+  });
+
+  it('403: a registered stranger (not this agent\'s operator) is refused, and stores nothing', async () => {
+    const res = await postSigned(baseUrl, `/agents/${did}/account-proof`, { handle: 'scout-agent' }, stranger);
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(String(body.error)).not.toContain(operator.did);
+    expect((await agentRepo.findByDid(did))?.githubLogin ?? null).toBeNull();
   });
 });

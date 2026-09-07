@@ -712,10 +712,10 @@ describe('the API starts and answers', () => {
     expect(await verifyIndependent(credential)).toBe(true);
 
     // 4. Rotate over HTTP.
-    const rotated = await post(`/agents/${oldDid}/key-rotation`, {
+    const rotated = await postAsWallet(`/agents/${oldDid}/key-rotation`, {
       fromKey: oldKeyId,
       toKey: newKeyId,
-    });
+    }, operatorWallet);
     expect(rotated.status).toBe(200);
     const rotatedBody = (await rotated.json()) as Record<string, unknown>;
 
@@ -737,13 +737,17 @@ describe('the API starts and answers', () => {
     expect(readRotation).toBeDefined();
     expect(String(readRotation.fromKey)).toBe(oldKeyId);
 
-    // 7. Failure cases over the wire: an identity rotation is a 400, and a
-    // well-formed body for an unknown agent is a 404.
+    // 7. Failure cases over the wire: an identity rotation is a 400, checked
+    // before authentication (no signature on this request, still refused
+    // for the right reason); and a well-formed body signed by a real
+    // caller for an unknown agent is a 404, so the enumeration-safe 401 on
+    // an unauthenticated request (S3, security sweep) is not confused with
+    // a genuine not-found.
     expect(
       (await post(`/agents/${oldDid}/key-rotation`, { fromKey: oldKeyId, toKey: oldKeyId })).status,
     ).toBe(400);
     expect(
-      (await post('/agents/did:abt:nobody/key-rotation', { fromKey: 'did:abt:nobody#zA', toKey: 'did:abt:nobody#zB' })).status,
+      (await postAsWallet('/agents/did:abt:nobody/key-rotation', { fromKey: 'did:abt:nobody#zA', toKey: 'did:abt:nobody#zB' }, operatorWallet)).status,
     ).toBe(404);
 
     // 8. The assertion that earns the test: rotation did not orphan the
@@ -851,7 +855,7 @@ describe('the API starts and answers', () => {
 
     // 3. The matching handle records the binding. ENT-5.1: direction one
     // alone is pending, never verified.
-    const ok = await post(`/agents/${agentWallet.toDid()}/account-proof`, { handle: 'scout-agent' });
+    const ok = await postAsWallet(`/agents/${agentWallet.toDid()}/account-proof`, { handle: 'scout-agent' }, operatorWallet);
     expect(ok.status).toBe(200);
     const okBody = (await ok.json()) as Record<string, unknown>;
     expect(okBody.proofStatus).toBe('pending');
@@ -859,7 +863,7 @@ describe('the API starts and answers', () => {
 
     // 4. A different handle does not match the document: a conflict, and the
     // failed check must not replace the recorded binding.
-    const wrong = await post(`/agents/${agentWallet.toDid()}/account-proof`, { handle: 'someone-else' });
+    const wrong = await postAsWallet(`/agents/${agentWallet.toDid()}/account-proof`, { handle: 'someone-else' }, operatorWallet);
     expect(wrong.status).toBe(409);
     const read = await get(`/agents/${agentWallet.toDid()}`);
     const readBody = (await read.json()) as Record<string, unknown>;
@@ -867,7 +871,7 @@ describe('the API starts and answers', () => {
     expect(readBody.githubLogin).toBe('scout-agent');
 
     // 5. An unregistered agent is a 404, so the 200 above meant something.
-    const missing = await post('/agents/did:abt:nobody/account-proof', { handle: 'scout-agent' });
+    const missing = await postAsWallet('/agents/did:abt:nobody/account-proof', { handle: 'scout-agent' }, operatorWallet);
     expect(missing.status).toBe(404);
   });
 
@@ -909,10 +913,10 @@ describe('the API starts and answers', () => {
     });
 
     // 4. Both directions hold: 200 and verified, per ENT-5.1.
-    const ok = await post(`/agents/${agentWallet.toDid()}/account-proof`, {
+    const ok = await postAsWallet(`/agents/${agentWallet.toDid()}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/e2e-proof-gist',
-    });
+    }, operatorWallet);
     expect(ok.status).toBe(200);
     const okBody = (await ok.json()) as Record<string, unknown>;
     expect(okBody.proofStatus).toBe('verified');
@@ -947,10 +951,10 @@ describe('the API starts and answers', () => {
       owner: 'someone-else',
       files: { 'proof.txt': statement },
     });
-    const forged = await post(`/agents/${agentWallet.toDid()}/account-proof`, {
+    const forged = await postAsWallet(`/agents/${agentWallet.toDid()}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/e2e-forged-gist',
-    });
+    }, operatorWallet);
     expect(forged.status).toBe(409);
 
     // 7. A statement signed by a different key is a conflict, and the
@@ -962,10 +966,10 @@ describe('the API starts and answers', () => {
       owner: 'scout-agent',
       files: { 'proof.txt': `version: 1\ndid: ${agentWallet.toDid()}\ngithub: ${accountUrl}\nsignature: ${imposterSignature}\n` },
     });
-    const imposterRes = await post(`/agents/${agentWallet.toDid()}/account-proof`, {
+    const imposterRes = await postAsWallet(`/agents/${agentWallet.toDid()}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/e2e-imposter-gist',
-    });
+    }, operatorWallet);
     expect(imposterRes.status).toBe(409);
     const read = await get(`/agents/${agentWallet.toDid()}`);
     const readBody = (await read.json()) as Record<string, unknown>;
@@ -973,20 +977,20 @@ describe('the API starts and answers', () => {
 
     // 8. A malformed gist URL is a client error, checked before anything
     // is fetched or recorded.
-    const badUrl = await post(`/agents/${agentWallet.toDid()}/account-proof`, {
+    const badUrl = await postAsWallet(`/agents/${agentWallet.toDid()}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://github.com/scout-agent/x',
-    });
+    }, operatorWallet);
     expect(badUrl.status).toBe(400);
 
     // 9. R-5 (ENT-5.3): the operator deletes the gist. The next check with
     // the same body must not read that as an outage; it is the check's
     // answer, and a verified binding drops to unverified.
     gists.set('e2e-proof-gist', null);
-    const recheck = await post(`/agents/${agentWallet.toDid()}/account-proof`, {
+    const recheck = await postAsWallet(`/agents/${agentWallet.toDid()}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/e2e-proof-gist',
-    });
+    }, operatorWallet);
     expect(recheck.status).toBe(200);
     const recheckBody = (await recheck.json()) as Record<string, unknown>;
     expect(recheckBody.proofStatus).toBe('unverified');
