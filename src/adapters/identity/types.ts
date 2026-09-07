@@ -33,7 +33,15 @@ export interface SignedPayload {
 }
 
 export interface IdentityAdapter {
-  createOperatorDid(): Promise<DidKeyPair>;
+  // P8d: derives an operator DID deterministically from
+  // FREEAGENTS_PLATFORM_SEED and the sign-in subject (HKDF, node:crypto),
+  // so signing in twice as the same subject never mints a second DID and
+  // no private key is ever stored (the caller keeps only what this
+  // returns: the DID and the public key). Rejects when the platform seed
+  // is unset or malformed, naming the environment variable, rather than
+  // falling back to a random key that would mint a different DID after
+  // every restart.
+  createOperatorDid(subject: string): Promise<DidKeyPair>;
   // The resulting DID's controller is the operator DID: an agent never
   // stands accountable on its own (MISSION.md, "Who it is for").
   createAgentDid(operatorDid: string): Promise<DidKeyPair>;

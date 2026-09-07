@@ -435,12 +435,15 @@ describe('P8a: refusal shapes on the session path', () => {
     });
   });
 
-  it('401: a session for an account that does not exist', async () => {
+  it('503: a session for an account that does not exist yet, with no platform seed configured to provision one', async () => {
     const jobId = await createJobWithSession();
 
     // A live, real session token -- verifyPasskey genuinely succeeds --
     // for a passkey subject that was NEVER registered as an Account. The
-    // proof is real; nothing has claimed that identity yet.
+    // proof is real; nothing has claimed that identity yet. P8d: this
+    // describe block's app has no FREEAGENTS_PLATFORM_SEED configured, so
+    // resolveActingParty's own auto-provisioning attempt fails closed
+    // (503) rather than silently resolving to no party (the old 401).
     const unregisteredSubject = 'p8a-refusal-unregistered-subject';
     const { optionsJson } = await sessionAdapter.registerPasskey(unregisteredSubject);
     const registrationOptions = JSON.parse(optionsJson) as { challenge: string };
@@ -454,7 +457,7 @@ describe('P8a: refusal shapes on the session path', () => {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...unregisteredAuthHeader },
     });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(503);
   });
 
   it('401: no proof at all (no session, no signature)', async () => {
@@ -617,71 +620,83 @@ describe('P8a: a signature and a session naming different DIDs resolves to the s
 // the buyer side of a job is unaffected: a buyer DID is ordinarily
 // self-chosen and was never defended by a key even before this card.
 describe('P8a (D1): an agent DID already claimed by a delegation cannot be registered as an Account', () => {
-  it('POST /accounts refuses a did an Agent already holds, and the session it would have minted never resolves to a party', async () => {
-    const repo = new MemoryAccountRepository();
-    const agentRepo = new MemoryAgentRepository();
-    const jobRepo = new MemoryJobRepository();
-    const AGENT_DID = 'did:abt:p8a-d1-victim-agent';
-    await createAgent(agentRepo, AGENT_DID, 'did:abt:p8a-d1-victim-operator');
-
-    const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(251));
-    await repo.register({ did: buyer.did, githubLogin: 'p8a-d1-buyer-login' });
-
-    const sessionAdapter = passkeyAdapter();
-    const attackerSubject = 'p8a-d1-attacker-subject';
-
-    const { server, baseUrl } = await bootServer(
-      repo,
-      agentRepo,
-      undefined,
-      undefined,
-      jobRepo,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      sessionAdapter,
-    );
-
+  it('POST /accounts refuses a did an Agent already holds, and the session it would have minted never resolves to the agent as a party', async () => {
+    const original = process.env.FREEAGENTS_PLATFORM_SEED;
+    process.env.FREEAGENTS_PLATFORM_SEED = 'a'.repeat(64);
     try {
-      // The attacker registers an Account claiming the victim agent's own
-      // public DID, binding it to a passkey subject the attacker controls.
-      const claim = await fetch(`${baseUrl}/accounts`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          did: AGENT_DID,
-          githubLogin: 'p8a-d1-attacker-login',
-          passkeySubject: attackerSubject,
-        }),
-      });
-      expect(claim.status).not.toBe(201);
-      expect(claim.status).toBe(409);
+      const repo = new MemoryAccountRepository();
+      const agentRepo = new MemoryAgentRepository();
+      const jobRepo = new MemoryJobRepository();
+      const AGENT_DID = 'did:abt:p8a-d1-victim-agent';
+      await createAgent(agentRepo, AGENT_DID, 'did:abt:p8a-d1-victim-operator');
 
-      // No Account row exists for the agent's DID: the registration was
-      // refused, not silently downgraded.
-      const read = await fetch(`${baseUrl}/accounts/${AGENT_DID}`);
-      expect(read.status).toBe(404);
+      const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(251));
+      await repo.register({ did: buyer.did, githubLogin: 'p8a-d1-buyer-login' });
 
-      // A real, live session for the attacker's own passkey subject: the
-      // ceremony succeeds (nothing wrong with the attacker's own identity),
-      // but no Account claims that subject, so resolveActingParty resolves
-      // to no party at all.
-      const attackerAuthHeader = await passkeySessionHeader(sessionAdapter, attackerSubject);
+      const sessionAdapter = passkeyAdapter();
+      const attackerSubject = 'p8a-d1-attacker-subject';
 
-      const created = await postSigned(baseUrl, '/jobs', { agentDid: AGENT_DID, repository: 'buyer/target-repo', brief: 'Fix the login bug' }, buyer);
-      expect(created.status).toBe(201);
-      const jobId = String(((await created.json()) as Record<string, unknown>).id);
+      const { server, baseUrl } = await bootServer(
+        repo,
+        agentRepo,
+        undefined,
+        undefined,
+        jobRepo,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        sessionAdapter,
+      );
 
-      const declined = await fetch(`${baseUrl}/jobs/${jobId}/decline`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...attackerAuthHeader },
-      });
-      expect(declined.status).toBe(401);
+      try {
+        // The attacker registers an Account claiming the victim agent's own
+        // public DID, binding it to a passkey subject the attacker controls.
+        const claim = await fetch(`${baseUrl}/accounts`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            did: AGENT_DID,
+            githubLogin: 'p8a-d1-attacker-login',
+            passkeySubject: attackerSubject,
+          }),
+        });
+        expect(claim.status).not.toBe(201);
+        expect(claim.status).toBe(409);
+
+        // No Account row exists for the agent's DID: the registration was
+        // refused, not silently downgraded.
+        const read = await fetch(`${baseUrl}/accounts/${AGENT_DID}`);
+        expect(read.status).toBe(404);
+
+        // A real, live session for the attacker's own passkey subject: the
+        // ceremony succeeds (nothing wrong with the attacker's own
+        // identity). P8d: this session now PROVISIONS a real account for
+        // the attacker (auto-provisioning at first sign-in), but that
+        // provisioned account is a NEW, distinct DID, never the victim
+        // agent's own DID (the agent's DID is already claimed by a
+        // delegation, and POST /accounts refused to let this session claim
+        // it above). The provisioned account is simply not a party to
+        // this job.
+        const attackerAuthHeader = await passkeySessionHeader(sessionAdapter, attackerSubject);
+
+        const created = await postSigned(baseUrl, '/jobs', { agentDid: AGENT_DID, repository: 'buyer/target-repo', brief: 'Fix the login bug' }, buyer);
+        expect(created.status).toBe(201);
+        const jobId = String(((await created.json()) as Record<string, unknown>).id);
+
+        const declined = await fetch(`${baseUrl}/jobs/${jobId}/decline`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...attackerAuthHeader },
+        });
+        expect(declined.status).toBe(403);
+      } finally {
+        server.close();
+      }
     } finally {
-      server.close();
+      if (original === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
+      else process.env.FREEAGENTS_PLATFORM_SEED = original;
     }
   });
 });

@@ -45,21 +45,27 @@ describe('/signin offers the two real controls, and no longer says sign-in does 
   });
 
   // D1 descoped by review ruling (P8b, 2026-09-07): a session and a
-  // registered account are two different things, and this build does not
-  // yet create the second one for a person automatically. The page must
-  // say so up front rather than let either control's success path end at
-  // a 403 with no explanation. Static because it has to be true before
-  // either button is even clicked: the GitHub half never renders anything
-  // on this page after a real redirect round trip (the callback route
-  // answers JSON directly, unchanged by this card), so a message tied only
-  // to a button's success handler would never reach that path at all.
-  it('tells a visitor up front that signing in is not the same as having a registered account', async () => {
+  // registered account were, at that time, two different things, and
+  // that build did not yet create the second one for a person
+  // automatically. P8d closes that gap: the first sign-in now
+  // provisions the account itself, so the page must say THAT instead,
+  // not repeat a caveat that is no longer true.
+  it('tells a visitor up front that signing in creates their account, with no separate registration step', async () => {
     const res = await fetch(`${baseUrl}/signin`, { headers: { Accept: HTML } });
     const body = await res.text();
 
     expect(body).toContain('id="account-notice"');
-    expect(body).toContain('registered account');
-    expect(body).toContain('does not create one for you automatically yet');
+    expect(body).toContain('creates your account');
+    expect(body).not.toContain('does not create one for you automatically yet');
+  });
+
+  // P8d: the account-notice above tells the truth now; nowhere else on
+  // the page may repeat the retracted caveat it replaces.
+  it('does not claim anywhere on the page that a separate registration step is still needed after signing in', async () => {
+    const res = await fetch(`${baseUrl}/signin`, { headers: { Accept: HTML } });
+    const body = await res.text();
+
+    expect(body).not.toContain('this build does not create one for you automatically yet');
   });
 
   // qa review round 3, D3 (claim-contradicts-implementation): the

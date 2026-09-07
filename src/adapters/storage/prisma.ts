@@ -90,14 +90,14 @@ async function agentWithRotations(did: string): Promise<Agent | null> {
 export class PrismaAccountRepository implements AccountRepository {
   async register(input: {
     readonly did: string;
-    readonly githubLogin: string;
+    readonly githubLogin?: string | null;
     readonly passkeySubject?: string | null;
   }): Promise<Account> {
     try {
       const row = await db().account.create({
         data: {
           did: input.did,
-          githubLogin: input.githubLogin,
+          githubLogin: input.githubLogin ?? null,
           passkeySubject: input.passkeySubject ?? null,
         },
       });
@@ -120,12 +120,24 @@ export class PrismaAccountRepository implements AccountRepository {
     return row === null ? null : toAccount(row);
   }
 
-  async findByGithubLogin(githubLogin: string): Promise<Account | null> {
+  // P8d guard: Postgres does not treat NULL as equal to NULL under a
+  // UNIQUE index, so a bare `findUnique({ where: { githubLogin: null } })`
+  // would not raise an error, but it also cannot promise which of several
+  // null rows it returns; either way it is the exact authentication
+  // bypass this guard exists to close (a passkey-only account, which
+  // always has githubLogin === null, must never be reachable by naming no
+  // login at all). Refused before the query runs, matching the memory
+  // driver's identical short-circuit.
+  async findByGithubLogin(githubLogin: string | null): Promise<Account | null> {
+    if (githubLogin === null || githubLogin === '') return null;
     const row = await db().account.findUnique({ where: { githubLogin } });
     return row === null ? null : toAccount(row);
   }
 
-  async findByPasskeySubject(passkeySubject: string): Promise<Account | null> {
+  // P8d guard: the identical null-subject refusal, mirrored for
+  // passkeySubject.
+  async findByPasskeySubject(passkeySubject: string | null): Promise<Account | null> {
+    if (passkeySubject === null || passkeySubject === '') return null;
     const row = await db().account.findUnique({ where: { passkeySubject } });
     return row === null ? null : toAccount(row);
   }
@@ -170,7 +182,7 @@ export class PrismaAccountRepository implements AccountRepository {
 // added once rather than at five call sites that can drift out of sync.
 function toAccount(row: {
   did: string;
-  githubLogin: string;
+  githubLogin: string | null;
   passkeySubject: string | null;
   createdAt: Date;
   operatorAddressEvm: string | null;

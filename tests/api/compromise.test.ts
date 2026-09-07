@@ -359,51 +359,64 @@ describe('POST /agents/:agentDid/compromise-report, caller gating (S4)', () => {
     });
   });
 
-  // Proof audit round 1, D2: resolveActingParty returning null (a session
-  // that names nobody registered) must refuse 403, the same as any other
-  // non-operator, and store nothing. Nothing pinned this branch before.
-  it('a session that resolves to no registered account is refused 403, and stores nothing (D2)', async () => {
-    const sessionAdapter = testSessionAdapter();
-    const accountRepo = new MemoryAccountRepository();
-    const sessionAgentRepo = new MemoryAgentRepository();
-    const sessionCompromiseRepo = new MemoryCompromiseRepository();
-    const realOperator = await signingIdentityFromSeed(new Uint8Array(32).fill(237));
-    await accountRepo.register({ did: realOperator.did, githubLogin: 'compromise-d2-real-operator' });
-    const sessionAgentDid = 'did:abt:zSessionCompromiseUnregisteredAgent';
-    await sessionAgentRepo.create({
-      did: sessionAgentDid,
-      operatorDid: realOperator.did,
-      delegation: delegationFor(sessionAgentDid, realOperator.did),
-      name: 'scout',
-      skills: ['triage'],
-      githubLogin: null,
-    });
-    const app = createApp(
-      accountRepo,
-      sessionAgentRepo,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      sessionCompromiseRepo,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      sessionAdapter,
-    );
-    await withApp(app, async (url) => {
-      // testSessionAdapter's bearer token resolves to githubLogin
-      // 'test-session-user', which no account here is registered under.
-      const auth = await sessionHeader(sessionAdapter);
-      const res = await fetch(`${url}/agents/${sessionAgentDid}/compromise-report`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...auth },
-        body: JSON.stringify({ key: `${sessionAgentDid}#zKey`, since: '2026-08-10T00:00:00.000Z' }),
+  // Proof audit round 1, D2: a caller who is not the agent's operator
+  // must refuse 403 and store nothing. P8d widened what "resolves to no
+  // registered account" means: a live session now always provisions one
+  // (auto-provisioning at first sign-in), so the refusal this test pins
+  // now comes from the operator MISMATCH check, not from an unresolved
+  // party -- the session's own provisioned account is real, just not
+  // this agent's operator.
+  it('a session that resolves to a freshly provisioned account, not the agent operator, is refused 403 and stores nothing (D2)', async () => {
+    const original = process.env.FREEAGENTS_PLATFORM_SEED;
+    process.env.FREEAGENTS_PLATFORM_SEED = 'a'.repeat(64);
+    try {
+      const sessionAdapter = testSessionAdapter();
+      const accountRepo = new MemoryAccountRepository();
+      const sessionAgentRepo = new MemoryAgentRepository();
+      const sessionCompromiseRepo = new MemoryCompromiseRepository();
+      const realOperator = await signingIdentityFromSeed(new Uint8Array(32).fill(237));
+      await accountRepo.register({ did: realOperator.did, githubLogin: 'compromise-d2-real-operator' });
+      const sessionAgentDid = 'did:abt:zSessionCompromiseUnregisteredAgent';
+      await sessionAgentRepo.create({
+        did: sessionAgentDid,
+        operatorDid: realOperator.did,
+        delegation: delegationFor(sessionAgentDid, realOperator.did),
+        name: 'scout',
+        skills: ['triage'],
+        githubLogin: null,
       });
-      expect(res.status).toBe(403);
-      expect((await sessionCompromiseRepo.listByAgentDid(sessionAgentDid)).length).toBe(0);
-    });
+      const app = createApp(
+        accountRepo,
+        sessionAgentRepo,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        sessionCompromiseRepo,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        sessionAdapter,
+      );
+      await withApp(app, async (url) => {
+        // testSessionAdapter's bearer token resolves to githubLogin
+        // 'test-session-user', which no account here is registered
+        // under, so this session PROVISIONS a fresh account -- one that
+        // is real, but is not this agent's operator.
+        const auth = await sessionHeader(sessionAdapter);
+        const res = await fetch(`${url}/agents/${sessionAgentDid}/compromise-report`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...auth },
+          body: JSON.stringify({ key: `${sessionAgentDid}#zKey`, since: '2026-08-10T00:00:00.000Z' }),
+        });
+        expect(res.status).toBe(403);
+        expect((await sessionCompromiseRepo.listByAgentDid(sessionAgentDid)).length).toBe(0);
+      });
+    } finally {
+      if (original === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
+      else process.env.FREEAGENTS_PLATFORM_SEED = original;
+    }
   });
 });
 

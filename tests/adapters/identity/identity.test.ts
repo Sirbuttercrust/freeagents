@@ -7,9 +7,10 @@
 // never fabricated and never fetched over the network. An unobserved DID is
 // an honest failure, not a guessed document.
 import * as nodeCrypto from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-key-2020';
 import { fromRandom } from '@ocap/wallet';
+import { fromPublicKey } from '@arcblock/did';
 
 import { createIdentityAdapter } from '../../../src/adapters/identity/identity.js';
 import { createKnownKeyStore } from '../../../src/adapters/identity/did-abt-resolver.js';
@@ -173,5 +174,87 @@ describe('createIdentityAdapter, durable fallback (D2, task t_8a82c865)', () => 
     await expect(
       identity.verify({ payload: 'x', signature: 'AAAA', signerDid: 'did:abt:zNeverObservedAnywhere' }),
     ).rejects.toThrow();
+  });
+});
+
+// P8d: createOperatorDid is the real derivation the auto-provisioning card
+// (t_dcbf6a5e) needs: deterministic from FREEAGENTS_PLATFORM_SEED and the
+// sign-in subject, so signing in twice as the same subject can never mint
+// a second DID, and the platform never stores a private key.
+describe('createIdentityAdapter, createOperatorDid (P8d)', () => {
+  const ORIGINAL_SEED = process.env.FREEAGENTS_PLATFORM_SEED;
+
+  afterEach(() => {
+    if (ORIGINAL_SEED === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
+    else process.env.FREEAGENTS_PLATFORM_SEED = ORIGINAL_SEED;
+  });
+
+  it('is deterministic: the same subject derives the identical DID every call', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = 'a'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+
+    const first = await identity.createOperatorDid('subject-repeat-me');
+    const second = await identity.createOperatorDid('subject-repeat-me');
+
+    expect(first.did).toBe(second.did);
+    expect(first.publicKeyMultibase).toBe(second.publicKeyMultibase);
+    expect(first.did.startsWith('did:abt:')).toBe(true);
+  });
+
+  it('two different subjects derive two different DIDs, from the identical seed', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = 'b'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+
+    const a = await identity.createOperatorDid('subject-a');
+    const b = await identity.createOperatorDid('subject-b');
+
+    expect(a.did).not.toBe(b.did);
+  });
+
+  it('the derived DID actually verifies real signature material through @arcblock/did fromPublicKey, not a hand-rolled encoding', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = 'c'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+
+    const { did, publicKeyMultibase } = await identity.createOperatorDid('subject-verify-me');
+    const key = await Ed25519VerificationKey2020.fromFingerprint({
+      fingerprint: publicKeyMultibase,
+    });
+    const raw = (key as unknown as { _publicKeyBuffer: Uint8Array })._publicKeyBuffer;
+    expect(did).toBe(`did:abt:${fromPublicKey(raw)}`);
+  });
+
+  // MUTATION PROOF 1 (card's own list, item 1): a random rather than
+  // seed-derived key must be rejected by this exact test, since the same
+  // subject would then mint two different DIDs across two calls.
+  it('MUTATION PROOF: derivation must not be random -- calling twice with a fresh in-process adapter still agrees', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = 'd'.repeat(64);
+    const first = await createIdentityAdapter(createKnownKeyStore()).createOperatorDid('subject-mutation-proof');
+    const second = await createIdentityAdapter(createKnownKeyStore()).createOperatorDid('subject-mutation-proof');
+    expect(first.did).toBe(second.did);
+  });
+
+  // MUTATION PROOF 5 (card's own list, item 5): a missing seed must fail
+  // closed, never fall back to a random key that would mint a different
+  // DID after every restart.
+  it('fails closed, naming FREEAGENTS_PLATFORM_SEED, when the seed is unset', async () => {
+    delete process.env.FREEAGENTS_PLATFORM_SEED;
+    const identity = createIdentityAdapter(createKnownKeyStore());
+
+    await expect(identity.createOperatorDid('subject-no-seed')).rejects.toThrow(/FREEAGENTS_PLATFORM_SEED/);
+  });
+
+  it('fails closed, naming FREEAGENTS_PLATFORM_SEED, when the seed is malformed (not 64 hex chars)', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = 'not-hex-and-too-short';
+    const identity = createIdentityAdapter(createKnownKeyStore());
+
+    await expect(identity.createOperatorDid('subject-bad-seed')).rejects.toThrow(/FREEAGENTS_PLATFORM_SEED/);
+  });
+
+  it('never stores or returns a private key: the projection carries only did and publicKeyMultibase', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = 'e'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+
+    const pair = await identity.createOperatorDid('subject-no-secret');
+    expect(Object.keys(pair).sort()).toEqual(['did', 'publicKeyMultibase']);
   });
 });

@@ -11,7 +11,14 @@
 // both.
 export interface Account {
   readonly did: string;
-  readonly githubLogin: string;
+  // P8d: nullable. A passkey-only account, provisioned automatically at
+  // first sign-in, never held a GitHub OAuth session and so never has a
+  // real login to record. Inventing a placeholder string here would
+  // poison this column: it is unique at the schema, and
+  // GET /buyers/:githubLogin/conduct keys off it, so a fabricated value
+  // would either collide with a stranger's future real login or answer
+  // that route with a lie.
+  readonly githubLogin: string | null;
   readonly passkeySubject: string | null;
   readonly createdAt: Date;
   // S3: the EVM address this account is paid at on the USDC rail, set by

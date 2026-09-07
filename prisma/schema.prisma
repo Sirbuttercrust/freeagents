@@ -86,7 +86,13 @@ enum SettlementState {
 // both, and only a value that actually exists can collide.
 model Account {
   did            String   @id
-  githubLogin    String   @unique
+  // P8d: nullable. A passkey-only account (provisioned at first sign-in,
+  // never a GitHub OAuth session) has no GitHub login at all; inventing a
+  // synthetic one would poison this unique column and key
+  // GET /buyers/:githubLogin/conduct on fabricated data. Every row created
+  // before this card already carries a real login, and no backfill writes
+  // one here.
+  githubLogin    String?  @unique
   passkeySubject String?  @unique
   createdAt      DateTime @default(now())
   // S3: the EVM address this account is paid at on the USDC rail, set by
