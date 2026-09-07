@@ -97,4 +97,13 @@
   } else {
     start();
   }
+
+  /* One implementation of the nav state (brief scope item 6), so a page
+     whose own script stores a session without navigating away -- the
+     passkey path on /signin, unlike the GitHub callback, sends nobody
+     anywhere -- has a way to ask this same rule to run again instead of
+     copying it. window.FANav.refresh() re-reads fa_session and updates
+     the same two elements render() already owns; nothing here invents a
+     second copy of the rule. */
+  window.FANav = { refresh: render };
 })();
