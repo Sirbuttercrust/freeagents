@@ -885,6 +885,13 @@ describe('the staged screen, driven end to end against the real app', () => {
         expect(paraCell).not.toBeNull();
         const paraStyle = page.window.getComputedStyle(paraCell as Element);
         expect(paraStyle.gridColumn).toBe('1 / -1');
+        expect(factsGrid?.tagName).toBe('UL');
+        expect(choicesGrid?.tagName).toBe('UL');
+        const css = page.document.querySelector('style')?.textContent ?? '';
+        const pathsRule = css.match(/\.facts \.paths\s*\{[^}]*\}/)?.[0] ?? '';
+        expect(pathsRule).toMatch(/overflow-wrap:\s*anywhere/);
+        expect(pathsRule).not.toMatch(/[^-]width:\s*\d/);
+        expect(css).toContain('@media (max-width: 520px) { .facts li { grid-template-columns: 1fr; }');
       } finally {
         page.close();
       }
