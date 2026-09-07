@@ -61,6 +61,20 @@ describe('/signin offers the two real controls, and no longer says sign-in does 
     expect(body).toContain('registered account');
     expect(body).toContain('does not create one for you automatically yet');
   });
+
+  // qa review round 3, D3 (claim-contradicts-implementation): the
+  // account-notice above told the truth, and the "How signing in works"
+  // section 737px below it told the opposite: that every account can hire
+  // and list "from the moment it exists" and identity "is created behind
+  // the scenes" already. Both were rendered visible on the same page. This
+  // guards the retraction the same way the placeholder-sentence guard above
+  // guards the earlier lie, so a repair cannot silently reintroduce it.
+  it('does not claim elsewhere on the page that an account is already created automatically for every visitor', async () => {
+    const res = await fetch(`${baseUrl}/signin`, { headers: { Accept: HTML } });
+    const body = await res.text();
+
+    expect(body).not.toContain('can list from the moment it exists');
+  });
 });
 
 // This is the fact the page's controls rest on. Every route named here
