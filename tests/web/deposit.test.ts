@@ -767,9 +767,7 @@ describe('the deposit screen, driven end to end against the real app', () => {
           Object.defineProperty(page.window, 'fetch', {
             writable: true,
             value: async (input: string, init?: RequestInit) =>
-              String(input).includes(route)
-                ? new Response(JSON.stringify({ error }), { status, headers: { 'content-type': 'application/json' } })
-                : originalFetch(new URL(input, baseUrl), init),
+              String(input).includes(route) ? new Response(JSON.stringify({ error }), { status, headers: { 'content-type': 'application/json' } }) : originalFetch(new URL(input, baseUrl), init),
           });
           btn.click();
           await new Promise((resolve) => setTimeout(resolve, 100));
