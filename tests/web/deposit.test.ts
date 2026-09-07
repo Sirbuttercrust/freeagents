@@ -785,6 +785,8 @@ describe('the deposit screen, driven end to end against the real app', () => {
           [503, 'storage unavailable'],
         ]);
         expect(new Set(payStart).size).toBe(4);
+        expect((payStart[0] ?? '').toLowerCase()).toContain('sign in');
+        expect((payStart[1] ?? '').toLowerCase()).toContain('no agreed price');
         expect((payStart[2] ?? '').toLowerCase()).toContain('nothing was charged');
         expect((payStart[3] ?? '').toLowerCase()).not.toContain('nothing was charged');
 
@@ -793,7 +795,9 @@ describe('the deposit screen, driven end to end against the real app', () => {
           [409, 'confirm needs every criterion accepted by both parties'],
         ]);
         expect(new Set(confirmRefusals).size).toBe(2);
+        expect((confirmRefusals[0] ?? '').toLowerCase()).toContain('sign in');
         expect(confirmRefusals[0]).not.toContain('pay the deposit');
+        expect((confirmRefusals[1] ?? '').toLowerCase()).toContain('finish signing');
         expect(confirmRefusals[1]).not.toContain('agreed price to pay against');
       } finally {
         page.close();
