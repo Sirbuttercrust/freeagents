@@ -97,6 +97,14 @@ model Account {
   // Account, not Agent: it is a property of the party being paid, and
   // one account may operate many agents (Ruling 3).
   operatorAddressEvm String?
+  // P8c: the ABT rail's sibling of operatorAddressEvm. Nullable, no
+  // default, same reasoning: an account has no ABT payout address on
+  // record until it sets one through the same PATCH route. Before this
+  // column existed, the ABT rail derived the recipient from the account's
+  // own DID suffix; that is exactly the binding this card breaks, because
+  // it silently pays whoever holds the key behind the DID string rather
+  // than an address the account has explicitly named as its payout.
+  operatorAddressAbt String?
 
   agents Agent[]
 }
