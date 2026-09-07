@@ -9,7 +9,7 @@
 // buyer's input); itx.outputs pay the operator and the platform fee.
 import { describe, expect, it } from 'vitest';
 import { fromRandom } from '@ocap/wallet';
-import { fromTokenToUnit, bytesToHex } from '@ocap/util';
+import { fromTokenToUnit, bytesToHex, fromBase58 } from '@ocap/util';
 import { encodeTx, decodeTx as cborDecodeTx } from '@ocap/message/cbor';
 import { createAbtPaymentRail } from '../../../src/adapters/payment/abt.js';
 import { PaymentConfigError, RateUnavailableError } from '../../../src/adapters/payment/types.js';
@@ -211,9 +211,15 @@ function fakeChainClient(overrides: Partial<AbtChainClient> = {}): {
 // createRequest() claim, adds a buyer input, and returns it base58-encoded
 // -- exactly what the DID Connect claim answer's `finalTx` field carries in
 // the working reference (qr-server.mjs: `client.decodeTx(fromBase58(c.finalTx))`).
-async function walletSignedFinalTxBase58(claim: {
-  readonly partialTx: { readonly from: string; readonly pk: string; readonly itx: { readonly outputs: unknown } };
-}): Promise<{ base58: string; buyerAddress: string }> {
+// `outputsOverride`, when supplied, replaces the outputs the claim itself
+// named before signing -- simulating a WALLET that redirects a payment,
+// the exact shape review round 2's D1 reproduction used.
+async function walletSignedFinalTxBase58(
+  claim: {
+    readonly partialTx: { readonly from: string; readonly pk: string; readonly itx: { readonly outputs: unknown } };
+  },
+  outputsOverride?: unknown,
+): Promise<{ base58: string; buyerAddress: string }> {
   const { toBase58 } = await import('@ocap/util');
   const buyer = fromRandom();
   const decoded = {
@@ -223,7 +229,7 @@ async function walletSignedFinalTxBase58(claim: {
       type: 'TransferV3Tx',
       value: {
         inputs: [{ owner: buyer.toAddress() }],
-        outputs: claim.partialTx.itx.outputs,
+        outputs: outputsOverride ?? claim.partialTx.itx.outputs,
       },
     },
     signatures: [{ signer: buyer.toAddress() }],
@@ -246,7 +252,14 @@ describe('createAbtPaymentRail: onWalletResponse (decode, sign the envelope, bro
     const { client, calls } = fakeChainClient();
     const rail2 = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, rateSource: async () => '1' }));
 
-    const ref = await rail2.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'deposit', finalTx, amountUsd: '2.00' });
+    const ref = await rail2.onWalletResponse({
+      rail: 'abt',
+      jobId: 'job_1',
+      leg: 'deposit',
+      finalTx,
+      amountUsd: '2.00',
+      operatorAddress,
+    });
 
     expect(ref.rail).toBe('abt');
     expect(ref.hash).toBe('fakehash');
@@ -285,7 +298,14 @@ describe('createAbtPaymentRail: onWalletResponse (decode, sign the envelope, bro
     });
     const { base58: finalTx } = await walletSignedFinalTxBase58(request.claim);
 
-    const ref = await rail.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'deposit', finalTx, amountUsd: '100.00' });
+    const ref = await rail.onWalletResponse({
+      rail: 'abt',
+      jobId: 'job_1',
+      leg: 'deposit',
+      finalTx,
+      amountUsd: '100.00',
+      operatorAddress,
+    });
 
     // At a 1:1 rate, 100.00 USD is 100 ABT; the 3 percent ABT fee on top
     // is 3 ABT. fromTokenToUnit's default is 18 decimals.
@@ -313,7 +333,14 @@ describe('createAbtPaymentRail: onWalletResponse (decode, sign the envelope, bro
     });
     const { base58: finalTx } = await walletSignedFinalTxBase58(request.claim);
 
-    const cheapRef = await rail.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'deposit', finalTx, amountUsd: '1.00' });
+    const cheapRef = await rail.onWalletResponse({
+      rail: 'abt',
+      jobId: 'job_1',
+      leg: 'deposit',
+      finalTx,
+      amountUsd: '1.00',
+      operatorAddress,
+    });
     expect(cheapRef.expectedOperatorUnit).toBe(fromTokenToUnit('1').toString());
     expect(cheapRef.expectedOperatorUnit).not.toBe(fromTokenToUnit('100').toString());
   });
@@ -346,7 +373,14 @@ describe('createAbtPaymentRail: onWalletResponse (decode, sign the envelope, bro
     });
     const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, rateSource: async () => '1' }));
 
-    await rail.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'deposit', finalTx, amountUsd: '2.00' });
+    await rail.onWalletResponse({
+      rail: 'abt',
+      jobId: 'job_1',
+      leg: 'deposit',
+      finalTx,
+      amountUsd: '2.00',
+      operatorAddress,
+    });
 
     expect(broadcastTxBase64).toBeDefined();
     const { fromBase64: fromB64 } = await import('@ocap/util');
@@ -462,6 +496,63 @@ describe('createAbtPaymentRail: confirm (S2, binds the chain\'s own record to wh
     const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client }));
 
     const confirmation = await rail.confirm(refFor('abc123'));
+    expect(confirmation.confirmed).toBe(false);
+    expect(confirmation.status).toBe('mismatched');
+  });
+
+  // Review round 2, D1: a hand-built ref cannot prove the recipient check
+  // binds, because a ref built by hand can always name the correct
+  // address regardless of what onWalletResponse would actually have put
+  // there. This test drives the REAL path end to end: createRequest ->
+  // a WALLET that returns a finalTx with the operator output's owner
+  // swapped to an attacker (amounts and fee output untouched) ->
+  // onWalletResponse -> confirm, with a getTx fake that honestly replays
+  // the outputs the finalTx itself carried, exactly as the review's own
+  // reproduction did. If onWalletResponse ever derived the ref's expected
+  // operatorAddress by decoding that same finalTx (rather than from
+  // input.operatorAddress, the address the platform itself named when it
+  // built the request), both sides of the comparison would move together
+  // and this would wrongly confirm.
+  it('a wallet that redirects the operator output to an attacker does not confirm, even though it signs and broadcasts cleanly', async () => {
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail());
+    const request = await rail.createRequest({
+      jobId: 'job_1',
+      leg: 'deposit',
+      operatorAddress,
+      amountToken: '100',
+      feeToken: '3',
+    });
+    const tamperedOutputs = [
+      { owner: strangerAddress, tokens: request.claim.partialTx.itx.outputs[0].tokens, assets: [] },
+      request.claim.partialTx.itx.outputs[1],
+    ];
+    const { base58: finalTx } = await walletSignedFinalTxBase58(request.claim, tamperedOutputs);
+    const { client } = fakeChainClient({
+      // Honestly replays whatever finalTx actually carried, the same
+      // posture job-payment-abt.test.ts's fakeAbtChainClient already
+      // takes: getTx must answer THE CHAIN's own record of what was
+      // broadcast, never an invented list.
+      getTx: async () => {
+        const decoded = (await cborDecodeTx(fromBase58(finalTx))) as {
+          itx: { outputs: readonly { owner: string; tokens: readonly { address: string; value: string }[] }[] };
+        };
+        return { code: 'OK', outputs: decoded.itx.outputs };
+      },
+    });
+    const rail2 = withEnv(envConfig(), () =>
+      createAbtPaymentRail({ chainClient: client, rateSource: async () => '1', spentTransferStorage: fakeAbtSpentTransferStorage().storage }),
+    );
+
+    const ref = await rail2.onWalletResponse({
+      rail: 'abt',
+      jobId: 'job_1',
+      leg: 'deposit',
+      finalTx,
+      amountUsd: '100.00',
+      operatorAddress,
+    });
+    const confirmation = await rail2.confirm(ref);
+
     expect(confirmation.confirmed).toBe(false);
     expect(confirmation.status).toBe('mismatched');
   });
