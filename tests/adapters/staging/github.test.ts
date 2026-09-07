@@ -2,7 +2,7 @@
 // through the existing github adapter's compareCommits (no clone, no
 // checkout, no process spawn -- the anchor is "the platform reports what
 // git plainly says about the staged commit and never executes a line of
-// the agent's code", Keaton 2026-09-07). Driven against a fake
+// the agent's code", the operator 2026-09-07). Driven against a fake
 // GithubAdapter; no call in this file ever reaches the real GitHub API.
 import { describe, expect, it } from 'vitest';
 import { createGithubStagingObserver } from '../../../src/adapters/staging/github.js';
