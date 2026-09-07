@@ -617,26 +617,47 @@ describe('the deposit screen, driven end to end against the real app', () => {
           priceAcceptedByAgent: true,
         }),
       );
-      const page = await renderDeposit(baseUrl, 'job-confirm-count', { token: buyerToken });
+      const path = `/deposit?job=job-confirm-count`;
+      const response = await fetch(`${baseUrl}${path}`, { headers: { Accept: HTML } });
+      const markup = await response.text();
+      let confirmCalls = 0;
+      const virtualConsole = new VirtualConsole();
+      const failures: string[] = [];
+      virtualConsole.on('jsdomError', (error: Error) => failures.push(error.message));
+      const dom = new JSDOM(markup, {
+        url: `${baseUrl}${path}`,
+        runScripts: 'dangerously',
+        resources: 'usable',
+        pretendToBeVisual: true,
+        virtualConsole,
+        beforeParse(window) {
+          window.sessionStorage.setItem('fa_session', JSON.stringify({ token: buyerToken }));
+          // Installed BEFORE any page script runs (mutation proof 6 needs
+          // the whole page lifecycle observed, including a call this
+          // script might make during its own load, not only after).
+          Object.defineProperty(window, 'fetch', {
+            writable: true,
+            value: (input: string, init?: RequestInit) => {
+              if (String(input).includes('/confirm')) confirmCalls += 1;
+              return fetch(new URL(input, baseUrl), init);
+            },
+          });
+        },
+      });
+      await new Promise<void>((resolve) => {
+        if (dom.window.document.readyState === 'complete') resolve();
+        else dom.window.addEventListener('load', () => resolve());
+      });
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
       try {
-        let confirmCalls = 0;
-        const originalFetch = global.fetch;
-        Object.defineProperty(page.window, 'fetch', {
-          writable: true,
-          value: (input: string, init?: RequestInit) => {
-            if (String(input).includes('/confirm')) confirmCalls += 1;
-            return originalFetch(new URL(input, baseUrl), init);
-          },
-        });
-        await new Promise((resolve) => setTimeout(resolve, 300));
         expect(confirmCalls).toBe(0);
-
-        const approvedBtn = page.document.getElementById('approved-btn') as HTMLButtonElement;
+        const approvedBtn = dom.window.document.getElementById('approved-btn') as HTMLButtonElement;
         approvedBtn.click();
         await new Promise((resolve) => setTimeout(resolve, 200));
         expect(confirmCalls).toBe(1);
       } finally {
-        page.close();
+        dom.window.close();
       }
     });
   });
