@@ -122,14 +122,6 @@ describe('platform signature over an attestation, invariant 2', () => {
         lineShareByCategory: { source: 0.8, test: 0.15, lockfile: 0.03, generated: 0.01, vendored: 0.01 },
         testsDeleted: [],
         testsSkipAdded: [],
-        buyerTestRun: {
-          command: 'npm test',
-          exitCode: 1,
-          passCount: 20,
-          failCount: 1,
-          skipCount: 0,
-          failingTestNames: ['checkout flow works'],
-        },
         outOfCriteriaPathCount: 1,
         commitSigners: [{ matchesAgentDid: true }],
       },
@@ -209,14 +201,6 @@ describe('platform signature over an attestation, invariant 2', () => {
       changedPaths: ['src/b.ts', 'src/a.ts'],
       testsDeleted: [] as string[],
       testsSkipAdded: [] as string[],
-      buyerTestRun: {
-        command: 'npm test',
-        exitCode: 0,
-        passCount: 10,
-        failCount: 0,
-        skipCount: 0,
-        failingTestNames: [] as string[],
-      },
       outOfCriteriaPathCount: 1,
     };
     const attestationA = buildAttestation(

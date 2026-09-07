@@ -42,14 +42,6 @@ function observation(overrides: Partial<StagingObservation> = {}): StagingObserv
     lineShareByCategory: { source: 0.7, test: 0.2, lockfile: 0.05, generated: 0.03, vendored: 0.02 },
     testsDeleted: ['tests/old.test.ts'],
     testsSkipAdded: ['tests/flaky.test.ts'],
-    buyerTestRun: {
-      command: 'npm test',
-      exitCode: 1,
-      passCount: 9,
-      failCount: 1,
-      skipCount: 0,
-      failingTestNames: ['checkout works'],
-    },
     outOfCriteriaPathCount: 2,
     commitSigners: [{ matchesAgentDid: true }, { matchesAgentDid: false }],
     ...overrides,
@@ -80,12 +72,6 @@ describe('buildAttestation: the accepted fields, and only the accepted fields', 
     expect(attestation.lineShareByCategory).toEqual(obs.lineShareByCategory);
     expect(attestation.testsDeleted).toEqual(obs.testsDeleted);
     expect(attestation.testsSkipAdded).toEqual(obs.testsSkipAdded);
-    expect(attestation.buyerTestRun.command).toBe(obs.buyerTestRun.command);
-    expect(attestation.buyerTestRun.exitCode).toBe(obs.buyerTestRun.exitCode);
-    expect(attestation.buyerTestRun.passCount).toBe(obs.buyerTestRun.passCount);
-    expect(attestation.buyerTestRun.failCount).toBe(obs.buyerTestRun.failCount);
-    expect(attestation.buyerTestRun.skipCount).toBe(obs.buyerTestRun.skipCount);
-    expect(attestation.buyerTestRun.failingTestNames).toEqual(obs.buyerTestRun.failingTestNames);
     expect(attestation.outOfCriteriaPathCount).toBe(obs.outOfCriteriaPathCount);
     expect(attestation.commitSigners).toHaveLength(2);
   });
@@ -128,7 +114,6 @@ describe('buildAttestation: the accepted fields, and only the accepted fields', 
         'lineShareByCategory',
         'testsDeleted',
         'testsSkipAdded',
-        'buyerTestRun',
         'outOfCriteriaPathCount',
         'commitSigners',
         'generatedAt',

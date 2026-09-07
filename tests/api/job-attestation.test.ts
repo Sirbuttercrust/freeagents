@@ -11,7 +11,8 @@ import { anyCommitStagingObserver, fixedStagingObserverFor } from '../helpers/st
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
-import { createUnwiredStagingObserver } from '../../src/adapters/staging/types.js';
+import { createUnwiredStagingObserver, type StagingObserver } from '../../src/adapters/staging/types.js';
+import { StagingComparisonTruncatedError } from '../../src/adapters/github/types.js';
 import {
   MemoryAgentRepository,
   MemoryAccountRepository,
@@ -200,7 +201,6 @@ describe('a wired staging observer publishes the attestation before the job reac
     expect(attestation.lineShareByCategory).toBeDefined();
     expect(attestation.testsDeleted).toBeDefined();
     expect(attestation.testsSkipAdded).toBeDefined();
-    expect(attestation.buyerTestRun).toBeDefined();
     expect(attestation.outOfCriteriaPathCount).toBeDefined();
     expect(attestation.commitSigners).toBeDefined();
   });
@@ -405,5 +405,114 @@ describe('GET /jobs/:jobId/attestations: the full history, party-gated, reachabl
     const subject = wire.credentialSubject as Record<string, unknown>;
     const attestation = subject.attestation as Record<string, unknown>;
     expect(attestation.stagedCommit).toBe('commit-sha-2');
+  });
+});
+
+// review round 1, D2 (t_20bf8e3f): the route's own mapping from
+// StagingComparisonTruncatedError to 422 was unpinned at the route level
+// -- only the adapter layer (github-compare.test.ts) proved the error
+// gets thrown at all. Disabling the mapping in src/api/app.ts left the
+// full suite green. This observer throws the same error the real
+// GitHub-backed observer throws when compareCommits reports its 300-file
+// cap, exercised through the route exactly the way a truncated real
+// comparison would reach it.
+describe('POST /jobs/:jobId/stage: a truncated comparison is 422 with the split-the-work sentence (review round 1, D2)', () => {
+  function truncatingObserver(): StagingObserver {
+    return {
+      observe(): Promise<never> {
+        return Promise.reject(
+          new StagingComparisonTruncatedError('freeagents-platform', 'staging-job', 'base-sha', 'staged-sha'),
+        );
+      },
+    };
+  }
+
+  it('422s the stage, leaves the job confirmed, and stores no attestation', async () => {
+    active = await startApp({ stagingObserver: truncatingObserver() });
+    const jobId = await walkToConfirmed(active.baseUrl);
+
+    const stage = await postSigned(active.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-truncated' }, agent);
+    expect(stage.status).toBe(422);
+    expect(await stage.json()).toEqual({ error: 'the change is too large to attest; split the work' });
+
+    const stored = await active.jobRepo.findById(jobId);
+    expect(stored?.status).toBe('confirmed');
+    expect(stored?.stagedCommit).toBeNull();
+    expect(await active.attestationRepo.findByJobId(jobId)).toBeNull();
+  });
+});
+
+// review round 1, D3 (t_20bf8e3f): the stage route's verified-GitHub-login
+// gate (src/api/app.ts, added this card) is the only thing preventing an
+// attestation whose commitSigners were matched against an unverified or
+// missing login. Disabling that guard left the full suite green, because
+// every existing stage test in this file verifies its agent's binding
+// before staging. This describe exercises the unverified leg directly.
+describe('POST /jobs/:jobId/stage: an agent with no verified GitHub login cannot stage (review round 1, D3)', () => {
+  it('503s the stage, leaves the job confirmed, and stores no attestation when verification was revoked after confirm', async () => {
+    const operatorRepo = new MemoryAccountRepository();
+    await operatorRepo.register({ did: buyer.did, githubLogin: `buyer-unverified-${Math.random()}` });
+    const agentRepo = new MemoryAgentRepository();
+    await agentRepo.create({
+      did: agent.did,
+      operatorDid: 'did:abt:op-unverified',
+      delegation: { fixture: true } as never,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: 'scout-unverified',
+    });
+    // Verified at confirm time (confirm's own gate, src/api/app.ts:2935,
+    // requires exactly this), then explicitly downgraded before staging --
+    // the shape that proves the STAGE route's own gate (line 3131) is a
+    // separate, load-bearing check, not a restatement of confirm's.
+    await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-unverified', status: 'verified' });
+    const jobRepo = new MemoryJobRepository();
+    const attestationRepo = new MemoryAttestationRepository();
+    const credentialRepo = new MemoryCredentialRepository();
+    const credentials = createCredentialsAdapter(undefined, credentialRepo);
+    const { github } = createStagingLifecycleGithubFake();
+    const app = createApp(
+      operatorRepo,
+      agentRepo,
+      undefined,
+      github,
+      jobRepo,
+      credentials,
+      undefined,
+      credentialRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      alwaysSettledGate(),
+      anyCommitStagingObserver(),
+      attestationRepo,
+    );
+    const server = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('expected server to listen on a port');
+    }
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    try {
+      const jobId = await walkToConfirmed(baseUrl);
+      const confirmedRow = await jobRepo.findById(jobId);
+      expect(confirmedRow?.status).toBe('confirmed');
+
+      // Revoke verification between confirm and stage.
+      await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-unverified', status: 'pending' });
+
+      const stage = await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-unverified' }, agent);
+      expect(stage.status).toBe(503);
+
+      const stored = await jobRepo.findById(jobId);
+      expect(stored?.status).toBe('confirmed');
+      expect(stored?.stagedCommit).toBeNull();
+      expect(await attestationRepo.findByJobId(jobId)).toBeNull();
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });
