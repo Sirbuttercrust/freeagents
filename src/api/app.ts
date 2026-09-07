@@ -4042,8 +4042,9 @@ export function createApp(
   //      to put one).
   //   4. One review per completed hire (ReviewRepository.save's unique
   //      constraint, mapped to 409 below).
-  //   5. Caller identity comes from a verified R-34 signature, never a
-  //      body field: signerDidOf(req) is the only source of authorDid.
+  //   5. Caller identity comes from a verified R-34 signature or a live
+  //      session (P8a, invariant 8), never a body field:
+  //      resolveActingParty(req, repo) is the only source of authorDid.
   app.post(
     '/jobs/:jobId/reviews',
     didSignature,
