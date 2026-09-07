@@ -284,3 +284,46 @@ describe('prisma/migrations, the SignatureSpend table is actually migrated (S5+S
     expect(sql).toMatch(/PRIMARY KEY \("keyid","signatureHash"\)/);
   });
 });
+
+// P8c (this card, schema-change-without-migration): the same pinning
+// pattern as the S3 block above, against the operatorAddressAbt column
+// this card's schema change adds. Without a migration shipped in the
+// same commit, PrismaAccountRepository.setOperatorAddressAbt's update()
+// call throws on any deployed database because the column never exists
+// there.
+describe('prisma/migrations, Account.operatorAddressAbt is actually migrated (P8c)', () => {
+  const migrationsDirP8c = new URL('../../prisma/migrations/', import.meta.url);
+
+  function allMigrationSqlP8c(): string {
+    const dir = fileURLToPath(migrationsDirP8c);
+    if (!existsSync(dir)) return '';
+    const entries = readdirSync(dir, { withFileTypes: true });
+    return entries
+      .filter((e) => e.isDirectory())
+      .map((e) => join(dir, e.name, 'migration.sql'))
+      .filter((p) => existsSync(p))
+      .map((p) => readFileSync(p, 'utf8'))
+      .join('\n');
+  }
+
+  it('a migration adds Account.operatorAddressAbt', () => {
+    const sql = allMigrationSqlP8c();
+    expect(sql).toMatch(/ALTER TABLE\s+"Account"\s+ADD COLUMN\s+"operatorAddressAbt"\s+TEXT/);
+  });
+
+  it('the schema declares operatorAddressAbt as nullable, with no default', () => {
+    const account = modelBody('Account');
+    expect(account).toMatch(/operatorAddressAbt\s+String\?\s*$/m);
+    expect(account).not.toMatch(/operatorAddressAbt[^\n]*@default/);
+  });
+
+  // Scope item 5 (backfill): every current Account's DID suffix is its
+  // correct ABT address, because every current Account was created by
+  // someone holding that DID. This pins that the migration actually
+  // WRITES the backfill (mutation proof 4: remove it, this test goes
+  // red), not merely that the column exists.
+  it('the same migration backfills operatorAddressAbt from the DID suffix, not merely adding the column', () => {
+    const sql = allMigrationSqlP8c();
+    expect(sql).toMatch(/UPDATE\s+"Account"[\s\S]*SET\s+"operatorAddressAbt"/i);
+  });
+});

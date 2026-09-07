@@ -190,6 +190,7 @@ describe('PrismaAccountRepository', () => {
       passkeySubject: null,
       createdAt,
       operatorAddressEvm: null,
+      operatorAddressAbt: null,
     });
 
     const repo = new PrismaAccountRepository();
@@ -202,15 +203,16 @@ describe('PrismaAccountRepository', () => {
     expect(mock.create).toHaveBeenCalledWith({
       data: { did: 'did:abt:prisma-1', githubLogin: 'operator-prisma-1', passkeySubject: null },
     });
-    // And the projection is exactly the five stored fields.
+    // And the projection is exactly the six stored fields.
     expect(row).toEqual({
       did: 'did:abt:prisma-1',
       githubLogin: 'operator-prisma-1',
       passkeySubject: null,
       createdAt,
       operatorAddressEvm: null,
+      operatorAddressAbt: null,
     });
-    expect(Object.keys(row).sort()).toEqual(['createdAt', 'did', 'githubLogin', 'operatorAddressEvm', 'passkeySubject']);
+    expect(Object.keys(row).sort()).toEqual(['createdAt', 'did', 'githubLogin', 'operatorAddressAbt', 'operatorAddressEvm', 'passkeySubject']);
   });
 
   it('register: a P2002 unique-constraint failure is the domain duplicate error', async () => {
@@ -322,6 +324,48 @@ describe('PrismaAccountRepository', () => {
     const repo = new PrismaAccountRepository();
     const err = await repo
       .setOperatorAddressEvm('did:abt:prisma-evm-2', '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d')
+      .catch((e: unknown) => e);
+
+    expect(err).toBe(original);
+  });
+
+  // P8c: the ABT sibling of setOperatorAddressEvm, same three cases.
+  it('setOperatorAddressAbt: an updated row comes back as the operator projection with the new address', async () => {
+    const createdAt = new Date('2026-09-07T05:00:00.000Z');
+    vi.mocked(mock.update).mockResolvedValue({
+      did: 'did:abt:prisma-abt',
+      githubLogin: 'operator-prisma-abt',
+      passkeySubject: null,
+      createdAt,
+      operatorAddressAbt: 'z6MkExampleSuffix',
+    });
+
+    const repo = new PrismaAccountRepository();
+    const row = await repo.setOperatorAddressAbt('did:abt:prisma-abt', 'z6MkExampleSuffix');
+
+    expect(mock.update).toHaveBeenCalledWith({
+      where: { did: 'did:abt:prisma-abt' },
+      data: { operatorAddressAbt: 'z6MkExampleSuffix' },
+    });
+    expect(row?.operatorAddressAbt).toBe('z6MkExampleSuffix');
+  });
+
+  it('setOperatorAddressAbt: a P2025 record-not-found failure comes back as null', async () => {
+    vi.mocked(mock.update).mockRejectedValue(p2025('did:abt:prisma-abt-unknown'));
+
+    const repo = new PrismaAccountRepository();
+    const row = await repo.setOperatorAddressAbt('did:abt:prisma-abt-unknown', 'z6MkExampleSuffix');
+
+    expect(row).toBeNull();
+  });
+
+  it('setOperatorAddressAbt: a non-P2025 Prisma error is rethrown untouched', async () => {
+    const original = p1001();
+    vi.mocked(mock.update).mockRejectedValue(original);
+
+    const repo = new PrismaAccountRepository();
+    const err = await repo
+      .setOperatorAddressAbt('did:abt:prisma-abt-2', 'z6MkExampleSuffix')
       .catch((e: unknown) => e);
 
     expect(err).toBe(original);

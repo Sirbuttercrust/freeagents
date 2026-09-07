@@ -487,6 +487,9 @@ describe('app, storage failures', () => {
     async setOperatorAddressEvm(): Promise<never> {
       throw registerError;
     }
+    async setOperatorAddressAbt(): Promise<never> {
+      throw registerError;
+    }
   }
 
   let server: Server;
