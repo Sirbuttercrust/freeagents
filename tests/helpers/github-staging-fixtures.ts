@@ -163,6 +163,13 @@ export function createStagingLifecycleGithubFake(
       nextPrNumber += 1;
       return { owner: input.sourceOwner, repo: input.sourceRepo, number };
     },
+
+    // B14b: this fixture's own tests all inject a MemoryStagingObserver
+    // directly (tests/helpers/staging-fixtures.ts) rather than exercising
+    // the real GitHub-backed observer, so compareCommits is never called
+    // through this fake -- the same honest-about-the-gap stub every other
+    // uncalled capability here uses.
+    compareCommits: () => Promise.reject(new NotImplementedError('github', 'compareCommits')),
   };
 
   return {

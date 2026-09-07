@@ -15,6 +15,7 @@ import {
 import { createGithubAdapter } from '../adapters/github/github.js';
 import {
   GistNotFoundError,
+  StagingComparisonTruncatedError,
   type Gist,
   type GithubAdapter,
   type PullRequestRef,
@@ -27,7 +28,8 @@ import type { DidDocument, IdentityAdapter } from '../adapters/identity/types.js
 import { createRateLimiter, type RateLimiter } from '../adapters/identity/verify-rate-limit.js';
 import { createSignatureSpendStorage } from '../adapters/identity/signature-spend-storage.js';
 import type { SignatureSpendStorage } from '../adapters/identity/signature-spend-storage-types.js';
-import { createUnwiredStagingObserver, type StagingObserver } from '../adapters/staging/types.js';
+import { type StagingObserver } from '../adapters/staging/types.js';
+import { createGithubStagingObserver } from '../adapters/staging/github.js';
 import {
   AgentAlreadyExistsError,
   AttestationAlreadyStoredError,
@@ -669,13 +671,16 @@ export function createApp(
   // later card lands on): an unwired build refuses to confirm a job and
   // refuses to open a pull request, which is loud and correct.
   settlementGate: SettlementGate = createSettlementGate(),
-  // P5: the staging observer port (design record, 2026-09-01). Defaults
-  // to the refusing UnwiredStagingObserver (see
-  // src/adapters/staging/types.ts's header comment for the sandboxing
-  // decision the real observer is deliberately not this card's to make):
-  // an unwired build fails the stage route loudly rather than publishing
-  // an attestation full of zeroes.
-  stagingObserver: StagingObserver = createUnwiredStagingObserver(),
+  // P5: the staging observer port (design record, 2026-09-01). B14b
+  // wires the production default to the real GitHub-backed observer
+  // (src/adapters/staging/github.ts, built on the same `github` adapter
+  // instance this function already threads through every other
+  // staging-lifecycle route) -- an interface with only a fake behind it
+  // is not a feature (the inert-declared-control class, B14). Tests
+  // that need a fixed, predictable observation still inject
+  // createMemoryStagingObserver explicitly; the memory driver is not
+  // gone, only no longer the default a caller gets by omission.
+  stagingObserver: StagingObserver = createGithubStagingObserver(github),
   // P5: the durable attestation record. Defaults to the env-derived
   // repository, matching every other storage capability's stance in this
   // file.
@@ -3240,6 +3245,28 @@ export function createApp(
       const stagingRepo = current.stagingRepo;
       const baseCommit = current.baseCommit;
 
+      // B14b: the observer compares commit signers against the agent's
+      // OWN verified GitHub login (R-3/R-4, ENT-5) -- the same fact
+      // confirm already required to be verified before it would grant
+      // push on this exact staging repository. A job cannot reach
+      // `staged` without an agent that already cleared that bar, so a
+      // missing or unverified login here is the same fault class as a
+      // missing staging repository: this route cannot recover from it.
+      let stagingAgent: Agent | null;
+      try {
+        stagingAgent = await agentRepo.findByDid(current.agentDid);
+      } catch (err) {
+        console.error(`${label}: storage failed reading agent`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (stagingAgent === null || stagingAgent.githubLogin === null || stagingAgent.proofStatus !== 'verified') {
+        console.error(`${label}: agent ${current.agentDid} has no verified GitHub login; cannot measure commit signers`);
+        res.status(503).json({ error: 'github unavailable' });
+        return;
+      }
+      const verifiedAgentGithubLogin = stagingAgent.githubLogin;
+
       try {
         await github.getCommit({ owner: stagingRepo.owner, repo: stagingRepo.repo, sha: stagedCommit });
       } catch (err) {
@@ -3276,11 +3303,19 @@ export function createApp(
       let observation;
       try {
         observation = await stagingObserver.observe({
+          owner: stagingRepo.owner,
+          repo: stagingRepo.repo,
           stagedCommit,
           baseCommit,
           criteriaPaths: [],
+          verifiedAgentGithubLogin,
         });
       } catch (err) {
+        if (err instanceof StagingComparisonTruncatedError) {
+          console.error(`${label}: staging comparison truncated`, err);
+          res.status(422).json({ error: 'the change is too large to attest; split the work' });
+          return;
+        }
         console.error(`${label}: staging observation failed`, err);
         res.status(503).json({ error: 'staging observation unavailable' });
         return;

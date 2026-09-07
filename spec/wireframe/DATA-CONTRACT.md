@@ -338,9 +338,6 @@ the buyer BEFORE they pay the balance and before any code is visible.
 | `filesChanged` | staged commit | a count |
 | `additions`, `deletions` | staged commit | `+186 / -94` |
 | `changedPaths[]` | staged commit | **every path, in full** |
-| `testCommand` | the buyer's own, from the agreement | verbatim |
-| `testExit`, `testPassed`, `testFailed`, `testSkipped` | running the buyer's command | a line of counts |
-| `failingTestNames[]` | the buyer's own suite | the buyer's own text, so not a leak |
 | `testsDeleted` | diff of test files | a count, plus paths |
 | `testsNewlySkipped` | diff of skip annotations | a count, plus paths |
 | `pathsOutsideAgreement` | changed paths against the agreed paths | a count |
@@ -351,9 +348,12 @@ the buyer BEFORE they pay the balance and before any code is visible.
 
 **Refused, permanently:** the diff, any source, symbol names, test bodies,
 commit messages, raw test output, per-criterion file mapping, and any summary
-of the approach. Each publishes the work before it is paid for. Failing test
-names survive only because they are the buyer's own text from the buyer's own
-suite.
+of the approach. Each publishes the work before it is paid for. The platform
+never runs the buyer's test command or any other agent-authored code: it is
+an intermediary between the two parties, never an inspector of the work
+(the operator, 2026-09-07). The buyer's own test run, and the failing test names
+it produced, are gone for the same reason -- they were only ever produced
+by executing the suite.
 
 **No verdict field, and none may be added.** No `riskLevel`, no `warnings[]`,
 no `flags[]`, no ordering by concern. The UI renders every row at the same
