@@ -81,6 +81,7 @@ import {
 } from '../domain/account-proof.js';
 import { isValidOperatorDid } from '../domain/operator-did.js';
 import { isValidOperatorAddressEvm } from '../domain/operator-address-evm.js';
+import { isValidOperatorAddressAbt } from '../domain/operator-address-abt.js';
 import type { Account } from '../domain/account.js';
 import {
   acceptCriterion,
@@ -168,15 +169,16 @@ function notImplemented(_req: Request, res: Response): void {
   res.status(501).json({ error: 'not implemented' });
 }
 
-// The Account record projection is the whole response. Exactly these five
+// The Account record projection is the whole response. Exactly these six
 // fields, nothing more: tests/api/account-invariant2.test.ts asserts the
-// key set, and a sixth field here would be a contract change.
+// key set, and a seventh field here would be a contract change.
 // passkeySubject rides the base set unconditionally (null when the
 // account never bound one), the same "every row has the field, not every
 // row has a value" stance agentProjection takes on avatar and
 // keyRotations: an account's shape does not change with which proof it
-// used. operatorAddressEvm rides the same way (S3): null until the
-// operator sets one through PATCH /accounts/:did/operator-address.
+// used. operatorAddressEvm and operatorAddressAbt ride the same way (S3,
+// P8c): null until the operator sets one through
+// PATCH /accounts/:did/operator-address.
 function accountProjection(row: Account): Record<string, unknown> {
   return {
     did: row.did,
@@ -184,6 +186,7 @@ function accountProjection(row: Account): Record<string, unknown> {
     passkeySubject: row.passkeySubject,
     createdAt: row.createdAt.toISOString(),
     operatorAddressEvm: row.operatorAddressEvm,
+    operatorAddressAbt: row.operatorAddressAbt,
   };
 }
 
@@ -1225,14 +1228,14 @@ export function createApp(
     }
   });
 
-  // S3, Ruling 4: the ONLY way an account's USDC recipient address is ever
-  // set. Guarded by requireSessionOrSignature (401 with no proof at all)
-  // and then by the resolved acting party equalling :did (403 for a
-  // registered stranger; the domain rule is "an account may only set its
-  // own address", never "the caller differs from the buyer" -- there is
-  // no buyer here at all, only the account itself). Cannot ride
-  // POST /accounts, which is deliberately unauthenticated to avoid the
-  // fresh-deployment bootstrap deadlock (app.ts:900's own comment): a
+  // S3, Ruling 4 / P8c: the ONLY way an account's payout addresses are ever
+  // set, on either rail. Guarded by requireSessionOrSignature (401 with no
+  // proof at all) and then by the resolved acting party equalling :did
+  // (403 for a registered stranger; the domain rule is "an account may
+  // only set its own address", never "the caller differs from the buyer"
+  // -- there is no buyer here at all, only the account itself). Cannot
+  // ride POST /accounts, which is deliberately unauthenticated to avoid
+  // the fresh-deployment bootstrap deadlock (app.ts:900's own comment): a
   // settable recipient field on that route would be the same hole
   // wearing a different hat.
   app.patch('/accounts/:did/operator-address', requireSessionOrSignature, async (req: Request, res: Response) => {
@@ -1256,21 +1259,50 @@ export function createApp(
       return;
     }
 
-    const body = (req.body ?? {}) as { operatorAddressEvm?: unknown };
-    if (typeof body.operatorAddressEvm !== 'string' || !isValidOperatorAddressEvm(body.operatorAddressEvm)) {
+    // P8c: either field alone is a valid request (brief scope item 3); a
+    // body naming neither is refused, the same way a body naming an
+    // invalid value for a field it DOES name is refused below.
+    const body = (req.body ?? {}) as { operatorAddressEvm?: unknown; operatorAddressAbt?: unknown };
+    if (body.operatorAddressEvm === undefined && body.operatorAddressAbt === undefined) {
       res.status(400).json({
-        error: 'body must be { operatorAddressEvm: string }, an EVM address matching /^0x[0-9a-fA-F]{40}$/',
+        error: 'body must name operatorAddressEvm, operatorAddressAbt, or both',
+      });
+      return;
+    }
+    if (body.operatorAddressEvm !== undefined && (typeof body.operatorAddressEvm !== 'string' || !isValidOperatorAddressEvm(body.operatorAddressEvm))) {
+      res.status(400).json({
+        error: 'operatorAddressEvm must be an EVM address matching /^0x[0-9a-fA-F]{40}$/',
+      });
+      return;
+    }
+    if (body.operatorAddressAbt !== undefined && (typeof body.operatorAddressAbt !== 'string' || !isValidOperatorAddressAbt(body.operatorAddressAbt))) {
+      res.status(400).json({
+        error: 'operatorAddressAbt must be an ABT DID suffix, the same shape isValidOperatorDid enforces on did:abt:<suffix>',
       });
       return;
     }
 
     try {
-      const row = await repo.setOperatorAddressEvm(did, body.operatorAddressEvm);
-      if (row === null) {
-        res.status(404).json({ error: 'not found' });
-        return;
+      // Each field writes independently, through its own repository call,
+      // so a body naming only one never touches the other's stored value
+      // (S3's own stance on operatorAddressEvm, unchanged; P8c widens it
+      // to a second field rather than a second rule).
+      let row: Account | null = null;
+      if (body.operatorAddressEvm !== undefined) {
+        row = await repo.setOperatorAddressEvm(did, body.operatorAddressEvm as string);
+        if (row === null) {
+          res.status(404).json({ error: 'not found' });
+          return;
+        }
       }
-      res.status(200).json(accountProjection(row));
+      if (body.operatorAddressAbt !== undefined) {
+        row = await repo.setOperatorAddressAbt(did, body.operatorAddressAbt as string);
+        if (row === null) {
+          res.status(404).json({ error: 'not found' });
+          return;
+        }
+      }
+      res.status(200).json(accountProjection(row as Account));
     } catch (err) {
       console.error('PATCH /accounts/:did/operator-address: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
@@ -3724,6 +3756,7 @@ export function createApp(
           rail: abtPaymentRail,
           jobRepo,
           agentRepo,
+          accountRepo: repo,
           settlementRepo,
           platformSk: process.env.FREEAGENTS_ABT_PLATFORM_SK || '',
           chainHost: process.env.FREEAGENTS_ABT_CHAIN_HOST || '',

@@ -360,6 +360,13 @@ async function startAbtApp(chainClient: AbtChainClient): Promise<StartedAbtApp> 
       skills: ['triage'],
       githubLogin: null,
     });
+    // P8c: the ABT rail now reads operatorAddressAbt, never the DID
+    // suffix, so this agent's operator needs a real account row carrying
+    // one. Set to the SAME value the old suffix derivation would have
+    // produced, so the existing assertions in this file (which predate
+    // P8c) keep proving what they always proved.
+    await operatorRepo.register({ did: 'did:abt:op-abt-surface', githubLogin: 'operator-abt-surface' });
+    await operatorRepo.setOperatorAddressAbt('did:abt:op-abt-surface', didSuffix('did:abt:op-abt-surface'));
     const jobRepo = new MemoryJobRepository();
     const settlementRepo = new MemorySettlementRepository();
     const gate = new PrismaSettlementGate(settlementRepo);
@@ -928,6 +935,11 @@ describe('S3, Trap 1: self-hire settles normally on ABT, paying the buyer\'s own
 
       const operatorRepo = new MemoryAccountRepository();
       await operatorRepo.register({ did: selfHirer.did, githubLogin: 'self-hirer-abt' });
+      // P8c: the self-hirer's own account needs its ABT payout address on
+      // record, set to the same value the old suffix derivation would
+      // have produced, so this test keeps proving the self-hire case
+      // settles at the buyer's own derived address.
+      await operatorRepo.setOperatorAddressAbt(selfHirer.did, didSuffix(selfHirer.did));
       const agentRepo = new MemoryAgentRepository();
       await agentRepo.create({
         did: agentIdentity.did,
@@ -996,6 +1008,228 @@ describe('S3, Trap 1: self-hire settles normally on ABT, paying the buyer\'s own
       expect(row?.operatorAddress).toBe(didSuffix(started11.selfHirer.did));
     } finally {
       started11.server.close();
+    }
+  });
+});
+
+// P8c: the ABT rail reads Account.operatorAddressAbt, never derives the
+// recipient from the hired agent's operator DID suffix (Anchor: that
+// silent binding is exactly what this card exists to stop). These tests
+// drive the real DID Connect wallet protocol, the same helpers every
+// other describe block in this file uses, so the guard is proven
+// reachable through the route, not only against a unit-tested helper.
+describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed when it is unset', () => {
+  it('an ABT payment start for a job whose hired agent\'s operator has no operatorAddressAbt refuses, naming the PATCH route', async () => {
+    const fakeChain13 = fakeAbtChainClient(true);
+    const port = await reservePort();
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const started13 = await withEnv(abtEnv(baseUrl), async () => {
+      const buyerWallet = fromRandom();
+      const agentWallet = fromRandom();
+      const spentTransferStorage = {
+        async record(): Promise<void> {},
+        async findByHash() {
+          return null;
+        },
+      };
+      const abtRail = createAbtPaymentRail({ chainClient: fakeChain13.client, rateSource: async () => '1', spentTransferStorage });
+
+      const buyer = await signingIdentityFromWallet(buyerWallet);
+      const agent = await signingIdentityFromWallet(agentWallet);
+
+      const operatorRepo = new MemoryAccountRepository();
+      await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-abt-unset' });
+      const agentRepo = new MemoryAgentRepository();
+      await agentRepo.create({
+        did: agent.did,
+        // A real, registered operator account, but one that has never set
+        // an ABT payout address (P8c's own anchor case: an account the
+        // platform provisions rather than a wallet proving possession).
+        operatorDid: 'did:abt:op-abt-unset',
+        delegation: { fixture: true } as never,
+        name: 'scout',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+      await operatorRepo.register({ did: 'did:abt:op-abt-unset', githubLogin: 'operator-abt-unset' });
+
+      const jobRepo = new MemoryJobRepository();
+      const settlementRepo = new MemorySettlementRepository();
+      const gate = new PrismaSettlementGate(settlementRepo);
+
+      const app = createApp(
+        operatorRepo,
+        agentRepo,
+        undefined,
+        undefined,
+        jobRepo,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        gate,
+        anyCommitStagingObserver(),
+        undefined,
+        abtRail,
+        null,
+        settlementRepo,
+        pureTxEncoder,
+      );
+      const server = app.listen(port, '127.0.0.1');
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+
+      const created = await postSigned(baseUrl, '/jobs', {
+        buyerDid: buyer.did,
+        agentDid: agent.did,
+        repository: 'buyer/target-repo',
+        brief: 'Fix the login bug',
+      }, buyer);
+      const job = (await created.json()) as Record<string, unknown>;
+      const jobId = String(job.id);
+      await postSigned(baseUrl, `/jobs/${jobId}/criteria`, { criteria: proposal, priceUsd: '400.00', rail: 'abt' }, agent);
+      await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agent);
+      await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agent);
+      await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agent);
+
+      return { server, baseUrl, buyer, buyerWallet, settlementRepo, jobId };
+    });
+
+    try {
+      const { sessionToken, authCallbackUrl } = await startAbtSession(started13.baseUrl, started13.buyer, {
+        jobId: started13.jobId,
+        leg: 'deposit',
+      });
+      const authPath = new URL(authCallbackUrl).pathname;
+      const step0Res = await fetch(authCallbackUrl);
+      const step0Body = (await step0Res.json()) as DidConnectClaimResponse;
+      const step0 = decodeClaimBody(step0Body);
+      // Advancing past authPrincipal is the step that signs the NEXT
+      // claim (prepareTx), which is where operatorAddressForJob is
+      // called; a null operator address throws before signing, so the
+      // response here is the raw { error } shape, never a signed JWT.
+      const step0SubmitRes = await fetch(`${started13.baseUrl}${authPath}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          _t_: sessionToken,
+          userPk: started13.buyerWallet.publicKey,
+          userInfo: await walletResponseJwt(started13.buyerWallet, step0.challenge, [{ type: 'authPrincipal' }]),
+        }),
+      });
+      const finalBody = (await step0SubmitRes.json()) as { appPk: string; authInfo: string };
+      const decoded = jwtDecode(finalBody.authInfo) as unknown as Record<string, unknown>;
+      const errorMessage = decoded.errorMessage as string | undefined;
+      expect(typeof errorMessage).toBe('string');
+      expect(errorMessage).toContain('operator-address');
+      expect(await started13.settlementRepo.findByJobAndLeg(started13.jobId, 'deposit')).toBeNull();
+    } finally {
+      started13.server.close();
+    }
+  });
+
+  it('the same start succeeds once the operator sets an ABT address, and the prepared transaction pays THAT address, not the DID suffix', async () => {
+    const fakeChain14 = fakeAbtChainClient(true);
+    const port = await reservePort();
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const DIFFERENT_ADDRESS = 'z6MkDifferentFromSuffix';
+    const started14 = await withEnv(abtEnv(baseUrl), async () => {
+      const buyerWallet = fromRandom();
+      const agentWallet = fromRandom();
+      const spentTransferStorage = {
+        async record(): Promise<void> {},
+        async findByHash() {
+          return null;
+        },
+      };
+      const abtRail = createAbtPaymentRail({ chainClient: fakeChain14.client, rateSource: async () => '1', spentTransferStorage });
+
+      const buyer = await signingIdentityFromWallet(buyerWallet);
+      const agent = await signingIdentityFromWallet(agentWallet);
+
+      const operatorRepo = new MemoryAccountRepository();
+      await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-abt-set' });
+      const agentRepo = new MemoryAgentRepository();
+      await agentRepo.create({
+        did: agent.did,
+        operatorDid: 'did:abt:op-abt-set',
+        delegation: { fixture: true } as never,
+        name: 'scout',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+      await operatorRepo.register({ did: 'did:abt:op-abt-set', githubLogin: 'operator-abt-set' });
+      // The stored address deliberately differs from the DID suffix
+      // (didSuffix('did:abt:op-abt-set')), so a passing test proves the
+      // rail pays the STORED address, never falling back to the suffix.
+      await operatorRepo.setOperatorAddressAbt('did:abt:op-abt-set', DIFFERENT_ADDRESS);
+
+      const jobRepo = new MemoryJobRepository();
+      const settlementRepo = new MemorySettlementRepository();
+      const gate = new PrismaSettlementGate(settlementRepo);
+
+      const app = createApp(
+        operatorRepo,
+        agentRepo,
+        undefined,
+        undefined,
+        jobRepo,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        gate,
+        anyCommitStagingObserver(),
+        undefined,
+        abtRail,
+        null,
+        settlementRepo,
+        pureTxEncoder,
+      );
+      const server = app.listen(port, '127.0.0.1');
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+
+      const created = await postSigned(baseUrl, '/jobs', {
+        buyerDid: buyer.did,
+        agentDid: agent.did,
+        repository: 'buyer/target-repo',
+        brief: 'Fix the login bug',
+      }, buyer);
+      const job = (await created.json()) as Record<string, unknown>;
+      const jobId = String(job.id);
+      await postSigned(baseUrl, `/jobs/${jobId}/criteria`, { criteria: proposal, priceUsd: '400.00', rail: 'abt' }, agent);
+      await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agent);
+      await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agent);
+      await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agent);
+
+      return { server, baseUrl, buyer, buyerWallet, settlementRepo, jobId };
+    });
+
+    try {
+      const result = await driveAbtPayment(started14.baseUrl, started14.buyer, started14.buyerWallet, {
+        jobId: started14.jobId,
+        leg: 'deposit',
+      });
+      expect(result.confirmed).toBe(true);
+      const row = await started14.settlementRepo.findByJobAndLeg(started14.jobId, 'deposit');
+      expect(row).not.toBeNull();
+      expect(row?.operatorAddress).toBe(DIFFERENT_ADDRESS);
+      expect(row?.operatorAddress).not.toBe(didSuffix('did:abt:op-abt-set'));
+    } finally {
+      started14.server.close();
     }
   });
 });

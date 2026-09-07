@@ -101,13 +101,7 @@ export class PrismaAccountRepository implements AccountRepository {
           passkeySubject: input.passkeySubject ?? null,
         },
       });
-      return {
-        did: row.did,
-        githubLogin: row.githubLogin,
-        passkeySubject: row.passkeySubject,
-        createdAt: row.createdAt,
-        operatorAddressEvm: row.operatorAddressEvm,
-      };
+      return toAccount(row);
     } catch (err) {
       // P2002 is Prisma's "unique constraint failed" error code: it fires
       // on the DID primary key, the unique githubLogin, or the unique
@@ -123,41 +117,17 @@ export class PrismaAccountRepository implements AccountRepository {
 
   async findByDid(did: string): Promise<Account | null> {
     const row = await db().account.findUnique({ where: { did } });
-    return row === null
-      ? null
-      : {
-          did: row.did,
-          githubLogin: row.githubLogin,
-          passkeySubject: row.passkeySubject,
-          createdAt: row.createdAt,
-          operatorAddressEvm: row.operatorAddressEvm,
-        };
+    return row === null ? null : toAccount(row);
   }
 
   async findByGithubLogin(githubLogin: string): Promise<Account | null> {
     const row = await db().account.findUnique({ where: { githubLogin } });
-    return row === null
-      ? null
-      : {
-          did: row.did,
-          githubLogin: row.githubLogin,
-          passkeySubject: row.passkeySubject,
-          createdAt: row.createdAt,
-          operatorAddressEvm: row.operatorAddressEvm,
-        };
+    return row === null ? null : toAccount(row);
   }
 
   async findByPasskeySubject(passkeySubject: string): Promise<Account | null> {
     const row = await db().account.findUnique({ where: { passkeySubject } });
-    return row === null
-      ? null
-      : {
-          did: row.did,
-          githubLogin: row.githubLogin,
-          passkeySubject: row.passkeySubject,
-          createdAt: row.createdAt,
-          operatorAddressEvm: row.operatorAddressEvm,
-        };
+    return row === null ? null : toAccount(row);
   }
 
   async setOperatorAddressEvm(did: string, operatorAddressEvm: string): Promise<Account | null> {
@@ -166,13 +136,7 @@ export class PrismaAccountRepository implements AccountRepository {
         where: { did },
         data: { operatorAddressEvm },
       });
-      return {
-        did: row.did,
-        githubLogin: row.githubLogin,
-        passkeySubject: row.passkeySubject,
-        createdAt: row.createdAt,
-        operatorAddressEvm: row.operatorAddressEvm,
-      };
+      return toAccount(row);
     } catch (err) {
       // P2025 is Prisma's "record to update not found" error code: the
       // did is unknown, mirroring PrismaAgentRepository.updateGithubBinding's
@@ -183,6 +147,43 @@ export class PrismaAccountRepository implements AccountRepository {
       throw err;
     }
   }
+
+  async setOperatorAddressAbt(did: string, operatorAddressAbt: string): Promise<Account | null> {
+    try {
+      const row = await db().account.update({
+        where: { did },
+        data: { operatorAddressAbt },
+      });
+      return toAccount(row);
+    } catch (err) {
+      // P2025, same mapping as setOperatorAddressEvm above.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        return null;
+      }
+      throw err;
+    }
+  }
+}
+
+// P8c: the one place PrismaAccountRepository's five methods build an
+// Account projection, so operatorAddressAbt (and any future column) is
+// added once rather than at five call sites that can drift out of sync.
+function toAccount(row: {
+  did: string;
+  githubLogin: string;
+  passkeySubject: string | null;
+  createdAt: Date;
+  operatorAddressEvm: string | null;
+  operatorAddressAbt: string | null;
+}): Account {
+  return {
+    did: row.did,
+    githubLogin: row.githubLogin,
+    passkeySubject: row.passkeySubject,
+    createdAt: row.createdAt,
+    operatorAddressEvm: row.operatorAddressEvm,
+    operatorAddressAbt: row.operatorAddressAbt,
+  };
 }
 
 export class PrismaAgentRepository implements AgentRepository {
