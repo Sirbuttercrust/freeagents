@@ -2,8 +2,8 @@
 // through the existing github adapter's client -- no clone, no checkout,
 // no process spawn. The anchor this card exists to enforce: "the
 // platform reports what git plainly says about the staged commit and
-// never executes a line of the agent's code" (Keaton, 2026-09-07: "I
-// thought we were just an intermediary between the two parties").
+// never executes a line of the agent's code" (the operator, 2026-09-07:
+// "I thought we were just an intermediary between the two parties").
 //
 // Read the docs before wiring: the compare endpoint
 // (docs.github.com/en/rest/commits/commits#compare-two-commits) returns
