@@ -6,6 +6,7 @@
 // session, and POST .../confirm against a real MemorySettlementGate,
 // never asserted from a client-side stub.
 import type { Server } from 'node:http';
+import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import { JSDOM, VirtualConsole } from 'jsdom';
@@ -27,6 +28,7 @@ import type { Delegation } from '../../src/domain/agent.js';
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const AGENT_DID = 'did:abt:deposit-page-agent';
+const HIRED_AGENT_DID = 'did:abt:deposit-page-hired-agent';
 const BUYER_ACCOUNT_DID = 'did:abt:deposit-page-buyer-account';
 const STRANGER_ACCOUNT_DID = 'did:abt:deposit-page-stranger-account';
 
@@ -198,6 +200,49 @@ describe('the deposit screen, driven end to end against the real app', () => {
       }),
     );
 
+    // D3 (Proof review round 1): dedicated jobs for the pay-start 409 (a
+    // race where the price is cleared server-side between load and
+    // press) and the confirm 409 (a race where another actor confirms
+    // the job between load and press). Separate ids from job-for-403 so
+    // this suite's own mid-test jobRepo mutations never collide with the
+    // 403 test's own fixture.
+    await jobRepo.create(
+      jobFixture({
+        id: 'job-for-409-price-race',
+        status: 'proposed',
+        criteria: [{ text: 'x', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+        priceUsd: '100.00',
+        rail: 'abt',
+        priceAcceptedByBuyer: true,
+        priceAcceptedByAgent: true,
+      }),
+    );
+    await jobRepo.create(
+      jobFixture({
+        id: 'job-for-409-confirm-race',
+        status: 'proposed',
+        criteria: [{ text: 'x', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+        priceUsd: '100.00',
+        rail: 'abt',
+        priceAcceptedByBuyer: true,
+        priceAcceptedByAgent: true,
+      }),
+    );
+    // D3: a job for the 401 tests, whose session is invalidated between
+    // page load and the press (the load itself needs a live session to
+    // reach deposit-body at all).
+    await jobRepo.create(
+      jobFixture({
+        id: 'job-for-401-race',
+        status: 'proposed',
+        criteria: [{ text: 'x', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+        priceUsd: '100.00',
+        rail: 'abt',
+        priceAcceptedByBuyer: true,
+        priceAcceptedByAgent: true,
+      }),
+    );
+
     // For the real confirm round trip: fully agreed, deposit unsettled at
     // first, marked settled mid-test.
     await jobRepo.create(
@@ -206,6 +251,53 @@ describe('the deposit screen, driven end to end against the real app', () => {
         status: 'proposed',
         criteria: [{ text: 'Confirmable line', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
         priceUsd: '600.00',
+        rail: 'abt',
+        depositPercent: 25,
+        priceAcceptedByBuyer: true,
+        priceAcceptedByAgent: true,
+      }),
+    );
+
+    // D1 (Proof review round 1): a SEPARATE agent with a genuinely
+    // completed hire, driven through create then complete exactly like
+    // tests/web/browse.test.ts's own fixture. Kept off AGENT_DID on
+    // purpose: AGENT_DID backs job-fully-agreed, whose own test below
+    // pins the negative case (no count), so the two paths need two
+    // different agents rather than one agent asserting both facts.
+    await agentRepo.create({
+      did: HIRED_AGENT_DID,
+      operatorDid: 'did:abt:deposit-page-hired-operator',
+      delegation: delegationFixture(HIRED_AGENT_DID, 'did:abt:deposit-page-hired-operator'),
+      name: 'deposit-page-hired-scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    const completedHireDraft = jobFixture({
+      id: 'deposit-page-completed-hire',
+      buyerDid: 'did:example:deposit-page-past-buyer',
+      agentDid: HIRED_AGENT_DID,
+      status: 'draft',
+    });
+    await jobRepo.create(completedHireDraft);
+    await jobRepo.complete(
+      { ...completedHireDraft, status: 'completed', mergeCommit: 'deposit-page-commit-1', mergedAt: new Date('2026-08-30T00:00:00Z') },
+      {
+        jobId: completedHireDraft.id,
+        buyerDid: completedHireDraft.buyerDid,
+        agentDid: HIRED_AGENT_DID,
+        mergeCommit: 'deposit-page-commit-1',
+        completedAt: new Date('2026-08-30T00:00:00Z'),
+      },
+    );
+    // The job the positive-path test itself renders: same buyer, fully
+    // agreed, hired agent HAS a verified hire.
+    await jobRepo.create(
+      jobFixture({
+        id: 'job-hired-agent-has-hires',
+        agentDid: HIRED_AGENT_DID,
+        status: 'proposed',
+        criteria: [{ text: 'Done', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+        priceUsd: '500.00',
         rail: 'abt',
         depositPercent: 25,
         priceAcceptedByBuyer: true,
@@ -443,13 +535,55 @@ describe('the deposit screen, driven end to end against the real app', () => {
   });
 
   describe('the verified hire count (scope item 7)', () => {
-    it('renders the agent name with no count when the read fails or the agent has none', async () => {
+    it('renders the agent name with no count when the agent has none', async () => {
       const page = await renderDeposit(baseUrl, 'job-fully-agreed', { token: buyerToken });
       try {
         expect(page.document.getElementById('agent-name')?.textContent).toBe('deposit-page-scout');
         expect(page.document.getElementById('agent-hires')?.textContent ?? '').toBe('');
       } finally {
         page.close();
+      }
+    });
+
+    it('renders the real count from GET /agents/:agentDid/hires when the agent has a verified hire (D1)', async () => {
+      const page = await renderDeposit(baseUrl, 'job-hired-agent-has-hires', { token: buyerToken });
+      try {
+        expect(page.document.getElementById('agent-name')?.textContent).toBe('deposit-page-hired-scout');
+        expect(page.document.getElementById('agent-hires')?.textContent ?? '').toBe('1 verified hire');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('renders the agent name with no count when the hires read fails (D1)', async () => {
+      const realPort = (server.address() as AddressInfo).port;
+      const proxy = http.createServer((req, res) => {
+        if (req.url !== undefined && /\/agents\/[^/]+\/hires$/.test(req.url)) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'storage unavailable' }));
+          return;
+        }
+        const upstream = http.request(
+          { hostname: '127.0.0.1', port: realPort, path: req.url, method: req.method, headers: req.headers },
+          (upstreamRes) => {
+            res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+            upstreamRes.pipe(res);
+          },
+        );
+        req.pipe(upstream);
+      });
+      await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+      const proxyBaseUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
+      try {
+        const page = await renderDeposit(proxyBaseUrl, 'job-hired-agent-has-hires', { token: buyerToken });
+        try {
+          expect(page.document.getElementById('agent-name')?.textContent).toBe('deposit-page-hired-scout');
+          expect(page.document.getElementById('agent-hires')?.textContent ?? '').toBe('');
+        } finally {
+          page.close();
+        }
+      } finally {
+        await new Promise<void>((resolve) => proxy.close(() => resolve()));
       }
     });
   });
@@ -743,6 +877,38 @@ describe('the deposit screen, driven end to end against the real app', () => {
         const style = page.window.getComputedStyle(closeBtn as Element);
         expect(parseFloat(style.width)).toBeGreaterThanOrEqual(44);
         expect(parseFloat(style.height)).toBeGreaterThanOrEqual(44);
+      } finally {
+        page.close();
+      }
+    });
+
+    it('the rail option labels keep their two-column grid, not a wrapper-crushed block (D2)', async () => {
+      const page = await renderDeposit(baseUrl, 'job-fully-agreed', { token: buyerToken });
+      try {
+        const labels = page.document.querySelectorAll('.railopt label');
+        expect(labels.length).toBe(2);
+        labels.forEach((label) => {
+          const style = page.window.getComputedStyle(label as Element);
+          expect(style.display).toBe('grid');
+          expect(style.gridTemplateColumns).toBe('1fr auto');
+          expect(parseFloat(style.minHeight)).toBeGreaterThanOrEqual(44);
+          expect(parseFloat(style.paddingLeft)).toBeGreaterThanOrEqual(44);
+        });
+      } finally {
+        page.close();
+      }
+    });
+
+    it('the totals rows keep their space-between flex layout, not a wrapper-crushed block (D2)', async () => {
+      const page = await renderDeposit(baseUrl, 'job-fully-agreed', { token: buyerToken });
+      try {
+        const rows = page.document.querySelectorAll('.total .parts li');
+        expect(rows.length).toBeGreaterThanOrEqual(3);
+        rows.forEach((row) => {
+          const style = page.window.getComputedStyle(row as Element);
+          expect(style.display).toBe('flex');
+          expect(style.justifyContent).toBe('space-between');
+        });
       } finally {
         page.close();
       }
