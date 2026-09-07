@@ -821,7 +821,14 @@ describe('P8a: the payment start routes accept a session for the buyer, still re
       const repo = new MemoryAccountRepository();
       const agentRepo = new MemoryAgentRepository();
       const AGENT_DID = 'did:abt:p8a-usdc-agent';
-      await createAgent(agentRepo, AGENT_DID, 'did:abt:p8a-usdc-operator');
+      const AGENT_OPERATOR_DID = 'did:abt:p8a-usdc-operator';
+      await createAgent(agentRepo, AGENT_DID, AGENT_OPERATOR_DID);
+      // S3: the USDC recipient is resolved from the hired agent's operator
+      // account, so that account has to be registered and carry an
+      // operatorAddressEvm or start refuses 409 before this test's own
+      // assertion about session auth is ever reached.
+      await repo.register({ did: AGENT_OPERATOR_DID, githubLogin: 'p8a-usdc-operator-login' });
+      await repo.setOperatorAddressEvm(AGENT_OPERATOR_DID, USDC_OPERATOR_ADDRESS);
       const buyerSubject = 'p8a-usdc-buyer-subject';
       await repo.register({ did: 'did:abt:p8a-usdc-buyer', githubLogin: 'p8a-usdc-buyer-login', passkeySubject: buyerSubject });
       const sessionAdapter = passkeyAdapter();
@@ -874,7 +881,9 @@ describe('P8a: the payment start routes accept a session for the buyer, still re
         const start = await fetch(`${baseUrl}/jobs/${jobId}/payments/deposit/usdc/start`, {
           method: 'POST',
           headers: { 'content-type': 'application/json', ...authHeader },
-          body: JSON.stringify({ operatorAddress: USDC_OPERATOR_ADDRESS }),
+          // S3 ruling 6: the body may not name a recipient. It is resolved
+          // from the hired agent's operator, and supplying one is a 400.
+          body: JSON.stringify({}),
         });
         expect(start.status).toBe(200);
         const body = (await start.json()) as Record<string, unknown>;
