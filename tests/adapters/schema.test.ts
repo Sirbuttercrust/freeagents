@@ -220,3 +220,34 @@ describe('prisma/migrations, the ObservedSettlement table is actually migrated (
     expect(sql).toMatch(/CREATE UNIQUE INDEX[^;]*"ObservedSettlement"\("jobId",\s*"leg"\)/);
   });
 });
+
+// S5+S6 (this card, schema-change-without-migration): the same pinning
+// pattern as the two describe blocks above, against the SignatureSpend
+// table this card's schema change adds. Without a migration shipped in the
+// same commit, PrismaSignatureSpendStorage's findUnique/create calls would
+// throw on any deployed database because the table never exists there.
+describe('prisma/migrations, the SignatureSpend table is actually migrated (S5+S6)', () => {
+  const migrationsDir = new URL('../../prisma/migrations/', import.meta.url);
+
+  function allMigrationSql(): string {
+    const dir = fileURLToPath(migrationsDir);
+    if (!existsSync(dir)) return '';
+    const entries = readdirSync(dir, { withFileTypes: true });
+    return entries
+      .filter((e) => e.isDirectory())
+      .map((e) => join(dir, e.name, 'migration.sql'))
+      .filter((p) => existsSync(p))
+      .map((p) => readFileSync(p, 'utf8'))
+      .join('\n');
+  }
+
+  it('a migration creates the SignatureSpend table', () => {
+    const sql = allMigrationSql();
+    expect(sql).toMatch(/CREATE TABLE\s+"SignatureSpend"/);
+  });
+
+  it('a migration primary-keys SignatureSpend on (keyid, signatureHash)', () => {
+    const sql = allMigrationSql();
+    expect(sql).toMatch(/PRIMARY KEY \("keyid","signatureHash"\)/);
+  });
+});
