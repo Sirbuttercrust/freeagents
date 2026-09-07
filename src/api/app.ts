@@ -25,6 +25,8 @@ import { verify as verifySignature } from '../adapters/identity/http-signature.j
 import { createIdentityAdapter } from '../adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter } from '../adapters/identity/types.js';
 import { createRateLimiter, type RateLimiter } from '../adapters/identity/verify-rate-limit.js';
+import { createSignatureSpendStorage } from '../adapters/identity/signature-spend-storage.js';
+import type { SignatureSpendStorage } from '../adapters/identity/signature-spend-storage-types.js';
 import { createUnwiredStagingObserver, type StagingObserver } from '../adapters/staging/types.js';
 import {
   AgentAlreadyExistsError,
@@ -698,6 +700,12 @@ export function createApp(
   // happens lazily inside it, on first actual use), so this is always
   // safe to default even when no ABT env var is set.
   abtTxEncoder: AbtTxEncoder = createAbtTxEncoder() as AbtTxEncoder,
+  // S5 (this card): the one-shot signature-spend store. Defaults to the
+  // env-derived storage, matching every other storage capability's stance
+  // in this file. Injectable so a test can share one durable store across
+  // two separate createApp calls, the way every other storage capability
+  // in this codebase proves a restart does not lose the observation.
+  signatureSpendStorage: SignatureSpendStorage = createSignatureSpendStorage(),
 ): Express {
   // One repository behind both halves of the capability when the caller
   // supplies neither. createCredentialRepository() hands the memory driver a
@@ -758,7 +766,7 @@ export function createApp(
     const result = await verifySignature(
       { method: req.method, targetUri, headers: req.headers },
       signingKeys,
-      { requiredComponents: ['@method', '@target-uri', 'content-digest'] },
+      { requiredComponents: ['@method', '@target-uri', 'content-digest'], spendStorage: signatureSpendStorage },
     );
     if (result === null) return 'invalid';
 

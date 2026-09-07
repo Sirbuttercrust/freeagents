@@ -553,3 +553,23 @@ model ObservedSettlement {
   // shape above.
   @@unique([jobId, leg])
 }
+
+// S5+S6 (this card): the durable record of a request signature that has
+// already verified once, so the same signature cannot verify a second time
+// (replay). One row per (keyid, signatureHash): two different signers can
+// never collide with one another, and the same signer re-presenting the
+// same signature bytes is exactly the refused case. `created` rides
+// alongside the key (the signed request's own claimed timestamp, seconds
+// since epoch) so a pruning sweep can remove rows outside the freshness
+// window -- a row is useless once the signature it names could no longer
+// verify on freshness grounds anyway, and a store that grows forever is a
+// slow outage. No sweep is built by this card; the index is what a later
+// one would query against.
+model SignatureSpend {
+  keyid         String
+  signatureHash String
+  created       Int
+
+  @@id([keyid, signatureHash])
+  @@index([created])
+}

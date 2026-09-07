@@ -75,6 +75,35 @@ export interface SignRequestOptions {
 // Signs a real RFC 9421 request signature. content-digest is always computed
 // from `body` (empty body still hashes to a real digest), whether or not it
 // is a covered component, so a caller can always attach it as a header.
+//
+// S5: the default `created` (when the caller does not pin one) is drawn
+// from a per-second bucket that counts DOWN from the real wall clock, not a
+// counter that free-runs forward. Two calls to signRequest for the same
+// identity, method, URI and body within the same wall-clock second used to
+// produce byte-identical signatures -- which S5's own replay refusal now
+// correctly reads as the same signature presented twice, even when two
+// DIFFERENT test cases each intended a fresh, independent request (fast
+// test suites routinely fire far more than one signed request per real
+// second). Counting backward stays inside SIGNATURE_MAX_AGE_SECONDS's
+// generous five-minute allowance, so hundreds of calls in one real second
+// each get a distinct, still-fresh `created` with no risk of ever crossing
+// into the future and tripping the much smaller clock-skew tolerance (the
+// mistake an earlier, forward-counting version of this fixture made).
+// Never overrides an explicitly-passed `created` (the freshness-window
+// tests in tests/api/did-signature.test.ts all pin their own).
+let bucketSecond = 0;
+let bucketOffset = 0;
+function nextCreated(): number {
+  const now = Math.floor(Date.now() / 1000);
+  if (now !== bucketSecond) {
+    bucketSecond = now;
+    bucketOffset = 0;
+  } else {
+    bucketOffset += 1;
+  }
+  return now - bucketOffset;
+}
+
 export function signRequest(
   id: SigningIdentity,
   method: string,
@@ -83,7 +112,7 @@ export function signRequest(
 ): SignedHeaders {
   const body = options.body ?? '';
   const components = options.components ?? DEFAULT_COVERED_COMPONENTS;
-  const created = options.created ?? Math.floor(Date.now() / 1000);
+  const created = options.created ?? nextCreated();
   const alg = options.alg === undefined ? 'ed25519' : options.alg;
   const digest = `sha-256=:${createHash('sha256').update(body).digest('base64')}:`;
 

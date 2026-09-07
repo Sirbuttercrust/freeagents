@@ -13,7 +13,8 @@
 // verify() is total: every failure path returns null, never throws. This
 // mirrors verifyDelegation (src/adapters/identity/identity.ts) so callers
 // never need a try/catch to tell "not signed" from "signed wrong".
-import { createPublicKey, verify as nodeVerify } from 'node:crypto';
+import { createHash, createPublicKey, verify as nodeVerify } from 'node:crypto';
+import type { SignatureSpendStorage } from './signature-spend-storage-types.js';
 
 export interface SignedRequestLike {
   readonly method: string;
@@ -43,9 +44,23 @@ export interface VerifyOptions {
   readonly requiredComponents?: readonly string[];
   /** Injected clock, for testing the freshness window. */
   readonly now?: Date;
+  // S5: the one-shot spend store (this card). Optional so every existing
+  // caller that never supplies one is unaffected -- a request signature is
+  // then verified exactly as before, with no replay protection, the same
+  // stance onVerified already takes on its own optional callback. When
+  // supplied, a signature that has already verified once under the same
+  // keyid is refused on a second presentation.
+  readonly spendStorage?: SignatureSpendStorage;
 }
 
 export const SIGNATURE_MAX_AGE_SECONDS = 300;
+// S6: clocks between two machines are never perfectly synchronised, and a
+// signer whose clock runs a few seconds fast is not an attacker. This is a
+// SEPARATE, much smaller allowance from SIGNATURE_MAX_AGE_SECONDS: the past
+// gets five minutes because a request can sit in flight or in a queue; the
+// future gets only enough room for ordinary clock drift, because nothing
+// legitimate explains a request claiming to have been made minutes from now.
+export const SIGNATURE_CLOCK_SKEW_TOLERANCE_SECONDS = 5;
 export const REQUIRED_COVERED_COMPONENTS: readonly string[] = ['@method', '@target-uri'];
 
 function lookupHeader(
@@ -97,7 +112,17 @@ export async function verify(
     if (!createdMatch) return null;
     const created = Number(createdMatch[1] ?? '');
     const now = options?.now ?? new Date();
-    if (Math.abs(Math.floor(now.getTime() / 1000) - created) > SIGNATURE_MAX_AGE_SECONDS) return null;
+    const nowSeconds = Math.floor(now.getTime() / 1000);
+    const age = nowSeconds - created;
+    // S6: one-sided on purpose. A signature older than SIGNATURE_MAX_AGE_SECONDS
+    // is refused (age too large and positive); a signature claiming to be from
+    // the future is refused past a much smaller, separately named skew
+    // tolerance (age negative and its magnitude too large). Math.abs used to
+    // fold both directions into one comparison, which accepted a future-dated
+    // signature exactly as readily as a stale one and doubled the real replay
+    // window (the anchor: "the real replay window is ten minutes").
+    if (age > SIGNATURE_MAX_AGE_SECONDS) return null;
+    if (age < -SIGNATURE_CLOCK_SKEW_TOLERANCE_SECONDS) return null;
 
     const did = keyid.slice(0, keyid.indexOf('#'));
     if (!did) return null;
@@ -131,6 +156,28 @@ export async function verify(
 
     const key = createPublicKey(resolved.publicKeyPem);
     if (!nodeVerify(null, Buffer.from(base, 'utf8'), key, sig)) return null;
+
+    // S5 (this card): the spend check runs AFTER the ed25519 bytes verify,
+    // never before -- the same rule onVerified already follows (D4/D5
+    // above), and for the same reason: an attacker presenting a victim's
+    // keyid under a forged signature must not be able to burn a signature
+    // the victim has not yet spent, and must not be able to cause a
+    // durable write for a signature that never actually verified.
+    if (options?.spendStorage) {
+      const signatureHash = createHash('sha256').update(sig).digest('hex');
+      try {
+        const spent = await options.spendStorage.findByKeyidAndHash(keyid, signatureHash);
+        if (spent !== null) return null;
+        await options.spendStorage.record({ keyid, signatureHash, created });
+      } catch (err) {
+        // Fail closed. Unlike onVerified's own swallowed failure (bookkeeping
+        // after an already-decided verdict), the spend check IS the control:
+        // a replay check that cannot reach its store must refuse the request,
+        // not silently behave as if no replay protection existed at all.
+        console.error('http-signature: spend-store check failed for a signature that otherwise verified', err);
+        return null;
+      }
+    }
 
     // D4 (task t_8a82c865): the signature has now genuinely verified, so
     // recording the observation is safe to attempt -- but a failure here
