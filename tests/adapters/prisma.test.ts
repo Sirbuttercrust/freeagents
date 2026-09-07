@@ -18,6 +18,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({
   create: vi.fn(),
   findUnique: vi.fn(),
+  update: vi.fn(),
   agentCreate: vi.fn(),
   agentFindUnique: vi.fn(),
   agentFindMany: vi.fn(),
@@ -172,11 +173,13 @@ describe('PrismaAccountRepository', () => {
   beforeAll(() => {
     vi.mocked(mock.create).mockReset();
     vi.mocked(mock.findUnique).mockReset();
+    vi.mocked(mock.update).mockReset();
   });
 
   afterEach(() => {
     vi.mocked(mock.create).mockReset();
     vi.mocked(mock.findUnique).mockReset();
+    vi.mocked(mock.update).mockReset();
   });
 
   it('register: a created row comes back as the operator projection, nothing more', async () => {
@@ -186,6 +189,7 @@ describe('PrismaAccountRepository', () => {
       githubLogin: 'operator-prisma-1',
       passkeySubject: null,
       createdAt,
+      operatorAddressEvm: null,
     });
 
     const repo = new PrismaAccountRepository();
@@ -198,14 +202,15 @@ describe('PrismaAccountRepository', () => {
     expect(mock.create).toHaveBeenCalledWith({
       data: { did: 'did:abt:prisma-1', githubLogin: 'operator-prisma-1', passkeySubject: null },
     });
-    // And the projection is exactly the four stored fields.
+    // And the projection is exactly the five stored fields.
     expect(row).toEqual({
       did: 'did:abt:prisma-1',
       githubLogin: 'operator-prisma-1',
       passkeySubject: null,
       createdAt,
+      operatorAddressEvm: null,
     });
-    expect(Object.keys(row).sort()).toEqual(['createdAt', 'did', 'githubLogin', 'passkeySubject']);
+    expect(Object.keys(row).sort()).toEqual(['createdAt', 'did', 'githubLogin', 'operatorAddressEvm', 'passkeySubject']);
   });
 
   it('register: a P2002 unique-constraint failure is the domain duplicate error', async () => {
@@ -256,6 +261,7 @@ describe('PrismaAccountRepository', () => {
       did: 'did:abt:prisma-1',
       githubLogin: 'operator-prisma-1',
       createdAt,
+      operatorAddressEvm: null,
     });
 
     const repo = new PrismaAccountRepository();
@@ -266,6 +272,7 @@ describe('PrismaAccountRepository', () => {
       did: 'did:abt:prisma-1',
       githubLogin: 'operator-prisma-1',
       createdAt,
+      operatorAddressEvm: null,
     });
   });
 
@@ -277,6 +284,47 @@ describe('PrismaAccountRepository', () => {
 
     expect(mock.findUnique).toHaveBeenCalledWith({ where: { did: 'did:abt:prisma-none' } });
     expect(row).toBeNull();
+  });
+
+  it('setOperatorAddressEvm: an updated row comes back as the operator projection with the new address', async () => {
+    const createdAt = new Date('2026-08-20T05:00:00.000Z');
+    vi.mocked(mock.update).mockResolvedValue({
+      did: 'did:abt:prisma-evm',
+      githubLogin: 'operator-prisma-evm',
+      passkeySubject: null,
+      createdAt,
+      operatorAddressEvm: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
+    });
+
+    const repo = new PrismaAccountRepository();
+    const row = await repo.setOperatorAddressEvm('did:abt:prisma-evm', '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d');
+
+    expect(mock.update).toHaveBeenCalledWith({
+      where: { did: 'did:abt:prisma-evm' },
+      data: { operatorAddressEvm: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d' },
+    });
+    expect(row?.operatorAddressEvm).toBe('0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d');
+  });
+
+  it('setOperatorAddressEvm: a P2025 record-not-found failure comes back as null', async () => {
+    vi.mocked(mock.update).mockRejectedValue(p2025('did:abt:prisma-unknown'));
+
+    const repo = new PrismaAccountRepository();
+    const row = await repo.setOperatorAddressEvm('did:abt:prisma-unknown', '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d');
+
+    expect(row).toBeNull();
+  });
+
+  it('setOperatorAddressEvm: a non-P2025 Prisma error is rethrown untouched', async () => {
+    const original = p1001();
+    vi.mocked(mock.update).mockRejectedValue(original);
+
+    const repo = new PrismaAccountRepository();
+    const err = await repo
+      .setOperatorAddressEvm('did:abt:prisma-evm-2', '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d')
+      .catch((e: unknown) => e);
+
+    expect(err).toBe(original);
   });
 });
 

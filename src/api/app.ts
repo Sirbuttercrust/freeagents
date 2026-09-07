@@ -80,6 +80,7 @@ import {
   type GistUrlRef,
 } from '../domain/account-proof.js';
 import { isValidOperatorDid } from '../domain/operator-did.js';
+import { isValidOperatorAddressEvm } from '../domain/operator-address-evm.js';
 import type { Account } from '../domain/account.js';
 import {
   acceptCriterion,
@@ -167,20 +168,22 @@ function notImplemented(_req: Request, res: Response): void {
   res.status(501).json({ error: 'not implemented' });
 }
 
-// The Account record projection is the whole response. Exactly these four
+// The Account record projection is the whole response. Exactly these five
 // fields, nothing more: tests/api/account-invariant2.test.ts asserts the
-// key set, and a fifth field here would be a contract change.
+// key set, and a sixth field here would be a contract change.
 // passkeySubject rides the base set unconditionally (null when the
 // account never bound one), the same "every row has the field, not every
 // row has a value" stance agentProjection takes on avatar and
 // keyRotations: an account's shape does not change with which proof it
-// used.
+// used. operatorAddressEvm rides the same way (S3): null until the
+// operator sets one through PATCH /accounts/:did/operator-address.
 function accountProjection(row: Account): Record<string, unknown> {
   return {
     did: row.did,
     githubLogin: row.githubLogin,
     passkeySubject: row.passkeySubject,
     createdAt: row.createdAt.toISOString(),
+    operatorAddressEvm: row.operatorAddressEvm,
   };
 }
 
@@ -1031,6 +1034,58 @@ export function createApp(
       res.status(200).json(accountProjection(row));
     } catch (err) {
       console.error('GET /accounts/:did: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // S3, Ruling 4: the ONLY way an account's USDC recipient address is ever
+  // set. Guarded by requireSessionOrSignature (401 with no proof at all)
+  // and then by the resolved acting party equalling :did (403 for a
+  // registered stranger; the domain rule is "an account may only set its
+  // own address", never "the caller differs from the buyer" -- there is
+  // no buyer here at all, only the account itself). Cannot ride
+  // POST /accounts, which is deliberately unauthenticated to avoid the
+  // fresh-deployment bootstrap deadlock (app.ts:900's own comment): a
+  // settable recipient field on that route would be the same hole
+  // wearing a different hat.
+  app.patch('/accounts/:did/operator-address', requireSessionOrSignature, async (req: Request, res: Response) => {
+    const did = String(req.params.did);
+    let actingParty: string | null;
+    try {
+      actingParty = await resolveActingParty(req, repo);
+    } catch (err) {
+      console.error('PATCH /accounts/:did/operator-address: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (actingParty === null) {
+      res.status(403).json({
+        error: 'no registered account resolves from your session or signature; register an account before setting an operator address',
+      });
+      return;
+    }
+    if (actingParty !== did) {
+      res.status(403).json({ error: 'an account may only set its own operator address' });
+      return;
+    }
+
+    const body = (req.body ?? {}) as { operatorAddressEvm?: unknown };
+    if (typeof body.operatorAddressEvm !== 'string' || !isValidOperatorAddressEvm(body.operatorAddressEvm)) {
+      res.status(400).json({
+        error: 'body must be { operatorAddressEvm: string }, an EVM address matching /^0x[0-9a-fA-F]{40}$/',
+      });
+      return;
+    }
+
+    try {
+      const row = await repo.setOperatorAddressEvm(did, body.operatorAddressEvm);
+      if (row === null) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      res.status(200).json(accountProjection(row));
+    } catch (err) {
+      console.error('PATCH /accounts/:did/operator-address: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
@@ -3399,6 +3454,26 @@ export function createApp(
       : remainderUsd(String(job.priceUsd), job.depositPercent);
   }
 
+  // S3, Ruling 3: the USDC recipient is the address on record for the
+  // hired agent's operator Account, never derived (unlike ABT: an EVM
+  // address is a different shape entirely, so there is no reduction from
+  // a DID). 'no-agent' and 'no-account' name the two distinct ways this
+  // can fail to resolve (an agent with a broken operatorDid vs. a
+  // legitimate operator who never set an address), so the two USDC
+  // routes below can log the actual cause without collapsing them; the
+  // caller-facing outcome is 409 either way (Ruling 5, fail closed).
+  type UsdcOperatorAddressResult =
+    | { readonly ok: true; readonly operatorAddress: string }
+    | { readonly ok: false; readonly reason: 'no-agent' | 'no-account' | 'not-set' };
+  async function usdcOperatorAddressForJob(agentDid: string): Promise<UsdcOperatorAddressResult> {
+    const agent = await agentRepo.findByDid(agentDid);
+    if (agent === null) return { ok: false, reason: 'no-agent' };
+    const account = await repo.findByDid(agent.operatorDid);
+    if (account === null) return { ok: false, reason: 'no-account' };
+    if (account.operatorAddressEvm === null) return { ok: false, reason: 'not-set' };
+    return { ok: true, operatorAddress: account.operatorAddressEvm };
+  }
+
   // Review round 1, D2: did-connect-js's own attachExpress mounts
   // `{prefix}/{action}/token` (here, /api/did/pay/token) with NO
   // middleware at all (node_modules/@arcblock/did-connect-js/dist/
@@ -3428,9 +3503,9 @@ export function createApp(
   // session (object spread: later keys win). A caller could name their
   // OWN job in the body, where this guard used to look, and a VICTIM's
   // job in the query, where the session was actually bound. The guard now
-  // reads jobId (and leg, operatorAddress, which ride the same merge)
-  // with the exact same precedence generateSession applies, so it always
-  // authorizes the value the session will actually carry.
+  // reads jobId (and leg, which rides the same merge) with the exact same
+  // precedence generateSession applies, so it always authorizes the
+  // value the session will actually carry.
   function mintExtraParam(req: Request, key: string): string {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const query = (req.query ?? {}) as Record<string, unknown>;
@@ -3466,6 +3541,7 @@ export function createApp(
           app,
           rail: abtPaymentRail,
           jobRepo,
+          agentRepo,
           settlementRepo,
           platformSk: process.env.FREEAGENTS_ABT_PLATFORM_SK || '',
           chainHost: process.env.FREEAGENTS_ABT_CHAIN_HOST || '',
@@ -3512,9 +3588,15 @@ export function createApp(
         res.status(503).json({ error: 'the abt payment rail is not configured on this deployment' });
         return;
       }
+      // S3, Ruling 6: operatorAddress is REMOVED from this route's body.
+      // The recipient is resolved from the hired agent's operator inside
+      // the adapter (abt-did-connect.ts), never from the request; a body
+      // that still names one is refused outright, not silently ignored.
       const body = (req.body ?? {}) as { operatorAddress?: unknown };
-      if (typeof body.operatorAddress !== 'string' || body.operatorAddress.trim() === '') {
-        res.status(400).json({ error: 'body must be { operatorAddress: string }' });
+      if (body.operatorAddress !== undefined) {
+        res.status(400).json({
+          error: "the recipient is resolved from the hired agent's operator and may not be supplied",
+        });
         return;
       }
       if (gate.job.priceUsd === null) {
@@ -3523,14 +3605,14 @@ export function createApp(
       }
       // The did-connect-js generateSession route reads req.query,
       // req.body and req.params into extraParams (protocol.js's own
-      // mechanism); jobId/leg/operatorAddress ride through req.query so
-      // the web layer's GET-based QR flow carries them the same way
-      // qr-server.mjs's own reference does.
+      // mechanism); jobId/leg ride through req.query so the web layer's
+      // GET-based QR flow carries them the same way qr-server.mjs's own
+      // reference does. operatorAddress no longer rides along at all
+      // (S3, Ruling 6): the adapter derives it itself.
       req.query = {
         ...req.query,
         jobId: String(req.params.jobId),
         leg,
-        operatorAddress: body.operatorAddress,
       };
       // Review round 1, D1: did-connect-js's own generateSession builds the
       // wallet callback URL from req.originalUrl (preparePathname,
@@ -3580,13 +3662,28 @@ export function createApp(
         res.status(503).json({ error: 'the usdc payment rail is not configured on this deployment' });
         return;
       }
+      // S3, Ruling 6: operatorAddress is REMOVED from this route's body.
+      // The recipient is resolved from the hired agent's operator account
+      // below, never from the request; a body that still names one is
+      // refused outright, not silently ignored.
       const body = (req.body ?? {}) as { operatorAddress?: unknown };
-      if (typeof body.operatorAddress !== 'string' || body.operatorAddress.trim() === '') {
-        res.status(400).json({ error: 'body must be { operatorAddress: string }' });
+      if (body.operatorAddress !== undefined) {
+        res.status(400).json({
+          error: "the recipient is resolved from the hired agent's operator and may not be supplied",
+        });
         return;
       }
       if (gate.job.priceUsd === null) {
         res.status(409).json({ error: 'this job has no agreed price to pay against' });
+        return;
+      }
+      // S3, Ruling 5: no address on record is a 409, fail closed -- a
+      // payment that cannot name a real recipient must not begin.
+      const operatorAddressResult = await usdcOperatorAddressForJob(gate.job.agentDid);
+      if (!operatorAddressResult.ok) {
+        res.status(409).json({
+          error: "the hired agent's operator has not set a USDC operator address; PATCH /accounts/:did/operator-address first",
+        });
         return;
       }
       // RULE: the amount comes from the job's signed price, never a body
@@ -3599,7 +3696,7 @@ export function createApp(
         request = await requestPayment(usdcPaymentRail, {
           jobId: gate.job.id,
           leg,
-          operatorAddress: body.operatorAddress,
+          operatorAddress: operatorAddressResult.operatorAddress,
           amountToken: quote.amountToken,
           feeToken: quote.feeToken,
         });
@@ -3639,25 +3736,42 @@ export function createApp(
         priceTxHash?: unknown;
         feeTx?: unknown;
       };
+      // S3, Ruling 6: operatorAddress is REMOVED from this route's body,
+      // same as /start. Resolved from the hired agent's operator account
+      // below, never from the request.
+      if (body.operatorAddress !== undefined) {
+        res.status(400).json({
+          error: "the recipient is resolved from the hired agent's operator and may not be supplied",
+        });
+        return;
+      }
       const feeTxRaw = body.feeTx as { signed?: unknown; hash?: unknown } | undefined;
       const feeTxWellFormed =
         typeof feeTxRaw === 'object' &&
         feeTxRaw !== null &&
         (feeTxRaw.signed === false || (feeTxRaw.signed === true && typeof feeTxRaw.hash === 'string' && feeTxRaw.hash.length > 0));
       if (
-        typeof body.operatorAddress !== 'string' ||
-        body.operatorAddress.trim() === '' ||
         typeof body.priceTxHash !== 'string' ||
         body.priceTxHash.trim() === '' ||
         !feeTxWellFormed
       ) {
         res.status(400).json({
           error:
-            'body must be { operatorAddress, priceTxHash, feeTx }; feeTx is { signed: true, hash } or { signed: false }',
+            'body must be { priceTxHash, feeTx }; feeTx is { signed: true, hash } or { signed: false }',
         });
         return;
       }
       const feeTx = feeTxRaw as { signed: true; hash: string } | { signed: false };
+
+      // S3, Ruling 5: no address on record is a 409, fail closed, the
+      // same rule /start already enforces.
+      const operatorAddressResult = await usdcOperatorAddressForJob(gate.job.agentDid);
+      if (!operatorAddressResult.ok) {
+        res.status(409).json({
+          error: "the hired agent's operator has not set a USDC operator address; PATCH /accounts/:did/operator-address first",
+        });
+        return;
+      }
 
       // S1 scope item 4: priceTxHash equal to feeTx.hash is refused here,
       // at the route, as a malformed request (400) -- not answered by the
@@ -3677,7 +3791,7 @@ export function createApp(
         ref = await processWalletResponse(usdcPaymentRail, leg, {
           rail: 'usdc',
           jobId: gate.job.id,
-          operatorAddress: body.operatorAddress,
+          operatorAddress: operatorAddressResult.operatorAddress,
           priceTxHash: body.priceTxHash,
           feeTx,
           amountUsd: legAmountUsdFromJob(gate.job, leg),
