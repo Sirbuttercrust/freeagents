@@ -200,6 +200,33 @@ describe('the hire screen, driven end to end against the real app', () => {
     });
   });
 
+  describe('a signed-in buyer whose agent cannot be confirmed', () => {
+    it('is told the record could not be confirmed and the form stays unreachable inside a hidden container', async () => {
+      const UNKNOWN_AGENT_DID = 'did:abt:hire-page-agent-not-registered';
+      const page = await renderHire(baseUrl, `/hire?agent=${encodeURIComponent(UNKNOWN_AGENT_DID)}`, { token });
+      try {
+        const notice = page.document.getElementById('load-error');
+        expect(notice).not.toBeNull();
+        expect(notice!.hidden).toBe(false);
+        const detail = page.document.getElementById('load-error-detail')?.textContent ?? '';
+        expect(detail.toLowerCase()).toContain('no agent');
+
+        // The guard the card names explicitly (standing defect lines,
+        // "the agent-read failure blocking the form is a guard"): the
+        // whole hire-body subtree, submit control included, stays inside
+        // a hidden container rather than merely absent from view.
+        const hireBody = page.document.getElementById('hire-body');
+        const submitButton = page.document.getElementById('btn-send');
+        expect(hireBody).not.toBeNull();
+        expect(hireBody!.hidden).toBe(true);
+        expect(submitButton).not.toBeNull();
+        expect(hireBody!.contains(submitButton)).toBe(true);
+      } finally {
+        page.close();
+      }
+    });
+  });
+
   describe('a signed-in buyer completes the flow end to end', () => {
     it('names the agent, submits the brief, and the response is 201, then GET /jobs/<id> carries the byte-identical brief', async () => {
       const brief = 'Fix the checkout flow and add a regression test.';
@@ -651,19 +678,26 @@ describe('every refusal POST /jobs can return renders its own distinct sentence'
     }
   });
 
-  it('a repository string the server rejects (400): distinct sentence', async () => {
-    // The client-side owner/name guard blocks a malformed repository
-    // before the network (already pinned above), so the route's own 400
-    // wording for the identical rule is reached by disabling that guard
-    // for this one probe -- a direct fetch, not the page's own submit
-    // path -- which is the only way to observe the route's own message
-    // rather than the client's pre-empting one, per scope item 9's "pass
-    // the route's own message through; one wording of each rule, not two".
+  it('a body the server rejects (400): distinct sentence, driven through the page\'s own submit path', async () => {
+    // hire.js's client-side guards cover the repository and the brief
+    // (both pinned above as no-network cases), but the agent DID comes
+    // from the query string, not a field the client validates: an
+    // operator-shaped-but-malformed DID there is exactly the kind of
+    // input the client guard admits and the ROUTE refuses (its own
+    // isValidOperatorDid check, src/api/app.ts:2334), so this reaches the
+    // route's own 400 through a real form submit rather than a raw
+    // fetch, per D2 (review round 1): "collect the 400 sentence from
+    // submit-error-detail after a real form submit whose repository or
+    // brief the client guard admits and the route refuses". The DID
+    // contains whitespace in its suffix so GET /agents/:agentDid (which
+    // does no shape check, only a repository lookup) still resolves it
+    // and the form renders, and only the write is refused.
+    const MALFORMED_AGENT_DID = 'did:abt:refusal 400 agent';
     const agentRepo = new MemoryAgentRepository();
     await agentRepo.create({
-      did: AGENT_DID,
+      did: MALFORMED_AGENT_DID,
       operatorDid: 'did:abt:refusal-400-operator',
-      delegation: delegationFixture(AGENT_DID, 'did:abt:refusal-400-operator'),
+      delegation: delegationFixture(MALFORMED_AGENT_DID, 'did:abt:refusal-400-operator'),
       name: 'refusal-400-scout',
       skills: [],
       githubLogin: null,
@@ -684,14 +718,9 @@ describe('every refusal POST /jobs can return renders its own distinct sentence'
     const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     try {
       const token = await mintSessionToken(sessionAdapter);
-      const res = await fetch(`${baseUrl}/jobs`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-        body: JSON.stringify({ agentDid: AGENT_DID, repository: 'not-owner-name-repo', brief: 'Fix the login bug' }),
-      });
-      expect(res.status).toBe(400);
-      const body = (await res.json()) as Record<string, unknown>;
-      sentences.push(String(body.error));
+      const sentence = await submitAndCaptureError(baseUrl, MALFORMED_AGENT_DID, { token });
+      expect(sentence.toLowerCase()).toContain('agentdid must look like');
+      sentences.push(sentence);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
