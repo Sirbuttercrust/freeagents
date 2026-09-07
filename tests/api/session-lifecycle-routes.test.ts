@@ -41,8 +41,8 @@ import {
   MemoryJobRepository,
   MemoryAttestationRepository,
 } from '../../src/adapters/storage/memory.js';
-import type { GithubAdapter, PullRequestRef } from '../../src/adapters/github/types.js';
-import { NotImplementedError } from '../../src/adapters/not-implemented.js';
+import type { GithubAdapter } from '../../src/adapters/github/types.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import { signingIdentityFromSeed, signingIdentityFromWallet, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { fakeGitHubConfig } from '../helpers/session-fixtures.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
@@ -162,14 +162,13 @@ async function postSigned(baseUrl: string, path: string, body: unknown, identity
   });
 }
 
+// B14a (merged after this card's branch point) replaced fork-and-PR with
+// the platform-owned staging repository lifecycle, so the adapter this
+// file hands createApp has to speak that lifecycle. The shared fixture is
+// the house fake for exactly this case: a suite that walks a job through
+// confirm to pull-request without itself being about staging mechanics.
 function fakeGithub(): GithubAdapter {
-  return {
-    getPullRequest: () => Promise.reject(new NotImplementedError('github', 'getPullRequest')),
-    getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
-    getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
-    forkAndOpenPullRequest: (): Promise<PullRequestRef> =>
-      Promise.resolve({ owner: 'freeagents-platform', repo: 'target-repo', number: 1 }),
-  };
+  return createStagingLifecycleGithubFake().github;
 }
 
 // Boots createApp on an ephemeral port and resolves once it is listening.
@@ -191,15 +190,27 @@ async function bootServer(...args: Parameters<typeof createApp>): Promise<{ serv
 // not cryptographically verified by a direct repo.create call, only by
 // POST /agents itself, which the D2 block below exercises separately), so
 // one helper replaces the repeated seven-field literal at each call site.
-async function createAgent(agentRepo: MemoryAgentRepository, did: string, operatorDid: string): Promise<void> {
+async function createAgent(
+  agentRepo: MemoryAgentRepository,
+  did: string,
+  operatorDid: string,
+  verifiedGithubLogin: string | null = null,
+): Promise<void> {
   await agentRepo.create({
     did,
     operatorDid,
     delegation: delegationFixture(did) as never,
     name: 'scout',
     skills: ['triage'],
-    githubLogin: null,
+    githubLogin: verifiedGithubLogin,
   });
+  // B14a: confirm refuses to create a staging repository for an agent with
+  // no VERIFIED GitHub binding, so any test that walks a job past confirm
+  // has to seed one. Tests that never reach confirm pass null and keep the
+  // unbound shape they had before B14a landed.
+  if (verifiedGithubLogin !== null) {
+    await agentRepo.updateGithubBinding(did, { handle: verifiedGithubLogin, status: 'verified' });
+  }
 }
 
 // The card's own "Done means" acceptance sentence: a session-authenticated
@@ -227,7 +238,7 @@ describe('P8a: the full lifecycle walk, buyer by session, agent by its own signa
     const jobRepo = new MemoryJobRepository();
     const attestationRepo = new MemoryAttestationRepository();
     agentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(213));
-    await createAgent(agentRepo, agentIdentity.did, 'did:abt:p8a-walk-operator');
+    await createAgent(agentRepo, agentIdentity.did, 'did:abt:p8a-walk-operator', 'p8a-walk-agent-login');
     const buyerSubject = 'p8a-walk-buyer-passkey-subject';
     await repo.register({ did: BUYER_DID, githubLogin: 'p8a-walk-buyer-login', passkeySubject: buyerSubject });
 
@@ -318,7 +329,10 @@ describe('P8a: the full lifecycle walk, buyer by session, agent by its own signa
     expect(pullRequest.status).toBe(200);
     const pullRequestBody = (await pullRequest.json()) as Record<string, unknown>;
     expect(pullRequestBody.status).toBe('submitted');
-    expect(pullRequestBody.pullRequestUrl).toContain('freeagents-platform/target-repo/pull/1');
+    // B14a: the PR is opened cross-repo, from the platform's staging
+    // repository into the buyer's own repository, so the URL names the
+    // source repo. Same shape job-pull-request.test.ts pins.
+    expect(pullRequestBody.pullRequestUrl).toBe('https://github.com/buyer/target-repo/pull/1');
 
     // The buyer's session reads the job the agent's key moved forward,
     // still with no signature anywhere on the buyer's own calls.

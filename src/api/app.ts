@@ -2734,17 +2734,12 @@ export function createApp(
       const current = await loadForExchange(label, jobId, res);
       if (current === null) return;
 
-      const signerDid = signerDidOf(req);
-      if (signerDid === null) {
-        res.status(401).json({
-          error: 'this route requires a verified request signature (R-34); sign the request naming this job\'s buyer or agent DID',
-        });
-        return;
-      }
-      if (partyForDid(current, signerDid) === null) {
-        res.status(403).json({ error: 'signature does not name a party to this job' });
-        return;
-      }
+      // P8a (invariant 8): confirm is the one party route that does not
+      // share runPartyExchange's skeleton (B14a's two GitHub calls sit
+      // between the money gate and persistence), so it calls the shared
+      // identity gate directly rather than inlining a signature-only
+      // check. A signed-in buyer confirms a hire with no key.
+      if ((await resolveJobActingParty(req, res, current)) === null) return;
 
       let confirmed: Job;
       try {
