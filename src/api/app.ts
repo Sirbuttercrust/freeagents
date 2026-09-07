@@ -1017,6 +1017,106 @@ export function createApp(
     });
   });
 
+  // P8b: wires the existing SessionAdapter to HTTP. The adapter itself
+  // (src/adapters/identity/session-github-passkey.ts) already mints the
+  // state, exchanges the callback, and issues the Session; this route is
+  // the mount point, not a second implementation.
+  app.get('/auth/github/start', (_req: Request, res: Response, next: NextFunction) => {
+    void session.beginGitHubOAuth().then((start) => {
+      res.status(200).json(start);
+    }, next);
+  });
+
+  // P8b: the callback is one of the two unauthenticated entry points a
+  // caller-supplied secret flows through, so it is mounted behind the same
+  // verify rate limiter GET /agents/:agentDid already uses (brief scope
+  // item 6). completeGitHubOAuth is total (never throws): null covers
+  // every failure path (bad state, reused state, expired state, provider
+  // refusal), so null maps to 401 without inspecting which one it was,
+  // the same stance verifySignature's own verify() takes.
+  app.get(
+    '/auth/github/callback',
+    verifyRateLimiter.middleware,
+    (req: Request, res: Response, next: NextFunction) => {
+      const code = req.query['code'];
+      const state = req.query['state'];
+      if (typeof code !== 'string' || typeof state !== 'string') {
+        res.status(400).json({ error: 'code and state are both required and must be strings' });
+        return;
+      }
+      void session.completeGitHubOAuth({ code, state }).then((completed) => {
+        if (completed === null) {
+          res.status(401).json({ error: 'invalid or expired sign-in attempt' });
+          return;
+        }
+        res.status(200).json(completed);
+      }, next);
+    },
+  );
+
+  // P8b: registerPasskey is total (never throws) but its own header
+  // comment names the passkey-unconfigured deployment as a real
+  // possibility (throw when options.passkey is undefined). That is a
+  // deployment-configuration fact, not a caller error, so it maps to the
+  // same 503 every other unconfigured-capability path in this file uses.
+  app.post('/auth/passkey/register', (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { subject?: unknown };
+    const subject = body.subject;
+    if (typeof subject !== 'string' || subject.length === 0) {
+      res.status(400).json({ error: 'body must be { subject }, a non-empty string' });
+      return;
+    }
+    void session.registerPasskey(subject).then(
+      (options) => {
+        res.status(200).json(options);
+      },
+      (err: unknown) => {
+        console.error('POST /auth/passkey/register: adapter failed', err);
+        res.status(503).json({ error: 'passkey sign-in is not configured on this deployment' });
+      },
+    );
+  });
+
+  // P8b: the second unauthenticated entry point taking a caller-supplied
+  // secret (brief scope item 6), so it rides the same verify rate limiter
+  // as the GitHub callback. verifyPasskey is total: null covers both a
+  // caller-shaped-but-wrong response and an expired or reused challenge,
+  // mapped to 401 without inspecting which one it was.
+  app.post(
+    '/auth/passkey/verify',
+    verifyRateLimiter.middleware,
+    (req: Request, res: Response, next: NextFunction) => {
+      const body = (req.body ?? {}) as { responseJson?: unknown };
+      const responseJson = body.responseJson;
+      if (typeof responseJson !== 'string' || responseJson.length === 0) {
+        res.status(400).json({ error: 'body must be { responseJson }, a non-empty string' });
+        return;
+      }
+      void session.verifyPasskey(responseJson).then((completed) => {
+        if (completed === null) {
+          res.status(401).json({ error: 'invalid or expired sign-in attempt' });
+          return;
+        }
+        res.status(200).json(completed);
+      }, next);
+    },
+  );
+
+  // P8b: endSession is idempotent by contract (dead, unknown, and absent
+  // tokens are all a no-op), so signing out is never a 401. A caller
+  // asking to be signed out is not making a claim about their identity,
+  // unlike every other bearer-token route in this file.
+  app.post('/auth/signout', (req: Request, res: Response, next: NextFunction) => {
+    const token = bearerTokenOf(req);
+    if (token === null) {
+      res.status(204).end();
+      return;
+    }
+    void session.endSession(token).then(() => {
+      res.status(204).end();
+    }, next);
+  });
+
   // R-39 follow-up (issue 83, D1/bootstrap-deadlock): registering an
   // operator is account CREATION, not an action an existing account
   // performs. The issue's own anchor names hire and list, and access.ts's
