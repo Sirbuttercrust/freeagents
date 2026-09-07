@@ -1154,6 +1154,34 @@ export function createApp(
       });
       return;
     }
+    // P8a (D2, review round 2): D1's guard on POST /accounts closes the
+    // Account-second ordering (claim an already-delegated agent's did) but
+    // this route never asked the mirror question -- whether the did being
+    // delegated here is already an Account -- so the Account-FIRST ordering
+    // (register the did as an Account before it is ever delegated, then
+    // delegate normally) reached the exact state D1 was meant to make
+    // unreachable: an Account row a session can authenticate as, sitting
+    // underneath a live agent seat, no delegation key ever involved. Both
+    // registries name the same DID namespace, and this card's own out-of-
+    // scope line ("no change to who may act") requires that a did resolve
+    // to at most one of the two identities, from whichever side claims it
+    // second. Checked before the delegation is even parsed for validity:
+    // a did already claimed by an Account cannot become a live agent seat
+    // regardless of how good the delegation proof is.
+    let didAlreadyAnAccount: boolean;
+    try {
+      didAlreadyAnAccount = (await repo.findByDid(did)) !== null;
+    } catch (err) {
+      console.error('POST /agents: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (didAlreadyAnAccount) {
+      res.status(409).json({
+        error: `${did} is already registered as an account; an account's own DID cannot be delegated as an agent`,
+      });
+      return;
+    }
     // R-39 completion: the acting party, derived server-side from whichever
     // proof requireSessionOrSignature accepted. One code path, both proofs
     // (the same call resolveActingParty makes for POST /jobs).
