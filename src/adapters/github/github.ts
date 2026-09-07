@@ -2,9 +2,12 @@ import { NotImplementedError } from '../not-implemented.js';
 import {
   GistNotFoundError,
   NotPlatformOwnerError,
+  StagingComparisonTruncatedError,
   UnverifiedGithubLoginError,
   type CommitInfo,
   type CommitSignatureStatus,
+  type CompareCommitsInput,
+  type CompareCommitsResult,
   type CreateStagingRepositoryInput,
   type CreateStagingRepositoryResult,
   type DefaultBranchHead,
@@ -130,6 +133,30 @@ interface RawGistFile {
 interface RawGist {
   readonly owner: { readonly login?: unknown } | null;
   readonly files: Record<string, RawGistFile>;
+}
+
+// B14b: the compare-two-commits response shape, narrowed to the fields
+// this adapter's compareCommits projects (docs.github.com/en/rest/commits
+// /commits#compare-two-commits). `files` is optional on the wire when a
+// comparison has zero changed files (GitHub omits the key rather than
+// sending an empty array in that case).
+interface RawCompareFile {
+  readonly filename: string;
+  readonly status: string;
+  readonly additions: number;
+  readonly deletions: number;
+  readonly patch?: string;
+}
+
+interface RawCompareCommit {
+  readonly sha: string;
+  readonly author: { readonly login?: string } | null;
+  readonly commit: { readonly verification?: { readonly verified: boolean } };
+}
+
+interface RawCompareResponse {
+  readonly commits: readonly RawCompareCommit[];
+  readonly files?: readonly RawCompareFile[];
 }
 
 // One implementation file per capability, named for the capability rather
@@ -455,6 +482,48 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
       // the ref this adapter hands back names the address GitHub itself
       // answers to.
       return { owner: input.sourceOwner, repo: input.sourceRepo, number: pr.number };
+    },
+
+    // B14b: compares two commits within one repository (the staging
+    // repository, per invariant 1 -- this adapter never calls compare
+    // cross-repo) via GET /repos/{owner}/{repo}/compare/{base}...{head}
+    // (docs.github.com/en/rest/commits/commits#compare-two-commits).
+    // Read-only, no owner check: comparing is not a write.
+    async compareCommits(input: CompareCommitsInput): Promise<CompareCommitsResult> {
+      const tok = requireToken();
+      const response = await githubRequest(
+        fetchImpl,
+        apiBase,
+        tok,
+        `/repos/${input.owner}/${input.repo}/compare/${input.base}...${input.head}`,
+      );
+      await requireOk(response, 'compare commits');
+      const raw = (await response.json()) as RawCompareResponse;
+
+      // GitHub's own documented cap: the files array reports "up to 300
+      // changed files for the entire comparison", with no separate
+      // truncated flag on this endpoint (unlike the git tree API's
+      // `truncated` boolean). Hitting exactly 300 is the only signal
+      // available that more files exist than were returned, so this
+      // fails closed rather than attesting a partial diff.
+      if (raw.files !== undefined && raw.files.length >= 300) {
+        throw new StagingComparisonTruncatedError(input.owner, input.repo, input.base, input.head);
+      }
+
+      return {
+        files: (raw.files ?? []).map((file) => ({
+          path: file.filename,
+          status: file.status,
+          additions: file.additions,
+          deletions: file.deletions,
+          patch: file.patch ?? null,
+        })),
+        commits: raw.commits.map((commit) => ({
+          sha: commit.sha,
+          authorLogin: commit.author?.login ?? null,
+          verified: commit.commit.verification?.verified ?? false,
+        })),
+      };
     },
   };
 }

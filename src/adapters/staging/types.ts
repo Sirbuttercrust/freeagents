@@ -1,22 +1,20 @@
 // P5: the staging observation port (design record, 2026-09-01; this
 // card's brief section 2). The facts an attestation carries come from
-// measuring a staging repository -- diffing it, counting lines, running
-// the buyer's own test command against the staged commit, checking
+// measuring a staging repository -- diffing it, counting lines, checking
 // commit signers against the agent DID. That measurement is an adapter
 // concern, not a domain one, so it crosses this one narrow interface.
 //
-// THE SEAM (read this before wiring a real backend): this file does NOT
-// clone a repository, does NOT shell out to git or npm, and does NOT
-// execute the buyer's test command. Cloning a staging repository,
-// diffing it, and above all EXECUTING the buyer's test command against
-// agent-authored code is a sandboxing decision nobody has ruled on yet.
-// Building that here would smuggle the decision in through a card whose
-// scope is the attestation document, not the sandbox. The real observer
-// -- whatever process does the clone, the diff, and the (sandboxed) test
-// run -- is a later card, landing as a new class beside
-// MemoryStagingObserver below (or a sibling file in this directory), and
-// replacing createUnwiredStagingObserver's default in src/api/app.ts the
-// same way a later card once wired createCredentialsAdapter's issuer in.
+// B14b: the real observer landed in src/adapters/staging/github.ts, built
+// entirely on the GitHub REST compare/commits endpoints (see that file's
+// own header). It clones nothing, spawns nothing, and executes no line of
+// the agent's code -- the anchor this card exists to enforce is
+// "the platform reports what git plainly says about the staged commit
+// and never executes a line of the agent's code" (Keaton, 2026-09-07: "I
+// thought we were just an intermediary between the two parties").
+// tests/architecture/no-execution.test.ts is the mechanical fence: it
+// fails the build if this directory (or src/domain/attestation.ts) ever
+// imports node:child_process, node:worker_threads, node:vm, or a package
+// whose name looks like a sandbox/container runtime.
 //
 // AN UNWIRED BUILD MUST FAIL LOUDLY. The default here refuses with the
 // same NotImplementedError every other unwired adapter in this codebase
@@ -33,9 +31,21 @@ import type { StagingObservation } from '../../domain/attestation.js';
 const CAPABILITY = 'staging';
 
 export interface StagingObserveInput {
+  // B14b: the staging repository the comparison runs against -- never
+  // the buyer's own repository (invariant 1: reads only against the
+  // staging repo). Both the memory observer and the real GitHub-backed
+  // one accept these unconditionally; only the real one uses them.
+  readonly owner: string;
+  readonly repo: string;
   readonly stagedCommit: string;
   readonly baseCommit: string;
   readonly criteriaPaths: readonly string[];
+  // B14b: the agent's own VERIFIED GitHub login (R-3/R-4, ENT-5), the
+  // one identity commitSigners compares each commit's author against.
+  // Passed per call, not baked into the observer at construction time,
+  // because it is a fact about THIS job's agent, not about the observer
+  // itself -- the same reasoning criteriaPaths above already follows.
+  readonly verifiedAgentGithubLogin: string;
 }
 
 export interface StagingObserver {

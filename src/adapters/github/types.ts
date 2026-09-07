@@ -164,6 +164,65 @@ export class GistNotFoundError extends Error {
   }
 }
 
+// B14b: the compare endpoint the real StagingObserver
+// (src/adapters/staging/github.ts) is built on. base and head are commit
+// SHAs (or refs) within the SAME repository named by owner/repo -- the
+// staging repository, per invariant 1 -- never a cross-repo comparison.
+export interface CompareCommitsInput {
+  readonly owner: string;
+  readonly repo: string;
+  readonly base: string;
+  readonly head: string;
+}
+
+// One changed file from the compare response, projected to the four
+// facts the observer needs. status is GitHub's own vocabulary verbatim
+// ('added' | 'removed' | 'modified' | 'renamed' | ...): this adapter does
+// not narrow it further, because the observer's own test-file-removed
+// rule only cares whether status is 'removed'. patch is null for a
+// binary file or any file GitHub declines to diff -- never guessed at.
+export interface CompareFile {
+  readonly path: string;
+  readonly status: string;
+  readonly additions: number;
+  readonly deletions: number;
+  readonly patch: string | null;
+}
+
+// One commit between base and head, projected to the three facts the
+// observer needs for commitSigners: the sha, the GitHub-linked author's
+// login (null when the commit's author email resolves to no GitHub
+// account), and GitHub's own verification verdict for that commit's
+// signature.
+export interface CompareCommit {
+  readonly sha: string;
+  readonly authorLogin: string | null;
+  readonly verified: boolean;
+}
+
+export interface CompareCommitsResult {
+  readonly files: readonly CompareFile[];
+  readonly commits: readonly CompareCommit[];
+}
+
+// B14b: GitHub's compare endpoint silently caps the files array at 300
+// entries with no separate `truncated` flag (the docs' own wording: "the
+// list of changed files ... includes up to 300 changed files for the
+// entire comparison"). A files array at exactly that cap is the only
+// signal this endpoint gives that more files exist than were returned,
+// and a comparison this large cannot be attested honestly -- the route
+// this error surfaces through (POST /jobs/:jobId/stage) maps it to 422
+// with a sentence telling the agent to split the work, per this card's
+// brief.
+export class StagingComparisonTruncatedError extends Error {
+  constructor(owner: string, repo: string, base: string, head: string) {
+    super(
+      `the comparison ${owner}/${repo}@${base}...${head} reports 300 or more changed files, GitHub's own cap on this endpoint; the change is too large to attest`,
+    );
+    this.name = 'StagingComparisonTruncatedError';
+  }
+}
+
 export interface GithubAdapter {
   getPullRequest(ref: PullRequestRef): Promise<PullRequestSummary>;
   getMergeCommitSignature(ref: PullRequestRef): Promise<CommitSignatureStatus>;
@@ -198,4 +257,10 @@ export interface GithubAdapter {
   // base -- the standard cross-repo PR shape, no write access granted
   // to the source's contents (invariant 1).
   openStagedPullRequest(input: OpenStagedPullRequestInput): Promise<PullRequestRef>;
+  // B14b: compares two commits in the SAME repository and returns the
+  // changed files (path, status, additions, deletions, patch) and the
+  // commits between them (sha, author login, verification verdict).
+  // Read-only. Throws StagingComparisonTruncatedError when the files
+  // array reports GitHub's own 300-file cap.
+  compareCommits(input: CompareCommitsInput): Promise<CompareCommitsResult>;
 }
