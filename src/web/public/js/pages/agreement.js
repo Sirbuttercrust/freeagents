@@ -225,7 +225,18 @@
       host.appendChild(textNode("p", "You have signed every line. The agreement is waiting on the agent to sign the rest."));
       return;
     }
-    host.appendChild(textNode("b", "This agreement is fully agreed. The deposit is next."));
+    var lockedLine = textNode("b", "This agreement is fully agreed. The deposit is next.");
+    host.appendChild(lockedLine);
+    var depositRow = document.createElement("div");
+    depositRow.className = "row";
+    depositRow.style.marginTop = "14px";
+    var depositLink = document.createElement("a");
+    depositLink.className = "btn btn-primary";
+    depositLink.id = "deposit-link";
+    depositLink.setAttribute("href", "/deposit?job=" + encodeURIComponent(job.id));
+    depositLink.textContent = "Pay the deposit";
+    depositRow.appendChild(depositLink);
+    host.appendChild(depositRow);
   }
 
   function textNode(tag, text) {
