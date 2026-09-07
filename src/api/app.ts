@@ -161,7 +161,7 @@ import { ACCESS_NOTICE, CAPABILITIES, type Capability } from '../domain/access.j
 import { SIGN_IN_METHODS, type SignInMethod } from '../domain/sign-in-methods.js';
 import { type SessionAdapter, type SignInMethod as SessionSignInMethod } from '../adapters/identity/session.js';
 import { sessionAdapterFromEnv } from '../adapters/identity/session-github-passkey.js';
-import { createWebSurface, type WebSurface } from '../web/static.js';
+import { createWebSurface, prefersHtml, type WebSurface } from '../web/static.js';
 import { renderAvatar } from './avatar.js';
 
 // The hire-loop's last stub (R-12 reviews) stays honest about being unbuilt:
@@ -1097,19 +1097,42 @@ export function createApp(
   // every failure path (bad state, reused state, expired state, provider
   // refusal), so null maps to 401 without inspecting which one it was,
   // the same stance verifySignature's own verify() takes.
+  //
+  // P8e: GitHub redirects the BROWSER here, not a JSON client, so this
+  // route negotiates on the Accept header the same way src/web/static.ts's
+  // `negotiated` pages do: a caller that explicitly asks for text/html
+  // gets a page, and everything else -- `*/*` from fetch and curl, no
+  // Accept header at all -- keeps the byte-identical JSON it answered
+  // before this card, on every status code this route can answer.
   app.get(
     '/auth/github/callback',
     verifyRateLimiter.middleware,
     (req: Request, res: Response, next: NextFunction) => {
+      const wantsHtml = prefersHtml(req.headers.accept);
       const code = req.query['code'];
       const state = req.query['state'];
       if (typeof code !== 'string' || typeof state !== 'string') {
+        if (wantsHtml) {
+          res.status(400).set('Content-Type', 'text/html; charset=utf-8').send(web.renderAuthCallbackErrorPage());
+          return;
+        }
         res.status(400).json({ error: 'code and state are both required and must be strings' });
         return;
       }
       void session.completeGitHubOAuth({ code, state }).then((completed) => {
         if (completed === null) {
+          if (wantsHtml) {
+            res.status(401).set('Content-Type', 'text/html; charset=utf-8').send(web.renderAuthCallbackErrorPage());
+            return;
+          }
           res.status(401).json({ error: 'invalid or expired sign-in attempt' });
+          return;
+        }
+        if (wantsHtml) {
+          res
+            .status(200)
+            .set('Content-Type', 'text/html; charset=utf-8')
+            .send(web.renderAuthCallbackSuccessPage(completed));
           return;
         }
         res.status(200).json(completed);
