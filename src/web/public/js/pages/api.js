@@ -103,6 +103,22 @@
     }
     return null;
   }
+  /* An authenticated GET, mirroring postAuthed: resolves ok() with the
+     response status/body attached even on non-2xx, since the caller
+     needs the route's own status (401/403 here) to pick a sentence. */
+  function getAuthed(path, token) {
+    return fetch(path, {
+      headers: { Accept: "application/json", Authorization: "Bearer " + token },
+      credentials: "omit",
+    })
+      .then(function (res) {
+        return res.json().then(
+          function (parsed) { return ok({ status: res.status, body: parsed }); },
+          function () { return ok({ status: res.status, body: null }); },
+        );
+      })
+      .catch(function () { return failed("network"); });
+  }
 
   /* A write by an authenticated buyer, JSON in, JSON out. Unlike `get`,
      this always resolves ok() with the response body attached even on a
@@ -283,6 +299,7 @@
   global.FAApi = {
     get: get,
     getLinkedData: getLinkedData,
+    getAuthed: getAuthed,
     postAuthed: postAuthed,
     getStoredSession: getStoredSession,
     el: el,

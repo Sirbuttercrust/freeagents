@@ -94,6 +94,7 @@ type PageName =
   | 'credential'
   | 'job'
   | 'hire'
+  | 'agreement'
   | 'notfound'
   | 'authCallbackSuccess'
   | 'authCallbackError';
@@ -111,6 +112,9 @@ const PAGE_FILES: Readonly<Record<PageName, string>> = {
   // P8g: a page of its own, not a path an API route also owns -- see the
   // own-path mount below, not the negotiated ones.
   hire: 'hire.html',
+  // P8h: same stance as hire above -- /agreement owns no path an API
+  // route also serves.
+  agreement: 'agreement.html',
   notfound: 'notfound.html',
   // P8e: rendered directly by GET /auth/github/callback in src/api/app.ts,
   // never mounted as a route of its own here. Loaded once at construction
@@ -254,6 +258,9 @@ export function createWebSurface(
       // own-path mount like the four above it, not `negotiated`. Adding the
       // Accept guard here would be cargo: there is nothing to negotiate.
       app.get('/hire', (_req: Request, res: Response) => send(res, 'hire'));
+      // P8h: same stance as /hire above -- /agreement owns no path an API
+      // route also serves.
+      app.get('/agreement', (_req: Request, res: Response) => send(res, 'agreement'));
 
       // Pages that share a path with an API route (see rule 1 above).
       app.get('/agents/:agentDid', negotiated('agent'));
