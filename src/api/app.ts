@@ -970,6 +970,36 @@ export function createApp(
       return;
     }
 
+    // P8a (D1, review round 1): the session path this card adds resolves
+    // an acting party through Account.did (resolveActingParty), which
+    // proves only possession of an Account row -- never possession of a
+    // key. An agent's DID is delegated by its operator's Ed25519 key
+    // (POST /agents) and is public (GET /agents lists it), so leaving this
+    // route free to bind ANY did, including an already-delegated agent's
+    // own, would let anyone claim that Account and, from a session alone,
+    // act as the agent on every lifecycle route this card opens to
+    // sessions -- turning "acting as the agent" from "holds the
+    // delegation key" into "was first to POST this string". Refusing the
+    // registration outright (409, the same status and shape a duplicate
+    // Account already answers with) closes that gap while leaving the
+    // bootstrap-deadlock path this route exists for untouched: a genuinely
+    // new operator or buyer DID, one no Agent has ever claimed, still
+    // registers exactly as it always has.
+    let agentAlreadyClaimsDid: boolean;
+    try {
+      agentAlreadyClaimsDid = (await agentRepo.findByDid(did)) !== null;
+    } catch (err) {
+      console.error('POST /accounts: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (agentAlreadyClaimsDid) {
+      res.status(409).json({
+        error: `${did} is already delegated to an agent; an agent's own DID cannot be claimed as an Account`,
+      });
+      return;
+    }
+
     try {
       const row = await repo.register({
         did,

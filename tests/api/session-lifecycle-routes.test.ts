@@ -597,6 +597,99 @@ describe('P8a: a signature and a session naming different DIDs resolves to the s
   });
 });
 
+// D1 (review round 1, qa): the session path resolves an acting party through
+// Account.did, but POST /accounts is unauthenticated and, before this fix,
+// never checked whether the did being registered already belongs to a
+// delegated Agent. Agent DIDs are public (GET /agents lists them), so
+// anyone could register an Account naming a live agent's own DID, mint a
+// real session for it, and act as that agent on every lifecycle route this
+// card just opened to sessions -- reaching decline, withdraw and every
+// other agent-only route with no delegation key ever involved. Registering
+// the buyer side of a job is unaffected: a buyer DID is ordinarily
+// self-chosen and was never defended by a key even before this card.
+describe('P8a (D1): an agent DID already claimed by a delegation cannot be registered as an Account', () => {
+  it('POST /accounts refuses a did an Agent already holds, and the session it would have minted never resolves to a party', async () => {
+    const repo = new MemoryAccountRepository();
+    const agentRepo = new MemoryAgentRepository();
+    const jobRepo = new MemoryJobRepository();
+    const AGENT_DID = 'did:abt:p8a-d1-victim-agent';
+    await agentRepo.create({
+      did: AGENT_DID,
+      operatorDid: 'did:abt:p8a-d1-victim-operator',
+      delegation: delegationFixture(AGENT_DID) as never,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+
+    const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(251));
+    await repo.register({ did: buyer.did, githubLogin: 'p8a-d1-buyer-login' });
+
+    const sessionAdapter = passkeyAdapter();
+    const attackerSubject = 'p8a-d1-attacker-subject';
+
+    const server = createApp(
+      repo,
+      agentRepo,
+      undefined,
+      undefined,
+      jobRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    ).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('expected server to listen on a port');
+    }
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    try {
+      // The attacker registers an Account claiming the victim agent's own
+      // public DID, binding it to a passkey subject the attacker controls.
+      const claim = await fetch(`${baseUrl}/accounts`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          did: AGENT_DID,
+          githubLogin: 'p8a-d1-attacker-login',
+          passkeySubject: attackerSubject,
+        }),
+      });
+      expect(claim.status).not.toBe(201);
+      expect(claim.status).toBe(409);
+
+      // No Account row exists for the agent's DID: the registration was
+      // refused, not silently downgraded.
+      const read = await fetch(`${baseUrl}/accounts/${AGENT_DID}`);
+      expect(read.status).toBe(404);
+
+      // A real, live session for the attacker's own passkey subject: the
+      // ceremony succeeds (nothing wrong with the attacker's own identity),
+      // but no Account claims that subject, so resolveActingParty resolves
+      // to no party at all.
+      const attackerAuthHeader = await passkeySessionHeader(sessionAdapter, attackerSubject);
+
+      const created = await postSigned(baseUrl, '/jobs', { agentDid: AGENT_DID, repository: 'buyer/target-repo', brief: 'Fix the login bug' }, buyer);
+      expect(created.status).toBe(201);
+      const jobId = String(((await created.json()) as Record<string, unknown>).id);
+
+      const declined = await fetch(`${baseUrl}/jobs/${jobId}/decline`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...attackerAuthHeader },
+      });
+      expect(declined.status).toBe(401);
+    } finally {
+      server.close();
+    }
+  });
+});
+
 describe('P8a: the payment start routes accept a session for the buyer, still returning a wallet-signable transaction', () => {
   it('POST /jobs/:jobId/payments/deposit/usdc/start reaches the rail on a session, no signature, no platform key involved', async () => {
     const { createUsdcPaymentRail } = await import('../../src/adapters/payment/usdc.js');
