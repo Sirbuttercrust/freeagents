@@ -125,3 +125,90 @@ describe('a configured deployment reaches the real GitHub redirect (client_id pr
     }
   });
 });
+
+// qa (review round 1, D1, inert-declared-control): the page's own
+// beginPasskey() minted a fresh random subject on every click, so a session
+// it produced could never resolve to an Account bound to an earlier subject.
+// Driven through the page's own script (jsdom), not by importing signin.js's
+// internals, the same discipline the rest of this file holds to. jsdom has
+// no WebAuthn implementation (the file's own earlier comment), so the
+// ceremony itself cannot complete here; this proves the one thing that CAN
+// be proven in this environment without it: the subject the page sends to
+// POST /auth/passkey/register is stable across repeated attempts on one
+// device, not re-minted every time.
+function withFakeWebAuthnSupport(window: JSDOM['window']): void {
+  Object.defineProperty(window.navigator, 'credentials', {
+    configurable: true,
+    // The ceremony is never completed in this environment (no jsdom
+    // WebAuthn implementation exists to answer it); rejecting immediately
+    // is enough to observe what subject the page registered before it
+    // asked for a ceremony at all.
+    value: { create: () => Promise.reject(new Error('no WebAuthn ceremony available in this test environment')) },
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).PublicKeyCredential = function PublicKeyCredential(): void {};
+}
+
+describe('the /signin page\'s passkey subject is stable across attempts, not re-minted per click', () => {
+  it('sends the same subject to POST /auth/passkey/register on a second click as on the first', async () => {
+    const virtualConsole = new VirtualConsole();
+    const failures: string[] = [];
+    virtualConsole.on('jsdomError', (error: Error) => failures.push(error.message));
+
+    const registeredSubjects: string[] = [];
+
+    const response = await fetch(`${baseUrl}/signin`, { headers: { Accept: 'text/html' } });
+    const markup = await response.text();
+
+    const dom = new JSDOM(markup, {
+      url: `${baseUrl}/signin`,
+      runScripts: 'dangerously',
+      resources: 'usable',
+      pretendToBeVisual: true,
+      virtualConsole,
+      beforeParse(window) {
+        withFakeWebAuthnSupport(window);
+        Object.defineProperty(window, 'fetch', {
+          writable: true,
+          value: (input: string, init?: RequestInit) => {
+            const url = input;
+            if (url.includes('/auth/passkey/register') && typeof init?.body === 'string') {
+              try {
+                const parsed = JSON.parse(init.body) as { subject?: unknown };
+                if (typeof parsed.subject === 'string') registeredSubjects.push(parsed.subject);
+              } catch {
+                // malformed body would fail the assertion below on its own
+              }
+            }
+            return fetch(new URL(input, baseUrl), init);
+          },
+        });
+      },
+    });
+
+    try {
+      await new Promise<void>((resolve) => {
+        if (dom.window.document.readyState === 'complete') resolve();
+        else dom.window.addEventListener('load', () => resolve());
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const btn = dom.window.document.getElementById('btn-passkey') as HTMLButtonElement | null;
+      expect(btn).not.toBeNull();
+      expect(btn!.disabled).toBe(false);
+
+      btn!.click();
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      btn!.click();
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
+
+      expect(registeredSubjects.length).toBe(2);
+      expect(registeredSubjects[0]).toEqual(registeredSubjects[1]);
+      expect(registeredSubjects[0]?.length).toBeGreaterThan(0);
+    } finally {
+      dom.window.close();
+    }
+  });
+});

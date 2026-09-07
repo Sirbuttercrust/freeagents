@@ -272,6 +272,28 @@ describe('POST /auth/passkey/register', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  // qa (review round 1, D2, guard-without-a-test): registerPasskey throws
+  // when options.passkey is undefined (FREEAGENTS_PASSKEY_RP_ID unset), and
+  // that throw maps to 503, not a 200 with an empty options object. Mutation
+  // proof (run by hand and reverted): swapping the 503 branch for
+  // res.status(200).json({ optionsJson: '{}' }) left the full suite green
+  // before this test existed. This test goes red under that exact mutation.
+  it('503s when passkey is not configured on this deployment', async () => {
+    const sessionAdapter = createSessionAdapter({ github: fakeGitHubConfig() });
+    const baseUrl = await listen(
+      createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
+    );
+
+    const res = await fetch(`${baseUrl}/auth/passkey/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ subject: 'a-real-subject' }),
+    });
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({ error: 'passkey sign-in is not configured on this deployment' });
+  });
 });
 
 describe('POST /auth/passkey/verify', () => {

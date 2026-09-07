@@ -160,6 +160,33 @@
     }
   }
 
+  /* The passkey subject this browser registers with, stable across
+     sign-ins (qa review round 1, D1). Read from localStorage first so a
+     returning visitor's second sign-in reuses the exact subject their
+     Account was bound to; minted and persisted once when none exists yet.
+     localStorage, not sessionStorage: a passkey outlives a closed tab, so
+     the subject naming it must too. A storage failure (private browsing,
+     a full quota) still returns a usable subject for this one attempt; it
+     is simply not remembered for the next tab. */
+  var PASSKEY_SUBJECT_STORAGE_KEY = "fa_passkey_subject";
+
+  function passkeySubject() {
+    try {
+      var existing = window.localStorage.getItem(PASSKEY_SUBJECT_STORAGE_KEY);
+      if (typeof existing === "string" && existing !== "") return existing;
+    } catch (e) {
+      /* fall through to minting a fresh one below */
+    }
+    var minted = "web-" + bufferToBase64url(window.crypto.getRandomValues(new Uint8Array(16)).buffer);
+    try {
+      window.localStorage.setItem(PASSKEY_SUBJECT_STORAGE_KEY, minted);
+    } catch (e) {
+      /* Private-browsing or a full quota: this attempt still proceeds with
+         the minted subject; it just will not be remembered next time. */
+    }
+    return minted;
+  }
+
   /* GitHub: begin the flow, then follow the redirect the server answers.
      The client id rides inside redirectUrl's own query string, so reading
      it back is how the page tells an unconfigured deployment apart from a
@@ -255,10 +282,14 @@
     btn.disabled = true;
     setStatus("Setting up your passkey…");
 
-    /* A single browser-scoped subject is enough for this ceremony: the
-       identity the passkey PROVES is the platform account it resolves to
-       server-side (Account.passkeySubject), never this string itself. */
-    var subject = "web-" + bufferToBase64url(window.crypto.getRandomValues(new Uint8Array(16)).buffer);
+    /* A single browser-scoped subject, stable across every sign-in on this
+       device (qa review round 1, D1): the identity the passkey PROVES is
+       the platform account it resolves to server-side
+       (Account.passkeySubject), so a subject that changed on every click
+       could never match an account bound to an earlier one. Persisted in
+       localStorage rather than sessionStorage: the whole point is that it
+       survives a closed tab, the same way the passkey itself does. */
+    var subject = passkeySubject();
 
     fetch("/auth/passkey/register", {
       method: "POST",
