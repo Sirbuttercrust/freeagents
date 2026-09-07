@@ -103,7 +103,14 @@ describe('invariant 12: the platform wallet is never an input owner on any trans
     const { client, sentTx } = fakeChainClient();
     const rail2 = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, rateSource: async () => '1' }));
 
-    await rail2.onWalletResponse({ rail: 'abt', jobId: 'job_1', leg: 'deposit', finalTx, amountUsd: '2.00' });
+    await rail2.onWalletResponse({
+      rail: 'abt',
+      jobId: 'job_1',
+      leg: 'deposit',
+      finalTx,
+      amountUsd: '2.00',
+      operatorAddress,
+    });
 
     const broadcastBase64 = sentTx();
     expect(broadcastBase64).toBeDefined();

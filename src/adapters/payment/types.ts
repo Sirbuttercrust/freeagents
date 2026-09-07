@@ -135,6 +135,17 @@ export type WalletResponseInput =
       // job's agreed price"); this is the rail's own input contract,
       // mirroring the USDC arm's amountUsd below (added by S1).
       readonly amountUsd: string;
+      // S2 review round 2, D1: the operator address the PLATFORM itself
+      // named when it built the payment request (the same value
+      // createRequest's CreateRequestInput carried, read at the route
+      // from the session's own extraParams, never from the wallet's
+      // returned finalTx). onWalletResponse must never re-derive this by
+      // decoding finalTx: finalTx is the artifact under test, and a
+      // wallet that redirects the operator output to a different address
+      // controls both sides of that comparison if the expected side also
+      // comes from finalTx. Mirrors the USDC arm's operatorAddress below,
+      // which faces the identical requirement for the identical reason.
+      readonly operatorAddress: string;
     }
   | {
       readonly rail: 'usdc';
@@ -166,13 +177,15 @@ export type WalletResponseInput =
     };
 
 // Opaque per rail: what confirm() and every downstream caller address a
-// settlement by. ABT: the broadcast transaction hash, the two output
-// addresses onWalletResponse read out of the finalTx it broadcast, the
-// job and leg the ref belongs to (S2: needed so confirm() can refuse a
-// hash that already backed a different job or leg), and the expected
-// operator/fee amounts in the chain's smallest unit, computed once from
-// the job's own agreed price (S2, mirroring expectedPriceBaseUnits below,
-// added by S1 on the USDC arm).
+// settlement by. ABT: the broadcast transaction hash, the operator
+// address onWalletResponse was TOLD to expect (input.operatorAddress,
+// never decoded from the finalTx being confirmed -- S2 review round 2,
+// D1), the configured fee address, the job and leg the ref belongs to
+// (S2: needed so confirm() can refuse a hash that already backed a
+// different job or leg), and the expected operator/fee amounts in the
+// chain's smallest unit, computed once from the job's own agreed price
+// (S2, mirroring expectedPriceBaseUnits below, added by S1 on the USDC
+// arm).
 export type PaymentRef =
   | {
       readonly rail: 'abt';

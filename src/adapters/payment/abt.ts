@@ -266,20 +266,16 @@ export function createAbtPaymentRail(options: CreateAbtPaymentRailOptions = {}):
       const signed = { ...decoded, signature: fromHexSignature(signatureHex) };
       const signedBytes = cborEncodeTx(signed as never);
       const result = await chainClient.sendTx({ tx: toBase64(signedBytes), commit: true });
-      // Carry the two output addresses forward on the ref so confirm() can
-      // read exactly those two balances later without re-decoding the tx
-      // (D4, review round 1). The operator address is read back from the
-      // broadcast tx's own outputs (the other output, not the fee address)
-      // rather than trusted from the caller, since the finalTx the wallet
-      // returned is what actually got broadcast.
-      const operatorOutput = decoded.itx.outputs.find((output) => output.owner !== config.feeAddress);
-      // S2: the expected operator/fee amounts, computed ONCE here from
-      // input.amountUsd (the job's own agreed leg amount, populated by the
-      // route from legAmountUsdFromJob -- never a caller-supplied body
-      // field), the exact same quote math createRequest already used
-      // (usdToTokenAmount + fromTokenToUnit). confirm() binds the chain's
-      // own observed outputs against these, never against a fresh
-      // re-quote or a caller-supplied figure.
+      // S2 review round 2, D1: the expected operator address is the one
+      // the PLATFORM named when it built this payment request
+      // (input.operatorAddress, carried from the route's own
+      // extraParams/CreateRequestInput -- see abt-did-connect.ts), never
+      // read back out of decoded.itx.outputs. The finalTx being decoded
+      // here is exactly the artifact confirm() will later check against
+      // the chain's own record; deriving the expected side from that same
+      // wallet-supplied artifact would let a wallet that redirects the
+      // operator output also redirect what confirm() expects, so the
+      // check would always agree with whatever the wallet sent.
       const rate = await rateSource('abt');
       if (rate === null) {
         throw new RateUnavailableError('abt');
@@ -290,7 +286,7 @@ export function createAbtPaymentRail(options: CreateAbtPaymentRailOptions = {}):
       return {
         rail: 'abt',
         hash: result.hash,
-        operatorAddress: operatorOutput?.owner ?? '',
+        operatorAddress: input.operatorAddress,
         feeAddress: config.feeAddress,
         jobId: input.jobId,
         leg: input.leg,
