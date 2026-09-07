@@ -214,21 +214,16 @@ describe('the /signin page\'s passkey subject is stable across attempts, not re-
   });
 });
 
-// D1 descoped by review ruling (P8b, 2026-09-07, the card's descope
-// comment): a session and a registered account are two different
-// things, and this build does not create the second one for a
-// person automatically. qa proved (round 1 and round 2 FAILs on this card)
-// that a passkey sign-in through the page succeeds and then the first hire
-// answers 403 with no explanation anywhere on screen. This test drives a
-// REAL WebAuthn ceremony (createPasskeyFixture, the same fixture
-// tests/api/auth-routes.test.ts uses for the route-level happy path) through
-// the page's own script end to end, and pins that a completed passkey
-// sign-in tells the person plainly that they are signed in AND that hiring
-// or listing still needs a registered account this build does not create
-// for them. A test asserting only subject stability (the block above) would
-// stay green even if this honesty regressed, which is exactly what qa's
-// round 2 FAIL said about the previous fix: "it pins stability, not
-// usability."
+// P8e (qa review round 1, D2, claim-contradicts-implementation): P8d
+// merged before this fix and provisions an Account on the FIRST sign-in
+// for every method, passkey included -- proved by
+// tests/api/account-provisioning.test.ts's own "passkey sign-in: a
+// stranger signs in and hires immediately, the same as GitHub". The
+// caveat this test used to pin ("still needs a registered account, which
+// this build does not create for you yet") was true at P8b and false
+// from P8d onward; it stayed on screen anyway until this fix. This test
+// now pins the honest sentence: signed in, and ready to use, with no
+// leftover caveat about an account the product already created.
 function withRealWebAuthnCeremony(window: JSDOM['window'], fixture: ReturnType<typeof createPasskeyFixture>): void {
   Object.defineProperty(window.navigator, 'credentials', {
     configurable: true,
@@ -266,8 +261,8 @@ function base64urlToArrayBuffer(value: string): ArrayBuffer {
   return buffer;
 }
 
-describe('a completed passkey sign-in on the real page tells the person the whole truth', () => {
-  it('names both facts: signed in, and hiring/listing still need a registered account this build does not create', async () => {
+describe('a completed passkey sign-in on the real page tells the person the truth, and only the truth', () => {
+  it('says signed in, with no leftover caveat about an account the product already created', async () => {
     const sessionAdapter = createSessionAdapter({
       github: fakeGitHubConfig(),
       passkey: { rpName: 'FreeAgents test', rpID: 'localhost', origin: 'http://localhost:3000' },
@@ -322,8 +317,103 @@ describe('a completed passkey sign-in on the real page tells the person the whol
       expect(status).not.toBeNull();
       expect(status!.hidden).toBe(false);
       expect(status!.textContent).toContain('Signed in');
-      expect(status!.textContent).toContain('registered account');
       expect(status!.textContent).not.toContain('did not go through');
+      // D2 guard: the retracted caveat must not resurface. True at P8b,
+      // false since P8d's account provisioning merged.
+      expect(status!.textContent).not.toContain('registered account');
+      expect(status!.textContent).not.toContain('does not create');
+    } finally {
+      dom.window.close();
+      await new Promise<void>((resolve) => configuredServer.close(() => resolve()));
+    }
+  });
+});
+
+// qa review round 1, D1 (inert-declared-control): nav.js renders exactly
+// once at DOMContentLoaded and, before this fix, exposed nothing on
+// window; signin.js wrote fa_session on the passkey path and never
+// re-rendered it. Unlike the GitHub path there is no navigation
+// afterwards, so nothing else re-ran the nav either. A person who signs
+// in with a passkey on /signin stood on a page whose nav still said
+// "Sign in" and offered no way to sign out. This drives the real
+// ceremony through the real page's own scripts, the same discipline the
+// rest of this file holds to, and checks the nav in place, with no
+// reload.
+describe('the nav on /signin tells the truth immediately after a passkey sign-in, with no reload', () => {
+  it('hides Sign in, shows a working Sign out, right after the ceremony completes', async () => {
+    const sessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      passkey: { rpName: 'FreeAgents test', rpID: 'localhost', origin: 'http://localhost:3000' },
+    });
+    const configuredServer = createApp(
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, sessionAdapter,
+    ).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => configuredServer.once('listening', resolve));
+    const configuredBaseUrl = `http://127.0.0.1:${(configuredServer.address() as AddressInfo).port}`;
+
+    const virtualConsole = new VirtualConsole();
+    const failures: string[] = [];
+    virtualConsole.on('jsdomError', (error: Error) => failures.push(error.message));
+
+    const fixture = createPasskeyFixture();
+    const response = await fetch(`${configuredBaseUrl}/signin`, { headers: { Accept: 'text/html' } });
+    const markup = await response.text();
+
+    const dom = new JSDOM(markup, {
+      url: `${configuredBaseUrl}/signin`,
+      runScripts: 'dangerously',
+      resources: 'usable',
+      pretendToBeVisual: true,
+      virtualConsole,
+      beforeParse(window) {
+        withRealWebAuthnCeremony(window, fixture);
+        Object.defineProperty(window, 'fetch', {
+          writable: true,
+          value: (input: string, init?: RequestInit) => fetch(new URL(input, configuredBaseUrl), init),
+        });
+      },
+    });
+
+    try {
+      await new Promise<void>((resolve) => {
+        if (dom.window.document.readyState === 'complete') resolve();
+        else dom.window.addEventListener('load', () => resolve());
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Before the click: the page is signed out, same as any other visit.
+      const signinBefore = dom.window.document.getElementById('nav-signin');
+      const signedInBefore = dom.window.document.getElementById('nav-signed-in');
+      expect(signinBefore!.hidden).toBe(false);
+      expect(signedInBefore!.hidden).toBe(true);
+
+      const btn = dom.window.document.getElementById('btn-passkey') as HTMLButtonElement | null;
+      expect(btn).not.toBeNull();
+      btn!.click();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+
+      if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
+
+      // The session landed in storage, the same key nav.js reads.
+      const stored = dom.window.sessionStorage.getItem('fa_session');
+      expect(stored).not.toBeNull();
+
+      // The nav on THIS page, with no reload and no navigation, now tells
+      // the truth: Sign in is gone, Sign out is there and works.
+      const signin = dom.window.document.getElementById('nav-signin');
+      const signedIn = dom.window.document.getElementById('nav-signed-in');
+      expect(signin!.hidden, 'nav-signin should be hidden after a passkey sign-in').toBe(true);
+      expect(signedIn!.hidden, 'nav-signed-in should be visible after a passkey sign-in').toBe(false);
+
+      const signoutBtn = dom.window.document.getElementById('nav-signout') as HTMLButtonElement | null;
+      expect(signoutBtn).not.toBeNull();
+      signoutBtn!.click();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      expect(dom.window.document.getElementById('nav-signin')!.hidden).toBe(false);
+      expect(dom.window.document.getElementById('nav-signed-in')!.hidden).toBe(true);
+      expect(dom.window.sessionStorage.getItem('fa_session')).toBeNull();
     } finally {
       dom.window.close();
       await new Promise<void>((resolve) => configuredServer.close(() => resolve()));
