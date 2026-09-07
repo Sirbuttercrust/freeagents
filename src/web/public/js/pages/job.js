@@ -93,6 +93,7 @@
     renderClose(job);
     renderCredential(job);
     renderTechnical(job);
+    renderAgreementCta(job);
   }
 
   function renderWho(job) {
@@ -260,6 +261,15 @@
     A.setText(A.el(id), typeof value === "string" && value !== "" ? value : "not recorded");
   }
 
+  // P8h: a proposed job has somewhere to go now (inert-declared-control,
+  // eighth occurrence). Party is not checked client-side (job.html reads
+  // no session); the agreement page's own probe is the real boundary.
+  function renderAgreementCta(job) {
+    if (job.status !== "proposed" || typeof job.id !== "string" || job.id === "") return;
+    var link = A.el("agreement-link");
+    if (link) link.setAttribute("href", "/agreement?job=" + encodeURIComponent(job.id));
+    A.showById("agreement-cta", true);
+  }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", start);
   } else {
