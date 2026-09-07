@@ -15,6 +15,16 @@
 // instance can mint as many distinct passkey subjects as a test needs,
 // unlike the fixed-login GitHub fake, which is why the multi-identity
 // tests below (stranger, session-vs-signature ordering) all use passkey.
+//
+// A session resolves to whichever Account DID its own subject is bound
+// to, and an Agent's own DID can never be that DID: POST /accounts and
+// POST /agents both refuse the collision, in either order (D1, D2 below).
+// So a buyer session reaches every buyer-only and shared route here, and
+// an agent still proves its own seat with its delegation key (RFC 9421)
+// exactly as it did before this card -- no new session-to-agent binding
+// is in this card's scope. The full lifecycle walk below drives the
+// buyer side through a session and the agent side through a signature,
+// on the same job, to show both proofs are read at the same route.
 import type { Server } from 'node:http';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -162,114 +172,68 @@ function fakeGithub(): GithubAdapter {
   };
 }
 
-describe('P8a: a session-authenticated buyer withdraws a job with no signature anywhere', () => {
-  let server: Server;
-  let baseUrl: string;
-  let authHeader: Record<string, string>;
-  const AGENT_DID = 'did:abt:p8a-agent-withdraw';
+// Boots createApp on an ephemeral port and resolves once it is listening.
+// Takes createApp's own parameter tuple directly (positional, undefined for
+// every capability a test does not need), so every describe block below
+// keeps calling createApp exactly the way it always did; only the
+// listen/wait/address boilerplate around that call is shared, once.
+async function bootServer(...args: Parameters<typeof createApp>): Promise<{ server: Server; baseUrl: string }> {
+  const server = createApp(...args).listen(0, '127.0.0.1');
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('expected server to listen on a port');
+  }
+  return { server, baseUrl: `http://127.0.0.1:${address.port}` };
+}
 
-  beforeAll(async () => {
-    const repo = new MemoryAccountRepository();
-    const agentRepo = new MemoryAgentRepository();
-    await agentRepo.create({
-      did: AGENT_DID,
-      operatorDid: 'did:abt:op-p8a-withdraw',
-      delegation: delegationFixture(AGENT_DID) as never,
-      name: 'scout',
-      skills: ['triage'],
-      githubLogin: null,
-    });
-    const sessionAdapter = passkeyAdapter();
-    const subject = 'p8a-withdraw-buyer-subject';
-    await repo.register({ did: 'did:abt:p8a-session-buyer', githubLogin: 'p8a-withdraw-buyer-login', passkeySubject: subject });
-    server = createApp(
-      repo,
-      agentRepo,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      sessionAdapter,
-    ).listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') {
-      throw new Error('expected server to listen on a port');
-    }
-    baseUrl = `http://127.0.0.1:${address.port}`;
-    authHeader = await passkeySessionHeader(sessionAdapter, subject);
+// Every fixture agent in this file is the same shape (delegationFixture is
+// not cryptographically verified by a direct repo.create call, only by
+// POST /agents itself, which the D2 block below exercises separately), so
+// one helper replaces the repeated seven-field literal at each call site.
+async function createAgent(agentRepo: MemoryAgentRepository, did: string, operatorDid: string): Promise<void> {
+  await agentRepo.create({
+    did,
+    operatorDid,
+    delegation: delegationFixture(did) as never,
+    name: 'scout',
+    skills: ['triage'],
+    githubLogin: null,
   });
-
-  afterAll(() => {
-    server.close();
-  });
-
-  it('opens a job and withdraws it, both over a session, no RFC 9421 signature anywhere', async () => {
-    const created = await fetch(`${baseUrl}/jobs`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeader },
-      body: JSON.stringify({
-        agentDid: AGENT_DID,
-        repository: 'buyer/target-repo',
-        brief: 'Fix the login bug',
-      }),
-    });
-    expect(created.status).toBe(201);
-    const jobId = String(((await created.json()) as Record<string, unknown>).id);
-
-    const withdrawn = await fetch(`${baseUrl}/jobs/${jobId}/withdraw`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeader },
-    });
-    expect(withdrawn.status).toBe(200);
-    const body = (await withdrawn.json()) as Record<string, unknown>;
-    expect(body.status).toBe('withdrawn');
-  });
-});
+}
 
 // The card's own "Done means" acceptance sentence: a session-authenticated
-// buyer reaches price/accept, confirm, stage, redo and pull-request across
-// one job. No RFC 9421 signature header is ever sent in this describe
-// block: every identity proof here is a session bearer token.
-describe('P8a: the full lifecycle walk, reached entirely through sessions', () => {
+// buyer reaches price/accept, confirm, withdraw, redo and pull-request
+// across one job -- no RFC 9421 signature header on any buyer call in this
+// describe block. The agent's own seat is proven the way it was proven
+// before this card, and the way D1/D2 require it to stay proven: a
+// verified signature naming the agent's own DID (signingIdentityFromSeed
+// mints a self-certifying did:abt DID, the same construction
+// tests/api/job-merge-restart.test.ts uses), since an agent's DID can
+// never also be an Account's DID (D1, D2). Same route, same gate
+// (resolveJobActingParty), two different proofs for two different
+// parties -- the anchor this card exists to prove.
+describe('P8a: the full lifecycle walk, buyer by session, agent by its own signature', () => {
   let server: Server;
   let baseUrl: string;
-  const AGENT_DID = 'did:abt:p8a-walk-agent';
   const BUYER_DID = 'did:abt:p8a-walk-buyer';
 
+  let agentIdentity: SigningIdentity;
   let buyerAuthHeader: Record<string, string>;
-  let agentAuthHeader: Record<string, string>;
 
   beforeAll(async () => {
     const repo = new MemoryAccountRepository();
     const agentRepo = new MemoryAgentRepository();
     const jobRepo = new MemoryJobRepository();
     const attestationRepo = new MemoryAttestationRepository();
-    await agentRepo.create({
-      did: AGENT_DID,
-      operatorDid: 'did:abt:p8a-walk-operator',
-      delegation: delegationFixture(AGENT_DID) as never,
-      name: 'scout',
-      skills: ['triage'],
-      githubLogin: null,
-    });
+    agentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(213));
+    await createAgent(agentRepo, agentIdentity.did, 'did:abt:p8a-walk-operator');
     const buyerSubject = 'p8a-walk-buyer-passkey-subject';
-    const agentSubject = 'p8a-walk-agent-passkey-subject';
     await repo.register({ did: BUYER_DID, githubLogin: 'p8a-walk-buyer-login', passkeySubject: buyerSubject });
-    // The agent's OWN did:abt DID is registered as an Account too, bound
-    // to its own passkey subject: the same mechanism a real agent
-    // operator would use to reach the agent-only routes from a session
-    // instead of a signing key.
-    await repo.register({ did: AGENT_DID, githubLogin: 'p8a-walk-agent-login', passkeySubject: agentSubject });
 
     const sessionAdapter = passkeyAdapter();
 
-    server = createApp(
+    ({ server, baseUrl } = await bootServer(
       repo,
       agentRepo,
       undefined,
@@ -286,16 +250,9 @@ describe('P8a: the full lifecycle walk, reached entirely through sessions', () =
       alwaysSettledGate(),
       anyCommitStagingObserver(),
       attestationRepo,
-    ).listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') {
-      throw new Error('expected server to listen on a port');
-    }
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    ));
 
     buyerAuthHeader = await passkeySessionHeader(sessionAdapter, buyerSubject);
-    agentAuthHeader = await passkeySessionHeader(sessionAdapter, agentSubject);
   });
 
   afterAll(() => {
@@ -310,42 +267,42 @@ describe('P8a: the full lifecycle walk, reached entirely through sessions', () =
     });
   }
 
-  it('a session-authenticated buyer accepts a price, confirms, stages, requests a redo, and opens a pull request, no signature anywhere', async () => {
+  function postAsAgent(path: string, body: unknown): Promise<Response> {
+    return postSigned(baseUrl, path, body, agentIdentity);
+  }
+
+  it('a session-authenticated buyer accepts a price, confirms, requests a redo, and reads back the pull request the agent submitted, no signature on any buyer call', async () => {
     const created = await postSession(
       '/jobs',
-      { agentDid: AGENT_DID, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
+      { agentDid: agentIdentity.did, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
       buyerAuthHeader,
     );
     expect(created.status).toBe(201);
     const jobId = String(((await created.json()) as Record<string, unknown>).id);
 
-    const proposed = await postSession(
-      `/jobs/${jobId}/criteria`,
-      {
-        criteria: [
-          { text: 'The login bug is fixed', proposedBy: 'agent' },
-          { text: 'Checkout e2e test passes', proposedBy: 'agent' },
-        ],
-        priceUsd: '500.00',
-        rail: 'abt',
-      },
-      agentAuthHeader,
-    );
+    const proposed = await postAsAgent(`/jobs/${jobId}/criteria`, {
+      criteria: [
+        { text: 'The login bug is fixed', proposedBy: 'agent' },
+        { text: 'Checkout e2e test passes', proposedBy: 'agent' },
+      ],
+      priceUsd: '500.00',
+      rail: 'abt',
+    });
     expect(proposed.status).toBe(200);
 
     expect((await postSession(`/jobs/${jobId}/criteria/0/accept`, {}, buyerAuthHeader)).status).toBe(200);
-    expect((await postSession(`/jobs/${jobId}/criteria/0/accept`, {}, agentAuthHeader)).status).toBe(200);
+    expect((await postAsAgent(`/jobs/${jobId}/criteria/0/accept`, {})).status).toBe(200);
     expect((await postSession(`/jobs/${jobId}/criteria/1/accept`, {}, buyerAuthHeader)).status).toBe(200);
-    expect((await postSession(`/jobs/${jobId}/criteria/1/accept`, {}, agentAuthHeader)).status).toBe(200);
+    expect((await postAsAgent(`/jobs/${jobId}/criteria/1/accept`, {})).status).toBe(200);
 
     expect((await postSession(`/jobs/${jobId}/price/accept`, {}, buyerAuthHeader)).status).toBe(200);
-    expect((await postSession(`/jobs/${jobId}/price/accept`, {}, agentAuthHeader)).status).toBe(200);
+    expect((await postAsAgent(`/jobs/${jobId}/price/accept`, {})).status).toBe(200);
 
     const confirmed = await postSession(`/jobs/${jobId}/confirm`, {}, buyerAuthHeader);
     expect(confirmed.status).toBe(200);
     expect(((await confirmed.json()) as Record<string, unknown>).status).toBe('confirmed');
 
-    const staged = await postSession(`/jobs/${jobId}/stage`, { stagedCommit: 'p8a-commit-1' }, agentAuthHeader);
+    const staged = await postAsAgent(`/jobs/${jobId}/stage`, { stagedCommit: 'p8a-commit-1' });
     expect(staged.status).toBe(200);
     expect(((await staged.json()) as Record<string, unknown>).status).toBe('staged');
 
@@ -353,27 +310,33 @@ describe('P8a: the full lifecycle walk, reached entirely through sessions', () =
     expect(redo.status).toBe(200);
     expect(((await redo.json()) as Record<string, unknown>).status).toBe('redo_requested');
 
-    const restaged = await postSession(`/jobs/${jobId}/stage`, { stagedCommit: 'p8a-commit-2' }, agentAuthHeader);
+    const restaged = await postAsAgent(`/jobs/${jobId}/stage`, { stagedCommit: 'p8a-commit-2' });
     expect(restaged.status).toBe(200);
     expect(((await restaged.json()) as Record<string, unknown>).status).toBe('staged');
 
-    const pullRequest = await postSession(`/jobs/${jobId}/pull-request`, {}, agentAuthHeader);
+    const pullRequest = await postAsAgent(`/jobs/${jobId}/pull-request`, {});
     expect(pullRequest.status).toBe(200);
     const pullRequestBody = (await pullRequest.json()) as Record<string, unknown>;
     expect(pullRequestBody.status).toBe('submitted');
     expect(pullRequestBody.pullRequestUrl).toContain('freeagents-platform/target-repo/pull/1');
+
+    // The buyer's session reads the job the agent's key moved forward,
+    // still with no signature anywhere on the buyer's own calls.
+    const read = await fetch(`${baseUrl}/jobs/${jobId}`, { headers: { ...buyerAuthHeader } });
+    expect(read.status).toBe(200);
+    expect(((await read.json()) as Record<string, unknown>).status).toBe('submitted');
   });
 
-  it('a session-authenticated agent declines a fresh job, no signature anywhere', async () => {
+  it('a session-authenticated buyer opens a job, and the agent declines it with its own signature, no session ever binds the agent seat', async () => {
     const created = await postSession(
       '/jobs',
-      { agentDid: AGENT_DID, repository: 'buyer/target-repo', brief: 'A job the agent will decline' },
+      { agentDid: agentIdentity.did, repository: 'buyer/target-repo', brief: 'A job the agent will decline' },
       buyerAuthHeader,
     );
     expect(created.status).toBe(201);
     const jobId = String(((await created.json()) as Record<string, unknown>).id);
 
-    const declined = await postSession(`/jobs/${jobId}/decline`, {}, agentAuthHeader);
+    const declined = await postAsAgent(`/jobs/${jobId}/decline`, {});
     expect(declined.status).toBe(200);
     expect(((await declined.json()) as Record<string, unknown>).status).toBe('declined');
   });
@@ -393,17 +356,10 @@ describe('P8a: refusal shapes on the session path', () => {
   beforeAll(async () => {
     repo = new MemoryAccountRepository();
     const agentRepo = new MemoryAgentRepository();
-    await agentRepo.create({
-      did: AGENT_DID,
-      operatorDid: 'did:abt:p8a-refusal-operator',
-      delegation: delegationFixture(AGENT_DID) as never,
-      name: 'scout',
-      skills: ['triage'],
-      githubLogin: null,
-    });
+    await createAgent(agentRepo, AGENT_DID, 'did:abt:p8a-refusal-operator');
     await repo.register({ did: BUYER_DID, githubLogin: 'p8a-refusal-buyer-login', passkeySubject: BUYER_SUBJECT });
     sessionAdapter = passkeyAdapter();
-    server = createApp(
+    ({ server, baseUrl } = await bootServer(
       repo,
       agentRepo,
       undefined,
@@ -416,13 +372,7 @@ describe('P8a: refusal shapes on the session path', () => {
       undefined,
       undefined,
       sessionAdapter,
-    ).listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') {
-      throw new Error('expected server to listen on a port');
-    }
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    ));
     buyerAuthHeader = await passkeySessionHeader(sessionAdapter, BUYER_SUBJECT);
   });
 
@@ -439,6 +389,18 @@ describe('P8a: refusal shapes on the session path', () => {
     expect(created.status).toBe(201);
     return String(((await created.json()) as Record<string, unknown>).id);
   }
+
+  it('opens a job and withdraws it, both over a session, no RFC 9421 signature anywhere', async () => {
+    const jobId = await createJobWithSession();
+
+    const withdrawn = await fetch(`${baseUrl}/jobs/${jobId}/withdraw`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...buyerAuthHeader },
+    });
+    expect(withdrawn.status).toBe(200);
+    const body = (await withdrawn.json()) as Record<string, unknown>;
+    expect(body.status).toBe('withdrawn');
+  });
 
   it('403: a session that resolves to a DID which is not a party to the job', async () => {
     const jobId = await createJobWithSession();
@@ -500,14 +462,7 @@ describe('P8a: an invalid signature is refused outright, never falling through t
     const repo = new MemoryAccountRepository();
     const agentRepo = new MemoryAgentRepository();
     const AGENT_DID = 'did:abt:p8a-invalid-sig-agent';
-    await agentRepo.create({
-      did: AGENT_DID,
-      operatorDid: 'did:abt:p8a-invalid-sig-operator',
-      delegation: delegationFixture(AGENT_DID) as never,
-      name: 'scout',
-      skills: ['triage'],
-      githubLogin: null,
-    });
+    await createAgent(agentRepo, AGENT_DID, 'did:abt:p8a-invalid-sig-operator');
     const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(231));
     await repo.register({ did: buyer.did, githubLogin: 'p8a-invalid-sig-buyer-login' });
 
@@ -519,7 +474,7 @@ describe('P8a: an invalid signature is refused outright, never falling through t
     });
     const sessionAdapter = passkeyAdapter();
 
-    const server = createApp(
+    const { server, baseUrl } = await bootServer(
       repo,
       agentRepo,
       undefined,
@@ -532,13 +487,7 @@ describe('P8a: an invalid signature is refused outright, never falling through t
       undefined,
       undefined,
       sessionAdapter,
-    ).listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') {
-      throw new Error('expected server to listen on a port');
-    }
-    const baseUrl = `http://127.0.0.1:${address.port}`;
+    );
     const authHeader = await passkeySessionHeader(sessionAdapter, buyerSubject);
 
     try {
@@ -584,14 +533,7 @@ describe('P8a: a signature and a session naming different DIDs resolves to the s
     const repo = new MemoryAccountRepository();
     const agentRepo = new MemoryAgentRepository();
     const AGENT_DID = 'did:abt:p8a-order-agent';
-    await agentRepo.create({
-      did: AGENT_DID,
-      operatorDid: 'did:abt:p8a-order-operator',
-      delegation: delegationFixture(AGENT_DID) as never,
-      name: 'scout',
-      skills: ['triage'],
-      githubLogin: null,
-    });
+    await createAgent(agentRepo, AGENT_DID, 'did:abt:p8a-order-operator');
 
     const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(241));
     await repo.register({ did: buyer.did, githubLogin: 'p8a-order-buyer-login' });
@@ -602,7 +544,7 @@ describe('P8a: a signature and a session naming different DIDs resolves to the s
     await repo.register({ did: 'did:abt:p8a-order-session-party', githubLogin: 'p8a-order-session-login', passkeySubject: sessionSubject });
     const sessionAdapter = passkeyAdapter();
 
-    const server = createApp(
+    const { server, baseUrl } = await bootServer(
       repo,
       agentRepo,
       undefined,
@@ -615,13 +557,7 @@ describe('P8a: a signature and a session naming different DIDs resolves to the s
       undefined,
       undefined,
       sessionAdapter,
-    ).listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') {
-      throw new Error('expected server to listen on a port');
-    }
-    const baseUrl = `http://127.0.0.1:${address.port}`;
+    );
     const sessionAuthHeader = await passkeySessionHeader(sessionAdapter, sessionSubject);
 
     try {
@@ -672,14 +608,7 @@ describe('P8a (D1): an agent DID already claimed by a delegation cannot be regis
     const agentRepo = new MemoryAgentRepository();
     const jobRepo = new MemoryJobRepository();
     const AGENT_DID = 'did:abt:p8a-d1-victim-agent';
-    await agentRepo.create({
-      did: AGENT_DID,
-      operatorDid: 'did:abt:p8a-d1-victim-operator',
-      delegation: delegationFixture(AGENT_DID) as never,
-      name: 'scout',
-      skills: ['triage'],
-      githubLogin: null,
-    });
+    await createAgent(agentRepo, AGENT_DID, 'did:abt:p8a-d1-victim-operator');
 
     const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(251));
     await repo.register({ did: buyer.did, githubLogin: 'p8a-d1-buyer-login' });
@@ -687,7 +616,7 @@ describe('P8a (D1): an agent DID already claimed by a delegation cannot be regis
     const sessionAdapter = passkeyAdapter();
     const attackerSubject = 'p8a-d1-attacker-subject';
 
-    const server = createApp(
+    const { server, baseUrl } = await bootServer(
       repo,
       agentRepo,
       undefined,
@@ -700,13 +629,7 @@ describe('P8a (D1): an agent DID already claimed by a delegation cannot be regis
       undefined,
       undefined,
       sessionAdapter,
-    ).listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') {
-      throw new Error('expected server to listen on a port');
-    }
-    const baseUrl = `http://127.0.0.1:${address.port}`;
+    );
 
     try {
       // The attacker registers an Account claiming the victim agent's own
@@ -771,7 +694,7 @@ describe('P8a (D2): an Account registered before its did is ever delegated canno
     const sessionAdapter = passkeyAdapter();
     const attackerSubject = 'p8a-d2-attacker-subject';
 
-    const server = createApp(
+    const { server, baseUrl } = await bootServer(
       repo,
       agentRepo,
       undefined,
@@ -784,13 +707,7 @@ describe('P8a (D2): an Account registered before its did is ever delegated canno
       undefined,
       undefined,
       sessionAdapter,
-    ).listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') {
-      throw new Error('expected server to listen on a port');
-    }
-    const baseUrl = `http://127.0.0.1:${address.port}`;
+    );
 
     try {
       // The operator registers itself normally, unrelated to the attack.
@@ -890,21 +807,14 @@ describe('P8a: the payment start routes accept a session for the buyer, still re
       const repo = new MemoryAccountRepository();
       const agentRepo = new MemoryAgentRepository();
       const AGENT_DID = 'did:abt:p8a-usdc-agent';
-      await agentRepo.create({
-        did: AGENT_DID,
-        operatorDid: 'did:abt:p8a-usdc-operator',
-        delegation: delegationFixture(AGENT_DID) as never,
-        name: 'scout',
-        skills: ['triage'],
-        githubLogin: null,
-      });
+      await createAgent(agentRepo, AGENT_DID, 'did:abt:p8a-usdc-operator');
       const buyerSubject = 'p8a-usdc-buyer-subject';
       await repo.register({ did: 'did:abt:p8a-usdc-buyer', githubLogin: 'p8a-usdc-buyer-login', passkeySubject: buyerSubject });
       const sessionAdapter = passkeyAdapter();
       const jobRepo = new MemoryJobRepository();
       const settlementRepo = new MemorySettlementRepository();
 
-      const server = createApp(
+      const { server, baseUrl } = await bootServer(
         repo,
         agentRepo,
         undefined,
@@ -924,13 +834,7 @@ describe('P8a: the payment start routes accept a session for the buyer, still re
         null,
         usdcRail,
         settlementRepo,
-      ).listen(0, '127.0.0.1');
-      await new Promise<void>((resolve) => server.once('listening', resolve));
-      const address = server.address();
-      if (address === null || typeof address === 'string') {
-        throw new Error('expected server to listen on a port');
-      }
-      const baseUrl = `http://127.0.0.1:${address.port}`;
+      );
       const authHeader = await passkeySessionHeader(sessionAdapter, buyerSubject);
 
       try {
