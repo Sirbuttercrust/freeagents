@@ -100,6 +100,7 @@ describe('processWalletResponse and confirmPayment: thin passthroughs the route 
       rail: 'abt',
       jobId: 'job_1',
       finalTx: 'fake-final-tx',
+      amountUsd: '10.00',
     });
     expect(ref.rail).toBe('abt');
     const confirmation = await confirmPayment(rail, ref);
