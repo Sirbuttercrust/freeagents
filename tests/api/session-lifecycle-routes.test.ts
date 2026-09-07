@@ -18,6 +18,11 @@
 import type { Server } from 'node:http';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-key-2020';
+import { Ed25519Signature2020 } from '@digitalbazaar/ed25519-signature-2020';
+import * as vc from '@digitalbazaar/vc';
+import { securityLoader } from '@digitalbazaar/security-document-loader';
+import { fromRandom, type WalletObject } from '@ocap/wallet';
 
 import { createApp } from '../../src/api/app.js';
 import {
@@ -28,13 +33,67 @@ import {
 } from '../../src/adapters/storage/memory.js';
 import type { GithubAdapter, PullRequestRef } from '../../src/adapters/github/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
-import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { signingIdentityFromSeed, signingIdentityFromWallet, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { fakeGitHubConfig } from '../helpers/session-fixtures.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import type { SessionAdapter } from '../../src/adapters/identity/session.js';
 import { createPasskeyFixture } from '../helpers/webauthn-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import { DELEGATION_TYPE } from '../../src/domain/agent.js';
+
+// The ArcBlock wallet's secretKey is seed(32)||public(32) in hex. Same house
+// construction as tests/api/agent-invariant2.test.ts and
+// tests/api/job-invariant2.test.ts: POST /agents runs real cryptographic
+// verification, so a hand-typed proofValue is refused with 400 before the
+// D2 describe block below can even reach the check it exists to prove.
+function hexToBytes(h: string): Uint8Array {
+  return Uint8Array.from(Buffer.from(h.replace(/^0x/, ''), 'hex'));
+}
+
+async function signW3CDelegation(operator: WalletObject, agent: WalletObject): Promise<Record<string, unknown>> {
+  const operatorDid = operator.toDid();
+  const agentDid = agent.toDid();
+
+  const seed = hexToBytes(operator.secretKey).slice(0, 32);
+  const key = await Ed25519VerificationKey2020.generate({ seed, controller: operatorDid });
+  key.id = `${operatorDid}#${key.publicKeyMultibase}`;
+
+  const suite = new Ed25519Signature2020({ key });
+
+  const credential = {
+    '@context': [
+      'https://www.w3.org/2018/credentials/v1',
+      'https://w3id.org/security/suites/ed25519-2020/v1',
+      { '@vocab': 'https://freeagents.dev/terms#' },
+    ],
+    id: `urn:uuid:${crypto.randomUUID()}`,
+    type: ['VerifiableCredential', DELEGATION_TYPE],
+    issuer: operatorDid,
+    issuanceDate: new Date().toISOString(),
+    credentialSubject: { id: agentDid, delegatedBy: operatorDid },
+  };
+
+  const loader = securityLoader();
+  loader.addStatic(key.id, {
+    '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+    ...key.export({ publicKey: true }),
+  });
+  loader.addStatic(operatorDid, {
+    '@context': 'https://www.w3.org/ns/did/v1',
+    id: operatorDid,
+    assertionMethod: [key.id],
+    verificationMethod: [
+      {
+        '@context': 'https://w3id.org/security/suites/ed25519-2020/v1',
+        ...key.export({ publicKey: true }),
+      },
+    ],
+  });
+  const documentLoader = loader.build();
+
+  return vc.issue({ credential, suite, documentLoader });
+}
 
 function delegationFixture(agentDid: string): Record<string, unknown> {
   return {
@@ -684,6 +743,115 @@ describe('P8a (D1): an agent DID already claimed by a delegation cannot be regis
         headers: { 'content-type': 'application/json', ...attackerAuthHeader },
       });
       expect(declined.status).toBe(401);
+    } finally {
+      server.close();
+    }
+  });
+});
+
+// D2 (review round 2, qa): D1's guard only sees Agents that already exist,
+// so it closes the Account-second ordering (claim the agent's did, THEN try
+// to register it) but leaves the Account-first ordering wide open: register
+// the did as an Account BEFORE it is ever delegated, and POST /agents (which
+// checks delegation validity, never whether the did is already an Account)
+// happily delegates on top of it. The attacker's Account row then sits
+// underneath a real agent, reachable by session, with no delegation key ever
+// involved. Uses real HTTP, a real W3C-signed delegation (the same
+// construction tests/api/agent-invariant2.test.ts and
+// tests/api/job-invariant2.test.ts use), and a real passkey ceremony, so a
+// pass here means the actual route stack refuses this, not a mock of it.
+describe('P8a (D2): an Account registered before its did is ever delegated cannot be inherited by that delegation', () => {
+  it('POST /agents refuses to delegate a did an Account already holds', async () => {
+    const repo = new MemoryAccountRepository();
+    const agentRepo = new MemoryAgentRepository();
+    const jobRepo = new MemoryJobRepository();
+    const operatorWallet = fromRandom();
+    const agentWallet = fromRandom();
+
+    const sessionAdapter = passkeyAdapter();
+    const attackerSubject = 'p8a-d2-attacker-subject';
+
+    const server = createApp(
+      repo,
+      agentRepo,
+      undefined,
+      undefined,
+      jobRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    ).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('expected server to listen on a port');
+    }
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    try {
+      // The operator registers itself normally, unrelated to the attack.
+      const operatorReg = await fetch(`${baseUrl}/accounts`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ did: operatorWallet.toDid(), githubLogin: 'p8a-d2-operator-login' }),
+      });
+      expect(operatorReg.status).toBe(201);
+
+      // The attacker claims the agent's did as an Account BEFORE any
+      // delegation exists for it. D1's guard (agentRepo.findByDid) sees
+      // nothing here: there is no Agent yet, so nothing to refuse.
+      const claim = await fetch(`${baseUrl}/accounts`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          did: agentWallet.toDid(),
+          githubLogin: 'p8a-d2-attacker-login',
+          passkeySubject: attackerSubject,
+        }),
+      });
+      expect(claim.status).toBe(201);
+
+      // The operator now delegates the SAME did as an agent, with a real,
+      // independently verifiable W3C delegation credential. This must be
+      // refused: the did is already claimed by an Account, and honouring
+      // the delegation on top of it is exactly the state D1 closed from
+      // the other direction.
+      const operatorIdentity = await signingIdentityFromWallet(operatorWallet);
+      const delegated = await postSigned(
+        baseUrl,
+        '/agents',
+        {
+          did: agentWallet.toDid(),
+          delegation: await signW3CDelegation(operatorWallet, agentWallet),
+          name: 'scout',
+          skills: ['triage'],
+        },
+        operatorIdentity,
+      );
+      expect(delegated.status).not.toBe(201);
+      expect(delegated.status).toBe(409);
+
+      // No Agent row exists: the delegation was refused, not silently
+      // downgraded to a different agent identity.
+      const read = await fetch(`${baseUrl}/agents/${agentWallet.toDid()}`);
+      expect(read.status).toBe(404);
+
+      // The attacker's live session for that did still resolves to no
+      // party on any job: with no Agent ever created, a job naming this
+      // did as its agent cannot even be opened, so there is nothing left
+      // to decline. The invariant this proves is upstream of that job:
+      // the did never became a live agent seat in the first place.
+      const attackerAuthHeader = await passkeySessionHeader(sessionAdapter, attackerSubject);
+      const created = await fetch(`${baseUrl}/jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...attackerAuthHeader },
+        body: JSON.stringify({ agentDid: agentWallet.toDid(), repository: 'buyer/target-repo', brief: 'Fix the login bug' }),
+      });
+      expect(created.status).not.toBe(201);
     } finally {
       server.close();
     }
