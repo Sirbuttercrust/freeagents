@@ -30,7 +30,7 @@ import { fromSecretKey } from '@ocap/wallet';
 import type { Express, Request, Response } from 'express';
 import { didSuffix } from '../../domain/agent.js';
 import { depositUsd, remainderUsd } from '../../domain/payment.js';
-import type { AgentRepository, JobRepository } from '../storage/types.js';
+import type { AccountRepository, AgentRepository, JobRepository } from '../storage/types.js';
 import type { SettlementRepository } from '../storage/types.js';
 import type { AbtPaymentRail } from './abt.js';
 import { confirmPayment, processWalletResponse, requestPayment, type RouteLeg } from './route-support.js';
@@ -60,6 +60,11 @@ export interface AttachAbtPaymentHandlersOptions {
   // extraParams.operatorAddress, which no longer exists as an input at
   // all (Ruling 6).
   readonly agentRepo: AgentRepository;
+  // P8c: the account repository, so operatorAddressForJob can resolve the
+  // hired agent's operator's STORED ABT address instead of deriving one
+  // from the operator's own DID suffix (Anchor: that derivation is the
+  // exact silent binding this card exists to stop).
+  readonly accountRepo: AccountRepository;
   readonly settlementRepo: SettlementRepository;
   readonly platformSk: string;
   readonly chainHost: string;
@@ -91,25 +96,52 @@ async function legAmountUsd(jobRepo: JobRepository, jobId: string, leg: RouteLeg
   return leg === 'deposit' ? depositUsd(job.priceUsd, job.depositPercent) : remainderUsd(job.priceUsd, job.depositPercent);
 }
 
-// S3, Ruling 1: an ArcBlock DID address IS a chain account address
-// (verified by execution against @arcblock/did: toAddress('did:abt:...')
-// equals the suffix). didSuffix already computes exactly this reduction,
-// and isValidOperatorDid already forces every Account DID into
-// did:abt:<suffix> shape, so the ABT recipient never needs a stored
-// column: it is derived, every time, from the agent actually hired on
-// the job -- never from a caller-supplied address. Null when the job or
-// its hired agent cannot be found, so both callers below can fail the
-// same way findById's own null already fails.
+// P8c, Ruling 1 (this card): the ABT recipient is the address on record
+// for the hired agent's operator Account (operatorAddressAbt), the same
+// stored-column treatment S3 already gave the USDC rail. Before this
+// card, the ABT address was DERIVED from the operator's own DID suffix
+// (an ArcBlock DID address IS a chain account address, verified by
+// execution against @arcblock/did: toAddress('did:abt:...') equals the
+// suffix); that derivation silently paid whoever held the key behind the
+// Account's own DID, which is exactly the binding this card breaks so an
+// account the platform provisions rather than a wallet proving
+// possession can never be handed money nobody controls. 'no-job',
+// 'no-agent' and 'no-account' name the job/agent-not-found cases prepareTx
+// and onAuth already answered with their own generic error before this
+// card; 'not-set' is P8c's own new failure, a real registered operator
+// who has never set an ABT payout address, and gets the fail-closed
+// message naming the PATCH route (Ruling 5's own USDC stance, mirrored
+// here rather than special-cased).
+type AbtOperatorAddressResult =
+  | { readonly ok: true; readonly operatorAddress: string }
+  | { readonly ok: false; readonly reason: 'no-job' | 'no-agent' | 'no-account' | 'not-set' };
+
 async function operatorAddressForJob(
   jobRepo: JobRepository,
   agentRepo: AgentRepository,
+  accountRepo: AccountRepository,
   jobId: string,
-): Promise<string | null> {
+): Promise<AbtOperatorAddressResult> {
   const job = await jobRepo.findById(jobId);
-  if (job === null) return null;
+  if (job === null) return { ok: false, reason: 'no-job' };
   const agent = await agentRepo.findByDid(job.agentDid);
-  if (agent === null) return null;
-  return didSuffix(agent.operatorDid);
+  if (agent === null) return { ok: false, reason: 'no-agent' };
+  const account = await accountRepo.findByDid(agent.operatorDid);
+  if (account === null) return { ok: false, reason: 'no-account' };
+  if (account.operatorAddressAbt === null) return { ok: false, reason: 'not-set' };
+  return { ok: true, operatorAddress: account.operatorAddressAbt };
+}
+
+// The message a caller sees when operatorAddressForJob answers not ok.
+// 'not-set' names the rail and the PATCH route (P8c's own new refusal,
+// mirroring the USDC rail's identical "PATCH /accounts/:did/operator-
+// address first" wording); the other three reasons keep the pre-P8c
+// generic message, since they are the same "job or hired agent could not
+// be found" case prepareTx and onAuth always answered.
+function operatorAddressErrorMessage(reason: 'no-job' | 'no-agent' | 'no-account' | 'not-set'): string {
+  return reason === 'not-set'
+    ? "the hired agent's operator has not set an ABT operator address; PATCH /accounts/:did/operator-address first"
+    : 'this job or its hired agent could not be found';
 }
 
 // Attaches the DID Connect handlers ONCE at app construction (brief scope
@@ -154,14 +186,15 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
         if (jobId === '' || leg === null) {
           throw new Error('payment session is missing jobId or leg');
         }
-        // RULE (S3): the recipient is resolved from the hired agent's
-        // operator, never from the request. extraParams.operatorAddress
-        // is no longer read at all: a buyer naming their own address here
-        // (either through /start or directly through did-connect-js's own
-        // /api/did/pay/token mount) has nothing to name any more.
-        const operatorAddress = await operatorAddressForJob(options.jobRepo, options.agentRepo, jobId);
-        if (operatorAddress === null) {
-          throw new Error('this job or its hired agent could not be found');
+        // RULE (S3, P8c): the recipient is resolved from the hired
+        // agent's operator, never from the request. extraParams.
+        // operatorAddress is no longer read at all: a buyer naming their
+        // own address here (either through /start or directly through
+        // did-connect-js's own /api/did/pay/token mount) has nothing to
+        // name any more.
+        const operatorAddressResult = await operatorAddressForJob(options.jobRepo, options.agentRepo, options.accountRepo, jobId);
+        if (!operatorAddressResult.ok) {
+          throw new Error(operatorAddressErrorMessage(operatorAddressResult.reason));
         }
         // RULE: the amount comes from the JOB, never from the request
         // (brief, "the whole security of this section"). extraParams
@@ -175,7 +208,7 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
         const request = await requestPayment(options.rail, {
           jobId,
           leg,
-          operatorAddress,
+          operatorAddress: operatorAddressResult.operatorAddress,
           amountToken: quote.amountToken,
           feeToken: quote.feeToken,
         });
@@ -203,16 +236,16 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       if (job === null) {
         return { confirmed: false, error: 'job not found' };
       }
-      // RULE (S3): the expected operator address is resolved from the
-      // hired agent's operator, the identical derivation prepareTx above
-      // already used to build the claim the wallet was asked to sign,
-      // never read from extraParams and never decoded back out of the
-      // finalTx being confirmed. A wallet cannot move the address
+      // RULE (S3, P8c): the expected operator address is resolved from
+      // the hired agent's operator, the identical derivation prepareTx
+      // above already used to build the claim the wallet was asked to
+      // sign, never read from extraParams and never decoded back out of
+      // the finalTx being confirmed. A wallet cannot move the address
       // confirm() checks against by redirecting the output it returns,
       // because that address never travels through the request at all.
-      const operatorAddress = await operatorAddressForJob(options.jobRepo, options.agentRepo, jobId);
-      if (operatorAddress === null) {
-        return { confirmed: false, error: 'this job or its hired agent could not be found' };
+      const operatorAddressResult = await operatorAddressForJob(options.jobRepo, options.agentRepo, options.accountRepo, jobId);
+      if (!operatorAddressResult.ok) {
+        return { confirmed: false, error: operatorAddressErrorMessage(operatorAddressResult.reason) };
       }
       // RULE: the paying party must be the buyer on that job. userDid is
       // the bare address form WalletAuthenticator.verify() derives
@@ -236,7 +269,7 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       if (amountUsd === null) {
         return { confirmed: false, error: 'this job has no agreed price to pay against' };
       }
-      const ref = await processWalletResponse(options.rail, leg, { rail: 'abt', jobId, finalTx, amountUsd, operatorAddress });
+      const ref = await processWalletResponse(options.rail, leg, { rail: 'abt', jobId, finalTx, amountUsd, operatorAddress: operatorAddressResult.operatorAddress });
       const confirmation = await confirmPayment(options.rail, ref);
       // RULE: the gate is never written from the start route; only the
       // observation path (here) writes a settlement, and only when

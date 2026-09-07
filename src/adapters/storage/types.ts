@@ -51,6 +51,9 @@ export interface AccountRepository {
   // stance on AgentRepository, so the route maps it to 404 without a
   // second lookup.
   setOperatorAddressEvm(did: string, operatorAddressEvm: string): Promise<Account | null>;
+  // P8c: the ABT sibling of setOperatorAddressEvm, same overwrite and
+  // same null-on-unknown-DID stance.
+  setOperatorAddressAbt(did: string, operatorAddressAbt: string): Promise<Account | null>;
 }
 
 // Thrown by AgentRepository.create when the agent DID is already delegated,

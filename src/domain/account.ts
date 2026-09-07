@@ -21,4 +21,12 @@ export interface Account {
   // recipient is derived from the hired agent's operatorDid directly
   // (src/domain/agent.ts's didSuffix), never stored here.
   readonly operatorAddressEvm: string | null;
+  // P8c: the ABT address this account is paid at, set by the account
+  // itself through the same PATCH route. Null until the operator sets
+  // one. Before this field existed, the ABT rail paid whoever held the
+  // key behind this Account's own DID (the comment above described that
+  // as correct; it was a silent binding this card breaks so an account
+  // without a wallet backing its DID can never be handed money nobody
+  // controls).
+  readonly operatorAddressAbt: string | null;
 }
