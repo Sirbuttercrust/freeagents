@@ -38,7 +38,7 @@ export class MemoryAccountRepository implements AccountRepository {
 
   async register(input: {
     readonly did: string;
-    readonly githubLogin: string;
+    readonly githubLogin?: string | null;
     readonly passkeySubject?: string | null;
   }): Promise<Account> {
     // Check-then-set is safe here: Node is single-threaded and this method awaits
@@ -49,9 +49,19 @@ export class MemoryAccountRepository implements AccountRepository {
     // githubLogin and passkeySubject are both unique (prisma/schema.prisma):
     // this driver enforces the same constraint in memory, one scan per
     // field, so a duplicate throws the identical error the Postgres P2002
-    // path throws (see PrismaAccountRepository.register).
+    // path throws (see PrismaAccountRepository.register). P8d: null is not
+    // a value that can collide, on either field. A Postgres UNIQUE index
+    // does not constrain NULL against NULL (every NULL is distinct from
+    // every other NULL), so this in-memory check has to skip a null
+    // candidate the same way it already skipped an absent passkeySubject,
+    // or two passkey-only accounts (both null githubLogin) would wrongly
+    // refuse the second registration.
     for (const row of this.rows.values()) {
-      if (row.githubLogin === input.githubLogin) {
+      if (
+        input.githubLogin !== undefined &&
+        input.githubLogin !== null &&
+        row.githubLogin === input.githubLogin
+      ) {
         throw new AccountAlreadyExistsError(input.did);
       }
       if (
@@ -64,7 +74,7 @@ export class MemoryAccountRepository implements AccountRepository {
     }
     const row: Account = {
       did: input.did,
-      githubLogin: input.githubLogin,
+      githubLogin: input.githubLogin ?? null,
       passkeySubject: input.passkeySubject ?? null,
       createdAt: new Date(),
       operatorAddressEvm: null,
@@ -78,14 +88,24 @@ export class MemoryAccountRepository implements AccountRepository {
     return this.rows.get(did) ?? null;
   }
 
-  async findByGithubLogin(githubLogin: string): Promise<Account | null> {
+  // P8d guard: a null or empty subject must never match a row whose own
+  // column happens to be null. Every passkey-only provisioned account has
+  // githubLogin === null; without this check, findByGithubLogin(null)
+  // would resolve to whichever such row this loop saw first, letting one
+  // stranger's session act as a completely different account.
+  async findByGithubLogin(githubLogin: string | null): Promise<Account | null> {
+    if (githubLogin === null || githubLogin === '') return null;
     for (const row of this.rows.values()) {
       if (row.githubLogin === githubLogin) return row;
     }
     return null;
   }
 
-  async findByPasskeySubject(passkeySubject: string): Promise<Account | null> {
+  // P8d guard: the identical null-subject refusal, mirrored for
+  // passkeySubject (every GitHub-only provisioned account has
+  // passkeySubject === null).
+  async findByPasskeySubject(passkeySubject: string | null): Promise<Account | null> {
+    if (passkeySubject === null || passkeySubject === '') return null;
     for (const row of this.rows.values()) {
       if (row.passkeySubject === passkeySubject) return row;
     }

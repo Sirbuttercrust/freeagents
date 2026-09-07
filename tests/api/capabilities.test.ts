@@ -154,10 +154,11 @@ describe('GET /capabilities', () => {
     // R-39 completion: these two routes used to 400 on a body missing
     // their old identityField (operator / buyerDid). Now the field is
     // simply not read for identity, so the same trimmed body reaches
-    // resolveActingParty instead -- which refuses with 403 because this
-    // describe block's session has no registered account behind it, never
-    // with 400. The 403 (not 400) is the proof that the missing field
-    // stopped being a shape requirement.
+    // resolveActingParty instead. P8d: a live session now always resolves
+    // to SOME party (auto-provisioning), but this describe block's app
+    // has no FREEAGENTS_PLATFORM_SEED configured, so provisioning itself
+    // fails closed with 503 -- never with 400. The 503 (not 400) is the
+    // proof that the missing field stopped being a shape requirement.
     for (const id of ['agent.list', 'job.hire']) {
       const cap = CAPABILITIES.find((c) => c.id === id);
       expect(cap, `${id} must be declared`).toBeDefined();
@@ -167,25 +168,23 @@ describe('GET /capabilities', () => {
         headers: { 'content-type': 'application/json', ...authHeader },
         body: JSON.stringify(body),
       });
-      expect(res.status, `${id} should reach party resolution (403), not a body-shape 400`).toBe(403);
+      expect(res.status, `${id} should reach party resolution (503, no platform seed configured), not a body-shape 400`).toBe(503);
     }
   });
 
   it('agent.list: operator is derived server-side and any body-supplied value is checked against it, never trusted', async () => {
     // R-39 completion: a body carrying no operator at all reaches party
-    // resolution and is refused with 403 (this describe block's session
-    // has no registered account behind it) -- proving operator dropped
-    // out of the body-shape check entirely. A body naming an operator
-    // that mismatches the (still-unresolved) derived party fails the
-    // same way, for the same reason: the derived party is null either
-    // way, so there is nothing to compare a claimed value against yet
-    // and the null check fires first.
+    // resolution. P8d: with no platform seed configured, provisioning
+    // fails closed (503) rather than resolving to no party (403) --
+    // proving operator dropped out of the body-shape check entirely. A
+    // body naming an operator that mismatches is never even reached,
+    // since provisioning itself fails first.
     const withoutOperator = await fetch(`${baseUrl}/agents`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify(VALID_BODY_MINUS_IDENTITY['agent.list']),
     });
-    expect(withoutOperator.status).toBe(403);
+    expect(withoutOperator.status).toBe(503);
 
     const withUnregisteredOperator = await fetch(`${baseUrl}/agents`, {
       method: 'POST',
@@ -195,7 +194,7 @@ describe('GET /capabilities', () => {
         operator: 'did:abt:capabilities-test-operator-never-registered',
       }),
     });
-    expect(withUnregisteredOperator.status).toBe(403);
+    expect(withUnregisteredOperator.status).toBe(503);
   });
 
   it('the declaration and the domain helper agree', () => {

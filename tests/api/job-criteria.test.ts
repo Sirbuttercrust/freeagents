@@ -332,7 +332,7 @@ describe('job criteria exchange (R-8)', () => {
     expect(body.error).toBe('a proposal needs at least one acceptance criterion');
   });
 
-  it('answers 401 with no signature at all, and 403 for a signed stranger', async () => {
+  it('answers 503 with a session but no platform seed configured, and 403 for a signed stranger', async () => {
     const seed = await postSigned('/jobs', {
       agentDid: agent.did,
       repository: 'buyer/target-repo',
@@ -340,9 +340,14 @@ describe('job criteria exchange (R-8)', () => {
     }, buyer);
     const jobId = String(((await seed.json()) as Record<string, unknown>).id);
 
+    // `post()` always carries this describe block's own session header
+    // (a live session for a subject no account here claims). P8d: that
+    // session now attempts to provision an account, and this describe
+    // block's app has no FREEAGENTS_PLATFORM_SEED configured, so the
+    // attempt fails closed with 503 -- never a silent 401 papering over
+    // a real storage/provisioning fault.
     const noSignature = await post(`/jobs/${jobId}/criteria`, { criteria: firstProposal });
-    expect(noSignature.status).toBe(401);
-    expect(((await noSignature.json()) as { error: string }).error).toContain('R-34');
+    expect(noSignature.status).toBe(503);
 
     const strangerResponse = await postSigned(`/jobs/${jobId}/criteria`, { criteria: firstProposal }, stranger);
     expect(strangerResponse.status).toBe(403);

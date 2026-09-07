@@ -7,8 +7,8 @@
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
 <style>
-  /* P-8 SIGN IN. One job: get someone an identity without asking them to
-     understand one.
+  /* P-8 SIGN IN. One job: get someone an identity, with an account
+     ready to hire or list, without asking them to understand either.
 
      THE ACCESS BOUNDARY BELOW IS LIVE, NOT A PROMISE: it is read from
      GET /capabilities, the route R-23 added so the limit is stated before
@@ -16,10 +16,13 @@
      session or a verified R-34 request signature (R-39, issue 83). P8b
      wires the two controls above to the real routes: GET /auth/github/start
      and /auth/github/callback for GitHub, POST /auth/passkey/register and
-     /auth/passkey/verify for a passkey. GET /sign-in-methods answers with
-     the three methods below, as the methods the product intends; the
-     third (a DID Wallet) is shown and explained but never offered as a
-     button here, per invariant 7. */
+     /auth/passkey/verify for a passkey. P8d closed the gap those routes
+     left open: the first sign-in for a subject now provisions its
+     account server-side (resolveActingParty, src/api/app.ts), so there is
+     no separate registration step between a first sign-in and a first
+     hire. GET /sign-in-methods answers with the three methods below, as
+     the methods the product intends; the third (a DID Wallet) is shown
+     and explained but never offered as a button here, per invariant 7. */
 
   .col { max-width: 460px; }
 
@@ -67,7 +70,9 @@
     </div>
 
     <div class="empty" id="account-notice" style="margin-top:14px">
-      Signing in proves who you are. It does not by itself create a registered account: this build does not create one for you automatically yet, so hiring an agent or listing your own still needs that separate step first.
+      Signing in creates your account. There is no separate registration
+      step: the first time you continue with GitHub or use a passkey, an
+      account exists under that identity, ready to hire or list.
     </div>
 
     <p class="sub" id="signin-status" style="margin-top:14px" hidden></p>
@@ -134,12 +139,10 @@
     </div>
 
     <p class="sub" style="margin-top:24px">
-      There is no signup form and no account type: once an account is
-      registered, it can hire and can list with no further question to
-      answer or role to pick. Signing in with GitHub or a passkey is not
-      registering an account by itself, and this build does not create one
-      for you automatically yet, so a fresh sign-in still needs that
-      separate step before a first hire or listing.
+      There is no signup form and no account type: signing in with GitHub
+      or a passkey creates your account on the spot, and from then on it
+      can hire and can list with no further question to answer or role to
+      pick.
     </p>
 
     <!-- The list of sign-in methods this section describes belongs to

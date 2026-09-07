@@ -526,6 +526,50 @@ interface SessionedRequest extends Request {
   sessionMethod?: SessionSignInMethod;
 }
 
+// P8d: provisions an account for a session that resolves to no existing
+// one, in exactly one place both sign-in paths route through
+// (resolveActingParty itself, below). GitHub sessions set githubLogin
+// from the subject and leave passkeySubject null; passkey sessions set
+// passkeySubject and leave githubLogin null. createOperatorDid derives
+// the DID deterministically from the subject (identity.ts), so a second
+// call for the identical subject always names the identical DID and
+// register() throws AccountAlreadyExistsError instead of minting a
+// second row -- the race two concurrent first requests create is closed
+// by catching that error and re-reading the winner's row, never a 500.
+// The custody fence lives entirely in what this function does NOT do: it
+// never calls setOperatorAddressEvm or setOperatorAddressAbt, so a
+// provisioned account's payout addresses stay exactly what register()
+// itself defaults them to (null on both rails, in both storage drivers).
+async function provisionAccountForSession(
+  repo: AccountRepository,
+  identity: IdentityAdapter,
+  subject: string,
+  method: SessionSignInMethod,
+): Promise<string> {
+  const { did } = await identity.createOperatorDid(subject);
+  try {
+    await repo.register(
+      method === 'passkey' ? { did, passkeySubject: subject } : { did, githubLogin: subject },
+    );
+  } catch (err) {
+    if (!(err instanceof AccountAlreadyExistsError)) throw err;
+    // Someone else (a concurrent request for this same subject, or an
+    // earlier call this process already made) won the race. Fall through
+    // to the re-read below rather than treating this as a failure.
+  }
+  const winner =
+    method === 'passkey' ? await repo.findByPasskeySubject(subject) : await repo.findByGithubLogin(subject);
+  if (winner === null) {
+    // register() either succeeded (the row exists) or lost the race to a
+    // genuine duplicate (the row still exists, under whoever won). Either
+    // way a row must exist now; its absence means storage betrayed its
+    // own contract, which the caller's catch block maps to 503 like any
+    // other unexpected storage fault.
+    throw new Error('provisionAccountForSession: expected an account to exist immediately after register or a lost race');
+  }
+  return winner.did;
+}
+
 // R-39 completion (issue 83's KNOWN GAP, t_d1b82a77, closed): the acting
 // party the server computed, never a caller claim. Exactly one of two
 // proofs resolves it, the same "one rule, one code path, both proofs"
@@ -537,12 +581,22 @@ interface SessionedRequest extends Request {
 //   - a live session resolves through the account lookup the schema's
 //     unique githubLogin / passkeySubject constraint makes safe: two
 //     accounts can never claim the same login or subject, so this join
-//     can never resolve to two different accounts for one session.
-// Returns null when neither proof resolves to a party: requireSessionOrSignature
-// already refused a caller with no proof at all, so null here means "a
-// session exists but no account has claimed its identity yet" -- the
-// caller is who they say they are, they simply have not registered.
-async function resolveActingParty(req: Request, repo: AccountRepository): Promise<string | null> {
+//     can never resolve to two different accounts for one session. P8d:
+//     when the lookup finds no account, one is provisioned right here
+//     (the anchor: a person who has never used this product signs in
+//     and can immediately hire, no second registration step). A
+//     signature never provisions: possessing a signing key already
+//     proves a party, with nothing left for provisioning to add.
+// Returns null only when neither proof is present at all (no session and
+// no signature); requireSessionOrSignature already refused that caller
+// before this function is ever reached. A live session always resolves
+// to a real account DID now, provisioned on the spot if it did not
+// already exist.
+async function resolveActingParty(
+  req: Request,
+  repo: AccountRepository,
+  identity: IdentityAdapter,
+): Promise<string | null> {
   const signerDid = signerDidOf(req);
   if (signerDid !== null) return signerDid;
 
@@ -554,7 +608,8 @@ async function resolveActingParty(req: Request, repo: AccountRepository): Promis
     sessioned.sessionMethod === 'passkey'
       ? await repo.findByPasskeySubject(sessioned.sessionSubject)
       : await repo.findByGithubLogin(sessioned.sessionSubject);
-  return account?.did ?? null;
+  if (account !== null) return account.did;
+  return provisionAccountForSession(repo, identity, sessioned.sessionSubject, sessioned.sessionMethod);
 }
 
 // P7: resolves a buyer DID's own conduct record. Null when the DID
@@ -958,7 +1013,7 @@ export function createApp(
 
     let actingParty: string | null;
     try {
-      actingParty = await resolveActingParty(req, repo);
+      actingParty = await resolveActingParty(req, repo, identityAdapter);
     } catch (err) {
       console.error(`${label}: storage failed`, err);
       res.status(503).json({ error: 'storage unavailable' });
@@ -1247,7 +1302,7 @@ export function createApp(
     const did = String(req.params.did);
     let actingParty: string | null;
     try {
-      actingParty = await resolveActingParty(req, repo);
+      actingParty = await resolveActingParty(req, repo, identityAdapter);
     } catch (err) {
       console.error('PATCH /accounts/:did/operator-address: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
@@ -1466,7 +1521,7 @@ export function createApp(
     // (the same call resolveActingParty makes for POST /jobs).
     let operator: string | null;
     try {
-      operator = await resolveActingParty(req, repo);
+      operator = await resolveActingParty(req, repo, identityAdapter);
     } catch (err) {
       console.error('POST /agents: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
@@ -2273,7 +2328,7 @@ export function createApp(
     // proof requireSessionOrSignature accepted. One code path, both proofs.
     let buyerDid: string | null;
     try {
-      buyerDid = await resolveActingParty(req, repo);
+      buyerDid = await resolveActingParty(req, repo, identityAdapter);
     } catch (err) {
       console.error('POST /jobs: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
@@ -2714,7 +2769,14 @@ export function createApp(
     res: Response,
     job: Job,
   ): Promise<{ readonly did: string; readonly party: Party } | null> {
-    const actingDid = await resolveActingParty(req, repo);
+    let actingDid: string | null;
+    try {
+      actingDid = await resolveActingParty(req, repo, identityAdapter);
+    } catch (err) {
+      console.error('resolveJobActingParty: storage or provisioning failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return null;
+    }
     if (actingDid === null) {
       res.status(401).json({
         error: sessionOrSignatureRequiredMessage("this job's buyer or agent DID"),
@@ -4403,7 +4465,7 @@ export function createApp(
   //      constraint, mapped to 409 below).
   //   5. Caller identity comes from a verified R-34 signature or a live
   //      session (P8a, invariant 8), never a body field:
-  //      resolveActingParty(req, repo) is the only source of authorDid.
+  //      resolveActingParty(req, repo, identityAdapter) is the only source of authorDid.
   app.post(
     '/jobs/:jobId/reviews',
     didSignature,
@@ -4424,8 +4486,20 @@ export function createApp(
       // Rule 5: identity comes from a verified signature or a live
       // session (P8a, invariant 8), never a body field. Neither proof at
       // all is refused before the job is even loaded, the same way
-      // runPartyExchange refuses an unauthenticated exchange call.
-      const authorDid = await resolveActingParty(req, repo);
+      // runPartyExchange refuses an unauthenticated exchange call. P8d:
+      // a live session can now fail closed with a storage/provisioning
+      // fault (no account existed yet and provisioning it failed), mapped
+      // to 503 here rather than falling through to the terminal 500
+      // handler, the same convention every other resolveActingParty call
+      // site in this file already follows.
+      let authorDid: string | null;
+      try {
+        authorDid = await resolveActingParty(req, repo, identityAdapter);
+      } catch (err) {
+        console.error('POST /jobs/:jobId/reviews: storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
       if (authorDid === null) {
         res.status(401).json({
           error: sessionOrSignatureRequiredMessage('as the buyer on this job'),
