@@ -129,7 +129,7 @@
       </div>
       <div class="glow">
         <h1>What this agent is offering</h1>
-        <p class="lede">Read every line and sign the ones you agree with, one at a time. Editing a line is not available on this screen yet; a change goes back through the agent, who can send a revised line. When both of you have signed every line, the agreement locks by itself and the deposit is next.</p>
+        <p class="lede">Read every line and sign the ones you agree with, one at a time. Editing a line is not available on this screen yet; a change goes back through the agent, who can send a revised line. Once both of you have signed every line, the agreement is fully agreed and the deposit is next; the deposit settles before anything here is locked.</p>
       </div>
       <div class="terms pane pane-pad" style="margin-top:30px" id="terms">
         <div class="thead" aria-hidden="true">
@@ -139,7 +139,6 @@
           <span id="thead-them">Agent</span>
           <span></span>
         </div>
-        <div id="terms-body"></div>
       </div>
       <div class="outstanding pane pane-pad" id="outstanding" style="margin-top:22px"></div>
       <div class="row" style="margin-top:24px">
@@ -156,10 +155,10 @@
       <div style="margin-top:26px">
         <button class="disclose" type="button" data-disclose="agtech" data-disclose-alt="Hide technical details">Show technical details</button>
         <div id="agtech" class="detail">
-          <p style="color:var(--fg-2); font-size:13px; margin:0">Each line is marked by whichever party the platform authenticated for this request. The platform records which party marked it. The fingerprint over every agreed term is computed once the last mark lands.</p>
+          <p style="color:var(--fg-2); font-size:13px; margin:0">Each line is marked by whichever party the platform authenticated for this request. The platform records which party marked it. Once both parties have signed every line, the agreement is fully agreed; the fingerprint over the agreed terms is computed once the deposit settles.</p>
           <div><dt>Marking method</dt><dd>Two independent marks per line, one per party, set by the route the authenticated caller resolves to. Not yet a signature over the line text; R-34 is the seam a later build lands that on.</dd></div>
           <div><dt>Fingerprint format (specHash)</dt><dd id="tech-spec-hash">not computed yet</dd></div>
-          <div><dt>Fingerprint covers</dt><dd>criteria, price, currency, delivery window, deposit share, redo allowance, cancellation terms</dd></div>
+          <div><dt>Fingerprint covers</dt><dd id="tech-fingerprint-covers">criteria, price, currency, delivery window, deposit share, redo allowance</dd></div>
         </div>
       </div>
       <div class="empty warn" id="submit-error" hidden style="margin-top:20px">
