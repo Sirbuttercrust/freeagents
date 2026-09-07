@@ -54,6 +54,13 @@
       <a href="/how">How it works</a>
     </div>
     <div class="spacer"></div>
+    <!-- No Sign in link here: this page IS the destination it points to,
+         so there is nothing to hide when signed out. The signed-in state
+         still renders honestly if a signed-in person lands back here. -->
+    <span id="nav-signin" hidden></span>
+    <div class="row" id="nav-signed-in" hidden>
+      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+    </div>
   </div>
 </nav>
 
@@ -192,6 +199,7 @@
 </footer>
 
 <script src="/js/pages/api.js"></script>
+<script src="/js/pages/nav.js"></script>
 <script src="/js/pages/signin.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>

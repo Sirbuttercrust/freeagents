@@ -92,7 +92,9 @@ type PageName =
   | 'agent'
   | 'operator'
   | 'credential'
-  | 'notfound';
+  | 'notfound'
+  | 'authCallbackSuccess'
+  | 'authCallbackError';
 
 const PAGE_FILES: Readonly<Record<PageName, string>> = {
   landing: 'landing.html',
@@ -104,7 +106,26 @@ const PAGE_FILES: Readonly<Record<PageName, string>> = {
   operator: 'operator.html',
   credential: 'credential.html',
   notfound: 'notfound.html',
+  // P8e: rendered directly by GET /auth/github/callback in src/api/app.ts,
+  // never mounted as a route of its own here. Loaded once at construction
+  // like every other page, the same "read once, never re-read per request"
+  // rule the header comment above states.
+  authCallbackSuccess: 'auth-callback-success.html',
+  authCallbackError: 'auth-callback-error.html',
 };
+
+// The shape GET /auth/github/callback embeds into the success page. A
+// local type rather than importing Session from the identity adapter: this
+// module stays decoupled from identity the same way it already knows
+// nothing about accounts, agents or jobs -- the caller already has a typed
+// Session and this is just the JSON it writes into the page.
+export interface AuthCallbackSession {
+  readonly subject: string;
+  readonly method: string;
+  readonly token: string;
+  readonly issuedAt: string;
+  readonly expiresAt: string;
+}
 
 // WHERE THIS DEPLOYMENT'S SOURCE LIVES, AND WHY IT IS NOT IN THE TREE.
 //
@@ -168,6 +189,11 @@ function loadPages(webDir: string, sourceUrl: string): Readonly<Record<PageName,
 export interface WebSurface {
   readonly mountPages: (app: Express) => void;
   readonly mountFallback: (app: Express) => void;
+  // P8e: rendered directly by the one callback route in src/api/app.ts,
+  // which negotiates on prefersHtml the same way mountPages does above --
+  // this is the render half of that negotiation, not a second mechanism.
+  readonly renderAuthCallbackSuccessPage: (session: AuthCallbackSession) => string;
+  readonly renderAuthCallbackErrorPage: () => string;
 }
 
 export function createWebSurface(
@@ -233,6 +259,24 @@ export function createWebSurface(
         }
         res.status(404).json({ error: 'not found' });
       });
+    },
+
+    // P8e: the session arrives server-side in GET /auth/github/callback and
+    // is embedded here as JSON text inside a <script type="application/
+    // json"> element, never written into a URL, a redirect, or an href.
+    // auth-callback.js reads it with node.textContent (the same "text goes
+    // in as text" rule api.js's own header comment states) and moves it to
+    // sessionStorage. `</script` inside the JSON (a subject or token that
+    // happened to contain it) is escaped so it cannot close the element
+    // early; JSON.stringify itself never emits an unescaped `<`, so this is
+    // defence in depth rather than a hole today.
+    renderAuthCallbackSuccessPage(session: AuthCallbackSession): string {
+      const json = JSON.stringify(session).replace(/<\/script/gi, '<\\/script');
+      return pages.authCallbackSuccess.replace('<!--SESSION_JSON-->', json);
+    },
+
+    renderAuthCallbackErrorPage(): string {
+      return pages.authCallbackError;
     },
   };
 }

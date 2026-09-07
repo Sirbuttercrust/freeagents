@@ -218,6 +218,141 @@ describe('GET /auth/github/callback', () => {
   });
 });
 
+// P8e: the callback is where GitHub redirects the BROWSER, not a JSON
+// client, so this is the one route in this file driven with a browser
+// Accept header rather than fetch's default. Before this card the route's
+// only success path was res.status(200).json(completed), so a person
+// signing in with GitHub was shown a raw JSON document; these are the
+// tests that fail on that build and pass once the route negotiates.
+describe('GET /auth/github/callback, driven by a browser', () => {
+  afterEach(async () => {
+    if (server !== null) {
+      await new Promise<void>((resolve) => server!.close(() => resolve()));
+      server = null;
+    }
+  });
+
+  const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+
+  it('answers text/html, carrying the session token, for a good code and state', async () => {
+    const sessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'octo-browser-callback', id: 4001 }),
+    });
+    const baseUrl = await listen(
+      createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
+    );
+    const start = await sessionAdapter.beginGitHubOAuth();
+
+    const res = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`, {
+      headers: { Accept: HTML },
+    });
+    expect(res.status).toBe(200);
+    expect(String(res.headers.get('content-type'))).toContain('text/html');
+    const body = await res.text();
+    expect(body).toContain('<!doctype html>');
+
+    const match = /<script type="application\/json" id="fa-session-data">([\s\S]*?)<\/script>/.exec(body);
+    expect(match, 'the page must embed the session as JSON the inline script can read').not.toBeNull();
+    const embedded = JSON.parse(match![1]!) as Record<string, unknown>;
+    expect(embedded).toEqual({
+      subject: 'octo-browser-callback',
+      method: 'github-oauth',
+      token: expect.any(String),
+      issuedAt: expect.any(String),
+      expiresAt: expect.any(String),
+    });
+  });
+
+  // guard-without-a-test: the token must never ride in a URL, a query
+  // string or a fragment (brief scope item 2). Mutation proof: putting the
+  // token in a redirect URL instead of the page body reddens this.
+  it('never puts the session token in the Location header or in any href/src attribute', async () => {
+    const sessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'octo-no-url-token', id: 4002 }),
+    });
+    const baseUrl = await listen(
+      createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
+    );
+    const start = await sessionAdapter.beginGitHubOAuth();
+
+    const res = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`, {
+      headers: { Accept: HTML },
+    });
+    expect(res.headers.get('location')).toBeNull();
+    const body = await res.text();
+
+    const match = /<script type="application\/json" id="fa-session-data">([\s\S]*?)<\/script>/.exec(body);
+    const embedded = JSON.parse(match![1]!) as { token: string };
+    expect(embedded.token.length).toBeGreaterThan(0);
+
+    const urlLike = new RegExp(`(href|src)=["'][^"']*${embedded.token}`, 'i');
+    expect(body).not.toMatch(urlLike);
+  });
+
+  it('answers a readable page, not JSON, for a browser on a 400 (missing code)', async () => {
+    const sessionAdapter = createSessionAdapter({ github: fakeGitHubConfig() });
+    const baseUrl = await listen(
+      createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
+    );
+    const start = await sessionAdapter.beginGitHubOAuth();
+
+    const res = await fetch(`${baseUrl}/auth/github/callback?state=${encodeURIComponent(start.state)}`, {
+      headers: { Accept: HTML },
+    });
+    expect(res.status).toBe(400);
+    expect(String(res.headers.get('content-type'))).toContain('text/html');
+    const body = await res.text();
+    expect(body).toContain('<!doctype html>');
+  });
+
+  it('answers a readable page, not JSON, for a browser on a 401 (never-issued state)', async () => {
+    const sessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'octo-401-page', id: 4003 }),
+    });
+    const baseUrl = await listen(
+      createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
+    );
+
+    const res = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=never-issued-state`, {
+      headers: { Accept: HTML },
+    });
+    expect(res.status).toBe(401);
+    expect(String(res.headers.get('content-type'))).toContain('text/html');
+    const body = await res.text();
+    expect(body).toContain('<!doctype html>');
+  });
+
+  // guard-without-a-test: an API client's own contract must not move by a
+  // byte just because a browser now gets a different response on the same
+  // route. Mutation proof: negotiating on nothing (HTML for every caller)
+  // reddens this.
+  it('still answers JSON to a plain fetch (no Accept header) on the exact same route', async () => {
+    const sessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'octo-still-json', id: 4004 }),
+    });
+    const baseUrl = await listen(
+      createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
+    );
+    const start = await sessionAdapter.beginGitHubOAuth();
+
+    const res = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`);
+    expect(res.status).toBe(200);
+    expect(String(res.headers.get('content-type'))).toContain('application/json');
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({
+      subject: 'octo-still-json',
+      method: 'github-oauth',
+      token: expect.any(String),
+      issuedAt: expect.any(String),
+      expiresAt: expect.any(String),
+    });
+  });
+});
+
 describe('POST /auth/passkey/register', () => {
   afterEach(async () => {
     if (server !== null) {
