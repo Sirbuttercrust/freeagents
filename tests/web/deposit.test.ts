@@ -216,8 +216,7 @@ describe('the deposit screen, driven end to end against the real app', () => {
     );
 
     // D1 (Proof review round 1): a SEPARATE agent with a completed hire
-    // (AGENT_DID stays negative-case-only below), driven through create
-    // then complete like tests/web/browse.test.ts's own fixture.
+    // (AGENT_DID stays negative-case-only below).
     await agentRepo.create({
       did: HIRED_AGENT_DID,
       operatorDid: 'did:abt:deposit-page-hired-operator',
@@ -753,13 +752,11 @@ describe('the deposit screen, driven end to end against the real app', () => {
       }
     });
 
-    // D3 (Proof review round 1): the four remaining scope-item-8 shapes the
-    // distinctness test above never touched -- 401, 409, both 503s (ABT
-    // rail unconfigured vs. storage unavailable) from pay-start, and 401,
-    // 409 from confirm -- driven by mocking one route's response on one
-    // already-rendered page. The ABT 503's "nothing was charged" wording
-    // is pinned directly: a generic sentence there is the collapse this
-    // test exists to catch.
+    // D3 (Proof review round 1): the four remaining scope-item-8 shapes --
+    // 401, 409, both 503s from pay-start, plus 401/409 from confirm --
+    // via mocking one route's response on one already-rendered page. The
+    // ABT 503's "nothing was charged" wording is pinned directly: a
+    // generic sentence there is the collapse this test exists to catch.
     it('the 401, 409 and both 503 sentences from pay-start, and the 401/409 sentences from confirm, all differ (D3)', async () => {
       const page = await renderDeposit(baseUrl, 'job-fully-agreed', { token: buyerToken });
       const originalFetch = global.fetch;
