@@ -92,6 +92,7 @@ type PageName =
   | 'agent'
   | 'operator'
   | 'credential'
+  | 'job'
   | 'notfound'
   | 'authCallbackSuccess'
   | 'authCallbackError';
@@ -105,6 +106,7 @@ const PAGE_FILES: Readonly<Record<PageName, string>> = {
   agent: 'agent.html',
   operator: 'operator.html',
   credential: 'credential.html',
+  job: 'job.html',
   notfound: 'notfound.html',
   // P8e: rendered directly by GET /auth/github/callback in src/api/app.ts,
   // never mounted as a route of its own here. Loaded once at construction
@@ -249,6 +251,7 @@ export function createWebSurface(
       app.get('/agents/:agentDid', negotiated('agent'));
       app.get('/accounts/:did', negotiated('operator'));
       app.get('/v1/credentials/:credentialId', negotiated('credential'));
+      app.get('/jobs/:jobId', negotiated('job'));
     },
 
     mountFallback(app: Express): void {
