@@ -287,11 +287,18 @@ describe('every one of the fourteen JobStatus values renders a distinct plain se
     expect(allStatuses.length).toBe(14);
   });
 
-  it.each(allStatuses)('%s renders a non-empty sentence', async (status) => {
+  it.each(allStatuses)('%s renders a plain sentence, not the raw status value', async (status) => {
     const page = await render(`/jobs/${jobIdFor(status)}`);
     try {
       const stateLabel = page.document.getElementById('state-label')?.textContent ?? '';
       expect(stateLabel.trim(), `status ${status} rendered an empty sentence`).not.toBe('');
+      // The bare enum value is not a sentence. If a status ever falls
+      // through to the raw-value fallback in job.js, that read as a
+      // non-empty string too, so a person landed on jargon instead of a
+      // blank screen and this guard stayed green. Checking the label
+      // against the raw status closes that hole.
+      expect(stateLabel.trim(), `status ${status} rendered its own raw value, not a sentence`).not.toBe(status);
+      expect(stateLabel.trim().endsWith('.'), `status ${status} did not render a full sentence`).toBe(true);
     } finally {
       page.close();
     }
