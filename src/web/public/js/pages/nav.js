@@ -14,30 +14,17 @@
    THE SESSION IT READS IS THE SAME fa_session KEY signin.js already
    writes (sessionStorage, never a cookie -- the security sweep's "zero
    cookie machinery, so zero CSRF surface" stance, brief scope item 3).
-   This script only ever READS that key and, on sign out, clears it; it
-   never invents a session of its own. */
+   P8g moved the read itself into api.js (FAApi.getStoredSession),
+   because hire.js needs the identical read to attach a bearer token to a
+   write, and a second page needing the same fact is exactly the case that
+   must never grow a second implementation of it. This script still owns
+   clearing the key on sign-out and re-rendering; only the read moved. */
 
 (function () {
   "use strict";
 
+  var A = window.FAApi;
   var SESSION_STORAGE_KEY = "fa_session";
-
-  function readStoredSession() {
-    var raw;
-    try {
-      raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
-    } catch (e) {
-      return null;
-    }
-    if (!raw) return null;
-    try {
-      var parsed = JSON.parse(raw);
-      if (parsed && typeof parsed.token === "string" && parsed.token !== "") return parsed;
-    } catch (e) {
-      /* malformed storage reads as signed out below */
-    }
-    return null;
-  }
 
   function clearStoredSession() {
     try {
@@ -48,7 +35,7 @@
   }
 
   function render() {
-    var session = readStoredSession();
+    var session = A.getStoredSession();
     var signin = document.getElementById("nav-signin");
     var signedIn = document.getElementById("nav-signed-in");
     if (!signin || !signedIn) return;
@@ -62,7 +49,7 @@
     var btn = document.getElementById("nav-signout");
     if (!btn) return;
     btn.addEventListener("click", function () {
-      var session = readStoredSession();
+      var session = A.getStoredSession();
       var token = session ? session.token : null;
 
       var finish = function () {
