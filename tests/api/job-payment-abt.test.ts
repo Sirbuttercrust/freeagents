@@ -825,6 +825,85 @@ describe('S3: a buyer naming their own address is refused on both doors, and nev
   });
 });
 
+describe('S3: the second door combined with a malicious wallet redirect is refused, proving onAuth derives independently of prepareTx (review round 1, D1)', () => {
+  it('a session minted through /api/did/pay/token naming an attacker address, then a wallet that redirects the signed payout to that same address, still refuses and settles nothing', async () => {
+    const fakeChain12 = fakeAbtChainClient(true);
+    const started12 = await startAbtApp(fakeChain12.client);
+    try {
+      const attackerAddress = fromRandom().address;
+      // Door 2: mint directly through did-connect-js's own token route,
+      // naming the attacker's address in the query. prepareTx already
+      // ignores this (pinned above); this test goes further and proves
+      // onAuth ALSO never trusts it, by having the wallet itself redirect
+      // the signed output to that same address at the final step.
+      const res = await getSigned(
+        started12.baseUrl,
+        `/api/did/pay/token?jobId=${started12.jobId}&leg=deposit&operatorAddress=${attackerAddress}`,
+        started12.buyer,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { readonly token: string; readonly url: string };
+      const deepLink = new URL(body.url);
+      const encodedCallbackUrl = deepLink.searchParams.get('url');
+      if (encodedCallbackUrl === null) throw new Error('expected a wallet callback url');
+      const authCallbackUrl = decodeURIComponent(encodedCallbackUrl);
+      const authPath = new URL(authCallbackUrl).pathname;
+
+      const step0Res = await fetch(authCallbackUrl);
+      const step0Body = (await step0Res.json()) as DidConnectClaimResponse;
+      const step0 = decodeClaimBody(step0Body);
+      const step0SubmitRes = await fetch(`${started12.baseUrl}${authPath}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          _t_: body.token,
+          userPk: started12.buyerWallet.publicKey,
+          userInfo: await walletResponseJwt(started12.buyerWallet, step0.challenge, [{ type: 'authPrincipal' }]),
+        }),
+      });
+      const step1Body = (await step0SubmitRes.json()) as DidConnectClaimResponse;
+      const step1 = decodeClaimBody(step1Body);
+      const prepareTxClaim = step1.requestedClaims.find((c) => c.type === 'prepareTx') as
+        | { readonly partialTx: string }
+        | undefined;
+      if (prepareTxClaim === undefined) throw new Error('expected a prepareTx claim');
+
+      const decodedPartial = cborDecodeTx(fromBase58(prepareTxClaim.partialTx)) as {
+        itx: { outputs: readonly { owner: string; tokens: unknown; assets: unknown }[] };
+      };
+      // The wallet's final step: redirect the operator output to the
+      // SAME attacker address it named in the query at mint time. This
+      // is the reproduction onAuth alone must catch: prepareTx already
+      // built an honest claim, so only onAuth's own comparison against
+      // the finalTx stands between this and a written settlement.
+      const tamperedOutputs = [
+        { ...decodedPartial.itx.outputs[0], owner: attackerAddress },
+        decodedPartial.itx.outputs[1],
+      ];
+      const finalTx = await walletSignsPartialTx(prepareTxClaim.partialTx, started12.buyerWallet, tamperedOutputs);
+
+      const step1SubmitRes = await fetch(`${started12.baseUrl}${authPath}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          _t_: body.token,
+          userPk: started12.buyerWallet.publicKey,
+          userInfo: await walletResponseJwt(started12.buyerWallet, step1.challenge, [{ type: 'prepareTx', finalTx }]),
+        }),
+      });
+      const finalBody = (await step1SubmitRes.json()) as { appPk: string; authInfo: string };
+      const decoded = jwtDecode(finalBody.authInfo) as unknown as Record<string, unknown>;
+      const response = decoded.response as { confirmed: boolean };
+
+      expect(response.confirmed).toBe(false);
+      expect(await started12.settlementRepo.findByJobAndLeg(started12.jobId, 'deposit')).toBeNull();
+      expect(await started12.gate.depositSettled(started12.jobId)).toBe(false);
+    } finally {
+      started12.server.close();
+    }
+  });
+});
+
 describe('S3, Trap 1: self-hire settles normally on ABT, paying the buyer\'s own derived address', () => {
   it('a buyer hiring their own agent still settles the deposit leg, at the address derived from their own operatorDid', async () => {
     const fakeChain11 = fakeAbtChainClient(true);
