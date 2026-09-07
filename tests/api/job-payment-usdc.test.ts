@@ -129,6 +129,8 @@ interface StartedApp {
   buyer: SigningIdentity;
   agent: SigningIdentity;
   settlementRepo: MemorySettlementRepository;
+  operatorRepo: MemoryAccountRepository;
+  operatorDid: string;
 }
 
 async function startApp(usdcRail: ReturnType<typeof createUsdcPaymentRail> | null): Promise<StartedApp> {
@@ -136,10 +138,17 @@ async function startApp(usdcRail: ReturnType<typeof createUsdcPaymentRail> | nul
   const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(112));
   const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-usdc-surface' });
+  // S3: the agent's operator account must itself be registered and carry
+  // an operatorAddressEvm, or every USDC start/wallet-response route
+  // refuses with 409 (Ruling 5, fail closed) before ever reaching a
+  // test's own assertions.
+  const operatorDid = 'did:abt:op-usdc-surface';
+  await operatorRepo.register({ did: operatorDid, githubLogin: 'operator-usdc-surface' });
+  await operatorRepo.setOperatorAddressEvm(operatorDid, USDC_OPERATOR_ADDRESS);
   const agentRepo = new MemoryAgentRepository();
   await agentRepo.create({
     did: agent.did,
-    operatorDid: 'did:abt:op-usdc-surface',
+    operatorDid,
     delegation: { fixture: true } as never,
     name: 'scout',
     skills: ['triage'],
@@ -179,7 +188,7 @@ async function startApp(usdcRail: ReturnType<typeof createUsdcPaymentRail> | nul
     throw new Error('expected server to listen on a port');
   }
   const baseUrl = `http://127.0.0.1:${address.port}`;
-  return { server, baseUrl, buyer, agent, settlementRepo };
+  return { server, baseUrl, buyer, agent, settlementRepo, operatorRepo, operatorDid };
 }
 
 async function walkToConfirmed(baseUrl: string, buyer: SigningIdentity, agent: SigningIdentity): Promise<string> {
@@ -205,7 +214,7 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/start: an unconfigured rail re
     const { server, baseUrl, buyer, agent } = await startApp(null);
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
-      const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, { operatorAddress: USDC_OPERATOR_ADDRESS }, buyer);
+      const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
       expect(res.status).toBe(503);
       const body = (await res.json()) as Record<string, unknown>;
       expect(String(body.error)).toContain('usdc');
@@ -240,7 +249,7 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/start: the happy path', () => 
     const res = await postSigned(
       baseUrl,
       `/jobs/${jobId}/payments/deposit/usdc/start`,
-      { operatorAddress: USDC_OPERATOR_ADDRESS, amountUsd: '999999.00' },
+      { amountUsd: '999999.00' },
       buyer,
     );
     expect(res.status).toBe(200);
@@ -261,7 +270,7 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/start: the happy path', () => 
     // under test is that a verified signature naming neither party is
     // 403, not that an unregistered DID's signature is unverifiable.
     await postSigned(baseUrl, '/accounts', { did: stranger.did, githubLogin: 'stranger-usdc-start' }, stranger);
-    const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, { operatorAddress: USDC_OPERATOR_ADDRESS }, stranger);
+    const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, stranger);
     expect(res.status).toBe(403);
   });
 });
@@ -282,13 +291,12 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/wallet-response: confirm write
     const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
-      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, { operatorAddress: USDC_OPERATOR_ADDRESS }, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
 
       const res = await postSigned(
         baseUrl,
         `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
         {
-          operatorAddress: USDC_OPERATOR_ADDRESS,
           priceTxHash: '0xprice1',
           feeTx: { signed: true, hash: '0xfee1' },
         },
@@ -310,7 +318,6 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/wallet-response: confirm write
         baseUrl,
         `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
         {
-          operatorAddress: USDC_OPERATOR_ADDRESS,
           priceTxHash: '0xprice1',
           feeTx: { signed: true, hash: '0xfee1' },
         },
@@ -340,11 +347,11 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/wallet-response: confirm write
     const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
-      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, { operatorAddress: USDC_OPERATOR_ADDRESS }, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
       const res = await postSigned(
         baseUrl,
         `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-        { operatorAddress: USDC_OPERATOR_ADDRESS, priceTxHash: '0xprice2', feeTx: { signed: true, hash: '0xfee2' } },
+        { priceTxHash: '0xprice2', feeTx: { signed: true, hash: '0xfee2' } },
         buyer,
       );
       expect(res.status).toBe(200);
@@ -373,11 +380,11 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/wallet-response: confirm write
     const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
-      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, { operatorAddress: USDC_OPERATOR_ADDRESS }, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
       const res = await postSigned(
         baseUrl,
         `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-        { operatorAddress: USDC_OPERATOR_ADDRESS, priceTxHash: '0xprice3', feeTx: { signed: true, hash: '0xfee3' } },
+        { priceTxHash: '0xprice3', feeTx: { signed: true, hash: '0xfee3' } },
         buyer,
       );
       expect(res.status).toBe(200);
@@ -416,7 +423,7 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/wallet-response: confirm write
       const res = await postSigned(
         baseUrl,
         `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-        { operatorAddress: USDC_OPERATOR_ADDRESS, priceTxHash: '0xprice4', feeTx: { signed: true, hash: '0xfee4' } },
+        { priceTxHash: '0xprice4', feeTx: { signed: true, hash: '0xfee4' } },
         stranger,
       );
       expect(res.status).toBe(403);
@@ -441,11 +448,11 @@ describe('S1: priceTxHash equal to feeTx.hash is refused as a malformed request,
     const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
-      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, { operatorAddress: USDC_OPERATOR_ADDRESS }, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
       const res = await postSigned(
         baseUrl,
         `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-        { operatorAddress: USDC_OPERATOR_ADDRESS, priceTxHash: '0xsame', feeTx: { signed: true, hash: '0xsame' } },
+        { priceTxHash: '0xsame', feeTx: { signed: true, hash: '0xsame' } },
         buyer,
       );
       expect(res.status).toBe(400);
@@ -469,11 +476,11 @@ describe('S1: priceTxHash equal to feeTx.hash is refused as a malformed request,
     const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
-      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, { operatorAddress: USDC_OPERATOR_ADDRESS }, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
       const res = await postSigned(
         baseUrl,
         `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-        { operatorAddress: USDC_OPERATOR_ADDRESS, priceTxHash: '0xsame', feeTx: { signed: true, hash: '0xSAME' } },
+        { priceTxHash: '0xsame', feeTx: { signed: true, hash: '0xSAME' } },
         buyer,
       );
       expect(res.status).toBe(400);
@@ -497,7 +504,7 @@ describe('review round 3, D4: the job\'s own agent is a real party to the job bu
     const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
-      const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, { operatorAddress: USDC_OPERATOR_ADDRESS }, agent);
+      const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, agent);
       expect(res.status).toBe(403);
       expect(await settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
     } finally {
@@ -523,7 +530,7 @@ describe('review round 3, D4: the job\'s own agent is a real party to the job bu
       const res = await postSigned(
         baseUrl,
         `/jobs/${jobId}/payments/remainder/usdc/wallet-response`,
-        { operatorAddress: USDC_OPERATOR_ADDRESS, priceTxHash: '0xagentprice', feeTx: { signed: true, hash: '0xagentfee' } },
+        { priceTxHash: '0xagentprice', feeTx: { signed: true, hash: '0xagentfee' } },
         agent,
       );
       expect(res.status).toBe(403);
@@ -553,10 +560,13 @@ describe('the remainder leg confirms independently of the deposit leg, and unloc
     const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(122));
     const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-usdc-remainder' });
+    const remainderOperatorDid = 'did:abt:op-usdc-remainder';
+    await operatorRepo.register({ did: remainderOperatorDid, githubLogin: 'operator-usdc-remainder' });
+    await operatorRepo.setOperatorAddressEvm(remainderOperatorDid, USDC_OPERATOR_ADDRESS);
     const agentRepo = new MemoryAgentRepository();
     await agentRepo.create({
       did: agent.did,
-      operatorDid: 'did:abt:op-usdc-remainder',
+      operatorDid: remainderOperatorDid,
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
@@ -597,11 +607,11 @@ describe('the remainder leg confirms independently of the deposit leg, and unloc
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
       // Deposit settles first (confirm needs it).
-      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, { operatorAddress: USDC_OPERATOR_ADDRESS }, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
       await postSigned(
         baseUrl,
         `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-        { operatorAddress: USDC_OPERATOR_ADDRESS, priceTxHash: '0xdep-price', feeTx: { signed: true, hash: '0xdep-fee' } },
+        { priceTxHash: '0xdep-price', feeTx: { signed: true, hash: '0xdep-fee' } },
         buyer,
       );
       const confirm = await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyer);
@@ -613,11 +623,11 @@ describe('the remainder leg confirms independently of the deposit leg, and unloc
       expect(prBlocked.status).toBe(402);
       expect(forkCalls.length).toBe(before);
 
-      await postSigned(baseUrl, `/jobs/${jobId}/payments/remainder/usdc/start`, { operatorAddress: USDC_OPERATOR_ADDRESS }, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/payments/remainder/usdc/start`, {}, buyer);
       await postSigned(
         baseUrl,
         `/jobs/${jobId}/payments/remainder/usdc/wallet-response`,
-        { operatorAddress: USDC_OPERATOR_ADDRESS, priceTxHash: '0xrem-price', feeTx: { signed: true, hash: '0xrem-fee' } },
+        { priceTxHash: '0xrem-price', feeTx: { signed: true, hash: '0xrem-fee' } },
         buyer,
       );
       const remainderRow = await settlementRepo.findByJobAndLeg(jobId, 'remainder');
@@ -626,6 +636,217 @@ describe('the remainder leg confirms independently of the deposit leg, and unloc
       const pr = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agent);
       expect(pr.status).toBe(200);
       expect(forkCalls.length).toBe(before + 1);
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe('S3: a body still naming operatorAddress is refused, on both usdc routes', () => {
+  it('/start refuses a body carrying operatorAddress, with 400, and starts nothing', async () => {
+    const usdcRail = withUsdcEnv(() =>
+      createUsdcPaymentRail({
+        chainClient: fakeUsdcChainClient(),
+        rateSource: async () => '1',
+        halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
+      }),
+    );
+    const { server, baseUrl, buyer, agent } = await startApp(usdcRail);
+    try {
+      const jobId = await walkToConfirmed(baseUrl, buyer, agent);
+      const attackerAddress = '0xAttacker000000000000000000000000000000';
+      const res = await postSigned(
+        baseUrl,
+        `/jobs/${jobId}/payments/deposit/usdc/start`,
+        { operatorAddress: attackerAddress },
+        buyer,
+      );
+      expect(res.status).toBe(400);
+      expect(String((await res.json() as Record<string, unknown>).error)).toContain('resolved from the hired agent');
+    } finally {
+      server.close();
+    }
+  });
+
+  it('/wallet-response refuses a body carrying operatorAddress, with 400, and settles nothing', async () => {
+    const usdcRail = withUsdcEnv(() =>
+      createUsdcPaymentRail({
+        chainClient: fakeUsdcChainClient({
+          '0xattack-price': { status: 1, transfer: depositPriceTransfer() },
+          '0xattack-fee': { status: 1, transfer: depositFeeTransfer() },
+        }),
+        rateSource: async () => '1',
+        halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
+      }),
+    );
+    const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
+    try {
+      const jobId = await walkToConfirmed(baseUrl, buyer, agent);
+      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
+      const attackerAddress = '0xAttacker000000000000000000000000000000';
+      const res = await postSigned(
+        baseUrl,
+        `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
+        { operatorAddress: attackerAddress, priceTxHash: '0xattack-price', feeTx: { signed: true, hash: '0xattack-fee' } },
+        buyer,
+      );
+      expect(res.status).toBe(400);
+      expect(String((await res.json() as Record<string, unknown>).error)).toContain('resolved from the hired agent');
+      expect(await settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe('S3, Ruling 5: no operator address on record fails closed', () => {
+  it('POST /jobs/:jobId/payments/deposit/usdc/start answers 409 when the hired agent\'s operator has not set an address, and starts nothing', async () => {
+    const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(131));
+    const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(132));
+    const operatorRepo = new MemoryAccountRepository();
+    await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-usdc-noaddress' });
+    // The operator IS registered, but never set an operatorAddressEvm.
+    const operatorDid = 'did:abt:op-usdc-noaddress';
+    await operatorRepo.register({ did: operatorDid, githubLogin: 'operator-usdc-noaddress' });
+    const agentRepo = new MemoryAgentRepository();
+    await agentRepo.create({
+      did: agent.did,
+      operatorDid,
+      delegation: { fixture: true } as never,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: 'scout-usdc-noaddress',
+    });
+    await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-usdc-noaddress', status: 'verified' });
+    const jobRepo = new MemoryJobRepository();
+    const settlementRepo = new MemorySettlementRepository();
+    const gate = new PrismaSettlementGate(settlementRepo);
+    const { github } = createStagingLifecycleGithubFake();
+    const usdcRail = withUsdcEnv(() =>
+      createUsdcPaymentRail({
+        chainClient: fakeUsdcChainClient(),
+        rateSource: async () => '1',
+        halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
+      }),
+    );
+    const app = createApp(
+      operatorRepo,
+      agentRepo,
+      undefined,
+      github,
+      jobRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      gate,
+      anyCommitStagingObserver(),
+      undefined,
+      null,
+      usdcRail,
+      settlementRepo,
+    );
+    const server = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('expected a port');
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    try {
+      const jobId = await walkToConfirmed(baseUrl, buyer, agent);
+      const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
+      expect(res.status).toBe(409);
+      expect(String((await res.json() as Record<string, unknown>).error)).toContain('operator address');
+      expect(await settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe('S3, Trap 1: self-hire settles normally, paying the buyer\'s own address', () => {
+  it('a buyer hiring their own agent still settles the deposit leg, at the address they themselves set as operator', async () => {
+    // Buyer and operator are the SAME account (PR 89's self-hire label):
+    // the guard must be "the recipient is the address on record for the
+    // hired agent's operator", never "the recipient differs from the
+    // buyer" -- a fix written the second way would break this legitimate
+    // hire.
+    const selfHirer = await signingIdentityFromSeed(new Uint8Array(32).fill(141));
+    const agentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(142));
+    const operatorRepo = new MemoryAccountRepository();
+    await operatorRepo.register({ did: selfHirer.did, githubLogin: 'self-hirer-usdc' });
+    await operatorRepo.setOperatorAddressEvm(selfHirer.did, USDC_OPERATOR_ADDRESS);
+    const agentRepo = new MemoryAgentRepository();
+    await agentRepo.create({
+      did: agentIdentity.did,
+      operatorDid: selfHirer.did,
+      delegation: { fixture: true } as never,
+      name: 'self-hired-scout',
+      skills: ['triage'],
+      githubLogin: 'self-hired-scout-usdc',
+    });
+    await agentRepo.updateGithubBinding(agentIdentity.did, { handle: 'self-hired-scout-usdc', status: 'verified' });
+    const jobRepo = new MemoryJobRepository();
+    const settlementRepo = new MemorySettlementRepository();
+    const gate = new PrismaSettlementGate(settlementRepo);
+    const { github } = createStagingLifecycleGithubFake();
+    const usdcRail = withUsdcEnv(() =>
+      createUsdcPaymentRail({
+        chainClient: fakeUsdcChainClient({
+          '0xself-price': { status: 1, transfer: depositPriceTransfer() },
+          '0xself-fee': { status: 1, transfer: depositFeeTransfer() },
+        }),
+        rateSource: async () => '1',
+        halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
+      }),
+    );
+    const app = createApp(
+      operatorRepo,
+      agentRepo,
+      undefined,
+      github,
+      jobRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      gate,
+      anyCommitStagingObserver(),
+      undefined,
+      null,
+      usdcRail,
+      settlementRepo,
+    );
+    const server = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('expected a port');
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    try {
+      const jobId = await walkToConfirmed(baseUrl, selfHirer, agentIdentity);
+      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, selfHirer);
+      const res = await postSigned(
+        baseUrl,
+        `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
+        { priceTxHash: '0xself-price', feeTx: { signed: true, hash: '0xself-fee' } },
+        selfHirer,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.confirmed).toBe(true);
+      const row = await settlementRepo.findByJobAndLeg(jobId, 'deposit');
+      expect(row?.operatorAddress).toBe(USDC_OPERATOR_ADDRESS);
     } finally {
       server.close();
     }

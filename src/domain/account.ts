@@ -14,4 +14,11 @@ export interface Account {
   readonly githubLogin: string;
   readonly passkeySubject: string | null;
   readonly createdAt: Date;
+  // S3: the EVM address this account is paid at on the USDC rail, set by
+  // the account itself through PATCH /accounts/:did/operator-address.
+  // Null until the operator sets one. There is no ABT equivalent column:
+  // an ArcBlock DID address IS a chain account address, so the ABT
+  // recipient is derived from the hired agent's operatorDid directly
+  // (src/domain/agent.ts's didSuffix), never stored here.
+  readonly operatorAddressEvm: string | null;
 }

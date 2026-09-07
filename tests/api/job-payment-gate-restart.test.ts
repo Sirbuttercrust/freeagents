@@ -123,10 +123,13 @@ describe('the settlement gate reads durably across a process restart, sharing on
 
     const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-durable-gate' });
+    const operatorDid = 'did:abt:op-durable-gate';
+    await operatorRepo.register({ did: operatorDid, githubLogin: 'operator-durable-gate' });
+    await operatorRepo.setOperatorAddressEvm(operatorDid, USDC_OPERATOR_ADDRESS);
     const agentRepo = new MemoryAgentRepository();
     await agentRepo.create({
       did: agent.did,
-      operatorDid: 'did:abt:op-durable-gate',
+      operatorDid,
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
@@ -195,12 +198,12 @@ describe('the settlement gate reads durably across a process restart, sharing on
     await postSigned(first.baseUrl, `/jobs/${jobId}/price/accept`, {}, buyer);
     await postSigned(first.baseUrl, `/jobs/${jobId}/price/accept`, {}, agent);
 
-    const started = await postSigned(first.baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, { operatorAddress: USDC_OPERATOR_ADDRESS }, buyer);
+    const started = await postSigned(first.baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
     expect(started.status).toBe(200);
     const walletResponse = await postSigned(
       first.baseUrl,
       `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-      { operatorAddress: USDC_OPERATOR_ADDRESS, priceTxHash: '0xdurableprice1', feeTx: { signed: true, hash: '0xdurablefee1' } },
+      { priceTxHash: '0xdurableprice1', feeTx: { signed: true, hash: '0xdurablefee1' } },
       buyer,
     );
     expect(walletResponse.status).toBe(200);

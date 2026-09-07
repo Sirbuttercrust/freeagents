@@ -30,7 +30,7 @@ import { fromSecretKey } from '@ocap/wallet';
 import type { Express, Request, Response } from 'express';
 import { didSuffix } from '../../domain/agent.js';
 import { depositUsd, remainderUsd } from '../../domain/payment.js';
-import type { JobRepository } from '../storage/types.js';
+import type { AgentRepository, JobRepository } from '../storage/types.js';
 import type { SettlementRepository } from '../storage/types.js';
 import type { AbtPaymentRail } from './abt.js';
 import { confirmPayment, processWalletResponse, requestPayment, type RouteLeg } from './route-support.js';
@@ -53,6 +53,13 @@ export interface AttachAbtPaymentHandlersOptions {
   readonly app: Express;
   readonly rail: AbtPaymentRail;
   readonly jobRepo: JobRepository;
+  // S3, Ruling 2: the fix goes in this adapter, not the /start route,
+  // because /start is not the only door -- did-connect-js's own
+  // /api/did/pay/token mount reaches prepareTx and onAuth directly. Both
+  // resolve the recipient from the hired agent's operator, never from
+  // extraParams.operatorAddress, which no longer exists as an input at
+  // all (Ruling 6).
+  readonly agentRepo: AgentRepository;
   readonly settlementRepo: SettlementRepository;
   readonly platformSk: string;
   readonly chainHost: string;
@@ -82,6 +89,27 @@ async function legAmountUsd(jobRepo: JobRepository, jobId: string, leg: RouteLeg
   const job = await jobRepo.findById(jobId);
   if (job === null || job.priceUsd === null) return null;
   return leg === 'deposit' ? depositUsd(job.priceUsd, job.depositPercent) : remainderUsd(job.priceUsd, job.depositPercent);
+}
+
+// S3, Ruling 1: an ArcBlock DID address IS a chain account address
+// (verified by execution against @arcblock/did: toAddress('did:abt:...')
+// equals the suffix). didSuffix already computes exactly this reduction,
+// and isValidOperatorDid already forces every Account DID into
+// did:abt:<suffix> shape, so the ABT recipient never needs a stored
+// column: it is derived, every time, from the agent actually hired on
+// the job -- never from a caller-supplied address. Null when the job or
+// its hired agent cannot be found, so both callers below can fail the
+// same way findById's own null already fails.
+async function operatorAddressForJob(
+  jobRepo: JobRepository,
+  agentRepo: AgentRepository,
+  jobId: string,
+): Promise<string | null> {
+  const job = await jobRepo.findById(jobId);
+  if (job === null) return null;
+  const agent = await agentRepo.findByDid(job.agentDid);
+  if (agent === null) return null;
+  return didSuffix(agent.operatorDid);
 }
 
 // Attaches the DID Connect handlers ONCE at app construction (brief scope
@@ -123,9 +151,17 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       }): Promise<unknown> => {
         const jobId = String(extraParams.jobId ?? '');
         const leg = legFromExtraParams(extraParams);
-        const operatorAddress = String(extraParams.operatorAddress ?? '');
-        if (jobId === '' || leg === null || operatorAddress === '') {
-          throw new Error('payment session is missing jobId, leg or operatorAddress');
+        if (jobId === '' || leg === null) {
+          throw new Error('payment session is missing jobId or leg');
+        }
+        // RULE (S3): the recipient is resolved from the hired agent's
+        // operator, never from the request. extraParams.operatorAddress
+        // is no longer read at all: a buyer naming their own address here
+        // (either through /start or directly through did-connect-js's own
+        // /api/did/pay/token mount) has nothing to name any more.
+        const operatorAddress = await operatorAddressForJob(options.jobRepo, options.agentRepo, jobId);
+        if (operatorAddress === null) {
+          throw new Error('this job or its hired agent could not be found');
         }
         // RULE: the amount comes from the JOB, never from the request
         // (brief, "the whole security of this section"). extraParams
@@ -160,20 +196,23 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
     }): Promise<{ readonly confirmed: boolean; readonly error?: string }> => {
       const jobId = String(extraParams.jobId ?? '');
       const leg = legFromExtraParams(extraParams);
-      // S2 review round 2, D1: the expected operator address comes from
-      // the SESSION's own extraParams, the exact value prepareTx already
-      // used to build the claim the wallet was asked to sign, never
-      // decoded back out of the finalTx being confirmed. A wallet cannot
-      // move the address confirm() checks against by redirecting the
-      // output it returns, because that address never travels through
-      // this call at all.
-      const operatorAddress = String(extraParams.operatorAddress ?? '');
-      if (jobId === '' || leg === null || operatorAddress === '') {
-        return { confirmed: false, error: 'payment session is missing jobId, leg or operatorAddress' };
+      if (jobId === '' || leg === null) {
+        return { confirmed: false, error: 'payment session is missing jobId or leg' };
       }
       const job = await options.jobRepo.findById(jobId);
       if (job === null) {
         return { confirmed: false, error: 'job not found' };
+      }
+      // RULE (S3): the expected operator address is resolved from the
+      // hired agent's operator, the identical derivation prepareTx above
+      // already used to build the claim the wallet was asked to sign,
+      // never read from extraParams and never decoded back out of the
+      // finalTx being confirmed. A wallet cannot move the address
+      // confirm() checks against by redirecting the output it returns,
+      // because that address never travels through the request at all.
+      const operatorAddress = await operatorAddressForJob(options.jobRepo, options.agentRepo, jobId);
+      if (operatorAddress === null) {
+        return { confirmed: false, error: 'this job or its hired agent could not be found' };
       }
       // RULE: the paying party must be the buyer on that job. userDid is
       // the bare address form WalletAuthenticator.verify() derives

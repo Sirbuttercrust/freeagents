@@ -67,6 +67,7 @@ export class MemoryAccountRepository implements AccountRepository {
       githubLogin: input.githubLogin,
       passkeySubject: input.passkeySubject ?? null,
       createdAt: new Date(),
+      operatorAddressEvm: null,
     };
     this.rows.set(input.did, row);
     return row;
@@ -88,6 +89,14 @@ export class MemoryAccountRepository implements AccountRepository {
       if (row.passkeySubject === passkeySubject) return row;
     }
     return null;
+  }
+
+  async setOperatorAddressEvm(did: string, operatorAddressEvm: string): Promise<Account | null> {
+    const row = this.rows.get(did);
+    if (row === undefined) return null;
+    const updated: Account = { ...row, operatorAddressEvm };
+    this.rows.set(did, updated);
+    return updated;
   }
 }
 

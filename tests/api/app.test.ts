@@ -484,6 +484,9 @@ describe('app, storage failures', () => {
     async findByPasskeySubject(): Promise<never> {
       throw registerError;
     }
+    async setOperatorAddressEvm(): Promise<never> {
+      throw registerError;
+    }
   }
 
   let server: Server;
