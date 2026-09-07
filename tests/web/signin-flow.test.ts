@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import { fakeGitHubConfig } from '../helpers/session-fixtures.js';
+import { createPasskeyFixture } from '../helpers/webauthn-fixtures.js';
 
 let server: Server;
 let baseUrl: string;
@@ -209,6 +210,123 @@ describe('the /signin page\'s passkey subject is stable across attempts, not re-
       expect(registeredSubjects[0]?.length).toBeGreaterThan(0);
     } finally {
       dom.window.close();
+    }
+  });
+});
+
+// D1 descoped by review ruling (P8b, 2026-09-07, the card's descope
+// comment): a session and a registered account are two different
+// things, and this build does not create the second one for a
+// person automatically. qa proved (round 1 and round 2 FAILs on this card)
+// that a passkey sign-in through the page succeeds and then the first hire
+// answers 403 with no explanation anywhere on screen. This test drives a
+// REAL WebAuthn ceremony (createPasskeyFixture, the same fixture
+// tests/api/auth-routes.test.ts uses for the route-level happy path) through
+// the page's own script end to end, and pins that a completed passkey
+// sign-in tells the person plainly that they are signed in AND that hiring
+// or listing still needs a registered account this build does not create
+// for them. A test asserting only subject stability (the block above) would
+// stay green even if this honesty regressed, which is exactly what qa's
+// round 2 FAIL said about the previous fix: "it pins stability, not
+// usability."
+function withRealWebAuthnCeremony(window: JSDOM['window'], fixture: ReturnType<typeof createPasskeyFixture>): void {
+  Object.defineProperty(window.navigator, 'credentials', {
+    configurable: true,
+    value: {
+      create: (options: { publicKey: { challenge: ArrayBuffer } }) =>
+        Promise.resolve().then(() => {
+          const bytes = new Uint8Array(options.publicKey.challenge);
+          let binary = '';
+          for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i] ?? 0);
+          const challenge = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+          const response = fixture.registrationResponse(challenge, 'localhost');
+          return {
+            id: response.id,
+            rawId: base64urlToArrayBuffer(response.rawId),
+            type: response.type,
+            response: {
+              attestationObject: base64urlToArrayBuffer(response.response.attestationObject),
+              clientDataJSON: base64urlToArrayBuffer(response.response.clientDataJSON),
+            },
+            getClientExtensionResults: () => ({}),
+          };
+        }),
+    },
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).PublicKeyCredential = function PublicKeyCredential(): void {};
+}
+
+function base64urlToArrayBuffer(value: string): ArrayBuffer {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(value.length + ((4 - (value.length % 4)) % 4), '=');
+  const raw = atob(padded);
+  const buffer = new ArrayBuffer(raw.length);
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+  return buffer;
+}
+
+describe('a completed passkey sign-in on the real page tells the person the whole truth', () => {
+  it('names both facts: signed in, and hiring/listing still need a registered account this build does not create', async () => {
+    const sessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      passkey: { rpName: 'FreeAgents test', rpID: 'localhost', origin: 'http://localhost:3000' },
+    });
+    const configuredServer = createApp(
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, sessionAdapter,
+    ).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => configuredServer.once('listening', resolve));
+    const configuredBaseUrl = `http://127.0.0.1:${(configuredServer.address() as AddressInfo).port}`;
+
+    const virtualConsole = new VirtualConsole();
+    const failures: string[] = [];
+    virtualConsole.on('jsdomError', (error: Error) => failures.push(error.message));
+
+    const fixture = createPasskeyFixture();
+    const response = await fetch(`${configuredBaseUrl}/signin`, { headers: { Accept: 'text/html' } });
+    const markup = await response.text();
+
+    const dom = new JSDOM(markup, {
+      url: `${configuredBaseUrl}/signin`,
+      runScripts: 'dangerously',
+      resources: 'usable',
+      pretendToBeVisual: true,
+      virtualConsole,
+      beforeParse(window) {
+        withRealWebAuthnCeremony(window, fixture);
+        Object.defineProperty(window, 'fetch', {
+          writable: true,
+          value: (input: string, init?: RequestInit) => fetch(new URL(input, configuredBaseUrl), init),
+        });
+      },
+    });
+
+    try {
+      await new Promise<void>((resolve) => {
+        if (dom.window.document.readyState === 'complete') resolve();
+        else dom.window.addEventListener('load', () => resolve());
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const btn = dom.window.document.getElementById('btn-passkey') as HTMLButtonElement | null;
+      expect(btn).not.toBeNull();
+      expect(btn!.disabled).toBe(false);
+
+      btn!.click();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+
+      if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
+
+      const status = dom.window.document.getElementById('signin-status');
+      expect(status).not.toBeNull();
+      expect(status!.hidden).toBe(false);
+      expect(status!.textContent).toContain('Signed in');
+      expect(status!.textContent).toContain('registered account');
+      expect(status!.textContent).not.toContain('did not go through');
+    } finally {
+      dom.window.close();
+      await new Promise<void>((resolve) => configuredServer.close(() => resolve()));
     }
   });
 });

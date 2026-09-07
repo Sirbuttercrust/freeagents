@@ -319,7 +319,7 @@
       })
       .then(function (session) {
         storeSession(session);
-        setStatus("Signed in with a passkey.");
+        setStatus("Signed in with a passkey. Hiring or listing still needs a registered account, which this build does not create for you yet.");
         btn.disabled = false;
       })
       .catch(function () {
