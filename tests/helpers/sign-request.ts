@@ -75,6 +75,68 @@ export interface SignRequestOptions {
 // Signs a real RFC 9421 request signature. content-digest is always computed
 // from `body` (empty body still hashes to a real digest), whether or not it
 // is a covered component, so a caller can always attach it as a header.
+//
+// S5: the default `created` (when the caller does not pin one) is drawn
+// from a tracker that remembers every value it has issued and never hands
+// one out twice, searching backward from the real wall clock only as far
+// as it needs to find a free one. Two calls to signRequest for the same
+// identity, method, URI and body used to produce byte-identical signatures
+// when they landed on the same `created`, whether or not they happened in
+// the same wall-clock second -- which S5's own replay refusal now
+// correctly reads as the same signature presented twice, even when two
+// DIFFERENT test cases each intended a fresh, independent request (fast
+// test suites routinely fire far more than one signed request per real
+// second, and can straddle a second boundary between calls). Searching
+// backward stays inside SIGNATURE_MAX_AGE_SECONDS's generous five-minute
+// allowance, so hundreds of calls in one real second each get a distinct,
+// still-fresh `created` with no risk of ever crossing into the future and
+// tripping the much smaller clock-skew tolerance (the mistake an earlier,
+// forward-counting version of this fixture made).
+// Never overrides an explicitly-passed `created` (the freshness-window
+// tests in tests/api/did-signature.test.ts all pin their own).
+// D3 (QA review round 1, task t_05b14bcc): the tracker has a real ceiling.
+// Once the search has walked back SIGNATURE_MAX_AGE_SECONDS - 1 seconds
+// from the current wall clock without finding a free value, the next
+// `created` it would hand out is already stale, and a caller relying on
+// the default would see a real, but unexplained, "signature rejected"
+// failure with nothing pointing at the fixture. Fail loudly and by name
+// instead, so an exhausted bucket reads as "fixture exhausted", never as
+// "signature rejected".
+// D5 (QA review round 2, task t_05b14bcc): an earlier version tracked only
+// the single smallest value issued so far and searched from
+// `min(now, lastIssued) - 1`. That collapses to always decrementing by one
+// from the last call once the wall clock has caught up, which can walk
+// straight past a `now` that was never actually issued, and can still
+// reissue a value from an earlier second once the search crosses back over
+// it. Tracking every issued value in a set, and searching down from the
+// CURRENT wall clock each time rather than from the last issued value,
+// closes both holes: a value is checked for a real collision, not assumed
+// stale, and a call whose wall-clock second has moved on gets that fresh
+// second back rather than continuing to crawl backward. Issued values
+// older than the ceiling are pruned each call so the set cannot grow
+// without bound over a long test run; a value that old could not be
+// reissued anyway, since using it would immediately trip the ceiling.
+const BUCKET_CEILING = 300;
+const issued = new Set<number>();
+function nextCreated(): number {
+  const now = Math.floor(Date.now() / 1000);
+  for (const value of issued) {
+    if (value <= now - BUCKET_CEILING) issued.delete(value);
+  }
+  let candidate = now;
+  while (issued.has(candidate)) {
+    candidate -= 1;
+  }
+  if (now - candidate >= BUCKET_CEILING) {
+    throw new Error(
+      `signRequest: fixture bucket exhausted (${now - candidate} seconds back from now). ` +
+        'Pin an explicit `created` for this call instead of relying on the default.',
+    );
+  }
+  issued.add(candidate);
+  return candidate;
+}
+
 export function signRequest(
   id: SigningIdentity,
   method: string,
@@ -83,7 +145,7 @@ export function signRequest(
 ): SignedHeaders {
   const body = options.body ?? '';
   const components = options.components ?? DEFAULT_COVERED_COMPONENTS;
-  const created = options.created ?? Math.floor(Date.now() / 1000);
+  const created = options.created ?? nextCreated();
   const alg = options.alg === undefined ? 'ed25519' : options.alg;
   const digest = `sha-256=:${createHash('sha256').update(body).digest('base64')}:`;
 

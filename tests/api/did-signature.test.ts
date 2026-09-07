@@ -7,12 +7,15 @@ import { sign } from 'node:crypto';
 import {
   verify,
   SIGNATURE_MAX_AGE_SECONDS,
+  SIGNATURE_CLOCK_SKEW_TOLERANCE_SECONDS,
   type SignedRequestLike,
   type SigningKeyResolver,
 } from '../../src/adapters/identity/http-signature.js';
 import { createDidAbtSigningKeyResolver, createKnownKeyStore } from '../../src/adapters/identity/did-abt-resolver.js';
 import { MemoryObservedKeyRepository } from '../../src/adapters/storage/memory.js';
 import type { ObservedKeyRepository } from '../../src/adapters/storage/types.js';
+import { createMemorySignatureSpendStorage } from '../../src/adapters/identity/signature-spend-storage-memory.js';
+import type { SignatureSpendStorage } from '../../src/adapters/identity/signature-spend-storage-types.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
 describe('DID-signed requests (RFC 9421)', () => {
@@ -103,6 +106,75 @@ describe('DID-signed requests (RFC 9421)', () => {
     const futureResult = await verify({ method: 'POST', targetUri, headers: futureHeaders }, resolver, { now });
 
     expect(futureResult).toBeNull();
+  });
+
+  // S6: the freshness check used to be Math.abs(now - created) > MAX_AGE, so
+  // a signature claiming it was made in the future was accepted exactly as
+  // readily as one made in the past, doubling the real replay window. A
+  // signature 280 seconds ahead is inside the OLD symmetric window
+  // (300 seconds) but must now be refused: the future gets its own, much
+  // smaller, named tolerance rather than reusing SIGNATURE_MAX_AGE_SECONDS.
+  it('rejects a signature created 280 seconds in the future (S6: future is not the same allowance as the past)', async () => {
+    const identity = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
+    const resolver = createDidAbtSigningKeyResolver(async () => true);
+    const targetUri = 'http://127.0.0.1:41234/jobs';
+    const now = new Date();
+    const created = Math.floor(now.getTime() / 1000) + 280;
+    const headers = signRequest(identity, 'POST', targetUri, {
+      components: ['@method', '@target-uri'],
+      created,
+    });
+
+    const result = await verify({ method: 'POST', targetUri, headers }, resolver, { now });
+
+    expect(result).toBeNull();
+  });
+
+  // S6: clocks differ by a few seconds between two ordinary machines, and a
+  // signer whose clock is a little fast is not an attacker. The tolerance is
+  // named for what it is (a skew allowance) and has its own small value, not
+  // SIGNATURE_MAX_AGE_SECONDS reused.
+  it('accepts a signature created a few seconds in the future, inside the named clock-skew tolerance', async () => {
+    const identity = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
+    const resolver = createDidAbtSigningKeyResolver(async () => true);
+    const targetUri = 'http://127.0.0.1:41234/jobs';
+    const now = new Date();
+    const created = Math.floor(now.getTime() / 1000) + SIGNATURE_CLOCK_SKEW_TOLERANCE_SECONDS;
+    const headers = signRequest(identity, 'POST', targetUri, {
+      components: ['@method', '@target-uri'],
+      created,
+    });
+
+    const result = await verify({ method: 'POST', targetUri, headers }, resolver, { now });
+
+    expect(result).toEqual({ did: identity.did });
+  });
+
+  // S6 done-means: the backward-looking boundary is unchanged. 299 seconds
+  // in the past still verifies; 301 does not. This is the same
+  // SIGNATURE_MAX_AGE_SECONDS check as before, now on its own one-sided
+  // comparison rather than folded into Math.abs.
+  it('a signature created 299 seconds in the past still verifies; 301 seconds does not', async () => {
+    const identity = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
+    const resolver = createDidAbtSigningKeyResolver(async () => true);
+    const targetUri = 'http://127.0.0.1:41234/jobs';
+    const now = new Date();
+    const nowSeconds = Math.floor(now.getTime() / 1000);
+
+    const justInsideHeaders = signRequest(identity, 'POST', targetUri, {
+      components: ['@method', '@target-uri'],
+      created: nowSeconds - 299,
+    });
+    const justOutsideHeaders = signRequest(identity, 'POST', targetUri, {
+      components: ['@method', '@target-uri'],
+      created: nowSeconds - 301,
+    });
+
+    const justInside = await verify({ method: 'POST', targetUri, headers: justInsideHeaders }, resolver, { now });
+    const justOutside = await verify({ method: 'POST', targetUri, headers: justOutsideHeaders }, resolver, { now });
+
+    expect(justInside).toEqual({ did: identity.did });
+    expect(justOutside).toBeNull();
   });
 
   it('rejects a signature whose declared alg is not ed25519, even though the bytes verify', async () => {
@@ -316,4 +388,105 @@ describe('DID-signed requests (RFC 9421)', () => {
     expect(result).toBeNull();
     expect(await observedKeys.get(victim.did)).toBeNull();
   });
+
+  // S5 (this card): a captured header set replayed a second time used to
+  // verify again, with no nonce, no seen-signature store, and no one-shot
+  // marker anywhere. The positive control comes first: a legitimate
+  // signature verifies once. The refusal is the point: the exact same
+  // signature bytes presented a second time must be refused, not accepted
+  // again.
+  it('S5: a legitimate signature verifies once; the same signature presented again is refused (replay)', async () => {
+    const identity = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
+    const resolver = createDidAbtSigningKeyResolver(async () => true);
+    const targetUri = 'http://127.0.0.1:41234/jobs';
+    const headers = signRequest(identity, 'POST', targetUri, { components: ['@method', '@target-uri'] });
+    const spendStorage: SignatureSpendStorage = createMemorySignatureSpendStorage();
+
+    const first = await verify({ method: 'POST', targetUri, headers }, resolver, { spendStorage });
+    const second = await verify({ method: 'POST', targetUri, headers }, resolver, { spendStorage });
+
+    expect(first).toEqual({ did: identity.did });
+    expect(second).toBeNull();
+  });
+
+  // S5 mutation proof 6: the spend key is scoped by keyid, so two different
+  // signers each presenting their own (different) signature both verify --
+  // one signer's spend record can never collide with another's. Pinned by
+  // asserting the storage actually recorded each signer's OWN keyid, not
+  // merely that both requests happened to verify (two different signatures
+  // hash differently regardless of keyid, so a weaker assertion here would
+  // not catch a spend key that silently dropped keyid from its key).
+  it('S5: two different signers presenting different signatures both verify (the spend key does not collide across signers)', async () => {
+    const first = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
+    const second = await signingIdentityFromSeed(new Uint8Array(32).fill(9));
+    const resolver = createDidAbtSigningKeyResolver(async () => true);
+    const targetUri = 'http://127.0.0.1:41234/jobs';
+    const spendStorage: SignatureSpendStorage = createMemorySignatureSpendStorage();
+    const recordSpy = vi.spyOn(spendStorage, 'record');
+
+    const firstHeaders = signRequest(first, 'POST', targetUri, { components: ['@method', '@target-uri'] });
+    const secondHeaders = signRequest(second, 'POST', targetUri, { components: ['@method', '@target-uri'] });
+
+    const firstResult = await verify({ method: 'POST', targetUri, headers: firstHeaders }, resolver, { spendStorage });
+    const secondResult = await verify({ method: 'POST', targetUri, headers: secondHeaders }, resolver, { spendStorage });
+
+    expect(firstResult).toEqual({ did: first.did });
+    expect(secondResult).toEqual({ did: second.did });
+    expect(recordSpy).toHaveBeenNthCalledWith(1, expect.objectContaining({ keyid: first.keyid }));
+    expect(recordSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ keyid: second.keyid }));
+  });
+
+  // S5 mutation proof 2: the spend check must run AFTER the ed25519 bytes
+  // verify, never before -- the same rule onVerified already follows (D5
+  // above). An attacker presenting a victim's real keyid under a forged
+  // signature (their own private key) must not cause any durable write to
+  // the spend store: the signature never verified, so there is nothing to
+  // record. If the check ran before ed25519 verification, the forged
+  // attempt's own signature hash would land in the store regardless of
+  // whether the bytes ever checked out.
+  it('S5: a forged signature under a victim keyid causes no durable write to the spend store', async () => {
+    const victim = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
+    const attacker = await signingIdentityFromSeed(new Uint8Array(32).fill(9));
+    const resolver = createDidAbtSigningKeyResolver(async () => true);
+    const targetUri = 'http://127.0.0.1:41234/jobs';
+    const spendStorage: SignatureSpendStorage = createMemorySignatureSpendStorage();
+    const recordSpy = vi.spyOn(spendStorage, 'record');
+
+    const forgedIdentity: SigningIdentity = {
+      did: victim.did,
+      keyid: victim.keyid,
+      privateKey: attacker.privateKey,
+    };
+    const headers = signRequest(forgedIdentity, 'POST', targetUri, { components: ['@method', '@target-uri'] });
+
+    const result = await verify({ method: 'POST', targetUri, headers }, resolver, { spendStorage });
+
+    expect(result).toBeNull();
+    expect(recordSpy).not.toHaveBeenCalled();
+  });
+
+  // S5 mutation proof 3: onVerified's own failure is swallowed (bookkeeping,
+  // D4 above) because the signature already verified by the time it runs.
+  // The spend check is the opposite: it IS the control, so a storage
+  // failure there must refuse the request rather than silently pass it
+  // through as if no replay protection existed at all.
+  it('S5: a spend-store failure refuses the request (fail closed), unlike onVerified\'s own swallowed failure', async () => {
+    const identity = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
+    const resolver = createDidAbtSigningKeyResolver(async () => true);
+    const targetUri = 'http://127.0.0.1:41234/jobs';
+    const headers = signRequest(identity, 'POST', targetUri, { components: ['@method', '@target-uri'] });
+    const throwingSpendStorage: SignatureSpendStorage = {
+      findByKeyidAndHash: () => Promise.reject(new Error('spend store unavailable')),
+      record: () => Promise.reject(new Error('spend store unavailable')),
+    };
+
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const result = await verify({ method: 'POST', targetUri, headers }, resolver, { spendStorage: throwingSpendStorage });
+      expect(result).toBeNull();
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
 });
+
