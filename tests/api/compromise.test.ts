@@ -27,6 +27,7 @@ import {
 import type { AgentRepository, CompromiseRepository } from '../../src/adapters/storage/types.js';
 import type { Agent, Delegation } from '../../src/domain/agent.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { sessionHeader, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 const AGENT_DID = 'did:abt:zAgentKeyHash';
 
@@ -306,6 +307,103 @@ describe('POST /agents/:agentDid/compromise-report, caller gating (S4)', () => {
     }, operator);
     expect(res.status).toBe(201);
     expect((await compromiseRepo.listByAgentDid(did)).length).toBe(1);
+  });
+
+  // Proof audit round 1, D1: every positive control above signs with an
+  // R-34 signature. The done-means list names a SEPARATE positive control,
+  // the agent's own operator authenticated by a live session, and nothing
+  // pinned it. testSessionAdapter always resolves its bearer token to the
+  // fixed GitHub login 'test-session-user', so the operator here registers
+  // under that login rather than a signing key.
+  it('the operator authenticated by a live session gets the same success as a signature (D1)', async () => {
+    const sessionAdapter = testSessionAdapter();
+    const accountRepo = new MemoryAccountRepository();
+    const sessionAgentRepo = new MemoryAgentRepository();
+    const sessionCompromiseRepo = new MemoryCompromiseRepository();
+    const operatorDid = 'did:abt:zSessionCompromiseOperator';
+    await accountRepo.register({ did: operatorDid, githubLogin: 'test-session-user' });
+    const sessionAgentDid = 'did:abt:zSessionCompromiseAgent';
+    await sessionAgentRepo.create({
+      did: sessionAgentDid,
+      operatorDid,
+      delegation: delegationFor(sessionAgentDid, operatorDid),
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    const app = createApp(
+      accountRepo,
+      sessionAgentRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionCompromiseRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    );
+    await withApp(app, async (url) => {
+      const auth = await sessionHeader(sessionAdapter);
+      const res = await fetch(`${url}/agents/${sessionAgentDid}/compromise-report`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...auth },
+        body: JSON.stringify({ key: `${sessionAgentDid}#zKey`, since: '2026-08-10T00:00:00.000Z' }),
+      });
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toEqual({ key: `${sessionAgentDid}#zKey`, since: '2026-08-10T00:00:00.000Z', reportedAt: expect.any(String) });
+      expect((await sessionCompromiseRepo.listByAgentDid(sessionAgentDid)).length).toBe(1);
+    });
+  });
+
+  // Proof audit round 1, D2: resolveActingParty returning null (a session
+  // that names nobody registered) must refuse 403, the same as any other
+  // non-operator, and store nothing. Nothing pinned this branch before.
+  it('a session that resolves to no registered account is refused 403, and stores nothing (D2)', async () => {
+    const sessionAdapter = testSessionAdapter();
+    const accountRepo = new MemoryAccountRepository();
+    const sessionAgentRepo = new MemoryAgentRepository();
+    const sessionCompromiseRepo = new MemoryCompromiseRepository();
+    const realOperator = await signingIdentityFromSeed(new Uint8Array(32).fill(237));
+    await accountRepo.register({ did: realOperator.did, githubLogin: 'compromise-d2-real-operator' });
+    const sessionAgentDid = 'did:abt:zSessionCompromiseUnregisteredAgent';
+    await sessionAgentRepo.create({
+      did: sessionAgentDid,
+      operatorDid: realOperator.did,
+      delegation: delegationFor(sessionAgentDid, realOperator.did),
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    const app = createApp(
+      accountRepo,
+      sessionAgentRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionCompromiseRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    );
+    await withApp(app, async (url) => {
+      // testSessionAdapter's bearer token resolves to githubLogin
+      // 'test-session-user', which no account here is registered under.
+      const auth = await sessionHeader(sessionAdapter);
+      const res = await fetch(`${url}/agents/${sessionAgentDid}/compromise-report`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...auth },
+        body: JSON.stringify({ key: `${sessionAgentDid}#zKey`, since: '2026-08-10T00:00:00.000Z' }),
+      });
+      expect(res.status).toBe(403);
+      expect((await sessionCompromiseRepo.listByAgentDid(sessionAgentDid)).length).toBe(0);
+    });
   });
 });
 

@@ -20,6 +20,7 @@ import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapte
 import type { AgentRepository } from '../../src/adapters/storage/types.js';
 import type { Agent, Delegation } from '../../src/domain/agent.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { sessionHeader, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 async function postJson(baseUrl: string, path: string, body: unknown): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
@@ -343,6 +344,118 @@ describe('POST /agents/:agentDid/key-rotation, caller gating (S3)', () => {
         toKey: `${suffixAgentDid}#zNew`,
       }, suffixOnlyOperator);
       expect(res.status).toBe(200);
+    } finally {
+      server2.close();
+    }
+  });
+
+  // Proof audit round 1, D1: every positive control above signs with an
+  // R-34 signature. The done-means list names a SEPARATE positive control,
+  // the agent's own operator authenticated by a live session, and nothing
+  // pinned it. testSessionAdapter always resolves its bearer token to the
+  // fixed GitHub login 'test-session-user', so the operator here registers
+  // under that login rather than a signing key.
+  it('the operator authenticated by a live session gets the same success as a signature (D1)', async () => {
+    const sessionAdapter = testSessionAdapter();
+    const accountRepo = new MemoryAccountRepository();
+    const sessionAgentRepo = new MemoryAgentRepository();
+    const operatorDid = 'did:abt:zSessionKeyRotationOperator';
+    await accountRepo.register({ did: operatorDid, githubLogin: 'test-session-user' });
+    const sessionAgentDid = 'did:abt:zSessionKeyRotationAgent';
+    await sessionAgentRepo.create({
+      did: sessionAgentDid,
+      operatorDid,
+      delegation: delegationFor(sessionAgentDid, operatorDid),
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    const app = createApp(
+      accountRepo,
+      sessionAgentRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    );
+    const server2 = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server2.once('listening', resolve));
+    const address2 = server2.address();
+    if (address2 === null || typeof address2 === 'string') throw new Error('expected a port');
+    const url2 = `http://127.0.0.1:${address2.port}`;
+    try {
+      const auth = await sessionHeader(sessionAdapter);
+      const res = await fetch(`${url2}/agents/${sessionAgentDid}/key-rotation`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...auth },
+        body: JSON.stringify({ fromKey: `${sessionAgentDid}#zOld`, toKey: `${sessionAgentDid}#zNew` }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      const rotations = body.keyRotations as KeyRotationProjection[];
+      expect(rotations).toHaveLength(1);
+      expect(rotations[0]?.fromKey).toBe(`${sessionAgentDid}#zOld`);
+      expect(rotations[0]?.toKey).toBe(`${sessionAgentDid}#zNew`);
+    } finally {
+      server2.close();
+    }
+  });
+
+  // Proof audit round 1, D2: resolveActingParty returning null (a session
+  // that names nobody registered) must refuse 403, the same as any other
+  // non-operator, and store nothing. Nothing pinned this branch before.
+  it('a session that resolves to no registered account is refused 403, and stores nothing (D2)', async () => {
+    const sessionAdapter = testSessionAdapter();
+    const accountRepo = new MemoryAccountRepository();
+    const sessionAgentRepo = new MemoryAgentRepository();
+    const realOperator = await signingIdentityFromSeed(new Uint8Array(32).fill(228));
+    await accountRepo.register({ did: realOperator.did, githubLogin: 'key-rotation-d2-real-operator' });
+    const sessionAgentDid = 'did:abt:zSessionUnregisteredAgent';
+    await sessionAgentRepo.create({
+      did: sessionAgentDid,
+      operatorDid: realOperator.did,
+      delegation: delegationFor(sessionAgentDid, realOperator.did),
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    const app = createApp(
+      accountRepo,
+      sessionAgentRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+    );
+    const server2 = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server2.once('listening', resolve));
+    const address2 = server2.address();
+    if (address2 === null || typeof address2 === 'string') throw new Error('expected a port');
+    const url2 = `http://127.0.0.1:${address2.port}`;
+    try {
+      // testSessionAdapter's bearer token resolves to githubLogin
+      // 'test-session-user', which no account here is registered under.
+      const auth = await sessionHeader(sessionAdapter);
+      const res = await fetch(`${url2}/agents/${sessionAgentDid}/key-rotation`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...auth },
+        body: JSON.stringify({ fromKey: `${sessionAgentDid}#zOld`, toKey: `${sessionAgentDid}#zNew` }),
+      });
+      expect(res.status).toBe(403);
+      const stored = await sessionAgentRepo.findByDid(sessionAgentDid);
+      expect(stored?.keyRotations.length ?? 0).toBe(0);
     } finally {
       server2.close();
     }
