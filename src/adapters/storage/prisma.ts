@@ -106,6 +106,7 @@ export class PrismaAccountRepository implements AccountRepository {
         githubLogin: row.githubLogin,
         passkeySubject: row.passkeySubject,
         createdAt: row.createdAt,
+        operatorAddressEvm: row.operatorAddressEvm,
       };
     } catch (err) {
       // P2002 is Prisma's "unique constraint failed" error code: it fires
@@ -124,21 +125,63 @@ export class PrismaAccountRepository implements AccountRepository {
     const row = await db().account.findUnique({ where: { did } });
     return row === null
       ? null
-      : { did: row.did, githubLogin: row.githubLogin, passkeySubject: row.passkeySubject, createdAt: row.createdAt };
+      : {
+          did: row.did,
+          githubLogin: row.githubLogin,
+          passkeySubject: row.passkeySubject,
+          createdAt: row.createdAt,
+          operatorAddressEvm: row.operatorAddressEvm,
+        };
   }
 
   async findByGithubLogin(githubLogin: string): Promise<Account | null> {
     const row = await db().account.findUnique({ where: { githubLogin } });
     return row === null
       ? null
-      : { did: row.did, githubLogin: row.githubLogin, passkeySubject: row.passkeySubject, createdAt: row.createdAt };
+      : {
+          did: row.did,
+          githubLogin: row.githubLogin,
+          passkeySubject: row.passkeySubject,
+          createdAt: row.createdAt,
+          operatorAddressEvm: row.operatorAddressEvm,
+        };
   }
 
   async findByPasskeySubject(passkeySubject: string): Promise<Account | null> {
     const row = await db().account.findUnique({ where: { passkeySubject } });
     return row === null
       ? null
-      : { did: row.did, githubLogin: row.githubLogin, passkeySubject: row.passkeySubject, createdAt: row.createdAt };
+      : {
+          did: row.did,
+          githubLogin: row.githubLogin,
+          passkeySubject: row.passkeySubject,
+          createdAt: row.createdAt,
+          operatorAddressEvm: row.operatorAddressEvm,
+        };
+  }
+
+  async setOperatorAddressEvm(did: string, operatorAddressEvm: string): Promise<Account | null> {
+    try {
+      const row = await db().account.update({
+        where: { did },
+        data: { operatorAddressEvm },
+      });
+      return {
+        did: row.did,
+        githubLogin: row.githubLogin,
+        passkeySubject: row.passkeySubject,
+        createdAt: row.createdAt,
+        operatorAddressEvm: row.operatorAddressEvm,
+      };
+    } catch (err) {
+      // P2025 is Prisma's "record to update not found" error code: the
+      // did is unknown, mirroring PrismaAgentRepository.updateGithubBinding's
+      // own P2025-to-null mapping.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        return null;
+      }
+      throw err;
+    }
   }
 }
 

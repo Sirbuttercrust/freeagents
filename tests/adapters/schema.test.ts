@@ -149,6 +149,39 @@ describe('prisma/schema.prisma, the Account model (R-39 completion, ENT-1.4)', (
   });
 });
 
+// S3 (this card, schema-change-without-migration): the same pinning
+// pattern as the S5+S6 block above, against the operatorAddressEvm
+// column this card's schema change adds. Without a migration shipped in
+// the same commit, PrismaAccountRepository.setOperatorAddressEvm's
+// update() call throws on any deployed database because the column
+// never exists there.
+describe('prisma/migrations, Account.operatorAddressEvm is actually migrated (S3)', () => {
+  const migrationsDirS3 = new URL('../../prisma/migrations/', import.meta.url);
+
+  function allMigrationSqlS3(): string {
+    const dir = fileURLToPath(migrationsDirS3);
+    if (!existsSync(dir)) return '';
+    const entries = readdirSync(dir, { withFileTypes: true });
+    return entries
+      .filter((e) => e.isDirectory())
+      .map((e) => join(dir, e.name, 'migration.sql'))
+      .filter((p) => existsSync(p))
+      .map((p) => readFileSync(p, 'utf8'))
+      .join('\n');
+  }
+
+  it('a migration adds Account.operatorAddressEvm', () => {
+    const sql = allMigrationSqlS3();
+    expect(sql).toMatch(/ALTER TABLE\s+"Account"\s+ADD COLUMN\s+"operatorAddressEvm"\s+TEXT/);
+  });
+
+  it('the schema declares operatorAddressEvm as nullable, with no default', () => {
+    const account = modelBody('Account');
+    expect(account).toMatch(/operatorAddressEvm\s+String\?\s*$/m);
+    expect(account).not.toMatch(/operatorAddressEvm[^\n]*@default/);
+  });
+});
+
 // D3 (Review finding, round 1, uniqueness-untested-at-schema): the mutation proof the
 // card requires ("drop the unique constraint, a test goes red") must hold
 // against the actual applied migration, not only against schema.prisma's
