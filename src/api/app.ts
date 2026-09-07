@@ -56,7 +56,7 @@ import {
   createReviewRepository,
   createObservedKeyRepository,
 } from '../adapters/storage/storage.js';
-import { delegationConsistent, type Agent, type Delegation } from '../domain/agent.js';
+import { delegationConsistent, isAgentOperator, type Agent, type Delegation } from '../domain/agent.js';
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
 import { buildAttestation, AttestationError } from '../domain/attestation.js';
 import { lastHireCompletedAt, recordLastChangedAt } from '../domain/freshness.js';
@@ -867,36 +867,123 @@ export function createApp(
   // up empty (absent, expired, or revoked -- getSession resolves all three
   // to null indistinguishably) does the route refuse, naming both ways a
   // caller can satisfy it.
+  // S3+S4 (security sweep): the authentication core requireSessionOrSignature
+  // wraps as Express middleware, factored out so a route that must check its
+  // body's shape BEFORE authentication (key-rotation, compromise-report --
+  // an unauthenticated caller must not learn anything about the request
+  // from a shape error) can run the identical check manually, in the
+  // handler, at the point in its own ordering that belongs to it, instead
+  // of via a middleware that would always run first. One rule, one
+  // function, two call sites: this and requireSessionOrSignature below
+  // never diverge on what counts as authenticated.
+  type AuthOutcome = 'ok' | 'invalid-signature' | 'no-proof';
+  async function authenticateRequest(req: Request): Promise<AuthOutcome> {
+    const sigOutcome = await verifySignedRequest(req);
+    if (sigOutcome === 'invalid') return 'invalid-signature';
+    if (sigOutcome !== 'absent') {
+      (req as SignedRequest).signerDid = sigOutcome.did;
+      return 'ok';
+    }
+
+    const token = bearerTokenOf(req);
+    if (token !== null) {
+      const liveSession = await session.getSession(token);
+      if (liveSession !== null) {
+        (req as SessionedRequest).sessionSubject = liveSession.subject;
+        (req as SessionedRequest).sessionMethod = liveSession.method;
+        return 'ok';
+      }
+    }
+
+    return 'no-proof';
+  }
+
   const requireSessionOrSignature = (req: Request, res: Response, next: NextFunction): void => {
     void (async () => {
-      const sigOutcome = await verifySignedRequest(req);
-      if (sigOutcome === 'invalid') {
+      const outcome = await authenticateRequest(req);
+      if (outcome === 'invalid-signature') {
         res.status(401).json({ error: 'invalid signature' });
         return;
       }
-      if (sigOutcome !== 'absent') {
-        (req as SignedRequest).signerDid = sigOutcome.did;
-        next();
+      if (outcome === 'no-proof') {
+        res.status(401).json({
+          error:
+            'this route requires a session (sign in with GitHub OAuth or a passkey) or a verified request signature (R-34)',
+        });
         return;
       }
+      next();
+    })().catch(next);
+  };
 
-      const token = bearerTokenOf(req);
-      if (token !== null) {
-        const liveSession = await session.getSession(token);
-        if (liveSession !== null) {
-          (req as SessionedRequest).sessionSubject = liveSession.subject;
-          (req as SessionedRequest).sessionMethod = liveSession.method;
-          next();
-          return;
-        }
-      }
-
+  // S3+S4 (security sweep): the shared gate for a write route on an agent's
+  // OWN record (key-rotation, compromise-report): the caller must
+  // authenticate (401 with no proof at all, the same wording
+  // requireSessionOrSignature uses) and must resolve to the agent's own
+  // operator (isAgentOperator, by suffix). Ordering is deliberate and
+  // matches the brief: the route checks its body's shape before ever
+  // calling this, so 400 always precedes 401; this function then checks
+  // authentication before resolving an account (403) and before looking up
+  // the agent at all (404), so an unauthenticated caller cannot learn
+  // whether the named DID is registered from the status code alone. Once
+  // authenticated and once the agent is found, the operator match is the
+  // last gate, and its refusal never names the real operator. Returns the
+  // agent row on success so the caller need not look it up twice.
+  async function requireCallerIsAgentOperator(
+    label: string,
+    req: Request,
+    res: Response,
+    did: string,
+  ): Promise<Agent | null> {
+    const outcome = await authenticateRequest(req);
+    if (outcome === 'invalid-signature') {
+      res.status(401).json({ error: 'invalid signature' });
+      return null;
+    }
+    if (outcome === 'no-proof') {
       res.status(401).json({
         error:
           'this route requires a session (sign in with GitHub OAuth or a passkey) or a verified request signature (R-34)',
       });
-    })().catch(next);
-  };
+      return null;
+    }
+
+    let actingParty: string | null;
+    try {
+      actingParty = await resolveActingParty(req, repo);
+    } catch (err) {
+      console.error(`${label}: storage failed`, err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return null;
+    }
+    if (actingParty === null) {
+      res.status(403).json({
+        error: 'no registered account resolves from your session or signature; register an account before acting on this agent',
+      });
+      return null;
+    }
+
+    let row: Agent | null;
+    try {
+      row = await agentRepo.findByDid(did);
+    } catch (err) {
+      console.error(`${label}: storage failed`, err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return null;
+    }
+    if (row === null) {
+      res.status(404).json({ error: `agent ${did} is not registered` });
+      return null;
+    }
+    // The 403 never names the real operator: it says only that the caller
+    // is not it, so a stranger cannot use the refusal to learn who does
+    // hold the seat.
+    if (!isAgentOperator(actingParty, row.operatorDid)) {
+      res.status(403).json({ error: `the authenticated party is not the operator of agent ${did}` });
+      return null;
+    }
+    return row;
+  }
 
   app.get('/health', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'ok' });
@@ -1419,6 +1506,11 @@ export function createApp(
   // public gist whose statement the agent's key signed. Without gist the
   // route records direction one as pending (R-3); with it, the binding is
   // marked verified only when BOTH directions hold (ENT-5.1).
+  // S3+S4 follow-on (security sweep, item 3): this route was also in the
+  // ungated /agents/:agentDid/* write family. Same treatment as
+  // key-rotation and compromise-report: body shape first, then
+  // requireCallerIsAgentOperator carries authentication, the operator
+  // match, and the 404, in that fixed order.
   app.post('/agents/:agentDid/account-proof', async (req: Request, res: Response) => {
     const did = String(req.params.agentDid);
     const body = (req.body ?? {}) as { handle?: unknown; gist?: unknown };
@@ -1431,18 +1523,9 @@ export function createApp(
       return;
     }
 
-    let row: Agent | null;
-    try {
-      row = await agentRepo.findByDid(did);
-    } catch (err) {
-      console.error('POST /agents/:agentDid/account-proof: storage failed', err);
-      res.status(503).json({ error: 'storage unavailable' });
-      return;
-    }
-    if (row === null) {
-      res.status(404).json({ error: `agent ${did} is not registered` });
-      return;
-    }
+    const gated = await requireCallerIsAgentOperator('POST /agents/:agentDid/account-proof', req, res, did);
+    if (gated === null) return;
+    const row = gated;
 
     // A malformed gist URL is a client error, and the URL owner must be the
     // claimed handle: the operator is pointing at someone else's gist, which
@@ -1643,6 +1726,17 @@ export function createApp(
   // is the HTTP surface's call, not a domain rule (the validator's scope
   // finding on rotationIsIdentity). The record is public identifiers only,
   // so nothing here touches the identity adapter.
+  // S3 (security sweep, high): this route mounted no authentication at all,
+  // so an unsigned request could fabricate rotation history on any listed
+  // agent, publicly readable afterwards. R-30 is an operator action on the
+  // operator's own agent, never a stranger's. Body shape is checked first
+  // (a statement about the request, not the record), then
+  // requireCallerIsAgentOperator carries authentication, the operator
+  // match, and the 404 for an unregistered agent, in that fixed order, so
+  // an unauthenticated caller cannot read agent existence off the status
+  // code alone. No Express middleware is mounted here on purpose: the
+  // ordering the brief demands (400 before 401) is only reachable from
+  // inside the handler, after the body is already parsed and checked.
   app.post('/agents/:agentDid/key-rotation', async (req: Request, res: Response) => {
     const did = String(req.params.agentDid);
     const body = (req.body ?? {}) as { fromKey?: unknown; toKey?: unknown };
@@ -1670,18 +1764,8 @@ export function createApp(
       return;
     }
 
-    let row: Agent | null;
-    try {
-      row = await agentRepo.findByDid(did);
-    } catch (err) {
-      console.error('POST /agents/:agentDid/key-rotation: storage failed', err);
-      res.status(503).json({ error: 'storage unavailable' });
-      return;
-    }
-    if (row === null) {
-      res.status(404).json({ error: `agent ${did} is not registered` });
-      return;
-    }
+    const gated = await requireCallerIsAgentOperator('POST /agents/:agentDid/key-rotation', req, res, did);
+    if (gated === null) return;
 
     try {
       const updated = await agentRepo.recordKeyRotation(did, {
@@ -1705,6 +1789,14 @@ export function createApp(
   // signature envelope). The route owns the body's shape (checked with
   // reportWellFormed, not restated) and the one semantic check reportWellFormed
   // does not make: since must not be in the future.
+  // S4 (security sweep, medium): this route mounted no authentication at
+  // all, so an unsigned caller could brand any agent's keys compromised in
+  // bulk (the sweep filed 60 unsigned reports against one victim in 9
+  // seconds). R-16 is an operator action on the operator's own agent, never
+  // a stranger's. Body shape and the future-since check run first (both
+  // are statements about the request, not the record), then
+  // requireCallerIsAgentOperator carries authentication, the operator
+  // match, and the 404 for an unregistered agent, in that fixed order.
   app.post('/agents/:agentDid/compromise-report', async (req: Request, res: Response) => {
     const did = String(req.params.agentDid);
     const body = (req.body ?? {}) as { key?: unknown; since?: unknown };
@@ -1737,18 +1829,8 @@ export function createApp(
       return;
     }
 
-    let row: Agent | null;
-    try {
-      row = await agentRepo.findByDid(did);
-    } catch (err) {
-      console.error('POST /agents/:agentDid/compromise-report: storage failed', err);
-      res.status(503).json({ error: 'storage unavailable' });
-      return;
-    }
-    if (row === null) {
-      res.status(404).json({ error: `agent ${did} is not registered` });
-      return;
-    }
+    const gated = await requireCallerIsAgentOperator('POST /agents/:agentDid/compromise-report', req, res, did);
+    if (gated === null) return;
 
     try {
       const report = await compromiseRepo.record(did, { key: body.key as string, since });

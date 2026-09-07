@@ -36,6 +36,17 @@ export function didSuffix(did: string): string {
   return did.startsWith('did:abt:') ? did.slice('did:abt:'.length) : did;
 }
 
+// S3+S4 (security sweep): the operator-match check every write route on an
+// agent's own record needs. Goes through didSuffix, never raw equality, for
+// the same reason delegationConsistent does above: a caller-side proof can
+// resolve to either form of the same key. Total: any two strings in, one
+// boolean out, never throws, so a route can call this with no try/catch.
+export function isAgentOperator(actingDid: unknown, operatorDid: unknown): boolean {
+  if (typeof actingDid !== 'string' || actingDid.length === 0) return false;
+  if (typeof operatorDid !== 'string' || operatorDid.length === 0) return false;
+  return didSuffix(actingDid) === didSuffix(operatorDid);
+}
+
 export type ProofStatus = 'unverified' | 'pending' | 'verified';
 
 export interface Agent {
