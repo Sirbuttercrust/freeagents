@@ -42,6 +42,8 @@ import {
   type RateSource,
   type WalletResponseInput,
 } from './types.js';
+import { createPrismaAbtSpentTransferStorage } from './abt-spent-transfer-storage-prisma.js';
+import type { AbtSpentTransferStorage } from './abt-spent-transfer-storage-types.js';
 
 // The abt-only slice of each opaque union, so a caller already holding an
 // AbtPaymentRail (this file's own tests, and any other caller who received
@@ -62,14 +64,39 @@ export interface AbtPaymentRail extends Omit<PaymentRail, 'createRequest' | 'onW
   confirm(ref: AbtPaymentRef): Promise<Confirmation>;
 }
 
+// The outputs a TransferV3Tx broadcasts, as the chain's own getTx query
+// reports them (S2). Each output pays one owner some tokens; a
+// TransferV3Tx built by createRequest above always carries exactly two:
+// the operator's price and the platform's fee.
+export interface AbtChainOutput {
+  readonly owner: string;
+  readonly tokens: readonly { readonly address: string; readonly value: string }[];
+}
+
 // The three chain calls this rail makes, isolated behind an interface so
 // tests never construct a real @ocap/client (no network in the test suite;
 // FACTORY_RULES.md and this card both require that). The production
 // default wraps the real @ocap/client Client.
+//
+// S2: getTx is widened from `{ code }` alone to also carry `outputs`, the
+// chain's OWN decoded record of what this transaction actually paid.
+// Verified live, read-only, against the real endpoint this rail's config
+// names (curl to https://beta.abtnetwork.io/api, GetTx query, against the
+// working reference's own broadcast hash
+// F3209229A6E6FED27463F2A908C1C94C49E622FE55CA74A160C1C6871AFE55FA,
+// 2026-09-06): the response nests as
+// `{ code, info: { tx: { itxJson: { outputs: [{ owner, tokens: [{ address, value }] }] } } } }`,
+// matching the installed @ocap/client type declarations
+// (node_modules/@ocap/client/lib/node.d.ts: ResponseGetTx.info is
+// TransactionInfo, TransactionInfo.tx is Transaction, Transaction.itxJson
+// is the decoded transaction body). realChainClient below flattens that
+// nesting so the rest of this file reads `result.outputs` directly, the
+// same flattening usdc.ts's realChainClient already does for a receipt's
+// Transfer log.
 export interface AbtChainClient {
   decodeTx(bytes: Uint8Array): Promise<unknown>;
   sendTx(input: { readonly tx: string; readonly commit: boolean }): Promise<{ readonly hash: string }>;
-  getTx(input: { readonly hash: string }): Promise<{ readonly code: string }>;
+  getTx(input: { readonly hash: string }): Promise<{ readonly code: string; readonly outputs: readonly AbtChainOutput[] }>;
   getAccountState(input: { readonly address: string }): Promise<{
     readonly state: { readonly tokens?: readonly { readonly address: string; readonly value: string }[] } | null;
   }>;
@@ -83,7 +110,17 @@ function realChainClient(chainHost: string): AbtChainClient {
     // Promise-returning shape holds for every implementation alike.
     decodeTx: async (bytes) => client.decodeTx(Buffer.from(bytes)),
     sendTx: (input) => client.sendTx(input),
-    getTx: (input) => client.getTx(input),
+    getTx: async (input) => {
+      const result = (await client.getTx(input)) as {
+        readonly code: string;
+        readonly info?: { readonly tx?: { readonly itxJson?: { readonly outputs?: readonly AbtChainOutput[] } } };
+      };
+      // A transaction the chain has not confirmed (code other than OK)
+      // may carry no info/tx/itxJson at all; outputs defaults to empty in
+      // that case, which is safe because confirm() never reads outputs
+      // unless code is OK.
+      return { code: result.code, outputs: result.info?.tx?.itxJson?.outputs ?? [] };
+    },
     getAccountState: (input) => client.getAccountState(input),
   };
 }
@@ -113,6 +150,7 @@ export function isValidAbtPlatformSk(value: string): boolean {
 export interface CreateAbtPaymentRailOptions {
   readonly chainClient?: AbtChainClient;
   readonly rateSource?: RateSource;
+  readonly spentTransferStorage?: AbtSpentTransferStorage;
 }
 
 interface AbtEnvConfig {
@@ -153,6 +191,7 @@ export function createAbtPaymentRail(options: CreateAbtPaymentRailOptions = {}):
   const platformWallet = fromSecretKey(config.platformSk);
   const chainClient = options.chainClient ?? realChainClient(config.chainHost);
   const rateSource = options.rateSource ?? defaultRateSource;
+  const spentTransferStorage = options.spentTransferStorage ?? createPrismaAbtSpentTransferStorage();
 
   return {
     rail: 'abt',
@@ -227,27 +266,71 @@ export function createAbtPaymentRail(options: CreateAbtPaymentRailOptions = {}):
       const signed = { ...decoded, signature: fromHexSignature(signatureHex) };
       const signedBytes = cborEncodeTx(signed as never);
       const result = await chainClient.sendTx({ tx: toBase64(signedBytes), commit: true });
-      // Carry the two output addresses forward on the ref so confirm() can
-      // read exactly those two balances later without re-decoding the tx
-      // (D4, review round 1). The operator address is read back from the
-      // broadcast tx's own outputs (the other output, not the fee address)
-      // rather than trusted from the caller, since the finalTx the wallet
-      // returned is what actually got broadcast.
-      const operatorOutput = decoded.itx.outputs.find((output) => output.owner !== config.feeAddress);
+      // S2 review round 2, D1: the expected operator address is the one
+      // the PLATFORM named when it built this payment request
+      // (input.operatorAddress, carried from the route's own
+      // extraParams/CreateRequestInput -- see abt-did-connect.ts), never
+      // read back out of decoded.itx.outputs. The finalTx being decoded
+      // here is exactly the artifact confirm() will later check against
+      // the chain's own record; deriving the expected side from that same
+      // wallet-supplied artifact would let a wallet that redirects the
+      // operator output also redirect what confirm() expects, so the
+      // check would always agree with whatever the wallet sent.
+      const rate = await rateSource('abt');
+      if (rate === null) {
+        throw new RateUnavailableError('abt');
+      }
+      const operatorAmountToken = usdToTokenAmount(input.amountUsd, rate);
+      const feeUsd = calculateFee(input.amountUsd, ABT_FEE_RATE_PERCENT);
+      const feeAmountToken = usdToTokenAmount(feeUsd, rate);
       return {
         rail: 'abt',
         hash: result.hash,
-        operatorAddress: operatorOutput?.owner ?? '',
+        operatorAddress: input.operatorAddress,
         feeAddress: config.feeAddress,
+        jobId: input.jobId,
+        leg: input.leg,
+        expectedOperatorUnit: fromTokenToUnit(operatorAmountToken).toString(),
+        expectedFeeUnit: fromTokenToUnit(feeAmountToken).toString(),
       };
     },
 
     async confirm(ref: AbtPaymentRef): Promise<Confirmation> {
+      // S2: read THE CHAIN's own record of the transaction, never ref's
+      // own operatorAddress/feeAddress/expected* fields for the observed
+      // side of the comparison -- those came from the same wallet
+      // response being checked, and comparing a ref against itself proves
+      // only that the response agrees with itself (the anchor's load-
+      // bearing distinction).
       const result = await chainClient.getTx({ hash: ref.hash });
-      const confirmed = result.code === 'OK';
-      if (!confirmed) {
-        return { rail: 'abt', hash: ref.hash, confirmed };
+      if (result.code !== 'OK') {
+        return { rail: 'abt', hash: ref.hash, confirmed: false, status: 'not_confirmed' };
       }
+      const paysWhatWasExpected =
+        outputPays(result.outputs, ref.operatorAddress, ref.expectedOperatorUnit, config.token) &&
+        outputPays(result.outputs, ref.feeAddress, ref.expectedFeeUnit, config.token);
+      if (!paysWhatWasExpected) {
+        return { rail: 'abt', hash: ref.hash, confirmed: false, status: 'mismatched' };
+      }
+      // Spent-hash check (brief scope item 4, the anchor's Case C): a
+      // transaction that DOES pay what this leg expects still does not
+      // confirm if the exact same hash already backs a different job or
+      // leg. Re-confirming the SAME (job, leg) is the ordinary idempotent
+      // path and falls through to record() below, which upserts rather
+      // than duplicating. findByHash is awaited directly (no try/catch):
+      // a storage failure propagates and refuses rather than answering a
+      // success shape (silent-success-on-failure is exactly the defect
+      // class this line guards against).
+      const spent = await spentTransferStorage.findByHash(ref.hash);
+      if (spent !== null && (spent.jobId !== ref.jobId || spent.leg !== ref.leg)) {
+        return { rail: 'abt', hash: ref.hash, confirmed: false, status: 'mismatched' };
+      }
+      await spentTransferStorage.record({ hash: ref.hash, jobId: ref.jobId, leg: ref.leg });
+
+      // The reported balances below are account snapshots taken AFTER the
+      // binding check above already decided confirmed/status; see
+      // types.ts's Confirmation comment for why they are not evidence of
+      // anything by themselves.
       const [operatorState, feeState] = await Promise.all([
         chainClient.getAccountState({ address: ref.operatorAddress }),
         chainClient.getAccountState({ address: ref.feeAddress }),
@@ -255,12 +338,30 @@ export function createAbtPaymentRail(options: CreateAbtPaymentRailOptions = {}):
       return {
         rail: 'abt',
         hash: ref.hash,
-        confirmed,
+        confirmed: true,
+        status: 'confirmed',
         operatorBalance: tokenBalance(operatorState, config.token),
         feeBalance: tokenBalance(feeState, config.token),
       };
     },
   };
+}
+
+// S2: whether the chain's own outputs (from getTx, never from ref) carry
+// an output paying `owner` exactly `expectedUnit` of `tokenAddress`.
+// Address comparison is raw equality, not didSuffix reconciliation:
+// didSuffix exists to reconcile a did:abt: DID against its bare key-hash
+// form (src/domain/agent.ts), a distinction that applies to PARTY
+// identities (buyers, agents, operators as DIDs). A chain address in a
+// TransferV3Tx output is never a DID and is never written with a did:abt:
+// prefix by this rail (createRequest builds `owner: input.operatorAddress`
+// verbatim, an address string), so there is no prefix variance here to
+// reconcile; raw equality is the correct comparison.
+function outputPays(outputs: readonly AbtChainOutput[], owner: string, expectedUnit: string, tokenAddress: string): boolean {
+  return outputs.some(
+    (output) =>
+      output.owner === owner && output.tokens.some((token) => token.address === tokenAddress && token.value === expectedUnit),
+  );
 }
 
 // Reads a single token's balance out of a getAccountState response, in

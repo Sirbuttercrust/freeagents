@@ -160,8 +160,16 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
     }): Promise<{ readonly confirmed: boolean; readonly error?: string }> => {
       const jobId = String(extraParams.jobId ?? '');
       const leg = legFromExtraParams(extraParams);
-      if (jobId === '' || leg === null) {
-        return { confirmed: false, error: 'payment session is missing jobId or leg' };
+      // S2 review round 2, D1: the expected operator address comes from
+      // the SESSION's own extraParams, the exact value prepareTx already
+      // used to build the claim the wallet was asked to sign, never
+      // decoded back out of the finalTx being confirmed. A wallet cannot
+      // move the address confirm() checks against by redirecting the
+      // output it returns, because that address never travels through
+      // this call at all.
+      const operatorAddress = String(extraParams.operatorAddress ?? '');
+      if (jobId === '' || leg === null || operatorAddress === '') {
+        return { confirmed: false, error: 'payment session is missing jobId, leg or operatorAddress' };
       }
       const job = await options.jobRepo.findById(jobId);
       if (job === null) {
@@ -180,13 +188,21 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       if (typeof finalTx !== 'string' || finalTx.length === 0) {
         return { confirmed: false, error: 'the wallet did not return a signed transaction' };
       }
-      const ref = await processWalletResponse(options.rail, leg, { rail: 'abt', jobId, finalTx });
+      // S2: the amount comes from the job's agreed price, never from
+      // extraParams or the claim (same rule prepareTx above already
+      // enforces): onWalletResponse needs it to compute the expected
+      // operator/fee amounts confirm() binds the chain's own outputs
+      // against.
+      const amountUsd = await legAmountUsd(options.jobRepo, jobId, leg);
+      if (amountUsd === null) {
+        return { confirmed: false, error: 'this job has no agreed price to pay against' };
+      }
+      const ref = await processWalletResponse(options.rail, leg, { rail: 'abt', jobId, finalTx, amountUsd, operatorAddress });
       const confirmation = await confirmPayment(options.rail, ref);
       // RULE: the gate is never written from the start route; only the
       // observation path (here) writes a settlement, and only when
       // confirm() answered confirmed: true.
       if (confirmation.confirmed && ref.rail === 'abt') {
-        const amountUsd = await legAmountUsd(options.jobRepo, jobId, leg);
         await options.settlementRepo.record({
           jobId,
           leg,
@@ -195,7 +211,7 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
           secondaryHash: null,
           operatorAddress: ref.operatorAddress,
           feeAddress: ref.feeAddress,
-          amountUsd: amountUsd ?? '0.00',
+          amountUsd,
           observedAt: new Date(),
         });
       }
