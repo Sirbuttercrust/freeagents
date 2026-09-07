@@ -820,6 +820,33 @@ export function createApp(
     return match?.[1] ?? null;
   }
 
+  // P8a (invariant 8): populates a session subject/method on the job
+  // lifecycle routes that mount didSignature instead of
+  // requireSessionOrSignature. Unlike requireSessionOrSignature, this
+  // middleware never itself refuses a request: an absent, expired or
+  // unresolvable bearer token leaves the request exactly as didSignature
+  // alone already left it, so a caller with neither proof still meets
+  // the route's own 401 (resolveActingParty answering null below), not a
+  // second, earlier one here. Mounted immediately after didSignature, so
+  // a present-but-invalid signature -- didSignature's own 401, answered
+  // before this ever runs -- is never followed by a session lookup that
+  // could paper over it (the same "a present-but-invalid signature is
+  // refused outright" stance requireSessionOrSignature already documents
+  // above).
+  const populateSessionSubject = (req: Request, res: Response, next: NextFunction): void => {
+    void (async () => {
+      const token = bearerTokenOf(req);
+      if (token !== null) {
+        const liveSession = await session.getSession(token);
+        if (liveSession !== null) {
+          (req as SessionedRequest).sessionSubject = liveSession.subject;
+          (req as SessionedRequest).sessionMethod = liveSession.method;
+        }
+      }
+      next();
+    })().catch(next);
+  };
+
   // R-39 follow-up (issue 83): hire and list routes (the identified set in
   // src/domain/access.ts -- POST /agents, POST /jobs) require EITHER a live
   // session OR a verified R-34 signature naming a party. Neither is a
@@ -2331,13 +2358,62 @@ export function createApp(
     return null;
   }
 
+  // P8a (invariant 8): one message shape for every job lifecycle route
+  // that now accepts a session alongside a verified R-34 signature,
+  // echoing requireSessionOrSignature's own wording so the two gates
+  // read as one rule stated twice, not two different rules.
+  function sessionOrSignatureRequiredMessage(subject: string): string {
+    return `this route requires a session (sign in with GitHub OAuth or a passkey) or a verified request signature (R-34); sign in, or sign the request naming ${subject}`;
+  }
+
+  // P8a (invariant 8): the shared gate every job-party route uses to
+  // authenticate a caller from EITHER proof (resolveActingParty: a
+  // verified signature first, unchanged, then a live session) and
+  // resolve that proof to the job's own party. 401 when neither proof
+  // resolves to any registered account at all (no proof, or a live
+  // session naming an account nobody registered); 403 when the resolved
+  // party is neither the job's buyer nor its agent. The 403 wording
+  // names a signature only when a signature actually authenticated this
+  // request (signerDidOf(req) is non-null only after a verified
+  // signature, never after a session), so a session-authenticated
+  // stranger is never told a signature was involved.
+  async function resolveJobActingParty(
+    req: Request,
+    res: Response,
+    job: Job,
+  ): Promise<{ readonly did: string; readonly party: Party } | null> {
+    const actingDid = await resolveActingParty(req, repo);
+    if (actingDid === null) {
+      res.status(401).json({
+        error: sessionOrSignatureRequiredMessage("this job's buyer or agent DID"),
+      });
+      return null;
+    }
+    const party = partyForDid(job, actingDid);
+    if (party === null) {
+      res.status(403).json({
+        error:
+          signerDidOf(req) !== null
+            ? 'signature does not name a party to this job'
+            : 'the authenticated party is not a party to this job',
+      });
+      return null;
+    }
+    return { did: actingDid, party };
+  }
+
   // Lifecycle routes (withdraw, decline, pull-request, merge) were outside
   // the ENT-6.2 gate: the launch rehearsal (2026-09-01, bug ledger B6 to B8)
   // withdrew a job and opened a pull request with NO signature at all.
-  // Same rule as the exchange routes, one place: no signature is 401, a
-  // signature naming a stranger is 403, and a route that only one seat may
-  // act from refuses the other seat with 403 before the domain or GitHub is
-  // ever touched. Returns the row and the seat, or null after answering.
+  // Same rule as the exchange routes, one place: no proof at all is 401, a
+  // resolved party that is neither buyer nor agent on this job is 403, and
+  // a route that only one seat may act from refuses the other seat with
+  // 403 before the domain or GitHub is ever touched. P8a (invariant 8):
+  // the identity half is resolveJobActingParty, which accepts a live
+  // session exactly where it accepts a verified R-34 signature -- the
+  // caller-identity question this function answers is unchanged, only
+  // which proofs may answer it. Returns the row and the seat, or null
+  // after answering.
   async function requireSignedParty(
     label: string,
     jobId: string,
@@ -2347,31 +2423,21 @@ export function createApp(
   ): Promise<{ readonly job: Job; readonly party: Party } | null> {
     const current = await loadForExchange(label, jobId, res);
     if (current === null) return null;
-    const signerDid = signerDidOf(req);
-    if (signerDid === null) {
-      res.status(401).json({
-        error: 'this route requires a verified request signature (R-34); sign the request naming this job\'s buyer or agent DID',
-      });
-      return null;
-    }
-    const party = partyForDid(current, signerDid);
-    if (party === null) {
-      res.status(403).json({ error: 'signature does not name a party to this job' });
-      return null;
-    }
-    if (!allowed.includes(party)) {
+    const gate = await resolveJobActingParty(req, res, current);
+    if (gate === null) return null;
+    if (!allowed.includes(gate.party)) {
       res.status(403).json({ error: `only the ${allowed.join(' or ')} may ${label.replace(/^POST \/jobs\/:jobId\//, '')} this job` });
       return null;
     }
-    return { job: current, party };
+    return { job: current, party: gate.party };
   }
 
   // The party-aware sibling of runExchange, for the four routes ENT-6.2
-  // binds: propose, request-changes, accept and confirm. No verified
-  // signature at all is refused before the domain ever sees the request
-  // (401: sign the request per R-34). A verified signature naming neither
-  // party is refused too (403): proving you hold a key does not make you a
-  // party to this particular job.
+  // binds: propose, request-changes, accept and confirm. No proof at all
+  // is refused before the domain ever sees the request (401: sign in or
+  // sign the request, per P8a/R-34). A resolved party naming neither side
+  // of the job is refused too (403): proving who you are does not make
+  // you a party to this particular job.
   async function runPartyExchange(
     label: string,
     jobId: string,
@@ -2383,19 +2449,9 @@ export function createApp(
     const current = await loadForExchange(label, jobId, res);
     if (current === null) return;
 
-    const signerDid = signerDidOf(req);
-    if (signerDid === null) {
-      res.status(401).json({
-        error: 'this route requires a verified request signature (R-34); sign the request naming this job\'s buyer or agent DID',
-      });
-      return;
-    }
-    const signedParty = partyForDid(current, signerDid);
-    if (signedParty === null) {
-      res.status(403).json({ error: 'signature does not name a party to this job' });
-      return;
-    }
-    await applyAndPersist(label, res, current, (job) => apply(job, signedParty), paymentGate);
+    const gate = await resolveJobActingParty(req, res, current);
+    if (gate === null) return;
+    await applyAndPersist(label, res, current, (job) => apply(job, gate.party), paymentGate);
   }
 
   // The agent proposes acceptance criteria, or re-proposes after pushback
@@ -2414,6 +2470,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/criteria',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const body = (req.body ?? {}) as {
         criteria?: unknown;
@@ -2468,22 +2525,12 @@ export function createApp(
       // jobRepo.findById here would be an untested behaviour change): the
       // caller-identity gate runs first, exactly as runPartyExchange runs
       // it for every other exchange route, so a request that fails
-      // signature verification never touches agentRepo either.
+      // authentication never touches agentRepo either.
       const current = await loadForExchange('POST /jobs/:jobId/criteria', String(req.params.jobId), res);
       if (current === null) return;
 
-      const signerDid = signerDidOf(req);
-      if (signerDid === null) {
-        res.status(401).json({
-          error: 'this route requires a verified request signature (R-34); sign the request naming this job\'s buyer or agent DID',
-        });
-        return;
-      }
-      const signedParty = partyForDid(current, signerDid);
-      if (signedParty === null) {
-        res.status(403).json({ error: 'signature does not name a party to this job' });
-        return;
-      }
+      const gate = await resolveJobActingParty(req, res, current);
+      if (gate === null) return;
 
       let priceProposal: PriceProposal | undefined;
       if (priceNamed) {
@@ -2537,6 +2584,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/request-changes',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       await runPartyExchange(
         'POST /jobs/:jobId/request-changes',
@@ -2557,6 +2605,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/criteria/:index/accept',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       await runPartyExchange(
         'POST /jobs/:jobId/criteria/:index/accept',
@@ -2576,6 +2625,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/price/accept',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       await runPartyExchange(
         'POST /jobs/:jobId/price/accept',
@@ -2619,6 +2669,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/confirm',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const label = 'POST /jobs/:jobId/confirm';
       const jobId = String(req.params.jobId);
@@ -2748,6 +2799,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/withdraw',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const label = 'POST /jobs/:jobId/withdraw';
       const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
@@ -2763,6 +2815,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/decline',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const label = 'POST /jobs/:jobId/decline';
       const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['agent']);
@@ -2823,6 +2876,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/stage',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const label = 'POST /jobs/:jobId/stage';
       const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['agent']);
@@ -2970,6 +3024,7 @@ export function createApp(
   app.get(
     '/jobs/:jobId/attestation',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const label = 'GET /jobs/:jobId/attestation';
       const jobId = String(req.params.jobId);
@@ -2985,17 +3040,8 @@ export function createApp(
         res.status(404).json({ error: 'not found' });
         return;
       }
-      const signerDid = signerDidOf(req);
-      if (signerDid === null) {
-        res.status(401).json({
-          error: 'this route requires a verified request signature (R-34); sign the request naming this job\'s buyer or agent DID',
-        });
-        return;
-      }
-      if (partyForDid(job, signerDid) === null) {
-        res.status(403).json({ error: 'signature does not name a party to this job' });
-        return;
-      }
+      const gate = await resolveJobActingParty(req, res, job);
+      if (gate === null) return;
       let stored;
       try {
         stored = await attestationRepo.findByJobId(jobId);
@@ -3057,6 +3103,7 @@ export function createApp(
   app.get(
     '/jobs/:jobId/attestations',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const label = 'GET /jobs/:jobId/attestations';
       const jobId = String(req.params.jobId);
@@ -3072,17 +3119,8 @@ export function createApp(
         res.status(404).json({ error: 'not found' });
         return;
       }
-      const signerDid = signerDidOf(req);
-      if (signerDid === null) {
-        res.status(401).json({
-          error: 'this route requires a verified request signature (R-34); sign the request naming this job\'s buyer or agent DID',
-        });
-        return;
-      }
-      if (partyForDid(job, signerDid) === null) {
-        res.status(403).json({ error: 'signature does not name a party to this job' });
-        return;
-      }
+      const gate = await resolveJobActingParty(req, res, job);
+      if (gate === null) return;
       let stored: readonly StoredAttestation[];
       try {
         stored = await attestationRepo.listByJobId(jobId);
@@ -3105,6 +3143,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/staged-decline',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const label = 'POST /jobs/:jobId/staged-decline';
       const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
@@ -3123,6 +3162,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/redo',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const label = 'POST /jobs/:jobId/redo';
       const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
@@ -3144,6 +3184,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/redo-refuse',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const label = 'POST /jobs/:jobId/redo-refuse';
       const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['agent']);
@@ -3162,6 +3203,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/pull-request',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const jobId = String(req.params.jobId);
 
@@ -3362,7 +3404,7 @@ export function createApp(
   // (below) answers the same clean 503 every other unconfigured rail
   // answers, rather than a route that exists but can never complete.
   if (abtPaymentRail !== null) {
-    app.use('/api/did/pay/token', didSignature, requireBuyerToMintAbtSession);
+    app.use('/api/did/pay/token', didSignature, populateSessionSubject, requireBuyerToMintAbtSession);
   }
   const abtHandlers =
     abtPaymentRail === null
@@ -3390,9 +3432,20 @@ export function createApp(
   // /api/did/pay/token mount, is what stops a stranger reaching that
   // route directly and minting a session token for someone else's job
   // without ever touching this route at all.
+  //
+  // P8a (invariant 8): requireSignedParty below now accepts a live
+  // session exactly where it accepts a verified R-34 signature, so a
+  // signed-in buyer with no signing key can reach this route. That is
+  // ALL a session buys here: reaching the route that BUILDS the
+  // transaction. The transaction itself is still built for the buyer's
+  // own wallet to sign (invariant 12: the platform is never an input
+  // owner), and the DID Connect wallet callback below still requires the
+  // buyer's wallet signature before anything settles. A session never
+  // substitutes for that signature; it only gets the buyer past the door.
   app.post(
     '/jobs/:jobId/payments/:leg/abt/start',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const label = 'POST /jobs/:jobId/payments/:leg/abt/start';
       const leg = parseRouteLeg(String(req.params.leg));
@@ -3450,9 +3503,17 @@ export function createApp(
   // the rail's PaymentRequest, which already carries the two transfer
   // intents as a TUPLE (types.ts), so the web layer cannot receive one or
   // three of them.
+  //
+  // P8a (invariant 8): a session authorizes reaching this route exactly
+  // like a verified R-34 signature does (requireSignedParty below); it
+  // never authorizes moving funds. The PaymentRequest this route answers
+  // still names transfers for the buyer's OWN wallet to sign and submit
+  // on-chain (invariant 12: the platform is never an input owner) --
+  // nothing here builds or holds a platform-signed transaction.
   app.post(
     '/jobs/:jobId/payments/:leg/usdc/start',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const label = 'POST /jobs/:jobId/payments/:leg/usdc/start';
       const leg = parseRouteLeg(String(req.params.leg));
@@ -3506,6 +3567,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/payments/:leg/usdc/wallet-response',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const label = 'POST /jobs/:jobId/payments/:leg/usdc/wallet-response';
       const leg = parseRouteLeg(String(req.params.leg));
@@ -3607,6 +3669,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/merge',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const jobId = String(req.params.jobId);
 
@@ -3877,6 +3940,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/cited-close',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const label = 'POST /jobs/:jobId/cited-close';
       const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
@@ -3925,6 +3989,7 @@ export function createApp(
   app.post(
     '/jobs/:jobId/reviews',
     didSignature,
+    populateSessionSubject,
     forwarded(async (req: Request, res: Response) => {
       const jobId = String(req.params.jobId);
       const body = (req.body ?? {}) as { agentDid?: unknown; text?: unknown };
@@ -3938,14 +4003,14 @@ export function createApp(
       }
       const text = body.text as string;
 
-      // Rule 5: identity comes from the verified signature, never a body
-      // field. No signature at all is refused before the job is even
-      // loaded, the same way runPartyExchange refuses an unsigned exchange
-      // call.
-      const signerDid = signerDidOf(req);
-      if (signerDid === null) {
+      // Rule 5: identity comes from a verified signature or a live
+      // session (P8a, invariant 8), never a body field. Neither proof at
+      // all is refused before the job is even loaded, the same way
+      // runPartyExchange refuses an unauthenticated exchange call.
+      const authorDid = await resolveActingParty(req, repo);
+      if (authorDid === null) {
         res.status(401).json({
-          error: 'this route requires a verified request signature (R-34); sign the request as the buyer on this job',
+          error: sessionOrSignatureRequiredMessage('as the buyer on this job'),
         });
         return;
       }
@@ -3969,7 +4034,7 @@ export function createApp(
       // checked against the job's own agentDid rather than reconciled to
       // it.
       try {
-        assertReviewEligible(job, { buyerDid: signerDid, agentDid });
+        assertReviewEligible(job, { buyerDid: authorDid, agentDid });
       } catch (err) {
         if (err instanceof JobNotReviewableError) {
           res.status(409).json({ error: err.message });
@@ -3986,7 +4051,7 @@ export function createApp(
         throw err;
       }
 
-      const review = buildReview(job, { authorDid: signerDid, text }, new Date());
+      const review = buildReview(job, { authorDid, text }, new Date());
       try {
         await reviewRepo.save(review);
       } catch (err) {
