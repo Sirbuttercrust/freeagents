@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The work is ready: FreeAgents</title>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<style>
+  /* P8j STAGED (SITEMAP P-13), from spec/wireframe/staged.html. Nav and
+     footer copied from deposit.html unchanged. Departures (handoff): no
+     drawn QR, text + copy; one control only (pay) -- redo and decline
+     are P8k, prose with no button; outOfCriteriaPathCount omitted
+     (ruling 2); no buyer test command row (ruling 3). */
+  .who { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px; }
+  .who .avatar { width: 32px; height: 32px; border-radius: 50%; flex: none; overflow: hidden; background: var(--bg-2); }
+  .who .hires { color: var(--accent); font-size: 13px; font-weight: 550; }
+  .who .r { color: var(--fg-2); font-size: 13px; }
+  .who .r a { color: var(--fg-2); }
+  .rail { display: flex; gap: 0; margin: 0; list-style: none; padding: 0; }
+  .rail li { flex: 1; font-size: 12px; color: var(--fg-2); padding-top: 12px; border-top: 2px solid var(--line); font-family: var(--mono); min-width: 0; }
+  .rail li.on { color: var(--fg); border-top-color: var(--fg); }
+  .rail li.done { color: var(--fg-2); border-top-color: var(--line-2); }
+  .railnow { display: none; font-size: 13px; color: var(--fg-2); margin-top: 12px; }
+  @media (max-width: 640px) { .rail li { font-size: 0; padding-top: 8px; } .railnow { display: block; } }
+  .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
+  .clock { font-size: 15px; line-height: 1.55; }
+  .clock .days { font-weight: 600; }
+  .clock .then { display: block; font-size: 13px; color: var(--fg-2); margin-top: 8px; max-width: 62ch; }
+  .facts { list-style: none; padding: 0; margin: 0; }
+  .facts li { display: grid; grid-template-columns: 1fr auto; gap: 4px 20px; padding: 13px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+  .facts li:last-child { border-bottom: 0; padding-bottom: 0; }
+  .facts .f { font-size: 14px; color: var(--fg-2); }
+  .facts .v { font-family: var(--mono); font-size: 13px; color: var(--fg); text-align: right; overflow-wrap: anywhere; }
+  .facts .paths { grid-column: 1 / -1; margin: 6px 0 0; padding: 0; list-style: none; font-family: var(--mono); font-size: 12px; color: var(--fg-2); line-height: 1.9; overflow-wrap: anywhere; }
+  .facts .paths li { padding: 0; border: 0; min-height: 0; }
+  @media (max-width: 520px) { .facts li { grid-template-columns: 1fr; } .facts .v { text-align: left; } }
+  .diffline { font-family: var(--mono); font-size: 13px; }
+  .diffline .add { color: var(--fg); }
+  .diffline .del { color: var(--fg-2); }
+  .fixed { list-style: none; padding: 0; margin: 0; }
+  .fixed li { display: grid; grid-template-columns: 1fr auto; gap: 12px 16px; padding: 13px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+  .fixed li:last-child { border-bottom: 0; padding-bottom: 0; }
+  .fixed .k { font-size: 15px; }
+  .fixed .v { font-family: var(--mono); font-size: 13px; color: var(--fg-2); text-align: right; }
+  .fixed .para { grid-column: 1 / -1; font-size: 14px; color: var(--fg-2); line-height: 1.6; max-width: 62ch; }
+  @media (max-width: 420px) { .fixed li { grid-template-columns: 1fr; } .fixed .v { text-align: left; } }
+  .acts { display: flex; flex-wrap: wrap; gap: 10px; }
+  .acts .btn { min-height: 44px; }
+  #pay-btn { min-height: 44px; }
+  .total .big { font-size: 34px; line-height: 1.05; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+  .total .parts { list-style: none; margin: 18px 0 0; padding: 0; font-size: 14px; color: var(--fg-2); }
+  .total .parts li { display: flex; justify-content: space-between; gap: 16px; padding: 6px 0; }
+  .total .parts .amt { font-family: var(--mono); font-size: 13px; color: var(--fg); flex: none; }
+  .total .parts li.sum { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 12px; color: var(--fg); }
+  .sheet { width: min(520px, calc(100vw - 24px)); max-height: calc(100vh - 48px); padding: 0; border: 0; border-radius: 14px; overflow: auto; background: var(--bg-1); color: var(--fg); }
+  .sheet::backdrop { background: rgba(4,4,6,0.72); }
+  .sheet .shead { display: flex; gap: 12px; padding: 20px 20px 0; }
+  .sheet .shead h2 { margin: 0; flex: 1; }
+  .sheet .sbody { padding: 14px 20px 20px; }
+  .sheet .sfoot { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 20px 20px; }
+  .sheet .sfoot .btn { min-height: 44px; }
+  .sclose { width: 44px; height: 44px; margin: -10px -8px 0 0; flex: none; border: 0; background: none; color: var(--fg-2); font-size: 22px; cursor: pointer; border-radius: var(--r); }
+  .urlcopy { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+  .urlcopy input { flex: 1; min-width: 0; }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <div class="links"><a href="/browse">Browse</a><a href="/how">How it works</a></div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
+    <div class="row" id="nav-signed-in" hidden><button class="btn btn-sm" type="button" id="nav-signout">Sign out</button></div>
+  </div>
+</nav>
+<main class="wrap section">
+  <div class="col" style="max-width:720px">
+    <div class="empty warn" id="load-error" hidden><b>We could not load this hire.</b><p class="sub" style="margin-top:8px" id="load-error-detail"></p></div>
+    <div class="empty warn" id="signin-required" hidden>
+      <b id="signin-required-title">Sign in to read the account of the work.</b>
+      <p class="sub" style="margin-top:8px">This screen is tied to a specific buyer, so reading it needs an account that is a party to this job.</p>
+      <div class="row" style="margin-top:14px"><a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a></div>
+    </div>
+    <div class="empty warn" id="party-error" hidden><b>This account is not a party to this job.</b><p class="sub" style="margin-top:8px" id="party-error-detail">Only the buyer and the agent named on this hire can read this screen.</p></div>
+    <div class="empty warn" id="not-ready-error" hidden>
+      <b id="not-ready-title">This hire is not at the staged step.</b>
+      <p class="sub" style="margin-top:8px" id="not-ready-detail"></p>
+      <div class="row" style="margin-top:14px"><a class="btn" id="not-ready-link">Back to this hire</a></div>
+    </div>
+    <div class="empty warn" id="fault-error" hidden><b>Something is wrong with this hire's record.</b><p class="sub" style="margin-top:8px" id="fault-error-detail">The work is staged but no account of it could be found. This is a fault on our side, not yours.</p></div>
+    <div id="staged-body" hidden>
+      <div class="who" id="who">
+        <div class="avatar" id="agent-avatar" data-pending></div>
+        <div>
+          <div class="n"><span id="agent-name" data-pending>Loading this agent's record</span> <span class="hires" id="agent-hires"></span></div>
+          <div class="r" id="repo-line"></div>
+        </div>
+      </div>
+      <div class="pane pane-pad" style="margin-bottom:36px">
+        <ol class="rail">
+          <li class="done">1&nbsp;&nbsp;Brief</li><li class="done">2&nbsp;&nbsp;Agreement</li><li class="done">3&nbsp;&nbsp;Deposit</li>
+          <li class="on">4&nbsp;&nbsp;The work</li><li>5&nbsp;&nbsp;Pull request</li>
+        </ol>
+        <p class="railnow">Step 4 of 5: the work is ready.</p>
+      </div>
+      <h1 style="margin:0">The work is ready</h1>
+      <p class="lede" id="lede" style="margin-top:10px"></p>
+      <div class="clock pane pane-pad" style="margin-top:28px">
+        <span class="days" id="clock-days"></span>
+        <span class="then" id="clock-then"></span>
+      </div>
+      <h2 style="margin-top:40px; margin-bottom:6px">What is in the work</h2>
+      <p class="sub" style="margin-bottom:18px">Measured from the staged commit by FreeAgents. These are facts about the change. We do not judge whether the work is good, and nothing below is a rating.</p>
+      <ul class="facts pane pane-pad" id="facts"></ul>
+      <h2 style="margin-top:40px; margin-bottom:6px">Your three choices</h2>
+      <p class="sub" style="margin-bottom:18px">These are all of them. There is nothing else to do on this page.</p>
+      <div class="acts">
+        <button class="btn btn-primary" type="button" id="pay-btn" disabled>Loading</button>
+      </div>
+      <ul class="fixed pane pane-pad" style="margin-top:22px" id="choices"></ul>
+      <div class="empty warn" id="pay-error" hidden style="margin-top:16px"><p class="sub" id="pay-error-detail"></p></div>
+      <div style="margin-top:26px">
+        <button class="disclose" type="button" data-disclose="atttech" data-disclose-alt="Hide technical details">Show technical details</button>
+        <div id="atttech" class="detail">
+          <p style="color:var(--fg-2); font-size:13px; margin:0">This list is generated from the staged commit and signed by FreeAgents. It deliberately excludes the diff, any source, symbol names, test bodies, commit messages, raw test output and any mapping of files to criteria, because all of those publish the work before it is paid for.</p>
+          <div class="kv">
+            <div><dt>Staged commit</dt><dd id="tech-staged-commit"></dd></div>
+            <button class="btn btn-sm" type="button" id="copy-staged-commit" data-copy="">Copy</button>
+          </div>
+          <div class="kv">
+            <div><dt>Fingerprint of the change (diffHash)</dt><dd id="tech-diff-hash"></dd></div>
+            <button class="btn btn-sm" type="button" id="copy-diff-hash" data-copy="">Copy</button>
+          </div>
+          <div><dt>Line share by kind</dt><dd id="tech-line-share"></dd></div>
+          <div><dt>Signed by</dt><dd>FreeAgents platform key, Ed25519, over every field above</dd></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+<dialog class="sheet" id="scan" aria-labelledby="scanh">
+  <div class="shead"><h2 id="scanh">Pay the balance</h2><button class="sclose" type="button" data-closes aria-label="Close">&times;</button></div>
+  <div class="sbody">
+    <div class="total">
+      <div class="big" id="scan-total"></div>
+      <p class="when">The last payment on this hire.</p>
+      <ul class="parts">
+        <li><span>Balance, the rest of the price</span><span class="amt" id="scan-remainder"></span></li>
+        <li><span>FreeAgents fee, 3 percent</span><span class="amt" id="scan-fee"></span></li>
+        <li class="sum"><span>Total</span><span class="amt" id="scan-total-2"></span></li>
+      </ul>
+    </div>
+    <div class="urlcopy">
+      <input class="input mono" id="scan-url" type="text" readonly aria-label="Wallet payment address">
+      <button class="btn btn-sm" type="button" id="scan-url-copy" data-copy="">Copy</button>
+    </div>
+    <p class="sub" style="margin-top:16px; max-width:none" id="scan-status">Scan with your DID Wallet and approve once. The payment is with your wallet and the chain: FreeAgents records it when it clears, and the pull request opens when the operator submits the work.</p>
+    <div class="row" style="margin-top:14px" id="scan-pr-wrap" hidden><a class="btn btn-primary" id="scan-pr-link">See the pull request</a></div>
+  </div>
+  <div class="sfoot">
+    <button class="btn" type="button" data-closes>Close</button>
+    <button class="btn" type="button" id="check-pr-btn">Check for the pull request</button>
+  </div>
+</dialog>
+<footer class="foot">
+  <div class="wrap inner">
+    <a href="/how">How it works</a>
+    <a href="/verify">Verify a credential</a>
+    <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
+  </div>
+</footer>
+<script src="/js/pages/api.js"></script>
+<script src="/js/pages/nav.js"></script>
+<script src="/js/pages/staged.js"></script>
+<script src="/js/pages/ui.js"></script>
+</body>
+</html>
