@@ -103,8 +103,8 @@
   function padNum(n) { return n < 10 ? "0" + n : String(n); }
   function renderAll(job) {
     var lines = agreementLines(job);
-    var host = A.el("terms-body");
-    host.textContent = "";
+    var host = A.el("terms");
+    Array.prototype.slice.call(host.querySelectorAll(".trow")).forEach(function (row) { row.remove(); });
     lines.forEach(function (line, i) { host.appendChild(termRow(job, line, i + 1)); });
     renderOutstanding(job, lines);
     renderFixedTerms(job);

@@ -299,6 +299,61 @@ describe('the agreement screen, driven end to end against the real app', () => {
     });
   });
 
+  describe('the terms list is a single flat grid, not a boxed sub-list', () => {
+    it('renders each line as a direct child of the terms grid, with no wrapper element breaking the column layout (layout-broken-at-desktop)', async () => {
+      const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
+      try {
+        expect(page.document.getElementById('terms-body')).toBeNull();
+        const grid = page.document.getElementById('terms');
+        expect(grid).not.toBeNull();
+        const rows = Array.from(page.document.querySelectorAll('.trow'));
+        expect(rows.length).toBeGreaterThan(0);
+        rows.forEach((row) => {
+          expect(row.parentElement).toBe(grid);
+        });
+      } finally {
+        page.close();
+      }
+    });
+  });
+
+  describe('the agreement does not claim to lock itself', () => {
+    it('the lede states the true sequence: fully agreed, then the deposit, nothing recorded before that', async () => {
+      const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
+      try {
+        const lede = page.document.querySelector('.lede')?.textContent ?? '';
+        expect(lede.toLowerCase()).not.toContain('locks by itself');
+        expect(lede.toLowerCase()).toContain('deposit settles');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('the technical disclosure says the fingerprint is computed after the deposit settles, not when the last mark lands', async () => {
+      const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
+      try {
+        const disclosure = page.document.getElementById('agtech')?.textContent ?? '';
+        expect(disclosure.toLowerCase()).not.toContain('computed once the last mark lands');
+        expect(disclosure.toLowerCase()).toContain('deposit settles');
+      } finally {
+        page.close();
+      }
+    });
+
+  });
+
+  describe('the fingerprint coverage disclosure', () => {
+    it('does not claim to cover cancellation terms, which specText never hashes', async () => {
+      const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
+      try {
+        const covers = page.document.getElementById('tech-fingerprint-covers')?.textContent ?? '';
+        expect(covers.toLowerCase()).not.toContain('cancellation');
+      } finally {
+        page.close();
+      }
+    });
+  });
+
   describe('clicking a criterion mark', () => {
     it('posts to the exact index clicked, and re-reading the job shows only that index flipped (mutation proof 2: off-by-one)', async () => {
       const page = await renderAgreement(baseUrl, 'job-two-unsigned', { token: buyerToken });
