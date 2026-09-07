@@ -12,6 +12,17 @@
 // which is what makes the platform signature over those bytes verifiable
 // by a third party without calling this service (invariant 2).
 //
+// B14b: the buyer's own test command is GONE, permanently. Running it
+// against the staged commit means the platform executes untrusted
+// agent-authored code and reports a verdict on it -- an inspector, not
+// the intermediary the platform is (Keaton, 2026-09-07: "I thought we
+// were just an intermediary between the two parties"). Every field that
+// survives below is something git or GitHub plainly says about the
+// staged commit: a diff stat, a path, a signature check. `testsDeleted`
+// and `testsSkipAdded` stay for exactly that reason -- they are static
+// facts about the diff text (a test file removed, a `.skip(` line
+// added), never the result of running anything.
+//
 // CANONICAL SERIALIZATION (this is the contract the signature covers, and
 // it is produced by buildAttestation itself, not by a separate step
 // downstream of it -- the credentials adapter signs this object verbatim,
@@ -50,20 +61,6 @@ export interface LineShareByCategory {
   readonly vendored: number;
 }
 
-// The buyer's own test command, run against the staged commit. Nothing
-// from that run beyond these six facts: specifically not one raw output
-// line (the refused list forbids it; stack traces leak symbol names).
-// Failing test NAMES are the one compromise the design record records:
-// the buyer's own text, from the buyer's own test files.
-export interface BuyerTestRun {
-  readonly command: string;
-  readonly exitCode: number;
-  readonly passCount: number;
-  readonly failCount: number;
-  readonly skipCount: number;
-  readonly failingTestNames: readonly string[];
-}
-
 // One signer observed on the staged commit, checked against the agent
 // DID. A boolean per signer, never the signer's own identity where it did
 // not match -- the design record's exact wording ("not the signer's
@@ -85,7 +82,6 @@ export interface StagingObservation {
   readonly lineShareByCategory: LineShareByCategory;
   readonly testsDeleted: readonly string[];
   readonly testsSkipAdded: readonly string[];
-  readonly buyerTestRun: BuyerTestRun;
   readonly outOfCriteriaPathCount: number;
   readonly commitSigners: readonly CommitSigner[];
 }
@@ -105,7 +101,6 @@ export interface Attestation {
   readonly lineShareByCategory: LineShareByCategory;
   readonly testsDeleted: readonly string[];
   readonly testsSkipAdded: readonly string[];
-  readonly buyerTestRun: BuyerTestRun;
   readonly outOfCriteriaPathCount: number;
   readonly commitSigners: readonly CommitSigner[];
   // The instant the platform built the document. Not part of the accepted
@@ -151,14 +146,6 @@ export function buildAttestation(job: Job, observed: StagingObservation, now: Da
     },
     testsDeleted: [...observed.testsDeleted].sort(),
     testsSkipAdded: [...observed.testsSkipAdded].sort(),
-    buyerTestRun: {
-      command: observed.buyerTestRun.command,
-      exitCode: observed.buyerTestRun.exitCode,
-      passCount: observed.buyerTestRun.passCount,
-      failCount: observed.buyerTestRun.failCount,
-      skipCount: observed.buyerTestRun.skipCount,
-      failingTestNames: [...observed.buyerTestRun.failingTestNames].sort(),
-    },
     outOfCriteriaPathCount: observed.outOfCriteriaPathCount,
     // Signers carry no identifying field to sort by; the count and the
     // multiset of booleans are the whole fact, so a stable sort on the

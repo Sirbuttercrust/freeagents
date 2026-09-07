@@ -200,7 +200,6 @@ describe('a wired staging observer publishes the attestation before the job reac
     expect(attestation.lineShareByCategory).toBeDefined();
     expect(attestation.testsDeleted).toBeDefined();
     expect(attestation.testsSkipAdded).toBeDefined();
-    expect(attestation.buyerTestRun).toBeDefined();
     expect(attestation.outOfCriteriaPathCount).toBeDefined();
     expect(attestation.commitSigners).toBeDefined();
   });

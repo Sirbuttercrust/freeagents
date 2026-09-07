@@ -520,6 +520,7 @@ describe('pull-request, invariant 1 and Gate 2 (R-10, B14a)', () => {
     try {
       const real = createGithubAdapter();
       expect(Object.keys(real).sort()).toEqual([
+        'compareCommits',
         'createStagingRepository',
         'getCommit',
         'getDefaultBranchHead',
