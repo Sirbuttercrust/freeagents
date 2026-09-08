@@ -1417,6 +1417,28 @@ describe('PrismaJobRepository', () => {
 
     expect(rows).toEqual([]);
   });
+
+  // P8p: every job offered to one agent DID, in any status, projected
+  // exactly like findByBuyerDid already does.
+  it('findByAgentDid: queries by agentDid and projects every returned row', async () => {
+    vi.mocked(mock.jobFindMany).mockResolvedValue([{ ...jobFixture, id: 'job_a' }, { ...jobFixture, id: 'job_b', status: 'proposed' }]);
+
+    const repo = new PrismaJobRepository();
+    const rows = await repo.findByAgentDid('did:example:agent');
+
+    expect(mock.jobFindMany).toHaveBeenCalledWith({ where: { agentDid: 'did:example:agent' } });
+    expect(rows.map((r) => r.id)).toEqual(['job_a', 'job_b']);
+    expect(rows.map((r) => r.status)).toEqual(['draft', 'proposed']);
+  });
+
+  it('findByAgentDid: no rows comes back as an empty array, not null', async () => {
+    vi.mocked(mock.jobFindMany).mockResolvedValue([]);
+
+    const repo = new PrismaJobRepository();
+    const rows = await repo.findByAgentDid('did:example:no-offers');
+
+    expect(rows).toEqual([]);
+  });
 });
 
 describe('PrismaCredentialRepository', () => {
