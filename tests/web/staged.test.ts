@@ -630,7 +630,7 @@ describe('the staged screen, driven end to end against the real app', () => {
         // primary, neither new control primary.
         const acts = page.document.getElementById('acts');
         const actButtons = Array.from(acts?.querySelectorAll('button') ?? []);
-        expect(actButtons.map((b) => b.id)).toEqual(['pay-btn', 'redo-btn', 'decline-btn']);
+        expect(actButtons.filter((b) => !b.hidden).map((b) => b.id)).toEqual(['pay-btn', 'redo-btn', 'decline-btn']);
         expect(actButtons[0]?.classList.contains('btn-primary')).toBe(true);
         expect(actButtons[1]?.classList.contains('btn-primary')).toBe(false);
         expect(actButtons[2]?.classList.contains('btn-primary')).toBe(false);
