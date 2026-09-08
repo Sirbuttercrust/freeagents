@@ -315,6 +315,96 @@ describe('the Incoming work screen, driven end to end against the real app', () 
     }
   });
 
+  it('a non-200 from /accounts/me and an empty-did body each render the account sentence, distinct from every incoming-route sentence, and never issue the incoming read (review round 1 D1)', async () => {
+    const realPort = (server.address() as AddressInfo).port;
+
+    async function withAccountMe(respond: (req: http.IncomingMessage, res: http.ServerResponse) => void): Promise<{ detail: string; incomingRequested: boolean }> {
+      let incomingRequested = false;
+      const proxy = http.createServer((req, res) => {
+        if (req.url === '/accounts/me') {
+          respond(req, res);
+          return;
+        }
+        if (req.url && req.url.startsWith('/accounts/') && req.url.endsWith('/incoming')) {
+          incomingRequested = true;
+        }
+        const upstream = http.request(
+          { hostname: '127.0.0.1', port: realPort, path: req.url, method: req.method, headers: req.headers },
+          (upstreamRes) => {
+            res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+            upstreamRes.pipe(res);
+          },
+        );
+        req.pipe(upstream);
+      });
+      await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+      const proxyBaseUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
+      try {
+        const page = await renderIncoming(proxyBaseUrl, operatorSession);
+        try {
+          expect(page.document.getElementById('empty-state')?.hidden).not.toBe(false);
+          expect(page.document.getElementById('load-error')?.hidden).toBe(false);
+          const detail = page.document.getElementById('load-error-detail')?.textContent ?? '';
+          return { detail, incomingRequested };
+        } finally {
+          page.close();
+        }
+      } finally {
+        await new Promise<void>((resolve) => proxy.close(() => resolve()));
+      }
+    }
+
+    const accountUnreadable = await withAccountMe((req, res) => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'account storage unavailable' }));
+    });
+    const accountNoDid = await withAccountMe((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({}));
+    });
+
+    // Distinct, honest copy naming the account read, not the incoming read.
+    const incomingRouteSentences = [
+      'Your incoming work could not be reached just now. Reloading may work.',
+      'Your incoming work could not be confirmed for this account.',
+      'Storage is unavailable just now. Try again in a moment.',
+      'Your incoming work could not be loaded just now. Reloading may work.',
+    ];
+    expect(accountUnreadable.detail).not.toBe('');
+    expect(accountNoDid.detail).not.toBe('');
+    expect(incomingRouteSentences).not.toContain(accountUnreadable.detail);
+    expect(incomingRouteSentences).not.toContain(accountNoDid.detail);
+
+    // Neither refusal path fires the pointless GET /accounts//incoming --
+    // the guard on the account read must stop the pipeline before the
+    // second fetch, not merely render different copy after firing it.
+    expect(accountUnreadable.incomingRequested).toBe(false);
+    expect(accountNoDid.incomingRequested).toBe(false);
+  });
+
+  it('every anchor this page renders reaches a path the app actually mounts, asked of the real app rather than read out of an href (review round 1 D2, inert-declared-control)', async () => {
+    // Its own fixture row, not reused from an earlier test: an anchor
+    // this test's mutation proof adds must appear regardless of which
+    // other tests in this file happen to run alongside it.
+    await jobRepo.create(jobFixture({ id: 'incoming-anchor-check', buyerDid: 'did:abt:incoming-anchor-buyer', agentDid, status: 'draft', criteria: [] }, new Date('2026-08-12T00:00:00Z')));
+
+    const page = await renderIncoming(baseUrl, operatorSession);
+    try {
+      expect(page.document.querySelectorAll('#rows > *').length).toBeGreaterThan(0);
+      const hrefs = Array.from(page.document.querySelectorAll('a'))
+        .map((a) => a.getAttribute('href'))
+        .filter((h): h is string => h !== null && h.startsWith('/'));
+      const uniquePaths = Array.from(new Set(hrefs));
+      expect(uniquePaths.length).toBeGreaterThan(0);
+      for (const path of uniquePaths) {
+        const res = await fetch(`${baseUrl}${path}`, { headers: { Accept: HTML } });
+        expect(res.status, `${path} must be served by the real app`).toBe(200);
+      }
+    } finally {
+      page.close();
+    }
+  });
+
   it('a brief with markup renders as content, never markup (mutation proof 4)', async () => {
     await jobRepo.create(jobFixture({ id: 'incoming-markup', buyerDid: 'did:abt:incoming-markup-buyer', agentDid, brief: '<img src=x onerror=alert(1)>Ship it', status: 'draft', criteria: [] }, new Date('2026-08-10T00:00:00Z')));
 
