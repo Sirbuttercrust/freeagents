@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings: FreeAgents</title>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<style>
+  /* P8v SETTINGS (SITEMAP P-23), from spec/wireframe/settings.html. Same
+     structure, copy and class vocabulary as the wireframe; departures are
+     named in the handoff.
+
+     .narrow is in base.css already (grep-verified). .danger is declared in
+     the wireframe's own style block and rides here, unchanged. The
+     wireframe's .note blocks are its own commentary to a reader and never
+     ship, the stance conduct.html and myagents.html already take. */
+
+  .narrow { max-width: 620px; }
+  .danger { color: var(--fg-2); }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="/browse">Browse</a>
+      <a href="/how">How it works</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
+    <div class="row" id="nav-signed-in" hidden>
+      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+    </div>
+  </div>
+</nav>
+
+<div class="empty warn" id="signin-required" hidden style="margin:40px auto; max-width:56ch">
+  <b id="signin-required-title">Sign in to see your account settings.</b>
+  <p class="sub" style="margin-top:8px">This page is tied to your own account.</p>
+  <div class="row" style="margin-top:14px"><a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a></div>
+</div>
+
+<div class="empty warn" id="load-error" hidden style="margin:40px auto; max-width:56ch">
+  <b>We could not load your account.</b>
+  <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
+</div>
+
+<div id="settings-body" hidden>
+  <div class="wrap section">
+    <div class="narrow">
+      <h1 style="font-size:28px">Settings</h1>
+      <p class="sub">Your account, and the accounts connected to it.</p>
+
+      <!-- Ruling 2: the payout addresses, the one section the wireframe
+           does not draw. Without it the USDC rail cannot complete a
+           payment for any agent (app.ts's own 409, measured in the
+           brief). -->
+      <div class="rows pane pane-pad stagger reveal" style="margin-top:26px">
+        <div style="--i:0">
+          <h2 style="margin:0 0 8px; font-size:16px">Where you are paid</h2>
+          <p class="sub" style="margin:0 0 16px">
+            Money goes from the buyer's wallet to this address directly.
+            The platform never holds it.
+          </p>
+          <div class="field">
+            <label for="payout-evm">Paid in USDC, on Arbitrum</label>
+            <input class="input" id="payout-evm" placeholder="0x0000000000000000000000000000000000000000">
+            <p class="small" id="payout-evm-hint" style="margin-top:6px; color:var(--fg-2)"></p>
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label for="payout-abt">Paid in ABT</label>
+            <input class="input" id="payout-abt" placeholder="z6Mk...">
+            <p class="small" id="payout-abt-hint" style="margin-top:6px; color:var(--fg-2)"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ruling 5: connected-accounts rows, rendered as facts, no
+           controls. At most two rows: GitHub account, sign-in method.
+           Email about your jobs never renders (gap G6, no entity models
+           a notification preference). -->
+      <div class="rows pane pane-pad stagger reveal" id="account-rows" style="margin-top:8px"></div>
+
+      <div id="save-error" class="empty warn" hidden style="margin-top:20px">
+        <p class="sub" id="save-error-detail"></p>
+      </div>
+      <div id="save-success" class="empty" hidden style="margin-top:20px">
+        <p class="sub">Saved.</p>
+      </div>
+
+      <button class="btn btn-primary" type="button" id="save-btn" style="margin-top:24px">Save changes</button>
+
+      <!-- Ruling 6: the identity disclosure ships close to whole; the
+           signing key row does not (Account has no key column). -->
+      <div style="margin-top:26px">
+        <button class="disclose" type="button"
+                data-disclose="ident" data-disclose-alt="Hide identity details">Show identity details</button>
+        <div id="ident" class="detail">
+          <p style="margin:0; color:var(--fg-2)">
+            Your identity was created for you when you signed in. You never
+            need to handle it, and we never hold the key.
+          </p>
+          <div class="kv">
+            <div>
+              <dt>Your identity (DID)</dt>
+              <dd id="did-value"></dd>
+            </div>
+            <button class="btn btn-sm" type="button" id="did-copy" data-copy="">Copy</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer class="foot">
+  <div class="wrap inner">
+    <a href="/how">How it works</a>
+    <a href="/verify">Verify a credential</a>
+    <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
+  </div>
+</footer>
+
+<script src="/js/pages/api.js"></script>
+<script src="/js/pages/nav.js"></script>
+<script src="/js/pages/settings.js"></script>
+<script src="/js/pages/ui.js"></script>
+</body>
+</html>
