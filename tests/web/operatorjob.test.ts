@@ -80,6 +80,12 @@ async function renderPage(
   path: string,
   session: { token: string } | null,
   onFetch?: (input: string, init?: RequestInit) => void,
+  // Round 3 fix (qa D1, gate-fails-open): lets a test fault ONE route the
+  // page reads without touching the real app, so a degraded read can be
+  // told apart from a healthy one. Returns a Response to short-circuit
+  // that request, or null to let it pass through to the real server
+  // (the default for every path a test does not name).
+  faultRoute?: (input: string) => Response | null,
 ): Promise<Rendered> {
   const virtualConsole = new VirtualConsole();
   const failures: string[] = [];
@@ -99,6 +105,10 @@ async function renderPage(
         writable: true,
         value: (input: string, init?: RequestInit) => {
           if (onFetch) onFetch(input, init);
+          if (faultRoute) {
+            const faulted = faultRoute(input);
+            if (faulted !== null) return Promise.resolve(faulted);
+          }
           return fetch(new URL(input, baseUrl), init);
         },
       });
@@ -119,8 +129,9 @@ function renderOperatorJob(
   jobId: string,
   session: { token: string } | null,
   onFetch?: (input: string, init?: RequestInit) => void,
+  faultRoute?: (input: string) => Response | null,
 ): Promise<Rendered> {
-  return renderPage(baseUrl, `/operatorjob?job=${encodeURIComponent(jobId)}`, session, onFetch);
+  return renderPage(baseUrl, `/operatorjob?job=${encodeURIComponent(jobId)}`, session, onFetch, faultRoute);
 }
 
 describe('the operator job screen, driven end to end against the real app (P8v)', () => {
@@ -400,6 +411,61 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
       try {
         const buyerSession = await mintSession(buyerAdapter);
         const page = await renderOperatorJob(buyerBaseUrl, 'job-redo-requested', buyerSession);
+        try {
+          expect(page.document.getElementById('party-error')?.hidden).toBe(false);
+          expect(page.document.getElementById('operatorjob-body')?.hidden).toBe(true);
+        } finally {
+          page.close();
+        }
+      } finally {
+        await new Promise<void>((resolve) => buyerServer.close(() => resolve()));
+      }
+    });
+  });
+
+  describe("a buyer session whose own account read is degraded (qa round 3, D1: gate-fails-open)", () => {
+    it('lands on the party-error panel, never the agent/operator controls, when GET /accounts/:did cannot confirm the seat', async () => {
+      // Same fixture as the healthy-read buyer test above (a session that
+      // resolves to job-redo-requested's own buyerDid, whose agent
+      // belongs to a DIFFERENT operator), but this render answers every
+      // GET /accounts/:did with a 503 instead of letting it reach the
+      // real app. GET /accounts/:did (app.ts:1403-1415) genuinely answers
+      // 503 on any storage failure and 404 when the DID names no
+      // registered Account, so an unresolved read is not exotic; the
+      // page must treat "could not confirm" as its own outcome rather
+      // than folding it into "not the buyer".
+      const buyerAdapter = createSessionAdapter({
+        github: fakeGitHubConfig(),
+        fetchImpl: fakeGitHubFetch({ login: 'operatorjob-page-buyer-login', id: 88105 }),
+      });
+      const buyerAccountRepo = new MemoryAccountRepository();
+      await buyerAccountRepo.register({ did: 'did:abt:operatorjob-page-buyer', githubLogin: 'operatorjob-page-buyer-login' });
+      const buyerServer = createApp(
+        buyerAccountRepo,
+        agentRepo,
+        undefined,
+        undefined,
+        jobRepo,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        buyerAdapter,
+        undefined,
+        alwaysSettledGate(),
+        anyCommitStagingObserver(),
+        attestationRepo,
+      ).listen(0, '127.0.0.1');
+      await new Promise<void>((resolve) => buyerServer.once('listening', resolve));
+      const buyerBaseUrl = `http://127.0.0.1:${(buyerServer.address() as AddressInfo).port}`;
+      try {
+        const buyerSession = await mintSession(buyerAdapter);
+        const page = await renderOperatorJob(buyerBaseUrl, 'job-redo-requested', buyerSession, undefined, (input) => {
+          if (input.includes('/accounts/')) return new Response(JSON.stringify({ error: 'storage unavailable' }), { status: 503 });
+          return null;
+        });
         try {
           expect(page.document.getElementById('party-error')?.hidden).toBe(false);
           expect(page.document.getElementById('operatorjob-body')?.hidden).toBe(true);

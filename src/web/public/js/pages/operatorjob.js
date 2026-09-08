@@ -18,6 +18,17 @@
    resolveActingParty makes server-side, before this screen's body ever
    renders. A buyer session lands on the party-error panel.
 
+   ROUND 3 FIX (qa D1, gate-fails-open): round 2's resolveIsBuyerParty
+   returned a plain boolean, collapsing "confirmed not the buyer" and
+   "GET /accounts/:did did not answer ok" into the same false value --
+   and false was the ADMIT branch for this screen's controls, so a
+   storage failure or an unregistered buyer DID (app.ts:1403-1415
+   answers 503 and 404 respectively, both ordinary) opened the agent's
+   controls to an unconfirmed caller. resolveIsBuyerParty now returns
+   "buyer" / "not-buyer" / "unresolved"; onLoaded routes anything other
+   than "not-buyer" to party-error, so an unresolved read is refused
+   exactly like a confirmed buyer, never treated as cleared.
+
    Controls post to /jobs/:jobId/redo-refuse and /jobs/:jobId/stage (the
    same route the agent's own key already used to stage the first time
    and to restage after an accepted redo), both now open to the operator
@@ -119,28 +130,30 @@
   var PANEL_IDS = ["load-error", "signin-required", "party-error", "operatorjob-body"];
   function hideAllPanels() { PANEL_IDS.forEach(function (id) { A.showById(id, false); }); }
 
-  // Round 2 fix (qa D1): the attestation probe's 200/403/404 answers
-  // "may this session read the job", never "which seat is this session".
-  // The attestation route admits the buyer AND the agent/operator by
-  // design (src/api/app.ts, GET /jobs/:jobId/attestation's own header
-  // comment), so a 200 or 404 here means only "not a stranger", and this
-  // page's own controls are agent/operator-only (the header comment
-  // above). resolveIsBuyerParty mirrors staged.js's own party probe: it
-  // reads GET /accounts/:did for the job's buyerDid and compares the
-  // stored session's subject/method against that account's own
-  // githubLogin/passkeySubject, the same join resolveActingParty makes
-  // server-side. A failed or absent read resolves false (fail closed):
-  // this page shows the party-error panel rather than risk showing the
-  // agent's controls to an unconfirmed caller.
+  // Round 3 fix (qa D1, gate-fails-open): resolveIsBuyerParty used to
+  // collapse two different outcomes into one boolean. GET /accounts/:did
+  // (app.ts:1403-1415) genuinely answers 503 on any storage failure and
+  // 404 when the DID names no registered Account, so "the read did not
+  // confirm buyer" and "the read confirmed NOT buyer" are both reachable
+  // in production, not just in a test. On this screen the buyer is the
+  // party being EXCLUDED, so folding "could not confirm" into "not
+  // buyer" opened the agent/operator controls to a caller this page
+  // never actually cleared. resolveIsBuyerParty now returns one of three
+  // strings so the caller can tell "confirmed not the buyer" apart from
+  // "could not confirm" and route the second to party-error, same as a
+  // 403 from the server itself.
   function resolveIsBuyerParty(job_) {
-    if (session === null || typeof job_.buyerDid !== "string" || job_.buyerDid === "") return Promise.resolve(false);
+    if (session === null || typeof job_.buyerDid !== "string" || job_.buyerDid === "") return Promise.resolve("not-buyer");
     return A.get("/accounts/" + encodeURIComponent(job_.buyerDid)).then(function (result) {
-      if (result.state !== "ok") return false;
+      if (result.state !== "ok") return "unresolved";
       var account = result.value && typeof result.value === "object" ? result.value : {};
+      var matches;
       if (session.method === "passkey") {
-        return typeof account.passkeySubject === "string" && account.passkeySubject === session.subject;
+        matches = typeof account.passkeySubject === "string" && account.passkeySubject === session.subject;
+      } else {
+        matches = typeof account.githubLogin === "string" && account.githubLogin === session.subject;
       }
-      return typeof account.githubLogin === "string" && account.githubLogin === session.subject;
+      return matches ? "buyer" : "not-buyer";
     });
   }
 
@@ -169,9 +182,13 @@
     // is "no attestation", never "not a party". The attestation route's
     // party check admits the buyer too, so a further check (below)
     // resolves whether THIS caller is the buyer before this agent/
-    // operator-only screen renders its controls.
-    resolveIsBuyerParty(job).then(function (isBuyer) {
-      if (isBuyer) {
+    // operator-only screen renders its controls. Round 3 fix (qa D1):
+    // "unresolved" (the account read could not confirm either way)
+    // routes to party-error exactly like "buyer" does, never to the
+    // controls -- a read that failed to clear the caller is not a
+    // caller this screen may treat as cleared.
+    resolveIsBuyerParty(job).then(function (buyerParty) {
+      if (buyerParty !== "not-buyer") {
         A.setTextById("party-error-detail", "Only the agent that took this job, or the account that operates it, can read this screen.");
         A.showById("party-error", true);
         return;
