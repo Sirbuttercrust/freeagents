@@ -28,6 +28,7 @@ import { didSuffix } from '../../src/domain/agent.js';
 import { createAbtPaymentRail } from '../../src/adapters/payment/abt.js';
 import { fromRandom } from '@ocap/wallet';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSession, mintSessionToken } from '../helpers/session-fixtures.js';
+import { createPasskeyFixture } from '../helpers/webauthn-fixtures.js';
 import { unsettledGate } from '../helpers/settlement-fixtures.js';
 import { abtEnv, fakeAbtChainClient, reservePort, withEnv } from '../helpers/abt-fixtures.js';
 import type { Delegation } from '../../src/domain/agent.js';
@@ -1345,8 +1346,16 @@ describe('the staged screen, driven end to end against the real app', () => {
       await new Promise<void>((resolve) => agentServer.once('listening', resolve));
       const agentBaseUrl = `http://127.0.0.1:${(agentServer.address() as AddressInfo).port}`;
       try {
-        const agentToken = await mintSessionToken(agentSessionAdapter);
-        const page = await renderStaged(agentBaseUrl, 'job-agent-view', { token: agentToken });
+        // Round 2 fix (qa D4): the FULL minted session, not just the
+        // token. resolveIsBuyerParty compares account.githubLogin
+        // against session.subject; a fixture carrying only { token }
+        // makes that comparison false for a reason unrelated to party
+        // (undefined !== a string), so the absence this test asserts
+        // was not actually caused by the party check. mintSession is
+        // the same completeGitHubOAuth round trip mintSessionToken
+        // already ran, kept whole instead of discarding subject/method.
+        const agentSession = await mintSession(agentSessionAdapter);
+        const page = await renderStaged(agentBaseUrl, 'job-agent-view', agentSession);
         try {
           expect(page.document.getElementById('party-error')?.hidden).toBe(true);
           expect(page.document.getElementById('staged-body')?.hidden).toBe(false);
@@ -1362,7 +1371,7 @@ describe('the staged screen, driven end to end against the real app', () => {
           // is refused with the exact 403 sentence (mutation proof 14).
           const declineRes = await fetch(`${agentBaseUrl}/jobs/job-agent-view/staged-decline`, {
             method: 'POST',
-            headers: { 'content-type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${agentToken}` },
+            headers: { 'content-type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${agentSession.token}` },
           });
           expect(declineRes.status).toBe(403);
           const declineBody = (await declineRes.json()) as { error: string };
@@ -1377,6 +1386,197 @@ describe('the staged screen, driven end to end against the real app', () => {
       } finally {
         await new Promise<void>((resolve) => agentServer.close(() => resolve()));
       }
+    });
+
+    // Round 2 fix (qa D4, requirement 2): resolveIsBuyerParty's
+    // fail-closed leg (GET /accounts/:did answers something other than
+    // 200, e.g. a buyerDid naming no registered account at all). Signed
+    // in as the job's own AGENT (a real party, so the server-side
+    // attestation gate lets the page render at all) on a job whose
+    // buyerDid names no Account row, so GET /accounts/:did answers 404
+    // and resolveIsBuyerParty's result.state !== "ok" leg runs for
+    // real, distinct from D1's mismatch leg (which used a buyerDid that
+    // DOES resolve, just to a different login).
+    it('a buyerDid naming no registered account leaves both controls absent (fail-closed leg, distinct from the party-mismatch leg)', async () => {
+      const orphanAccountRepo = new MemoryAccountRepository();
+      await orphanAccountRepo.register({ did: AGENT_DID, githubLogin: 'staged-page-agent-login' });
+      const orphanAgentRepo = new MemoryAgentRepository();
+      await orphanAgentRepo.create({ did: AGENT_DID, operatorDid: OPERATOR_DID, delegation: delegationFixture(AGENT_DID, OPERATOR_DID), name: 'staged-page-orphan-scout', skills: ['triage'], githubLogin: null });
+      const orphanJobRepo = new MemoryJobRepository();
+      const orphanAttestationRepo = new MemoryAttestationRepository();
+      const orphanCredentialRepo = new MemoryCredentialRepository();
+      const orphanCredentials = createCredentialsAdapter(undefined, orphanCredentialRepo);
+      const orphanBuyerDid = 'did:abt:staged-page-buyer-account-never-registered';
+      const orphanJob = jobFixture({
+        id: 'job-orphan-buyer',
+        buyerDid: orphanBuyerDid,
+        status: 'staged',
+        criteria: [{ text: 'Done', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+        priceUsd: '400.00',
+        rail: 'abt',
+        redoAllowance: 1,
+        priceAcceptedByBuyer: true,
+        priceAcceptedByAgent: true,
+        stagedAt: RECENT,
+        stagedCommit: 'commit-orphan-buyer',
+      });
+      await orphanJobRepo.create(orphanJob);
+      const orphanAttestation = buildAttestation(orphanJob, observationFixture({ diffHash: 'sha256:orphan-buyer' }), RECENT);
+      const orphanSigned = await orphanCredentials.signAttestation(orphanAttestation);
+      await orphanAttestationRepo.save({ jobId: orphanJob.id, attestation: orphanAttestation, signed: orphanSigned });
+
+      const orphanSessionAdapter = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: 'staged-page-agent-login', id: 9403 }) });
+      const orphanApp = createApp(orphanAccountRepo, orphanAgentRepo, undefined, undefined, orphanJobRepo, undefined, undefined, undefined, undefined, undefined, undefined, orphanSessionAdapter, undefined, unsettledGate(), undefined, orphanAttestationRepo);
+      const orphanServer = orphanApp.listen(0, '127.0.0.1');
+      await new Promise<void>((resolve) => orphanServer.once('listening', resolve));
+      const orphanBaseUrl = `http://127.0.0.1:${(orphanServer.address() as AddressInfo).port}`;
+      try {
+        const orphanSession = await mintSession(orphanSessionAdapter);
+        // Confirm this test's own premise before asserting on the page:
+        // the buyerDid this job names resolves to no Account row.
+        const accountCheck = await fetch(`${orphanBaseUrl}/accounts/${encodeURIComponent(orphanBuyerDid)}`, { headers: { Accept: 'application/json' } });
+        expect(accountCheck.status).toBe(404);
+
+        const page = await renderStaged(orphanBaseUrl, 'job-orphan-buyer', orphanSession);
+        try {
+          expect(page.document.getElementById('party-error')?.hidden).toBe(true);
+          expect(page.document.getElementById('staged-body')?.hidden).toBe(false);
+          expect(page.document.getElementById('redo-btn')).toBeNull();
+          expect(page.document.getElementById('decline-btn')).toBeNull();
+        } finally {
+          page.close();
+        }
+      } finally {
+        await new Promise<void>((resolve) => orphanServer.close(() => resolve()));
+      }
+    });
+
+    // Round 2 fix (qa D4, requirement 3): resolveIsBuyerParty's passkey
+    // branch had no coverage at all (a mutation gutting it to an
+    // always-true expression left the suite green). A buyer who signed
+    // in with a passkey, not GitHub OAuth, must still see the controls
+    // when the passkeySubject matches, and a passkey session naming a
+    // DIFFERENT subject than the job's buyer must not.
+    describe('the passkey branch of resolveIsBuyerParty (round 2 fix, qa D4, requirement 3)', () => {
+      it('a passkey session whose subject matches the buyer account renders both controls', async () => {
+        const passkeyAccountRepo = new MemoryAccountRepository();
+        const passkeySubjectValue = 'staged-page-passkey-buyer-subject';
+        await passkeyAccountRepo.register({ did: BUYER_ACCOUNT_DID, passkeySubject: passkeySubjectValue });
+        const passkeyAgentRepo = new MemoryAgentRepository();
+        await passkeyAgentRepo.create({ did: AGENT_DID, operatorDid: OPERATOR_DID, delegation: delegationFixture(AGENT_DID, OPERATOR_DID), name: 'staged-page-passkey-scout', skills: ['triage'], githubLogin: null });
+        const passkeyJobRepo = new MemoryJobRepository();
+        const passkeyAttestationRepo = new MemoryAttestationRepository();
+        const passkeyCredentialRepo = new MemoryCredentialRepository();
+        const passkeyCredentials = createCredentialsAdapter(undefined, passkeyCredentialRepo);
+        const passkeyJob = jobFixture({
+          id: 'job-passkey-buyer-match',
+          status: 'staged',
+          criteria: [{ text: 'Done', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+          priceUsd: '400.00',
+          rail: 'abt',
+          redoAllowance: 1,
+          priceAcceptedByBuyer: true,
+          priceAcceptedByAgent: true,
+          stagedAt: RECENT,
+          stagedCommit: 'commit-passkey-buyer-match',
+        });
+        await passkeyJobRepo.create(passkeyJob);
+        const passkeyAttestation = buildAttestation(passkeyJob, observationFixture({ diffHash: 'sha256:passkey-buyer-match' }), RECENT);
+        const passkeySigned = await passkeyCredentials.signAttestation(passkeyAttestation);
+        await passkeyAttestationRepo.save({ jobId: passkeyJob.id, attestation: passkeyAttestation, signed: passkeySigned });
+
+        const passkeySessionAdapter = createSessionAdapter({
+          github: fakeGitHubConfig(),
+          passkey: { rpName: 'FreeAgents test', rpID: 'localhost', origin: 'http://localhost:3000' },
+        });
+        const passkeyApp = createApp(passkeyAccountRepo, passkeyAgentRepo, undefined, undefined, passkeyJobRepo, undefined, undefined, undefined, undefined, undefined, undefined, passkeySessionAdapter, undefined, unsettledGate(), undefined, passkeyAttestationRepo);
+        const passkeyServer = passkeyApp.listen(0, '127.0.0.1');
+        await new Promise<void>((resolve) => passkeyServer.once('listening', resolve));
+        const passkeyBaseUrl = `http://127.0.0.1:${(passkeyServer.address() as AddressInfo).port}`;
+        try {
+          const { optionsJson } = await passkeySessionAdapter.registerPasskey(passkeySubjectValue);
+          const registrationOptions = JSON.parse(optionsJson) as { challenge: string };
+          const fixture = createPasskeyFixture();
+          const response = fixture.registrationResponse(registrationOptions.challenge, 'localhost');
+          const passkeySession = await passkeySessionAdapter.verifyPasskey(JSON.stringify({ subject: passkeySubjectValue, response }));
+          if (passkeySession === null) throw new Error('expected a passkey session');
+
+          const page = await renderStaged(passkeyBaseUrl, 'job-passkey-buyer-match', passkeySession);
+          try {
+            expect(page.document.getElementById('staged-body')?.hidden).toBe(false);
+            expect(page.document.getElementById('redo-btn')).not.toBeNull();
+            expect(page.document.getElementById('decline-btn')).not.toBeNull();
+          } finally {
+            page.close();
+          }
+        } finally {
+          await new Promise<void>((resolve) => passkeyServer.close(() => resolve()));
+        }
+      });
+
+      it('a passkey session for the job\'s agent, not its buyer, renders neither control', async () => {
+        const passkeyAccountRepo = new MemoryAccountRepository();
+        const buyerPasskeySubject = 'staged-page-passkey-real-buyer-subject';
+        const agentPasskeySubject = 'staged-page-passkey-agent-subject';
+        await passkeyAccountRepo.register({ did: BUYER_ACCOUNT_DID, passkeySubject: buyerPasskeySubject });
+        await passkeyAccountRepo.register({ did: AGENT_DID, passkeySubject: agentPasskeySubject });
+        const passkeyAgentRepo = new MemoryAgentRepository();
+        await passkeyAgentRepo.create({ did: AGENT_DID, operatorDid: OPERATOR_DID, delegation: delegationFixture(AGENT_DID, OPERATOR_DID), name: 'staged-page-passkey-mismatch-scout', skills: ['triage'], githubLogin: null });
+        const passkeyJobRepo = new MemoryJobRepository();
+        const passkeyAttestationRepo = new MemoryAttestationRepository();
+        const passkeyCredentialRepo = new MemoryCredentialRepository();
+        const passkeyCredentials = createCredentialsAdapter(undefined, passkeyCredentialRepo);
+        const passkeyJob = jobFixture({
+          id: 'job-passkey-buyer-mismatch',
+          status: 'staged',
+          criteria: [{ text: 'Done', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+          priceUsd: '400.00',
+          rail: 'abt',
+          redoAllowance: 1,
+          priceAcceptedByBuyer: true,
+          priceAcceptedByAgent: true,
+          stagedAt: RECENT,
+          stagedCommit: 'commit-passkey-buyer-mismatch',
+        });
+        await passkeyJobRepo.create(passkeyJob);
+        const passkeyAttestation = buildAttestation(passkeyJob, observationFixture({ diffHash: 'sha256:passkey-buyer-mismatch' }), RECENT);
+        const passkeySigned = await passkeyCredentials.signAttestation(passkeyAttestation);
+        await passkeyAttestationRepo.save({ jobId: passkeyJob.id, attestation: passkeyAttestation, signed: passkeySigned });
+
+        const passkeySessionAdapter = createSessionAdapter({
+          github: fakeGitHubConfig(),
+          passkey: { rpName: 'FreeAgents test', rpID: 'localhost', origin: 'http://localhost:3000' },
+        });
+        const passkeyApp = createApp(passkeyAccountRepo, passkeyAgentRepo, undefined, undefined, passkeyJobRepo, undefined, undefined, undefined, undefined, undefined, undefined, passkeySessionAdapter, undefined, unsettledGate(), undefined, passkeyAttestationRepo);
+        const passkeyServer = passkeyApp.listen(0, '127.0.0.1');
+        await new Promise<void>((resolve) => passkeyServer.once('listening', resolve));
+        const passkeyBaseUrl = `http://127.0.0.1:${(passkeyServer.address() as AddressInfo).port}`;
+        try {
+          // The signed-in party is the job's AGENT, authenticated by
+          // passkey (the passkey sibling of D1's github-oauth agent
+          // case), so the server-side attestation gate admits the
+          // request (the agent is a real party) while the buyer-party
+          // check must still refuse both controls.
+          const { optionsJson } = await passkeySessionAdapter.registerPasskey(agentPasskeySubject);
+          const registrationOptions = JSON.parse(optionsJson) as { challenge: string };
+          const fixture = createPasskeyFixture();
+          const response = fixture.registrationResponse(registrationOptions.challenge, 'localhost');
+          const passkeySession = await passkeySessionAdapter.verifyPasskey(JSON.stringify({ subject: agentPasskeySubject, response }));
+          if (passkeySession === null) throw new Error('expected a passkey session');
+
+          const page = await renderStaged(passkeyBaseUrl, 'job-passkey-buyer-mismatch', passkeySession);
+          try {
+            expect(page.document.getElementById('party-error')?.hidden).toBe(true);
+            expect(page.document.getElementById('staged-body')?.hidden).toBe(false);
+            expect(page.document.getElementById('redo-btn')).toBeNull();
+            expect(page.document.getElementById('decline-btn')).toBeNull();
+          } finally {
+            page.close();
+          }
+        } finally {
+          await new Promise<void>((resolve) => passkeyServer.close(() => resolve()));
+        }
+      });
     });
 
     it('a signed-out visitor is sent to sign in and the acting controls are never reached (staged-body stays hidden)', async () => {
