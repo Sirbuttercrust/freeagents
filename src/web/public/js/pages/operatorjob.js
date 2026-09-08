@@ -232,9 +232,16 @@
 
   // The redo panel: the one control that needs an answer. Renders only
   // at redo_requested, and names the cited criterion by its stored
-  // text, never a fixture line number.
+  // text, never a fixture line number. Hides itself at every other
+  // status (qa round 4, D3: reload() re-renders on the SAME 200 that
+  // answers this panel, so a total renderer is required or the just-
+  // answered control stays on screen, live and inert, offering a
+  // transition the server has already closed).
   function renderRedoPanel(job_) {
-    if (job_.status !== "redo_requested") return;
+    if (job_.status !== "redo_requested") {
+      A.showById("redo-panel", false);
+      return;
+    }
     var redo = job_.redo && typeof job_.redo === "object" ? job_.redo : null;
     var criteria = Array.isArray(job_.criteria) ? job_.criteria : [];
     var citedIndex = redo !== null && typeof redo.requestedCriterionIndex === "number" ? redo.requestedCriterionIndex : null;
@@ -297,9 +304,14 @@
   }
 
   // The stage panel: submitting the staged commit for the first time,
-  // reachable once the job is confirmed and has not yet staged.
+  // reachable once the job is confirmed and has not yet staged. Hides
+  // itself at every other status, same reasoning as renderRedoPanel
+  // above (qa round 4, D3).
   function renderStagePanel(job_) {
-    if (job_.status !== "confirmed") return;
+    if (job_.status !== "confirmed") {
+      A.showById("stage-panel", false);
+      return;
+    }
     A.showById("stage-panel", true);
   }
 

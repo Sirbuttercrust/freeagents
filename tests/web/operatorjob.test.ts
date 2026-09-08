@@ -493,6 +493,12 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
         const afterBody = (await after.json()) as { status: string; stagedCommit: string };
         expect(afterBody.status).toBe('staged');
         expect(afterBody.stagedCommit).toBe('commit-confirmed-first');
+
+        // qa round 4, D3 (inert-declared-control): the panel's own
+        // reload() re-renders on this same 200, so the stage panel that
+        // was just answered must not stay on screen offering a control
+        // that can no longer act on a job that is no longer confirmed.
+        expect(page.document.getElementById('stage-panel')?.hidden).toBe(true);
       } finally {
         page.close();
       }
@@ -556,6 +562,11 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
         const afterBody = (await after.json()) as { status: string; stagedCommit: string };
         expect(afterBody.status).toBe('staged');
         expect(afterBody.stagedCommit).toBe('commit-sha-restaged');
+
+        // qa round 4, D3 (inert-declared-control): the redo panel must
+        // not stay open, still offering "Accept, and restage" on a job
+        // reload() just re-rendered back to staged.
+        expect(page.document.getElementById('redo-panel')?.hidden).toBe(true);
       } finally {
         page.close();
       }
@@ -575,6 +586,11 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
         const afterBody = (await after.json()) as { status: string; redo: { refusedAt: string | null } };
         expect(afterBody.status).toBe('staged');
         expect(afterBody.redo.refusedAt).not.toBeNull();
+
+        // qa round 4, D3 (inert-declared-control): same as the accept
+        // leg above, the panel that was just answered must not stay
+        // open with the redo controls still enabled.
+        expect(page.document.getElementById('redo-panel')?.hidden).toBe(true);
       } finally {
         page.close();
       }
