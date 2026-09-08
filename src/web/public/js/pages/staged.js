@@ -124,9 +124,12 @@
     renderFacts(attestation);
     renderTechnical(attestation);
     renderWho(job);
-    // Round 1 fix (qa D1): the acting controls wait on the party
-    // resolution before rendering, so an agent's browser never paints
-    // pay/redo/decline even for one frame.
+    // Round 1 fix (qa D1), corrected round 4 (qa D6): redo and decline
+    // both ship hidden in the markup and are revealed only after the
+    // party resolution settles, so a non-buyer's browser never paints
+    // either control, not even for one frame. Pay is unrelated to this
+    // gate (out of this card's scope, P8j's own control) and is visible
+    // to both parties, guarded server-side only.
     resolveIsBuyerParty(job).then(function (result) {
       isBuyerParty = result;
       renderChoicesSection(job);
@@ -290,6 +293,8 @@
     var declineBtn = A.el("decline-btn");
     if (!isBuyerParty) {
       if (declineBtn && declineBtn.parentNode) declineBtn.parentNode.removeChild(declineBtn);
+    } else if (declineBtn) {
+      declineBtn.hidden = false;
     }
   }
 

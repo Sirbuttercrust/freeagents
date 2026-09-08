@@ -110,11 +110,13 @@ interface Rendered {
 // page makes (method and raw input) BEFORE it is dispatched, installed
 // before any page script runs, so an on-load call is captured and not
 // only whatever fires later (mutation proofs 11 and D3's own requirement).
+// poll, given, runs every 50ms during the wait so a flash is caught (D6).
 async function renderPage(
   baseUrl: string,
   path: string,
   session: { token: string; subject?: string; method?: string } | null,
   onFetch?: (input: string, init?: RequestInit) => void,
+  poll?: (doc: Document) => void,
 ): Promise<Rendered> {
   const virtualConsole = new VirtualConsole();
   const failures: string[] = [];
@@ -134,7 +136,9 @@ async function renderPage(
         writable: true,
         value: (input: string, init?: RequestInit) => {
           if (onFetch) onFetch(input, init);
-          return fetch(new URL(input, baseUrl), init);
+          return poll && String(input).includes('/accounts/')
+            ? new Promise((resolve) => setTimeout(() => resolve(fetch(new URL(input, baseUrl), init)), 300))
+            : fetch(new URL(input, baseUrl), init);
         },
       });
     },
@@ -144,7 +148,7 @@ async function renderPage(
     if (dom.window.document.readyState === 'complete') resolve();
     else dom.window.addEventListener('load', () => resolve());
   });
-  await new Promise((resolve) => setTimeout(resolve, 350));
+  for (let waited = 0; waited < 350; waited += 50) { await new Promise((resolve) => setTimeout(resolve, 50)); if (poll) poll(dom.window.document); }
   if (failures.length > 0) throw new Error(`page script failed on ${path}: ${failures.join('; ')}`);
   return { window: dom.window, document: dom.window.document, close: () => dom.window.close() };
 }
@@ -154,8 +158,9 @@ function renderStaged(
   jobId: string,
   session: { token: string; subject?: string; method?: string } | null,
   onFetch?: (input: string, init?: RequestInit) => void,
+  poll?: (doc: Document) => void,
 ): Promise<Rendered> {
-  return renderPage(baseUrl, `/staged?job=${encodeURIComponent(jobId)}`, session, onFetch);
+  return renderPage(baseUrl, `/staged?job=${encodeURIComponent(jobId)}`, session, onFetch, poll);
 }
 
 describe('the staged screen, driven end to end against the real app', () => {
@@ -1363,8 +1368,16 @@ describe('the staged screen, driven end to end against the real app', () => {
         // the same completeGitHubOAuth round trip mintSessionToken
         // already ran, kept whole instead of discarding subject/method.
         const agentSession = await mintSession(agentSessionAdapter);
-        const page = await renderStaged(agentBaseUrl, 'job-agent-view', agentSession);
+        // D6 (qa round 4): decline-btn shipped visible (redo-btn shipped
+        // hidden); polling catches the flash before the party probe ends.
+        const everVisible: boolean[] = [];
+        const page = await renderStaged(agentBaseUrl, 'job-agent-view', agentSession, undefined, (doc) => {
+          const decline = doc.getElementById('decline-btn') as HTMLButtonElement | null;
+          const redo = doc.getElementById('redo-btn') as HTMLButtonElement | null;
+          everVisible.push((decline !== null && !decline.hidden) || (redo !== null && !redo.hidden));
+        });
         try {
+          expect(everVisible.some((v) => v)).toBe(false);
           expect(page.document.getElementById('party-error')?.hidden).toBe(true);
           expect(page.document.getElementById('staged-body')?.hidden).toBe(false);
           expect(page.document.getElementById('redo-btn')).toBeNull();
