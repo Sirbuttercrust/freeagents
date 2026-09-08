@@ -16,13 +16,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import { fakeGitHubConfig, fakeGitHubFetch } from '../helpers/session-fixtures.js';
+import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 
-// The fifteen page shells the web surface serves, per src/web/static.ts's
+// The sixteen page shells the web surface serves, per src/web/static.ts's
 // own PAGE_FILES map (auth-callback-success/error are not routed pages;
 // they are rendered directly by the callback route and carry no nav).
-const NAV_PAGES = ['/', '/how', '/browse', '/signin', '/verify', '/agents/x', '/accounts/x', '/v1/credentials/x', '/jobs/x', '/hire', '/agreement', '/deposit', '/staged', '/pullrequest', '/myjobs', '/no-such-page'] as const;
+const NAV_PAGES = ['/', '/how', '/browse', '/signin', '/verify', '/agents/x', '/accounts/x', '/v1/credentials/x', '/jobs/x', '/hire', '/agreement', '/deposit', '/staged', '/pullrequest', '/myjobs', '/myagents', '/no-such-page'] as const;
 
 let server: Server;
 let baseUrl: string;
@@ -291,6 +292,147 @@ describe('the My jobs link (P8m): one implementation in nav.js, absent signed ou
       expect(links).not.toContain('My jobs');
     } finally {
       dom.window.close();
+      await new Promise<void>((resolve) => configuredServer.close(() => resolve()));
+    }
+  });
+});
+
+// P8n: the My agents entry, appended after My jobs, one implementation in
+// nav.js (brief scope item 6). Both branches of the guard are proved, same
+// discipline the My jobs block above holds to.
+describe('the My agents link (P8n): one implementation in nav.js, absent signed out, present signed in', () => {
+  it('is absent from the nav when signed out', async () => {
+    const page = await renderNav('/browse', null);
+    try {
+      const links = Array.from(page.document.querySelectorAll('.links a')).map((a) => a.textContent);
+      expect(links).not.toContain('My agents');
+    } finally {
+      page.close();
+    }
+  });
+
+  it('appears in the nav links, pointing at /myagents, once signed in', async () => {
+    const page = await renderNav('/browse', { token: 'a-live-looking-token' });
+    try {
+      const myAgentsLink = Array.from(page.document.querySelectorAll('.links a')).find((a) => a.textContent === 'My agents') as HTMLAnchorElement | undefined;
+      expect(myAgentsLink).not.toBeUndefined();
+      expect(myAgentsLink?.getAttribute('href')).toBe('/myagents');
+    } finally {
+      page.close();
+    }
+  });
+
+  it('disappears again once signed out (no leftover element from an earlier signed-in render)', async () => {
+    const sessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'octo-nav-myagents', id: 5201 }),
+    });
+    const configuredServer = createApp(
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, sessionAdapter,
+    ).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => configuredServer.once('listening', resolve));
+    const configuredBaseUrl = `http://127.0.0.1:${(configuredServer.address() as AddressInfo).port}`;
+    const start = await sessionAdapter.beginGitHubOAuth();
+    const session = await sessionAdapter.completeGitHubOAuth({ code: 'good-code', state: start.state });
+
+    const virtualConsole = new VirtualConsole();
+    const failures: string[] = [];
+    virtualConsole.on('jsdomError', (error: Error) => failures.push(error.message));
+    const response = await fetch(`${configuredBaseUrl}/browse`, { headers: { Accept: HTML } });
+    const markup = await response.text();
+    const dom = new JSDOM(markup, {
+      url: `${configuredBaseUrl}/browse`,
+      runScripts: 'dangerously',
+      resources: 'usable',
+      pretendToBeVisual: true,
+      virtualConsole,
+      beforeParse(window) {
+        window.sessionStorage.setItem('fa_session', JSON.stringify(session));
+        Object.defineProperty(window, 'fetch', {
+          writable: true,
+          value: (input: string, init?: RequestInit) => fetch(new URL(input, configuredBaseUrl), init),
+        });
+      },
+    });
+    try {
+      await new Promise<void>((resolve) => {
+        if (dom.window.document.readyState === 'complete') resolve();
+        else dom.window.addEventListener('load', () => resolve());
+      });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      const signoutBtn = dom.window.document.getElementById('nav-signout') as HTMLButtonElement | null;
+      expect(signoutBtn).not.toBeNull();
+      signoutBtn!.click();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
+
+      const links = Array.from(dom.window.document.querySelectorAll('.links a')).map((a) => a.textContent);
+      expect(links).not.toContain('My agents');
+    } finally {
+      dom.window.close();
+      await new Promise<void>((resolve) => configuredServer.close(() => resolve()));
+    }
+  });
+});
+
+// P8n repair round 1, D1 (inert-declared-control): jsdom performs no
+// layout, so it cannot see that the nav bar this card's link joins
+// overflows a real 320px viewport and the overflow sits exactly under the
+// My agents link, making a tap on its centre land on the Sign out button
+// instead. This drives one throwaway real Chrome (tests/helpers/real-browser.ts,
+// the same driver shape spec/wireframe/wirebrowse.py already uses for the
+// wireframe's own gates) so the assertion is real geometry and a real
+// dispatched click, not a jsdom stand-in for either.
+describe('at 320px the nav bar does not overflow and a tap on My agents reaches the link (P8n repair, D1)', () => {
+  it('documentElement does not scroll sideways and a click at the link centre navigates instead of hitting sign-out', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const sessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'octo-nav-320', id: 5301 }),
+    });
+    const configuredServer = createApp(
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, sessionAdapter,
+    ).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => configuredServer.once('listening', resolve));
+    const configuredBaseUrl = `http://127.0.0.1:${(configuredServer.address() as AddressInfo).port}`;
+    const start = await sessionAdapter.beginGitHubOAuth();
+    const session = await sessionAdapter.completeGitHubOAuth({ code: 'good-code', state: start.state });
+
+    const browser = await RealBrowser.launch({ width: 320, height: 700 });
+    try {
+      await browser.goto(`${configuredBaseUrl}/browse`);
+      await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(session))})`);
+      await browser.goto(`${configuredBaseUrl}/browse`);
+
+      const overflow = await browser.evaluate<{ scrollWidth: number; clientWidth: number }>(`
+        ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth })
+      `);
+      expect(overflow.scrollWidth, 'the 320px nav bar must not scroll sideways').toBe(overflow.clientWidth);
+
+      const tap = await browser.evaluate<{ hitId: string; sessionAfter: boolean; pathnameAfter: string }>(`
+        (function () {
+          var link = document.getElementById('nav-myagents');
+          var r = link.getBoundingClientRect();
+          var cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
+          var hit = document.elementFromPoint(cx, cy);
+          hit.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+          return {
+            hitId: hit.id,
+            sessionAfter: sessionStorage.getItem('fa_session') !== null,
+            pathnameAfter: location.pathname,
+          };
+        })()
+      `);
+      expect(tap.hitId, 'a tap at the My agents link centre must hit the link, not the sign-out button').toBe('nav-myagents');
+      expect(tap.sessionAfter, 'tapping the My agents link must not clear the session').toBe(true);
+    } finally {
+      await browser.close();
       await new Promise<void>((resolve) => configuredServer.close(() => resolve()));
     }
   });
