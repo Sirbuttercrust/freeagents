@@ -20,10 +20,10 @@ import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 
-// The sixteen page shells the web surface serves, per src/web/static.ts's
+// The seventeen page shells the web surface serves, per src/web/static.ts's
 // own PAGE_FILES map (auth-callback-success/error are not routed pages;
 // they are rendered directly by the callback route and carry no nav).
-const NAV_PAGES = ['/', '/how', '/browse', '/signin', '/verify', '/agents/x', '/accounts/x', '/v1/credentials/x', '/jobs/x', '/hire', '/agreement', '/deposit', '/staged', '/pullrequest', '/myjobs', '/myagents', '/no-such-page'] as const;
+const NAV_PAGES = ['/', '/how', '/browse', '/signin', '/verify', '/agents/x', '/accounts/x', '/v1/credentials/x', '/jobs/x', '/hire', '/agreement', '/deposit', '/staged', '/pullrequest', '/myjobs', '/myagents', '/outcomes', '/no-such-page'] as const;
 
 let server: Server;
 let baseUrl: string;
