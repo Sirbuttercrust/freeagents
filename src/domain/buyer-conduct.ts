@@ -52,6 +52,18 @@ export interface BuyerConduct {
   // BuyerJobFacts.redoRequestedAt above for why this is not a status
   // equality.
   readonly redosRequested: number;
+  // P8s (ruling 2): the conduct page's "walked away" row -- DATA-CONTRACT.md
+  // line 405's definition, staged_declined plus closed_unpaid: work was
+  // delivered and the buyer declined it or went quiet. This is a DERIVED
+  // field, computed in buyerConductRecord below from the two counters this
+  // module already keeps, and it is NOT walkedAfterConfirm: that field is
+  // expired_unstaged plus a confirmed job withdrawn, which is walking away
+  // with NOTHING delivered, a different fact the wireframe's own "walked
+  // away" description ("Work was delivered...") would misrepresent.
+  // walkedAfterConfirm is untouched by this field: it still feeds the P7
+  // operator threshold (buyerConductThresholdFailure, maxWalkedAfterConfirm
+  // in prisma/schema.prisma), and this addition changes no call site of it.
+  readonly walkedAway: number;
 }
 
 // Statuses reachable only downstream of confirmed (P4's transition table,
@@ -158,6 +170,9 @@ export function buyerConductRecord(jobs: readonly BuyerJobFacts[]): BuyerConduct
     closedUnmerged,
     citedCloses,
     redosRequested,
+    // Ruling 2: derived from the two counters above, never a third
+    // counter of its own -- one added derived field, no schema change.
+    walkedAway: stagedDeclined + closedUnpaid,
   };
 }
 
