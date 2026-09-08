@@ -84,6 +84,7 @@ import {
 import { isValidOperatorDid } from '../domain/operator-did.js';
 import { isValidOperatorAddressEvm } from '../domain/operator-address-evm.js';
 import { isValidOperatorAddressAbt } from '../domain/operator-address-abt.js';
+import { jobListBucketOf, jobListDateOf } from '../domain/job-list.js';
 import type { Account } from '../domain/account.js';
 import {
   acceptCriterion,
@@ -1297,6 +1298,50 @@ export function createApp(
     }
   });
 
+  // P8m: GET /accounts/me. The wireframe needs no such route (a static
+  // mock never resolves a live session to a DID), but the built page's
+  // My jobs link into GET /accounts/:did/jobs needs the caller's own DID
+  // to put in the path, and nothing until now turned a live session or a
+  // verified signature into the caller's own account record: every
+  // existing resolveActingParty call site already had a DID from
+  // elsewhere (a job's buyerDid/agentDid, or an unrelated route's own
+  // :did). Named here as the handoff departure this line forced.
+  // Guarded the same way every other acting-party route is: no proof at
+  // all is 401 (requireSessionOrSignature's own wording), and a live
+  // session with no registered account is provisioned on the spot
+  // exactly as resolveActingParty already does for every other route.
+  app.get('/accounts/me', requireSessionOrSignature, async (req: Request, res: Response) => {
+    let actingParty: string | null;
+    try {
+      actingParty = await resolveActingParty(req, repo, identityAdapter);
+    } catch (err) {
+      console.error('GET /accounts/me: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (actingParty === null) {
+      res.status(401).json({ error: sessionOrSignatureRequiredMessage('the account reading its own record') });
+      return;
+    }
+    try {
+      const row = await repo.findByDid(actingParty);
+      if (row === null) {
+        // A verified signature names a real DID with no Account row
+        // (an agent-only identity, R-34's own case): there is nothing
+        // to provision from a bare signature (provisionAccountForSession
+        // only ever runs off a live session, per resolveActingParty's
+        // own header comment), so this reads as absent rather than a
+        // synthesised row.
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      res.status(200).json(accountProjection(row));
+    } catch (err) {
+      console.error('GET /accounts/me: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
   app.get('/accounts/:did', async (req: Request, res: Response) => {
     try {
       const row = await repo.findByDid(String(req.params.did));
@@ -1458,6 +1503,82 @@ export function createApp(
       });
     } catch (err) {
       console.error('GET /accounts/:did/agents: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // P8m: the buyer's own list of everything they have hired (P-16, brief
+  // scope item 1). Reads jobRepo.findByBuyerDid, the same optional-method
+  // stance buyerConductForDid and GET /agents/:agentDid/hires already
+  // take: a driver that omits it is 503, never a silent empty list.
+  // Private to its own account (scope item 2), not a public profile:
+  // requireSessionOrSignature refuses no proof at all with 401 (the same
+  // sessionOrSignatureRequiredMessage wording every other gated route
+  // here uses), and the resolved party must equal :did or the route
+  // refuses with 403 that names neither the account nor its job count,
+  // the same stance requireCallerIsAgentOperator already takes at its own
+  // 403 (app.ts:1044-1046 as measured on main).
+  app.get('/accounts/:did/jobs', requireSessionOrSignature, async (req: Request, res: Response) => {
+    const did = String(req.params.did);
+    let actingParty: string | null;
+    try {
+      actingParty = await resolveActingParty(req, repo, identityAdapter);
+    } catch (err) {
+      console.error('GET /accounts/:did/jobs: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    // Neither a stranger nor an unresolved caller ever learns whether
+    // :did is a registered account or how many jobs it has (scope item
+    // 2): the refusal is identical whether or not the account exists.
+    if (actingParty === null || actingParty !== did) {
+      res.status(403).json({ error: 'an account may only read its own job list' });
+      return;
+    }
+
+    // findByBuyerDid is optional on JobRepository (the same stance
+    // findCompletedByAgent already takes); a driver that omits it fails
+    // the same way a driver that throws does (done-means item 3).
+    if (typeof jobRepo.findByBuyerDid !== 'function') {
+      console.error('GET /accounts/:did/jobs: storage does not support findByBuyerDid');
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+
+    try {
+      const rows = await jobRepo.findByBuyerDid(did);
+      // ENT-4.1 (scope item 3): a job does not exist until the buyer
+      // confirms. draft and proposed are excluded HERE, by the route,
+      // never merely hidden by the page -- job-list.ts's own fifth
+      // bucket value ('notReal') is what this filter reads.
+      const real = rows.filter((job) => jobListBucketOf(job.status) !== 'notReal');
+      const sorted = [...real].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      // One agent lookup per DISTINCT agent, not per row (the same
+      // per-distinct-key caching withBuyerGithubLogins already uses
+      // above): a buyer with several hires from the same agent pays for
+      // that lookup once.
+      const agentNameByDid = new Map<string, string>();
+      const jobRows = await Promise.all(
+        sorted.map(async (job) => {
+          if (!agentNameByDid.has(job.agentDid)) {
+            const agentRow = await agentRepo.findByDid(job.agentDid);
+            agentNameByDid.set(job.agentDid, agentRow?.name ?? job.agentDid);
+          }
+          const date = jobListDateOf(job);
+          return {
+            id: job.id,
+            brief: job.brief,
+            agentName: agentNameByDid.get(job.agentDid) ?? job.agentDid,
+            repository: job.repository,
+            status: job.status,
+            bucket: jobListBucketOf(job.status),
+            date: date === null ? null : date.toISOString(),
+          };
+        }),
+      );
+      res.status(200).json({ jobs: jobRows });
+    } catch (err) {
+      console.error('GET /accounts/:did/jobs: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
