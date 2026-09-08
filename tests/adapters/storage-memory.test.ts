@@ -279,9 +279,15 @@ describe('MemoryJobRepository.findByAgentDid', () => {
     const other = 'did:abt:zOtherAgent';
     await repo.create({ ...jobFixture(), id: 'job_a', agentDid: agent, status: 'draft' });
     await repo.create({ ...jobFixture(), id: 'job_b', agentDid: agent, status: 'proposed' });
+    // QA D2 (review round 1): the prior test never seeded a status
+    // outside draft/proposed for the TARGET agent, so "every job ... in
+    // any status" (done-means 3) was asserted by the test's title
+    // alone. job_d pins a confirmed job for the same agent: a driver
+    // that silently narrows to notReal statuses must redden here.
+    await repo.create({ ...jobFixture(), id: 'job_d', agentDid: agent, status: 'confirmed' });
     await repo.create({ ...jobFixture(), id: 'job_c', agentDid: other, status: 'completed' });
 
     const rows = await repo.findByAgentDid(agent);
-    expect(rows.map((r) => r.id).sort()).toEqual(['job_a', 'job_b']);
+    expect(rows.map((r) => r.id).sort()).toEqual(['job_a', 'job_b', 'job_d']);
   });
 });
