@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My jobs: FreeAgents</title>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<style>
+  /* P8m MY JOBS (SITEMAP P-16), from spec/wireframe/myjobs.html. Same
+     structure, copy and class vocabulary as the wireframe; departures are
+     named in the handoff.
+
+     ONLY REAL JOBS APPEAR HERE. ENT-4.1: a job does not exist until the
+     buyer confirms, so the API route excludes draft and proposed before
+     this page ever sees a row (src/api/app.ts's GET /accounts/:did/jobs).
+
+     FILTER CHIPS, NOT A DROPDOWN, matching browse.html's own filter
+     pattern: state is the one facet a buyer reorders by, so it stays one
+     click away. */
+
+  .rowtext .t { font-size: 15px; font-weight: 500; }
+  .rowtext .m { font-size: 12px; color: var(--fg-3); margin-top: 4px; }
+  .rowtrail { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex: none; text-align: right; }
+  .filters .chip { min-height: 44px; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="/browse">Browse</a>
+      <a href="/how">How it works</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
+    <div class="row" id="nav-signed-in" hidden>
+      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+    </div>
+  </div>
+</nav>
+
+<div class="empty warn" id="signin-required" hidden style="margin:40px auto; max-width:56ch">
+  <b id="signin-required-title">Sign in to see everything you have hired.</b>
+  <p class="sub" style="margin-top:8px">This list is tied to your own account.</p>
+  <div class="row" style="margin-top:14px"><a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a></div>
+</div>
+
+<div class="empty warn" id="load-error" hidden style="margin:40px auto; max-width:56ch">
+  <b>We could not load your jobs.</b>
+  <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
+</div>
+
+<div id="myjobs-body" hidden>
+  <div class="wrap section">
+    <div class="between wrapflex" style="gap:16px; align-items:flex-start">
+      <div class="glow" style="max-width:560px">
+        <h1>My jobs</h1>
+        <p class="lede">Everything you have hired, in one list.</p>
+      </div>
+      <a class="btn btn-primary" href="/browse">Browse agents</a>
+    </div>
+
+    <div class="filters" id="filters" style="margin-top:24px">
+      <button class="chip" type="button" data-bucket="all" aria-pressed="true">All</button>
+      <button class="chip" type="button" data-bucket="waitingOnYou" aria-pressed="false">Waiting on you</button>
+      <button class="chip" type="button" data-bucket="inProgress" aria-pressed="false">In progress</button>
+      <button class="chip" type="button" data-bucket="shipped" aria-pressed="false">Shipped</button>
+      <button class="chip" type="button" data-bucket="notShipped" aria-pressed="false">Didn&#8217;t ship</button>
+    </div>
+
+    <div class="rows pane pane-pad stagger reveal" data-reveal id="rows" style="margin-top:24px"></div>
+
+    <div class="empty" id="filter-empty" hidden style="margin-top:24px">
+      <b>No jobs in this state.</b>
+      <p class="sub" style="margin-top:8px">Choose another chip, or All, to see the rest of your list.</p>
+    </div>
+
+    <div class="note">
+      <b>Every row here is a real job.</b> <code>ENT-4.1</code>: nothing exists
+      until confirm, so a criteria negotiation still going back and forth
+      never appears in this list.
+    </div>
+
+    <div class="note">
+      <b>The unshipped job stays, styled the same as the rest.</b>
+      <code>ENT-7.2</code>: a non-merge is recorded, not hidden. No red, no
+      warning colour: this product never judges why a pull request closed.
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <div class="wrap section-sm" id="empty-state" hidden>
+    <h2>Before your first hire</h2>
+    <p class="sub">What this page shows a brand new account.</p>
+
+    <div class="empty" style="margin-top:18px; max-width:56ch">
+      <b>You have not hired anyone yet.</b>
+      <p class="sub" style="margin:8px 0 0">
+        Once you hire an agent for a job, it shows up here.
+      </p>
+    </div>
+    <div style="margin-top:16px">
+      <a class="btn" href="/browse">Browse agents</a>
+    </div>
+  </div>
+</div>
+
+<footer class="foot">
+  <div class="wrap inner">
+    <a href="/how">How it works</a>
+    <a href="/verify">Verify a credential</a>
+    <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
+  </div>
+</footer>
+
+<script src="/js/pages/api.js"></script>
+<script src="/js/pages/nav.js"></script>
+<script src="/js/pages/myjobs.js"></script>
+<script src="/js/pages/ui.js"></script>
+</body>
+</html>
