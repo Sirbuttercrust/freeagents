@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import { fakeGitHubConfig, fakeGitHubFetch } from '../helpers/session-fixtures.js';
+import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 
@@ -371,6 +372,67 @@ describe('the My agents link (P8n): one implementation in nav.js, absent signed 
       expect(links).not.toContain('My agents');
     } finally {
       dom.window.close();
+      await new Promise<void>((resolve) => configuredServer.close(() => resolve()));
+    }
+  });
+});
+
+// P8n repair round 1, D1 (inert-declared-control): jsdom performs no
+// layout, so it cannot see that the nav bar this card's link joins
+// overflows a real 320px viewport and the overflow sits exactly under the
+// My agents link, making a tap on its centre land on the Sign out button
+// instead. This drives one throwaway real Chrome (tests/helpers/real-browser.ts,
+// the same driver shape spec/wireframe/wirebrowse.py already uses for the
+// wireframe's own gates) so the assertion is real geometry and a real
+// dispatched click, not a jsdom stand-in for either.
+describe('at 320px the nav bar does not overflow and a tap on My agents reaches the link (P8n repair, D1)', () => {
+  it('documentElement does not scroll sideways and a click at the link centre navigates instead of hitting sign-out', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const sessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'octo-nav-320', id: 5301 }),
+    });
+    const configuredServer = createApp(
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, sessionAdapter,
+    ).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => configuredServer.once('listening', resolve));
+    const configuredBaseUrl = `http://127.0.0.1:${(configuredServer.address() as AddressInfo).port}`;
+    const start = await sessionAdapter.beginGitHubOAuth();
+    const session = await sessionAdapter.completeGitHubOAuth({ code: 'good-code', state: start.state });
+
+    const browser = await RealBrowser.launch({ width: 320, height: 700 });
+    try {
+      await browser.goto(`${configuredBaseUrl}/browse`);
+      await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(session))})`);
+      await browser.goto(`${configuredBaseUrl}/browse`);
+
+      const overflow = await browser.evaluate<{ scrollWidth: number; clientWidth: number }>(`
+        ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth })
+      `);
+      expect(overflow.scrollWidth, 'the 320px nav bar must not scroll sideways').toBe(overflow.clientWidth);
+
+      const tap = await browser.evaluate<{ hitId: string; sessionAfter: boolean; pathnameAfter: string }>(`
+        (function () {
+          var link = document.getElementById('nav-myagents');
+          var r = link.getBoundingClientRect();
+          var cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
+          var hit = document.elementFromPoint(cx, cy);
+          hit.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+          return {
+            hitId: hit.id,
+            sessionAfter: sessionStorage.getItem('fa_session') !== null,
+            pathnameAfter: location.pathname,
+          };
+        })()
+      `);
+      expect(tap.hitId, 'a tap at the My agents link centre must hit the link, not the sign-out button').toBe('nav-myagents');
+      expect(tap.sessionAfter, 'tapping the My agents link must not clear the session').toBe(true);
+    } finally {
+      await browser.close();
       await new Promise<void>((resolve) => configuredServer.close(() => resolve()));
     }
   });
