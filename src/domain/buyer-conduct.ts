@@ -24,11 +24,18 @@ export interface BuyerJobFacts {
   // downstream of confirmed always carries a non-null confirmedAt, the
   // same one-writer pairing confirmSpec already keeps in src/domain/job.ts.
   readonly confirmedAt: string | Date | null;
+  // P8r: the durable "a redo was ever asked for" fact. Not the same thing
+  // as sitting at the redo_requested status right now: redo_requested is
+  // non terminal (src/domain/job.ts) and every job that passes through it
+  // leaves it, so this field is the only way to count a hire whose redo
+  // was requested and then resolved, one way or the other. Missing on a
+  // row counts as no redo, never a throw (this module's totality stance).
+  readonly redoRequestedAt?: string | Date | null;
 }
 
-// Counts to ship (committee synthesis row 7, minus the three underivable
-// ones - see ABSENT_BUYER_COUNTS below). Every field is a plain count:
-// no ratio, no percentage, no letter grade.
+// Counts to ship (committee synthesis row 7, minus the one underivable
+// one - see ABSENT_BUYER_COUNTS below). Every field is a plain count: no
+// ratio, no percentage, no letter grade.
 export interface BuyerConduct {
   readonly confirmed: number;
   readonly walkedAfterConfirm: number;
@@ -37,6 +44,14 @@ export interface BuyerConduct {
   readonly merged: number;
   readonly deemed: number;
   readonly closedUnmerged: number;
+  // P8r: the buyer's deliberate, reasoned close after paying
+  // (cited_closed). A status equality, the same shape stagedDeclined and
+  // closedUnpaid already take.
+  readonly citedCloses: number;
+  // P8r: a hire whose redo was ever requested, resolved or not. See
+  // BuyerJobFacts.redoRequestedAt above for why this is not a status
+  // equality.
+  readonly redosRequested: number;
 }
 
 // Statuses reachable only downstream of confirmed (P4's transition table,
@@ -47,6 +62,9 @@ export interface BuyerConduct {
 // non-terminal status including draft and proposed, so reaching one of
 // them proves nothing about whether the job was ever confirmed - that is
 // exactly what the confirmedAt fact (not the status) settles for those two.
+// P8r: cited_closed joins this set. It is the buyer's close after
+// paying (src/domain/job.ts), so it is downstream of confirmed by the
+// same definition as every other terminal status here.
 const DOWNSTREAM_OF_CONFIRMED = new Set([
   'confirmed',
   'staged',
@@ -58,6 +76,7 @@ const DOWNSTREAM_OF_CONFIRMED = new Set([
   'deemed_completed',
   'completed',
   'closed_unmerged',
+  'cited_closed',
 ]);
 
 function wasConfirmed(job: BuyerJobFacts): boolean {
@@ -65,28 +84,20 @@ function wasConfirmed(job: BuyerJobFacts): boolean {
   return typeof job.status === 'string' && DOWNSTREAM_OF_CONFIRMED.has(job.status);
 }
 
-// The three counts the committee synthesis names that no fact in this
-// build can produce: settlement is a fail-closed port with no durable
-// record wired to it (paid), and the cited close and the redo are P6,
-// which has not been built (citedCloses, redosRequested). Shipping any of
-// these as a zero field would be silent-success-on-failure: a buyer with
-// three cited closes would read as a buyer with none. Each is named here,
-// with the reason it is absent, instead of appearing as a key on
-// BuyerConduct - see the mutation-proof test in
-// tests/domain/buyer-conduct.test.ts that fails if one is added back
-// without this list being updated deliberately.
+// The one count the committee synthesis names that no fact in this build
+// can produce: settlement is a fail-closed port (invariant 12).
+// BuyerJobFacts carries status and confirmedAt (and now redoRequestedAt)
+// and no settlement fact, and this module is pure with no I/O, so a paid
+// count would require a second read this record does not take. Shipping
+// it as a zero field would be silent-success-on-failure: a buyer with
+// three paid hires would read as a buyer with none. Named here, with the
+// reason it is absent, instead of appearing as a key on BuyerConduct -
+// see the mutation-proof test in tests/domain/buyer-conduct.test.ts that
+// fails if it is added back without this list being updated deliberately.
 export const ABSENT_BUYER_COUNTS: readonly { readonly field: string; readonly reason: string }[] = [
   {
     field: 'paid',
-    reason: 'settlement is a fail-closed port with no durable record wired to it (invariant 12); nothing in this codebase can observe a payment fact yet.',
-  },
-  {
-    field: 'citedCloses',
-    reason: 'the cited close is P6, which has not been built.',
-  },
-  {
-    field: 'redosRequested',
-    reason: 'the redo mechanic is P6, which has not been built.',
+    reason: 'BuyerJobFacts carries status and confirmedAt and no settlement fact, and this module is pure with no I/O, so a paid count would require a second read this record does not take.',
   },
 ];
 
@@ -103,6 +114,8 @@ export function buyerConductRecord(jobs: readonly BuyerJobFacts[]): BuyerConduct
   let merged = 0;
   let deemed = 0;
   let closedUnmerged = 0;
+  let citedCloses = 0;
+  let redosRequested = 0;
 
   for (const raw of rows) {
     const job: BuyerJobFacts = raw ?? { status: '', confirmedAt: null };
@@ -126,9 +139,26 @@ export function buyerConductRecord(jobs: readonly BuyerJobFacts[]): BuyerConduct
     if (status === 'completed') merged += 1;
     if (status === 'deemed_completed') deemed += 1;
     if (status === 'closed_unmerged') closedUnmerged += 1;
+    if (status === 'cited_closed') citedCloses += 1;
+
+    // The durable fact, not the transient status: redo_requested is non
+    // terminal and every job that passes through it leaves it, so a
+    // status equality here would count only jobs sitting in that state
+    // at read time and report zero for every hire that resolved.
+    if (job.redoRequestedAt !== null && job.redoRequestedAt !== undefined) redosRequested += 1;
   }
 
-  return { confirmed, walkedAfterConfirm, stagedDeclined, closedUnpaid, merged, deemed, closedUnmerged };
+  return {
+    confirmed,
+    walkedAfterConfirm,
+    stagedDeclined,
+    closedUnpaid,
+    merged,
+    deemed,
+    closedUnmerged,
+    citedCloses,
+    redosRequested,
+  };
 }
 
 // The two operator-set listing filters (scope item 4): both optional,
@@ -187,4 +217,52 @@ export function buyerConductThresholdFailure(
     }
   }
   return null;
+}
+
+// P8r scope item 2: the operator half of the same account. A different
+// population over the same rows (jobs where this account's agent was
+// HIRED, never jobs where this account did the hiring), so it is its own
+// structural input type, never merged into BuyerJobFacts.
+export interface OperatorJobFacts {
+  readonly status: string;
+  // P6: the instant the operator refused a redo, null until a refusal
+  // happens. Distinct from a pending request still awaiting an answer -
+  // see redosRefused below, which counts a refusal and not a request.
+  readonly redoRefusedAt?: string | Date | null;
+}
+
+// The two operator-set counts the wireframe draws (spec/wireframe/
+// conduct.html, spec/wireframe/SITEMAP.md). Plain counts, same as
+// BuyerConduct: no ratio, no percentage, no letter grade, and never a
+// field shared with the buyer side - one account can hire and operate,
+// and they are different populations (the card's own scope fence).
+export interface OperatorConduct {
+  readonly deliveredNeverPaid: number;
+  readonly redosRefused: number;
+}
+
+// Total: any input in, one OperatorConduct out, the same totality stance
+// buyerConductRecord already takes. Pure, synchronous, no I/O, no clock,
+// no import outside this file.
+export function operatorConductRecord(jobs: readonly OperatorJobFacts[]): OperatorConduct {
+  const rows: OperatorJobFacts[] = Array.isArray(jobs) ? [...jobs] : [];
+
+  let deliveredNeverPaid = 0;
+  let redosRefused = 0;
+
+  for (const raw of rows) {
+    const job: OperatorJobFacts = raw ?? { status: '' };
+    const status = typeof job.status === 'string' ? job.status : '';
+
+    // deliveredNeverPaid counts both statuses and does not distinguish
+    // them: the wireframe's own label reads "Work was staged and the
+    // buyer declined it or went quiet." Both are the same fact from the
+    // operator's chair, and splitting them here would invent a
+    // distinction the design deliberately refused.
+    if (status === 'staged_declined' || status === 'closed_unpaid') deliveredNeverPaid += 1;
+
+    if (job.redoRefusedAt !== null && job.redoRefusedAt !== undefined) redosRefused += 1;
+  }
+
+  return { deliveredNeverPaid, redosRefused };
 }

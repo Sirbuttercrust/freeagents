@@ -141,9 +141,12 @@ import { buyerDiversity, type HireFacts } from '../domain/buyer-diversity.js';
 import {
   buyerConductRecord,
   buyerConductThresholdFailure,
+  operatorConductRecord,
   type BuyerConduct,
   type BuyerConductThresholdFailure,
   type BuyerJobFacts,
+  type OperatorConduct,
+  type OperatorJobFacts,
 } from '../domain/buyer-conduct.js';
 import {
   disputedBy,
@@ -632,7 +635,11 @@ async function buyerConductForDid(
     throw new Error('storage does not support findByBuyerDid');
   }
   const jobs = await jobRepo.findByBuyerDid(buyerDid);
-  const facts: BuyerJobFacts[] = jobs.map((job) => ({ status: job.status, confirmedAt: job.confirmedAt }));
+  const facts: BuyerJobFacts[] = jobs.map((job) => ({
+    status: job.status,
+    confirmedAt: job.confirmedAt,
+    redoRequestedAt: job.redoRequestedAt,
+  }));
   return buyerConductRecord(facts);
 }
 
@@ -650,6 +657,56 @@ async function buyerConductForLogin(
   const account = await accountRepo.findByGithubLogin(githubLogin);
   if (account === null) return null;
   return buyerConductForDid(account.did, accountRepo, jobRepo);
+}
+
+// P8r scope item 2/3: the operator half of the same account, over the
+// agents this account operates rather than the jobs it hired. A
+// different population from buyerConductForDid, read through its own
+// pair of optional storage methods. Null when the operator DID resolves
+// to no registered Account, the same "no record exists" stance the buyer
+// side takes - distinct from a record of zeroes.
+//
+// The roster comes from agentRepo.listAll() filtered by an EXACT
+// operatorDid comparison, the same comparison GET /accounts/:did/agents
+// already uses (not isAgentOperator's didSuffix match): one account's
+// roster must mean the same thing on every route.
+async function operatorConductForDid(
+  operatorDid: string,
+  accountRepo: AccountRepository,
+  agentRepo: AgentRepository,
+  jobRepo: JobRepository,
+): Promise<OperatorConduct | null> {
+  const account = await accountRepo.findByDid(operatorDid);
+  if (account === null) return null;
+  if (typeof agentRepo.listAll !== 'function') {
+    throw new Error('storage does not support listAll');
+  }
+  if (typeof jobRepo.findByAgentDid !== 'function') {
+    throw new Error('storage does not support findByAgentDid');
+  }
+  const findByAgentDid = jobRepo.findByAgentDid.bind(jobRepo);
+  const agentRows = await agentRepo.listAll();
+  const ownAgents = agentRows.filter((row) => row.operatorDid === account.did);
+  const perAgentJobs = await Promise.all(ownAgents.map((row) => findByAgentDid(row.did)));
+  const allJobs = perAgentJobs.flat();
+  const facts: OperatorJobFacts[] = allJobs.map((job) => ({
+    status: job.status,
+    redoRefusedAt: job.redoRefusedAt,
+  }));
+  return operatorConductRecord(facts);
+}
+
+// P8r: the same lookup, keyed by GitHub login, mirroring
+// buyerConductForLogin's own shape.
+async function operatorConductForLogin(
+  githubLogin: string,
+  accountRepo: AccountRepository,
+  agentRepo: AgentRepository,
+  jobRepo: JobRepository,
+): Promise<OperatorConduct | null> {
+  const account = await accountRepo.findByGithubLogin(githubLogin);
+  if (account === null) return null;
+  return operatorConductForDid(account.did, accountRepo, agentRepo, jobRepo);
 }
 
 // P7: the buyer is entitled to know why they were refused, because the
@@ -2422,7 +2479,8 @@ export function createApp(
         res.status(200).json({ githubLogin, keyed: false });
         return;
       }
-      res.status(200).json({ githubLogin, keyed: true, counts });
+      const operatorCounts = await operatorConductForLogin(githubLogin, repo, agentRepo, jobRepo);
+      res.status(200).json({ githubLogin, keyed: true, counts, operatorCounts });
     } catch (err) {
       console.error('GET /buyers/:githubLogin/conduct: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });

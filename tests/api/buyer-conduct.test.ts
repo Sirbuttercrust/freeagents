@@ -13,7 +13,7 @@ import { fromRandom, type WalletObject } from '@ocap/wallet';
 
 import { createApp } from '../../src/api/app.js';
 import { MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
-import { DELEGATION_TYPE } from '../../src/domain/agent.js';
+import { DELEGATION_TYPE, didSuffix } from '../../src/domain/agent.js';
 import { signingIdentityFromSeed, signingIdentityFromWallet, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 
@@ -543,6 +543,346 @@ describe('GET /buyers/:githubLogin/conduct (P7)', () => {
     try {
       const res = await fetch(`${baseUrl}/buyers/buyer-p7-503/conduct`);
       expect(res.status).toBe(503);
+    } finally {
+      server.close();
+    }
+  });
+
+  // P8r scope item 3: the operator half joins the same route. keyed:
+  // false still answers neither counts object at all.
+  it('an unkeyed login answers neither counts nor operatorCounts', async () => {
+    const { server, baseUrl } = await buildApp();
+    try {
+      const res = await fetch(`${baseUrl}/buyers/never-registered-login-p8r/conduct`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.keyed).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(body, 'counts')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(body, 'operatorCounts')).toBe(false);
+    } finally {
+      server.close();
+    }
+  });
+
+  // Done-means item 9: an account that operates no agents at all still
+  // answers keyed: true with both operator counts at zero, a real zero
+  // distinct from the unkeyed answer above.
+  it('a keyed account with no agents of its own answers operatorCounts at zero, distinct from unkeyed', async () => {
+    const { server, baseUrl, accountRepo } = await buildApp();
+    try {
+      await accountRepo.register({ did: 'did:abt:zNoAgents', githubLogin: 'buyer-p8r-no-agents' });
+      const res = await fetch(`${baseUrl}/buyers/buyer-p8r-no-agents/conduct`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.keyed).toBe(true);
+      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0 });
+    } finally {
+      server.close();
+    }
+  });
+
+  // Done-means item 7: operatorCounts sits beside counts, never merged
+  // into one object, and no field blends the two sides.
+  it('a keyed account with a job as buyer AND an agent it operates reports both objects, never merged', async () => {
+    const { server, baseUrl, accountRepo, agentRepo, jobRepo } = await buildApp();
+    try {
+      const account = await signingIdentityFromSeed(new Uint8Array(32).fill(41));
+      const otherOperator = await signingIdentityFromSeed(new Uint8Array(32).fill(42));
+      const ownAgent = await signingIdentityFromSeed(new Uint8Array(32).fill(43));
+      const hiringAgent = await signingIdentityFromSeed(new Uint8Array(32).fill(44));
+      await accountRepo.register({ did: account.did, githubLogin: 'buyer-and-operator-p8r' });
+      await accountRepo.register({ did: otherOperator.did, githubLogin: 'other-operator-p8r' });
+
+      // The account's OWN agent, which gets hired and delivers work the
+      // buyer on that job never pays for.
+      await agentRepo.create({
+        did: ownAgent.did,
+        operatorDid: account.did,
+        delegation: delegationFixture(ownAgent.did, account.did) as never,
+        name: 'own-agent',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+      // A stranger's agent the account hires as a BUYER, unrelated to the
+      // operator side.
+      await agentRepo.create({
+        did: hiringAgent.did,
+        operatorDid: otherOperator.did,
+        delegation: delegationFixture(hiringAgent.did, otherOperator.did) as never,
+        name: 'hiring-agent',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+
+      const buyerJobDraft = await postSigned(baseUrl, '/jobs', {
+        agentDid: hiringAgent.did,
+        repository: 'buyer/target-repo',
+        brief: 'The buyer side of this account',
+      }, account);
+      const buyerJobBody = (await buyerJobDraft.json()) as Record<string, unknown>;
+      const buyerJob = await jobRepo.findById(String(buyerJobBody.id));
+      if (buyerJob === null) throw new Error('expected the buyer-side job to be stored');
+      await jobRepo.complete(
+        { ...buyerJob, status: 'completed', mergeCommit: 'merge-buyer-side', mergedAt: new Date() },
+        { jobId: buyerJob.id, buyerDid: account.did, agentDid: hiringAgent.did, mergeCommit: 'merge-buyer-side', completedAt: new Date() },
+      );
+
+      const operatorJobDraft = await postSigned(baseUrl, '/jobs', {
+        agentDid: ownAgent.did,
+        repository: 'stranger/target-repo',
+        brief: 'The operator side of this account',
+      }, otherOperator);
+      const operatorJobBody = (await operatorJobDraft.json()) as Record<string, unknown>;
+      const operatorJob = await jobRepo.findById(String(operatorJobBody.id));
+      if (operatorJob === null) throw new Error('expected the operator-side job to be stored');
+      await jobRepo.update({ ...operatorJob, status: 'staged_declined' });
+
+      const res = await fetch(`${baseUrl}/buyers/buyer-and-operator-p8r/conduct`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.keyed).toBe(true);
+      expect((body.counts as Record<string, unknown>).merged).toBe(1);
+      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 1, redosRefused: 0 });
+      // The two sides are never summed and never share a field: neither
+      // object carries a key that belongs to the other.
+      expect(Object.keys(body.counts as Record<string, unknown>).sort()).toEqual(
+        [
+          'confirmed',
+          'walkedAfterConfirm',
+          'stagedDeclined',
+          'closedUnpaid',
+          'merged',
+          'deemed',
+          'closedUnmerged',
+          'citedCloses',
+          'redosRequested',
+        ].sort(),
+      );
+      expect(Object.keys(body).sort()).toEqual(['counts', 'githubLogin', 'keyed', 'operatorCounts'].sort());
+    } finally {
+      server.close();
+    }
+  });
+
+  // Done-means item 10: a driver missing listAll or findByAgentDid is
+  // 503, never a silent zeroed record.
+  it('503, not a zeroed record, when the agent driver has no listAll', async () => {
+    const accountRepo = new MemoryAccountRepository();
+    await accountRepo.register({ did: 'did:abt:zNoListAll', githubLogin: 'buyer-p8r-no-listall' });
+    const agentRepoWithoutListAll = {
+      create: () => Promise.reject(new Error('unused')),
+      findByDid: () => Promise.reject(new Error('unused')),
+      updateGithubBinding: () => Promise.reject(new Error('unused')),
+      recordKeyRotation: () => Promise.reject(new Error('unused')),
+    };
+    const app = createApp(accountRepo, agentRepoWithoutListAll as never, undefined, undefined, new MemoryJobRepository());
+    const { server, baseUrl } = await listen(app);
+    try {
+      const res = await fetch(`${baseUrl}/buyers/buyer-p8r-no-listall/conduct`);
+      expect(res.status).toBe(503);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('503, not a zeroed record, when the job driver has no findByAgentDid', async () => {
+    const accountRepo = new MemoryAccountRepository();
+    await accountRepo.register({ did: 'did:abt:zNoFindByAgent', githubLogin: 'buyer-p8r-no-findbyagent' });
+    const jobRepoWithoutFindByAgentDid = {
+      create: () => Promise.reject(new Error('unused')),
+      update: () => Promise.reject(new Error('unused')),
+      findById: () => Promise.reject(new Error('unused')),
+      complete: () => Promise.reject(new Error('unused')),
+      findCompletedByJobId: () => Promise.reject(new Error('unused')),
+      findByBuyerDid: () => Promise.resolve([]),
+    };
+    const app = createApp(accountRepo, new MemoryAgentRepository(), undefined, undefined, jobRepoWithoutFindByAgentDid as never);
+    const { server, baseUrl } = await listen(app);
+    try {
+      const res = await fetch(`${baseUrl}/buyers/buyer-p8r-no-findbyagent/conduct`);
+      expect(res.status).toBe(503);
+    } finally {
+      server.close();
+    }
+  });
+
+  // Review round 1, defect 1 (vacuous-gate): the two redo counts must be
+  // proved to reach the response over the wire, not only inside the pure
+  // domain function. A route-level test asserting a NON-ZERO
+  // counts.redosRequested, driven by setting the durable fact on a
+  // stored job the same way jobRepo.update is used elsewhere in this
+  // file. Deleting the redoRequestedAt line in buyerConductForDid must
+  // redden this test.
+  it('a buyer whose job carries redoRequestedAt reports a non-zero counts.redosRequested over the wire', async () => {
+    const { server, baseUrl, accountRepo, agentRepo, jobRepo } = await buildApp();
+    try {
+      const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(61));
+      const agentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(62));
+      const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(63));
+      await accountRepo.register({ did: operator.did, githubLogin: 'operator-p8r-redo-req' });
+      await accountRepo.register({ did: buyer.did, githubLogin: 'buyer-p8r-redo-req' });
+      await agentRepo.create({
+        did: agentIdentity.did,
+        operatorDid: operator.did,
+        delegation: delegationFixture(agentIdentity.did, operator.did) as never,
+        name: 'scout',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+      const draft = await postSigned(baseUrl, '/jobs', {
+        agentDid: agentIdentity.did,
+        repository: 'buyer/target-repo',
+        brief: 'A job whose redo was requested',
+      }, buyer);
+      const draftBody = (await draft.json()) as Record<string, unknown>;
+      const job = await jobRepo.findById(String(draftBody.id));
+      if (job === null) throw new Error('expected the drafted job to be stored');
+      await jobRepo.update({ ...job, status: 'staged', redoRequestedAt: new Date() });
+
+      const res = await fetch(`${baseUrl}/buyers/buyer-p8r-redo-req/conduct`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.keyed).toBe(true);
+      expect((body.counts as Record<string, unknown>).redosRequested).toBe(1);
+    } finally {
+      server.close();
+    }
+  });
+
+  // Review round 1, defect 1 (vacuous-gate), the operator half. Same
+  // proof shape: a route-level assertion on a NON-ZERO
+  // operatorCounts.redosRefused, driven by setting redoRefusedAt on a
+  // stored job. Deleting the redoRefusedAt line in operatorConductForDid
+  // must redden this test.
+  it('an operator whose agent job carries redoRefusedAt reports a non-zero operatorCounts.redosRefused over the wire', async () => {
+    const { server, baseUrl, accountRepo, agentRepo, jobRepo } = await buildApp();
+    try {
+      const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(64));
+      const ownAgent = await signingIdentityFromSeed(new Uint8Array(32).fill(65));
+      const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(66));
+      await accountRepo.register({ did: operator.did, githubLogin: 'operator-p8r-redo-refused' });
+      await accountRepo.register({ did: buyer.did, githubLogin: 'buyer-p8r-redo-refused' });
+      await agentRepo.create({
+        did: ownAgent.did,
+        operatorDid: operator.did,
+        delegation: delegationFixture(ownAgent.did, operator.did) as never,
+        name: 'own-agent',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+      const draft = await postSigned(baseUrl, '/jobs', {
+        agentDid: ownAgent.did,
+        repository: 'buyer/target-repo',
+        brief: 'A job whose redo was refused',
+      }, buyer);
+      const draftBody = (await draft.json()) as Record<string, unknown>;
+      const job = await jobRepo.findById(String(draftBody.id));
+      if (job === null) throw new Error('expected the drafted job to be stored');
+      await jobRepo.update({ ...job, status: 'staged', redoRequestedAt: new Date(), redoRefusedAt: new Date() });
+
+      const res = await fetch(`${baseUrl}/buyers/operator-p8r-redo-refused/conduct`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.keyed).toBe(true);
+      expect((body.operatorCounts as Record<string, unknown>).redosRefused).toBe(1);
+    } finally {
+      server.close();
+    }
+  });
+
+  // Mutation proof 4: the roster filter must be the exact operatorDid
+  // comparison GET /accounts/:did/agents already uses, never
+  // isAgentOperator's didSuffix match. Two accounts whose DID suffixes
+  // collide (one with the did:abt: prefix, one without) must never let
+  // the second account's agent leak into the first account's roster.
+  it('the roster filter is exact operatorDid equality: a suffix-colliding operatorDid never joins the roster', async () => {
+    const { server, baseUrl, accountRepo, agentRepo, jobRepo } = await buildApp();
+    try {
+      const realOperator = await signingIdentityFromSeed(new Uint8Array(32).fill(45));
+      const suffixOnlyDid = didSuffix(realOperator.did);
+      await accountRepo.register({ did: realOperator.did, githubLogin: 'operator-p8r-suffix-real' });
+
+      // An agent whose stored operatorDid is the SUFFIX form, not the
+      // full did:abt: form the account actually holds. isAgentOperator
+      // would match this (didSuffix comparison); the exact comparison
+      // this route is required to use must not.
+      const impostorAgent = await signingIdentityFromSeed(new Uint8Array(32).fill(46));
+      await agentRepo.create({
+        did: impostorAgent.did,
+        operatorDid: suffixOnlyDid,
+        delegation: delegationFixture(impostorAgent.did, suffixOnlyDid) as never,
+        name: 'impostor',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+      const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(47));
+      await accountRepo.register({ did: buyer.did, githubLogin: 'buyer-p8r-suffix-collision' });
+      const draft = await postSigned(baseUrl, '/jobs', {
+        agentDid: impostorAgent.did,
+        repository: 'buyer/target-repo',
+        brief: 'A job on the impostor agent',
+      }, buyer);
+      const draftBody = (await draft.json()) as Record<string, unknown>;
+      const impostorJob = await jobRepo.findById(String(draftBody.id));
+      if (impostorJob === null) throw new Error('expected the impostor job to be stored');
+      await jobRepo.update({ ...impostorJob, status: 'closed_unpaid' });
+
+      const res = await fetch(`${baseUrl}/buyers/operator-p8r-suffix-real/conduct`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.keyed).toBe(true);
+      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0 });
+    } finally {
+      server.close();
+    }
+  });
+
+  // Done-means item 11: one account's operator counts read only jobs on
+  // agents it operates. A second account whose agent also has jobs must
+  // never leak into the first account's operatorCounts.
+  it("one account's operator counts never include a second account's agent's jobs", async () => {
+    const { server, baseUrl, accountRepo, agentRepo, jobRepo } = await buildApp();
+    try {
+      const operatorA = await signingIdentityFromSeed(new Uint8Array(32).fill(51));
+      const operatorB = await signingIdentityFromSeed(new Uint8Array(32).fill(52));
+      const agentA = await signingIdentityFromSeed(new Uint8Array(32).fill(53));
+      const agentB = await signingIdentityFromSeed(new Uint8Array(32).fill(54));
+      const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(55));
+      await accountRepo.register({ did: operatorA.did, githubLogin: 'operator-a-p8r' });
+      await accountRepo.register({ did: operatorB.did, githubLogin: 'operator-b-p8r' });
+      await accountRepo.register({ did: buyer.did, githubLogin: 'buyer-for-isolation-p8r' });
+      await agentRepo.create({
+        did: agentA.did,
+        operatorDid: operatorA.did,
+        delegation: delegationFixture(agentA.did, operatorA.did) as never,
+        name: 'agent-a',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+      await agentRepo.create({
+        did: agentB.did,
+        operatorDid: operatorB.did,
+        delegation: delegationFixture(agentB.did, operatorB.did) as never,
+        name: 'agent-b',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+
+      const draftB = await postSigned(baseUrl, '/jobs', {
+        agentDid: agentB.did,
+        repository: 'buyer/target-repo-b',
+        brief: 'A job on operator B agent',
+      }, buyer);
+      const draftBBody = (await draftB.json()) as Record<string, unknown>;
+      const jobB = await jobRepo.findById(String(draftBBody.id));
+      if (jobB === null) throw new Error('expected job B to be stored');
+      await jobRepo.update({ ...jobB, status: 'closed_unpaid' });
+
+      const res = await fetch(`${baseUrl}/buyers/operator-a-p8r/conduct`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.keyed).toBe(true);
+      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0 });
     } finally {
       server.close();
     }

@@ -6,7 +6,9 @@ import {
   ABSENT_BUYER_COUNTS,
   buyerConductRecord,
   buyerConductThresholdFailure,
+  operatorConductRecord,
   type BuyerJobFacts,
+  type OperatorJobFacts,
 } from '../../src/domain/buyer-conduct.js';
 
 function job(overrides: Partial<BuyerJobFacts> = {}): BuyerJobFacts {
@@ -33,6 +35,8 @@ describe('buyerConductRecord', () => {
       merged: 0,
       deemed: 0,
       closedUnmerged: 0,
+      citedCloses: 0,
+      redosRequested: 0,
     });
   });
 
@@ -121,25 +125,107 @@ describe('buyerConductRecord', () => {
     expect(result.merged).toBe(0);
   });
 
-  it('does not export a blended or derived field: exactly the seven documented counts', () => {
+  it('does not export a blended or derived field: exactly the nine documented counts', () => {
     const result = buyerConductRecord([job()]);
     expect(Object.keys(result).sort()).toEqual(
-      ['confirmed', 'walkedAfterConfirm', 'stagedDeclined', 'closedUnpaid', 'merged', 'deemed', 'closedUnmerged'].sort(),
+      [
+        'confirmed',
+        'walkedAfterConfirm',
+        'stagedDeclined',
+        'closedUnpaid',
+        'merged',
+        'deemed',
+        'closedUnmerged',
+        'citedCloses',
+        'redosRequested',
+      ].sort(),
     );
+  });
+
+  // P8r: citedCloses is a status equality, the same shape stagedDeclined
+  // and closedUnpaid already take.
+  it('cited_closed counts confirmed and citedCloses', () => {
+    const result = buyerConductRecord([job({ status: 'cited_closed' })]);
+    expect(result.confirmed).toBe(1);
+    expect(result.citedCloses).toBe(1);
+  });
+
+  // Review round 1, defect 2: cited_closed is the buyer's close AFTER
+  // paying (src/domain/job.ts), so it is downstream of confirmed by
+  // definition, the same way every other terminal status in
+  // DOWNSTREAM_OF_CONFIRMED is. confirmedAt: null here forces the check
+  // through the status-set branch rather than the confirmedAt branch, so
+  // this reddens if cited_closed is ever dropped from that set.
+  it('cited_closed counts confirmed even with a null confirmedAt: it is downstream of confirmed by definition', () => {
+    const result = buyerConductRecord([job({ status: 'cited_closed', confirmedAt: null })]);
+    expect(result.confirmed).toBe(1);
+  });
+
+  // P8r, done-means item 2, mutation proof 1: redosRequested must count the
+  // durable redoRequestedAt fact, not the transient redo_requested status.
+  // A job that passed through redo_requested and was then REFUSED (so it
+  // now sits at a terminal status with redoRequestedAt still set) proves
+  // the durable fact survives a refusal.
+  it('a redo requested and then refused still counts redosRequested, even though the status has moved on', () => {
+    const result = buyerConductRecord([
+      job({ status: 'staged_declined', redoRequestedAt: '2026-06-01T00:00:00.000Z' }),
+    ]);
+    expect(result.redosRequested).toBe(1);
+  });
+
+  // The other half of the same mutation proof: a redo requested and then
+  // ACCEPTED (restaged) also survives, proving the count is not the
+  // transient status either way. Built by passing through redo_requested
+  // and landing back at staged, per the card's own instruction.
+  it('a redo requested and then accepted and restaged still counts redosRequested', () => {
+    const result = buyerConductRecord([
+      job({ status: 'staged', redoRequestedAt: '2026-06-01T00:00:00.000Z' }),
+    ]);
+    expect(result.redosRequested).toBe(1);
+  });
+
+  it('a job with no redo requested at all does not count redosRequested', () => {
+    const result = buyerConductRecord([job({ status: 'staged', redoRequestedAt: null })]);
+    expect(result.redosRequested).toBe(0);
+  });
+
+  // Mutation proof 1's negative control: counting the transient status
+  // itself would report zero here, because this row never sits AT
+  // redo_requested at read time.
+  it('counting the redo_requested status itself would be wrong: a resolved redo is not still at that status', () => {
+    const result = buyerConductRecord([
+      job({ status: 'staged_declined', redoRequestedAt: '2026-06-01T00:00:00.000Z' }),
+    ]);
+    expect(result.redosRequested).not.toBe(0);
+  });
+
+  it('is total: a row omitting redoRequestedAt counts as no redo, never a throw', () => {
+    const malformed = [{ status: 'staged' } as unknown as BuyerJobFacts];
+    expect(() => buyerConductRecord(malformed)).not.toThrow();
+    expect(buyerConductRecord(malformed).redosRequested).toBe(0);
   });
 });
 
-// Scope item 2: paid, cited closes and redos requested are absent, never
-// zeroes, because no fact in this build can produce them. This test fails
-// if a future edit adds one of the named fields back onto BuyerConduct
-// without deliberately removing it from ABSENT_BUYER_COUNTS.
+// Scope item 2: paid alone is absent, never a zero, because no fact in
+// this build can produce it. citedCloses and redosRequested join
+// BuyerConduct now that P6 has merged. This test fails if a future edit
+// adds paid back onto BuyerConduct without deliberately removing it from
+// ABSENT_BUYER_COUNTS, or removes citedCloses/redosRequested from the
+// record without adding them back here.
 describe('ABSENT_BUYER_COUNTS', () => {
-  it('names paid, citedCloses and redosRequested, each with a reason', () => {
-    const fields = ABSENT_BUYER_COUNTS.map((entry) => entry.field).sort();
-    expect(fields).toEqual(['citedCloses', 'paid', 'redosRequested'].sort());
+  it('names only paid, with a reason naming the missing settlement fact', () => {
+    const fields = ABSENT_BUYER_COUNTS.map((entry) => entry.field);
+    expect(fields).toEqual(['paid']);
     for (const entry of ABSENT_BUYER_COUNTS) {
       expect(entry.reason.length).toBeGreaterThan(0);
     }
+  });
+
+  it("paid's reason names BuyerJobFacts carrying no settlement fact, not the stale invariant-12 wording", () => {
+    const paidEntry = ABSENT_BUYER_COUNTS.find((entry) => entry.field === 'paid');
+    expect(paidEntry).toBeDefined();
+    expect(paidEntry?.reason).toContain('BuyerJobFacts');
+    expect(paidEntry?.reason).not.toContain('P6');
   });
 
   it('mutation proof: none of the named absent fields ever appears as a key on a buyerConductRecord result', () => {
@@ -200,5 +286,82 @@ describe('buyerConductThresholdFailure', () => {
 
   it('is total: never throws on any input combination exercised above', () => {
     expect(() => buyerConductThresholdFailure(null, { minBuyerMerges: null, maxWalkedAfterConfirm: null })).not.toThrow();
+  });
+});
+
+// P8r scope item 2: the operator side, a different population over the
+// same account. Its own structural facts type, mirroring BuyerJobFacts,
+// never merged into BuyerConduct.
+function operatorJob(overrides: Partial<OperatorJobFacts> = {}): OperatorJobFacts {
+  return {
+    status: 'completed',
+    redoRefusedAt: null,
+    ...overrides,
+  };
+}
+
+describe('operatorConductRecord', () => {
+  it('a staged_declined job counts deliveredNeverPaid', () => {
+    const result = operatorConductRecord([operatorJob({ status: 'staged_declined' })]);
+    expect(result.deliveredNeverPaid).toBe(1);
+  });
+
+  it('a closed_unpaid job also counts deliveredNeverPaid, the wireframe draws no distinction', () => {
+    const result = operatorConductRecord([operatorJob({ status: 'closed_unpaid' })]);
+    expect(result.deliveredNeverPaid).toBe(1);
+  });
+
+  // Done-means item 5: proved against one of each rather than one of
+  // either.
+  it('one staged_declined and one closed_unpaid both count toward deliveredNeverPaid: 2, not 1', () => {
+    const result = operatorConductRecord([
+      operatorJob({ status: 'staged_declined' }),
+      operatorJob({ status: 'closed_unpaid' }),
+    ]);
+    expect(result.deliveredNeverPaid).toBe(2);
+  });
+
+  it('a completed job does not count deliveredNeverPaid', () => {
+    const result = operatorConductRecord([operatorJob({ status: 'completed' })]);
+    expect(result.deliveredNeverPaid).toBe(0);
+  });
+
+  it('a job carrying redoRefusedAt counts redosRefused', () => {
+    const result = operatorConductRecord([operatorJob({ redoRefusedAt: '2026-06-01T00:00:00.000Z' })]);
+    expect(result.redosRefused).toBe(1);
+  });
+
+  // Done-means item 6: a redo requested and never answered (still sitting
+  // at redo_requested, redoRefusedAt null) must not count.
+  it('a redo requested and never answered does not count redosRefused', () => {
+    const result = operatorConductRecord([operatorJob({ status: 'redo_requested', redoRefusedAt: null })]);
+    expect(result.redosRefused).toBe(0);
+  });
+
+  it('empty input gives all-zero counts', () => {
+    expect(operatorConductRecord([])).toEqual({ deliveredNeverPaid: 0, redosRefused: 0 });
+  });
+
+  it('exports exactly the two documented counts, never merged with a buyer field', () => {
+    const result = operatorConductRecord([operatorJob()]);
+    expect(Object.keys(result).sort()).toEqual(['deliveredNeverPaid', 'redosRefused'].sort());
+  });
+
+  it('is total: a non-array input is treated as no jobs, not thrown', () => {
+    const notAnArray = { length: 3 } as unknown as readonly OperatorJobFacts[];
+    expect(() => operatorConductRecord(notAnArray)).not.toThrow();
+    expect(operatorConductRecord(notAnArray)).toEqual({ deliveredNeverPaid: 0, redosRefused: 0 });
+  });
+
+  it('is total: a null or undefined row does not throw and contributes nothing', () => {
+    const malformed = [null, undefined] as unknown as readonly OperatorJobFacts[];
+    expect(() => operatorConductRecord(malformed)).not.toThrow();
+    expect(operatorConductRecord(malformed)).toEqual({ deliveredNeverPaid: 0, redosRefused: 0 });
+  });
+
+  it('is total: a row missing status contributes nothing to deliveredNeverPaid, never throws', () => {
+    const malformed = [{ redoRefusedAt: null } as unknown as OperatorJobFacts];
+    expect(() => operatorConductRecord(malformed)).not.toThrow();
+    expect(operatorConductRecord(malformed).deliveredNeverPaid).toBe(0);
   });
 });
