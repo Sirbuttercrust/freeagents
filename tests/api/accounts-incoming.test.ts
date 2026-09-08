@@ -10,6 +10,7 @@ import { createApp } from '../../src/api/app.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import { MemoryAccountRepository, MemoryAgentRepository, MemoryJobRepository } from '../../src/adapters/storage/memory.js';
 import { createJob, type Job, type Criterion } from '../../src/domain/job.js';
+import { ALL_JOB_STATUSES } from '../../src/domain/job-list.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSessionToken } from '../helpers/session-fixtures.js';
 
@@ -199,24 +200,28 @@ describe('GET /accounts/:did/incoming: only draft and proposed offers to this op
     return { built, owner, agentDid: agent.did, buyerDid: buyer.did };
   }
 
-  it('draft and proposed rows appear; confirmed and every later status is absent (mutation proof 1, done-means 5)', async () => {
+  it('draft and proposed rows appear; every other JobStatus is absent, proved over the whole enum (mutation proof 1, done-means 5)', async () => {
+    // QA D1 (review round 1): five hand-picked statuses reach only three
+    // of jobListBucketOf's five buckets, so waitingOnYou (staged,
+    // submitted) went unpinned and a filter widened to include it left
+    // the whole suite green. Seed one job per status in
+    // ALL_JOB_STATUSES, the same enum-derived fixture list
+    // tests/domain/job-list.test.ts:25-32 already uses, so a status
+    // added to the union later is exercised here automatically instead
+    // of waiting on a hand-picked list to be extended.
     const { built, owner, agentDid, buyerDid } = await seededOperator();
     try {
-      await built.jobRepo.create(jobFixture({ id: 'job-draft', buyerDid, agentDid, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
-      await built.jobRepo.create(jobFixture({ id: 'job-proposed', buyerDid, agentDid, status: 'proposed', criteria: [{ text: 'x', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false }] }, new Date('2026-08-02T00:00:00Z')));
-      await built.jobRepo.create(jobFixture({ id: 'job-confirmed', buyerDid, agentDid, status: 'confirmed', confirmedAt: new Date('2026-08-03T00:00:00Z') }, new Date('2026-08-03T00:00:00Z')));
-      await built.jobRepo.create(jobFixture({ id: 'job-completed', buyerDid, agentDid, status: 'completed', mergedAt: new Date('2026-08-04T00:00:00Z') }, new Date('2026-08-04T00:00:00Z')));
-      await built.jobRepo.create(jobFixture({ id: 'job-declined', buyerDid, agentDid, status: 'declined' }, new Date('2026-08-05T00:00:00Z')));
+      await Promise.all(
+        ALL_JOB_STATUSES.map((status, i) =>
+          built.jobRepo.create(jobFixture({ id: `job-${status}`, buyerDid, agentDid, status }, new Date(2026, 7, 1 + i))),
+        ),
+      );
 
       const res = await getSigned(built.baseUrl, `/accounts/${owner.did}/incoming`, owner);
       expect(res.status).toBe(200);
       const body = (await res.json()) as { offers: Array<{ id: string }> };
-      const ids = body.offers.map((o) => o.id);
-      expect(ids).toContain('job-draft');
-      expect(ids).toContain('job-proposed');
-      expect(ids).not.toContain('job-confirmed');
-      expect(ids).not.toContain('job-completed');
-      expect(ids).not.toContain('job-declined');
+      const ids = body.offers.map((o) => o.id).sort();
+      expect(ids).toEqual(['job-draft', 'job-proposed']);
     } finally {
       built.server.close();
     }
