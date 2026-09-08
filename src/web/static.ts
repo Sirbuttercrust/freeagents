@@ -104,6 +104,7 @@ type PageName =
   | 'incoming'
   | 'conduct'
   | 'dashboard'
+  | 'operatorjob'
   | 'settings'
   | 'notfound'
   | 'authCallbackSuccess'
@@ -145,6 +146,9 @@ const PAGE_FILES: Readonly<Record<PageName, string>> = {
   conduct: 'conduct.html',
   // P8u: same stance -- /dashboard owns no path an API route also serves.
   dashboard: 'dashboard.html',
+  // P8v: same stance -- /operatorjob owns no path an API route also
+  // serves (SITEMAP P-25, the operator's own side of one hire).
+  operatorjob: 'operatorjob.html',
   // P8v: same stance -- /settings owns no path an API route also serves.
   settings: 'settings.html',
   notfound: 'notfound.html',
@@ -320,6 +324,9 @@ export function createWebSurface(
       // P8u: same stance -- /dashboard owns no path an API route also
       // serves, so this is a plain own-path mount, never `negotiated`.
       app.get('/dashboard', (_req: Request, res: Response) => send(res, 'dashboard'));
+      // P8v: same stance -- /operatorjob owns no path an API route also
+      // serves, so this is a plain own-path mount, never `negotiated`.
+      app.get('/operatorjob', (_req: Request, res: Response) => send(res, 'operatorjob'));
       // P8v: same stance -- /settings owns no path an API route also
       // serves, so this is a plain own-path mount, never `negotiated`.
       app.get('/settings', (_req: Request, res: Response) => send(res, 'settings'));

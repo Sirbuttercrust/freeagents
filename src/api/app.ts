@@ -3114,9 +3114,30 @@ export function createApp(
   // that same question by assertion, as an interim seam while R-34 had not
   // yet landed on these routes; it has, so the header is gone. A verified
   // signerDid is the only source of identity here now.
-  function partyForDid(job: Job, did: string): Party | null {
+  //
+  // P8v (2026-09-08 ruling: "an operator acting on behalf of their own
+  // listed agent should be accepted as that agent's party on a job"): the
+  // buyer and the agent's own key are checked first, unchanged. Only when
+  // neither matches does this look up the job's agent and ask
+  // isAgentOperator (src/domain/agent.ts, the same operator-match predicate
+  // the ungated agent-record routes already use) whether `did` is that
+  // agent's own operator. The operator IS the agent's party -- there is no
+  // third Party value and no new role string, only a second way to prove
+  // the same 'agent' seat. The buyer check runs first and wins outright:
+  // an operator who is also this job's buyer resolves to 'buyer', exactly
+  // the 2026-09-01 self-hire ruling already requires (isSelfHire's own
+  // header comment: "the job was never confirmable anyway").
+  async function partyForDid(job: Job, did: string): Promise<Party | null> {
     if (did === job.buyerDid) return 'buyer';
     if (did === job.agentDid) return 'agent';
+    let jobAgent: Agent | null;
+    try {
+      jobAgent = await agentRepo.findByDid(job.agentDid);
+    } catch (err) {
+      console.error('partyForDid: storage failed reading the job\'s agent', err);
+      return null;
+    }
+    if (jobAgent !== null && isAgentOperator(did, jobAgent.operatorDid)) return 'agent';
     return null;
   }
 
@@ -3158,7 +3179,7 @@ export function createApp(
       });
       return null;
     }
-    const party = partyForDid(job, actingDid);
+    const party = await partyForDid(job, actingDid);
     if (party === null) {
       res.status(403).json({
         error:
