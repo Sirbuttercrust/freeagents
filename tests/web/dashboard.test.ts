@@ -554,6 +554,8 @@ describe('the dashboard screen, driven end to end against the real app', () => {
       const section = sectionByHeading(page.document, 'In progress');
       const row = Array.from(section?.querySelectorAll('.rows > *') ?? []).find((r) => r.textContent?.includes('Brief sent, no reply yet'));
       expect(row).toBeDefined();
+      expect(row?.tagName.toLowerCase()).not.toBe('a');
+      expect(row?.tagName.toLowerCase()).not.toBe('button');
       expect(row?.querySelectorAll('a, button').length).toBe(0);
     } finally {
       page.close();
