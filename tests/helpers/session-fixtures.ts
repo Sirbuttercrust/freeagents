@@ -3,7 +3,7 @@
 // fetchImpl so the test suite makes no real network call (CLAUDE.md, and
 // this brief's "no network calls in the test suite").
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
-import type { SessionAdapter } from '../../src/adapters/identity/session.js';
+import type { Session, SessionAdapter } from '../../src/adapters/identity/session.js';
 
 export interface FakeGitHubUser {
   readonly login: string;
@@ -74,6 +74,21 @@ export async function mintSessionToken(adapter: SessionAdapter): Promise<string>
     throw new Error('mintSessionToken: completeGitHubOAuth unexpectedly returned null');
   }
   return session.token;
+}
+
+// P8k: staged.js's own party probe (resolveIsBuyerParty) reads the
+// session's subject and method out of storage, not just its token, so a
+// caller that needs the redo/decline controls to render must stash the
+// whole Session the adapter minted rather than the token alone. This is
+// the same completeGitHubOAuth round trip mintSessionToken already runs;
+// it simply keeps the rest of the object instead of discarding it.
+export async function mintSession(adapter: SessionAdapter): Promise<Session> {
+  const start = await adapter.beginGitHubOAuth();
+  const session = await adapter.completeGitHubOAuth({ code: 'test-code', state: start.state });
+  if (session === null) {
+    throw new Error('mintSession: completeGitHubOAuth unexpectedly returned null');
+  }
+  return session;
 }
 
 // The header shape every gated-route test needs: Authorization: Bearer
