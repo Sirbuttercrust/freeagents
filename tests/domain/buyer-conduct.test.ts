@@ -37,6 +37,7 @@ describe('buyerConductRecord', () => {
       closedUnmerged: 0,
       citedCloses: 0,
       redosRequested: 0,
+      walkedAway: 0,
     });
   });
 
@@ -125,7 +126,7 @@ describe('buyerConductRecord', () => {
     expect(result.merged).toBe(0);
   });
 
-  it('does not export a blended or derived field: exactly the nine documented counts', () => {
+  it('does not export a blended or derived field: exactly the ten documented counts', () => {
     const result = buyerConductRecord([job()]);
     expect(Object.keys(result).sort()).toEqual(
       [
@@ -138,6 +139,7 @@ describe('buyerConductRecord', () => {
         'closedUnmerged',
         'citedCloses',
         'redosRequested',
+        'walkedAway',
       ].sort(),
     );
   });
@@ -203,6 +205,32 @@ describe('buyerConductRecord', () => {
     const malformed = [{ status: 'staged' } as unknown as BuyerJobFacts];
     expect(() => buyerConductRecord(malformed)).not.toThrow();
     expect(buyerConductRecord(malformed).redosRequested).toBe(0);
+  });
+
+  // Ruling 2 (P8s): walkedAway is DATA-CONTRACT.md:405's "staged_declined
+  // plus closed_unpaid" -- work that was delivered and then declined or
+  // gone quiet on. It is a DIFFERENT count from walkedAfterConfirm, which
+  // is expired_unstaged plus withdrawn-after-confirm: walking away with
+  // NOTHING delivered. This fixture makes the two counts differ (one
+  // stagedDeclined, one closedUnpaid, one expired_unstaged) so a version
+  // of the code that bound "walked away" to walkedAfterConfirm reddens
+  // here (mutation proof 1).
+  it('walkedAway equals stagedDeclined plus closedUnpaid, and differs from walkedAfterConfirm', () => {
+    const result = buyerConductRecord([
+      job({ status: 'staged_declined' }),
+      job({ status: 'closed_unpaid' }),
+      job({ status: 'expired_unstaged' }),
+    ]);
+    expect(result.stagedDeclined).toBe(1);
+    expect(result.closedUnpaid).toBe(1);
+    expect(result.walkedAfterConfirm).toBe(1);
+    expect(result.walkedAway).toBe(2);
+    expect(result.walkedAway).not.toBe(result.walkedAfterConfirm);
+  });
+
+  it('walkedAway is zero when neither staged_declined nor closed_unpaid ever happened', () => {
+    const result = buyerConductRecord([job({ status: 'completed' })]);
+    expect(result.walkedAway).toBe(0);
   });
 });
 

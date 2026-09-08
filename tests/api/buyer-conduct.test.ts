@@ -656,6 +656,7 @@ describe('GET /buyers/:githubLogin/conduct (P7)', () => {
           'closedUnmerged',
           'citedCloses',
           'redosRequested',
+          'walkedAway',
         ].sort(),
       );
       expect(Object.keys(body).sort()).toEqual(['counts', 'githubLogin', 'keyed', 'operatorCounts'].sort());
