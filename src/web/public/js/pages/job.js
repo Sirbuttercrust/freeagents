@@ -95,6 +95,7 @@
     renderTechnical(job);
     renderAgreementCta(job);
     renderStagedCta(job);
+    renderPullRequestCta(job);
   }
 
   function renderWho(job) {
@@ -281,6 +282,17 @@
     var link = A.el("staged-link");
     if (link) link.setAttribute("href", "/staged?job=" + encodeURIComponent(job.id));
     A.showById("staged-cta", true);
+  }
+
+  // P8l: a submitted job's own control (inert-declared-control, tenth
+  // occurrence). Party is not checked client-side; the pull-request
+  // page's own attestation-read probe is the real boundary, the same
+  // stance P8h and P8j took for the agreement and staged pages.
+  function renderPullRequestCta(job) {
+    if (job.status !== "submitted" || typeof job.id !== "string" || job.id === "") return;
+    var link = A.el("pullrequest-link");
+    if (link) link.setAttribute("href", "/pullrequest?job=" + encodeURIComponent(job.id));
+    A.showById("pullrequest-cta", true);
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", start);
