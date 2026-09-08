@@ -7,11 +7,23 @@
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
 <style>
-  /* P8j STAGED (SITEMAP P-13), from spec/wireframe/staged.html. Nav and
-     footer copied from deposit.html unchanged. Departures (handoff): no
-     drawn QR, text + copy; one control only (pay) -- redo and decline
-     are P8k, prose with no button; outOfCriteriaPathCount omitted
-     (ruling 2); no buyer test command row (ruling 3). */
+  /* P8k STAGED (SITEMAP P-13), from spec/wireframe/staged.html. Nav and
+     footer copied from deposit.html unchanged. P8j shipped the pay
+     control alone; this card adds the redo and decline controls and
+     their dialogs (rulings 1-6). Departures (handoff): no drawn QR,
+     text + copy; outOfCriteriaPathCount omitted (ruling 2); no buyer
+     test command row (ruling 3); the redo dialog's free-text field does
+     not ship (ruling 1, no route reads it); the decline dialog renders
+     four consequence rows, not five (ruling 3, no agent-side declined
+     count exists); the picker's pickernote and numbering are adapted to
+     agreement.js's own numbering, not the wireframe's fixture (ruling 2). */
+  .picker { list-style: none; padding: 0; margin: 0; }
+  .picker li { border-bottom: 1px solid var(--line); }
+  .picker li:last-child { border-bottom: 0; }
+  .picker label { display: grid; grid-template-columns: 22px 1fr; gap: 12px; padding: 13px 0; min-height: 44px; align-items: start; cursor: pointer; font-size: 14px; line-height: 1.5; }
+  .picker input { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
+  .picker label:hover { color: var(--fg); }
+  .pickernote { font-size: 13px; color: var(--fg-2); line-height: 1.55; margin: 12px 0 0; max-width: 62ch; }
   .who { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px; }
   .who .avatar { width: 32px; height: 32px; border-radius: 50%; flex: none; overflow: hidden; background: var(--bg-2); }
   .who .hires { color: var(--accent); font-size: 13px; font-weight: 550; }
@@ -48,6 +60,8 @@
   .acts { display: flex; flex-wrap: wrap; gap: 10px; }
   .acts .btn { min-height: 44px; }
   #pay-btn { min-height: 44px; }
+  #redo-send-btn { min-height: 44px; }
+  #decline-send-btn { min-height: 44px; }
   .total .big { font-size: 34px; line-height: 1.05; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
   .total .parts { list-style: none; margin: 18px 0 0; padding: 0; font-size: 14px; color: var(--fg-2); }
   .total .parts li { display: flex; justify-content: space-between; gap: 16px; padding: 6px 0; }
@@ -90,6 +104,11 @@
       <div class="row" style="margin-top:14px"><a class="btn" id="not-ready-link">Back to this hire</a></div>
     </div>
     <div class="empty warn" id="fault-error" hidden><b>Something is wrong with this hire's record.</b><p class="sub" style="margin-top:8px" id="fault-error-detail">The work is staged but no account of it could be found. This is a fault on our side, not yours.</p></div>
+    <div class="empty warn" id="declined-panel" hidden>
+      <b>This hire ended. You declined the staged work.</b>
+      <p class="sub" style="margin-top:8px">The code never left staging and nothing further is owed.</p>
+      <div class="row" style="margin-top:14px"><a class="btn" id="declined-link">Back to this hire</a></div>
+    </div>
     <div id="staged-body" hidden>
       <div class="who" id="who">
         <div class="avatar" id="agent-avatar" data-pending></div>
@@ -114,13 +133,20 @@
       <h2 style="margin-top:40px; margin-bottom:6px">What is in the work</h2>
       <p class="sub" style="margin-bottom:18px">Measured from the staged commit by FreeAgents. These are facts about the change. We do not judge whether the work is good, and nothing below is a rating.</p>
       <ul class="facts pane pane-pad" id="facts"></ul>
-      <h2 style="margin-top:40px; margin-bottom:6px">Your three choices</h2>
-      <p class="sub" style="margin-bottom:18px">These are all of them. There is nothing else to do on this page.</p>
-      <div class="acts">
-        <button class="btn btn-primary" type="button" id="pay-btn" disabled>Loading</button>
+      <div id="choices-section">
+        <h2 style="margin-top:40px; margin-bottom:6px">Your three choices</h2>
+        <p class="sub" style="margin-bottom:18px">These are all of them. There is nothing else to do on this page.</p>
+        <div class="acts" id="acts">
+          <button class="btn btn-primary" type="button" id="pay-btn" disabled>Loading</button>
+          <button class="btn" type="button" id="redo-btn" hidden>Send it back once, free</button>
+          <button class="btn" type="button" id="decline-btn">Decline the work</button>
+        </div>
+        <ul class="fixed pane pane-pad" style="margin-top:22px" id="choices"></ul>
+        <div class="empty warn" id="pay-error" hidden style="margin-top:16px"><p class="sub" id="pay-error-detail"></p></div>
+        <div class="empty warn" id="redo-error" hidden style="margin-top:16px"><p class="sub" id="redo-error-detail"></p></div>
+        <div class="empty warn" id="decline-error" hidden style="margin-top:16px"><p class="sub" id="decline-error-detail"></p></div>
       </div>
-      <ul class="fixed pane pane-pad" style="margin-top:22px" id="choices"></ul>
-      <div class="empty warn" id="pay-error" hidden style="margin-top:16px"><p class="sub" id="pay-error-detail"></p></div>
+      <p class="sub" id="redo-pending-note" hidden style="margin-top:22px"></p>
       <div style="margin-top:26px">
         <button class="disclose" type="button" data-disclose="atttech" data-disclose-alt="Hide technical details">Show technical details</button>
         <div id="atttech" class="detail">
@@ -162,6 +188,31 @@
   <div class="sfoot">
     <button class="btn" type="button" data-closes>Close</button>
     <button class="btn" type="button" id="check-pr-btn">Check for the pull request</button>
+  </div>
+</dialog>
+<dialog class="sheet" id="redo" aria-labelledby="redoh">
+  <div class="shead"><h2 id="redoh">Send it back once</h2><button class="sclose" type="button" data-closes aria-label="Close">&times;</button></div>
+  <div class="sbody">
+    <p class="sub" style="max-width:none">Which of the lines you both signed did the work miss?</p>
+    <ul class="picker" id="redo-picker"></ul>
+    <p class="pickernote" id="redo-pickernote"></p>
+    <p class="sub" style="margin-top:16px; max-width:none" id="redo-cost-note"></p>
+  </div>
+  <div class="sfoot">
+    <button class="btn btn-primary" type="button" id="redo-send-btn" disabled>Send it back</button>
+    <button class="btn" type="button" data-closes>Cancel</button>
+  </div>
+</dialog>
+<dialog class="sheet" id="decline" aria-labelledby="dech">
+  <div class="shead"><h2 id="dech">Decline the work</h2><button class="sclose" type="button" data-closes aria-label="Close">&times;</button></div>
+  <div class="sbody">
+    <p style="margin:0 0 14px">This ends the hire. It cannot be undone.</p>
+    <ul class="fixed" id="decline-consequences"></ul>
+    <p class="sub" style="margin-top:16px; max-width:none">No reason is asked for and none is recorded. FreeAgents does not decide whether the work was good.</p>
+  </div>
+  <div class="sfoot">
+    <button class="btn btn-primary" type="button" id="decline-send-btn">Decline, and end this hire</button>
+    <button class="btn" type="button" data-closes>Cancel</button>
   </div>
 </dialog>
 <footer class="foot">
