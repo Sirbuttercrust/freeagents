@@ -1730,6 +1730,89 @@ export function createApp(
     }
   });
 
+  // P8t: GET /accounts/:did/pending, the buyer's own read of the hires
+  // they have started that are not real yet (the operator's own words:
+  // "I thought we were just a intermediary between the two parties",
+  // 2026-09-07). The mirror of GET /accounts/:did/incoming above: the
+  // same filter over the caller's own buyerDid instead of their roster's
+  // agentDid. Built from the same parts in the same order: resolveActingParty,
+  // then a 403 that never says whether :did is a registered account or
+  // how many rows it has.
+  //
+  // Answers 200 with one entry per job whose jobListBucketOf(status) is
+  // 'notReal' (draft or proposed, ENT-4.1): the exact complement of
+  // GET /accounts/:did/jobs above. This route never scores, ranks by
+  // anything but its own timestamp, or judges either party (the scope
+  // fence): there is no recommended, urgent, priority, stale, or
+  // overdue field.
+  app.get('/accounts/:did/pending', requireSessionOrSignature, async (req: Request, res: Response) => {
+    const did = String(req.params.did);
+    let actingParty: string | null;
+    try {
+      actingParty = await resolveActingParty(req, repo, identityAdapter);
+    } catch (err) {
+      console.error('GET /accounts/:did/pending: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    // Neither a stranger nor an unresolved caller ever learns whether
+    // :did is a registered account or how many rows it has: the refusal
+    // is identical whether or not the account exists.
+    if (actingParty === null || actingParty !== did) {
+      res.status(403).json({ error: 'an account may only read its own pending list' });
+      return;
+    }
+
+    // findByBuyerDid is optional on JobRepository (the same stance
+    // GET /accounts/:did/jobs already takes above); a driver that omits
+    // it fails the same way a driver that throws does.
+    if (typeof jobRepo.findByBuyerDid !== 'function') {
+      console.error('GET /accounts/:did/pending: storage does not support findByBuyerDid');
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+
+    try {
+      const rows = await jobRepo.findByBuyerDid(did);
+      // ENT-4.1: a job does not exist until the buyer confirms. draft
+      // and proposed are the only statuses returned HERE, by the
+      // route -- job-list.ts's own fifth bucket value ('notReal') is
+      // what this filter reads, the exact complement of the filter
+      // GET /accounts/:did/jobs applies above.
+      const pendingRows = rows.filter((job) => jobListBucketOf(job.status) === 'notReal');
+      const sorted = [...pendingRows].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+      // One agent lookup per DISTINCT agent, not per row (the same
+      // per-distinct-key caching GET /accounts/:did/incoming already
+      // uses above): a buyer with several briefs out to one agent pays
+      // for that lookup once. The distinct DIDs are resolved BEFORE
+      // building rows so two rows sharing an agent never race each
+      // other into two lookups of the same DID.
+      const distinctAgentDids = [...new Set(sorted.map((job) => job.agentDid))];
+      const agentNameByDid = new Map<string, string>();
+      await Promise.all(
+        distinctAgentDids.map(async (agentDid) => {
+          const agentRow = await agentRepo.findByDid(agentDid);
+          agentNameByDid.set(agentDid, agentRow?.name ?? agentDid);
+        }),
+      );
+      const pending = sorted.map((job) => ({
+        id: job.id,
+        brief: job.brief,
+        repository: job.repository,
+        agentDid: job.agentDid,
+        agentName: agentNameByDid.get(job.agentDid) ?? job.agentDid,
+        status: job.status,
+        waitingOn: waitingOnOf(job.criteria),
+        createdAt: job.createdAt.toISOString(),
+      }));
+      res.status(200).json({ buyerDid: did, pending });
+    } catch (err) {
+      console.error('GET /accounts/:did/pending: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
   // R-39 completion (t_d1b82a77, F1, closed): `operator` is DERIVED from
   // the proof the caller presented, never trusted from the body -- the
   // same pattern POST /jobs applies to buyerDid. A body-supplied operator
