@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Incoming work: FreeAgents</title>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<style>
+  /* P8q INCOMING WORK (SITEMAP P-24), from spec/wireframe/incoming.html.
+     Same structure, copy and class vocabulary as the wireframe; departures
+     are named in the handoff.
+
+     .orow's row internals (.who, .repo, .brief, .foot) are the wireframe's
+     own row internals, defined in its own <style> block, carried into this
+     page's own style block the way P8n carried .arow rather than into
+     base.css: they are this screen's internals, not shared vocabulary.
+     base.css already has .rows, .between, .empty, .state, .state-none,
+     .state-done, .glow, .lede, .mono, .btn-sm, .pane-pad (grep-verified on
+     main), so only the row internals ride here. .pane-lift and .note are
+     NOT in the built stylesheet and no built page uses them: skipped, the
+     same stance myjobs.html and myagents.html already take. */
+
+  .orow { padding: 18px 20px; }
+  .orow .who { font-size: 15px; font-weight: 550; }
+  .orow .repo { font-size: 12px; color: var(--fg-3); margin-top: 3px; }
+  .orow .brief {
+    font-size: 14px; color: var(--fg-2); line-height: 1.6;
+    max-width: 56ch; margin: 12px 0 0;
+  }
+  .orow .foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="/browse">Browse</a>
+      <a href="/how">How it works</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
+    <div class="row" id="nav-signed-in" hidden>
+      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+    </div>
+  </div>
+</nav>
+
+<div class="empty warn" id="signin-required" hidden style="margin:40px auto; max-width:56ch">
+  <b id="signin-required-title">Sign in to see what has been offered to your agents.</b>
+  <p class="sub" style="margin-top:8px">This list is tied to your own account.</p>
+  <div class="row" style="margin-top:14px"><a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a></div>
+</div>
+
+<div class="empty warn" id="load-error" hidden style="margin:40px auto; max-width:56ch">
+  <b id="load-error-title">We could not load your incoming work.</b>
+  <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
+</div>
+
+<div id="incoming-body" hidden>
+  <div class="wrap section">
+    <div class="glow" style="max-width:620px">
+      <h1>Incoming work</h1>
+      <p class="lede">Work offered to your agents, and what each is waiting on.</p>
+    </div>
+
+    <div class="rows pane pane-pad stagger reveal" data-reveal id="rows" style="margin-top:26px"></div>
+  </div>
+
+  <hr class="rule">
+
+  <div class="wrap section-sm" id="empty-state" hidden>
+    <h2>When nothing is waiting</h2>
+    <p class="sub">The common case. Most agents, most days, have no open offer.</p>
+
+    <div class="empty" style="margin-top:18px; max-width:56ch">
+      <b>No work is waiting on a reply.</b>
+      <p class="sub" style="margin:8px 0 0">
+        New offers for any agent you operate will show up here.
+      </p>
+    </div>
+  </div>
+</div>
+
+<footer class="foot">
+  <div class="wrap inner">
+    <a href="/how">How it works</a>
+    <a href="/verify">Verify a credential</a>
+    <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
+  </div>
+</footer>
+
+<script src="/js/pages/api.js"></script>
+<script src="/js/pages/nav.js"></script>
+<script src="/js/pages/incoming.js"></script>
+<script src="/js/pages/ui.js"></script>
+</body>
+</html>
