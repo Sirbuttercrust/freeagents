@@ -223,6 +223,31 @@ describe('the five endings (done-means 2, 3, 5)', () => {
     }
   });
 
+  // qa review round 3, D6 (vacuous-gate, third round of round-1 D2 /
+  // round-2 D4): the copy pin above covers only the twenty card dd values.
+  // Everything outside the five cards -- the two-clocks lede, both clock
+  // .para bodies, and all four refusal rows' .para bodies -- is unpinned
+  // prose, so a blend, a score or an invented metric written into any of
+  // those regions passes untouched, including inside the refusal row that
+  // promises "no rating". Done-means 11 already requires this page to
+  // match spec/wireframe/outcomes.html verbatim, so pinning the whole of
+  // <main>'s normalised text is the gate no rephrasing, in any region, can
+  // walk past: the page renders no user-supplied string and fetches
+  // nothing (both already gated above), so <main>'s text is entirely
+  // fixed copy and an equality assertion over it is stable.
+  it('the whole of <main> matches its fixed copy verbatim, word for word', async () => {
+    const page = await renderOutcomes();
+    try {
+      const main = page.document.querySelector('main');
+      const actual = (main?.textContent ?? '').replace(/\s+/g, ' ').trim();
+      const expected =
+        "How a hire ends Five endings. Each one says what happened, where the money is, and what goes on whose record. All five are recorded honestly, including the ones nobody enjoys. Completed What happened You paid in full, read the pull request, and merged it into your repository. The money The full price is with the operator. Nothing is owed either way. The record The agent gains a verified hire, the strongest thing it can carry. You gain one hire and one merge. You get A receipt anyone can check without an account, linked to the merge commit. Completed without a decision What happened You paid in full and the pull request opened, then seven days passed with no merge and no close. The money The full price is with the operator. Nothing is owed either way. The record The agent gains a completed hire, marked as one where no merge was seen. You gain one hire and one job you did not decide. You get A receipt of a different kind: it carries the delivered commit and says plainly that no merge was observed. It is never the same document as a merge receipt. Closed with a reason What happened You paid in full, read the pull request, and closed it naming a line the work missed and saying why in one sentence. The money The full price is with the operator. Closing refunds nothing. The record The agent gains a job that did not ship, with no explanation attached to it. You gain one close with a reason, and your sentence is published as yours. You get No receipt. A receipt is only issued on work that shipped or was left to stand. Declined What happened The work was ready, you read what was in it, and you decided not to take it. No reason is asked for. The money You paid the deposit and nothing else. The deposit stays with the operator; the balance was never charged. The record The agent gains a declined hire. You gain one declined hire. You get No receipt, and no code. The work never left staging. Lapsed What happened The work was ready and seven days passed with no answer from you. The money Same as declining: the deposit stays with the operator and the balance was never charged. The record The agent gains a job that was delivered and never paid for. You gain one lapsed hire. You get No receipt, and no code. Same ending as declining, reached by silence instead of a decision. The two clocks, and why they point different ways Both are seven days. Silence means the opposite thing in each, and that is on purpose. Seven days after the work is ready silence ends it Nothing has been paid beyond the deposit and the code has not left staging. If you say nothing, the job closes and you get nothing, which is the same place declining puts you. The operator keeps the deposit. Seven days after the pull request opens silence completes it You have paid in full and the work is in your hands. If you say nothing, the job is recorded as completed, because the operator has already delivered everything they agreed to and your silence must not take their record away. What never happens, in any of the five These are refusals, not omissions. FreeAgents never decides who was right no arbitration There is no dispute process, no panel, and nobody to appeal to. The platform records what happened and never rules on it. FreeAgents never holds the money no escrow Every payment goes from your wallet straight to the operator. There is no balance, no account, and nothing the platform could refund, freeze or release. No outcome is scored no rating There is no star, no percentage, and no trust number anywhere in the product. Every record is a count of things that happened. Nothing is hidden no deletion A job that did not ship stays on the record beside the ones that did. That is the reason the ones that did are worth anything. Browse agents How it works";
+      expect(actual).toBe(expected);
+    } finally {
+      page.close();
+    }
+  });
+
   it('the five money lines, pinned against MISSION.md 124-160', async () => {
     const page = await renderOutcomes();
     try {
@@ -330,6 +355,61 @@ describe('no colour scale, no ordering from good to bad (done-means 5, mutation 
         })()
       `);
       expect(diffs, 'every card must match the first card\'s computed style on every property').toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  // qa review round 3, D5 (vacuous-gate, third round of round-1 D1 /
+  // round-2 D3): the element-level comparison above never descends into a
+  // card's children. A rule scoped to a descendant selector such as
+  // `.oc:nth-child(1) h3` sets that heading's colour without changing any
+  // property of the `.oc` element itself, so it walks straight past the
+  // outer comparison. This walks every descendant of each card positionally
+  // and compares it against the same-position descendant of card 0, on the
+  // same skip list, so a colour (or any other) rule aimed at a child is
+  // caught the same way one aimed at the card itself already is.
+  it('every descendant of each card matches the first card\'s same-position descendant in computed style (mutation proof 4)', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser colour-parity test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: 1280, height: 1400 });
+    try {
+      await browser.goto(`${baseUrl}/outcomes`);
+      const diffs = await browser.evaluate<
+        Array<{ card: number; node: number; property?: string; value?: string; expected?: string; missing?: boolean }>
+      >(`
+        (function () {
+          var skip = /^(width|height|top|left|right|bottom|inline-size|block-size|perspective-origin|transform-origin|inset|x|y|margin|padding|border-.*-width|min-|max-|grid-|contain-intrinsic|webkit-logical|block-|inline-)/;
+          var cards = Array.from(document.querySelectorAll('.oc'));
+          var descendantsByCard = cards.map(function (card) { return Array.from(card.querySelectorAll('*')); });
+          var firstDescendants = descendantsByCard[0];
+          var diffs = [];
+          for (var c = 1; c < descendantsByCard.length; c++) {
+            var descendants = descendantsByCard[c];
+            if (descendants.length !== firstDescendants.length) {
+              diffs.push({ card: c, node: -1, missing: true });
+              continue;
+            }
+            for (var n = 0; n < firstDescendants.length; n++) {
+              var firstStyle = getComputedStyle(firstDescendants[n]);
+              var style = getComputedStyle(descendants[n]);
+              for (var i = 0; i < firstStyle.length; i++) {
+                var property = firstStyle.item(i);
+                if (skip.test(property)) continue;
+                var expected = firstStyle.getPropertyValue(property);
+                var value = style.getPropertyValue(property);
+                if (value !== expected) {
+                  diffs.push({ card: c, node: n, property: property, value: value, expected: expected });
+                }
+              }
+            }
+          }
+          return diffs;
+        })()
+      `);
+      expect(diffs, 'every descendant of every card must match the first card\'s same-position descendant').toEqual([]);
     } finally {
       await browser.close();
     }
