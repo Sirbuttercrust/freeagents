@@ -22,6 +22,7 @@ import { fakeGitHubConfig, fakeGitHubFetch, mintSession } from '../helpers/sessi
 import type { Session } from '../../src/adapters/identity/session.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
+import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 // P8d: resolving a session to an account when none exists yet needs
@@ -129,6 +130,7 @@ describe('the My agents screen, driven end to end against the real app', () => {
   const UNVERIFIED_AGENT_DID = 'did:abt:myagents-unverified-agent';
   const FLAKY_AGENT_DID = 'did:abt:myagents-flaky-agent';
   const MARKUP_AGENT_DID = 'did:abt:myagents-markup-agent';
+  const LAYOUT_AGENT_DID = 'did:abt:myagents-layout-agent';
 
   beforeAll(async () => {
     originalSeed = process.env.FREEAGENTS_PLATFORM_SEED;
@@ -467,29 +469,104 @@ describe('the My agents screen, driven end to end against the real app', () => {
     }
   });
 
+  // P8n repair round 1, D2 (layout-broken-at-desktop): the two tests that
+  // stood here regex-matched CSS rule text and read a static base.css
+  // min-height, so mutating .arow's own layout (min-width:600px, proved by
+  // QA's review) left both green. jsdom performs no layout at all, so
+  // neither test could ever have caught that class of defect. This drives
+  // one throwaway real Chrome (tests/helpers/real-browser.ts) at a real
+  // 320px viewport and reads real bounding boxes, the only way to know
+  // whether a row actually fits the screen and whether its one link
+  // actually reaches the 44px tap floor.
   describe('layout: 320px, the row collapses per the wireframe media query, every control measures 44px or more (layout-broken-at-desktop)', () => {
-    it('the .arow grid collapses to two columns under 700px, declared in the served stylesheet', async () => {
-      const page = await renderMyAgents(baseUrl, emptyOperatorSession);
+    beforeAll(async () => {
+      // Self contained rather than relying on the roster the earlier
+      // 'signed-in operator with agents' test builds: a layout assertion
+      // must hold on its own, and running this describe block in
+      // isolation (vitest -t) must still have a row to measure.
+      const meRes = await fetch(`${baseUrl}/accounts/me`, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${emptyOperatorSession.token}` },
+      });
+      const me = (await meRes.json()) as { did: string };
+      await agentRepo.create({
+        did: LAYOUT_AGENT_DID,
+        operatorDid: me.did,
+        delegation: delegationFixture(LAYOUT_AGENT_DID, me.did),
+        name: 'layoutcheck',
+        skills: ['layout'],
+        githubLogin: null,
+      });
+    });
+
+    it('at 320px there is no horizontal overflow and the row name link measures at least 44px tall', async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      const browser = await RealBrowser.launch({ width: 320, height: 900 });
       try {
-        const rows = page.document.querySelectorAll('#rows > *');
-        expect(rows.length).toBeGreaterThan(0);
-        const pageHtml = await (await fetch(`${baseUrl}/myagents`, { headers: { Accept: HTML } })).text();
-        expect(pageHtml).toMatch(/@media \(max-width: 700px\)[\s\S]*\.arow\s*\{\s*grid-template-columns:\s*36px 1fr/);
+        await browser.goto(`${baseUrl}/myagents`);
+        await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(emptyOperatorSession))})`);
+        await browser.goto(`${baseUrl}/myagents`);
+
+        const overflow = await browser.evaluate<{ scrollWidth: number; clientWidth: number }>(`
+          ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth })
+        `);
+        expect(overflow.scrollWidth, 'the 320px page must not scroll sideways').toBe(overflow.clientWidth);
+
+        const nameLink = await browser.evaluate<{ found: boolean; width: number; height: number } | null>(`
+          (function () {
+            var link = document.querySelector('.arow .nm');
+            if (!link) return null;
+            var r = link.getBoundingClientRect();
+            return { found: true, width: r.width, height: r.height };
+          })()
+        `);
+        expect(nameLink?.found, 'at least one row with a name link must render').toBe(true);
+        expect(nameLink?.height, 'the row name link must reach the 44px tap floor at 320px').toBeGreaterThanOrEqual(44);
+
+        const disclosure = await browser.evaluate<{ height: number } | null>(`
+          (function () {
+            var btn = document.querySelector('[data-disclose="counts"]');
+            if (!btn) return null;
+            var r = btn.getBoundingClientRect();
+            return { height: r.height };
+          })()
+        `);
+        expect(disclosure?.height, 'the disclosure control must reach the 44px tap floor at 320px').toBeGreaterThanOrEqual(44);
       } finally {
-        page.close();
+        await browser.close();
       }
     });
 
-    it('the name link and disclosure control each measure at least 44px tall', async () => {
-      const page = await renderMyAgents(baseUrl, emptyOperatorSession);
+    it('mutation proof: a row wide enough to force horizontal scroll reddens the overflow assertion above', async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      const browser = await RealBrowser.launch({ width: 320, height: 900 });
       try {
-        Object.defineProperty(page.window, 'innerWidth', { writable: true, configurable: true, value: 320 });
-        const btn = page.document.querySelector('[data-disclose="counts"]') as Element | null;
-        expect(btn).toBeTruthy();
-        const style = page.window.getComputedStyle(btn as Element);
-        expect(parseFloat(style.minHeight)).toBeGreaterThanOrEqual(44);
+        await browser.goto(`${baseUrl}/myagents`);
+        await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(emptyOperatorSession))})`);
+        await browser.goto(`${baseUrl}/myagents`);
+        // The exact mutation QA's review dispatched against the served
+        // page (min-width:600px on .arow), applied live rather than to
+        // the file, then measured with the same instrument the assertion
+        // above uses. This proves the instrument itself can fail, which a
+        // regex match on stylesheet text never could.
+        await browser.evaluate(`
+          (function () {
+            var style = document.createElement('style');
+            style.textContent = '.arow { min-width: 600px; }';
+            document.head.appendChild(style);
+          })()
+        `);
+        const overflow = await browser.evaluate<{ scrollWidth: number; clientWidth: number }>(`
+          ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth })
+        `);
+        expect(overflow.scrollWidth).not.toBe(overflow.clientWidth);
       } finally {
-        page.close();
+        await browser.close();
       }
     });
   });

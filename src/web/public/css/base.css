@@ -424,6 +424,23 @@ a:focus-visible, button:focus-visible, .chip:focus-visible, .disclose:focus-visi
   .nav .links a { white-space: nowrap; }
   .nav .btn-sm { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
 
+  /* P8n repair, D1 (inert-declared-control): four nav links plus the
+     wordmark plus the sign-out control do not fit a 320px bar even after
+     the shrinks above. Measured before this rule: documentElement
+     scrollWidth 327 against clientWidth 320, and the overflowing 7px sat
+     exactly under the My agents link, so a tap on its centre hit the
+     sign-out button underneath instead of the link.
+
+     spec/wireframe/base.css already solved this for its own three-link
+     bar (its own "the wordmark at 320px" rule): the word collapses to the
+     bare mark below 420px, freeing width instead of shrinking a tap
+     target below the 44px floor. This page carries a fourth link the
+     wireframe's bar did not, so the same collapse is required here too.
+     The product name moves into the accessible name so a screen reader
+     still hears it. */
+  .brand { font-size: 0; gap: 0; width: 44px; flex: none; justify-content: center; }
+  .brand .mark { width: 20px; height: 20px; }
+
   /* Rows WRAP rather than stack. Stacking was the first fix and it was
      wrong: a .row also holds the evidence filter chips on the agent
      profile, and four full-width stacked chips is a menu, not a filter.
@@ -499,7 +516,13 @@ a:focus-visible, button:focus-visible, .chip:focus-visible, .disclose:focus-visi
      adjacent lines do not overlap.
 
      Measured 2026-08-30 at 320px: this is what took the agent profile from
-     three failures to zero, and the credential page from two to zero. */
+     three failures to zero, and the credential page from two to zero.
+
+     P8n repair, D2 (layout-broken-at-desktop): .arow .nm (the My agents row
+     name link) was missing from this list. Measured before the fix: 88.3 x
+     18px, well under the 44px floor, because it is a plain inline anchor
+     with no padding of its own. Same treatment as every other link in this
+     block closes it. */
   .ident, .item .meta, .card-row { row-gap: 18px; }
   .ident a,
   .item .meta a,
@@ -509,7 +532,8 @@ a:focus-visible, button:focus-visible, .chip:focus-visible, .disclose:focus-visi
   .empty a,
   .lede a,
   .sub a,
-  .card-row a.name-link {
+  .card-row a.name-link,
+  .arow .nm {
     display: inline-block;
     padding: 15px 6px;
     margin: -15px -6px;
