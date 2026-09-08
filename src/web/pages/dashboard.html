@@ -30,6 +30,17 @@
   .rowtext .t { font-size: 14px; font-weight: 500; }
   .rowtext .m { font-size: 12px; color: var(--fg-3); margin-top: 3px; }
   .rowtrail { font-size: 12px; color: var(--fg-2); white-space: nowrap; flex: none; text-align: right; }
+
+  /* THE 44px FLOOR (DESIGN.md 5.1), the section "See all" links.
+     base.css's own floor block (its own comment there explains the
+     mechanism) does not know this page's .seeall class, so this page
+     carries its own copy of the same padding + negative-margin trick:
+     the visible text and spacing are unchanged, the tap box grows
+     around it. Measured 2026-09-08 in real Chrome at 320px before this
+     rule: 21.4px tall, under the floor. */
+  @media (max-width: 760px), (pointer: coarse) {
+    .dgrid .seeall { display: inline-block; padding: 15px 6px; margin: -15px -6px; }
+  }
 </style>
 </head>
 <body>

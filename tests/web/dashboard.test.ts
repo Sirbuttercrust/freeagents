@@ -462,18 +462,50 @@ describe('the dashboard screen, driven end to end against the real app', () => {
     }
   });
 
-  it('a 401 on /accounts/me renders the sign-in block, not an error (silent-success-on-failure)', async () => {
+  it('a 401 on /accounts/me renders the sign-in block, not the load error (claim-contradicts-implementation)', async () => {
     const page = await renderDashboard(baseUrl, { token: 'a-token-nobody-minted' });
     try {
       // An unrecognised token: getAuthed still resolves ok() with the
-      // route's own status attached (401), which this page must treat as
-      // a load error, never as an authenticated empty account.
-      const signinShown = page.document.getElementById('signin-required')?.hidden === false;
-      const errorShown = page.document.getElementById('load-error')?.hidden === false;
-      expect(signinShown || errorShown).toBe(true);
+      // route's own status attached (401). The brief's standing line is
+      // explicit: a 401 renders the sign-in block, not an error.
+      expect(page.document.getElementById('signin-required')?.hidden).toBe(false);
+      expect(page.document.getElementById('load-error')?.hidden).toBe(true);
       expect(page.document.getElementById('dashboard-body')?.hidden).toBe(true);
     } finally {
       page.close();
+    }
+  });
+
+  it('a non-401 failure on /accounts/me still renders the load error, not the sign-in block (guard-without-a-test permitting case)', async () => {
+    const realPort = (server.address() as AddressInfo).port;
+    const proxy = http.createServer((req, res) => {
+      if (req.url && req.url.endsWith('/accounts/me')) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'storage unavailable' }));
+        return;
+      }
+      const upstream = http.request(
+        { hostname: '127.0.0.1', port: realPort, path: req.url, method: req.method, headers: req.headers },
+        (upstreamRes) => {
+          res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+          upstreamRes.pipe(res);
+        },
+      );
+      req.pipe(upstream);
+    });
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+    const proxyBaseUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
+    try {
+      const page = await renderDashboard(proxyBaseUrl, buyerSession);
+      try {
+        expect(page.document.getElementById('load-error')?.hidden).toBe(false);
+        expect(page.document.getElementById('signin-required')?.hidden).toBe(true);
+        expect(page.document.getElementById('dashboard-body')?.hidden).toBe(true);
+      } finally {
+        page.close();
+      }
+    } finally {
+      await new Promise<void>((resolve) => proxy.close(() => resolve()));
     }
   });
 
@@ -512,17 +544,7 @@ describe('the dashboard screen, driven end to end against the real app', () => {
     }
   });
 
-  it('the disclose panel renders exactly ruling 6\'s three definitions (done-means 11)', async () => {
-    const page = await renderDashboard(baseUrl, buyerSession);
-    try {
-      // Render happens even on the empty-state path only if the grid is
-      // shown; ensure a row exists so the grid (and its disclose) render.
-    } finally {
-      page.close();
-    }
-  });
-
-  it('the disclose panel renders ruling 6\'s three definitions when the grid renders', async () => {
+  it('the disclose panel renders exactly ruling 6\'s three definitions when the grid renders (done-means 11)', async () => {
     const meRes = await fetch(`${baseUrl}/accounts/me`, {
       headers: { Accept: 'application/json', Authorization: `Bearer ${buyerSession.token}` },
     });
@@ -739,6 +761,37 @@ describe('the dashboard screen, driven end to end against the real app', () => {
           ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth })
         `);
         expect(overflow.scrollWidth, 'the 320px page must not scroll sideways').toBe(overflow.clientWidth);
+      } finally {
+        await browser.close();
+      }
+    });
+
+    it('every interactive element is at least 44px at 320px, real Chrome (tap-target-under-44px)', async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      const meRes = await fetch(`${baseUrl}/accounts/me`, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${buyerSession.token}` },
+      });
+      const me = (await meRes.json()) as { did: string };
+      await jobRepo.create(jobFixture({ id: 'd15-tap-target', buyerDid: me.did, agentDid, status: 'confirmed', confirmedAt: new Date() }, new Date()));
+
+      const browser = await RealBrowser.launch({ width: 320, height: 900 });
+      try {
+        await browser.goto(`${baseUrl}/dashboard`);
+        await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(buyerSession))})`);
+        await browser.goto(`${baseUrl}/dashboard`);
+
+        const undersized = await browser.evaluate<Array<[string, number, number]>>(`
+          Array.from(document.querySelectorAll('#dgrid a, #dgrid button'))
+            .map((el) => {
+              const r = el.getBoundingClientRect();
+              return [el.textContent || '', r.width, r.height];
+            })
+            .filter(([, w, h]) => w < 44 || h < 44)
+        `);
+        expect(undersized, `undersized targets: ${JSON.stringify(undersized)}`).toEqual([]);
       } finally {
         await browser.close();
       }

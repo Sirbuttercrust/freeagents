@@ -35,6 +35,10 @@
       return;
     }
     A.getAuthed("/accounts/me", session.token).then(function (meResult) {
+      if (meResult.state === "ok" && meResult.value.status === 401) {
+        A.showById("signin-required", true);
+        return;
+      }
       if (meResult.state !== "ok" || meResult.value.status !== 200) {
         failLoad("Your account could not be read just now. Reloading may work.");
         return;
@@ -205,7 +209,7 @@
     h2.textContent = meta.heading;
     between.appendChild(h2);
     var seeAll = document.createElement("a");
-    seeAll.className = "small";
+    seeAll.className = "small seeall";
     seeAll.style.color = "var(--fg-2)";
     seeAll.href = meta.seeAll;
     seeAll.textContent = "See all \u2192";
