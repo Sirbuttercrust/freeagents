@@ -85,6 +85,7 @@ import { isValidOperatorDid } from '../domain/operator-did.js';
 import { isValidOperatorAddressEvm } from '../domain/operator-address-evm.js';
 import { isValidOperatorAddressAbt } from '../domain/operator-address-abt.js';
 import { jobListBucketOf, jobListDateOf } from '../domain/job-list.js';
+import { waitingOnOf } from '../domain/incoming.js';
 import type { Account } from '../domain/account.js';
 import {
   acceptCriterion,
@@ -1579,6 +1580,95 @@ export function createApp(
       res.status(200).json({ jobs: jobRows });
     } catch (err) {
       console.error('GET /accounts/:did/jobs: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // P8p: GET /accounts/:did/incoming, the operator's own read of what work
+  // has been offered to the agents they run (the operator's own words:
+  // "I thought we were just a intermediary between the two parties",
+  // 2026-09-07). Built from the same parts in the same order as
+  // GET /accounts/:did/jobs above: resolveActingParty, then a 403 that
+  // never says whether :did is a registered account or how many agents
+  // or offers it has.
+  //
+  // The roster comes from agentRepo.listAll() filtered by the exact
+  // `row.operatorDid === did` comparison GET /accounts/:did/agents uses
+  // above, not isAgentOperator's didSuffix match: one account's roster
+  // must mean the same thing on both routes, and a caller whose DID
+  // shares a suffix with the real operator must never inherit that
+  // operator's roster.
+  //
+  // Answers 200 with one entry per job whose jobListBucketOf(status) is
+  // 'notReal' (draft or proposed, ENT-4.1): the exact complement of the
+  // buyer's own list above. This route never scores, ranks by anything
+  // but its own timestamp, or judges either party (the scope fence):
+  // there is no recommended, urgent, or priority field.
+  app.get('/accounts/:did/incoming', requireSessionOrSignature, async (req: Request, res: Response) => {
+    const did = String(req.params.did);
+    let actingParty: string | null;
+    try {
+      actingParty = await resolveActingParty(req, repo, identityAdapter);
+    } catch (err) {
+      console.error('GET /accounts/:did/incoming: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    // Neither a stranger nor an unresolved caller ever learns whether
+    // :did is a registered account or how many agents or offers it has:
+    // the refusal is identical whether or not the account exists.
+    if (actingParty === null || actingParty !== did) {
+      res.status(403).json({ error: 'an account may only read its own incoming list' });
+      return;
+    }
+
+    if (typeof agentRepo.listAll !== 'function') {
+      console.error('GET /accounts/:did/incoming: storage does not support listAll');
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (typeof jobRepo.findByAgentDid !== 'function') {
+      console.error('GET /accounts/:did/incoming: storage does not support findByAgentDid');
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+
+    try {
+      const agentRows = await agentRepo.listAll();
+      const ownAgents = agentRows.filter((row) => row.operatorDid === did);
+
+      const findByAgentDid = jobRepo.findByAgentDid.bind(jobRepo);
+      const perAgentJobs = await Promise.all(ownAgents.map((row) => findByAgentDid(row.did)));
+      const allJobs = perAgentJobs.flat();
+      const offered = allJobs.filter((job) => jobListBucketOf(job.status) === 'notReal');
+      const sorted = [...offered].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+      // One agent lookup per DISTINCT agent, not per row (the same
+      // per-distinct-key caching GET /accounts/:did/jobs already uses
+      // above): an operator running several agents pays for that lookup
+      // once per agent, not once per offer. The distinct DIDs are
+      // resolved BEFORE building rows so two rows sharing an agent never
+      // race each other into two lookups of the same DID.
+      const distinctAgentDids = [...new Set(sorted.map((job) => job.agentDid))];
+      const agentNameByDid = new Map<string, string>();
+      await Promise.all(
+        distinctAgentDids.map(async (agentDid) => {
+          const agentRow = await agentRepo.findByDid(agentDid);
+          agentNameByDid.set(agentDid, agentRow?.name ?? agentDid);
+        }),
+      );
+      const offers = sorted.map((job) => ({
+        id: job.id,
+        brief: job.brief,
+        repository: job.repository,
+        agentDid: job.agentDid,
+        agentName: agentNameByDid.get(job.agentDid) ?? job.agentDid,
+        waitingOn: waitingOnOf(job.criteria),
+        createdAt: job.createdAt.toISOString(),
+      }));
+      res.status(200).json({ operatorDid: did, offers });
+    } catch (err) {
+      console.error('GET /accounts/:did/incoming: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
