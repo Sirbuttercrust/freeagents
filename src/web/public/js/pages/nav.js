@@ -6,11 +6,12 @@
 
    BUILD ONLY WHAT EXISTS. SITEMAP.md's signed-in row also names My jobs,
    My agents and an avatar menu holding Dashboard, Settings, Sign out.
-   P8m built My jobs, P8n built My agents and P8u (ruling 7) added a plain
-   Dashboard link, the same injected-and-removed shape as the other two
-   (this file's own items below); the avatar menu itself stays unbuilt,
-   because settings.html still does not exist and this script must not
-   link to a page this product does not serve.
+   P8m built My jobs, P8n built My agents, P8u (ruling 7) added a plain
+   Dashboard link and P8v (ruling 7) added a plain Settings link, the same
+   injected-and-removed shape as the other two (this file's own items
+   below); the avatar menu itself stays unbuilt, because collapsing four
+   existing links into a menu is a visual change to every page carrying
+   the nav and is a taste call for the polish pass, not any one card.
 
    THE SESSION IT READS IS THE SAME fa_session KEY signin.js already
    writes (sessionStorage, never a cookie -- the security sweep's "zero
@@ -83,8 +84,9 @@
 
   // P8u ruling 7: the Dashboard entry, the same injected-and-removed
   // shape as My jobs and My agents above, appended after My agents. No
-  // avatar menu, no Settings entry: settings.html is not built and
-  // src/web/static.ts mounts no /settings, so this stays a plain link.
+  // avatar menu: SITEMAP.md's signed-in row names one, but collapsing
+  // four existing links into a menu is a visual change to every page
+  // carrying the nav and is out of scope here (P8v ruling 7).
   var DASHBOARD_LINK_ID = "nav-dashboard";
   function renderDashboardLink(isSignedIn) {
     var links = document.querySelector(".links");
@@ -102,6 +104,27 @@
     links.appendChild(a);
   }
 
+  // P8v ruling 7: the Settings entry, the same injected-and-removed shape
+  // as the three links above, appended after Dashboard. Still no avatar
+  // menu: settings.html exists now, but collapsing the signed-in row into
+  // a menu remains a taste call for the polish pass, not this card.
+  var SETTINGS_LINK_ID = "nav-settings";
+  function renderSettingsLink(isSignedIn) {
+    var links = document.querySelector(".links");
+    if (!links) return;
+    var existing = document.getElementById(SETTINGS_LINK_ID);
+    if (!isSignedIn) {
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      return;
+    }
+    if (existing) return;
+    var a = document.createElement("a");
+    a.id = SETTINGS_LINK_ID;
+    a.href = "/settings";
+    a.textContent = "Settings";
+    links.appendChild(a);
+  }
+
   function render() {
     var session = A.getStoredSession();
     var signin = document.getElementById("nav-signin");
@@ -110,6 +133,7 @@
     renderMyJobsLink(isSignedIn);
     renderMyAgentsLink(isSignedIn);
     renderDashboardLink(isSignedIn);
+    renderSettingsLink(isSignedIn);
     if (!signin || !signedIn) return;
 
     signin.hidden = isSignedIn;

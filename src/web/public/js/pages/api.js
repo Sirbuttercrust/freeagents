@@ -145,6 +145,31 @@
       .catch(function () { return failed("network"); });
   }
 
+  /* An authenticated PATCH, mirroring postAuthed: resolves ok() with the
+     response status/body attached even on a non-2xx status, so the CALLER
+     picks the sentence a refusal gets (P8v ruling 1: the one write this
+     screen has). A request that never reached the server is the only
+     failed() case. */
+  function patchAuthed(path, token, body) {
+    return fetch(path, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        Accept: "application/json",
+        Authorization: "Bearer " + token,
+      },
+      credentials: "omit",
+      body: JSON.stringify(body),
+    })
+      .then(function (res) {
+        return res.json().then(
+          function (parsed) { return ok({ status: res.status, body: parsed }); },
+          function () { return ok({ status: res.status, body: null }); },
+        );
+      })
+      .catch(function () { return failed("network"); });
+  }
+
   /* ------------------------------------------------------------- DOM */
 
   function el(id) { return document.getElementById(id); }
@@ -301,6 +326,7 @@
     getLinkedData: getLinkedData,
     getAuthed: getAuthed,
     postAuthed: postAuthed,
+    patchAuthed: patchAuthed,
     getStoredSession: getStoredSession,
     el: el,
     setText: setText,

@@ -441,6 +441,25 @@ a:focus-visible, button:focus-visible, .chip:focus-visible, .disclose:focus-visi
   .brand { font-size: 0; gap: 0; width: 44px; flex: none; justify-content: center; }
   .brand .mark { width: 20px; height: 20px; }
 
+  /* P8v: the Settings link (ruling 7) is nav.js's sixth signed-in entry,
+     and six links plus the wordmark plus sign-out no longer fit a 320px
+     bar even with the shrinks above. Measured before this rule:
+     documentElement scrollWidth 356 against clientWidth 320, on EVERY
+     page carrying the nav once signed in, not settings.html alone --
+     nav.js is the one shared implementation (P8e's own rule), so a link
+     it adds is a link every page's bar must fit.
+
+     The bar WRAPS to a second row rather than scrolling or shrinking a
+     link under the 44px floor: every link keeps its own line and its
+     full tap target, and nothing is hidden behind a swipe a person has
+     no cue to make. `.nav` grows from sticky-fixed height to `auto` so
+     the second row has room; `.links` takes the full width on its own
+     row so it wraps independently of `.spacer` and the sign-in/out
+     control beside it. */
+  .nav { height: auto; min-height: 60px; }
+  .nav .inner { flex-wrap: wrap; row-gap: 6px; padding-top: 8px; padding-bottom: 8px; }
+  .nav .links { flex-wrap: wrap; row-gap: 6px; order: 3; width: 100%; }
+
   /* Rows WRAP rather than stack. Stacking was the first fix and it was
      wrong: a .row also holds the evidence filter chips on the agent
      profile, and four full-width stacked chips is a menu, not a filter.
