@@ -6,10 +6,11 @@
 
    BUILD ONLY WHAT EXISTS. SITEMAP.md's signed-in row also names My jobs,
    My agents and an avatar menu holding Dashboard, Settings, Sign out.
-   P8m built My jobs and P8n built My agents (this file's own items below);
-   the avatar menu stays unbuilt and unlinked, because dashboard.html and
-   settings.html still do not exist and this script must not link to a
-   page this product does not serve.
+   P8m built My jobs, P8n built My agents and P8u (ruling 7) added a plain
+   Dashboard link, the same injected-and-removed shape as the other two
+   (this file's own items below); the avatar menu itself stays unbuilt,
+   because settings.html still does not exist and this script must not
+   link to a page this product does not serve.
 
    THE SESSION IT READS IS THE SAME fa_session KEY signin.js already
    writes (sessionStorage, never a cookie -- the security sweep's "zero
@@ -80,6 +81,27 @@
     links.appendChild(a);
   }
 
+  // P8u ruling 7: the Dashboard entry, the same injected-and-removed
+  // shape as My jobs and My agents above, appended after My agents. No
+  // avatar menu, no Settings entry: settings.html is not built and
+  // src/web/static.ts mounts no /settings, so this stays a plain link.
+  var DASHBOARD_LINK_ID = "nav-dashboard";
+  function renderDashboardLink(isSignedIn) {
+    var links = document.querySelector(".links");
+    if (!links) return;
+    var existing = document.getElementById(DASHBOARD_LINK_ID);
+    if (!isSignedIn) {
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      return;
+    }
+    if (existing) return;
+    var a = document.createElement("a");
+    a.id = DASHBOARD_LINK_ID;
+    a.href = "/dashboard";
+    a.textContent = "Dashboard";
+    links.appendChild(a);
+  }
+
   function render() {
     var session = A.getStoredSession();
     var signin = document.getElementById("nav-signin");
@@ -87,6 +109,7 @@
     var isSignedIn = session !== null;
     renderMyJobsLink(isSignedIn);
     renderMyAgentsLink(isSignedIn);
+    renderDashboardLink(isSignedIn);
     if (!signin || !signedIn) return;
 
     signin.hidden = isSignedIn;

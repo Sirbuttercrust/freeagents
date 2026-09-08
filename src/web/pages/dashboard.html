@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard: FreeAgents</title>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<style>
+  /* P8u DASHBOARD (SITEMAP P-9), from spec/wireframe/dashboard.html. Same
+     structure, copy and class vocabulary as the wireframe; departures are
+     named in the handoff.
+
+     .dgrid, .rowtext .t/.m and .rowtrail are declared in the wireframe's
+     own <style> block and are absent from base.css, so they ride here, the
+     same way myjobs.html carries its own .rowtext/.rowtrail rules. base.css
+     already has .wrap, .section, .section-sm, .pane, .pane-pad, .glow,
+     .lede, .sub, .rule, .nav, .brand, .links, .spacer, .btn, .btn-sm,
+     .btn-primary, .rows, .between, .row, .empty, .state, .state-live,
+     .state-done, .state-none, .dot, .disclose, .detail, .kv, .small
+     (grep-verified on main): none of those are redeclared.
+
+     .pane-lift is NOT in the built stylesheet and no built page uses it:
+     skipped, the same stance myjobs.html, myagents.html, incoming.html and
+     conduct.html already take. */
+
+  .dgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 760px) { .dgrid { grid-template-columns: 1fr; } }
+
+  .rowtext .t { font-size: 14px; font-weight: 500; }
+  .rowtext .m { font-size: 12px; color: var(--fg-3); margin-top: 3px; }
+  .rowtrail { font-size: 12px; color: var(--fg-2); white-space: nowrap; flex: none; text-align: right; }
+
+  /* THE 44px FLOOR (DESIGN.md 5.1), the section "See all" links.
+     base.css's own floor block (its own comment there explains the
+     mechanism) does not know this page's .seeall class, so this page
+     carries its own copy of the same padding + negative-margin trick:
+     the visible text and spacing are unchanged, the tap box grows
+     around it. Measured 2026-09-08 in real Chrome at 320px before this
+     rule: 21.4px tall, under the floor. */
+  @media (max-width: 760px), (pointer: coarse) {
+    .dgrid .seeall { display: inline-block; padding: 15px 6px; margin: -15px -6px; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <div class="links">
+      <a href="/browse">Browse</a>
+      <a href="/how">How it works</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
+    <div class="row" id="nav-signed-in" hidden>
+      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+    </div>
+  </div>
+</nav>
+
+<div class="empty warn" id="signin-required" hidden style="margin:40px auto; max-width:56ch">
+  <b id="signin-required-title">Sign in to see what needs your attention.</b>
+  <p class="sub" style="margin-top:8px">This page is tied to your own account.</p>
+  <div class="row" style="margin-top:14px"><a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a></div>
+</div>
+
+<div class="empty warn" id="load-error" hidden style="margin:40px auto; max-width:56ch">
+  <b>We could not load your account.</b>
+  <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
+</div>
+
+<div id="dashboard-body" hidden>
+  <div class="wrap section">
+    <div class="glow" style="max-width:640px">
+      <h1>Dashboard</h1>
+      <p class="lede">What needs your attention, and nothing else.</p>
+    </div>
+
+    <div id="grid-wrap" hidden>
+      <div class="dgrid" id="dgrid" style="margin-top:30px"></div>
+
+      <div style="margin-top:26px">
+        <button class="disclose" type="button"
+                data-disclose="dashboard-grouping" data-disclose-alt="Hide how these groups are decided">Show how these groups are decided</button>
+        <div id="dashboard-grouping" class="detail">
+          <p style="margin:0; color:var(--fg-2)">
+            A hired job moves through a few private states before it is done:
+            agreeing criteria, confirmed and waiting on a pull request, then a
+            decision. This page sorts jobs the way you would ask about them
+            yourself, not by the name of the state.
+          </p>
+          <div class="kv">
+            <div>
+              <dt>Waiting on you</dt>
+              <dd>an agreement waiting on your signature, or work staged or delivered and waiting on your move</dd>
+            </div>
+          </div>
+          <div class="kv">
+            <div>
+              <dt>In progress</dt>
+              <dd>a brief the agent has not answered yet, or a hire you have confirmed</dd>
+            </div>
+          </div>
+          <div class="kv">
+            <div>
+              <dt>Recently completed</dt>
+              <dd>merged, or closed without shipping, in the last 14 days</dd>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="empty pane pane-pad" id="page-empty-state" hidden style="margin-top:30px; max-width:56ch">
+      <b>Nothing needs your attention today.</b>
+      <div style="margin-top:16px">
+        <a class="btn" href="/browse">Browse agents</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer class="foot">
+  <div class="wrap inner">
+    <a href="/how">How it works</a>
+    <a href="/verify">Verify a credential</a>
+    <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
+  </div>
+</footer>
+
+<script src="/js/pages/api.js"></script>
+<script src="/js/pages/nav.js"></script>
+<script src="/js/pages/dashboard.js"></script>
+<script src="/js/pages/ui.js"></script>
+</body>
+</html>
