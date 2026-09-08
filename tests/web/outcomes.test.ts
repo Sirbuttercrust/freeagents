@@ -142,16 +142,82 @@ describe('the five endings (done-means 2, 3, 5)', () => {
       expect(page.document.querySelector('[class*="total" i]')).toBeNull();
       expect(page.document.querySelector('[class*="summary" i]')).toBeNull();
       expect(page.document.querySelector('table')).toBeNull();
-      // qa review round 1, D2 (vacuous-gate): the checks above only ever
-      // looked at the record dd's own two <b> children, so a blended or
-      // scored figure written into any other element on the page, such as
-      // a card's "You get" line, walked straight past them. This scans the
-      // whole rendered body for a percentage in either spelling, since
-      // done-means 4 forbids a sum and the "no rating" refusal row forbids
-      // a score, and this page states neither anywhere in its own copy.
-      const wholeBodyText = page.document.body.textContent ?? '';
-      expect(wholeBodyText).not.toMatch(/\d+\s*(%|percent)\b/i);
-      expect(wholeBodyText.toLowerCase()).not.toContain('combined');
+    } finally {
+      page.close();
+    }
+  });
+
+  // qa review round 2, D4 (vacuous-gate, regression of round-1 D2): matching
+  // a word shape ("percent", "%", "combined") is refuted by the next
+  // rephrasing. Round 1 mutated in "Combined record ... 100 percent";
+  // round 2's rephrasings ("2 of 2 parties came out of this hire in good
+  // standing", "that is two records improved by this hire") say the same
+  // blended, scored thing in prose the old regex never named, and one of
+  // them sat inside the record dd itself, past the round-1 fix's own scan
+  // region. Done-means 11 already requires this page to match
+  // spec/wireframe/outcomes.html verbatim, because a paraphrase here is a
+  // change to the product's public promise, so pinning the fixed copy
+  // exactly is the gate a rephrasing cannot walk past: it reddens on any
+  // added, blended, scored or reworded line regardless of vocabulary.
+  it('each card carries exactly its four fixed lines of copy, word for word', async () => {
+    const page = await renderOutcomes();
+    try {
+      const expected: Record<string, Record<string, string>> = {
+        Completed: {
+          'What happened': 'You paid in full, read the pull request, and merged it into your repository.',
+          'The money': 'The full price is with the operator. Nothing is owed either way.',
+          'The record':
+            'The agent gains a verified hire, the strongest thing it can carry. You gain one hire and one merge.',
+          'You get': 'A receipt anyone can check without an account, linked to the merge commit.',
+        },
+        'Completed without a decision': {
+          'What happened':
+            'You paid in full and the pull request opened, then seven days passed with no merge and no close.',
+          'The money': 'The full price is with the operator. Nothing is owed either way.',
+          'The record':
+            'The agent gains a completed hire, marked as one where no merge was seen. You gain one hire and one job you did not decide.',
+          'You get':
+            'A receipt of a different kind: it carries the delivered commit and says plainly that no merge was observed. It is never the same document as a merge receipt.',
+        },
+        'Closed with a reason': {
+          'What happened':
+            'You paid in full, read the pull request, and closed it naming a line the work missed and saying why in one sentence.',
+          'The money': 'The full price is with the operator. Closing refunds nothing.',
+          'The record':
+            'The agent gains a job that did not ship, with no explanation attached to it. You gain one close with a reason, and your sentence is published as yours.',
+          'You get': 'No receipt. A receipt is only issued on work that shipped or was left to stand.',
+        },
+        Declined: {
+          'What happened':
+            'The work was ready, you read what was in it, and you decided not to take it. No reason is asked for.',
+          'The money':
+            'You paid the deposit and nothing else. The deposit stays with the operator; the balance was never charged.',
+          'The record': 'The agent gains a declined hire. You gain one declined hire.',
+          'You get': 'No receipt, and no code. The work never left staging.',
+        },
+        Lapsed: {
+          'What happened': 'The work was ready and seven days passed with no answer from you.',
+          'The money':
+            'Same as declining: the deposit stays with the operator and the balance was never charged.',
+          'The record': 'The agent gains a job that was delivered and never paid for. You gain one lapsed hire.',
+          'You get':
+            'No receipt, and no code. Same ending as declining, reached by silence instead of a decision.',
+        },
+      };
+      const cards = Array.from(page.document.querySelectorAll('.oc'));
+      expect(cards.length).toBe(5);
+      for (const card of cards) {
+        const heading = card.querySelector('h3')?.textContent ?? '';
+        const expectedCard = expected[heading];
+        expect(expectedCard, `${heading} must be one of the five expected endings`).toBeTruthy();
+        const dts = Array.from(card.querySelectorAll('dl > dt'));
+        for (const dt of dts) {
+          const label = dt.textContent ?? '';
+          const dd = dt.nextElementSibling as HTMLElement | null;
+          const actual = (dd?.textContent ?? '').replace(/\s+/g, ' ').trim();
+          expect(actual, `${heading} / ${label}`).toBe(expectedCard?.[label]);
+        }
+      }
     } finally {
       page.close();
     }
@@ -223,6 +289,17 @@ describe('no colour scale, no ordering from good to bad (done-means 5, mutation 
   // class-list or attribute check can never see that vector. This measures
   // the five cards' computed style in a real browser instead, the only
   // instrument that sees a stylesheet rule the way a reader's screen does.
+  //
+  // qa review round 2, D3 (vacuous-gate, regression of round-1 D1): a
+  // hardcoded six-property list is refuted by the seventh property. The
+  // round-1 mutation set backgroundColor; the round-1 fix added
+  // backgroundColor to the list; a round-2 mutation set filter and opacity
+  // instead and passed straight through. The defect class is "one card
+  // styled unlike the others", not "one card with a different named
+  // property", so this enumerates the WHOLE computed style instead of
+  // naming properties, skipping only the ones that legitimately differ by
+  // grid position (size, position and spacing values a card's slot in the
+  // two-column grid controls, not anything a stylesheet author chose).
   it('the five cards are identical in computed style, in a real browser (mutation proof 4)', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for real-browser colour-parity test; skipping (see CHROME_BIN)');
@@ -231,26 +308,28 @@ describe('no colour scale, no ordering from good to bad (done-means 5, mutation 
     const browser = await RealBrowser.launch({ width: 1280, height: 1400 });
     try {
       await browser.goto(`${baseUrl}/outcomes`);
-      const computed = await browser.evaluate<
-        Array<{ backgroundColor: string; borderColor: string; borderTopWidth: string; color: string; boxShadow: string; order: string }>
-      >(`
-        Array.from(document.querySelectorAll('.oc')).map(function (el) {
-          var s = getComputedStyle(el);
-          return {
-            backgroundColor: s.backgroundColor,
-            borderColor: s.borderColor,
-            borderTopWidth: s.borderTopWidth,
-            color: s.color,
-            boxShadow: s.boxShadow,
-            order: s.order,
-          };
-        })
+      const diffs = await browser.evaluate<Array<{ index: number; property: string; value: string; expected: string }>>(`
+        (function () {
+          var skip = /^(width|height|top|left|right|bottom|inline-size|block-size|perspective-origin|transform-origin|inset|x|y|margin|padding|border-.*-width|min-|max-|grid-|contain-intrinsic|webkit-logical|block-|inline-)/;
+          var cards = Array.from(document.querySelectorAll('.oc'));
+          var styles = cards.map(function (el) { return getComputedStyle(el); });
+          var first = styles[0];
+          var diffs = [];
+          for (var i = 0; i < first.length; i++) {
+            var property = first.item(i);
+            if (skip.test(property)) continue;
+            var expected = first.getPropertyValue(property);
+            for (var c = 1; c < styles.length; c++) {
+              var value = styles[c].getPropertyValue(property);
+              if (value !== expected) {
+                diffs.push({ index: c, property: property, value: value, expected: expected });
+              }
+            }
+          }
+          return diffs;
+        })()
       `);
-      expect(computed.length).toBe(5);
-      const first = computed[0];
-      for (const style of computed) {
-        expect(style, 'every card must match the first card\'s computed style').toEqual(first);
-      }
+      expect(diffs, 'every card must match the first card\'s computed style on every property').toEqual([]);
     } finally {
       await browser.close();
     }
