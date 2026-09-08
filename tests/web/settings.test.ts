@@ -156,6 +156,21 @@ describe('the settings screen, driven end to end against the real app', () => {
     }
   });
 
+  it('pressing Save with nothing edited sends no PATCH (guard-without-a-test, settings.js no-change guard)', async () => {
+    const page = await renderSettings(baseUrl, session);
+    try {
+      const saveBtn = page.document.getElementById('save-btn') as HTMLButtonElement | null;
+      expect(saveBtn).not.toBeNull();
+      saveBtn!.click();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const patchCalls = page.fetchCalls.filter((c) => c.init?.method === 'PATCH');
+      expect(patchCalls.length).toBe(0);
+    } finally {
+      page.close();
+    }
+  });
+
   it('an account with one rail set and not the other renders exactly that', async () => {
     await accountRepo.setOperatorAddressEvm(ownDid, VALID_EVM);
     const page = await renderSettings(baseUrl, session);
@@ -251,6 +266,47 @@ describe('the settings screen, driven end to end against the real app', () => {
       expect(evm!.value).toBe(secondEvm);
     } finally {
       page.close();
+    }
+  });
+
+  it('a 401 from the save route reveals the sign-in block, and the typed value stays in the input (silent-success-on-failure)', async () => {
+    const realPort = (server.address() as AddressInfo).port;
+    const proxy = http.createServer((req, res) => {
+      if (req.method === 'PATCH' && req.url && req.url.includes('/operator-address')) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'session expired' }));
+        return;
+      }
+      const upstream = http.request(
+        { hostname: '127.0.0.1', port: realPort, path: req.url, method: req.method, headers: req.headers },
+        (upstreamRes) => {
+          res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+          upstreamRes.pipe(res);
+        },
+      );
+      req.pipe(upstream);
+    });
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+    const proxyBaseUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
+    try {
+      const page = await renderSettings(proxyBaseUrl, session);
+      try {
+        const evm = page.document.getElementById('payout-evm') as HTMLInputElement | null;
+        const typedValue = '0x' + 'b'.repeat(40);
+        evm!.value = typedValue;
+        evm!.dispatchEvent(new page.window.Event('input', { bubbles: true }));
+        const saveBtn = page.document.getElementById('save-btn') as HTMLButtonElement | null;
+        saveBtn!.click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
+        expect(page.document.getElementById('signin-required')?.hidden).toBe(false);
+        expect(page.document.getElementById('settings-body')?.hidden).toBe(true);
+        expect(evm!.value).toBe(typedValue);
+      } finally {
+        page.close();
+      }
+    } finally {
+      await new Promise<void>((resolve) => proxy.close(() => resolve()));
     }
   });
 

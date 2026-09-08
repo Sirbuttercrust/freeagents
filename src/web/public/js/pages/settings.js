@@ -176,13 +176,23 @@
         return;
       }
 
+      // silent-success-on-failure: a save-path 401 reveals the sign-in
+      // block, the same shape the load path already takes at start(),
+      // and pullrequest.js's own 401 handling is the in-repo precedent
+      // for a write path taking this branch. The typed value stays in
+      // the input; nothing here clears it.
+      if (status === 401) {
+        A.showById("settings-body", false);
+        A.showById("signin-required", true);
+        return;
+      }
+
       var serverMessage = typeof resBody.error === "string" && resBody.error !== "" ? resBody.error : "";
       showSaveError(refusalSentence(status, serverMessage));
     });
   }
 
   function refusalSentence(status, serverMessage) {
-    if (status === 401) return "Your session has expired. Sign in again to save.";
     if (status === 400) return serverMessage || "The address could not be saved as written.";
     if (status === 403) return serverMessage || "This account is not allowed to set that address.";
     if (status === 404) return serverMessage || "This account is no longer registered.";
