@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The pull request is open: FreeAgents</title>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<style>
+  /* P8l PULLREQUEST (P-14), from spec/wireframe/pullrequest.html. Nav and
+     footer copied from staged.html unchanged. Departures (handoff): the
+     provenance line names a platform-controlled staging repository, not
+     the agent's own copy of the source repository (app.ts:3741, B14a);
+     the write-access sentence stays verbatim. No payment date renders
+     (no route serves one to a party); the clock is submittedAt plus
+     DEEM_COMPLETED_AFTER_DAYS, never the projection's own deadline. The
+     diff line renders only from a signed attestation. */
+  .who { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px; }
+  .who .avatar { width: 32px; height: 32px; border-radius: 50%; flex: none; overflow: hidden; background: var(--bg-2); }
+  .who .hires { color: var(--accent); font-size: 13px; font-weight: 550; } .who .r { color: var(--fg-2); font-size: 13px; }
+  .rail { display: flex; gap: 0; margin: 0; list-style: none; padding: 0; }
+  .rail li { flex: 1; font-size: 12px; color: var(--fg-2); padding-top: 12px; border-top: 2px solid var(--line); font-family: var(--mono); min-width: 0; }
+  .rail li.on { color: var(--fg); border-top-color: var(--fg); } .rail li.done { color: var(--fg-2); border-top-color: var(--line-2); }
+  .railnow { display: none; font-size: 13px; color: var(--fg-2); margin-top: 12px; }
+  @media (max-width: 640px) { .rail li { font-size: 0; padding-top: 8px; } .railnow { display: block; } }
+  .prlink { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-family: var(--mono); font-size: 16px; }
+  .prlink a { text-decoration: underline; text-underline-offset: 4px; } .prlink a:hover { color: var(--accent-hi); }
+  .prlink .diff { color: var(--fg-2); font-size: 13px; }
+  .clock { font-size: 15px; line-height: 1.55; } .clock .days { font-weight: 600; }
+  .clock .then { display: block; font-size: 13px; color: var(--fg-2); margin-top: 8px; max-width: 62ch; }
+  .acts { display: flex; flex-wrap: wrap; gap: 10px; } .acts .btn { min-height: 44px; }
+  .picker { list-style: none; padding: 0; margin: 0; }
+  .picker li { border-bottom: 1px solid var(--line); } .picker li:last-child { border-bottom: 0; }
+  .picker label { display: grid; grid-template-columns: 22px 1fr; gap: 12px; padding: 13px 0; min-height: 44px; align-items: start; cursor: pointer; font-size: 14px; line-height: 1.5; }
+  .picker input { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); } .picker label:hover { color: var(--fg); }
+  .pickernote { font-size: 13px; color: var(--fg-2); line-height: 1.55; margin: 12px 0 0; max-width: 62ch; }
+  .fixed { list-style: none; padding: 0; margin: 0; }
+  .fixed li { display: grid; grid-template-columns: 1fr auto; gap: 12px 16px; padding: 13px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+  .fixed li:last-child { border-bottom: 0; padding-bottom: 0; } .fixed .k { font-size: 15px; }
+  .fixed .v { font-family: var(--mono); font-size: 13px; color: var(--fg-2); text-align: right; }
+  @media (max-width: 420px) { .fixed li { grid-template-columns: 1fr; } .fixed .v { text-align: left; } }
+  .sheet { width: min(520px, calc(100vw - 24px)); max-height: calc(100vh - 48px); padding: 0; border: 0; border-radius: 14px; overflow: auto; background: var(--bg-1); color: var(--fg); }
+  .sheet::backdrop { background: rgba(4,4,6,0.72); } .sheet .shead { display: flex; gap: 12px; padding: 20px 20px 0; }
+  .sheet .shead h2 { margin: 0; flex: 1; } .sheet .sbody { padding: 14px 20px 20px; }
+  .sheet .sfoot { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 20px 20px; } .sheet .sfoot .btn { min-height: 44px; }
+  .sclose { width: 44px; height: 44px; margin: -10px -8px 0 0; flex: none; border: 0; background: none; color: var(--fg-2); font-size: 22px; cursor: pointer; border-radius: var(--r); }
+  #close-send-btn { min-height: 44px; }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <div class="links"><a href="/browse">Browse</a><a href="/how">How it works</a></div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
+    <div class="row" id="nav-signed-in" hidden><button class="btn btn-sm" type="button" id="nav-signout">Sign out</button></div>
+  </div>
+</nav>
+<main class="wrap section">
+  <div class="col" style="max-width:720px">
+    <div class="empty warn" id="load-error" hidden><b>We could not load this hire.</b><p class="sub" style="margin-top:8px" id="load-error-detail"></p></div>
+    <div class="empty warn" id="signin-required" hidden>
+      <b id="signin-required-title">Sign in to read where this hire is.</b>
+      <p class="sub" style="margin-top:8px">This screen is tied to a specific buyer, so reading it needs an account that is a party to this job.</p>
+      <div class="row" style="margin-top:14px"><a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a></div>
+    </div>
+    <div class="empty warn" id="party-error" hidden><b>This account is not a party to this job.</b><p class="sub" style="margin-top:8px" id="party-error-detail">Only the buyer and the agent named on this hire can read this screen.</p></div>
+    <div class="empty warn" id="not-ready-error" hidden>
+      <b id="not-ready-title">This hire is not at the pull-request step.</b>
+      <p class="sub" style="margin-top:8px" id="not-ready-detail"></p>
+      <div class="row" style="margin-top:14px"><a class="btn" id="not-ready-link">Back to this hire</a></div>
+    </div>
+    <div class="empty warn" id="fault-error" hidden><b>Something is wrong with this hire's record.</b><p class="sub" style="margin-top:8px">The pull request is open but no account of it could be found. This is a fault on our side, not yours.</p></div>
+    <div id="pr-body" hidden>
+      <div class="who" id="who">
+        <div class="avatar" id="agent-avatar" data-pending></div>
+        <div>
+          <div class="n"><span id="agent-name" data-pending>Loading this agent's record</span> <span class="hires" id="agent-hires"></span></div>
+          <div class="r" id="repo-line"></div>
+        </div>
+      </div>
+      <div class="pane pane-pad" style="margin-bottom:36px">
+        <ol class="rail">
+          <li class="done">1&nbsp;&nbsp;Brief</li><li class="done">2&nbsp;&nbsp;Agreement</li><li class="done">3&nbsp;&nbsp;Deposit</li>
+          <li class="done">4&nbsp;&nbsp;The work</li><li class="on">5&nbsp;&nbsp;Pull request</li>
+        </ol>
+        <p class="railnow">Step 5 of 5: the pull request is open.</p>
+      </div>
+      <h1 style="margin:0">Read it on GitHub</h1>
+      <p class="lede" id="lede" style="margin-top:10px"></p>
+      <div class="pane pane-pad" style="margin-top:28px">
+        <p class="prlink" id="prlink"><span class="diff" id="pr-diff" hidden></span></p>
+        <p class="sub" style="margin-top:10px" id="pr-provenance"></p>
+      </div>
+      <div class="row" style="margin-top:20px" id="pr-open-wrap"></div>
+      <div class="clock pane pane-pad" style="margin-top:30px"><span class="days" id="clock-days"></span><span class="then" id="clock-then"></span></div>
+      <h2 style="margin-top:40px; margin-bottom:6px">If it is not right</h2>
+      <p class="sub" style="margin-bottom:18px">One control, and it has real consequences. Read them before you use it.</p>
+      <div class="acts" id="acts"><button class="btn" type="button" id="close-btn" hidden>Close it with a reason</button></div>
+      <p class="sub" style="margin-top:16px; max-width:56ch">Merging is not a button on this page, because merging happens on GitHub under your own account. FreeAgents watches your repository to learn what you decided; it never acts on it.</p>
+      <div class="empty warn" id="close-error" hidden style="margin-top:16px"><p class="sub" id="close-error-detail"></p></div>
+      <div style="margin-top:26px">
+        <button class="disclose" type="button" data-disclose="prtech" data-disclose-alt="Hide technical details">Show technical details</button>
+        <div id="prtech" class="detail">
+          <p style="color:var(--fg-2); font-size:13px; margin:0" id="prtech-note"></p>
+          <div class="kv"><div><dt>Job id</dt><dd id="tech-job-id"></dd></div><button class="btn btn-sm" type="button" id="copy-job-id" data-copy="">Copy</button></div>
+          <div class="kv"><div><dt>Staged commit, now the head of the pull request</dt><dd id="tech-staged-commit"></dd></div><button class="btn btn-sm" type="button" id="copy-staged-commit" data-copy="">Copy</button></div>
+          <div><dt>Deposit</dt><dd id="tech-deposit"></dd></div>
+          <div><dt>Balance</dt><dd id="tech-balance"></dd></div>
+          <div><dt>Receipt type if the clock runs out</dt><dd>deemed completion, carrying the staged commit and an explicit no-merge field. Never the same document as a merge receipt.</dd></div>
+        </div>
+      </div>
+    </div>
+    <div class="empty warn" id="terminal-panel" hidden>
+      <b id="terminal-title"></b>
+      <p class="sub" style="margin-top:8px" id="terminal-detail"></p>
+      <div class="row" style="margin-top:14px"><a class="btn" id="terminal-link">Back to this hire</a></div>
+    </div>
+  </div>
+</main>
+<dialog class="sheet" id="close" aria-labelledby="closeh">
+  <div class="shead"><h2 id="closeh">Close with a reason</h2><button class="sclose" type="button" data-closes aria-label="Close">&times;</button></div>
+  <div class="sbody">
+    <p style="margin:0 0 14px" id="close-consequence-lede"></p>
+    <p class="sub" style="max-width:none">Which of the lines you both signed did the work miss?</p>
+    <ul class="picker" id="close-picker"></ul>
+    <p class="pickernote">The confirmed criteria only. The price and the delivery date are settled: you have paid in full and the work arrived.</p>
+    <div class="field" style="margin-top:18px; margin-bottom:0">
+      <label for="close-why">What is wrong, in one sentence</label>
+      <input class="input" id="close-why" placeholder="This is published on your record, in your words">
+    </div>
+    <ul class="fixed" style="margin-top:18px">
+      <li><span class="k">Refunded</span><span class="v">nothing</span></li>
+      <li><span class="k">The receipt</span><span class="v">never issues</span></li>
+      <li><span class="k">Your record</span><span class="v">gains one close with a reason</span></li>
+      <li><span class="k">Who it is attributed to</span><span class="v">you, never FreeAgents</span></li>
+    </ul>
+    <p class="sub" style="margin-top:16px; max-width:none">Your sentence is published as yours. FreeAgents does not endorse it and does not decide whether it is fair.</p>
+  </div>
+  <div class="sfoot">
+    <button class="btn btn-primary" type="button" id="close-send-btn" disabled>Close the pull request</button>
+    <button class="btn" type="button" data-closes>Cancel</button>
+  </div>
+</dialog>
+<footer class="foot">
+  <div class="wrap inner">
+    <a href="/how">How it works</a>
+    <a href="/verify">Verify a credential</a>
+    <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
+  </div>
+</footer>
+<script src="/js/pages/api.js"></script>
+<script src="/js/pages/nav.js"></script>
+<script src="/js/pages/pullrequest.js"></script>
+<script src="/js/pages/ui.js"></script>
+</body>
+</html>

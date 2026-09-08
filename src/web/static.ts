@@ -97,6 +97,7 @@ type PageName =
   | 'agreement'
   | 'deposit'
   | 'staged'
+  | 'pullrequest'
   | 'notfound'
   | 'authCallbackSuccess'
   | 'authCallbackError';
@@ -121,6 +122,9 @@ const PAGE_FILES: Readonly<Record<PageName, string>> = {
   deposit: 'deposit.html',
   // P8j: same stance -- /staged owns no path an API route also serves.
   staged: 'staged.html',
+  // P8l: same stance -- /pullrequest owns no path an API route also
+  // serves.
+  pullrequest: 'pullrequest.html',
   notfound: 'notfound.html',
   // P8e: rendered directly by GET /auth/github/callback in src/api/app.ts,
   // never mounted as a route of its own here. Loaded once at construction
@@ -272,6 +276,9 @@ export function createWebSurface(
       app.get('/deposit', (_req: Request, res: Response) => send(res, 'deposit'));
       // P8j: same stance -- /staged owns no path an API route also serves.
       app.get('/staged', (_req: Request, res: Response) => send(res, 'staged'));
+      // P8l: same stance -- /pullrequest owns no path an API route also
+      // serves.
+      app.get('/pullrequest', (_req: Request, res: Response) => send(res, 'pullrequest'));
 
       // Pages that share a path with an API route (see rule 1 above).
       app.get('/agents/:agentDid', negotiated('agent'));
