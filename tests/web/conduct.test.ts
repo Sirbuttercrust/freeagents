@@ -89,6 +89,50 @@ function renderConduct(baseUrl: string, account: string | null): Promise<Rendere
   return renderPage(baseUrl, `/conduct${qs}`);
 }
 
+// Round 2 (Proof defect 1, guard-without-a-test): the 404/network branches
+// of onLoaded() are reached only when GET /buyers/:githubLogin/conduct
+// itself answers 404 or the fetch throws, neither of which the real app
+// under test produces on this route (it only ever answers 200 or 503, see
+// src/api/app.ts:2474-2488). Reaching those branches for a real assertion
+// means intercepting window.fetch for exactly the /buyers/ call, the same
+// technique tests/web/deposit.test.ts already uses for its D3 case -- every
+// OTHER request (the page shell, css, js) still goes over the real network
+// to the real server, so this is not a client-side stub of the page itself.
+function renderConductMocked(
+  baseUrl: string,
+  account: string,
+  mockBuyersFetch: () => Promise<Response>,
+): Promise<Rendered> {
+  const path = `/conduct?account=${encodeURIComponent(account)}`;
+  const virtualConsole = new VirtualConsole();
+  const failures: string[] = [];
+  virtualConsole.on('jsdomError', (error: Error) => failures.push(error.message));
+  return fetch(`${baseUrl}${path}`, { headers: { Accept: HTML } }).then(async (response) => {
+    const markup = await response.text();
+    const dom = new JSDOM(markup, {
+      url: `${baseUrl}${path}`,
+      runScripts: 'dangerously',
+      resources: 'usable',
+      pretendToBeVisual: true,
+      virtualConsole,
+      beforeParse(window) {
+        Object.defineProperty(window, 'fetch', {
+          writable: true,
+          value: (input: string, init?: RequestInit) =>
+            String(input).includes('/buyers/') ? mockBuyersFetch() : fetch(new URL(input, baseUrl), init),
+        });
+      },
+    });
+    await new Promise<void>((resolve) => {
+      if (dom.window.document.readyState === 'complete') resolve();
+      else dom.window.addEventListener('load', () => resolve());
+    });
+    for (let waited = 0; waited < 350; waited += 50) { await new Promise((resolve) => setTimeout(resolve, 50)); }
+    if (failures.length > 0) throw new Error(`page script failed on ${path}: ${failures.join('; ')}`);
+    return { window: dom.window, document: dom.window.document, close: () => dom.window.close() };
+  });
+}
+
 describe('the conduct record page, driven end to end against the real app', () => {
   let agentRepo: MemoryAgentRepository;
   let jobRepo: MemoryJobRepository;
@@ -213,6 +257,42 @@ describe('the conduct record page, driven end to end against the real app', () =
         }
       } finally {
         await new Promise<void>((resolve) => failingServer.close(() => resolve()));
+      }
+    });
+  });
+
+  describe('a 404 absent record, distinct from the 503 sentence (Proof round 1 defect: guard-without-a-test)', () => {
+    it('renders its own sentence, never the 503 wording and never a count row', async () => {
+      const page = await renderConductMocked(baseUrl, 'conduct-page-buyer', async () =>
+        new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } }),
+      );
+      try {
+        const detail = (page.document.getElementById('load-error-detail')?.textContent ?? '').toLowerCase();
+        expect(page.document.getElementById('load-error')?.hidden).toBe(false);
+        expect(detail).toContain('no conduct record');
+        expect(detail).not.toContain('reloading may work');
+        expect(page.document.getElementById('conduct-body')?.hidden).toBe(true);
+        expect(page.document.getElementById('not-keyed')?.hidden).toBe(true);
+      } finally {
+        page.close();
+      }
+    });
+  });
+
+  describe('a network failure, distinct from the 503 and 404 sentences (Proof round 1 defect: guard-without-a-test)', () => {
+    it('renders the failed-read sentence, never a count row', async () => {
+      const page = await renderConductMocked(baseUrl, 'conduct-page-buyer', async () => {
+        throw new Error('simulated network failure');
+      });
+      try {
+        const detail = (page.document.getElementById('load-error-detail')?.textContent ?? '').toLowerCase();
+        expect(page.document.getElementById('load-error')?.hidden).toBe(false);
+        expect(detail).toContain('reloading may work');
+        expect(detail).not.toContain('no conduct record');
+        expect(page.document.getElementById('conduct-body')?.hidden).toBe(true);
+        expect(page.document.getElementById('not-keyed')?.hidden).toBe(true);
+      } finally {
+        page.close();
       }
     });
   });
