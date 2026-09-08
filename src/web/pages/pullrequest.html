@@ -14,7 +14,15 @@
      the write-access sentence stays verbatim. No payment date renders
      (no route serves one to a party); the clock is submittedAt plus
      DEEM_COMPLETED_AFTER_DAYS, never the projection's own deadline. The
-     diff line renders only from a signed attestation. */
+     diff line renders only from a signed attestation. The no-merge
+     sentence says the platform CHECKS GitHub when a party asks (POST
+     /jobs/:jobId/merge, app.ts:4172), not that it watches: no scheduler
+     or webhook receiver exists anywhere in src/, blocklet.yml, .github or
+     prisma (job.ts:595, "no cron, no background process, nothing that
+     wakes up on its own"), so a merge between two reads is observed only
+     when a party or a later read triggers it. The gap itself (no
+     scheduled merge observation) is logged in the launch bug ledger per
+     ruling 7; not fixed here, no route changes. */
   .who { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px; }
   .who .avatar { width: 32px; height: 32px; border-radius: 50%; flex: none; overflow: hidden; background: var(--bg-2); }
   .who .hires { color: var(--accent); font-size: 13px; font-weight: 550; } .who .r { color: var(--fg-2); font-size: 13px; }
@@ -98,7 +106,7 @@
       <h2 style="margin-top:40px; margin-bottom:6px">If it is not right</h2>
       <p class="sub" style="margin-bottom:18px">One control, and it has real consequences. Read them before you use it.</p>
       <div class="acts" id="acts"><button class="btn" type="button" id="close-btn" hidden>Close it with a reason</button></div>
-      <p class="sub" style="margin-top:16px; max-width:56ch">Merging is not a button on this page, because merging happens on GitHub under your own account. FreeAgents watches your repository to learn what you decided; it never acts on it.</p>
+      <p class="sub" style="margin-top:16px; max-width:56ch">Merging is not a button on this page, because merging happens on GitHub under your own account. FreeAgents checks GitHub, when a party asks it to, to learn what you decided; it never acts on it.</p>
       <div class="empty warn" id="close-error" hidden style="margin-top:16px"><p class="sub" id="close-error-detail"></p></div>
       <div style="margin-top:26px">
         <button class="disclose" type="button" data-disclose="prtech" data-disclose-alt="Hide technical details">Show technical details</button>

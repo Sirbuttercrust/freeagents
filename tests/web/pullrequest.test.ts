@@ -382,7 +382,7 @@ describe('the pull-request screen, driven end to end against the real app', () =
       }
     });
   });
-  describe('the fork wording never appears (ruling 3, mutation proof 14)', () => {
+  describe('the fork wording never appears (ruling 3, mutation proof 14); no-merge sentence checks, never watches (D1)', () => {
     it('names a staging repository, never a fork, and keeps the write-access sentence verbatim', async () => {
       const page = await renderPr(baseUrl, 'job-fully-submitted', buyerSession);
       try {
@@ -392,6 +392,9 @@ describe('the pull-request screen, driven end to end against the real app', () =
         expect(provenance).toContain('staging repository');
         expect(provenance).toContain('has never had write access to');
         expect(provenance).toContain('cannot be given it');
+        expect(text).not.toContain('watches your repository');
+        expect(text).not.toContain('freeagents watches');
+        expect(text).toContain('checks github');
       } finally {
         page.close();
       }
@@ -875,13 +878,23 @@ describe('the pull-request screen, driven end to end against the real app', () =
         page.close();
       }
     });
-    it('at a 1280px viewport the link row and the picker list measure with real geometry', async () => {
+    it('at a 1280px viewport the link row and the picker list measure with real DOM geometry: no wrapper div breaks the flex row or the picker rows (D2)', async () => {
       const page = await renderPr(baseUrl, 'job-fully-submitted', buyerSession);
       try {
         Object.defineProperty(page.window, 'innerWidth', { writable: true, configurable: true, value: 1280 });
         const prlink = page.document.getElementById('prlink');
-        const style = page.window.getComputedStyle(prlink as Element);
-        expect(style.display).toBe('flex');
+        expect(page.window.getComputedStyle(prlink as Element).display).toBe('flex');
+        // Parentage: a wrapper div (the P8h defect) leaves flex true.
+        expect(page.document.getElementById('pr-diff')?.parentElement).toBe(prlink);
+        const link = page.document.querySelector('#prlink a');
+        expect(link).not.toBeNull();
+        expect(link?.parentElement).toBe(prlink);
+        Array.from(prlink?.children ?? []).forEach((child) => expect(child.tagName).not.toBe('DIV'));
+        (page.document.getElementById('close-btn') as HTMLButtonElement).click();
+        const picker = page.document.getElementById('close-picker');
+        const rows = Array.from(page.document.querySelectorAll('#close-picker > li'));
+        expect(rows.length).toBeGreaterThan(0);
+        rows.forEach((row) => { expect(row.parentElement).toBe(picker); expect(row.querySelector('label')?.parentElement).toBe(row); });
       } finally {
         page.close();
       }
