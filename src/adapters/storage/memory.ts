@@ -313,6 +313,16 @@ export class MemoryJobRepository implements JobRepository {
     }
     return rows;
   }
+
+  // P8p: every job for one agent DID, in any status. Exact DID string
+  // match, the same stance findByBuyerDid already takes on buyerDid.
+  async findByAgentDid(agentDid: string): Promise<readonly Job[]> {
+    const rows: Job[] = [];
+    for (const row of this.rows.values()) {
+      if (row.agentDid === agentDid) rows.push(row);
+    }
+    return rows;
+  }
 }
 
 // Each stored row carries its subjectDid and repositoryPublic beside the

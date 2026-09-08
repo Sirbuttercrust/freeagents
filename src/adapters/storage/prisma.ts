@@ -670,6 +670,13 @@ export class PrismaJobRepository implements JobRepository {
     const rows = await db().job.findMany({ where: { buyerDid } });
     return rows.map((row) => toJob(row as unknown as JobRow));
   }
+
+  // P8p: every job offered to one agent DID, in any status, projected
+  // exactly like findByBuyerDid already does.
+  async findByAgentDid(agentDid: string): Promise<readonly Job[]> {
+    const rows = await db().job.findMany({ where: { agentDid } });
+    return rows.map((row) => toJob(row as unknown as JobRow));
+  }
 }
 
 export class PrismaCredentialRepository implements CredentialRepository {
