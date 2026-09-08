@@ -1,29 +1,77 @@
-/* P8j staged (P-13): a staged hire's buyer reads the machine-written
-   account of the work and pays the balance. No route in src/api/app.ts
-   changes. Reads GET /jobs/:jobId and GET /jobs/:jobId/attestation (the
-   party probe, agreement.js/deposit.js's own pattern, no side effect).
-   Ships ONE control, pay (ruling 1): redo and decline render as prose
-   with real amounts, never a button or a stub. outOfCriteriaPathCount
-   never renders (ruling 2, structurally always equals filesChanged).
-   The clock states a fixed window and a deadline date, never a
-   countdown (ruling 4); LAPSE_AT_STAGED_AFTER_DAYS and
+/* P8k staged (P-13): a staged hire's buyer reads the machine-written
+   account of the work, then pays, sends it back once, or declines.
+   No route in src/api/app.ts changes. Reads GET /jobs/:jobId and
+   GET /jobs/:jobId/attestation (the party probe, agreement.js/deposit.js's
+   own pattern, no side effect). P8j shipped pay alone (ruling 1 of that
+   card); this card adds POST /jobs/:jobId/redo and
+   POST /jobs/:jobId/staged-decline, both buyer-only.
+
+   Departures from spec/wireframe/staged.html, named per the handoff:
+   the redo picker's free-text field does not ship (ruling 1: the route
+   reads only { criterionIndex }, nothing else is stored); the picker's
+   numbering and pickernote wording match agreement.js's own numbering,
+   not the wireframe's 01-07 fixture (ruling 2); the decline dialog
+   renders four consequence rows, never the wireframe's fifth
+   (an agent-side declined count that does not exist anywhere in this
+   codebase, ruling 3); the decline dialog's deposit figure is computed
+   from depositUsd(priceUsd, depositPercent), never the wireframe's
+   literal (ruling 4).
+
+   outOfCriteriaPathCount never renders (ruling 2, structurally always
+   equals filesChanged). The clock states a fixed window and a deadline
+   date, never a countdown (ruling 4); LAPSE_AT_STAGED_AFTER_DAYS and
    REDO_LAPSE_EXTENSION_DAYS are browser constants pinned by a test
    against the domain's own. Pays over ABT on the REMAINDER, never the
-   deposit (ruling 5). Never claims settlement; the re-read control
-   fires only on a press (ruling 6). Serves `staged` only (ruling 7).
-   Everything through textContent (api.js rule 3). */
+   deposit (ruling 5 of P8j). Never claims settlement; every re-read
+   fires only on a press (ruling 6). Both redo_requested and
+   staged_declined render on this page now (ruling 5): the former keeps
+   the clock and the account of the work with no control, the latter is
+   a terminal panel with no control. Every refusal gets its own sentence
+   (scope item 4). Everything through textContent (api.js rule 3). */
 (function () {
   "use strict";
   var A = window.FAApi;
   var LAPSE_AT_STAGED_AFTER_DAYS = 7, REDO_LAPSE_EXTENSION_DAYS = 7, ABT_FEE_RATE_PERCENT = 3, MS_PER_DAY = 86400000;
-  var jobId = "", token = "", job = null, currentFigures = null;
+  var jobId = "", token = "", job = null, currentFigures = null, redoSelectedIndex = null;
+  // Round 1 fix (qa D1): whether the signed-in session IS this job's
+  // buyer, resolved from GET /accounts/:did (already mounted,
+  // unauthenticated, app.ts:1300) against the stored session's own
+  // subject and method. Defaults false (fail closed): a buyer whose own
+  // account read fails loses redo/decline for that load rather than a
+  // non-buyer gaining them. No new route: this is the same comparison
+  // resolveActingParty already makes server-side, read back through a
+  // route this page already had reason to call.
+  var isBuyerParty = false;
+  var session = null;
+
   function start() {
     jobId = new URLSearchParams(window.location.search).get("job") || "";
     if (!jobId) { failLoad("This address does not name a hire."); return; }
-    var session = A.getStoredSession();
+    session = A.getStoredSession();
     if (session === null) { A.showById("signin-required", true); return; }
     token = session.token;
+    reload();
+  }
+  function reload() {
     Promise.all([A.get("/jobs/" + encodeURIComponent(jobId)), A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/attestation", token)]).then(onLoaded);
+  }
+  // Round 1 fix (qa D1): resolves whether the signed-in session names
+  // this job's buyer account. The route mirrors the buyer/passkey join
+  // resolveActingParty performs (app.ts:595-613): a github-oauth session
+  // matches on githubLogin, a passkey session matches on passkeySubject.
+  // A failed or absent read resolves false, never true: the redo and
+  // decline controls stay hidden rather than risk showing them to a
+  // party the page could not confirm.
+  function resolveIsBuyerParty(job_) {
+    if (session === null || typeof job_.buyerDid !== "string" || job_.buyerDid === "") return Promise.resolve(false);
+    return A.get("/accounts/" + encodeURIComponent(job_.buyerDid)).then(function (result) {
+      if (result.state !== "ok") return false;
+      var account = result.value && typeof result.value === "object" ? result.value : {};
+      if (session.method === "passkey") {
+        return typeof account.passkeySubject === "string" && account.passkeySubject === session.subject;
+      }
+      return typeof account.githubLogin === "string" && account.githubLogin === session.subject;
+    });
   }
   function failLoad(detail) { A.showById("load-error", true); A.setTextById("load-error-detail", detail); }
   function showError(idPrefix, message) { A.setTextById(idPrefix + "-detail", message); A.showById(idPrefix, true); }
@@ -33,6 +81,13 @@
     return cents / 100;
   }
   function money(n) { return "$" + n.toFixed(2); }
+  function padNum(n) { return n < 10 ? "0" + n : String(n); }
+
+  // A panel this page can show; hiding every one before showing the
+  // right one keeps a re-render after redo/decline from leaving a stale
+  // panel visible underneath the new one.
+  var PANEL_IDS = ["load-error", "signin-required", "party-error", "not-ready-error", "fault-error", "declined-panel", "staged-body"];
+  function hideAllPanels() { PANEL_IDS.forEach(function (id) { A.showById(id, false); }); }
 
   function onLoaded(results) {
     var jobResult = results[0], gate = results[1];
@@ -42,6 +97,7 @@
     job = jobResult.value;
     var status = gate.value.status;
     var body = gate.value.body && typeof gate.value.body === "object" ? gate.value.body : {};
+    hideAllPanels();
     if (status === 401) {
       A.setTextById("signin-required-title", "Your session has expired. Sign in again to read the account of the work.");
       A.showById("signin-required", true);
@@ -51,7 +107,12 @@
       showError("party-error", typeof body.error === "string" && body.error !== "" ? body.error : "Only the buyer and the agent named on this hire can read this screen.");
       return;
     }
-    if (job.status !== "staged") { showNotReady(job.status); return; }
+    // Ruling 5: staged_declined is terminal, no control, a link back.
+    if (job.status === "staged_declined") { showDeclined(); return; }
+    // Ruling 5: redo_requested renders on this page too, not the
+    // not-ready panel: GET .../attestation has no status gate, and the
+    // staged clock keeps running through this status.
+    if (job.status !== "staged" && job.status !== "redo_requested") { showNotReady(job.status); return; }
     if (status === 404) { A.showById("fault-error", true); return; }
     if (status !== 200) { failLoad("Your access to this hire could not be confirmed just now. Reloading may work."); return; }
     var subject = body.credentialSubject && typeof body.credentialSubject === "object" ? body.credentialSubject : {};
@@ -61,16 +122,28 @@
     renderLede(job);
     renderClock(job);
     renderFacts(attestation);
-    renderChoices(job.price);
     renderTechnical(attestation);
     renderWho(job);
+    // Round 1 fix (qa D1), corrected round 4 (qa D6): redo and decline
+    // both ship hidden in the markup and are revealed only after the
+    // party resolution settles, so a non-buyer's browser never paints
+    // either control, not even for one frame. Pay is unrelated to this
+    // gate (out of this card's scope, P8j's own control) and is visible
+    // to both parties, guarded server-side only.
+    resolveIsBuyerParty(job).then(function (result) {
+      isBuyerParty = result;
+      renderChoicesSection(job);
+    });
+  }
+
+  function showDeclined() {
+    var link = A.el("declined-link");
+    if (link) link.setAttribute("href", "/jobs/" + encodeURIComponent(job.id));
+    A.showById("declined-panel", true);
   }
 
   function showNotReady(status) {
-    var detail = status === "redo_requested"
-      ? "You have already asked for a redo on this work. The operator has not yet answered."
-      : "This hire's status is \"" + status + "\", not staged. Reload this page or return to the hire to see its current state.";
-    A.setTextById("not-ready-detail", detail);
+    A.setTextById("not-ready-detail", "This hire's status is \"" + status + "\", not staged. Reload this page or return to the hire to see its current state.");
     var link = A.el("not-ready-link");
     if (link) link.setAttribute("href", "/jobs/" + encodeURIComponent(job.id));
     A.showById("not-ready-error", true);
@@ -82,7 +155,7 @@
       "Here is what is in it. Pay the balance and the pull request opens on your repository, where you read the code and decide whether to merge.");
   }
 
-  // Ruling 4: a date and a consequence, never a countdown.
+  // Ruling 4 (P8j): a date and a consequence, never a countdown.
   function renderClock(job_) {
     var redo = job_.redo && typeof job_.redo === "object" ? job_.redo : null;
     var extension = redo !== null && typeof redo.stagedLapseExtensionDays === "number" ? redo.stagedLapseExtensionDays : 0;
@@ -120,7 +193,7 @@
     return li;
   }
 
-  // Scope item 6: six rows, fixed order, ruling 2's row omitted.
+  // Scope item 6 (P8j): six rows, fixed order, ruling 2's row omitted.
   function renderFacts(attestation) {
     var host = A.el("facts");
     host.textContent = "";
@@ -143,7 +216,7 @@
     host.appendChild(factRow("Commits signed by the agent", matching + " of " + signers.length));
   }
 
-  // Ruling 5: remainderUsd(priceUsd, depositPercent), fee at
+  // Ruling 5 of P8j: remainderUsd(priceUsd, depositPercent), fee at
   // ABT_FEE_RATE_PERCENT on the remainder, half-up per payment.ts.
   function remainderAndFee(price) {
     var priceUsd = parseFloat(price.priceUsd);
@@ -154,29 +227,155 @@
     return { deposit: deposit, remainder: remainder, fee: fee, total: roundHalfUpCents(remainder + fee) };
   }
 
-  // Ruling 1: the wireframe's explainer, real computed amounts, no
-  // button for the second or third row.
-  function renderChoices(price) {
-    price = price && typeof price === "object" ? price : {};
+  // How many redos this job has spent. Zero when no redo has ever been
+  // requested (the projection's redo object only joins once one has),
+  // never guessed from anything else (app.ts:404-414, ruling 6).
+  function redoUsedCount(job_) {
+    var redo = job_.redo && typeof job_.redo === "object" ? job_.redo : null;
+    return redo !== null && typeof redo.usedCount === "number" ? redo.usedCount : 0;
+  }
+  function redoAllowanceOf(job_) {
+    var price = job_.price && typeof job_.price === "object" ? job_.price : {};
+    return typeof price.redoAllowance === "number" ? price.redoAllowance : 1;
+  }
+  function depositFigure(job_) {
+    var price = job_.price && typeof job_.price === "object" ? job_.price : null;
+    if (price === null || typeof price.priceUsd !== "string") return null;
+    var depositPercent = typeof price.depositPercent === "number" ? price.depositPercent : 25;
+    return roundHalfUpCents((parseFloat(price.priceUsd) * depositPercent) / 100);
+  }
+
+  // Choices list (ruling: stays and stays accurate). Real computed
+  // amounts, no button anywhere in this list; the redo row's wording
+  // changes to "spent" once the allowance is exhausted.
+  function renderChoices(job_) {
+    var price = job_.price && typeof job_.price === "object" ? job_.price : {};
     var priceUsd = typeof price.priceUsd === "string" ? parseFloat(price.priceUsd) : NaN;
     var figures = isNaN(priceUsd) ? null : remainderAndFee(price);
-    var redoAllowance = typeof price.redoAllowance === "number" ? price.redoAllowance : 1;
+    var redoAllowance = redoAllowanceOf(job_);
+    var exhausted = redoUsedCount(job_) >= redoAllowance;
     var host = A.el("choices");
     host.textContent = "";
     if (figures !== null) {
       host.appendChild(choiceRow("Pay the balance", money(figures.total),
         money(figures.remainder) + " of the " + money(priceUsd) + " price, plus the " + ABT_FEE_RATE_PERCENT + " percent fee. When it clears, the pull request opens on your repository and you read the code there. Merging is yours, on GitHub."));
     }
-    host.appendChild(choiceRow(redoAllowance === 1 ? "Send it back once" : "Send it back", redoAllowance === 1 ? "free, once per hire" : "free, " + redoAllowance + " times per hire",
-      "Pick which of the lines you agreed it missed and say what is wrong in one sentence. Nothing is charged and the deadline above moves " + A.plural(REDO_LAPSE_EXTENSION_DAYS, "day", "days") + ". The operator can refuse, and if it does you are back on this screen with the same three choices."));
+    host.appendChild(choiceRow(
+      exhausted ? "Send it back" : (redoAllowance === 1 ? "Send it back once" : "Send it back"),
+      exhausted ? "spent" : (redoAllowance === 1 ? "free, once per hire" : "free, " + redoAllowance + " times per hire"),
+      exhausted
+        ? "You have used this hire's redo already. Pay or decline are the two choices left."
+        : "Pick which of the lines you agreed it missed. Nothing is charged and the deadline above moves " + A.plural(REDO_LAPSE_EXTENSION_DAYS, "day", "days") + ". The operator can refuse, and if it does you are back on this screen with the same three choices."));
     host.appendChild(choiceRow("Decline", "free and final",
-      "You owe nothing more, the code never leaves staging, and the deposit stays with the operator. It is recorded on both records that this happened, with no reason attached and no judgement about the work."));
+      "You owe nothing more, the code never leaves staging, and the deposit stays with the operator. It is recorded on your own record that this happened, with no reason attached and no judgement about the work."));
     currentFigures = figures;
     var payBtn = A.el("pay-btn");
     if (payBtn) {
       if (figures !== null) { payBtn.textContent = "Pay the balance, " + money(figures.total); payBtn.disabled = false; }
       else { payBtn.textContent = "No agreed price to pay against"; payBtn.disabled = true; }
     }
+  }
+
+  // Ruling 6, round 1 fix (qa D1): the redo control renders only when a
+  // redo can actually be requested BY THIS SESSION. No disabled button,
+  // no stub: both controls are removed from the document entirely
+  // rather than hidden or disabled, whether the reason is the allowance
+  // being spent or this session not being the job's buyer. Pay is out
+  // of this card's scope (P8j's own control, unchanged here).
+  function renderActs(job_) {
+    var exhausted = redoUsedCount(job_) >= redoAllowanceOf(job_);
+    var redoBtn = A.el("redo-btn");
+    if (exhausted || !isBuyerParty) {
+      if (redoBtn && redoBtn.parentNode) redoBtn.parentNode.removeChild(redoBtn);
+    } else if (redoBtn) {
+      redoBtn.hidden = false;
+    }
+    var declineBtn = A.el("decline-btn");
+    if (!isBuyerParty) {
+      if (declineBtn && declineBtn.parentNode) declineBtn.parentNode.removeChild(declineBtn);
+    } else if (declineBtn) {
+      declineBtn.hidden = false;
+    }
+  }
+
+  // Ruling 2: the picker's rows are exactly job.criteria, in stored
+  // order, numbered the way agreement.js numbers the same lines (from 1,
+  // in render order, criteria always contiguous since price and
+  // delivery are appended after). The value posted is the array index
+  // regardless of the label. Nothing is preselected (a live screen is
+  // not a screenshot of a decision already made); send stays disabled
+  // until a line is chosen.
+  function renderRedoPicker(job_) {
+    var host = A.el("redo-picker");
+    if (!host) return;
+    host.textContent = "";
+    redoSelectedIndex = null;
+    var sendBtn = A.el("redo-send-btn");
+    if (sendBtn) sendBtn.disabled = true;
+    var criteria = Array.isArray(job_.criteria) ? job_.criteria : [];
+    criteria.forEach(function (c, i) {
+      var li = document.createElement("li");
+      var label = document.createElement("label");
+      var input = document.createElement("input");
+      input.type = "radio";
+      input.name = "rline";
+      input.value = String(i);
+      input.addEventListener("change", function () {
+        redoSelectedIndex = i;
+        if (sendBtn) sendBtn.disabled = false;
+      });
+      var span = document.createElement("span");
+      span.textContent = padNum(i + 1) + "\u00A0\u00A0" + (typeof c.text === "string" ? c.text : "");
+      label.appendChild(input);
+      label.appendChild(span);
+      li.appendChild(label);
+      host.appendChild(li);
+    });
+    A.setTextById("redo-pickernote", "The price and the delivery date are lines in the agreement, but they are not something the work can miss, so they are not here.");
+    A.setTextById("redo-cost-note", "This costs nothing and moves the delivery date forward " + A.plural(REDO_LAPSE_EXTENSION_DAYS, "day", "days") + ". You get " + A.plural(redoAllowanceOf(job_), "redo", "redos") + " per hire and this uses it. The operator can refuse, and if it does you are back on the same three choices with nothing charged.");
+  }
+
+  // Ruling 3: four consequence rows, never the wireframe's fifth (no
+  // agent-side declined count exists anywhere in this codebase).
+  // Ruling 4: the deposit figure is computed, never a literal.
+  function renderDeclineConsequences(job_) {
+    var host = A.el("decline-consequences");
+    if (!host) return;
+    host.textContent = "";
+    var deposit = depositFigure(job_);
+    var depositText = deposit === null ? "stays with the operator" : money(deposit) + " stays with the operator";
+    [
+      ["You pay", "nothing more"],
+      ["The deposit", depositText],
+      ["The code", "never leaves staging"],
+      ["Your record", "gains one declined hire"],
+    ].forEach(function (row) {
+      var li = document.createElement("li");
+      var k = document.createElement("span"); k.className = "k"; k.textContent = row[0];
+      var v = document.createElement("span"); v.className = "v"; v.textContent = row[1];
+      li.appendChild(k); li.appendChild(v);
+      host.appendChild(li);
+    });
+  }
+
+  // Ruling 5: two rendered branches at the choices section. staged shows
+  // the three controls and the choices list; redo_requested shows one
+  // sentence and no control at all.
+  function renderChoicesSection(job_) {
+    var pending = job_.status === "redo_requested";
+    A.showById("choices-section", !pending);
+    A.showById("redo-pending-note", pending);
+    if (pending) {
+      // Matches src/web/public/js/pages/job.js's own redo_requested
+      // sentence verbatim: a buyer should not read two different
+      // sentences about one fact.
+      A.setTextById("redo-pending-note", "The buyer has asked for a redo on the staged work. The operator has not yet answered.");
+      return;
+    }
+    renderChoices(job_);
+    renderActs(job_);
+    renderRedoPicker(job_);
+    renderDeclineConsequences(job_);
   }
 
   function renderTechnical(attestation) {
@@ -207,8 +406,8 @@
       }
       A.setTextById("agent-name", name);
     });
-    // Scope item 9: read, never assumed. Absent on a failed read or a
-    // zero count, never an invented business metric.
+    // Scope item 9 (P8j): read, never assumed. Absent on a failed read or
+    // a zero count, never an invented business metric.
     A.get("/agents/" + encodeURIComponent(agentDid) + "/hires").then(function (result) {
       if (result.state !== "ok") return;
       var counts = result.value.counts && typeof result.value.counts === "object" ? result.value.counts : null;
@@ -217,7 +416,7 @@
     });
   }
 
-  // Scope item 10: every refusal gets a distinct, actionable sentence.
+  // Scope item 4: every refusal from pay-start gets its own sentence.
   function refusalSentence(status, serverMessage) {
     if (status === 401) return "Your session has expired. Sign in again to pay the balance.";
     if (status === 403) return serverMessage || "This account is not a party to this hire.";
@@ -230,8 +429,48 @@
     return serverMessage || "The request could not complete just now. Try again in a moment.";
   }
 
-  // Ruling 1: the one control this card ships. Posts to the REMAINDER
-  // leg only, never deposit.
+  // Scope item 4: the redo route's own refusals. 400 is a fault in this
+  // screen, never the buyer's mistake. 409 with the allowance message is
+  // distinct from every other sentence here; the OTHER 409 (someone
+  // acted first) is handled by the caller, which reloads instead of
+  // showing this sentence.
+  function redoRefusalSentence(status, serverMessage) {
+    if (status === 400) return "This screen sent a malformed request. Reload the page and try again.";
+    if (status === 401) return "Your session has expired. Sign in again to send this work back.";
+    if (status === 403) return serverMessage || "This account is not a party to this hire.";
+    if (status === 409) return "There is no redo left on this hire.";
+    if (status === 503) return "Storage is unavailable just now. Try again in a moment.";
+    return serverMessage || "The request could not complete just now. Try again in a moment.";
+  }
+
+  function declineRefusalSentence(status, serverMessage) {
+    if (status === 401) return "Your session has expired. Sign in again to decline this hire.";
+    if (status === 403) return serverMessage || "This account is not a party to this hire.";
+    if (status === 503) return "Storage is unavailable just now. Try again in a moment.";
+    return serverMessage || "The request could not complete just now. Try again in a moment.";
+  }
+
+  function openDialog(id) {
+    var dialog = A.el(id);
+    if (dialog && typeof dialog.showModal === "function") dialog.showModal();
+    else if (dialog) dialog.setAttribute("open", "");
+  }
+  function closeDialog(id) {
+    var dialog = A.el(id);
+    if (dialog && typeof dialog.close === "function") dialog.close();
+    else if (dialog) dialog.removeAttribute("open");
+  }
+  ["scan", "redo", "decline"].forEach(function (id) {
+    var dialog = A.el(id);
+    if (dialog) {
+      Array.prototype.forEach.call(dialog.querySelectorAll("[data-closes]"), function (btn) {
+        btn.addEventListener("click", function () { closeDialog(id); });
+      });
+    }
+  });
+
+  // Ruling 1 (P8j): the one control that card shipped. Posts to the
+  // REMAINDER leg only, never deposit.
   var payBtn = A.el("pay-btn");
   if (payBtn) {
     payBtn.addEventListener("click", function () {
@@ -242,9 +481,9 @@
         payBtn.disabled = false;
         if (result.state !== "ok") { showError("pay-error", "Could not reach the server just now. Try again in a moment."); return; }
         var status = result.value.status;
-        var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
-        if (status !== 200) { showError("pay-error", refusalSentence(status, typeof body.error === "string" ? body.error : "")); return; }
-        openScan(typeof body.url === "string" ? body.url : "");
+        var respBody = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
+        if (status !== 200) { showError("pay-error", refusalSentence(status, typeof respBody.error === "string" ? respBody.error : "")); return; }
+        openScan(typeof respBody.url === "string" ? respBody.url : "");
       });
     });
   }
@@ -263,23 +502,12 @@
     var copyBtn = A.el("scan-url-copy");
     if (copyBtn) copyBtn.setAttribute("data-copy", url);
     A.showById("scan-pr-wrap", false);
-    var dialog = A.el("scan");
-    if (dialog && typeof dialog.showModal === "function") dialog.showModal();
-    else if (dialog) dialog.setAttribute("open", "");
-  }
-  function closeScan() {
-    var dialog = A.el("scan");
-    if (dialog && typeof dialog.close === "function") dialog.close();
-    else if (dialog) dialog.removeAttribute("open");
-  }
-  var scanDialog = A.el("scan");
-  if (scanDialog) {
-    Array.prototype.forEach.call(scanDialog.querySelectorAll("[data-closes]"), function (btn) { btn.addEventListener("click", closeScan); });
+    openDialog("scan");
   }
 
-  // Ruling 6: the only re-read, fired on a press and never by a timer.
-  // Never claims settlement itself: shows the pull request link only
-  // when the job's own pullRequestUrl is present.
+  // Ruling 6 (P8j): the only re-read on the pay path, fired on a press
+  // and never by a timer. Never claims settlement itself: shows the
+  // pull request link only when the job's own pullRequestUrl is present.
   var checkPrBtn = A.el("check-pr-btn");
   if (checkPrBtn) {
     checkPrBtn.addEventListener("click", function () {
@@ -290,6 +518,73 @@
         var link = A.el("scan-pr-link");
         if (link) link.setAttribute("href", url);
         A.showById("scan-pr-wrap", true);
+      });
+    });
+  }
+
+  // Ruling 6: opens the picker dialog. The button itself may be absent
+  // from the document (allowance spent), in which case there is nothing
+  // to wire.
+  var redoBtnTop = A.el("redo-btn");
+  if (redoBtnTop) redoBtnTop.addEventListener("click", function () { openDialog("redo"); });
+
+  var declineBtnTop = A.el("decline-btn");
+  if (declineBtnTop) declineBtnTop.addEventListener("click", function () { openDialog("decline"); });
+
+  // Rulings 1, 2, 6: posts { criterionIndex } and nothing else, exactly
+  // once. Disables on press and never re-enables on success (mutation
+  // proof 12). A 409 naming the exhausted allowance is a refusal shown
+  // in place; a 409 naming anything else means someone acted on this
+  // hire first, so this reloads and re-renders rather than leaving a
+  // stale screen (scope item 4).
+  var redoSendBtn = A.el("redo-send-btn");
+  if (redoSendBtn) {
+    redoSendBtn.addEventListener("click", function () {
+      if (redoSelectedIndex === null) return;
+      A.showById("redo-error", false);
+      redoSendBtn.disabled = true;
+      A.postAuthed("/jobs/" + encodeURIComponent(jobId) + "/redo", token, { criterionIndex: redoSelectedIndex }).then(function (result) {
+        if (result.state !== "ok") {
+          redoSendBtn.disabled = false;
+          showError("redo-error", "Could not reach the server just now. Try again in a moment.");
+          return;
+        }
+        var status = result.value.status;
+        var respBody = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
+        var serverMessage = typeof respBody.error === "string" ? respBody.error : "";
+        if (status === 200) { closeDialog("redo"); reload(); return; }
+        redoSendBtn.disabled = false;
+        if (status === 409 && serverMessage.toLowerCase().indexOf("redo allowance") === -1) {
+          closeDialog("redo");
+          reload();
+          return;
+        }
+        showError("redo-error", redoRefusalSentence(status, serverMessage));
+      });
+    });
+  }
+
+  // Ruling 6: body-less, exactly once, disables on press and never
+  // re-enables on success. A 409 means the hire already left staged;
+  // reload rather than leaving a stale screen.
+  var declineSendBtn = A.el("decline-send-btn");
+  if (declineSendBtn) {
+    declineSendBtn.addEventListener("click", function () {
+      A.showById("decline-error", false);
+      declineSendBtn.disabled = true;
+      A.postAuthed("/jobs/" + encodeURIComponent(jobId) + "/staged-decline", token).then(function (result) {
+        if (result.state !== "ok") {
+          declineSendBtn.disabled = false;
+          showError("decline-error", "Could not reach the server just now. Try again in a moment.");
+          return;
+        }
+        var status = result.value.status;
+        var respBody = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
+        var serverMessage = typeof respBody.error === "string" ? respBody.error : "";
+        if (status === 200) { closeDialog("decline"); reload(); return; }
+        declineSendBtn.disabled = false;
+        if (status === 409) { closeDialog("decline"); reload(); return; }
+        showError("decline-error", declineRefusalSentence(status, serverMessage));
       });
     });
   }
