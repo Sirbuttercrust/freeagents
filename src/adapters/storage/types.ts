@@ -183,6 +183,17 @@ export interface JobRepository {
   // gate in POST /jobs treats a stand-in that omits it as
   // storage-unavailable, the same 503 an actual outage produces.
   findByBuyerDid?(buyerDid: string): Promise<readonly Job[]>;
+  // P8p: every job offered to one agent DID, in any status, no ordering
+  // guarantee required (the incoming route sorts newest first itself,
+  // the same stance findByBuyerDid already takes). Empty array for an
+  // agent with none, never null. Optional for the same reason
+  // findByBuyerDid is: hand-rolled JobRepository stand-ins in unrelated
+  // route tests never touch the incoming route and are not forced to
+  // grow a method they are never asked to call. Both real drivers always
+  // implement it; GET /accounts/:did/incoming treats a stand-in that
+  // omits it as storage-unavailable, the same 503 an actual outage
+  // produces.
+  findByAgentDid?(agentDid: string): Promise<readonly Job[]>;
 }
 
 // Thrown by CredentialRepository.save when the job already has a credential,

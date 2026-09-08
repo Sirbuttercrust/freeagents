@@ -263,3 +263,25 @@ describe('MemoryJobRepository.findByBuyerDid', () => {
     expect(rows.map((r) => r.id).sort()).toEqual(['job_a', 'job_b']);
   });
 });
+
+// P8p: every job offered to one agent DID, in any status. Empty for an
+// agent with none, never null (the same "zero renders as zero" stance
+// findByBuyerDid already takes).
+describe('MemoryJobRepository.findByAgentDid', () => {
+  it('is empty for an agent with no jobs', async () => {
+    const repo = new MemoryJobRepository();
+    expect(await repo.findByAgentDid('did:abt:zNoOffers')).toEqual([]);
+  });
+
+  it('returns every job for the agent, regardless of status, and none for another agent', async () => {
+    const repo = new MemoryJobRepository();
+    const agent = 'did:abt:zIncomingAgent';
+    const other = 'did:abt:zOtherAgent';
+    await repo.create({ ...jobFixture(), id: 'job_a', agentDid: agent, status: 'draft' });
+    await repo.create({ ...jobFixture(), id: 'job_b', agentDid: agent, status: 'proposed' });
+    await repo.create({ ...jobFixture(), id: 'job_c', agentDid: other, status: 'completed' });
+
+    const rows = await repo.findByAgentDid(agent);
+    expect(rows.map((r) => r.id).sort()).toEqual(['job_a', 'job_b']);
+  });
+});
