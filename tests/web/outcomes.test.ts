@@ -142,6 +142,16 @@ describe('the five endings (done-means 2, 3, 5)', () => {
       expect(page.document.querySelector('[class*="total" i]')).toBeNull();
       expect(page.document.querySelector('[class*="summary" i]')).toBeNull();
       expect(page.document.querySelector('table')).toBeNull();
+      // qa review round 1, D2 (vacuous-gate): the checks above only ever
+      // looked at the record dd's own two <b> children, so a blended or
+      // scored figure written into any other element on the page, such as
+      // a card's "You get" line, walked straight past them. This scans the
+      // whole rendered body for a percentage in either spelling, since
+      // done-means 4 forbids a sum and the "no rating" refusal row forbids
+      // a score, and this page states neither anywhere in its own copy.
+      const wholeBodyText = page.document.body.textContent ?? '';
+      expect(wholeBodyText).not.toMatch(/\d+\s*(%|percent)\b/i);
+      expect(wholeBodyText.toLowerCase()).not.toContain('combined');
     } finally {
       page.close();
     }
@@ -204,6 +214,45 @@ describe('no colour scale, no ordering from good to bad (done-means 5, mutation 
       expect(bodyText).not.toMatch(/\d+%/);
     } finally {
       page.close();
+    }
+  });
+
+  // qa review round 1, D1 (vacuous-gate): the class-list and inline-style
+  // checks above are blind to a rule added to this page's own <style>
+  // block, which is where every rule this page owns actually lives. A
+  // class-list or attribute check can never see that vector. This measures
+  // the five cards' computed style in a real browser instead, the only
+  // instrument that sees a stylesheet rule the way a reader's screen does.
+  it('the five cards are identical in computed style, in a real browser (mutation proof 4)', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser colour-parity test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: 1280, height: 1400 });
+    try {
+      await browser.goto(`${baseUrl}/outcomes`);
+      const computed = await browser.evaluate<
+        Array<{ backgroundColor: string; borderColor: string; borderTopWidth: string; color: string; boxShadow: string; order: string }>
+      >(`
+        Array.from(document.querySelectorAll('.oc')).map(function (el) {
+          var s = getComputedStyle(el);
+          return {
+            backgroundColor: s.backgroundColor,
+            borderColor: s.borderColor,
+            borderTopWidth: s.borderTopWidth,
+            color: s.color,
+            boxShadow: s.boxShadow,
+            order: s.order,
+          };
+        })
+      `);
+      expect(computed.length).toBe(5);
+      const first = computed[0];
+      for (const style of computed) {
+        expect(style, 'every card must match the first card\'s computed style').toEqual(first);
+      }
+    } finally {
+      await browser.close();
     }
   });
 });
