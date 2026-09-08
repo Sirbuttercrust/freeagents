@@ -164,6 +164,19 @@ describe('the My jobs screen, driven end to end against the real app', () => {
     }
   });
 
+  it('the empty state hides the filter chips and the empty rows pane, so no control renders inert (D1)', async () => {
+    const page = await renderMyJobs(baseUrl, buyerSession);
+    try {
+      expect(page.document.getElementById('empty-state')?.hidden).toBe(false);
+      const filters = page.document.getElementById('filters');
+      expect(filters?.hidden).toBe(true);
+      const rows = page.document.getElementById('rows');
+      expect(rows?.hidden).toBe(true);
+    } finally {
+      page.close();
+    }
+  });
+
   it('a signed-in buyer with hires sees one row per hire, each opening /jobs/:jobId, and the session token never appears in the document (done-means 6, 11)', async () => {
     // Resolve this session's own DID first (the same GET /accounts/me
     // read myjobs.js itself makes), so the fixture jobs are planted
@@ -280,6 +293,27 @@ describe('the My jobs screen, driven end to end against the real app', () => {
         expect(row).not.toBeNull();
         const rowStyle = page.window.getComputedStyle(row as Element);
         expect(rowStyle.display).toBe('flex');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('rowtext and rowtrail are direct children of the row anchor, with no wrapper div breaking the between layout (D2)', async () => {
+      const meRes = await fetch(`${baseUrl}/accounts/me`, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${buyerSession.token}` },
+      });
+      const me = (await meRes.json()) as { did: string };
+      const buyerDid = me.did;
+      await jobRepo.create(jobFixture({ id: 'myjobs-layout-structure', buyerDid, agentDid, status: 'confirmed', confirmedAt: new Date('2026-08-09T00:00:00Z') }, new Date('2026-08-09T00:00:00Z')));
+
+      const page = await renderMyJobs(baseUrl, buyerSession);
+      try {
+        const row = page.document.querySelector('a[href="/jobs/myjobs-layout-structure"]');
+        expect(row).not.toBeNull();
+        const children = Array.from((row as Element).children);
+        expect(children.length).toBe(2);
+        expect(children[0]?.className).toBe('rowtext');
+        expect(children[1]?.className).toBe('rowtrail');
       } finally {
         page.close();
       }

@@ -64,6 +64,8 @@
     A.showById("myjobs-body", true);
     if (allJobs.length === 0) {
       A.showById("empty-state", true);
+      A.showById("filters", false);
+      A.showById("rows", false);
       return;
     }
     renderChips();
