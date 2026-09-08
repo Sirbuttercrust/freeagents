@@ -33,17 +33,45 @@
   var A = window.FAApi;
   var LAPSE_AT_STAGED_AFTER_DAYS = 7, REDO_LAPSE_EXTENSION_DAYS = 7, ABT_FEE_RATE_PERCENT = 3, MS_PER_DAY = 86400000;
   var jobId = "", token = "", job = null, currentFigures = null, redoSelectedIndex = null;
+  // Round 1 fix (qa D1): whether the signed-in session IS this job's
+  // buyer, resolved from GET /accounts/:did (already mounted,
+  // unauthenticated, app.ts:1300) against the stored session's own
+  // subject and method. Defaults false (fail closed): a buyer whose own
+  // account read fails loses redo/decline for that load rather than a
+  // non-buyer gaining them. No new route: this is the same comparison
+  // resolveActingParty already makes server-side, read back through a
+  // route this page already had reason to call.
+  var isBuyerParty = false;
+  var session = null;
 
   function start() {
     jobId = new URLSearchParams(window.location.search).get("job") || "";
     if (!jobId) { failLoad("This address does not name a hire."); return; }
-    var session = A.getStoredSession();
+    session = A.getStoredSession();
     if (session === null) { A.showById("signin-required", true); return; }
     token = session.token;
     reload();
   }
   function reload() {
     Promise.all([A.get("/jobs/" + encodeURIComponent(jobId)), A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/attestation", token)]).then(onLoaded);
+  }
+  // Round 1 fix (qa D1): resolves whether the signed-in session names
+  // this job's buyer account. The route mirrors the buyer/passkey join
+  // resolveActingParty performs (app.ts:595-613): a github-oauth session
+  // matches on githubLogin, a passkey session matches on passkeySubject.
+  // A failed or absent read resolves false, never true: the redo and
+  // decline controls stay hidden rather than risk showing them to a
+  // party the page could not confirm.
+  function resolveIsBuyerParty(job_) {
+    if (session === null || typeof job_.buyerDid !== "string" || job_.buyerDid === "") return Promise.resolve(false);
+    return A.get("/accounts/" + encodeURIComponent(job_.buyerDid)).then(function (result) {
+      if (result.state !== "ok") return false;
+      var account = result.value && typeof result.value === "object" ? result.value : {};
+      if (session.method === "passkey") {
+        return typeof account.passkeySubject === "string" && account.passkeySubject === session.subject;
+      }
+      return typeof account.githubLogin === "string" && account.githubLogin === session.subject;
+    });
   }
   function failLoad(detail) { A.showById("load-error", true); A.setTextById("load-error-detail", detail); }
   function showError(idPrefix, message) { A.setTextById(idPrefix + "-detail", message); A.showById(idPrefix, true); }
@@ -94,9 +122,15 @@
     renderLede(job);
     renderClock(job);
     renderFacts(attestation);
-    renderChoicesSection(job);
     renderTechnical(attestation);
     renderWho(job);
+    // Round 1 fix (qa D1): the acting controls wait on the party
+    // resolution before rendering, so an agent's browser never paints
+    // pay/redo/decline even for one frame.
+    resolveIsBuyerParty(job).then(function (result) {
+      isBuyerParty = result;
+      renderChoicesSection(job);
+    });
   }
 
   function showDeclined() {
@@ -239,17 +273,23 @@
     }
   }
 
-  // Ruling 6: the redo control renders only when a redo can actually be
-  // requested. No disabled button, no stub: the button is removed from
-  // the document entirely once the allowance is spent, never merely
-  // hidden or disabled.
+  // Ruling 6, round 1 fix (qa D1): the redo control renders only when a
+  // redo can actually be requested BY THIS SESSION. No disabled button,
+  // no stub: both controls are removed from the document entirely
+  // rather than hidden or disabled, whether the reason is the allowance
+  // being spent or this session not being the job's buyer. Pay is out
+  // of this card's scope (P8j's own control, unchanged here).
   function renderActs(job_) {
     var exhausted = redoUsedCount(job_) >= redoAllowanceOf(job_);
     var redoBtn = A.el("redo-btn");
-    if (exhausted) {
+    if (exhausted || !isBuyerParty) {
       if (redoBtn && redoBtn.parentNode) redoBtn.parentNode.removeChild(redoBtn);
     } else if (redoBtn) {
       redoBtn.hidden = false;
+    }
+    var declineBtn = A.el("decline-btn");
+    if (!isBuyerParty) {
+      if (declineBtn && declineBtn.parentNode) declineBtn.parentNode.removeChild(declineBtn);
     }
   }
 
