@@ -104,6 +104,7 @@ type PageName =
   | 'incoming'
   | 'conduct'
   | 'dashboard'
+  | 'settings'
   | 'notfound'
   | 'authCallbackSuccess'
   | 'authCallbackError';
@@ -144,6 +145,8 @@ const PAGE_FILES: Readonly<Record<PageName, string>> = {
   conduct: 'conduct.html',
   // P8u: same stance -- /dashboard owns no path an API route also serves.
   dashboard: 'dashboard.html',
+  // P8v: same stance -- /settings owns no path an API route also serves.
+  settings: 'settings.html',
   notfound: 'notfound.html',
   // P8e: rendered directly by GET /auth/github/callback in src/api/app.ts,
   // never mounted as a route of its own here. Loaded once at construction
@@ -317,6 +320,9 @@ export function createWebSurface(
       // P8u: same stance -- /dashboard owns no path an API route also
       // serves, so this is a plain own-path mount, never `negotiated`.
       app.get('/dashboard', (_req: Request, res: Response) => send(res, 'dashboard'));
+      // P8v: same stance -- /settings owns no path an API route also
+      // serves, so this is a plain own-path mount, never `negotiated`.
+      app.get('/settings', (_req: Request, res: Response) => send(res, 'settings'));
 
       // Pages that share a path with an API route (see rule 1 above).
       app.get('/agents/:agentDid', negotiated('agent'));
