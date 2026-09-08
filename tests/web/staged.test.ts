@@ -1220,7 +1220,7 @@ describe('the staged screen, driven end to end against the real app', () => {
       }
     });
 
-    it('a malformed body (400) shows a fault-in-this-screen sentence, never blaming the buyer (scope item 4)', async () => {
+    it('every redo refusal renders its own distinct sentence, including a malformed body (400) that never blames the buyer (scope item 4, mutation proof: D5)', async () => {
       const page = await renderStaged(baseUrl, 'job-redo-malformed-guard', buyerSession);
       const originalFetch = global.fetch;
       try {
@@ -1228,18 +1228,18 @@ describe('the staged screen, driven end to end against the real app', () => {
         const radios = Array.from(page.document.querySelectorAll('#redo-picker input[type="radio"]')) as HTMLInputElement[];
         radios[0]!.checked = true;
         radios[0]!.dispatchEvent(new page.window.Event('change', { bubbles: true }));
-        Object.defineProperty(page.window, 'fetch', {
-          writable: true,
-          value: async (input: string, init?: RequestInit) =>
-            String(input).includes('/redo')
-              ? new Response(JSON.stringify({ error: 'body must be { criterionIndex: number }' }), { status: 400, headers: { 'content-type': 'application/json' } })
-              : originalFetch(new URL(input, baseUrl), init),
-        });
-        (page.document.getElementById('redo-send-btn') as HTMLButtonElement).click();
-        await new Promise((resolve) => setTimeout(resolve, 150));
-        const detail = page.document.getElementById('redo-error-detail')?.textContent ?? '';
-        expect(detail.toLowerCase()).not.toContain('you');
-        expect(detail.toLowerCase()).toContain('screen');
+        const sendBtn = page.document.getElementById('redo-send-btn') as HTMLButtonElement;
+        const sentences: string[] = [];
+        for (const [status, error] of [[400, 'body must be { criterionIndex: number }'], [401, ''], [403, ''], [409, 'internal: redo allowance exhausted'], [503, 'storage unavailable']] as [number, string][]) {
+          Object.defineProperty(page.window, 'fetch', { writable: true, value: async (input: string, init?: RequestInit) => (String(input).includes('/redo') ? new Response(JSON.stringify({ error }), { status, headers: { 'content-type': 'application/json' } }) : originalFetch(new URL(input, baseUrl), init)) });
+          sendBtn.click();
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          sentences.push(page.document.getElementById('redo-error-detail')?.textContent ?? '');
+        }
+        expect(new Set(sentences).size).toBe(5);
+        expect((sentences[0] ?? '').toLowerCase()).not.toContain('you');
+        expect((sentences[0] ?? '').toLowerCase()).toContain('screen');
+        expect((sentences[3] ?? '').toLowerCase()).toContain('no redo left');
       } finally {
         page.close();
       }
@@ -1303,21 +1303,29 @@ describe('the staged screen, driven end to end against the real app', () => {
       }
     });
 
-    it('a re-read of the declined job renders the terminal panel with a link back and no control', async () => {
+    it('every decline refusal renders its own distinct sentence, and a re-read of the declined job renders the terminal panel with a link back and no control (scope item 4, mutation proof: D5)', async () => {
       const page = await renderStaged(baseUrl, 'job-decline-conflict', buyerSession);
+      const originalFetch = global.fetch;
       try {
         (page.document.getElementById('decline-btn') as HTMLButtonElement).click();
-        (page.document.getElementById('decline-send-btn') as HTMLButtonElement).click();
+        const sendBtn = page.document.getElementById('decline-send-btn') as HTMLButtonElement, declineSentences: string[] = [];
+        for (const [status, error] of [[401, ''], [403, ''], [503, 'storage unavailable']] as [number, string][]) {
+          Object.defineProperty(page.window, 'fetch', { writable: true, value: async (input: string, init?: RequestInit) => (String(input).includes('staged-decline') ? new Response(JSON.stringify({ error }), { status, headers: { 'content-type': 'application/json' } }) : originalFetch(new URL(input, baseUrl), init)) });
+          sendBtn.click();
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          declineSentences.push(page.document.getElementById('decline-error-detail')?.textContent ?? '');
+        }
+        expect(new Set(declineSentences).size).toBe(3);
+        Object.defineProperty(page.window, 'fetch', { writable: true, value: (input: string, init?: RequestInit) => originalFetch(new URL(input, baseUrl), init) });
+        sendBtn.click();
         await new Promise((resolve) => setTimeout(resolve, 300));
         page.close();
 
         const secondView = await renderStaged(baseUrl, 'job-decline-conflict', buyerSession);
         try {
-          const panel = secondView.document.getElementById('declined-panel');
-          expect(panel?.hidden).toBe(false);
+          expect(secondView.document.getElementById('declined-panel')?.hidden).toBe(false);
           expect(secondView.document.getElementById('staged-body')?.hidden).toBe(true);
-          const link = secondView.document.getElementById('declined-link') as HTMLAnchorElement | null;
-          expect(link?.getAttribute('href')).toBe('/jobs/job-decline-conflict');
+          expect((secondView.document.getElementById('declined-link') as HTMLAnchorElement | null)?.getAttribute('href')).toBe('/jobs/job-decline-conflict');
         } finally {
           secondView.close();
         }
