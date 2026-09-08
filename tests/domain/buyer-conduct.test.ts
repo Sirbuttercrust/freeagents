@@ -150,6 +150,17 @@ describe('buyerConductRecord', () => {
     expect(result.citedCloses).toBe(1);
   });
 
+  // Review round 1, defect 2: cited_closed is the buyer's close AFTER
+  // paying (src/domain/job.ts), so it is downstream of confirmed by
+  // definition, the same way every other terminal status in
+  // DOWNSTREAM_OF_CONFIRMED is. confirmedAt: null here forces the check
+  // through the status-set branch rather than the confirmedAt branch, so
+  // this reddens if cited_closed is ever dropped from that set.
+  it('cited_closed counts confirmed even with a null confirmedAt: it is downstream of confirmed by definition', () => {
+    const result = buyerConductRecord([job({ status: 'cited_closed', confirmedAt: null })]);
+    expect(result.confirmed).toBe(1);
+  });
+
   // P8r, done-means item 2, mutation proof 1: redosRequested must count the
   // durable redoRequestedAt fact, not the transient redo_requested status.
   // A job that passed through redo_requested and was then REFUSED (so it

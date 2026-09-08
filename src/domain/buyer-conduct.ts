@@ -62,6 +62,9 @@ export interface BuyerConduct {
 // non-terminal status including draft and proposed, so reaching one of
 // them proves nothing about whether the job was ever confirmed - that is
 // exactly what the confirmedAt fact (not the status) settles for those two.
+// P8r: cited_closed joins this set. It is the buyer's close after
+// paying (src/domain/job.ts), so it is downstream of confirmed by the
+// same definition as every other terminal status here.
 const DOWNSTREAM_OF_CONFIRMED = new Set([
   'confirmed',
   'staged',
@@ -73,6 +76,7 @@ const DOWNSTREAM_OF_CONFIRMED = new Set([
   'deemed_completed',
   'completed',
   'closed_unmerged',
+  'cited_closed',
 ]);
 
 function wasConfirmed(job: BuyerJobFacts): boolean {

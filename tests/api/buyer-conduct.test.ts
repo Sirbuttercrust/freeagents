@@ -706,6 +706,90 @@ describe('GET /buyers/:githubLogin/conduct (P7)', () => {
     }
   });
 
+  // Review round 1, defect 1 (vacuous-gate): the two redo counts must be
+  // proved to reach the response over the wire, not only inside the pure
+  // domain function. A route-level test asserting a NON-ZERO
+  // counts.redosRequested, driven by setting the durable fact on a
+  // stored job the same way jobRepo.update is used elsewhere in this
+  // file. Deleting the redoRequestedAt line in buyerConductForDid must
+  // redden this test.
+  it('a buyer whose job carries redoRequestedAt reports a non-zero counts.redosRequested over the wire', async () => {
+    const { server, baseUrl, accountRepo, agentRepo, jobRepo } = await buildApp();
+    try {
+      const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(61));
+      const agentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(62));
+      const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(63));
+      await accountRepo.register({ did: operator.did, githubLogin: 'operator-p8r-redo-req' });
+      await accountRepo.register({ did: buyer.did, githubLogin: 'buyer-p8r-redo-req' });
+      await agentRepo.create({
+        did: agentIdentity.did,
+        operatorDid: operator.did,
+        delegation: delegationFixture(agentIdentity.did, operator.did) as never,
+        name: 'scout',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+      const draft = await postSigned(baseUrl, '/jobs', {
+        agentDid: agentIdentity.did,
+        repository: 'buyer/target-repo',
+        brief: 'A job whose redo was requested',
+      }, buyer);
+      const draftBody = (await draft.json()) as Record<string, unknown>;
+      const job = await jobRepo.findById(String(draftBody.id));
+      if (job === null) throw new Error('expected the drafted job to be stored');
+      await jobRepo.update({ ...job, status: 'staged', redoRequestedAt: new Date() });
+
+      const res = await fetch(`${baseUrl}/buyers/buyer-p8r-redo-req/conduct`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.keyed).toBe(true);
+      expect((body.counts as Record<string, unknown>).redosRequested).toBe(1);
+    } finally {
+      server.close();
+    }
+  });
+
+  // Review round 1, defect 1 (vacuous-gate), the operator half. Same
+  // proof shape: a route-level assertion on a NON-ZERO
+  // operatorCounts.redosRefused, driven by setting redoRefusedAt on a
+  // stored job. Deleting the redoRefusedAt line in operatorConductForDid
+  // must redden this test.
+  it('an operator whose agent job carries redoRefusedAt reports a non-zero operatorCounts.redosRefused over the wire', async () => {
+    const { server, baseUrl, accountRepo, agentRepo, jobRepo } = await buildApp();
+    try {
+      const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(64));
+      const ownAgent = await signingIdentityFromSeed(new Uint8Array(32).fill(65));
+      const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(66));
+      await accountRepo.register({ did: operator.did, githubLogin: 'operator-p8r-redo-refused' });
+      await accountRepo.register({ did: buyer.did, githubLogin: 'buyer-p8r-redo-refused' });
+      await agentRepo.create({
+        did: ownAgent.did,
+        operatorDid: operator.did,
+        delegation: delegationFixture(ownAgent.did, operator.did) as never,
+        name: 'own-agent',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+      const draft = await postSigned(baseUrl, '/jobs', {
+        agentDid: ownAgent.did,
+        repository: 'buyer/target-repo',
+        brief: 'A job whose redo was refused',
+      }, buyer);
+      const draftBody = (await draft.json()) as Record<string, unknown>;
+      const job = await jobRepo.findById(String(draftBody.id));
+      if (job === null) throw new Error('expected the drafted job to be stored');
+      await jobRepo.update({ ...job, status: 'staged', redoRequestedAt: new Date(), redoRefusedAt: new Date() });
+
+      const res = await fetch(`${baseUrl}/buyers/operator-p8r-redo-refused/conduct`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.keyed).toBe(true);
+      expect((body.operatorCounts as Record<string, unknown>).redosRefused).toBe(1);
+    } finally {
+      server.close();
+    }
+  });
+
   // Mutation proof 4: the roster filter must be the exact operatorDid
   // comparison GET /accounts/:did/agents already uses, never
   // isAgentOperator's didSuffix match. Two accounts whose DID suffixes
