@@ -20,7 +20,7 @@ import {
   MemoryJobRepository,
   MemoryAttestationRepository,
 } from '../../src/adapters/storage/memory.js';
-import { createJob, type Job } from '../../src/domain/job.js';
+import { createJob, REDO_LAPSE_EXTENSION_DAYS, type Job } from '../../src/domain/job.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSession, mintSessionToken } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
@@ -237,6 +237,7 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
       redoUsedCount: 1,
       redoRequestedCriterionIndex: 0,
       redoRequestedAt: RECENT,
+      stagedLapseExtensionDays: REDO_LAPSE_EXTENSION_DAYS,
     });
 
     // A second, freshly-staged job for the accept-then-restage flow (its
@@ -361,6 +362,56 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
     });
   });
 
+  describe("a buyer session (not this job's agent or operator)", () => {
+    it('is refused with the party-error panel, never the agent/operator controls (round 2 fix, D1)', async () => {
+      // The 2026-09-01 "one account, many roles" case: a session that
+      // resolves to THIS job's buyer, reached through the ordinary
+      // /operatorjob?job=<id> link dashboard.js and incoming.js now emit.
+      // A fresh server shares the same jobRepo/agentRepo/attestationRepo
+      // (the stranger-session pattern above) but its own account repo,
+      // registering only the buyer's account so the session resolves to
+      // job-redo-requested's own buyerDid.
+      const buyerAdapter = createSessionAdapter({
+        github: fakeGitHubConfig(),
+        fetchImpl: fakeGitHubFetch({ login: 'operatorjob-page-buyer-login', id: 88104 }),
+      });
+      const buyerAccountRepo = new MemoryAccountRepository();
+      await buyerAccountRepo.register({ did: 'did:abt:operatorjob-page-buyer', githubLogin: 'operatorjob-page-buyer-login' });
+      const buyerServer = createApp(
+        buyerAccountRepo,
+        agentRepo,
+        undefined,
+        undefined,
+        jobRepo,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        buyerAdapter,
+        undefined,
+        alwaysSettledGate(),
+        anyCommitStagingObserver(),
+        attestationRepo,
+      ).listen(0, '127.0.0.1');
+      await new Promise<void>((resolve) => buyerServer.once('listening', resolve));
+      const buyerBaseUrl = `http://127.0.0.1:${(buyerServer.address() as AddressInfo).port}`;
+      try {
+        const buyerSession = await mintSession(buyerAdapter);
+        const page = await renderOperatorJob(buyerBaseUrl, 'job-redo-requested', buyerSession);
+        try {
+          expect(page.document.getElementById('party-error')?.hidden).toBe(false);
+          expect(page.document.getElementById('operatorjob-body')?.hidden).toBe(true);
+        } finally {
+          page.close();
+        }
+      } finally {
+        await new Promise<void>((resolve) => buyerServer.close(() => resolve()));
+      }
+    });
+  });
+
   describe('a confirmed job: the stage panel, live', () => {
     it('renders the stage panel and submitting a commit moves the job to staged, restaged through the real route', async () => {
       const page = await renderOperatorJob(baseUrl, 'job-confirmed', operatorSession);
@@ -389,6 +440,33 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
         expect(page.document.getElementById('redo-panel')?.hidden).toBe(false);
         const text = page.document.getElementById('redo-facts')?.textContent ?? '';
         expect(text).toContain('The login bug is fixed');
+      } finally {
+        page.close();
+      }
+    });
+  });
+
+  describe('the redo dialogs show the consequence from the job\'s own real numbers (round 2 fix, D2)', () => {
+    it('the accept dialog states the real extension days, the unchanged price and the redos left', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-redo-requested', operatorSession);
+      try {
+        (page.document.getElementById('redo-accept-btn') as HTMLButtonElement).click();
+        const text = page.document.getElementById('accept-consequences')?.textContent ?? '';
+        expect(text).toContain(String(REDO_LAPSE_EXTENSION_DAYS));
+        expect(text).toContain('$1200.00');
+        expect(text.toLowerCase()).toContain('none');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('the refuse dialog states what the operator receives or keeps, from the job\'s own price line', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-redo-requested', operatorSession);
+      try {
+        (page.document.getElementById('redo-refuse-btn') as HTMLButtonElement).click();
+        const text = page.document.getElementById('refuse-consequences')?.textContent ?? '';
+        expect(text).toContain('$1200.00');
+        expect(text).toContain('$300.00');
       } finally {
         page.close();
       }
@@ -522,6 +600,30 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
           })()
         `);
         expect(acceptBtn?.height, 'the accept-redo control must reach the 44px tap floor at 320px').toBeGreaterThanOrEqual(44);
+      } finally {
+        await browser.close();
+      }
+    });
+
+    it('at 320px the accept-redo dialog, opened, has no horizontal overflow (the wireframe\'s own open state)', async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      const browser = await RealBrowser.launch({ width: 320, height: 900 });
+      try {
+        await browser.goto(`${baseUrl}/operatorjob?job=job-redo-requested`);
+        await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(operatorSession))})`);
+        await browser.goto(`${baseUrl}/operatorjob?job=job-redo-requested`);
+        await browser.evaluate(`document.getElementById('redo-accept-btn').click()`);
+
+        const overflow = await browser.evaluate<{ scrollWidth: number; clientWidth: number }>(`
+          ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth })
+        `);
+        expect(overflow.scrollWidth, 'the 320px page must not scroll sideways with the accept dialog open').toBe(overflow.clientWidth);
+
+        const consequenceRows = await browser.evaluate<number>(`document.querySelectorAll('#accept-consequences > li').length`);
+        expect(consequenceRows, 'the accept dialog must render its consequence rows').toBeGreaterThan(0);
       } finally {
         await browser.close();
       }

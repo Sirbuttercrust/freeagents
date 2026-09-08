@@ -8,6 +8,16 @@
    signed-in session that resolves to the agent's OWN OPERATOR, not just
    the agent's key or the buyer.
 
+   ROUND 2 FIX (qa D1): GET /jobs/:jobId/attestation's own party check
+   admits the buyer too (the buyer reads the same document, P5's own
+   rule), so a 200 or 404 from that probe means only "not a stranger",
+   never "this is the agent/operator seat" -- this screen's own controls
+   are agent/operator-only. resolveIsBuyerParty (below, staged.js's own
+   pattern) reads GET /accounts/:did for the job's buyerDid and compares
+   the stored session's subject/method against it, the same join
+   resolveActingParty makes server-side, before this screen's body ever
+   renders. A buyer session lands on the party-error panel.
+
    Controls post to /jobs/:jobId/redo-refuse and /jobs/:jobId/stage (the
    same route the agent's own key already used to stage the first time
    and to restage after an accepted redo), both now open to the operator
@@ -29,9 +39,10 @@
    job's real projection carries no timestamp for (the wireframe's own
    fixed narrative names deposit/balance events this build's price
    projection does not carry a settlement timestamp for; see
-   MONEY FACTS below); the redo dialog shows both consequences from the
-   job's own real numbers rather than the wireframe's fixed prose
-   figures.
+   MONEY FACTS below); both redo dialogs render the consequence rows
+   from the job's own real numbers (redoAllowance, redo.usedCount, the
+   price line) rather than the wireframe's fixed prose figures --
+   renderRedoConsequences below, joined to both dialogs, not just one.
 
    EVERYTHING THROUGH textContent: the brief, the repository and every
    criterion's text are buyer/agent-supplied strings, content, never
@@ -39,7 +50,12 @@
 (function () {
   "use strict";
   var A = window.FAApi;
-  var jobId = "", token = null, job = null, redoAcceptSelectedCommit = "";
+  // Pinned to src/domain/job.ts's own REDO_LAPSE_EXTENSION_DAYS (staged.js's
+  // own pattern: a browser constant a test pins against the domain's own
+  // value, rather than this page recomputing a delivery date from fields
+  // it does not carry).
+  var REDO_LAPSE_EXTENSION_DAYS = 7;
+  var jobId = "", token = null, job = null, redoAcceptSelectedCommit = "", session = null;
 
   var STATE_HEADINGS = {
     draft: "A brief arrived",
@@ -82,7 +98,7 @@
   function start() {
     jobId = new URLSearchParams(window.location.search).get("job") || "";
     if (!jobId) { failLoad("This address does not name a hire."); return; }
-    var session = A.getStoredSession();
+    session = A.getStoredSession();
     if (session === null) { A.showById("signin-required", true); return; }
     token = session.token;
     reload();
@@ -102,6 +118,31 @@
 
   var PANEL_IDS = ["load-error", "signin-required", "party-error", "operatorjob-body"];
   function hideAllPanels() { PANEL_IDS.forEach(function (id) { A.showById(id, false); }); }
+
+  // Round 2 fix (qa D1): the attestation probe's 200/403/404 answers
+  // "may this session read the job", never "which seat is this session".
+  // The attestation route admits the buyer AND the agent/operator by
+  // design (src/api/app.ts, GET /jobs/:jobId/attestation's own header
+  // comment), so a 200 or 404 here means only "not a stranger", and this
+  // page's own controls are agent/operator-only (the header comment
+  // above). resolveIsBuyerParty mirrors staged.js's own party probe: it
+  // reads GET /accounts/:did for the job's buyerDid and compares the
+  // stored session's subject/method against that account's own
+  // githubLogin/passkeySubject, the same join resolveActingParty makes
+  // server-side. A failed or absent read resolves false (fail closed):
+  // this page shows the party-error panel rather than risk showing the
+  // agent's controls to an unconfirmed caller.
+  function resolveIsBuyerParty(job_) {
+    if (session === null || typeof job_.buyerDid !== "string" || job_.buyerDid === "") return Promise.resolve(false);
+    return A.get("/accounts/" + encodeURIComponent(job_.buyerDid)).then(function (result) {
+      if (result.state !== "ok") return false;
+      var account = result.value && typeof result.value === "object" ? result.value : {};
+      if (session.method === "passkey") {
+        return typeof account.passkeySubject === "string" && account.passkeySubject === session.subject;
+      }
+      return typeof account.githubLogin === "string" && account.githubLogin === session.subject;
+    });
+  }
 
   function onLoaded(results) {
     var jobResult = results[0], gate = results[1];
@@ -125,9 +166,19 @@
     // job has no attestation yet, e.g. it is not staged) both mean the
     // party check itself passed: resolveJobActingParty runs before the
     // attestation lookup on the server (src/api/app.ts), so a 404 here
-    // is "no attestation", never "not a party".
-    A.showById("operatorjob-body", true);
-    render(job);
+    // is "no attestation", never "not a party". The attestation route's
+    // party check admits the buyer too, so a further check (below)
+    // resolves whether THIS caller is the buyer before this agent/
+    // operator-only screen renders its controls.
+    resolveIsBuyerParty(job).then(function (isBuyer) {
+      if (isBuyer) {
+        A.setTextById("party-error-detail", "Only the agent that took this job, or the account that operates it, can read this screen.");
+        A.showById("party-error", true);
+        return;
+      }
+      A.showById("operatorjob-body", true);
+      render(job);
+    });
   }
 
   function render(job_) {
@@ -176,6 +227,44 @@
     host.textContent = "";
     host.appendChild(fixedRow("The line they cited", citedIndex === null ? "not recorded" : "criterion " + (citedIndex + 1), citedText));
     A.showById("redo-panel", true);
+    renderRedoConsequences(job_);
+  }
+
+  // THE CONSEQUENCE, shown before the click (wireframe's own header
+  // comment: "the one that makes the redo real"). Both dialogs read
+  // from the job's own real numbers, never the wireframe's fixed prose
+  // figures: the accept side reads redoAllowance/redo.usedCount for
+  // "redos left" and the price line for "price unchanged"; the refuse
+  // side reads the same price line for what the operator receives if
+  // paid, or keeps as the deposit if declined.
+  function renderRedoConsequences(job_) {
+    var price = job_.price && typeof job_.price === "object" ? job_.price : null;
+    var redo = job_.redo && typeof job_.redo === "object" ? job_.redo : null;
+
+    var acceptHost = A.el("accept-consequences");
+    if (acceptHost) {
+      acceptHost.textContent = "";
+      acceptHost.appendChild(fixedRow("More time", A.plural(REDO_LAPSE_EXTENSION_DAYS, "day", "days")));
+      acceptHost.appendChild(fixedRow("Price", price !== null && typeof price.priceUsd === "string" ? "unchanged, " + money(parseFloat(price.priceUsd)) : "not agreed yet"));
+      var redoAllowance = price !== null && typeof price.redoAllowance === "number" ? price.redoAllowance : null;
+      var usedCount = redo !== null && typeof redo.usedCount === "number" ? redo.usedCount : null;
+      var redosLeft = redoAllowance !== null && usedCount !== null ? Math.max(redoAllowance - usedCount, 0) : null;
+      acceptHost.appendChild(fixedRow("Redos left after this", redosLeft === null ? "not recorded" : redosLeft === 0 ? "none" : String(redosLeft)));
+    }
+
+    var refuseHost = A.el("refuse-consequences");
+    if (refuseHost) {
+      refuseHost.textContent = "";
+      if (price !== null && typeof price.priceUsd === "string") {
+        var priceUsd = parseFloat(price.priceUsd);
+        var depositPercent = typeof price.depositPercent === "number" ? price.depositPercent : 25;
+        var deposit = roundHalfUpCents((priceUsd * depositPercent) / 100);
+        refuseHost.appendChild(fixedRow("If they pay the balance", "you receive " + money(priceUsd)));
+        refuseHost.appendChild(fixedRow("If they decline", "you keep " + money(deposit)));
+      }
+      refuseHost.appendChild(fixedRow("Who decides next", "the buyer, not FreeAgents"));
+      refuseHost.appendChild(fixedRow("Your record", "gains one refused redo"));
+    }
   }
 
   function fixedRow(k, v, para) {

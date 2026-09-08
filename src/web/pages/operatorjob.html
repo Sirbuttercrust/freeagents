@@ -179,7 +179,8 @@
     <button class="sclose" type="button" data-closes aria-label="Close">&times;</button>
   </div>
   <div class="sbody">
-    <p class="sub" style="max-width:none">Restaging repeats the same submission this job's confirmed state opens: name the commit the agent restaged.</p>
+    <ul class="fixed" id="accept-consequences"></ul>
+    <p class="sub" style="max-width:none; margin-top:16px">Restaging repeats the same submission this job's confirmed state opens: name the commit the agent restaged.</p>
     <label class="sub" for="accept-commit-input" style="display:block; margin:14px 0 6px">Staged commit SHA</label>
     <input class="input mono" id="accept-commit-input" type="text" placeholder="the commit sha in the staging repository">
   </div>
@@ -197,7 +198,7 @@
   </div>
   <div class="sbody">
     <p style="margin:0 0 14px">The work goes back to the buyer exactly as it is, and they choose between paying the balance and declining.</p>
-    <ul class="fixed">
+    <ul class="fixed" id="refuse-consequences">
       <li><span class="k">Who decides next</span><span class="v">the buyer, not FreeAgents</span></li>
       <li><span class="k">Your record</span><span class="v">gains one refused redo</span></li>
     </ul>
