@@ -871,4 +871,58 @@ describe('the Dashboard nav link (P8u ruling 7): one implementation in nav.js, a
     expect(body).toContain('src="/js/pages/api.js"');
     expect(body).toContain('src="/js/pages/nav.js"');
   });
+
+  it('disappears again once signed out (no leftover element from an earlier signed-in render)', async () => {
+    const sessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'octo-nav-dashboard', id: 5301 }),
+    });
+    const configuredServer = createApp(
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, sessionAdapter,
+    ).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => configuredServer.once('listening', resolve));
+    const configuredBaseUrl = `http://127.0.0.1:${(configuredServer.address() as AddressInfo).port}`;
+    const start = await sessionAdapter.beginGitHubOAuth();
+    const session = await sessionAdapter.completeGitHubOAuth({ code: 'good-code', state: start.state });
+
+    const virtualConsole = new VirtualConsole();
+    const failures: string[] = [];
+    virtualConsole.on('jsdomError', (error: Error) => failures.push(error.message));
+    const response = await fetch(`${configuredBaseUrl}/browse`, { headers: { Accept: HTML } });
+    const markup = await response.text();
+    const dom = new JSDOM(markup, {
+      url: `${configuredBaseUrl}/browse`,
+      runScripts: 'dangerously',
+      resources: 'usable',
+      pretendToBeVisual: true,
+      virtualConsole,
+      beforeParse(window) {
+        window.sessionStorage.setItem('fa_session', JSON.stringify(session));
+        Object.defineProperty(window, 'fetch', {
+          writable: true,
+          value: (input: string, init?: RequestInit) => fetch(new URL(input, configuredBaseUrl), init),
+        });
+      },
+    });
+    try {
+      await new Promise<void>((resolve) => {
+        if (dom.window.document.readyState === 'complete') resolve();
+        else dom.window.addEventListener('load', () => resolve());
+      });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      const signoutBtn = dom.window.document.getElementById('nav-signout') as HTMLButtonElement | null;
+      expect(signoutBtn).not.toBeNull();
+      signoutBtn!.click();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
+
+      const links = Array.from(dom.window.document.querySelectorAll('.links a')).map((a) => a.textContent);
+      expect(links).not.toContain('Dashboard');
+    } finally {
+      dom.window.close();
+      await new Promise<void>((resolve) => configuredServer.close(() => resolve()));
+    }
+  });
 });
