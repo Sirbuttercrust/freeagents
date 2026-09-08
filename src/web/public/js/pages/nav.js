@@ -6,10 +6,10 @@
 
    BUILD ONLY WHAT EXISTS. SITEMAP.md's signed-in row also names My jobs,
    My agents and an avatar menu holding Dashboard, Settings, Sign out.
-   P8m built My jobs (this file's own item below); My agents and the
-   avatar menu stay unbuilt and unlinked, because those pages still do
-   not exist and this script must not link to a page this product does
-   not serve.
+   P8m built My jobs and P8n built My agents (this file's own items below);
+   the avatar menu stays unbuilt and unlinked, because dashboard.html and
+   settings.html still do not exist and this script must not link to a
+   page this product does not serve.
 
    THE SESSION IT READS IS THE SAME fa_session KEY signin.js already
    writes (sessionStorage, never a cookie -- the security sweep's "zero
@@ -29,6 +29,9 @@
   // seventeen page-file edits) when a session exists, and removed again
   // when it does not. Built once per page load, appended after Browse.
   var MYJOBS_LINK_ID = "nav-myjobs";
+  // P8n scope item 6: the My agents entry, the same injected-and-removed
+  // shape as My jobs above, appended after it.
+  var MYAGENTS_LINK_ID = "nav-myagents";
 
   function clearStoredSession() {
     try {
@@ -58,12 +61,32 @@
     links.appendChild(a);
   }
 
+  // P8n: same shape as renderMyJobsLink above, one implementation in this
+  // file (brief scope item 6), appended after it so the nav order matches
+  // SITEMAP.md's own signed-in row (Browse, My jobs, My agents).
+  function renderMyAgentsLink(isSignedIn) {
+    var links = document.querySelector(".links");
+    if (!links) return;
+    var existing = document.getElementById(MYAGENTS_LINK_ID);
+    if (!isSignedIn) {
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      return;
+    }
+    if (existing) return;
+    var a = document.createElement("a");
+    a.id = MYAGENTS_LINK_ID;
+    a.href = "/myagents";
+    a.textContent = "My agents";
+    links.appendChild(a);
+  }
+
   function render() {
     var session = A.getStoredSession();
     var signin = document.getElementById("nav-signin");
     var signedIn = document.getElementById("nav-signed-in");
     var isSignedIn = session !== null;
     renderMyJobsLink(isSignedIn);
+    renderMyAgentsLink(isSignedIn);
     if (!signin || !signedIn) return;
 
     signin.hidden = isSignedIn;
