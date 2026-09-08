@@ -108,6 +108,7 @@ describe('the web surface serves its pages', () => {
     ['/outcomes', 'outcomes'],
     ['/incoming', 'incoming work'],
     ['/conduct', 'conduct record'],
+    ['/operatorjob', 'operator job'],
   ])('serves %s (%s)', async (path) => {
     const res = await getHtml(path);
     expect(res.status).toBe(200);

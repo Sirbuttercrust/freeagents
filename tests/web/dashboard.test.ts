@@ -345,8 +345,12 @@ describe('the dashboard screen, driven end to end against the real app', () => {
         expect(rows.length).toBeGreaterThanOrEqual(2);
         // Newest first: d3-offer-b (Aug 8) before d3-offer-a (Aug 3), among
         // whatever offers already exist on this shared agent/repo.
+        // P8v (edited per the brief's own instruction, superseding this
+        // test's own earlier "/incoming" pin): P-25 (operatorjob.html)
+        // is built and mounted, so each offer row now links to the
+        // operator's own job page for that offer, naming its id.
         const hrefs = rows.map((r) => r.getAttribute('href'));
-        expect(hrefs.every((h) => h === '/incoming')).toBe(true);
+        expect(hrefs.every((h) => typeof h === 'string' && h.startsWith('/operatorjob?job='))).toBe(true);
       } finally {
         page.close();
       }

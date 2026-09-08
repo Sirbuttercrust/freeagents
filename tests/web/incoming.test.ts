@@ -170,7 +170,7 @@ describe('the Incoming work screen, driven end to end against the real app', () 
     }
   });
 
-  it('a signed-in operator with offers sees one row per offer, in the route\'s own order, each with the agent name, the repository, the brief and one state pill matching waitingOn -- and no control anywhere on the page points at an unmounted path (done-means 2, 3, 4)', async () => {
+  it('a signed-in operator with offers sees one row per offer, in the route\'s own order, each with the agent name, the repository, the brief and one state pill matching waitingOn, each row linking to the operator job page (done-means 2, 3, 4)', async () => {
     const noReplyCriteria: Criterion[] = [];
     const waitingOnBuyerCriteria: Criterion[] = [{ text: 'agent proposed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: true }];
     const waitingOnOperatorCriteria: Criterion[] = [{ text: 'buyer edit', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: false }];
@@ -204,8 +204,20 @@ describe('the Incoming work screen, driven end to end against the real app', () 
       const briefs = rows.map((r) => r.querySelector('.brief')?.textContent);
       expect(briefs).toEqual(['Migrate billing endpoints.', 'Add property-based tests.', 'Watch for drift.']);
 
-      // No control anywhere on any row: no anchor, no button.
-      expect(page.document.querySelectorAll('#rows a').length).toBe(0);
+      // P8v (edited per the brief's own instruction, superseding P8q's
+      // ruling 1: "no control anywhere on any row"): the operator's own
+      // job page (P-25, operatorjob.html) is built and mounted at
+      // /operatorjob now, so every row here IS a control -- a full-row
+      // link to that screen, mirroring dashboard.js's own offer row.
+      // The done-means item this test's own title still pins ("no
+      // control anywhere on the page points at an unmounted path") is
+      // proven below by the review round 1 D2 test, which fetches
+      // every href against the real app.
+      const rowLinks = page.document.querySelectorAll('#rows a');
+      expect(rowLinks.length).toBe(3);
+      Array.from(rowLinks).forEach((a) => {
+        expect(a.getAttribute('href')).toMatch(/^\/operatorjob\?job=/);
+      });
       expect(page.document.querySelectorAll('#rows button').length).toBe(0);
 
       expect(page.document.documentElement.outerHTML).not.toContain(operatorSession.token);

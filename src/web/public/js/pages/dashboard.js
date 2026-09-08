@@ -337,11 +337,10 @@
     return plain;
   }
 
-  // An incoming-offer row (section 3): no per-offer record page is
-  // mounted (P-25/operatorjob.html is not built), so the whole row is a
-  // door to /incoming, the screen that does hold these records
-  // (mirroring the wireframe's own driftcheck row, which links to
-  // incoming.html rather than a per-offer page that does not exist).
+  // An incoming-offer row (section 3): P8v mounted P-25 (operatorjob.html)
+  // at /operatorjob, so this row now links to the same operator job page
+  // incoming.js's own rows link to, superseding P8q's own note about no
+  // per-offer record page existing yet.
   var OFFER_STATE_TEXT = {
     noReply: "New, nothing sent back yet",
     waitingOnBuyer: "Sent, waiting on the buyer",
@@ -351,7 +350,7 @@
   function offerRow(offer) {
     var a = document.createElement("a");
     a.className = "row between";
-    a.href = "/incoming";
+    a.href = "/operatorjob?job=" + encodeURIComponent(offer.id);
     var name = typeof offer.agentName === "string" && offer.agentName !== "" ? offer.agentName : A.shortDid(offer.agentDid);
     a.appendChild(rowText(name, typeof offer.repository === "string" ? offer.repository : ""));
     var trail = document.createElement("span");

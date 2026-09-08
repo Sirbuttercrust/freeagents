@@ -6,9 +6,13 @@
    agent name (agentName, src/api/app.ts:1665), which is exactly the
    per-row lookup P8n had to make itself for myagents.
 
-   RULING 1 (no row control): P-25 (operatorjob.html) is not built and
-   src/web/static.ts mounts no /operatorjob. Every row here renders its
-   facts and no control -- no button, no link, on any row.
+   RULING 1 (row control, superseded by P8v): P8q's own original ruling
+   said P-25 (operatorjob.html) was not built and no row here carried a
+   control. P8v built it and mounted /operatorjob (SITEMAP P-25), so
+   every row here now links to it (the wireframe's own operatorjob.html
+   href, spec/wireframe/incoming.html), the same door dashboard.js's own
+   offer row already opened before this card, now landing on the real
+   screen instead of back on this same list.
 
    RULING 2 (buyer identity): the route returns no buyer name and
    src/domain/account.ts carries no display-name field. The .repo line
@@ -122,8 +126,9 @@
   }
 
   function offerRow(offer) {
-    var row = document.createElement("div");
-    row.className = "orow pane-lift";
+    var row = document.createElement('a');
+    row.className = 'orow pane-lift';
+    row.href = '/operatorjob?job=' + encodeURIComponent(offer.id);
 
     var between = document.createElement("div");
     between.className = "between";
