@@ -27,7 +27,7 @@ import { ABT_FEE_RATE_PERCENT, calculateFee, remainderUsd, depositUsd } from '..
 import { didSuffix } from '../../src/domain/agent.js';
 import { createAbtPaymentRail } from '../../src/adapters/payment/abt.js';
 import { fromRandom } from '@ocap/wallet';
-import { fakeGitHubConfig, fakeGitHubFetch, mintSessionToken } from '../helpers/session-fixtures.js';
+import { fakeGitHubConfig, fakeGitHubFetch, mintSession, mintSessionToken } from '../helpers/session-fixtures.js';
 import { unsettledGate } from '../helpers/settlement-fixtures.js';
 import { abtEnv, fakeAbtChainClient, reservePort, withEnv } from '../helpers/abt-fixtures.js';
 import type { Delegation } from '../../src/domain/agent.js';
@@ -112,7 +112,7 @@ interface Rendered {
 async function renderPage(
   baseUrl: string,
   path: string,
-  session: { token: string } | null,
+  session: { token: string; subject?: string; method?: string } | null,
   onFetch?: (input: string, init?: RequestInit) => void,
 ): Promise<Rendered> {
   const virtualConsole = new VirtualConsole();
@@ -151,7 +151,7 @@ async function renderPage(
 function renderStaged(
   baseUrl: string,
   jobId: string,
-  session: { token: string } | null,
+  session: { token: string; subject?: string; method?: string } | null,
   onFetch?: (input: string, init?: RequestInit) => void,
 ): Promise<Rendered> {
   return renderPage(baseUrl, `/staged?job=${encodeURIComponent(jobId)}`, session, onFetch);
@@ -165,6 +165,10 @@ describe('the staged screen, driven end to end against the real app', () => {
   let server: Server;
   let baseUrl: string;
   let buyerToken: string;
+  // P8k round 1 fix (qa D1): the buyer's session subject/method, needed
+  // by every test that exercises redo or decline (staged.js's own party
+  // probe reads these, not just the token).
+  let buyerSession: { readonly token: string; readonly subject: string; readonly method: 'github-oauth' | 'passkey' };
 
   async function storeAttestation(job: Job, observation: StagingObservation, credentials: ReturnType<typeof createCredentialsAdapter>): Promise<Attestation> {
     const attestation = buildAttestation(job, observation, RECENT);
@@ -275,8 +279,10 @@ describe('the staged screen, driven end to end against the real app', () => {
     await storeAttestation(hiredAgentStaged, observationFixture({ diffHash: 'sha256:hired-agent' }), credentials);
 
     // Markup in a changed path and a test name: literal text, never
-    // parsed (api.js rule 3).
-    const markupJob = jobFixture({ id: 'job-markup', status: 'staged', criteria: [{ text: 'Done', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }], priceUsd: '150.00', rail: 'abt', priceAcceptedByBuyer: true, priceAcceptedByAgent: true, stagedAt: RECENT, stagedCommit: 'commit-markup' });
+    // parsed (api.js rule 3). The criterion text also carries markup
+    // (round 1 fix, qa D3), for the picker's own escaping guard: the
+    // only fixture in this file that puts markup in a criterion.
+    const markupJob = jobFixture({ id: 'job-markup', status: 'staged', criteria: [{ text: '<img src=x onerror=alert(1)>Done', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }], priceUsd: '150.00', rail: 'abt', redoAllowance: 1, priceAcceptedByBuyer: true, priceAcceptedByAgent: true, stagedAt: RECENT, stagedCommit: 'commit-markup' });
     await jobRepo.create(markupJob);
     await storeAttestation(
       markupJob,
@@ -357,7 +363,7 @@ describe('the staged screen, driven end to end against the real app', () => {
         stagedCommit: `commit-${id}`,
       });
     }
-    for (const id of ['job-redo-flow', 'job-redo-malformed-guard', 'job-redo-reenable-guard', 'job-decline-flow', 'job-decline-conflict', 'job-agent-view', 'job-signed-out-view']) {
+    for (const id of ['job-redo-flow', 'job-redo-malformed-guard', 'job-redo-reenable-guard', 'job-decline-flow', 'job-decline-reenable-guard', 'job-decline-conflict', 'job-agent-view', 'job-signed-out-view']) {
       const fixture = freshStagedJob(id, '900.00');
       await jobRepo.create(fixture);
       await storeAttestation(fixture, observationFixture({ diffHash: `sha256:${id}` }), credentials);
@@ -372,7 +378,8 @@ describe('the staged screen, driven end to end against the real app', () => {
     if (address === null || typeof address === 'string') throw new Error('expected a port');
     baseUrl = `http://127.0.0.1:${address.port}`;
 
-    buyerToken = await mintSessionToken(sessionAdapterRef);
+    buyerSession = await mintSession(sessionAdapterRef);
+    buyerToken = buyerSession.token;
   });
 
   afterAll(async () => {
@@ -382,8 +389,8 @@ describe('the staged screen, driven end to end against the real app', () => {
   describe('a signed-out visitor, an unknown job id, and a staged job with no attestation on record', () => {
     it('each renders its own readable panel, never a blank screen', async () => {
       const signedOut = await renderStaged(baseUrl, 'job-fully-staged', null);
-      const unknownJob = await renderStaged(baseUrl, 'no-such-job', { token: buyerToken });
-      const noAttestation = await renderStaged(baseUrl, 'job-no-attestation', { token: buyerToken });
+      const unknownJob = await renderStaged(baseUrl, 'no-such-job', buyerSession);
+      const noAttestation = await renderStaged(baseUrl, 'job-no-attestation', buyerSession);
       try {
         const notice = signedOut.document.getElementById('signin-required');
         expect(notice).not.toBeNull();
@@ -434,7 +441,7 @@ describe('the staged screen, driven end to end against the real app', () => {
 
   describe('a job not at staged (ruling 7, mutation proof 7)', () => {
     it('a confirmed job renders the not-ready panel with a link back to /jobs/<id>, and no pay control', async () => {
-      const page = await renderStaged(baseUrl, 'job-confirmed-not-staged', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-confirmed-not-staged', buyerSession);
       try {
         const notice = page.document.getElementById('not-ready-error');
         expect(notice).not.toBeNull();
@@ -459,7 +466,7 @@ describe('the staged screen, driven end to end against the real app', () => {
   // in the handoff.
   describe('redo_requested renders on this page, not the not-ready panel (ruling 5, mutation proof 13)', () => {
     it('shows the clock and the account of the work, one sentence naming the operator has not answered, and no acting control', async () => {
-      const page = await renderStaged(baseUrl, 'job-redo-requested', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-redo-requested', buyerSession);
       try {
         expect(page.document.getElementById('not-ready-error')?.hidden).toBe(true);
         expect(page.document.getElementById('staged-body')?.hidden).toBe(false);
@@ -476,7 +483,7 @@ describe('the staged screen, driven end to end against the real app', () => {
 
   describe('the account of the work: six facts, same weight, fixed order, ruling 2 omitted', () => {
     it('renders exactly six fact rows in the fixed order, with the full path list untruncated, one shared class vocabulary, and no test-vocabulary anywhere (mutation proofs 5, 6)', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-fully-staged', buyerSession);
       try {
         const rows = page.document.querySelectorAll('#facts > li');
         expect(rows.length).toBe(6);
@@ -519,7 +526,7 @@ describe('the staged screen, driven end to end against the real app', () => {
     });
 
     it('a changed path or test name containing markup renders as literal text (api.js rule 3)', async () => {
-      const page = await renderStaged(baseUrl, 'job-markup', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-markup', buyerSession);
       try {
         expect(page.document.querySelector('#facts img')).toBeNull();
         expect(page.document.querySelector('#facts script')).toBeNull();
@@ -530,11 +537,31 @@ describe('the staged screen, driven end to end against the real app', () => {
         page.close();
       }
     });
+
+    // Round 1 fix (qa D3): a criterion's text is buyer/agent prose from
+    // a hire this platform does not author, the same class of untrusted
+    // string the facts list already guards. No fixture in this file put
+    // markup INSIDE a criterion before this test; job-markup's own
+    // criterion now does (its jobFixture above), so this exercises the
+    // picker row specifically, not the facts list.
+    it("a criterion's text containing markup renders as literal text in the redo picker (api.js rule 3)", async () => {
+      const page = await renderStaged(baseUrl, 'job-markup', buyerSession);
+      try {
+        (page.document.getElementById('redo-btn') as HTMLButtonElement).click();
+        const picker = page.document.getElementById('redo-picker');
+        expect(picker?.querySelector('img')).toBeNull();
+        expect(picker?.querySelector('script')).toBeNull();
+        const text = picker?.textContent ?? '';
+        expect(text).toContain('<img src=x onerror=alert(1)>Done');
+      } finally {
+        page.close();
+      }
+    });
   });
 
   describe('the clock (ruling 4, mutation proofs 1 and 2)', () => {
     it('states the deadline as stagedAt plus LAPSE_AT_STAGED_AFTER_DAYS for a job never redone, with no draining bar or countdown element', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-fully-staged', buyerSession);
       try {
         const expectedDeadline = new Date(RECENT.getTime() + LAPSE_AT_STAGED_AFTER_DAYS * 86_400_000);
         const days = page.document.getElementById('clock-days')?.textContent ?? '';
@@ -550,7 +577,7 @@ describe('the staged screen, driven end to end against the real app', () => {
     });
 
     it('states the deadline as stagedAt plus LAPSE_AT_STAGED_AFTER_DAYS plus the stored extension for a redone job', async () => {
-      const page = await renderStaged(baseUrl, 'job-redone-once', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-redone-once', buyerSession);
       try {
         const expectedDeadline = new Date(RECENT.getTime() + (LAPSE_AT_STAGED_AFTER_DAYS + REDO_LAPSE_EXTENSION_DAYS) * 86_400_000);
         const days = page.document.getElementById('clock-days')?.textContent ?? '';
@@ -573,7 +600,7 @@ describe('the staged screen, driven end to end against the real app', () => {
   // accommodate new, in-scope markup), named here in the handoff.
   describe('the three choices, computed from the projection and pinned against src/domain/payment.ts', () => {
     it('the pay amount, fee and total agree with remainderUsd/calculateFee, the choices list stays prose with no button, and the acts row is exactly three controls, pay first and primary (mutation proofs 3, 4, 13)', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-fully-staged', buyerSession);
       try {
         const remainder = remainderUsd('1200.00', 25);
         const fee = calculateFee(remainder, ABT_FEE_RATE_PERCENT);
@@ -615,7 +642,7 @@ describe('the staged screen, driven end to end against the real app', () => {
     });
 
     it('the half-up tie case (a $0.50 remainder at 3 percent) matches payment.ts exactly (mutation proof 4)', async () => {
-      const page = await renderStaged(baseUrl, 'job-tie-case', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-tie-case', buyerSession);
       try {
         const remainder = remainderUsd('2.00', 75);
         expect(remainder).toBe('0.50');
@@ -631,7 +658,7 @@ describe('the staged screen, driven end to end against the real app', () => {
 
   describe('the technical disclosure', () => {
     it('the staged commit and diffHash render behind the disclosure with copy controls, and the line share sums to 100 including other', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-fully-staged', buyerSession);
       try {
         expect(page.document.getElementById('tech-staged-commit')?.textContent).toBe('c41f8a9d2b73e05614af8c3d99b7e2016fa4d825');
         expect(page.document.getElementById('tech-diff-hash')?.textContent).toBe('sha256:fixture-diff-hash');
@@ -646,7 +673,7 @@ describe('the staged screen, driven end to end against the real app', () => {
 
   describe('the verified hire count (scope item 9)', () => {
     it('renders the agent name with no count when the agent has none', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-fully-staged', buyerSession);
       try {
         expect(page.document.getElementById('agent-name')?.textContent).toBe('staged-page-scout');
         expect(page.document.getElementById('agent-hires')?.textContent ?? '').toBe('');
@@ -656,7 +683,7 @@ describe('the staged screen, driven end to end against the real app', () => {
     });
 
     it('renders the real count from GET /agents/:agentDid/hires when the agent has a verified hire', async () => {
-      const page = await renderStaged(baseUrl, 'job-hired-agent-has-hires', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-hired-agent-has-hires', buyerSession);
       try {
         expect(page.document.getElementById('agent-name')?.textContent).toBe('staged-page-hired-scout');
         expect(page.document.getElementById('agent-hires')?.textContent ?? '').toBe('1 verified hire');
@@ -682,7 +709,7 @@ describe('the staged screen, driven end to end against the real app', () => {
       await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
       const proxyBaseUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
       try {
-        const page = await renderStaged(proxyBaseUrl, 'job-hired-agent-has-hires', { token: buyerToken });
+        const page = await renderStaged(proxyBaseUrl, 'job-hired-agent-has-hires', buyerSession);
         expect(page.document.getElementById('agent-name')?.textContent).toBe('staged-page-hired-scout');
         expect(page.document.getElementById('agent-hires')?.textContent ?? '').toBe('');
         page.close();
@@ -694,7 +721,7 @@ describe('the staged screen, driven end to end against the real app', () => {
 
   describe('the session token never rides in the document, and the nav flips to signed-in (constraint: no cookie, no URL)', () => {
     it('the token does not appear anywhere in the rendered document, including inside the dialog, and the nav shows signed-in', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-fully-staged', buyerSession);
       try {
         expect(page.document.documentElement.outerHTML).not.toContain(buyerToken);
         const signedIn = page.document.getElementById('nav-signed-in');
@@ -807,7 +834,7 @@ describe('the staged screen, driven end to end against the real app', () => {
   describe('the pull-request re-read control fires only on a press, never on load (ruling 6, mutation proof 11)', () => {
     it('the call count is zero until pressed, and the link renders once pullRequestUrl is present', async () => {
       let getJobCalls = 0;
-      const page = await renderStaged(baseUrl, 'job-with-pr', { token: buyerToken }, (input) => {
+      const page = await renderStaged(baseUrl, 'job-with-pr', buyerSession, (input) => {
         if (/\/jobs\/job-with-pr$/.test(String(input))) getJobCalls += 1;
       });
       try {
@@ -834,23 +861,32 @@ describe('the staged screen, driven end to end against the real app', () => {
   describe('the full set of requests the page makes, recorded from before the first script runs (scope items 3/5, done-means: "assert by recording every request the page makes")', () => {
     it('on load the page reads exactly the job, the attestation, the agent and its hires, and pressing pay adds exactly one remainder-leg POST, never a usdc, deposit, redo, staged-decline or pull-request path', async () => {
       const requests: string[] = [];
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken }, (input, init) => {
+      const page = await renderStaged(baseUrl, 'job-fully-staged', buyerSession, (input, init) => {
         requests.push(`${(init?.method ?? 'GET').toUpperCase()} ${new URL(String(input), baseUrl).pathname}`);
       });
       try {
-        expect(requests).toEqual([
-          'GET /jobs/job-fully-staged',
-          'GET /jobs/job-fully-staged/attestation',
+        // Round 1 fix (qa D1): staged.js now also fires GET
+        // /accounts/:did (the party probe) before rendering the acting
+        // controls. It fires from a separate promise chain than the
+        // agent/hires calls renderWho makes, so its position in the
+        // load burst is not fixed relative to those two; asserted as a
+        // set, not an order, for that one reason. The job and
+        // attestation reads keep their fixed first-two position since
+        // they gate everything else on the page.
+        expect(requests.slice(0, 2)).toEqual(['GET /jobs/job-fully-staged', 'GET /jobs/job-fully-staged/attestation']);
+        expect(new Set(requests.slice(2))).toEqual(new Set([
           'GET /agents/did%3Aabt%3Astaged-page-agent',
           'GET /agents/did%3Aabt%3Astaged-page-agent/hires',
-        ]);
+          'GET /accounts/did%3Aabt%3Astaged-page-buyer-account',
+        ]));
+        expect(requests.length).toBe(5);
 
         const payBtn = page.document.getElementById('pay-btn') as HTMLButtonElement;
         payBtn.click();
         await new Promise((resolve) => setTimeout(resolve, 200));
 
-        expect(requests.length).toBe(5);
-        expect(requests[4]).toBe('POST /jobs/job-fully-staged/payments/remainder/abt/start');
+        expect(requests.length).toBe(6);
+        expect(requests[5]).toBe('POST /jobs/job-fully-staged/payments/remainder/abt/start');
 
         // Named negatives, verbatim from done-means: none of these five
         // paths is ever requested, on load or after the press.
@@ -868,7 +904,7 @@ describe('the staged screen, driven end to end against the real app', () => {
 
   describe('every refusal in scope item 10 renders its own distinct sentence, so a future edit cannot collapse them (mutation proof: D1)', () => {
     it('the 401, 403, 409 and both 503 sentences from pay-start all differ from each other', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-fully-staged', buyerSession);
       const originalFetch = global.fetch;
       async function mockedPayStart(cases: [number, string][]): Promise<string[]> {
         const btn = page.document.getElementById('pay-btn') as HTMLButtonElement;
@@ -965,7 +1001,7 @@ describe('the staged screen, driven end to end against the real app', () => {
 
   describe('the three acting controls: pay, redo, decline (done means: exactly three, pay first and primary)', () => {
     it('renders three controls in the wireframe order and no other element on the page issues a request besides them, the disclose control and copy controls', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-fully-staged', buyerSession);
       try {
         const acts = page.document.getElementById('acts');
         const buttons = Array.from(acts?.querySelectorAll('button') ?? []);
@@ -985,7 +1021,7 @@ describe('the staged screen, driven end to end against the real app', () => {
   describe('the redo picker (ruling 2): rows are job.criteria, numbered like agreement.js, nothing preselected', () => {
     it('renders one row per confirmed criterion in stored order, numbered from 1 the same way the agreement screen numbers the same lines, with no radio preselected and send disabled until one is chosen', async () => {
       const agreementPage = await renderPage(baseUrl, '/agreement?job=job-multi-criteria', null);
-      const stagedPage = await renderStaged(baseUrl, 'job-multi-criteria', { token: buyerToken });
+      const stagedPage = await renderStaged(baseUrl, 'job-multi-criteria', buyerSession);
       try {
         // The agreement screen's own rendered numbering for the three
         // criteria (its first three rows; price/delivery are appended
@@ -1024,7 +1060,7 @@ describe('the staged screen, driven end to end against the real app', () => {
     });
 
     it('no text input, textarea or contenteditable element exists anywhere in the redo dialog (ruling 1, mutation proof 5)', async () => {
-      const page = await renderStaged(baseUrl, 'job-multi-criteria', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-multi-criteria', buyerSession);
       try {
         (page.document.getElementById('redo-btn') as HTMLButtonElement).click();
         const dialog = page.document.getElementById('redo');
@@ -1035,7 +1071,7 @@ describe('the staged screen, driven end to end against the real app', () => {
     });
 
     it('the extension named in the redo dialog equals REDO_LAPSE_EXTENSION_DAYS, read from the domain, never typed as a literal (ruling 4, mutation proof 7)', async () => {
-      const page = await renderStaged(baseUrl, 'job-multi-criteria', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-multi-criteria', buyerSession);
       try {
         (page.document.getElementById('redo-btn') as HTMLButtonElement).click();
         const note = page.document.getElementById('redo-cost-note')?.textContent ?? '';
@@ -1047,7 +1083,7 @@ describe('the staged screen, driven end to end against the real app', () => {
 
     it('selecting a line enables send, and it stays disabled until then (guard-without-a-test)', async () => {
       const requests: string[] = [];
-      const page = await renderStaged(baseUrl, 'job-multi-criteria', { token: buyerToken }, (input, init) => {
+      const page = await renderStaged(baseUrl, 'job-multi-criteria', buyerSession, (input, init) => {
         if ((init?.method ?? 'GET').toUpperCase() === 'POST') requests.push(new URL(String(input), baseUrl).pathname);
       });
       try {
@@ -1069,7 +1105,7 @@ describe('the staged screen, driven end to end against the real app', () => {
 
   describe('the redo control is absent, never disabled, once the allowance is spent (ruling 6, mutation proof 6)', () => {
     it('no redo button exists in the document in any state, and the choices list says the redo is spent', async () => {
-      const page = await renderStaged(baseUrl, 'job-redo-exhausted', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-redo-exhausted', buyerSession);
       try {
         expect(page.document.getElementById('redo-btn')).toBeNull();
         const acts = page.document.getElementById('acts');
@@ -1085,7 +1121,7 @@ describe('the staged screen, driven end to end against the real app', () => {
 
   describe('the decline dialog (ruling 3): four consequence rows, the operator-record claim never appears', () => {
     it('renders exactly four rows and the deposit figure equals depositUsd(priceUsd, depositPercent) for this job, and the wireframe fifth row never appears in any wording', async () => {
-      const page = await renderStaged(baseUrl, 'job-multi-criteria', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-multi-criteria', buyerSession);
       try {
         (page.document.getElementById('decline-btn') as HTMLButtonElement).click();
         const rows = page.document.querySelectorAll('#decline-consequences > li');
@@ -1105,7 +1141,7 @@ describe('the staged screen, driven end to end against the real app', () => {
     });
 
     it('the deposit half-up tie case matches payment.ts exactly (mutation proof 9)', async () => {
-      const page = await renderStaged(baseUrl, 'job-deposit-tie-case', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-deposit-tie-case', buyerSession);
       try {
         (page.document.getElementById('decline-btn') as HTMLButtonElement).click();
         const rows = page.document.querySelectorAll('#decline-consequences > li');
@@ -1122,7 +1158,7 @@ describe('the staged screen, driven end to end against the real app', () => {
   describe('pressing redo (rulings 1, 2, 6): posts exactly once, criterionIndex only, and re-renders redo_requested', () => {
     it('posts { criterionIndex } with no other key, exactly once, disables on press, two synchronous clicks fire no second request, and the re-read shows redo_requested with no control', async () => {
       const requests: { method: string; path: string; body: unknown }[] = [];
-      const page = await renderStaged(baseUrl, 'job-redo-flow', { token: buyerToken }, (input, init) => {
+      const page = await renderStaged(baseUrl, 'job-redo-flow', buyerSession, (input, init) => {
         requests.push({
           method: (init?.method ?? 'GET').toUpperCase(),
           path: new URL(String(input), baseUrl).pathname,
@@ -1158,7 +1194,7 @@ describe('the staged screen, driven end to end against the real app', () => {
 
     it('does not re-enable the send control after a successful press, so a second click after the response resolves fires no second request (mutation proof 12)', async () => {
       const requests: { method: string; path: string }[] = [];
-      const page = await renderStaged(baseUrl, 'job-redo-reenable-guard', { token: buyerToken }, (input, init) => {
+      const page = await renderStaged(baseUrl, 'job-redo-reenable-guard', buyerSession, (input, init) => {
         if ((init?.method ?? 'GET').toUpperCase() === 'POST') requests.push({ method: 'POST', path: new URL(String(input), baseUrl).pathname });
       });
       try {
@@ -1184,7 +1220,7 @@ describe('the staged screen, driven end to end against the real app', () => {
     });
 
     it('a malformed body (400) shows a fault-in-this-screen sentence, never blaming the buyer (scope item 4)', async () => {
-      const page = await renderStaged(baseUrl, 'job-redo-malformed-guard', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-redo-malformed-guard', buyerSession);
       const originalFetch = global.fetch;
       try {
         (page.document.getElementById('redo-btn') as HTMLButtonElement).click();
@@ -1212,7 +1248,7 @@ describe('the staged screen, driven end to end against the real app', () => {
   describe('pressing decline (ruling 6): body-less, exactly once, terminal panel with a link back', () => {
     it('posts with no body, exactly once, disables on press, a second click fires no second request, and the re-read shows the terminal panel with a link to /jobs/<id>', async () => {
       const requests: { method: string; path: string; body: string | null }[] = [];
-      const page = await renderStaged(baseUrl, 'job-decline-flow', { token: buyerToken }, (input, init) => {
+      const page = await renderStaged(baseUrl, 'job-decline-flow', buyerSession, (input, init) => {
         requests.push({ method: (init?.method ?? 'GET').toUpperCase(), path: new URL(String(input), baseUrl).pathname, body: typeof init?.body === 'string' ? init.body : null });
       });
       try {
@@ -1234,15 +1270,47 @@ describe('the staged screen, driven end to end against the real app', () => {
       }
     });
 
+    // Round 1 fix (qa D2): mirrors the redo path's own re-enable guard
+    // test above. The existing "no body... second click fires no second
+    // request" test above fires its two clicks synchronously, which the
+    // in-flight disable already stops on its own; it cannot observe
+    // whether the control re-enables once the response resolves. This
+    // test waits for the first request to complete before clicking
+    // again, the only way to exercise the never-re-enable-on-success
+    // rule specifically.
+    it('does not re-enable the send control after a successful press, so a second click after the response resolves fires no second request', async () => {
+      const requests: { method: string; path: string }[] = [];
+      const page = await renderStaged(baseUrl, 'job-decline-reenable-guard', buyerSession, (input, init) => {
+        if ((init?.method ?? 'GET').toUpperCase() === 'POST') requests.push({ method: 'POST', path: new URL(String(input), baseUrl).pathname });
+      });
+      try {
+        (page.document.getElementById('decline-btn') as HTMLButtonElement).click();
+        const sendBtn = page.document.getElementById('decline-send-btn') as HTMLButtonElement;
+        sendBtn.click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(requests.filter((r) => /staged-decline$/.test(r.path)).length).toBe(1);
+        // The dialog closes on success but the button element still
+        // lives in the DOM (a dialog close, not a removal). If the
+        // control were re-enabled after success this second click would
+        // fire a real second request; it must not.
+        expect(sendBtn.disabled).toBe(true);
+        sendBtn.click();
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        expect(requests.filter((r) => /staged-decline$/.test(r.path)).length).toBe(1);
+      } finally {
+        page.close();
+      }
+    });
+
     it('a re-read of the declined job renders the terminal panel with a link back and no control', async () => {
-      const page = await renderStaged(baseUrl, 'job-decline-conflict', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-decline-conflict', buyerSession);
       try {
         (page.document.getElementById('decline-btn') as HTMLButtonElement).click();
         (page.document.getElementById('decline-send-btn') as HTMLButtonElement).click();
         await new Promise((resolve) => setTimeout(resolve, 300));
         page.close();
 
-        const secondView = await renderStaged(baseUrl, 'job-decline-conflict', { token: buyerToken });
+        const secondView = await renderStaged(baseUrl, 'job-decline-conflict', buyerSession);
         try {
           const panel = secondView.document.getElementById('declined-panel');
           expect(panel?.hidden).toBe(false);
@@ -1259,23 +1327,20 @@ describe('the staged screen, driven end to end against the real app', () => {
   });
 
   describe('party and session gates on redo and decline (done means item 13, 14)', () => {
-    // Departure, named per the handoff: GET /jobs/:jobId/attestation (the
-    // party probe every page on this screen shares, staged.js:26) admits
-    // BOTH the buyer and the agent on a job (app.ts:3485,
-    // resolveJobActingParty), so this screen cannot tell a signed-in
-    // agent apart from the buyer without a new route, which the scope
-    // forbids. agreement.js already documents the identical gap in its
-    // own header comment ("every resolved party is a buyer... a
-    // signed-request path for the agent is the one open seam this
-    // leaves"). This card holds the same line: the agent sees the same
-    // three buttons a buyer would, and pressing either buyer-only route
-    // answers with the real server 403 (app.ts:2846,
-    // "only the buyer may redo/staged-decline this job"), rendered here
-    // as its own sentence. Filed as a route gap, not invented here.
-    it('an agent signed in on a staged hire sees the controls (the documented party-probe gap agreement.js already carries) but is refused the buyer-only 403 sentence on a press, and the job is unchanged', async () => {
+    // Round 1 fix (qa D1): GET /jobs/:jobId/attestation (the party probe
+    // every page on this screen shares, staged.js's own header comment)
+    // admits BOTH the buyer and the agent on a job (app.ts:3485,
+    // resolveJobActingParty), so a signed-in agent still reads this
+    // screen. What changed is the acting controls: staged.js now also
+    // resolves whether the session's account IS the job's buyerDid (via
+    // GET /accounts/:did, already mounted, unauthenticated) before
+    // rendering redo or decline, so an agent who is not that buyer sees
+    // neither control, closing the gap qa's round 1 review found.
+    it('an agent signed in on a staged hire is refused with the buyer-only 403 sentence and is shown neither control, and the job is unchanged', async () => {
       const agentSessionAdapter = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: 'staged-page-agent-login', id: 9403 }) });
       const agentAccountRepo = new MemoryAccountRepository();
       await agentAccountRepo.register({ did: AGENT_DID, githubLogin: 'staged-page-agent-login' });
+      await agentAccountRepo.register({ did: BUYER_ACCOUNT_DID, githubLogin: 'staged-page-buyer' });
       const agentServer = createApp(agentAccountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, agentSessionAdapter, undefined, unsettledGate(), undefined, attestationRepo).listen(0, '127.0.0.1');
       await new Promise<void>((resolve) => agentServer.once('listening', resolve));
       const agentBaseUrl = `http://127.0.0.1:${(agentServer.address() as AddressInfo).port}`;
@@ -1284,14 +1349,24 @@ describe('the staged screen, driven end to end against the real app', () => {
         const page = await renderStaged(agentBaseUrl, 'job-agent-view', { token: agentToken });
         try {
           expect(page.document.getElementById('party-error')?.hidden).toBe(true);
-          const declineBtn = page.document.getElementById('decline-btn') as HTMLButtonElement;
-          expect(declineBtn).not.toBeNull();
-          declineBtn.click();
-          const sendBtn = page.document.getElementById('decline-send-btn') as HTMLButtonElement;
-          sendBtn.click();
-          await new Promise((resolve) => setTimeout(resolve, 200));
-          const detail = page.document.getElementById('decline-error-detail')?.textContent ?? '';
-          expect(detail).toBe('only the buyer may staged-decline this job');
+          expect(page.document.getElementById('staged-body')?.hidden).toBe(false);
+          expect(page.document.getElementById('redo-btn')).toBeNull();
+          expect(page.document.getElementById('decline-btn')).toBeNull();
+          // Pay is out of this card's scope and stays visible for both
+          // parties (the not-a-buyer party-probe fix is redo/decline
+          // only); the server's own buyer-only gate on pay start is
+          // P8j's, unchanged here.
+
+          // The server-side buyer-only gate still stands on its own,
+          // independent of the UI: a direct POST with the agent's token
+          // is refused with the exact 403 sentence (mutation proof 14).
+          const declineRes = await fetch(`${agentBaseUrl}/jobs/job-agent-view/staged-decline`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${agentToken}` },
+          });
+          expect(declineRes.status).toBe(403);
+          const declineBody = (await declineRes.json()) as { error: string };
+          expect(declineBody.error).toBe('only the buyer may staged-decline this job');
 
           const after = await fetch(`${agentBaseUrl}/jobs/job-agent-view`, { headers: { Accept: 'application/json' } });
           const afterBody = (await after.json()) as { status: string };
@@ -1317,7 +1392,7 @@ describe('the staged screen, driven end to end against the real app', () => {
 
   describe('the session token appears nowhere in the document, including inside the redo and decline dialogs', () => {
     it('opening both dialogs still leaves the token absent from the whole rendered document', async () => {
-      const page = await renderStaged(baseUrl, 'job-multi-criteria', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-multi-criteria', buyerSession);
       try {
         (page.document.getElementById('redo-btn') as HTMLButtonElement).click();
         (page.document.getElementById('decline-btn') as HTMLButtonElement).click();
@@ -1330,7 +1405,7 @@ describe('the staged screen, driven end to end against the real app', () => {
 
   describe('layout: 320px minimum, 44px tap targets, no fixed width on the new controls (layout-broken-at-desktop)', () => {
     it('both new dialogs cap at min(520px, 100vw - 24px) with no fixed width, every picker row and both send/decline/close controls are at least 44px, and the acts row wraps rather than overflowing', async () => {
-      const page = await renderStaged(baseUrl, 'job-multi-criteria', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-multi-criteria', buyerSession);
       try {
         const css = page.document.querySelector('style')?.textContent ?? '';
 
@@ -1386,7 +1461,7 @@ describe('the staged screen, driven end to end against the real app', () => {
     });
 
     it('at a 1280px viewport the acts row measures as the wireframe layout: three buttons, pay first and primary, in one flex row', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-fully-staged', buyerSession);
       try {
         Object.defineProperty(page.window, 'innerWidth', { writable: true, configurable: true, value: 1280 });
         const acts = page.document.getElementById('acts');
@@ -1403,7 +1478,7 @@ describe('the staged screen, driven end to end against the real app', () => {
 
   describe('layout: no wrapper div breaks the facts or choices grid (layout-broken-at-desktop)', () => {
     it('the scan dialog close control is at least 44px, and every fact row and choice row is a direct child of its grid container with the grid declarations a wrapper div would break (D2)', async () => {
-      const page = await renderStaged(baseUrl, 'job-fully-staged', { token: buyerToken });
+      const page = await renderStaged(baseUrl, 'job-fully-staged', buyerSession);
       try {
         const closeBtn = page.document.querySelector('.sclose');
         expect(closeBtn).not.toBeNull();
