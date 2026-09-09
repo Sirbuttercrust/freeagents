@@ -424,6 +424,16 @@
     return typeof value === "number" && !isNaN(value) ? value : 0;
   }
 
+  /* Test-only hook (W3 round 2, D2): agentTierInfo's tier-prior branch has
+     no HTTP fixture that can reach it, because agentWorkRecord
+     (src/domain/agent-work-record.ts) hardcodes verifiedPriorWork: [] until
+     ENT-11 lands, the same gap tests/web/browse.test.ts:338-346 documents
+     for browse's identical branch. Exposing the pure function here lets a
+     test call it directly over a shaped object rather than fabricating a
+     prior-work HTTP fixture the app cannot actually produce. Never read by
+     product code; only tests/web/operator-roster.test.ts reaches this. */
+  window.__operatorTestHooks = { agentTierInfo: agentTierInfo };
+
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", start);
   } else {

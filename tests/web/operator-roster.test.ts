@@ -632,4 +632,41 @@ describe('the operator page roster (R-19)', () => {
       page.close();
     }
   });
+
+  // W3 round 2 fix (D2, guard-without-a-test): the tier-prior branch of
+  // agentTierInfo has no HTTP fixture to exercise it, because
+  // agentWorkRecord (src/domain/agent-work-record.ts) hardcodes
+  // verifiedPriorWork: [] until ENT-11 lands, the exact gap
+  // tests/web/browse.test.ts:338-346 documents for browse's own identical
+  // branch. Rather than fabricate a fake HTTP fixture the app can never
+  // actually produce, this calls the pure function directly through the
+  // test-only hook operator.js exposes for it, over an object shaped like
+  // the BrowseCard fields it reads. The function has no DOM dependency and
+  // no side effects, so calling it directly proves the same rule a
+  // rendered row would apply once ENT-11 makes the branch reachable.
+  it('agentTierInfo renders tier-prior for a prior-only agent, the branch no HTTP fixture can reach until ENT-11', async () => {
+    const page = await render(`/accounts/${SOLO_OPERATOR_DID}`);
+    try {
+      const win = page.document.defaultView as unknown as {
+        __operatorTestHooks?: {
+          agentTierInfo: (agent: {
+            verifiedHireCount: number;
+            verifiedPriorWorkCount: number;
+            portfolioCount: number;
+          }) => { tierClass: string; tierLabel: string; evidence: string };
+        };
+      };
+      expect(win.__operatorTestHooks).toBeTruthy();
+      const info = win.__operatorTestHooks!.agentTierInfo({
+        verifiedHireCount: 0,
+        verifiedPriorWorkCount: 3,
+        portfolioCount: 0,
+      });
+      expect(info.tierClass).toBe('tier-prior');
+      expect(info.tierLabel).toBe('3 verified prior work');
+      expect(info.evidence).toBe('no hires yet');
+    } finally {
+      page.close();
+    }
+  });
 });
