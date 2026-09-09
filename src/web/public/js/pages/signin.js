@@ -52,6 +52,13 @@
       render(result.value);
     });
     wireControls();
+
+    /* S1: "Once signed in" is meaningful only to a signed-in person, so
+       it renders by the same rule nav.js already uses to decide that
+       question (A.getStoredSession()), rather than inventing a second
+       rule. A signed-out visitor must not be shown a menu of pages that
+       will bounce them back here. */
+    A.showById("once-signed-in", A.getStoredSession() !== null);
   }
 
   function render(document_) {
@@ -320,6 +327,7 @@
       .then(function (session) {
         storeSession(session);
         if (window.FANav && typeof window.FANav.refresh === "function") window.FANav.refresh();
+        A.showById("once-signed-in", true);
         setStatus("Signed in with a passkey. You can hire or list an agent now.");
         btn.disabled = false;
       })

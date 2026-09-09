@@ -116,12 +116,90 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     "See tessellate's profile": 'wireframe sample data from the second example job, which does not ship as its own section',
   },
   dashboard: {},
-  credential: {},
+  credential: {
+    // The wireframe draws the closed-without-shipping state as a second
+    // worked example on this page. It does not ship as a section here,
+    // and the state is not missing from the product: a receipt exists
+    // only for work that shipped, so this address has nothing to render,
+    // and credential.js's failLoad (47-60) already holds that exact state
+    // with the wireframe's own reasoning ("A receipt is only issued when
+    // work actually ships"), hiding the facts and the action row rather
+    // than painting dead controls. The job's own record of a non-merge
+    // lives on the job page (STATE_SENTENCES.closed_unmerged, job.js:43).
+    // Same call W4 already made and Proof already passed for "If the job
+    // does not ship".
+    'Job did not ship': 'the wireframe draws this as a second worked example on the same page; a receipt exists only for shipped work, so this address renders failLoad (credential.js:47-60) and the non-merge fact lives on the job page (job.js STATE_SENTENCES.closed_unmerged)',
+    // Wireframe sample data. SAMPLE's own regex covers vercel/commerce#\d+,
+    // but clean() never unescapes &#35;, so the escaped form in the
+    // wireframe's markup slips past it. The built page renders the real
+    // repository from the signed document (credential.js:89-100).
+    // clean() and SAMPLE are untouched here: loosening the instrument
+    // mid phase would move the goalposts under four merged cards.
+    'vercel/commerce&#35;4471': "wireframe sample data (SAMPLE covers the unescaped form vercel/commerce#4471, not this HTML-escaped one); the built page renders the real repository from the signed document (credential.js:89-100)",
+  },
   incoming: {},
   myagents: {},
-  signin: {},
+  signin: {
+    // All four excuses below share one root, already on the record: PLAN
+    // 2026-09-08 (the P8 close-out) names five wireframed screens that
+    // were never given a card, all of them the operator's onboarding
+    // path (listagent.html, provegithub.html, agentsettings.html,
+    // priorwork.html, claim.html). None is built, none has a route in
+    // src/web/static.ts. That is a recorded launch-scope question for
+    // the operator, not a defect for this card.
+    //
+    // MISSION invariant 8: "Sign-in is GitHub OAuth or a passkey." The
+    // auth surface is exactly /auth/github/start, /auth/github/callback,
+    // /auth/passkey/register, /auth/passkey/verify, /auth/signout
+    // (src/api/app.ts:1149-1257). There is no wallet sign-in route, so
+    // the wireframe's third button has no destination. Invariant 7 asks
+    // for the rail to be shown and explained, never required, and the
+    // built page does exactly that as method 03 ("Bring your own
+    // wallet", src/web/pages/signin.html). A button that cannot sign
+    // anyone in is worse than honest prose.
+    'Sign in with a DID Wallet': 'no wallet sign-in route exists (the auth surface is exactly GitHub OAuth, passkey, and signout, src/api/app.ts:1149-1257); the built page shows and explains the wallet rail as method 03 instead of a button with no destination (invariant 7 asks for the rail to be visible, never required)',
+    // The wireframe's dim link beside the wallet button points at "#".
+    // Nothing explains the wallet anywhere a link could land (how.html
+    // has no wallet section). The explanation ships inline in method 03,
+    // which is what the link was for.
+    'What is this': 'nothing to link to (how.html has no wallet section); the explanation ships inline in method 03 on this page instead of behind a link with no destination',
+    // The wireframe's whole section sends a person to provegithub.html
+    // and promises "One click, whenever you want". provegithub.html is
+    // not built and /provegithub is not mounted. The only route behind
+    // it is POST /agents/:agentDid/account-proof (src/api/app.ts:2083),
+    // which nothing in src/web/ calls. Shipping the heading and its copy
+    // would advertise a one-click path that does not exist.
+    'Proving your GitHub account': 'provegithub.html is not built and /provegithub is not mounted (part of the recorded operator-onboarding gap, PLAN 2026-09-08); shipping this heading would advertise a page that does not exist',
+    'See how the proof works': 'same reason as "Proving your GitHub account": the page this control would link to is not built',
+    // The wireframe's "After you sign in" section lists three rows: hire
+    // (true), list an agent (true), and "Prove you control your GitHub
+    // account, one click, whenever you want" (not true: S4/S5 above).
+    // Shipping the row list verbatim would state something that is not
+    // true through this site today. The first row is already answered,
+    // honestly, by #account-notice and "How signing in works".
+    'After you sign in': 'its third row promises the one-click GitHub proof (see "Proving your GitHub account" above), which is not true through this site today; the first row is already answered honestly by #account-notice and "How signing in works"',
+  },
   settings: {},
-  verify: {},
+  verify: {
+    // The wireframe's footer carries GitHub and Licence as static
+    // anchors. The built footer emits both at SERVE time from
+    // sourceLinks() (src/web/static.ts:200-216), pinned by
+    // tests/web/static.test.ts:394 and :409, so the control ships and
+    // this instrument, which reads the file on disk, can only ever see
+    // the <!--SOURCE_LINKS--> placeholder. A hardcoded licence link here
+    // would ship a second, drifting copy of a link the deployment
+    // already emits from its own environment.
+    'Licence': 'the built footer emits GitHub and Licence at serve time from sourceLinks() (src/web/static.ts:200-216, pinned by tests/web/static.test.ts:394,409); this instrument reads the file on disk and can only see the <!--SOURCE_LINKS--> placeholder',
+    // The built disclosure is "Show the identity check" and shows the
+    // agent's identity and the key that signed the merge commit, both
+    // from the receipt. It does not show a DID document, because
+    // nothing serves one: there is no DID document route in
+    // src/api/app.ts and none may be added here, since a document this
+    // site served would be a check that depends on us, which is the one
+    // thing this page exists not to do. DESIGN 4.2 requires the label to
+    // name what is behind it, so the label stays honest to its panel.
+    'Show the identity document': 'no DID document route exists in src/api/app.ts and none may be added (a document this site served would be a check depending on us); the built disclosure "Show the identity check" names what is actually behind it (DESIGN 4.2), the agent\u2019s identity and the merge-commit signer from the receipt',
+  },
 };
 
 // Sample values the wireframe uses to look real. Not design; never required.

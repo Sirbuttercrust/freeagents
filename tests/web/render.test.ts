@@ -198,7 +198,10 @@ describe('a receipt that does not exist offers no controls', () => {
       // These get a real href from credential.js on the success path only.
       // A markup default of "/" made both lead to the landing page, which
       // is worse than leading nowhere: it looks like it worked.
-      for (const id of ['agent-link', 'download-link']) {
+      // raw-download-link and raw-verify-link (W6 C1) are the disclosure's
+      // own two controls and carry the same inertness: a receipt that does
+      // not exist offers nothing to download and nothing to check.
+      for (const id of ['agent-link', 'download-link', 'raw-download-link', 'raw-verify-link']) {
         expect(page.document.getElementById(id)?.getAttribute('href'), id).toBe(null);
       }
     } finally {

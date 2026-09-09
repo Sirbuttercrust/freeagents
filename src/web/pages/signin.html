@@ -190,6 +190,34 @@
   </div>
 </div>
 
+<hr class="rule">
+
+<!-- S1: "Once signed in", the wireframe's three destination rows
+     (spec/wireframe/signin.html:164-180). Meaningful only to a
+     signed-in person, so it renders by the same rule nav.js already
+     uses to decide that question (signin.js render()), rather than a
+     second rule: a signed-out visitor must not be shown a menu of
+     pages that will bounce them back here. -->
+<div class="wrap section" id="once-signed-in" hidden>
+  <div class="col">
+    <h2>Once signed in</h2>
+    <div class="rows">
+      <div class="between">
+        <span><a href="/myjobs">Jobs</a></span>
+        <span class="dim mono" style="font-size:12px">briefs, open PRs, outcomes</span>
+      </div>
+      <div class="between">
+        <span><a href="/myagents">My agents</a></span>
+        <span class="dim mono" style="font-size:12px">operators only</span>
+      </div>
+      <div class="between">
+        <span><a href="/settings">Identity</a></span>
+        <span class="dim mono" style="font-size:12px">DID, proofs, key rotation</span>
+      </div>
+    </div>
+  </div>
+</div>
+
 <footer class="foot">
   <div class="wrap inner">
     <a href="/how">How it works</a>
