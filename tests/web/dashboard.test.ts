@@ -500,6 +500,76 @@ describe('the dashboard screen, driven end to end against the real app', () => {
     }
   });
 
+  it('section 3 caps at five rows COMBINED, not five per half: six attention rows plus one offer render only the first five attention rows and drop the offer entirely (review round 1, D1)', async () => {
+    // A per-half cap (attentionRows.slice(0, 5).concat(offerRows.slice(0, 5)))
+    // passed the old fixture (one attention row, two offers, asserting
+    // rows.length === 3) because that count is identical under both the
+    // combined cap and a per-half cap. Six attention rows plus one offer
+    // is the smallest fixture where the two rules disagree: the combined
+    // cap yields exactly five rows and drops the offer outright, while a
+    // per-half cap would yield six (five attention rows plus the offer).
+    const isolatedOperatorSessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'dashboard-s3-cap-operator', id: 9811 }),
+    });
+    const app2 = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, credentialRepo, undefined, undefined, undefined, isolatedOperatorSessionAdapter);
+    const server2 = app2.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server2.once('listening', resolve));
+    const address2 = server2.address();
+    if (address2 === null || typeof address2 === 'string') throw new Error('expected a port');
+    const baseUrl2 = `http://127.0.0.1:${address2.port}`;
+    try {
+      const isolatedOperatorSession = await mintSession(isolatedOperatorSessionAdapter);
+      const meRes = await fetch(`${baseUrl2}/accounts/me`, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${isolatedOperatorSession.token}` },
+      });
+      const me = (await meRes.json()) as { did: string };
+      const isolatedOperatorDid = me.did;
+
+      // Six unproven agents, no verified record, githubLogin null so
+      // proofStatus defaults to unverified: every one of them is a real
+      // attention row on its own honest merit, no credential needed.
+      const capAgentDids = Array.from({ length: 6 }, (_unused, i) => `did:abt:dashboard-s3-cap-agent-${i}`);
+      for (let i = 0; i < capAgentDids.length; i += 1) {
+        const capAgentDid = capAgentDids[i] as string;
+        await agentRepo.create({
+          did: capAgentDid,
+          operatorDid: isolatedOperatorDid,
+          delegation: delegationFixture(capAgentDid, isolatedOperatorDid),
+          name: `cap-agent-${i}`,
+          skills: [],
+          githubLogin: null,
+        });
+      }
+      const firstCapAgentDid = capAgentDids[0] as string;
+      await jobRepo.create(jobFixture({ id: 'd3-cap-offer', buyerDid: 'did:abt:dashboard-cap-buyer', agentDid: firstCapAgentDid, status: 'draft', criteria: [] }, new Date('2026-08-09T00:00:00Z')));
+
+      const page = await renderDashboard(baseUrl2, isolatedOperatorSession);
+      try {
+        const section = sectionByHeading(page.document, 'Your agents need attention');
+        expect(section).not.toBeNull();
+        const rows = Array.from(section?.querySelectorAll('.rows > *') ?? []);
+        // Five rows total, not six: the combined cap, not a per-half cap.
+        expect(rows.length).toBe(5);
+        // All five are attention rows, in roster order (ties on the
+        // default sort are stable): the sixth agent and the offer are
+        // both pushed out by rows that arrived first.
+        const hrefs = rows.map((r) => r.getAttribute('href'));
+        for (let i = 0; i < 5; i += 1) {
+          const capAgentDid = capAgentDids[i] as string;
+          expect(hrefs).toContain(`/agents/${encodeURIComponent(capAgentDid)}`);
+        }
+        const sixthCapAgentDid = capAgentDids[5] as string;
+        expect(hrefs).not.toContain(`/agents/${encodeURIComponent(sixthCapAgentDid)}`);
+        expect(hrefs).not.toContain('/operatorjob?job=d3-cap-offer');
+      } finally {
+        page.close();
+      }
+    } finally {
+      await new Promise<void>((resolve) => server2.close(() => resolve()));
+    }
+  });
+
   it('section 3 renders an agent whose proofStatus is not verified but who DOES have a verified record: only the GitHub-not-confirmed trail, never the no-record meta (handoff item 1, unverified-state-claim guard)', async () => {
     const isolatedAgentDid = 'did:abt:dashboard-s3-unconfirmed-only-agent';
     const isolatedOperatorSessionAdapter = createSessionAdapter({
