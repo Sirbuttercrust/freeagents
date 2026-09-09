@@ -7,28 +7,53 @@
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
 <style>
-  /* P8f JOB. One hire, read top to bottom (DESIGN.md 1.2 rule 3): state,
-     what was asked for, who, what was observed. Everything a skeptic
-     wants sits behind the technical disclosure, credential.html's own
-     pattern (DESIGN.md 1.2 rule 2).
+  /* P8f JOB, rebuilt from spec/wireframe/job.html (W4). One hire, read top
+     to bottom (DESIGN.md 1.2 rule 3): who, the job named by its own id, a
+     dated track of what the platform observed, the two controls a person
+     actually wants (the receipt, the pull request), and one plain
+     paragraph saying whose hands did what. Everything a skeptic wants
+     sits behind the technical disclosure, credential.html's own pattern
+     (DESIGN.md 1.2 rule 2).
 
      PUBLIC, NO SESSION: GET /jobs/:jobId carries no party check, and
      neither does this page. Same URL serves both a browser (this page)
      and any other caller (the JSON src/api/app.ts already serves,
      unchanged; see src/web/static.ts). */
 
+  .who {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 28px;
+  }
+  .who .avatarbox {
+    width: 32px; height: 32px; border-radius: 50%; flex: none;
+    display: block; overflow: hidden; background: var(--bg-2);
+  }
+  .who .avatarbox svg { width: 100%; height: 100%; display: block; }
+  .who .n { font-weight: 550; }
+  .who .r { color: var(--fg-3); font-size: 13px; }
+  .who .r a { color: var(--fg-2); text-decoration: underline; text-underline-offset: 2px; }
+  .who .r a:hover { color: var(--accent-hi); }
+
   .claim { font-size: 20px; line-height: 1.45; letter-spacing: -0.01em; max-width: 40ch; }
   .claim b { font-weight: 550; }
 
+  /* The state history. .done dots use --t-hire (accent) only on a MERGE
+     row, because accent means "we watched this happen" and a merge is the
+     one row in this list that is verified evidence rather than
+     administrative progress (spec/wireframe/job.html:44). */
   .track { list-style: none; padding: 0; margin: 0; }
   .track li { display: grid; grid-template-columns: 18px 1fr; gap: 14px; padding: 0 0 20px; position: relative; }
   .track li:last-child { padding-bottom: 0; }
   .track li::before { content: ""; position: absolute; left: 8px; top: 18px; bottom: 0; width: 1px; background: var(--line); }
   .track li:last-child::before { display: none; }
-  .track .dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; margin-left: 4px; background: var(--fg-2); border: 1px solid var(--fg-2); }
+  .track .dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; margin-left: 4px; background: var(--bg-2); border: 1px solid var(--line-2); }
+  .track li.done .dot { background: var(--fg-2); border-color: var(--fg-2); }
+  .track li.merged .dot { background: var(--t-hire); border-color: var(--t-hire); }
+  .track li.stopped .dot { background: var(--fg-3); border-color: var(--fg-3); }
   .track .lbl { font-size: 14px; }
   .track .lbl a { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
   .track .when { font-family: var(--mono); font-size: 12px; color: var(--fg-3); margin-top: 3px; }
+  .track .diff { font-family: var(--mono); font-size: 12px; color: var(--fg-3); margin-top: 3px; }
 
   .facts > div { display: flex; gap: 18px; padding: 13px 0; border-top: 1px solid var(--line); }
   .facts > div:first-child { border-top: 0; padding-top: 0; }
@@ -36,6 +61,17 @@
   .facts dd { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
 
   .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
+
+  /* The no-write-access statement (spec/wireframe/job.html:72). Its own
+     visually distinct block rather than a paragraph among others, because
+     this is the single fact a buyer evaluating whether to trust the
+     product most needs to notice, not skim past. */
+  .accessline { font-size: 14px; line-height: 1.55; color: var(--fg-2); }
+  .accessline b { color: var(--fg); }
+
+  @media (max-width: 640px) {
+    .claim { font-size: 18px; }
+  }
 
   @media (max-width: 480px) {
     .facts > div { flex-direction: column; gap: 4px; }
@@ -61,44 +97,55 @@
 </nav>
 
 <div class="wrap section">
-  <div class="narrow glow">
-    <div class="state" style="margin-bottom:16px">
-      <span class="dot"></span> <span id="state-label" data-pending>Reading this hire.</span>
+  <div class="narrow">
+    <!-- Who: the agent, with a way back to its profile. The one secondary
+         read this page makes (GET /agents/:agentDid); never fired when
+         the job carries no agentDid, and a failed or absent read never
+         blanks the primary record (falls back to the shortened DID, no
+         avatar, no operator line). -->
+    <div class="who" id="who" hidden>
+      <div class="avatarbox" id="who-avatar" aria-hidden="true"></div>
+      <div>
+        <div class="n" id="who-agent-name" data-pending></div>
+        <div class="r" id="who-operator-line" hidden>operated by <a id="who-operator-link"></a></div>
+      </div>
+      <span class="spacer"></span>
+      <a class="btn btn-sm" id="who-back">Back to profile</a>
     </div>
-    <!-- Outcome first, mechanism second, identifier last (DESIGN.md 7.1). -->
-    <p class="claim" id="claim" data-pending></p>
-    <!-- P8h: a proposed job's control (inert-declared-control, eighth
-         occurrence). job.js sets the href from the id it already holds. -->
-    <div class="row" id="agreement-cta" hidden style="margin-top:16px">
-      <a class="btn btn-primary" id="agreement-link">Read and sign the agreement</a>
-    </div>
-    <!-- P8j: a staged job's control (inert-declared-control, ninth
-         occurrence). job.js sets the href from the id it already holds. -->
-    <div class="row" id="staged-cta" hidden style="margin-top:16px">
-      <a class="btn btn-primary" id="staged-link">Read the account of the work</a>
-    </div>
-    <!-- P8l: a submitted job's control (inert-declared-control, tenth
-         occurrence). job.js sets the href from the id it already holds. -->
-    <div class="row" id="pullrequest-cta" hidden style="margin-top:16px">
-      <a class="btn btn-primary" id="pullrequest-link">See where the pull request is</a>
-    </div>
-    <div class="empty warn" id="load-error" hidden style="margin-top:20px">
-      <b>We could not load this hire.</b>
-      <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
+
+    <div class="glow">
+      <!-- The job named by its own identifier, and the page's whole
+           stance in one line (ENT-7.1): state comes from watching
+           GitHub, never from either party asserting it. -->
+      <h1 class="pname" id="job-heading">Job <span class="mono" id="job-heading-id" style="font-size:22px"></span></h1>
+      <p class="lede" id="job-lede" data-pending></p>
+
+      <div class="state" style="margin-top:16px">
+        <span class="dot"></span> <span id="state-label" data-pending>Reading this hire.</span>
+      </div>
+      <!-- Outcome first, mechanism second, identifier last (DESIGN.md 7.1). -->
+      <p class="claim" id="claim" data-pending style="margin-top:12px"></p>
+      <!-- P8h: a proposed job's control (inert-declared-control, eighth
+           occurrence). job.js sets the href from the id it already holds. -->
+      <div class="row" id="agreement-cta" hidden style="margin-top:16px">
+        <a class="btn btn-primary" id="agreement-link">Read and sign the agreement</a>
+      </div>
+      <!-- P8j: a staged job's control (inert-declared-control, ninth
+           occurrence). job.js sets the href from the id it already holds. -->
+      <div class="row" id="staged-cta" hidden style="margin-top:16px">
+        <a class="btn btn-primary" id="staged-link">Read the account of the work</a>
+      </div>
+      <!-- P8l: a submitted job's control (inert-declared-control, tenth
+           occurrence). job.js sets the href from the id it already holds. -->
+      <div class="row" id="pullrequest-cta" hidden style="margin-top:16px">
+        <a class="btn btn-primary" id="pullrequest-link">See where the pull request is</a>
+      </div>
+      <div class="empty warn" id="load-error" hidden style="margin-top:20px">
+        <b>We could not load this hire.</b>
+        <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
+      </div>
     </div>
   </div>
-</div>
-
-<hr class="rule">
-
-<!-- The agent links to /agents/<did>, which exists; the buyer does not,
-     there is no buyer page. -->
-<div class="wrap section-sm" id="who-section" hidden>
-  <h2>Who</h2>
-  <dl class="facts pane pane-pad" style="margin-top:14px">
-    <div><dt>The buyer</dt><dd id="fact-buyer"></dd></div>
-    <div><dt>The agent</dt><dd id="fact-agent"></dd></div>
-  </dl>
 </div>
 
 <hr class="rule">
@@ -121,10 +168,24 @@
 <!-- Every row an observation, never a party's claim and never a verdict
      on quality (the platform scope fence, PLAN.md, the operator
      2026-09-07). An absent group is absent here, never a pending row
-     with an empty date. -->
+     with an empty date. Three dot states: .merged on the row that is
+     verified evidence (a checked merge), .stopped on a close, .done on
+     everything else (spec/wireframe/job.html:44). -->
 <div class="wrap section-sm" id="history-section" hidden>
   <h2>What has been observed</h2>
   <ol class="track pane pane-pad reveal" id="history" style="margin-top:16px"></ol>
+</div>
+
+<hr class="rule">
+
+<!-- THE CRITICAL SENTENCE (spec/wireframe/job.html:154). Never the
+     wireframe's fork story: B14a made the platform create a staging
+     repository it owns and open the pull request itself, at the commit
+     the agent attested. FreeAgents never has write access to the buyer's
+     repository and cannot be given it; only the buyer's own click on
+     GitHub merges it. -->
+<div class="wrap section-sm">
+  <p class="accessline" id="accessline" data-pending></p>
 </div>
 
 <hr class="rule">
@@ -133,6 +194,18 @@
 <div class="wrap section-sm" id="close-section" hidden>
   <h2>This hire was closed</h2>
   <p class="sub" id="close-detail" style="margin-top:10px; max-width:62ch"></p>
+</div>
+
+<hr class="rule">
+
+<!-- The pull request itself, opened on GitHub directly, whenever the job
+     carries one -- independent of whether a receipt exists yet (a
+     submitted job has an open pull request and no receipt; a completed
+     job has both). -->
+<div class="wrap section-sm" id="pullrequest-open-section" hidden>
+  <div class="row wrapflex" style="gap:10px">
+    <a class="btn" id="pullrequest-open-link">Open the pull request on GitHub</a>
+  </div>
 </div>
 
 <hr class="rule">
@@ -154,11 +227,24 @@
     <h2>The details</h2>
     <p class="sub">Everything below is what makes the record above checkable. You do not need any of it to use this site.</p>
     <div style="margin-top:18px">
-      <button class="disclose" type="button" data-disclose="tech" data-disclose-alt="Hide the technical details">Show the technical details</button>
+      <button class="disclose" type="button" data-disclose="tech" data-disclose-alt="Hide technical details">Show technical details</button>
       <div id="tech" class="detail">
-        <div><dt>Job id</dt><dd id="tech-id"></dd></div>
+        <div class="kv">
+          <div><dt>Job id</dt><dd id="tech-id"></dd></div>
+          <button class="btn btn-sm" type="button" id="tech-id-copy" data-copy="">Copy</button>
+        </div>
         <div><dt>Fingerprint of the brief</dt><dd id="tech-brief-hash"></dd></div>
-        <div id="tech-spec-hash-wrap" hidden><dt>Fingerprint of the confirmed agreement</dt><dd id="tech-spec-hash"></dd></div>
+        <div class="kv" id="tech-spec-hash-wrap" hidden>
+          <div><dt>Fingerprint of the confirmed agreement</dt><dd id="tech-spec-hash"></dd></div>
+          <button class="btn btn-sm" type="button" id="tech-spec-hash-copy" data-copy="">Copy</button>
+        </div>
+        <div id="tech-criteria-wrap" hidden>
+          <dt>Criteria as confirmed</dt>
+          <dd style="font-family:var(--font); font-size:13px; color:var(--fg-2); line-height:1.7">
+            <ol id="tech-criteria" style="margin:6px 0 0; padding-left:16px"></ol>
+          </dd>
+        </div>
+        <div id="tech-diff-wrap" hidden><dt>Diff counts</dt><dd id="tech-diff"></dd></div>
         <div id="tech-staged-commit-wrap" hidden><dt>Staged commit</dt><dd id="tech-staged-commit"></dd></div>
         <div id="tech-merge-commit-wrap" hidden><dt>Merge commit</dt><dd id="tech-merge-commit"></dd></div>
         <div id="tech-staging-repo-wrap" hidden><dt>Staging repository</dt><dd id="tech-staging-repo"></dd></div>

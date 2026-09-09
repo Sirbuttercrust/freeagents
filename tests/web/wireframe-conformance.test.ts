@@ -97,7 +97,24 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Drop "Rust" \u00b7 12 results': 'the control ships (browse.js renderZeroState); the sample count "12 results" is wireframe sample data, replaced with a real re-queried count',
   },
   operator: {},
-  job: {},
+  job: {
+    // The wireframe draws the closed-without-shipping state as a second
+    // job on the same page. The built page shows ONE hire, and it already
+    // has that state: close-section and the stopped track row (the same
+    // call the agent page already made for "The same profile, brand new").
+    'If the job does not ship': 'the wireframe draws this as a second example job on the same page; the built page shows one hire and already has this state (close-section, the stopped track row)',
+    // The wireframe's two sample job identifiers. The heading renders the
+    // real job id from the projection, pinned by a dedicated test, never
+    // one of these baked-in sample ids.
+    'Job fa-7k29': "wireframe sample data (the shipped example's job id); the built heading renders the job's real id from the projection",
+    'Job ac-3m81': "wireframe sample data (the second example's job id); this page shows one hire, so this id never ships",
+    // Both sample labels belong to the wireframe's second example job,
+    // which does not ship as its own section (see the entry above). The
+    // real page's identity strip renders the operator's own shortened DID,
+    // and its one back control is "Back to profile", which does ship.
+    'a different operator': 'wireframe sample data from the second example job, which does not ship as its own section; the real identity strip renders the operator\u2019s own shortened DID',
+    "See tessellate's profile": 'wireframe sample data from the second example job, which does not ship as its own section',
+  },
   dashboard: {},
   credential: {},
   incoming: {},
