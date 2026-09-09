@@ -172,6 +172,36 @@ for _entry in MUTATIONS:
         p = os.path.join(HERE, _fname)
         SNAPSHOT[p] = open(p, encoding="utf-8").read()
 
+# THE SNAPSHOT IS ONLY AS GOOD AS THE TREE IT WAS TAKEN FROM.
+#
+# Everything below restores files to SNAPSHOT, which is captured right here, at
+# import. Start this suite on a tree that already carries a mutation and the
+# "restore" writes that mutation back, the run ends with "reverted: FAIL", and
+# the tree is left dirty in a way that looks like the gates broke.
+#
+# That is not hypothetical: a run killed mid-mutation on 2026-09-09 left a
+# floor removed in two files, and the NEXT run snapshotted the damage and
+# reported a failure that was three hours old. The lock file above catches a
+# kill during THIS suite; this catches inheriting one from anything else.
+#
+# So ask git, which knows what the tree is supposed to look like. A dirty file
+# is not always wrong (someone may be mid-edit), so this warns rather than
+# refuses, and names the files, which is what turns a confusing red run into a
+# one-line diagnosis.
+try:
+    _dirty = subprocess.run(
+        ["git", "status", "--porcelain", "--"] + sorted(SNAPSHOT),
+        cwd=HERE, capture_output=True, text=True, timeout=20).stdout.strip()
+except Exception:
+    _dirty = ""
+if _dirty:
+    print("WARNING: files this suite mutates have uncommitted changes:")
+    for _line in _dirty.splitlines():
+        print("   " + _line)
+    print("   They will be restored to THIS state, not to the committed one.")
+    print("   If a previous run was killed, revert them before trusting the")
+    print("   result: git checkout -- <file> and delete .mutation-in-progress.\n")
+
 
 def restore_all(*_a):
     for p, text in SNAPSHOT.items():

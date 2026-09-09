@@ -47,13 +47,24 @@ dashboard one is why both survive. Do not merge them.
 
 ## The gates
 
-Sixteen, all runnable from a clone with python3 and any Chrome. No environment
+Eighteen, all runnable from a clone with python3 and any Chrome. No environment
 variables, no pip install, no file outside this directory.
 
 ```
 python3 devserver.py 3111 &
-python3 verify_all.py            # exit 0 only if all sixteen pass
+python3 verify_all.py            # exit 0 only if all eighteen pass
 ```
+
+Count it rather than trusting this sentence, which was wrong once already:
+
+```
+grep -c '^    ("verify_' verify_all.py     # gates the runner runs
+grep -c '^| `verify_' DESIGN.md            # gates the doc claims
+```
+
+Those two must agree, and `verify_all.py` fails if they do not, in both
+directions. A gate in the doc but not the runner is a coverage claim nothing
+backs; a gate in the runner but not the doc is invisible.
 
 The six that came from the polished pass (`verify_polish.py`,
 `verify_profile_header.py`, `verify_agents_below.py`,
@@ -73,10 +84,42 @@ python3 verify_flow_mutation.py http://127.0.0.1:3111
 python3 verify_round2_mutation.py http://127.0.0.1:3111
 ```
 
+**Start them on a clean tree, and check `git status` if one reports
+`reverted: FAIL`.** They snapshot the files they mutate at startup and restore
+to that snapshot, so a tree that already carries a mutation gets it written
+back, and the failure looks like a broken gate rather than a dirty tree. A run
+killed mid-mutation leaves `.mutation-in-progress` naming the affected files;
+the next run refuses to start while it exists. If you find one:
+
+```
+git checkout -- spec/wireframe/base.css spec/wireframe/polish.css   # or whatever it names
+rm spec/wireframe/.mutation-in-progress
+```
+
+`verify_flow_mutation.py` now warns at startup when the files it mutates are
+dirty, which turns that confusing red run into one line.
+
 There is no `verify_mobile.py`, and there never has been on any branch. The
 320px sweep with every dialog open, the 44px floor and the overflow check are
 all inside `verify_flow.py` and `verify_polish.py`. If a document tells you to
 run `verify_mobile.py`, that document is wrong.
+
+**The tap-target floor is measured on BOTH axes, and was not always.**
+`verify_polish.py` read only `height` until 2026-09-09, so a control 20px wide
+and 44px tall passed: 13 real failures were standing behind a green gate,
+including the `edit` control that reopens a signed line of a paid agreement.
+Two rules follow, and neither is optional:
+
+- A floor written as `min-height` alone is not a floor. Set both.
+- A floor written in a stylesheet that some screens do not load is not a floor
+  either. The `.act` and `.steps li a` floors lived in `agreement.css`, which
+  `criteria.html` and `confirm.html` do not load, so `SITEMAP.md` claimed a
+  standard those two screens did not meet. Shared floors belong in
+  `polish.css`, which all 33 screens load.
+
+A page-local rule beats a linked stylesheet at equal specificity, so
+`browse.html` carries its own copy of the pager floor. If you define a
+component inside a page's `<style>`, its touch floor goes there too.
 
 ## Serving it
 
@@ -111,6 +154,32 @@ every other device, which is the most confusing possible failure.
 - **Nothing on any screen has the platform running, scoring or reviewing an
   agent's work.** The attestation is facts only.
 - **Sample data is labelled as sample data.** No invented metrics, anywhere.
+- **Every avatar in the set is generated from the DID.** One hook,
+  `[data-avatar="did:abt:<name>"]`, painted by `polish.js` through
+  `FASwarm.avatar`. There is no flat placeholder disc left in the tree and no
+  new one should appear: an avatar is an identity fingerprint, so an operator
+  must not be able to choose it (DESIGN.md 2.4). A page that renders
+  `[data-avatar]` must load `swarm.js`, or the span paints an empty 32x32 box
+  and throws nothing. `load_swarm.py` checks that and fails if any page misses
+  it.
+
+## The claim that was wrong, and the gate that replaced it
+
+The first version of this file said nothing was lost in the reconcile, and
+backed it by comparing FILE lists: every file on either parent branch exists
+here. That was true, and it was the wrong claim. A file survives while an
+element inside it leaves, and two did: the September agreement's technical
+disclosure, and the brand's accessible name on four screens.
+
+`verify_kept.py` is the rerunnable version of the review that caught them. It
+asks Chrome for the brand's computed accessible name on all 33 screens, and
+searches rendered text with every disclosure opened for facts that must still
+exist somewhere in the set. Facts are tiered: a `buyer` fact demoted into the
+builder notes fails, because a person using the product never opens them.
+
+If you move a fact to a better home, the gate follows you. If you drop one, it
+stops you. Add a row to `FACTS` whenever a screen gains something a person
+would be misled by its absence.
 
 ## What is open
 
