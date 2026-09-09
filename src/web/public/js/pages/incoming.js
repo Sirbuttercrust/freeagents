@@ -6,22 +6,30 @@
    agent name (agentName, src/api/app.ts:1665), which is exactly the
    per-row lookup P8n had to make itself for myagents.
 
-   RULING 1 (row control, superseded by P8v): P8q's own original ruling
-   said P-25 (operatorjob.html) was not built and no row here carried a
-   control. P8v built it and mounted /operatorjob (SITEMAP P-25), so
-   every row here now links to it (the wireframe's own operatorjob.html
-   href, spec/wireframe/incoming.html), the same door dashboard.js's own
-   offer row already opened before this card, now landing on the real
-   screen instead of back on this same list.
+   RULING 1 (row control, superseded by P8v, then W7b): P8q's own original
+   ruling said P-25 (operatorjob.html) was not built and no row here
+   carried a control, so the whole row became the link. P8v built and
+   mounted /operatorjob and made the whole row a link. W7b reverts the row
+   to the wireframe's own shape (div.orow, not an anchor) now that the
+   product has a real per-state control to put there: a labelled anchor
+   inside a row-wide anchor is invalid markup and a keyboard-navigation
+   defect. Each row's .foot carries the wireframe's own labelled anchor,
+   keyed by waitingOn (FOOT_ACTION below), reaching the same
+   /operatorjob?job=<id> the row anchor used to.
 
    RULING 2 (buyer identity): the route returns no buyer name and
    src/domain/account.ts carries no display-name field. The .repo line
    renders `repository` alone; no domain name the product does not hold.
 
-   RULING 3 (date, not history): the route returns createdAt and nothing
-   about signature history or which line changed. The .foot renders the
-   offer's date through A.readableDate, the same absolute-date helper
-   every other built page uses, and nothing else.
+   RULING 3 (date, not history): the wireframe's .foot dim sentences
+   ("You signed all six lines, 2 days ago", "The buyer edited line 04,
+   which cleared both signatures on it") are sample-specific narration the
+   route answers none of: it returns createdAt and nothing about signature
+   history or which line changed (src/api/app.ts:1721-1727). The .foot
+   keeps the offer's date in that position instead, through
+   A.readableDate, the same absolute-date helper every other built page
+   uses. A departure from the wireframe's copy, named here and in the
+   handoff.
 
    RULING 4 (state mapping): waitingOnOf's three values map to the
    wireframe's three row states exactly:
@@ -49,6 +57,19 @@
     noReply: { cls: "state-none", text: "New, nothing sent back yet" },
     waitingOnBuyer: { cls: "state-done", text: "Sent, waiting on the buyer" },
     waitingOnOperator: { cls: "state-none", text: "Buyer proposed a change, waiting on you" },
+  };
+
+  /* W7b: the wireframe's own .foot control per waitingOn state
+     (spec/wireframe/incoming.html:83,104,125), a one-to-one match with
+     STATE_INFO above. P8q's own ruling 1 said this button had no
+     destination because /operatorjob was not built yet; P8v built and
+     mounted it, so the button ships now, keyed the same way the row's
+     state pill already is. Only noReply gets btn-primary, the wireframe's
+     one emphasised action: it is the only row nothing has answered yet. */
+  var FOOT_ACTION = {
+    noReply: { label: "Draft the agreement", primary: true },
+    waitingOnBuyer: { label: "See what you sent", primary: false },
+    waitingOnOperator: { label: "Review the change", primary: false },
   };
 
   function start() {
@@ -126,9 +147,8 @@
   }
 
   function offerRow(offer) {
-    var row = document.createElement('a');
+    var row = document.createElement('div');
     row.className = 'orow pane-lift';
-    row.href = '/operatorjob?job=' + encodeURIComponent(offer.id);
 
     var between = document.createElement("div");
     between.className = "between";
@@ -168,6 +188,14 @@
     dateSpan.className = "small dim";
     dateSpan.textContent = date || "";
     foot.appendChild(dateSpan);
+
+    var action = FOOT_ACTION[offer.waitingOn] || FOOT_ACTION.noReply;
+    var actionLink = document.createElement("a");
+    actionLink.className = action.primary ? "btn btn-sm btn-primary" : "btn btn-sm";
+    actionLink.href = "/operatorjob?job=" + encodeURIComponent(offer.id);
+    actionLink.textContent = action.label;
+    foot.appendChild(actionLink);
+
     row.appendChild(foot);
 
     return row;

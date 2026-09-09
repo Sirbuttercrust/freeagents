@@ -19,11 +19,21 @@
    portfolioCount already ride on BrowseCard, so a failed per-agent read
    never blanks a count the roster call already answered.
 
-   NO SETTINGS LINK, NO WORK-OFFERED ATTENTION ITEM, NO LIST-AN-AGENT
-   BUTTON: none of agentsettings.html, an open-work read, or listagent.html
-   exist yet (brief's four wireframe rulings), so this script renders none
-   of them. The agent's name is the row's only link, and it opens
-   /agents/<did>, which is built and public.
+   NO SETTINGS LINK, NO LIST-AN-AGENT BUTTON: none of agentsettings.html
+   or listagent.html exist yet (brief's four wireframe rulings), so this
+   script renders neither. The agent's name is the row's only link, and it
+   opens /agents/<did>, which is built and public.
+
+   W7B WORK-OFFERED ATTENTION LINE: one additional read of
+   GET /accounts/:did/incoming, fired once for the page (not once per
+   row), grouped by agentDid. An agent's count is the number of its
+   offers whose waitingOn is NOT waitingOnBuyer -- those are the ones
+   waiting on the operator, which is what "waiting on a reply" means on
+   the operator's own roster; an offer sitting with the buyer is not an
+   attention item for them. A failed or non-200 incoming read leaves
+   every row exactly as the roster call rendered it: no attention line,
+   never a guessed count, the same never-invent-a-fact rule the
+   per-agent proofStatus read above already follows.
 
    EVERYTHING THROUGH textContent: the agent's name and skills are
    operator-supplied and agent-supplied strings, content, never markup
@@ -32,6 +42,7 @@
 (function () {
   "use strict";
   var A = window.FAApi;
+  var workOfferedCountByAgentDid = {};
 
   function start() {
     var session = A.getStoredSession();
@@ -50,10 +61,36 @@
         failLoad("Your account could not be read just now. Reloading may work.");
         return;
       }
-      A.getAuthed("/accounts/" + encodeURIComponent(did) + "/agents", session.token).then(function (rosterResult) {
-        onRosterLoaded(rosterResult);
+      var rosterPromise = A.getAuthed("/accounts/" + encodeURIComponent(did) + "/agents", session.token);
+      /* Fired once for the page, in parallel with the roster read, never
+         once per row: a failed or non-200 read here leaves
+         workOfferedCountByAgentDid empty, so every row renders exactly
+         as the roster call already rendered it. Waited on alongside the
+         roster read so renderRows never races an incoming read that has
+         not resolved yet. */
+      var incomingPromise = A.getAuthed("/accounts/" + encodeURIComponent(did) + "/incoming", session.token);
+      Promise.all([rosterPromise, incomingPromise]).then(function (results) {
+        workOfferedCountByAgentDid = countsByAgentDid(results[1]);
+        onRosterLoaded(results[0]);
       });
     });
+  }
+
+  // Counts, per agent, the offers whose waitingOn is NOT waitingOnBuyer.
+  // A failed or non-200 read (or a malformed body) returns an empty map,
+  // never a guessed count.
+  function countsByAgentDid(result) {
+    if (result.state !== "ok" || result.value.status !== 200) return {};
+    var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
+    var offers = Array.isArray(body.offers) ? body.offers : [];
+    var counts = {};
+    offers.forEach(function (offer) {
+      if (offer.waitingOn === "waitingOnBuyer") return;
+      var agentDid = typeof offer.agentDid === "string" ? offer.agentDid : "";
+      if (agentDid === "") return;
+      counts[agentDid] = (counts[agentDid] || 0) + 1;
+    });
+    return counts;
   }
 
   function failLoad(detail) {
@@ -122,6 +159,25 @@
     }
 
     row.appendChild(body);
+
+    // W7b: the work-offered attention line. Already known synchronously
+    // at this point (Promise.all in start() resolves the incoming read
+    // before onRosterLoaded, and therefore before renderRows, ever
+    // runs), so this renders inline rather than through a second async
+    // callback. Rendered before the async GitHub-not-confirmed check
+    // below can run, so renderAttention inserts before it to keep the
+    // wireframe's own order (GitHub first, myagents.html:83,97).
+    var workOfferedCount = numberOr(workOfferedCountByAgentDid[agent.did]);
+    if (workOfferedCount > 0) {
+      var workOffered = document.createElement("div");
+      workOffered.className = "attn";
+      workOffered.appendChild(document.createTextNode("Work offered \u00b7 "));
+      var incomingLink = document.createElement("a");
+      incomingLink.href = "/incoming";
+      incomingLink.textContent = A.plural(workOfferedCount, "job waiting on a reply", "jobs waiting on a reply");
+      workOffered.appendChild(incomingLink);
+      body.appendChild(workOffered);
+    }
 
     var right = document.createElement("div");
     right.className = "right";
@@ -193,7 +249,16 @@
     var attn = document.createElement("div");
     attn.className = "attn";
     attn.textContent = "GitHub not confirmed";
-    body.appendChild(attn);
+    // The wireframe's own order is GitHub first (myagents.html:83,97): a
+    // row already carrying the work-offered line (rendered synchronously
+    // in agentRow, before this async callback ever runs) gets GitHub
+    // inserted ahead of it rather than appended after.
+    var existing = body.querySelector(".attn");
+    if (existing) {
+      body.insertBefore(attn, existing);
+    } else {
+      body.appendChild(attn);
+    }
   }
 
   function numberOr(value) {

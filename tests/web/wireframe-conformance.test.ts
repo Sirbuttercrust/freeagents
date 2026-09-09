@@ -97,6 +97,23 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Drop "Rust" \u00b7 12 results': 'the control ships (browse.js renderZeroState); the sample count "12 results" is wireframe sample data, replaced with a real re-queried count',
   },
   operator: {},
+  myjobs: {
+    // The five bucket chips ship, wired to real live counts, but the
+    // labels with their digits are appended at render time by myjobs.js
+    // (chip.textContent = BUCKET_LABELS[bucket] + " " + counts[bucket],
+    // myjobs.js:93-95), so the wireframe's sample digits (6, 1, 2, 3, 1)
+    // can never appear in this page's static markup: baking them in would
+    // ship a fabricated number about a person's own job list. The same
+    // call the agent page already makes for "All 45", "Hires 12", "Prior
+    // 31" and "Claims 2" above. tests/web/myjobs.test.ts:207 pins the
+    // chip behaviour: it reads the digits back off the four bucket chips
+    // and asserts they sum to the All count.
+    'All 6': 'a live count appended at render time (myjobs.js:93-95: chip.textContent = BUCKET_LABELS[bucket] + " " + counts[bucket]); the wireframe\u2019s sample digit can never appear in static markup, pinned by tests/web/myjobs.test.ts:207',
+    'Waiting on you 1': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
+    'In progress 2': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
+    'Shipped 3': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
+    'Didn&#8217;t ship 1': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
+  },
   job: {
     // The wireframe draws the closed-without-shipping state as a second
     // job on the same page. The built page shows ONE hire, and it already
@@ -183,8 +200,45 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // mid phase would move the goalposts under four merged cards.
     'vercel/commerce&#35;4471': "wireframe sample data (SAMPLE covers the unescaped form vercel/commerce#4471, not this HTML-escaped one); the built page renders the real repository from the signed document (credential.js:89-100)",
   },
-  incoming: {},
-  myagents: {},
+  incoming: {
+    // The three row actions ship (W7b), but each is built by
+    // incoming.js's offerRow at render time, keyed off the offer's own
+    // waitingOn value (FOOT_ACTION, incoming.js:69-73). This instrument
+    // reads the file on disk and can only see the static #rows container,
+    // never what renderRows appends into it, the same limitation the
+    // agent page's live-count chips and myagents' work-offered line
+    // already carry (this file's own header comment, line 16-18).
+    'Draft the agreement': 'built by incoming.js\u2019s offerRow at render time, keyed off waitingOn (FOOT_ACTION, incoming.js:69-73); this instrument reads the file on disk and never sees what renderRows appends into #rows',
+    'See what you sent': 'same reason as "Draft the agreement": rendered live by offerRow, keyed off waitingOn (FOOT_ACTION, incoming.js:69-73)',
+    'Review the change': 'same reason as "Draft the agreement": rendered live by offerRow, keyed off waitingOn (FOOT_ACTION, incoming.js:69-73)',
+  },
+  myagents: {
+    // Two of the wireframe's four example agent names (myagents.html:109,
+    // 122). SAMPLE covers pixelforge and driftcheck and not these two.
+    // The built page renders every agent name live from
+    // GET /accounts/:did/agents (myagents.js:144-147), never a hardcoded
+    // sample, the same reason browse's own "pellucid" entry above states.
+    'seamline': "wireframe sample data (one of the wireframe's four example agent names, myagents.html:109); this page renders agent names live from GET /accounts/:did/agents, never a hardcoded sample",
+    'hatchmark': "wireframe sample data (one of the wireframe's four example agent names, myagents.html:122); this page renders agent names live from GET /accounts/:did/agents, never a hardcoded sample",
+    // The wireframe's link points at provegithub.html, which is not
+    // built and has no route in src/web/static.ts: one of the five
+    // wireframed operator-onboarding screens PLAN 2026-09-08 records as
+    // never given a card (listagent.html, provegithub.html,
+    // agentsettings.html, priorwork.html, claim.html), the same reason
+    // signin's own entries cite. The built page renders the attention
+    // line as plain text with no anchor (myagents.js:251), and
+    // tests/web/myagents.test.ts:361 asserts the absence of the link.
+    'confirm it': 'provegithub.html is not built and /provegithub is not mounted (the recorded operator-onboarding gap, PLAN 2026-09-08); the built attention line renders as plain text with no anchor (myagents.js:251), asserted by tests/web/myagents.test.ts:361',
+    // The work-offered attention line ships (W7b), built inline in
+    // agentRow at render time from a second read of
+    // GET /accounts/:did/incoming, grouped by agentDid and counted
+    // (myagents.js:82-95, myagents.js:170-178). This instrument reads
+    // the file on disk and can only see the static #rows container,
+    // never what renderRows appends into it live, the same limitation
+    // the row names above and the agent page's live-count chips already
+    // carry.
+    '1 job waiting on a reply': 'built inline in agentRow at render time from GET /accounts/:did/incoming, grouped by agentDid and counted (myagents.js:82-95, myagents.js:170-178); this instrument reads the file on disk and never sees what renderRows appends into #rows live',
+  },
   signin: {
     // All four excuses below share one root, already on the record: PLAN
     // 2026-09-08 (the P8 close-out) names five wireframed screens that
@@ -225,7 +279,43 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // honestly, by #account-notice and "How signing in works".
     'After you sign in': 'its third row promises the one-click GitHub proof (see "Proving your GitHub account" above), which is not true through this site today; the first row is already answered honestly by #account-notice and "How signing in works"',
   },
-  settings: {},
+  settings: {
+    // The wireframe's nav button (settings.html:45) points at
+    // dashboard.html under the local label "Account". nav.js renders that
+    // same destination on every page under the label "Dashboard"
+    // (nav.js:100-105), which is in this instrument's own SHARED_NAV set;
+    // this entry reaches the shared-nav mechanism under this one
+    // wireframe's local label instead of "Dashboard".
+    'Account': 'the shared-nav mechanism (nav.js:100-105) renders this destination on every page under the label "Dashboard", already excused by SHARED_NAV; this wireframe names the same button "Account" locally',
+    // href="#" in the wireframe itself (settings.html:74), on the sign-in
+    // method row. The auth surface is exactly /auth/github/start,
+    // /auth/github/callback, /auth/passkey/register, /auth/passkey/verify
+    // and /auth/signout (src/api/app.ts:1149-1257); there is no route
+    // that manages a connected sign-in method, and gap G6 (the
+    // wireframe's own closing note, settings.html:186-192) is why.
+    'Manage': 'href="#" in the wireframe itself (settings.html:74); the auth surface is exactly GitHub OAuth, passkey and signout (src/api/app.ts:1149-1257), no route manages a connected sign-in method, and gap G6 (settings.html:186-192, the wireframe\u2019s own closing note) is why',
+    // settings.html:113 points at keys.html, a wireframe with no built
+    // page and no route. Account (src/domain/account.ts:13-38) carries
+    // did, githubLogin, passkeySubject, createdAt and the two payout
+    // addresses, and no signing-key column, which is why the wireframe's
+    // own ruling 6 (settings.html's built counterpart, settings.js:19-20)
+    // already drops the signing-key row.
+    'Manage keys': 'keys.html has no built page and no route; Account (src/domain/account.ts:13-38) carries no signing-key column, which is why ruling 6 (settings.js:19-20) already drops the signing-key row this button sits on',
+    // The whole closing-your-account section: a launch-scope finding, not
+    // a page bug (see the handoff). There is no account-closure route
+    // (src/api/app.ts mounts POST /accounts, GET /accounts/me, GET
+    // /accounts/:did, PATCH /accounts/:did/operator-address and four read
+    // routes, and no DELETE), and Agent (src/domain/agent.ts:53-74)
+    // carries no listed/unlisted state for the alternative action to set.
+    // Shipping the section would put three inert controls under a
+    // heading promising an irreversible act the product cannot perform,
+    // which is worse than its absence. Gap G6 (settings.html:186-192, the
+    // wireframe's own closing note) is the same filed, unbuilt-entity gap
+    // "Manage" cites above.
+    'Closing your account': 'no account-closure route exists (src/api/app.ts has no DELETE) and Agent (src/domain/agent.ts:53-74) carries no listed/unlisted state; shipping the section would put inert controls under a heading promising an act the product cannot perform (gap G6, settings.html:186-192)',
+    'Unlist agents instead': 'same reason as "Closing your account": no listed/unlisted state on Agent (src/domain/agent.ts:53-74) for this control to set',
+    'Close my account': 'same reason as "Closing your account": no account-closure route exists (src/api/app.ts has no DELETE)',
+  },
   verify: {
     // The wireframe's footer carries GitHub and Licence as static
     // anchors. The built footer emits both at SERVE time from
