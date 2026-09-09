@@ -76,13 +76,26 @@ back to the committed `wirebrowse.py` and take their url from `WF_BASE`, which
 port they reported "polish layer not loaded" on all 26 screens, which reads
 exactly like a real regression and is not one.
 
-The two mutation suites are run separately, because they edit files and take
+The three mutation suites are run separately, because they edit files and take
 several minutes:
 
 ```
-python3 verify_flow_mutation.py http://127.0.0.1:3111
+python3 verify_flow_mutation.py   http://127.0.0.1:3111
 python3 verify_round2_mutation.py http://127.0.0.1:3111
+python3 verify_round3_mutation.py http://127.0.0.1:3111
 ```
+
+`verify_round3_mutation.py` is the one to read if you are wondering why the
+tap-target probe is shaped the way it is. It carries the reviewer's own three
+positive controls as permanent mutations, plus three more: a 20x20 button in a
+visible body (which the old probe already caught), the same size as a `select`
+and as a text input (which it did not, because the selector was `a,button`), a
+20x20 button inside the closed facet drawer (which it did not, because it
+opened no state), the real `.drawer label` floor removed, and a real em dash
+planted in a file outside the payment screens. Each planted control is asserted
+ALIVE at 20x20 with `(pointer: coarse)` true before its gate runs, so a
+mutation that silently failed to apply cannot read as a gate catching
+something.
 
 **Start them on a clean tree, and check `git status` if one reports
 `reverted: FAIL`.** They snapshot the files they mutate at startup and restore

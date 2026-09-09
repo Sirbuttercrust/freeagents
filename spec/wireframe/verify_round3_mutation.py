@@ -43,6 +43,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:3111"
 sys.path.insert(0, HERE)
 
+# The kill-lock and the dirty-tree warning, shared with the other two suites.
+import mutationsafe
+
 BROWSE = os.path.join(HERE, "browse.html")
 SETTINGS = os.path.join(HERE, "settings.html")
 POLISH = os.path.join(HERE, "polish.css")
@@ -203,20 +206,13 @@ def main():
     before = digest(FILES)
     saved = dict((p, read(p)) for p in FILES)
 
-    # A KILLED RUN POISONS THE NEXT ONE, SILENTLY. A suite killed after
-    # mutating leaves the damage on disk; the next run snapshots the damaged
-    # tree and "restores" the mutation back, then reports a revert failure for
-    # a cause hours old. Name any dirty file at startup instead.
-    dirty = subprocess.run(
-        ["git", "status", "--porcelain", "--"] + FILES,
-        capture_output=True, text=True, cwd=HERE).stdout.strip()
-    if dirty:
-        print("NOTE: mutation targets are dirty before this run started:")
-        for line in dirty.splitlines():
-            print("   " + line)
-        print("If a previous run was killed mid-flight, the snapshot below is")
-        print("of a DAMAGED tree and every result is suspect. git checkout the")
-        print("files above first.\n")
+    # A KILLED RUN POISONS THE NEXT ONE, SILENTLY. The lock is written before
+    # the first mutation and removed after the last restore; a stale one stops
+    # this suite dead rather than letting it snapshot a damaged tree. See
+    # mutationsafe.py, which exists because this run was killed mid-flight and
+    # left a planted control in browse.html with nothing announcing it.
+    mutationsafe.guard(FILES)
+    mutationsafe.acquire(FILES)
 
     print("=" * 78)
     print("verify_round3_mutation.py   tree %s" % before)
@@ -259,6 +255,7 @@ def main():
     finally:
         for p, text in saved.items():
             write(p, text)
+        mutationsafe.release()
 
     after = digest(FILES)
     print("\n" + "-" * 78)

@@ -36,6 +36,9 @@ import json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wirebrowse import Browser, NoBrowser
 
+# The tap-target probe, shared with verify_polish.py and measure_taps.py.
+import tapfloor
+
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:3111"
 
 SCREENS = [
@@ -124,64 +127,36 @@ OVERFLOW_JS = """(() => {
 # padding it to 44px wrecks the paragraph. Without the exemption the report is
 # noise and real findings hide in it.
 #
-# TWO MORE EXEMPTIONS, each measured rather than assumed:
+# THE PROBE ITSELF LIVES IN tapfloor.py, and this file no longer carries a
+# copy. Three copies existed here, in verify_polish.py and in measure_taps.py,
+# and they drifted three different ways: one read only the height, all three
+# read only `a,button`, and none of them opened a disclosure before reading.
+# Round 3 of review found twelve real under-floor controls behind those holes.
+# One probe, one selector list, one set of exemptions, imported by every gate
+# that claims the floor.
 #
-#   a radio or checkbox wrapped in (or pointed at by) a label whose own box
-#   clears the floor. The 18x18 dot is not the tap target; the 244x89 label is,
-#   and clicking anywhere in it activates the control. Padding the dot to 44px
-#   would make a six item picker 260px tall for no gain.
+# The exemptions it applies, all three measured rather than assumed:
+#
+#   a link inside a sentence, where "sentence" means an inline formatting
+#   context bounded by block boxes, not merely an element with an inline
+#   display value.
+#
+#   a radio or checkbox whose label CLEARS the floor on both axes. The 13px
+#   dot is not the tap target; a 244x89 label is, and clicking anywhere in it
+#   activates the control. A 292x29 label is NOT that case, and reading the
+#   exemption as "any checkbox inside any label" is what let eleven facet
+#   checkboxes and a settings toggle stand under the floor.
 #
 #   a field label sitting ABOVE its control, where the control clears the
-#   floor. "What is wrong, in one sentence" measures 244x21 and the input under
-#   it measures 244x44. The label is a caption, and giving a caption a 44px box
-#   puts 23px of dead space between every label and its field.
+#   floor. "What is wrong, in one sentence" measures 244x21 and the input
+#   under it measures 244x44. The label is a caption, and giving a caption a
+#   44px box puts 23px of dead space between every label and its field.
 #
 # HEIGHT-ONLY findings on the shared nav are reported, not exempted. Several
 # nav links are narrower than 44px because they are short words in a horizontal
 # bar, and padding them sideways pushes the document past 320px. That trade is
 # named in base.css rather than hidden here.
-TAP_JS = """(() => {
-  const bad = [];
-  const inline = el => {
-    const p = el.parentElement;
-    if (!p) return false;
-    // a real text node beside the link, which is what "inside a sentence"
-    // actually means. A length comparison misreads a link beside an icon.
-    return [...p.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
-  };
-  const box = el => { const r = el.getBoundingClientRect(); return r; };
-  const clears = r => r && r.height >= 43.5 && r.width >= 43.5;
-
-  document.querySelectorAll('a[href], button, input, select, summary, label').forEach(el => {
-    for (let n = el; n; n = n.parentElement) {
-      if (n.hidden) return;
-      if (n.tagName === 'DIALOG' && !n.open) return;
-    }
-    const r = box(el);
-    if (r.width === 0 || r.height === 0) return;
-    if (clears(r)) return;
-
-    if (el.tagName === 'A' && inline(el)) return;
-
-    if (el.tagName === 'INPUT' && (el.type === 'radio' || el.type === 'checkbox')) {
-      const l = el.closest('label') ||
-                (el.id ? document.querySelector('label[for="' + el.id + '"]') : null);
-      if (l && clears(box(l))) return;
-    }
-
-    if (el.tagName === 'LABEL') {
-      const f = el.getAttribute('for');
-      const c = f ? document.getElementById(f)
-                  : el.querySelector('input, select, textarea');
-      if (c && clears(box(c))) return;
-    }
-
-    bad.push((el.className || el.tagName) + ' ' +
-             Math.round(r.width) + 'x' + Math.round(r.height) +
-             ' "' + (el.textContent || '').trim().slice(0, 24) + '"');
-  });
-  return bad.slice(0, 8);
-})()"""
+TAP_JS = tapfloor.PROBE_JS
 
 # An element's own state is not what a person experiences. Assert what is
 # REACHABLE and whether it is backed, not whether some named element is hidden.
@@ -336,7 +311,9 @@ try:
     for s in SCREENS:
         url = f"{BASE}/{s}"
         r = probe(b, url, OVERFLOW_JS)
-        tap = b.js(TAP_JS)
+        # The shared probe returns rich records; flatten to the strings this
+        # gate has always reported so the output shape does not change.
+        tap = [tapfloor.fmt(x) for x in json.loads(b.js(TAP_JS))["bad"]]
         lap = b.js(OVERLAP_JS)
 
         if not r["coarse"]:
@@ -356,12 +333,29 @@ try:
             openoff += len(ro["off"])
             if ro["off"]:
                 fails.append(f"{s}: dialog #{d} overflows 320px: {ro['off'][:3]}")
-            ot = b.js(TAP_JS)
-            opentap += [f"#{d} {x}" for x in ot]
+            ot = json.loads(b.js(TAP_JS))["bad"]
+            opentap += [f"#{d} {tapfloor.fmt(x)}" for x in ot]
             b.js(f"(() => {{const d=document.getElementById('{d}');"
                  f"if(d && d.open) d.close(); return 1;}})()")
 
         alltap = tap + opentap
+
+        # AND THE DISCLOSURES, which are not dialogs. Every drawer, details
+        # element and .disclose target on these screens hides controls that a
+        # person reaches with one tap, and a sweep that opens only <dialog>
+        # reports a clean page in both the broken and the fixed state. This is
+        # the hole round 3 found on verify_polish.py; it was here too.
+        opened = int(b.js(tapfloor.OPEN_JS) or 0)
+        if opened:
+            b.send("Runtime.evaluate",
+                   expression="new Promise(r=>setTimeout(r,160))", awaitPromise=True)
+            seen = set(alltap)
+            for x in json.loads(b.js(TAP_JS))["bad"]:
+                line = tapfloor.fmt(x)
+                if line not in seen:
+                    seen.add(line)
+                    alltap.append(line)
+
         if r["off"]:
             fails.append(f"{s}: overflow at 320px: {r['off'][:3]}")
         if r["doc"] > 320.5:

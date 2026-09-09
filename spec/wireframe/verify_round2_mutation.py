@@ -33,6 +33,12 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:3111"
+sys.path.insert(0, HERE)
+
+# The kill-lock and the dirty-tree warning. This suite had NEITHER while
+# BUILD-STATE.md described the protection as though every suite carried it,
+# which is the same defect as a gate documented but never run.
+import mutationsafe
 
 FLOW = os.path.join(HERE, "flow.css")
 DEPOSIT = os.path.join(HERE, "deposit.html")
@@ -140,6 +146,9 @@ def main():
     before = digest(files)
     saved = dict((p, read(p)) for p in files)
 
+    mutationsafe.guard(files)
+    mutationsafe.acquire(files)
+
     print("=" * 78)
     print("verify_round2_mutation.py   tree %s" % before)
     print("=" * 78)
@@ -167,6 +176,7 @@ def main():
     finally:
         for p, text in saved.items():
             write(p, text)
+        mutationsafe.release()
 
     after = digest(files)
     print("\n" + "-" * 78)
