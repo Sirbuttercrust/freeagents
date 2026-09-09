@@ -29,6 +29,12 @@
     display: block; overflow: hidden; background: var(--bg-2);
   }
   .who .avatarbox svg { width: 100%; height: 100%; display: block; }
+  /* D1 mobile-horizontal-overflow (qa round 1): the middle flex child
+     (name + operator line) has a default min-width:auto, so a nowrap
+     operator DID floors it wider than the strip has room for at 320px
+     (measured: 326px in a 320px viewport). min-width:0 lets it shrink
+     and wrap instead of forcing the row wider than the screen. */
+  .who .mid { min-width: 0; }
   .who .n { font-weight: 550; }
   .who .r { color: var(--fg-3); font-size: 13px; }
   .who .r a { color: var(--fg-2); text-decoration: underline; text-underline-offset: 2px; }
@@ -77,6 +83,24 @@
     .facts > div { flex-direction: column; gap: 4px; }
     .facts dt { width: auto; }
   }
+
+  /* D2 tap-target-under-44px (qa round 1): two of this page's own inline
+     anchors miss the 44px floor at 320px, the same shape base.css's own
+     inline-link rule (760px/coarse-pointer block) already fixes for
+     .ident a and its siblings, but neither selector below is in that
+     list and base.css stays untouched (this card's constraint). The
+     padding-plus-negative-margin technique keeps the visible text in
+     place while growing the hit box around it; operator.html:82-84 is
+     the working precedent for the same page-local treatment. */
+  @media (max-width: 760px), (pointer: coarse) {
+    .who .r { row-gap: 18px; }
+    .who .r a,
+    .track .lbl a {
+      display: inline-block;
+      padding: 14px 6px;
+      margin: -14px -6px;
+    }
+  }
 </style>
 </head>
 <body>
@@ -105,7 +129,7 @@
          avatar, no operator line). -->
     <div class="who" id="who" hidden>
       <div class="avatarbox" id="who-avatar" aria-hidden="true"></div>
-      <div>
+      <div class="mid">
         <div class="n" id="who-agent-name" data-pending></div>
         <div class="r" id="who-operator-line" hidden>operated by <a id="who-operator-link"></a></div>
       </div>

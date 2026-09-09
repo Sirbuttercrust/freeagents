@@ -19,12 +19,13 @@ import {
 } from '../../src/adapters/storage/memory.js';
 import { createJob, type Job } from '../../src/domain/job.js';
 import type { Delegation } from '../../src/domain/agent.js';
-import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
+import type { VerifiableCredential, DeemedCompletionCredential } from '../../src/adapters/credentials/types.js';
+import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const BUYER_DID = 'did:example:w4-buyer';
 const AGENT_DID = 'did:abt:zW4Agent';
-const OPERATOR_DID = 'did:abt:zW4Operator';
+const OPERATOR_DID = 'did:abt:zNKtD5hwiSDiwLrD6tAQRNTN1ZiDBBpaKrb';
 const NO_AGENT_JOB_AGENT_DID = 'did:abt:zW4MissingAgent';
 
 const RECENT = new Date(Date.now() - 60 * 60 * 1000);
@@ -84,6 +85,31 @@ function credentialDoc(jobId: string, mergeCommit: string): VerifiableCredential
       },
     },
     proof: { type: 'Ed25519Signature2020', proofValue: 'zw4-proof' },
+  };
+}
+
+// A real DeemedCompletionCredential document (credentials.ts's own shape,
+// tests/adapters/credentials/types.ts): credentialSubject.deemedCompletion,
+// no `hire` object at all. Fixture for D3: the job.js:192 `hire === null`
+// guard is production-reachable on exactly this shape, since GET
+// /jobs/:jobId attaches the credential for deemed_completed the same way
+// it does for completed (app.ts:2835).
+function deemedCompletionDoc(jobId: string, stagedCommit: string): DeemedCompletionCredential {
+  return {
+    '@context': ['https://www.w3.org/ns/credentials/v2'],
+    id: `https://freeagents.dev/v1/credentials/${jobId}`,
+    type: ['VerifiableCredential', 'DeemedCompletionCredential'],
+    issuer: 'did:abt:platform',
+    validFrom: '2026-08-30T00:00:00.000Z',
+    credentialSubject: {
+      id: AGENT_DID,
+      deemedCompletion: {
+        stagedCommit,
+        noMerge: true,
+        buyer: BUYER_DID,
+      },
+    },
+    proof: { type: 'Ed25519Signature2020', proofValue: 'zw4-deemed-proof' },
   };
 }
 
@@ -202,6 +228,33 @@ beforeAll(async () => {
       submittedAt: RECENT,
     }),
   );
+
+  // deemed_completed, WITH a real deemed-completion credential: D3, the
+  // `hire === null` guard's production-reachable branch. GET
+  // /jobs/:jobId attaches this credential for deemed_completed the same
+  // way it does for completed (app.ts:2835), and a deemed-completion
+  // credential carries credentialSubject.deemedCompletion with no `hire`
+  // object at all. The diff line and the "Diff counts" row must both
+  // stay absent, and no "+0 / -0" reaches the DOM: a zero here reads as
+  // a fact about the work.
+  await jobRepo.create(
+    jobFixture({
+      id: 'w4-job-deemed',
+      agentDid: AGENT_DID,
+      status: 'deemed_completed',
+      confirmedAt: RECENT,
+      pullRequestUrl: 'https://github.com/buyer/w4-repo/pull/9',
+      submittedAt: RECENT,
+      stagedCommit: 'w4stagedcommit',
+      stagedAt: RECENT,
+    }),
+  );
+  await credentialRepo.save({
+    completedJobId: 'w4-job-deemed',
+    subjectDid: AGENT_DID,
+    document: deemedCompletionDoc('w4-job-deemed', 'w4stagedcommit'),
+    repositoryPublic: false,
+  });
 
   server = createApp(undefined, agentRepo, undefined, undefined, jobRepo, undefined, undefined, credentialRepo).listen(
     0,
@@ -380,6 +433,31 @@ describe('the diff line renders only from the credential, never computed or defa
       page.close();
     }
   });
+
+  // D3 (qa round 1): the `hire === null` guard at job.js:192 is
+  // production-reachable, not theoretical. A deemed-completed job's
+  // credential carries credentialSubject.deemedCompletion and no `hire`
+  // at all, so a guard that read credential-present as "diff data
+  // present" would render "+0 / -0, 0 files" here, which is exactly the
+  // false claim the brief forbids: "a zero here reads as a fact about
+  // the work". Removing the hire === null check (returning zeros
+  // instead of null) must redden this test.
+  it('is absent on a deemed-completed job whose credential has no hire object, never a claimed zero', async () => {
+    const page = await render('/jobs/w4-job-deemed');
+    try {
+      const history = page.document.getElementById('history');
+      expect((history!.textContent ?? '')).not.toMatch(/[+-]\d+ \/ [+-]?\d+/);
+      expect((history!.textContent ?? '')).not.toContain('+0');
+
+      const techDiffWrap = page.document.getElementById('tech-diff-wrap');
+      expect(techDiffWrap?.hidden).toBe(true);
+
+      const body = page.document.body.textContent ?? '';
+      expect(body).not.toMatch(/\+0 \/ -0/);
+    } finally {
+      page.close();
+    }
+  });
 });
 
 describe('the accessline states the true mechanism, never the wireframe\'s fork story', () => {
@@ -458,6 +536,107 @@ describe('the pull request opens on GitHub directly, a control distinct from the
       expect(section!.hidden).toBe(true);
     } finally {
       page.close();
+    }
+  });
+});
+
+// D1 mobile-horizontal-overflow (qa round 1): the .who identity strip
+// overflowed 6px at 320px whenever the agent read succeeds and returns an
+// operatorDid, because the flex middle child's default min-width:auto let
+// the nowrap operator DID floor it wider than the strip had room for. jsdom
+// performs no layout, so only a real browser can catch this; the same
+// RealBrowser driver tests/web/browse.test.ts already uses for exactly this
+// class of defect.
+describe('the identity strip does not overflow a 320px viewport (mobile-horizontal-overflow)', () => {
+  it('scrollWidth equals clientWidth at 320px with a long operator DID present', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: 320, height: 900 });
+    try {
+      await browser.goto(`${baseUrl}/jobs/w4-job-completed`);
+      const metrics = await browser.evaluate<{ clientWidth: number; scrollWidth: number; scrollXAfter: number }>(`
+        (function () {
+          document.getElementById('tech') && document.querySelector('[data-disclose="tech"]').click();
+          window.scrollTo(999, 0);
+          return {
+            clientWidth: document.documentElement.clientWidth,
+            scrollWidth: document.documentElement.scrollWidth,
+            scrollXAfter: window.scrollX,
+          };
+        })()
+      `);
+      expect(metrics.scrollWidth, `scrollWidth ${metrics.scrollWidth} vs clientWidth ${metrics.clientWidth}`).toBe(
+        metrics.clientWidth,
+      );
+      expect(metrics.scrollXAfter).toBe(0);
+    } finally {
+      await browser.close();
+    }
+  });
+});
+
+// D2 tap-target-under-44px (qa round 1): #who-operator-link and the
+// track's "Pull request opened" anchor are plain inline anchors with no
+// padding of their own, neither selector in base.css's inline-link
+// padding list. Page-local fix only (base.css stays untouched, per the
+// brief).
+describe('every rendered interactive control on the job page is at least 44px at 320px (tap-target-under-44px)', () => {
+  it('the operator link and the pull-request track anchor both meet the 44px floor', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: 320, height: 900 });
+    try {
+      await browser.goto(`${baseUrl}/jobs/w4-job-completed`);
+      await browser.evaluate(`document.querySelector('[data-disclose="tech"]').click()`);
+
+      const undersized = await browser.evaluate<Array<[string, number, number]>>(`
+        Array.from(document.querySelectorAll('button, a'))
+          .filter((el) => el.offsetParent !== null && el.closest('[hidden]') === null)
+          .map((el) => {
+            const r = el.getBoundingClientRect();
+            return [el.id || el.className || (el.textContent || '').trim(), r.width, r.height];
+          })
+          .filter(([, w, h]) => w < 44 || h < 44)
+      `);
+      expect(undersized, `undersized targets: ${JSON.stringify(undersized)}`).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  });
+});
+
+// layout-broken-at-desktop (three strikes on the standing ledger): the
+// 760px tap-target media query above must not leak past its own
+// breakpoint and the page must stay clean at 1280px, the same check the
+// qa round 1 review already ran by hand.
+describe('the job page stays clean at 1280px desktop (layout-broken-at-desktop)', () => {
+  it('no horizontal overflow at 1280px', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: 1280, height: 900 });
+    try {
+      await browser.goto(`${baseUrl}/jobs/w4-job-completed`);
+      const metrics = await browser.evaluate<{ clientWidth: number; scrollWidth: number; scrollXAfter: number }>(`
+        (function () {
+          document.querySelector('[data-disclose="tech"]').click();
+          window.scrollTo(9999, 0);
+          return {
+            clientWidth: document.documentElement.clientWidth,
+            scrollWidth: document.documentElement.scrollWidth,
+            scrollXAfter: window.scrollX,
+          };
+        })()
+      `);
+      expect(metrics.scrollWidth).toBe(metrics.clientWidth);
+      expect(metrics.scrollXAfter).toBe(0);
+    } finally {
+      await browser.close();
     }
   });
 });
