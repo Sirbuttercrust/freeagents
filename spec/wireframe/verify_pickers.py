@@ -47,15 +47,55 @@ PICKERS = [
 
 AGREEMENT = """
 (function(){
-  return JSON.stringify([].map.call(document.querySelectorAll('.trow'), function(r){
-    var n = r.querySelector('.num'), l = r.querySelector('.line');
-    var b = l ? l.querySelector('b') : null;
+  /* THE MATRIX ROW SELECTOR MOVED, 2026-09-09.
+
+     The September agreement drew each row as a .trow with a .line inside it.
+     The reconciled agreement is the polished signature matrix: the rows are
+     the <li> of ul.terms and the sentence is .txt. This gate reads the rows
+     to check that every line a picker offers actually exists, so pointing it
+     at the old selector made it report "the agreement has 0 lines" and then
+     fail all eleven picker rows for referring to lines it could not see.
+
+     Both selectors are accepted rather than only the new one, so the gate
+     still runs against an older tree and says something true about it. */
+  var rows = document.querySelectorAll('ul.terms > li');
+  if (!rows.length) rows = document.querySelectorAll('.trow');
+
+  return JSON.stringify([].map.call(rows, function(r){
+    var n = r.querySelector('.num');
+    var l = r.querySelector('.txt') || r.querySelector('.line');
+    /* The label on a fixed term. September marked it with a <b>; the matrix
+       marks it .term-label. The criteria rows have neither and their whole
+       text is the sentence. */
+    var b = r.querySelector('.term-label') || (l ? l.querySelector('b') : null);
+    /* A term row keeps its label and value in siblings of .txt, so read the
+       whole cell rather than .txt alone when there is no .txt.
+
+       WALK TEXT NODES, NOT ELEMENTS. The label, the number and the unit are
+       nested with no whitespace between them, so plain textContent returns
+       "Delivery6days from funding" and a word test fails on a row that is
+       correct. An element walk is not enough either: .term-value holds the
+       bare number AND a nested .unit, so skipping elements that have
+       children drops the "6". Collecting the text nodes themselves gets
+       every word exactly once, in reading order. */
+    var cell = l || r.querySelector('.term-line');
+    var text = '';
+    if (cell === l && l) {
+      text = l.textContent.replace(/\\s+/g,' ').trim();
+    } else if (cell) {
+      var parts = [];
+      var walk = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT, null, false);
+      var node;
+      while ((node = walk.nextNode())) {
+        var t = node.nodeValue.replace(/\\s+/g,' ').trim();
+        if (t) parts.push(t);
+      }
+      text = parts.join(' ');
+    }
     return {
       num: n ? n.textContent.trim() : '',
-      // The <b> is the label on a fixed term (Price, Ready in N days); the
-      // criteria rows have no <b> and their whole text is the sentence.
       label: b ? b.textContent.replace(/\\s+/g,' ').trim() : '',
-      text: l ? l.textContent.replace(/\\s+/g,' ').trim() : ''
+      text: text
     };
   }));
 })()

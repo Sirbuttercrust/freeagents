@@ -20,24 +20,46 @@ import sys, json, time
 
 import os
 
-# webgrab.py is an internal QA tool that lives outside this repository. Point
-# WEBGRAB_DIR at the directory holding it, or drop it beside this script.
-_wg = os.environ.get("WEBGRAB_DIR", os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _wg)
+# THE DRIVER, WITHOUT AN ENVIRONMENT.
+#
+# wirebrowse.py is committed beside this file and exposes the same Browser
+# API, so this gate runs from a clone with python3 and any Chrome. webgrab.py
+# is an internal tool that lives outside this repository; if WEBGRAB_DIR names
+# a directory that really holds it, it is used, and otherwise the committed
+# driver is. DESIGN.md section 10: a gate a reviewer cannot run is a claim,
+# not a check.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_wg = os.environ.get("WEBGRAB_DIR")
+if _wg and os.path.exists(os.path.join(_wg, "webgrab.py")):
+    sys.path.insert(0, _wg)
 try:
     from webgrab import Browser
 except ImportError:
-    sys.exit("webgrab.py not found. Set WEBGRAB_DIR to the directory containing it.")
+    from wirebrowse import Browser
 
-BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3110/")
+BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3111/")
 SCREENS = [
     "index.html", "browse.html", "agent.html", "operator.html", "credential.html",
     "verify.html", "how.html", "signin.html", "dashboard.html", "hire.html",
-    "criteria.html", "confirm.html", "job.html", "myjobs.html", "review.html",
+    "agreement.html", "job.html", "myjobs.html", "review.html",
     "myagents.html", "listagent.html", "agentsettings.html", "provegithub.html",
     "priorwork.html", "claim.html", "incoming.html", "settings.html", "keys.html",
     "notfound.html", "error.html",
 ]
+
+# SUPERSEDED SCREENS ARE NOT AUDITED FOR LIVE CONTROLS, 2026-09-09.
+#
+# criteria.html and confirm.html are kept in the directory on purpose, each
+# carrying a banner saying it was replaced and where to go instead. Their old
+# controls are inert BECAUSE the screens are retired: wiring a demo to the
+# "Accept and continue" button of a page that no longer exists in the flow
+# would be the defect, not the fix. They stay in the tree so an old link
+# lands somewhere honest rather than on a 404.
+#
+# They are still audited for everything a retired page must still get right:
+# the polish layer loads, icons paint, and the contrast and mobile gates
+# cover them like any other screen.
+SUPERSEDED = ["criteria.html", "confirm.html"]
 
 DESKTOP = """(function(){
   var hosts = document.querySelectorAll('[data-ico]');
@@ -106,16 +128,36 @@ try:
         if d["inert"]:
             fails.append("%s: inert buttons %s" % (s, d["inert"]))
         rows.append(row)
+
+    # The retired screens, held to everything except live controls. A
+    # superseded page that lost the polish layer would still be a defect: it
+    # would read as a different product on the way to telling you it moved.
+    for s in SUPERSEDED:
+        b.goto(BASE + s, wait=2.2)
+        d = json.loads(b.js(DESKTOP))
+        rows.append({"screen": s + " (superseded)", "painted": d["painted"],
+                     "unpainted": d["unpainted"], "inert": []})
+        if d["icons"] != "object" or d["toast"] != "function":
+            fails.append("%s: polish layer not loaded" % s)
+        if d["unpainted"]:
+            fails.append("%s: unpainted icons %s" % (s, d["unpainted"]))
 finally:
     b.close()
 
 # Touch pass, separate browser so the device override is clean.
+#
+# The superseded screens are swept here TOO. A retired page still has to hold
+# 320px without overflowing and still has to meet the 44px floor: the whole
+# reason it exists is that somebody arrives on it from an old link, and half
+# of those arrivals are on a phone.
+SWEPT = SCREENS + SUPERSEDED
+
 b = Browser(width=320, height=640)
 try:
     b.send("Emulation.setDeviceMetricsOverride", width=320, height=640,
            deviceScaleFactor=2, mobile=True)
     b.send("Emulation.setTouchEmulationEnabled", enabled=True, maxTouchPoints=5)
-    for i, s in enumerate(SCREENS):
+    for i, s in enumerate(SWEPT):
         b.goto(BASE + s, wait=1.6)
         t = json.loads(b.js(TOUCH))
         rows[i]["docW"] = t["docW"]

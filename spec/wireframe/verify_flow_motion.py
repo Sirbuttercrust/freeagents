@@ -16,14 +16,24 @@ Checks, in both motion modes:
 """
 import sys, os, json, time
 
-_wg = os.environ.get("WEBGRAB_DIR", os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _wg)
+# THE DRIVER, WITHOUT AN ENVIRONMENT.
+#
+# wirebrowse.py is committed beside this file and exposes the same Browser
+# API, so this gate runs from a clone with python3 and any Chrome. webgrab.py
+# is an internal tool that lives outside this repository; if WEBGRAB_DIR names
+# a directory that really holds it, it is used, and otherwise the committed
+# driver is. DESIGN.md section 10: a gate a reviewer cannot run is a claim,
+# not a check.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_wg = os.environ.get("WEBGRAB_DIR")
+if _wg and os.path.exists(os.path.join(_wg, "webgrab.py")):
+    sys.path.insert(0, _wg)
 try:
     from webgrab import Browser
 except ImportError:
-    sys.exit("webgrab.py not found. Set WEBGRAB_DIR to the directory containing it.")
+    from wirebrowse import Browser
 
-BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3110/")
+BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3111/")
 URL = BASE + "dashboard.html"
 
 SHAPE = """(function(){

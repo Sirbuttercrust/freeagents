@@ -631,6 +631,16 @@ the base url except the two that need no browser.
 | `verify_rail.py` | the headline total, the fee and the pay button follow the chosen rail, including inside the scan sheet |
 | `verify_pickers.py` | every picker row traces to a real agreement line with matching text, and every omitted line is explained on screen |
 | `verify_primary.py` | no surface ever shows two accent-filled primaries at once |
+| `verify_polish.py` | the polish layer loads on every screen, every icon paints, no button is inert, and 320px holds with 44px targets |
+| `verify_profile_header.py` | the profile header never clips its banner and the verified badge reads as a stamp |
+| `verify_agents_below.py` | the decorative agents never paint over text, asked of the browser at six scroll positions |
+| `verify_reduced_motion.py` | every animation has a dignified static end state under `prefers-reduced-motion` |
+| `verify_flow_motion.py` | the dashboard pipeline actually moves, and stops when reduced motion is asked for |
+| `verify_blast_preview.py` | hovering an edit control previews the exact signatures that edit would clear |
+
+The last six came from the polished pass and are run by `verify_all.py` with
+the rest. They drive the same committed `wirebrowse.py` as the others, so the
+whole suite is still one command against a clone with no environment set up.
 
 Supporting files, also committed: `wirebrowse.py` (the driver, standard
 library only) and `devserver.py` (the preview server).

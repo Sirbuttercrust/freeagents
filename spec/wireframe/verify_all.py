@@ -52,9 +52,32 @@ GATES = [
      "picker rows trace to real agreement lines, omissions explained"),
     ("verify_primary.py", True,
      "no surface shows two accent-filled primaries at once"),
+
+    # The six from the polished pass. They read the base url from WF_BASE
+    # rather than argv, which is why they are marked as not taking a url:
+    # handing them one positionally would be silently ignored and they would
+    # audit whatever happened to be on their default port. WF_BASE is set
+    # below from the same BASE every other gate gets.
+    ("verify_polish.py", False,
+     "the polish layer loads, icons paint, no inert buttons, 320px with 44px targets"),
+    ("verify_profile_header.py", False,
+     "the profile header never clips its banner, the verified badge reads as a stamp"),
+    ("verify_agents_below.py", False,
+     "decorative agents never paint over text, asked at six scroll positions"),
+    ("verify_reduced_motion.py", False,
+     "every animation has a static end state under prefers-reduced-motion"),
+    ("verify_flow_motion.py", False,
+     "the dashboard pipeline moves, and stops when reduced motion is asked for"),
+    ("verify_blast_preview.py", False,
+     "hovering an edit control previews the exact signatures it would clear"),
 ]
 
 env = dict(os.environ)
+# The polished gates take their url from the environment. Setting it here
+# means one command audits one tree: without it they would default to their
+# own port and could report a clean pass against a server that was not the
+# one under test, or a wall of failures against nothing at all.
+env["WF_BASE"] = BASE if BASE.endswith("/") else BASE + "/"
 
 results = []
 for name, takes_url, covers in GATES:
@@ -72,7 +95,12 @@ for name, takes_url, covers in GATES:
         print("NO BROWSER. %s could not start Chrome:" % name)
         print(p.stdout.strip()[:600])
         sys.exit(3)
-    tail = [l for l in p.stdout.splitlines() if l.startswith(("PASS", "FAIL", "REAL FAILURES"))]
+    # The September gates open with PASS or FAIL; the polished ones end with
+    # "RESULT: PASS" or a "FAILURES (n):" header. Both shapes are read so the
+    # table reports a real verdict for every gate rather than "(no verdict
+    # line)", which hides whether a gate said anything at all.
+    tail = [l for l in p.stdout.splitlines()
+            if l.startswith(("PASS", "FAIL", "REAL FAILURES", "RESULT:", "FAILURES ("))]
     results.append((name, p.returncode, dt, tail[-1][:52] if tail else "(no verdict line)", covers))
 
 print("=" * 78)

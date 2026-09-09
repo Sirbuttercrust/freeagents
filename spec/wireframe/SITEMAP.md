@@ -88,6 +88,22 @@ state transition rather than a control, so there is no page for it to be. The
 gate it represented still exists; it just is not a click. `confirm.html`
 remains in the directory as the pre-payment design, marked superseded.
 
+**`criteria.html` is superseded too, and also stays.** Criteria used to be
+negotiated on their own screen, before and apart from the price and the
+delivery date. They are now lines in one agreement, each carrying a signature
+from each party, which is what makes the price negotiable in the same loop
+rather than quoted at the buyer. The file keeps a banner naming its
+replacement, for the same reason `confirm.html` does: an old link should land
+somewhere honest rather than on a 404.
+
+Both retired screens are held to the house rules that still apply to them.
+They load the polished layer, they hold 320px, and they meet the 44px floor,
+because someone arriving from a stale link deserves a readable page. What they
+are NOT held to is live controls: `verify_polish.py` lists them in
+`SUPERSEDED` and skips the inert-button check, since wiring a demo to the
+"Accept and continue" button of a page that no longer exists in the flow would
+be the defect rather than the fix.
+
 ---
 
 ## 2. Navigation

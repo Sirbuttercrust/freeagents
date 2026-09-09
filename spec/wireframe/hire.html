@@ -43,7 +43,10 @@
     padding-top: 12px; border-top: 2px solid var(--line);
     font-family: var(--mono); letter-spacing: 0.02em;
   }
-  .steps li.on   { color: var(--fg); border-top-color: var(--accent); }
+  /* THE CURRENT STEP IS --fg, NOT --accent. "You are on step 1" is navigation
+     state, not witnessed work, so under DESIGN.md 2.2 it has no claim on the
+     reserved colour. Same rule the payment flow's own rail settled on. */
+  .steps li.on   { color: var(--fg); border-top-color: var(--fg); }
   .steps li.done { color: var(--fg-2); border-top-color: var(--line-2); }
 
   .stage { display: none; }
@@ -181,7 +184,7 @@
         <option>northline/marketing-site</option>
         <option>northline/internal-tools</option>
       </select>
-      <p class="note">The four public repositories on your confirmed GitHub
+      <p class="sub" style="margin-top:8px">The four public repositories on your confirmed GitHub
         account. axiom-ui forks whichever you pick and opens a pull request from
         its own account. FreeAgents never asks for write access to your
         repository and cannot be given it.</p>

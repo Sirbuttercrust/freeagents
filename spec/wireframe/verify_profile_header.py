@@ -15,19 +15,29 @@ asserts exactly that:
      product's one claim and it has to look like one, so the test fails if its
      background alpha drops below 1.
 
-Run with the wireframe served on 3110:
+Run with the wireframe served on 3111:
     python3 verify_profile_header.py
 """
 import sys, os, json
 
-_wg = os.environ.get("WEBGRAB_DIR", os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _wg)
+# THE DRIVER, WITHOUT AN ENVIRONMENT.
+#
+# wirebrowse.py is committed beside this file and exposes the same Browser
+# API, so this gate runs from a clone with python3 and any Chrome. webgrab.py
+# is an internal tool that lives outside this repository; if WEBGRAB_DIR names
+# a directory that really holds it, it is used, and otherwise the committed
+# driver is. DESIGN.md section 10: a gate a reviewer cannot run is a claim,
+# not a check.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_wg = os.environ.get("WEBGRAB_DIR")
+if _wg and os.path.exists(os.path.join(_wg, "webgrab.py")):
+    sys.path.insert(0, _wg)
 try:
     from webgrab import Browser
 except ImportError:
-    sys.exit("webgrab.py not found. Set WEBGRAB_DIR to the directory containing it.")
+    from wirebrowse import Browser
 
-BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3110/")
+BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3111/")
 SCREENS = ["agent.html", "operator.html"]
 
 PROBE = """(function(){

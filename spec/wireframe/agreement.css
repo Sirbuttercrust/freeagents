@@ -458,7 +458,55 @@ button.sig:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px;
   .lockbar { align-items: flex-start; }
 }
 
+/* The house 44px floor. min-height alone was set here and it measured 22x44:
+   tall enough, half as wide as it needs to be, which is the failure mode a
+   height-only rule always produces on an icon button. Both axes, and the
+   step-rail anchor with them, because a 20px wide "Brief" link is the same
+   defect wearing a word instead of a glyph. */
 @media (pointer: coarse) {
   button.sig { min-height: 44px; padding: 3px 13px 3px 8px; }
-  .terms .act { min-height: 44px; }
+  .terms .act { min-height: 44px; min-width: 44px; }
+  .steps li a { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; }
 }
+
+/* ============================================ THE FIXED TERMS, AND THE RAIL
+
+   PORTED FROM flow.css, 2026-09-09, rather than loading that file.
+
+   This page cannot load flow.css. Both stylesheets define `.terms`, and they
+   mean different things by it: flow.css makes it a five column CSS grid for
+   the September row layout, and here it is the polished signature matrix's
+   plain list. Loading both put every row into a grid it was not built for,
+   which threw the row text on top of the amber cleared-row border and
+   produced fourteen contrast failures that looked like a colour problem and
+   were a layout problem.
+
+   That is the ONLY selector the two files share, checked by diffing their
+   selector lists. So the two components this page actually needs from
+   flow.css are copied here instead, and the collision cannot recur. */
+
+/* Terms that are the same on every hire. Shown, never editable, no marks.
+   THE ABSENCE OF THE CONTROLS IS THE MESSAGE, the same argument the missing
+   verify button already makes on a portfolio claim. A disabled edit button
+   beside a platform term would teach a buyer that the term is arguable and
+   that they lost the argument. */
+.fixed { list-style: none; padding: 0; margin: 0; }
+.fixed li {
+  display: grid; grid-template-columns: 1fr auto; gap: 12px 16px;
+  padding: 13px 0; border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+.fixed li:last-child { border-bottom: 0; padding-bottom: 0; }
+.fixed .k { font-size: 15px; }
+.fixed .v { font-family: var(--mono); font-size: 13px; color: var(--fg-2); text-align: right; }
+.fixed .para { grid-column: 1 / -1; font-size: 14px; color: var(--fg-2); line-height: 1.6; max-width: 62ch; }
+@media (max-width: 420px) {
+  .fixed li { grid-template-columns: 1fr; }
+  .fixed .v { text-align: left; }
+}
+
+/* The step rail collapses its labels below 640px, so the current step is
+   said in words underneath rather than left to a colour a small screen
+   cannot show. Nothing is lost, including for a screen reader. */
+.railnow { display: none; font-size: 13px; color: var(--fg-2); margin-top: 12px; }
+@media (max-width: 640px) { .railnow { display: block; } }

@@ -10,21 +10,30 @@ and is invisible in a screenshot.
 So this drives a real pointer onto a real edit control and reads the computed
 style of the signature chips before and during the hover.
 
-Run:  WEBGRAB_DIR=<path to webgrab dir> python3 verify_blast_preview.py
+Run:  python3 verify_blast_preview.py [base-url]
 """
 import json
 import os
 import sys
 
-WEBGRAB_DIR = os.environ.get("WEBGRAB_DIR")
-if not WEBGRAB_DIR:
-    print("set WEBGRAB_DIR to the directory holding webgrab.py")
-    sys.exit(2)
-sys.path.insert(0, os.path.expanduser(WEBGRAB_DIR))
+# THE DRIVER, WITHOUT AN ENVIRONMENT.
+#
+# wirebrowse.py is committed beside this file and exposes the same Browser
+# API, so this gate runs from a clone with python3 and any Chrome. webgrab.py
+# is an internal tool that lives outside this repository; if WEBGRAB_DIR names
+# a directory that really holds it, it is used, and otherwise the committed
+# driver is. DESIGN.md section 10: a gate a reviewer cannot run is a claim,
+# not a check.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_wg = os.environ.get("WEBGRAB_DIR")
+if _wg and os.path.exists(os.path.join(_wg, "webgrab.py")):
+    sys.path.insert(0, _wg)
+try:
+    from webgrab import Browser
+except ImportError:
+    from wirebrowse import Browser
 
-from webgrab import Browser  # noqa: E402
-
-BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3110")
+BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3111")
 
 READ = """
 (function () {
@@ -63,10 +72,19 @@ def main():
     b = Browser()
     failures = []
     try:
-        b.goto(BASE + "/criteria.html", wait=3.0)
+        # THE MATRIX MOVED, 2026-09-09. It was drawn on criteria.html and the
+        # reconcile settled it at agreement.html, which is the URL SITEMAP
+        # P-11 names. criteria.html is now the superseded stub and has no
+        # .terms rows at all, so this gate read a null row and died on a
+        # TypeError instead of reporting anything about the blast preview.
+        b.goto(BASE + "/agreement.html", wait=3.0)
 
         resting = _read(b, READ)
         point = _read(b, HOVER)
+        if not resting or not point:
+            print("could not read the agreement matrix at %s/agreement.html" % BASE)
+            print("the page must carry ul.terms rows with a .sig.is-signed and an .act")
+            return 1
 
         # A real pointer move, not a synthetic class swap. A synthetic class
         # would pass even if the :has() selector were broken.

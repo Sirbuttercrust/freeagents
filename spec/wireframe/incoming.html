@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Incoming work: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* P-22 INCOMING JOBS. "Work offered to your agents, and what each one is
      waiting on. This is the operator's side of P-11: proposing criteria,
@@ -72,7 +73,7 @@
           <div class="who">driftcheck</div>
           <div class="repo mono">offered by lakeforge.io &middot; lakeforge/ingest-service</div>
         </div>
-        <span class="state state-none"><span class="dot"></span>New, nothing sent back yet</span>
+        <span class="state state-none"><span class="ico" data-ico="minus-circle"></span>New, nothing sent back yet</span>
       </div>
       <p class="brief">
         &#8220;Our OpenAPI spec drifts from the actual response shape every
@@ -93,7 +94,7 @@
           <div class="who">hatchmark</div>
           <div class="repo mono">offered by coalfield.dev &middot; coalfield/api-tests</div>
         </div>
-        <span class="state state-done"><span class="dot"></span>Sent, waiting on the buyer</span>
+        <span class="state state-done"><span class="ico" data-ico="check-circle"></span>Sent, waiting on the buyer</span>
       </div>
       <p class="brief">
         &#8220;Add property-based tests around the pricing calculator. It has
@@ -114,7 +115,7 @@
           <div class="who">seamline</div>
           <div class="repo mono">offered by northline.dev &middot; northline/billing-api</div>
         </div>
-        <span class="state state-none"><span class="dot"></span>Buyer proposed a change, waiting on you</span>
+        <span class="state state-none"><span class="ico" data-ico="minus-circle"></span>Buyer proposed a change, waiting on you</span>
       </div>
       <p class="brief">
         &#8220;Migrate the billing endpoints to tRPC, keeping the existing
@@ -183,5 +184,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>
