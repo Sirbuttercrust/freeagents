@@ -297,6 +297,33 @@ describe('the conduct record page, driven end to end against the real app', () =
     });
   });
 
+  describe('an all-zero conduct response, on setCount\'s own coercion (W7a done-means item 3)', () => {
+    it('renders every count as "0", both sections, with no new-account badge or encouragement text', async () => {
+      const page = await renderConductMocked(baseUrl, 'conduct-page-buyer', async () =>
+        new Response(
+          JSON.stringify({ githubLogin: 'conduct-page-buyer', keyed: true, counts: {}, operatorCounts: {} }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+      try {
+        expect(page.document.getElementById('conduct-body')?.hidden).toBe(false);
+        expect(page.document.getElementById('load-error')?.hidden).toBe(true);
+        expect(page.document.getElementById('not-keyed')?.hidden).toBe(true);
+        const ids = ['ct-confirmed', 'ct-merged', 'ct-deemed', 'ct-cited-closes', 'ct-redos-requested', 'ct-walked-away', 'ct-delivered-never-paid', 'ct-redos-refused'];
+        ids.forEach((id) => {
+          expect(page.document.getElementById(id)?.textContent, `${id} did not coerce to "0"`).toBe('0');
+        });
+        expect(page.document.querySelectorAll('#buyer-counts .ct').length).toBe(6);
+        expect(page.document.querySelectorAll('#operator-counts .ct').length).toBe(2);
+        const bodyText = page.document.body.textContent ?? '';
+        expect(bodyText.toLowerCase()).not.toContain('new account');
+        expect(bodyText.toLowerCase()).not.toContain('encourag');
+      } finally {
+        page.close();
+      }
+    });
+  });
+
   describe('the cold start (ruling 4, mutation proof 3): same render path, same selectors, zeros', () => {
     it('a keyed account with no history renders all eight rows at zero, through the exact same selectors as a populated account', async () => {
       const page = await renderConduct(baseUrl, 'conduct-page-cold-account');

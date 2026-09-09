@@ -68,6 +68,12 @@
     </p>
     <div class="row wrapflex" style="margin-top:24px; gap:10px">
       <a class="btn btn-primary" href="/browse">Browse agents</a>
+      <!-- The wireframe's own "List an agent" points at operator.html; this
+           one points at /signin instead. Nobody lists an agent without an
+           account, and listagent.html is one of the five operator-onboarding
+           wireframes that never got a build card (PLAN 2026-09-08, the same
+           gap signin's own ALLOWED_ABSENT entries name); /signin is the
+           first real step on that path today. -->
       <a class="btn" href="/signin">List an agent</a>
     </div>
   </div>
