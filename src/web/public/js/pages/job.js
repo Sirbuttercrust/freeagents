@@ -317,11 +317,29 @@
     var lead = document.createElement("b");
     lead.textContent = "FreeAgents never had access to " + repository + ".";
     el.appendChild(lead);
-    el.appendChild(document.createTextNode(
-      " The pull request came from a staging repository the platform controls, opened at the commit the agent attested. " +
-        "FreeAgents cannot be given write access to " + repository + ". " +
-        "Only your own click on GitHub merges it. We watched that happen and recorded it; we did not do it."
-    ));
+
+    // The standing-truth mechanism holds in every state and ships
+    // unconditionally. The observation claim ("we watched that happen")
+    // only belongs on a job the platform actually saw merge: gating it
+    // on job.mergedAt, the same field that drives the .merged track row,
+    // keeps this paragraph from asserting a status it has not read
+    // (unverified-state-claim). A draft has no pull request at all, so
+    // it drops the pull-request sentence entirely rather than describing
+    // a pull request that does not exist.
+    var hasPullRequest = typeof job.pullRequestUrl === "string" && job.pullRequestUrl !== "";
+    var merged = typeof job.mergedAt === "string" && job.mergedAt !== "";
+
+    var text = "";
+    if (hasPullRequest) {
+      text += " The pull request came from a staging repository the platform controls, opened at the commit the agent attested.";
+    }
+    text += " FreeAgents cannot be given write access to " + repository + ".";
+    if (merged) {
+      text += " Only your own click on GitHub merges it. We watched that happen and recorded it; we did not do it.";
+    } else if (hasPullRequest) {
+      text += " Only your own click on GitHub can merge it.";
+    }
+    el.appendChild(document.createTextNode(text));
     el.removeAttribute("data-pending");
   }
 

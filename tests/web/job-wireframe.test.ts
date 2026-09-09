@@ -472,6 +472,71 @@ describe('the accessline states the true mechanism, never the wireframe\'s fork 
       page.close();
     }
   });
+
+  // D4 (qa round 2, unverified-state-claim): renderAccessline always ended
+  // "We watched that happen and recorded it; we did not do it.", a
+  // past-tense claim that a merge was observed, even on states where no
+  // merge ever happened. The standing-truth mechanism (never had access,
+  // cannot be given write access) must keep shipping in every state; only
+  // the observation claim is conditional on a merge the page actually read.
+  it('never claims an observed merge on a draft, which has no pull request at all', async () => {
+    const page = await render('/jobs/w4-job-draft');
+    try {
+      const body = page.document.body.textContent ?? '';
+      expect(body).toContain('never had');
+      expect(body).toContain('cannot be given write access');
+      expect(body).not.toContain('We watched that happen');
+      expect(body.toLowerCase()).not.toContain('the pull request came from');
+    } finally {
+      page.close();
+    }
+  });
+
+  it('never claims an observed merge on a pull request that closed without merging', async () => {
+    const page = await render('/jobs/w4-job-closed-unmerged');
+    try {
+      const body = page.document.body.textContent ?? '';
+      expect(body).toContain('never had');
+      expect(body).toContain('cannot be given write access');
+      expect(body).not.toContain('We watched that happen');
+    } finally {
+      page.close();
+    }
+  });
+
+  it('never claims an observed merge on a deemed-completed job, which never merged', async () => {
+    const page = await render('/jobs/w4-job-deemed');
+    try {
+      const body = page.document.body.textContent ?? '';
+      expect(body).toContain('never had');
+      expect(body).toContain('cannot be given write access');
+      expect(body).not.toContain('We watched that happen');
+    } finally {
+      page.close();
+    }
+  });
+
+  it('never claims an observed merge on a cited-closed job, which never merged', async () => {
+    const page = await render('/jobs/w4-job-cited-closed');
+    try {
+      const body = page.document.body.textContent ?? '';
+      expect(body).toContain('never had');
+      expect(body).toContain('cannot be given write access');
+      expect(body).not.toContain('We watched that happen');
+    } finally {
+      page.close();
+    }
+  });
+
+  it('does claim the observed merge on a job that actually merged', async () => {
+    const page = await render('/jobs/w4-job-completed');
+    try {
+      const body = page.document.body.textContent ?? '';
+      expect(body).toContain('We watched that happen and recorded it; we did not do it.');
+    } finally {
+      page.close();
+    }
+  });
 });
 
 describe('the technical panel carries the criteria list and both copy controls', () => {
