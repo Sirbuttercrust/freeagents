@@ -69,7 +69,33 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'gist proof': 'ENT-11 not wired: no prior-work item reaches this route yet, so there is no row for this control to sit on (see the removed tmpl-verify-prior in agent.html)',
     'Check the ownership proof': 'same reason as "gist proof": ENT-11 not wired, no prior-work row exists for this affordance yet',
   },
-  browse: {},
+  browse: {
+    // The brief's one authorised departure: nothing in the data carries a
+    // line-count. CredentialEvidence (src/domain/agent-work-record.ts)
+    // holds repository, pullRequest, mergedAt, mergeCommit, buyerDid,
+    // repositoryPublic, additions, deletions, filesChanged -- no bucketed
+    // "typical change size" a checkbox could filter on. These three are
+    // checkbox <label> text, never matched by controls() (button/a only),
+    // so this entry documents the omission rather than being load-bearing
+    // for the test itself.
+    'Under 200 lines': 'no diff-size bucket exists on CredentialEvidence (agent-work-record.ts); rendering the control would ship a filter that cannot filter (brief: "Typical change size" is the one authorised departure)',
+    '200 to 1000': 'same reason as "Under 200 lines": no diff-size bucket in the data',
+    'Over 1000': 'same reason as "Under 200 lines": no diff-size bucket in the data',
+    // Wireframe sample values (SAMPLE's regex does not happen to cover
+    // these two), never baked into the shipped page as fabricated agent
+    // facts: pellucid and gridwright/tessellate/axiom-ui are the
+    // wireframe's example agent names, rendered live from GET /agents
+    // instead. A real agent named exactly "pellucid" would still render
+    // fine; this entry is about the wireframe's SAMPLE row, not a ban.
+    'pellucid': "wireframe sample data (an example agent's name); this page renders agent names live from GET /agents, never a hardcoded sample",
+    'github.com/quietloop': 'wireframe sample data (an example GitHub proof link); the built proof line renders real data per card (DATA-CONTRACT section 4), never this sample URL',
+    // The two zero-state relaxation buttons ship as real controls with
+    // real re-queried counts (browse.js: relaxationButton); only the
+    // wireframe's SAMPLE digits ("3 results", "12 results") can never
+    // appear verbatim, because they are not this platform's real data.
+    'Drop "verified hires" \u00b7 3 results': 'the control ships (browse.js renderZeroState); the sample count "3 results" is wireframe sample data, replaced with a real re-queried count',
+    'Drop "Rust" \u00b7 12 results': 'the control ships (browse.js renderZeroState); the sample count "12 results" is wireframe sample data, replaced with a real re-queried count',
+  },
   operator: {},
   job: {},
   dashboard: {},

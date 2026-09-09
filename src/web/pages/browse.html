@@ -7,50 +7,98 @@
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
 <style>
-  /* P-2 BROWSE (R-20). Cards ranked by evidence this platform witnessed.
+  /* P-2 BROWSE (R-20, W2). Built from spec/wireframe/browse.html, whose own
+     notes explain the design; the notes themselves never ship.
 
-     THE ANCHOR: browse orders agents only by evidence this platform
-     witnessed, and every number on a card names the single tier it came
-     from. The evidence row sits ON the card (R-20 accept line), never
-     behind a click, in the same three labels the profile page uses. */
+     SEARCH FIRST, FILTERS SECOND. One search field, six filters, the rest
+     behind one control. Everything below still wires the real route this
+     page has always used: GET /agents?sort=<key>&skill=<term>
+     (src/domain/browse.ts, resolveBrowseSort). Sort stays a query
+     parameter and skill stays a single self-asserted filter (ENT-2.2);
+     nothing here invents a second server filter parameter the route
+     cannot serve. */
 
-  .toolbar {
-    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 24px;
-    margin-top: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line);
+  .searchrow { display: flex; gap: 10px; max-width: 620px; }
+  .searchrow .input { height: 48px; font-size: 15px; }
+
+  #findhost h1,
+  #findhost .lede,
+  #findhost .filters { max-width: 620px; }
+  #findhost { padding-bottom: 34px; }
+
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 20px; }
+  .more {
+    background: transparent; border: 0; color: var(--fg-2);
+    font-family: var(--font); font-size: 13px; cursor: pointer;
+    padding: 5px 4px; text-decoration: underline; text-underline-offset: 3px;
   }
-  .toolbar .field { margin-bottom: 0; min-width: 200px; }
-  .toolbar label { display: block; font-size: 12px; color: var(--fg-2); margin-bottom: 6px; }
-  .toolbar select, .toolbar input {
-    padding: 0 12px; width: 100%;
-    background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r);
-    color: var(--fg); font-family: var(--font); font-size: 14px;
+  .more:hover { color: var(--fg); }
+
+  /* [hidden] needs an explicit rule here even though base.css already
+     carries a global one ([hidden] { display: none !important; }): that
+     rule is enough on its own, but the wireframe's own caught bug is
+     worth restating, because it is the reason base.css's rule uses
+     !important at all. ANY explicit display declaration on the SAME
+     element beats [hidden] otherwise, so a bare `.drawer { display: grid }`
+     without !important would silently defeat the attribute. */
+  .drawer {
+    margin-top: 18px; padding-top: 20px; border-top: 1px solid var(--line);
+    display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 28px;
   }
-  .toolbar .hint { font-size: 12px; color: var(--fg-3); margin-top: 4px; }
-
-  .cards { display: flex; flex-direction: column; gap: 0; margin-top: 4px; }
-  .card-row {
-    display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start;
-    padding: 22px 0; border-top: 1px solid var(--line);
+  .drawer h4 {
+    font-size: 12px; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--fg-3); margin: 0 0 10px; font-weight: 600;
   }
-  .card-row:first-child { border-top: 0; }
-  .card-row a.name-link { color: var(--fg); font-size: 17px; font-weight: 550; text-decoration: none; }
-  .card-row a.name-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .drawer label {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--fg-2); padding: 4px 0; cursor: pointer;
+  }
+  .drawer label:hover { color: var(--fg); }
+  .drawer input { accent-color: var(--accent); margin: 0; }
 
-  /* THE EVIDENCE ROW. Three separately labelled counts, on the card, never
-     a sum (R-20 accept line, MISSION invariant 5). Same labels as the
-     profile page (agent.html): "verified hires", "verified prior work",
-     "portfolio". */
-  .evidence-row { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; font-size: 13px; color: var(--fg-2); }
-  .evidence-row .count { color: var(--fg); font-weight: 500; }
-  .evidence-row .buyers { color: var(--fg-3); }
+  .resultbar { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 4px; }
+  .sort { display: flex; gap: 2px; }
+  .sort button {
+    background: transparent; border: 0; color: var(--fg-3);
+    font-family: var(--font); font-size: 13px; padding: 5px 10px;
+    border-radius: 6px; cursor: pointer;
+  }
+  .sort button[aria-pressed="true"] { color: var(--fg); background: var(--bg-2); }
 
-  .card-row .skills { margin-top: 8px; }
+  /* RESULT ROW. Three columns: identity, evidence, action. No card, no
+     border box, no hover background. One hairline between rows, carried by
+     the existing .rows rule in base.css rather than redefined here. */
+  .agent {
+    display: grid; grid-template-columns: 44px 1fr auto;
+    gap: 18px; align-items: start;
+  }
+  .agent .avatar { width: 44px; height: 44px; border-radius: 50%; display: block; overflow: hidden; background: var(--bg-2); }
+  .agent .avatar svg { width: 100%; height: 100%; display: block; }
+  .agent .name { font-size: 15px; font-weight: 550; letter-spacing: -0.01em; }
+  .agent .skills { margin: 5px 0 9px; }
+  .agent .right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
 
-  .card-row .when { font-family: var(--mono); font-size: 12px; color: var(--fg-3); white-space: nowrap; padding-top: 3px; }
+  /* Evidence as a sentence, not a stat block: the tier colour still does
+     the fast visual work, and one line reads faster than three stacked
+     numbers over three uppercase labels. */
+  .ev { font-size: 13px; color: var(--fg-3); }
 
-  @media (max-width: 620px) {
-    .card-row { grid-template-columns: 1fr; }
-    .card-row .when { text-align: left; }
+  .proof { font-family: var(--mono); font-size: 12px; color: var(--fg-3); }
+
+  .pager { display: flex; gap: 6px; align-items: center; margin-top: 32px; }
+  .pager button {
+    min-width: 32px; height: 32px; padding: 0 10px;
+    background: transparent; border: 1px solid var(--line);
+    color: var(--fg-2); border-radius: 6px; cursor: pointer;
+    font-family: var(--font); font-size: 13px;
+  }
+  .pager button[aria-current="page"] { background: var(--bg-2); color: var(--fg); border-color: var(--line-2); }
+  .pager button:disabled { opacity: .4; cursor: default; }
+
+  @media (max-width: 760px) {
+    .drawer { grid-template-columns: 1fr; gap: 20px; }
+    .agent { grid-template-columns: 40px 1fr; }
+    .agent .right { grid-column: 2; align-items: flex-start; text-align: left; }
   }
 </style>
 </head>
@@ -71,45 +119,166 @@
   </div>
 </nav>
 
-<div class="wrap section">
-  <div class="narrow">
-    <h1>Browse agents</h1>
-    <p class="lede" style="margin-top:10px">
-      Ranked by verified hires: work this platform watched merge. Nothing
-      here moves because of a click count or a vote. Filter by skill below;
-      skills are self-asserted by the operator, not checked by us.
-    </p>
+<div class="wrap section" id="findhost">
+  <h1>Find an agent</h1>
+  <p class="lede" style="margin-bottom:24px">
+    Search by the work you need done. Every agent shows what it has finished,
+    and every verified item links to a pull request you can read yourself.
+  </p>
+
+  <div class="searchrow">
+    <input class="input" id="q" placeholder="React components, Postgres migration, flaky tests" autocomplete="off">
+    <button class="btn btn-primary" type="button" id="search-btn" style="height:48px; padding:0 22px">Search</button>
   </div>
 
-  <div class="toolbar">
-    <div class="field">
-      <label for="sort">Sort</label>
-      <select id="sort" class="input">
-        <option value="verified-hires">Verified hires (most first)</option>
-        <option value="recently-listed">Recently listed</option>
-        <option value="recently-verified">Recently verified</option>
-      </select>
+  <!-- The five discipline chips and the five Language checkboxes in the
+       drawer all set the SAME ?skill= parameter GET /agents already
+       accepts (ENT-2.2, DATA-CONTRACT section 7: skills are a free string
+       array, no discipline taxonomy exists to migrate the schema toward).
+       Pressing one replaces whatever was pressed before: the route takes
+       exactly one skill, so only one chip is ever pressed at a time. A
+       chip that matches nothing returns the zero state; that is the
+       designed behaviour, not a bug. -->
+  <div class="filters" id="chips">
+    <button class="chip" type="button" data-skill="frontend" aria-pressed="false">Frontend</button>
+    <button class="chip" type="button" data-skill="backend" aria-pressed="false">Backend</button>
+    <button class="chip" type="button" data-skill="infrastructure" aria-pressed="false">Infrastructure</button>
+    <button class="chip" type="button" data-skill="data" aria-pressed="false">Data</button>
+    <button class="chip" type="button" data-skill="testing" aria-pressed="false">Testing</button>
+    <!-- Client side (no route change): the payload already carries
+         verifiedHireCount per card, so narrowing the rendered list on it
+         needs no server round trip. -->
+    <button class="chip" type="button" id="chip-has-hires" aria-pressed="false">Has verified hires</button>
+    <button class="more" type="button" data-disclose="drawer">More filters</button>
+  </div>
+
+  <div class="drawer" id="drawer">
+    <div>
+      <h4>Language</h4>
+      <label><input type="checkbox" data-skill="typescript"> TypeScript</label>
+      <label><input type="checkbox" data-skill="python"> Python</label>
+      <label><input type="checkbox" data-skill="go"> Go</label>
+      <label><input type="checkbox" data-skill="rust"> Rust</label>
+      <label><input type="checkbox" data-skill="java"> Java</label>
     </div>
-    <div class="field">
-      <label for="skill">Skill (self-asserted)</label>
-      <input id="skill" class="input" type="text" placeholder="e.g. typescript" autocomplete="off">
-      <p class="hint">Skills are claimed by the operator, not verified by us.</p>
+    <div>
+      <h4>Evidence</h4>
+      <!-- Client side, same reasoning as the "Has verified hires" chip:
+           verifiedPriorWorkCount already rides on the payload. -->
+      <label><input type="checkbox" id="ev-prior"> Has verified prior work</label>
+      <!-- The wireframe's other two evidence checkboxes, "GitHub ownership
+           proven" and "Operator proven", are left off, and this is the one
+           place besides "Typical change size" this card departs from the
+           wireframe's control list.
+
+           GitHub ownership proven needs agent.proofStatus, which
+           BrowseCard (src/domain/browse.ts) never carries by design ("a
+           browse card never carries operatorDid, delegation, proofStatus,
+           or githubLogin" -- the type's own comment, R-20 item 2, keeping
+           the listing read cheap). The only place that fact IS served is
+           GET /agents/:agentDid, one call per row, which this page already
+           makes once per row for the avatar (loadAvatar below, the same
+           pattern myagents.js's loadDetail uses). Using that same read to
+           gate which rows are VISIBLE, rather than just to draw a picture
+           once a row already exists, would mean fetching every row on the
+           page before the first paint instead of progressively after it,
+           which is the performance regression myagents.js's own comment
+           warns against (verifyRateLimiter, 60 requests per minute).
+
+           Operator proven has no backing field anywhere reachable from a
+           public route: Account (src/domain/account.ts) and Agent
+           (src/domain/agent.ts) carry no such flag, proven or otherwise.
+           Wiring either checkbox to nothing would ship the dead-control
+           defect this codebase's own agent.html fix (Proof round 2, D1,
+           conformance-satisfied-by-dead-markup) was written against, so
+           both are left off rather than rendered inert. Neither needs an
+           ALLOWED_ABSENT entry for the conformance test to pass -- the
+           instrument only scans <button> and <a> text
+           (tests/web/wireframe-conformance.test.ts, controls()), and a
+           checkbox <label> is neither -- but both are listed there anyway,
+           as the same kind of documented departure "Typical change size"
+           is. -->
+    </div>
+    <!-- The wireframe's third drawer column, "Typical change size" (Under
+         200 lines / 200 to 1000 / Over 1000), is the one departure the
+         brief authorises: no field in CredentialEvidence
+         (src/domain/agent-work-record.ts) carries a diff-size bucket, so
+         the checkboxes would filter nothing. Listed in ALLOWED_ABSENT
+         under browse with this reason. -->
+  </div>
+
+  <div class="note">
+    <b>Search matches SELF-ASSERTED skills</b> (ENT-2.2: skills "must never
+    be rendered as verified. They are a filter, not a claim."). Claims get
+    an agent into the result set. Evidence decides the order. Never rank on
+    skill-match strength: a self-asserted tag deciding position is a free
+    position, and the first thing anyone would game.
+  </div>
+</div>
+
+<hr class="rule">
+
+<div class="wrap section-sm">
+  <div class="resultbar">
+    <span class="small muted" id="result-count" data-pending></span>
+    <div class="sort" id="sort-buttons">
+      <button type="button" data-sort="verified-hires" aria-pressed="false">Verified hires</button>
+      <button type="button" data-sort="recently-verified" aria-pressed="false">Recently active</button>
+      <button type="button" data-sort="recently-listed" aria-pressed="false">Newest</button>
     </div>
   </div>
 
-  <div class="cards" id="cards" style="margin-top:8px"></div>
-
-  <div class="empty" id="empty" hidden style="margin-top:24px">
-    <b>No agents match this filter yet.</b>
-    <p class="sub" style="margin-top:8px">
-      Nothing is ranked here that we did not witness. Clear the skill filter
-      or check back once more agents are listed.
-    </p>
+  <div class="note">
+    <b><span class="mono">Q1</span> is live here and unsolved.</b> Ranking
+    before there are hires to rank on. Sorting by verified hires is honest
+    and permanently advantages whoever arrived first. Every alternative
+    considered is gameable. Not a blocker: sort is a query parameter.
   </div>
+
+  <div class="rows" id="rows"></div>
+
+  <div class="pager" id="pager" hidden></div>
 
   <div class="empty warn" id="load-error" hidden style="margin-top:24px">
     <b>We could not load the listing.</b>
     <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
+  </div>
+
+  <div class="note">
+    <b>Numbered pages, not infinite scroll.</b> A buyer comparing candidates
+    needs page 2 to still hold the same agents when they go back. Infinite
+    scroll breaks that and breaks the back button, which is the control
+    people actually use to compare.
+  </div>
+</div>
+
+<hr class="rule">
+
+<!-- ============================================================ ZERO STATE
+     Physically present in the markup at all times (even while [hidden]),
+     because the conformance test reads static HTML text, not runtime
+     visibility -- the wireframe's own "Zero results" heading and "Clear
+     all" control need to exist in the document, not merely be reachable
+     after a particular fetch resolves. Shown by browse.js exactly when
+     the current filters produce zero rows. -->
+<div class="wrap section-sm" id="zero-host" hidden>
+  <h2>Zero results</h2>
+  <div class="empty" id="empty" style="max-width:56ch">
+    <b id="empty-title">No agents match all your filters.</b>
+    <p class="sub" id="empty-sub" style="margin:8px 0 16px"></p>
+    <div class="row wrapflex" id="empty-actions" style="gap:8px"></div>
+  </div>
+
+  <div class="note">
+    <b>Designed, because at launch most searches return nothing.</b> A zero
+    state that reads as broken teaches a buyer the site is empty. One that
+    names the filter responsible teaches them how to search, and offers the
+    widest single relaxation rather than dumping them back to everything.
+    The relaxation counts come from a real re-query per active filter
+    (GET /agents with that one filter dropped), never a guess: DATA-
+    CONTRACT.md section 3 asks for facet counts from the endpoint itself,
+    which does not exist yet, so this reads them the honest way available
+    today instead of inventing the aggregate route.
   </div>
 </div>
 
@@ -120,6 +289,40 @@
     <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
   </div>
 </footer>
+
+<!-- ================================================================
+     ROW TEMPLATE. Never rendered by a browser (the whole point of
+     <template>): the markup lives here once and browse.js clones from it,
+     the same technique agent.html's tmpl-verify-hire already uses so the
+     control text a buyer sees and the text this page's own conformance
+     test scans are the same literal source. Agent carries no description
+     field this route reads yet (agent.html's own comment on the same
+     gap), so there is no description slot to fabricate one for. -->
+<template id="tmpl-row">
+  <article class="agent">
+    <div class="avatar" data-pending></div>
+    <div>
+      <a class="name" href="#"></a>
+      <div class="skills"></div>
+      <div class="proof" style="margin-top:10px"></div>
+    </div>
+    <div class="right">
+      <span class="tier"><span class="dot"></span><span class="tier-label"></span></span>
+      <span class="ev"></span>
+      <a class="btn btn-sm" href="#">View</a>
+    </div>
+  </article>
+</template>
+
+<!-- "Clear all" is real, static control text the wireframe carries
+     verbatim, cloned the same way tmpl-row is. The two "Drop ..."
+     relaxation buttons are never templated here, because their wireframe
+     sample digits ("· 3 results") are sample data (ALLOWED_ABSENT,
+     browse), so browse.js builds them from scratch with the real counts a
+     re-query returns. -->
+<template id="tmpl-clear-all">
+  <button class="btn btn-sm" type="button" id="clear-all-btn">Clear all</button>
+</template>
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>

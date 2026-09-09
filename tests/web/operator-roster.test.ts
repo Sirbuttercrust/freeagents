@@ -406,7 +406,23 @@ describe('the operator page roster (R-19)', () => {
   // checked above. Comparing the rendered DOM field by field (rather than
   // only the tier counts) is what the round-2 parity test missed: it never
   // looked at .when.
-  it("a roster row is field-identical to the same agent's browse card, including the date (D3)", async () => {
+  //
+  // W2 UPDATE: browse.html/browse.js were rebuilt from the design seat's
+  // wireframe (spec/wireframe/browse.html) in this card, and the wireframe
+  // replaces the old evidence-row/name-link/when class vocabulary with its
+  // own (.tier/.ev/.proof/.name), per the brief's explicit instruction to
+  // "replace the page around" the existing route wiring. operator.html and
+  // operator.js are UNCHANGED by this card (out of scope: the brief names
+  // only browse.html and browse.js) and still emit the pre-wireframe shape
+  // this file's comment above describes ("ported rather than reinvented").
+  // A strict DOM-class parity check between two pages that were rebuilt on
+  // different schedules is no longer a meaningful invariant; the check
+  // below instead confirms the RECORD FACTS agree (same name, same hire
+  // count, same skills, same date), reading each page through its own
+  // actual selectors, which is what D3 was protecting against drifting.
+  // operator.html's own wireframe rebuild (a future card) is expected to
+  // restore full markup parity with browse's new shape.
+  it("a roster row states the same record facts as the same agent's browse card, including the date (D3)", async () => {
     const rosterPage = await render(`/accounts/${SOLO_OPERATOR_DID}`);
     const browsePage = await render('/browse');
     try {
@@ -417,19 +433,31 @@ describe('the operator page roster (R-19)', () => {
       expect(rosterRow).toBeTruthy();
       expect(browseCard).toBeTruthy();
 
-      function fields(row: Element | null) {
-        return {
-          name: row?.querySelector('.name-link')?.textContent ?? '',
-          evidence: row?.querySelector('.evidence-row')?.textContent ?? '',
-          skills: row?.querySelector('.skills')?.textContent ?? '',
-          when: row?.querySelector('.when')?.textContent ?? '',
-        };
-      }
+      const rosterName = rosterRow?.querySelector('.name-link')?.textContent ?? '';
+      const browseName = browseCard?.querySelector('.name')?.textContent ?? '';
+      expect(rosterName).not.toBe('');
+      expect(rosterName).toBe(browseName);
 
-      const rosterFields = fields(rosterRow);
-      const browseFields = fields(browseCard as Element | null);
-      expect(rosterFields.when).not.toBe('');
-      expect(rosterFields).toEqual(browseFields);
+      const rosterSkills = rosterRow?.querySelector('.skills')?.textContent ?? '';
+      const browseSkills = browseCard?.querySelector('.skills')?.textContent ?? '';
+      expect(rosterSkills).toBe(browseSkills);
+
+      // Both surfaces read the SAME field (BrowseCard.verifiedHireCount,
+      // src/domain/browse.ts) for the hire count, even though the roster
+      // states it as a labelled evidence row and browse states it as a
+      // tier label: the underlying number must never drift.
+      const rosterHireText = rosterRow?.querySelector('.evidence-row .count')?.textContent ?? '';
+      const browseTierText = browseCard?.querySelector('.tier-label')?.textContent ?? '';
+      expect(rosterHireText).toContain('1 verified hire');
+      expect(browseTierText).toContain('1 verified hire');
+
+      const rosterWhen = rosterRow?.querySelector('.when')?.textContent ?? '';
+      expect(rosterWhen).not.toBe('');
+      // Browse no longer carries a bare .when node (the wireframe's proof
+      // line states "Last verified <date>" instead); read the same
+      // lastVerifiedAt fact off the proof line rather than a stale selector.
+      const browseProof = browseCard?.querySelector('.proof')?.textContent ?? '';
+      expect(browseProof).toContain(rosterWhen);
     } finally {
       rosterPage.close();
       browsePage.close();
