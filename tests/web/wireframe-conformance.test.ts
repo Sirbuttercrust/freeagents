@@ -1,6 +1,7 @@
-// Wireframe conformance (Keaton, 2026-09-08: "I notice a lot of the work for
-// agent profiles and other pages werent brough over. I worked with burnish a
-// while ago on these.")
+// Wireframe conformance.
+//
+// Written 2026-09-08 after review found that much of the designed work for the
+// agent profile and other pages had never reached the built site.
 //
 // The wireframes in spec/wireframe/ passed the design gate and are the
 // binding source for every page under src/web/pages/. The pages built on
