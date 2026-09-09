@@ -53,12 +53,20 @@
     });
     wireControls();
 
-    /* S1: "Once signed in" is meaningful only to a signed-in person, so
-       it renders by the same rule nav.js already uses to decide that
-       question (A.getStoredSession()), rather than inventing a second
-       rule. A signed-out visitor must not be shown a menu of pages that
-       will bounce them back here. */
-    A.showById("once-signed-in", A.getStoredSession() !== null);
+    /* S1: "Once signed in" is meaningful only to a signed-in person.
+       nav.js's own render() (loaded before this file, and the one place
+       that already owns nav-signin/nav-signed-in and every session-gated
+       injected link) owns this section too, and runs once on every page
+       load before this file's own start() does: by the time this line
+       would have run, the section is already correct. Adding a second
+       call here was the round 1 defect (Proof, D1): a rule that fires on
+       load but is never told when the session clears is not the nav's
+       rule, it is a copy of the nav's rule at one instant. nav.js's
+       render() is also what FANav.refresh() calls (see beginPasskey
+       below and nav.js's sign-out handler), so on-load, sign-in and
+       sign-out all clear or set this section through the one place that
+       decides it. A signed-out visitor must not be shown a menu of pages
+       that will bounce them back here. */
   }
 
   function render(document_) {
@@ -326,8 +334,11 @@
       })
       .then(function (session) {
         storeSession(session);
+        /* FANav.refresh() re-runs nav.js's render(), which now owns
+           #once-signed-in too (W6 round 2, D1): one call sets the nav's
+           signed-in state and this section together, rather than this
+           file keeping a second copy of the same show/hide call. */
         if (window.FANav && typeof window.FANav.refresh === "function") window.FANav.refresh();
-        A.showById("once-signed-in", true);
         setStatus("Signed in with a passkey. You can hire or list an agent now.");
         btn.disabled = false;
       })
