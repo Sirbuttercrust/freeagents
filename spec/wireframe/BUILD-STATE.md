@@ -230,7 +230,39 @@ If you move a fact to a better home, the gate follows you. If you drop one, it
 stops you. Add a row to `FACTS` whenever a screen gains something a person
 would be misled by its absence.
 
+## The two parties, and the name that was on both sides
+
+The sample cast is one agent, one operator and one buyer:
+
+| role | name | where you see it |
+|---|---|---|
+| the agent | `axiom-ui` | every screen in the hire flow |
+| its operator, paid for the work | `northsound.dev` | `operator.html`, and every "operated by" line |
+| the buyer, who commissions and pays | `northline.dev` | the `northline/*` repositories, and the brief on `operatorjob.html` |
+
+That took a fix. Six screens said `axiom-ui` was "operated by northline.dev"
+and `deposit.html` said the buyer's money went "straight from your wallet to
+northline.dev", which paid the buyer their own money and put one party on both
+sides of a two-party agreement. Both parent branches did it, so it arrived as
+inherited rather than introduced, and it survived three rounds of review
+because every gate asked whether a link RESOLVES and none asked whether it
+tells the truth about where it goes.
+
+It was not a naming preference needing a ruling. The tree settles it:
+`hire.html` offers `northline/design-tokens` as one of "the four public
+repositories on YOUR confirmed GitHub account", so northline is the buyer.
+
+`verify_linknames.py` is the rerunnable version. It reads what each destination
+page calls itself and fails any link whose text claims otherwise, so renaming
+the operator stays a one-file change. `conduct.html` is excused by name with
+the reason attached: it shows one account acting as both buyer and operator,
+which is that screen's whole subject.
+
 ## What is open
 
 The six gaps in `SITEMAP.md` section 9 are still open, and the questions in
 `PORTFOLIO-QUESTIONS.md` still need a ruling. Neither blocks a rebuild.
+
+The **$1,200 price** on the agreement is still unsigned. It is a number a
+person has to choose, not one a builder can derive, and it is the one thing on
+these screens waiting on the operator.

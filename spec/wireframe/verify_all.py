@@ -85,6 +85,9 @@ GATES = [
     ("verify_sampledata.py", True,
      "every screen showing an invented name or a dollar figure says it is "
      "sample data"),
+    ("verify_linknames.py", True,
+     "a link whose text names its destination names it correctly, checked "
+     "against what the destination page calls itself"),
 ]
 
 env = dict(os.environ)
