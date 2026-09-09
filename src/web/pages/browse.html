@@ -221,9 +221,11 @@
            ALLOWED_ABSENT entry for the conformance test to pass -- the
            instrument only scans <button> and <a> text
            (tests/web/wireframe-conformance.test.ts, controls()), and a
-           checkbox <label> is neither -- but both are listed there anyway,
-           as the same kind of documented departure "Typical change size"
-           is. -->
+           checkbox <label> is neither. The departure is recorded here, in
+           this comment, rather than in ALLOWED_ABSENT: unlike "Typical
+           change size", which the conformance test would otherwise flag,
+           these two never reach the instrument at all, so there is no
+           entry for them to sit next to. -->
     </div>
     <!-- The wireframe's third drawer column, "Typical change size" (Under
          200 lines / 200 to 1000 / Over 1000), is the one departure the

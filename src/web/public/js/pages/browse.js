@@ -408,7 +408,7 @@
 
     Promise.all(
       relaxations.map(function (relaxation) {
-        return relaxedCount(relaxation, hasSkill, filters).then(function (count) {
+        return relaxedCount(relaxation, filters).then(function (count) {
           return { relaxation: relaxation, count: count };
         });
       })
@@ -426,7 +426,7 @@
      dropping a client filter (hires/prior) just re-filters the already-
      fetched card set. Either way the OTHER active filters stay applied,
      so the number answers "what if I drop exactly this one". */
-  function relaxedCount(relaxation, hasSkill, clientFilters) {
+  function relaxedCount(relaxation, clientFilters) {
     if (relaxation.type === "skill") {
       var qp = new URLSearchParams();
       if (state.sort) qp.set("sort", state.sort);
@@ -441,8 +441,11 @@
       );
     }
     var remaining = clientFilters.filter(function (f) { return f.type !== relaxation.type; });
-    var base = hasSkill ? state.cards : state.cards; // skill, if any, is already baked into state.cards
-    return Promise.resolve(base.filter(function (c) { return matchesClientFilters(c, remaining); }).length);
+    // hasSkill has no effect here: state.cards already has the skill
+    // filter baked in from the server query, whether or not this
+    // particular relaxation is a skill drop, so the base set is the same
+    // either way.
+    return Promise.resolve(state.cards.filter(function (c) { return matchesClientFilters(c, remaining); }).length);
   }
 
   function relaxationButton(relaxation, count) {

@@ -4,6 +4,7 @@
 // page, lets its own script run, and the assertions read the DOM a visitor
 // is left looking at rather than the JSON the API returned.
 import type { Server } from 'node:http';
+import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import { JSDOM, VirtualConsole } from 'jsdom';
@@ -207,19 +208,19 @@ interface Rendered {
   close: () => void;
 }
 
-async function render(path: string): Promise<Rendered> {
+async function render(path: string, base: string = baseUrl): Promise<Rendered> {
   const virtualConsole = new VirtualConsole();
   const failures: string[] = [];
   virtualConsole.on('jsdomError', (error: Error) => failures.push(error.message));
 
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await fetch(`${base}${path}`, {
     headers: { Accept: 'text/html,application/xhtml+xml' },
   });
   expect(response.status, `unexpected status for ${path}`).toBe(200);
   const markup = await response.text();
 
   const dom = new JSDOM(markup, {
-    url: `${baseUrl}${path}`,
+    url: `${base}${path}`,
     runScripts: 'dangerously',
     resources: 'usable',
     pretendToBeVisual: true,
@@ -227,7 +228,7 @@ async function render(path: string): Promise<Rendered> {
     beforeParse(window) {
       Object.defineProperty(window, 'fetch', {
         writable: true,
-        value: (input: string, init?: RequestInit) => fetch(new URL(input, baseUrl), init),
+        value: (input: string, init?: RequestInit) => fetch(new URL(input, base), init),
       });
     },
   });
@@ -415,7 +416,7 @@ describe('the browse page: zero-state relaxation (DATA-CONTRACT section 3)', () 
     }
   });
 
-  it('a filtered zero state names which filter is responsible, never invents a count when read fails, and Clear all removes every filter', async () => {
+  it('a filtered zero state names which filter is responsible, and Clear all removes every filter', async () => {
     const page = await render('/browse?skill=typescript&hires=1');
     try {
       const title = page.document.getElementById('empty-title')?.textContent ?? '';
@@ -425,6 +426,51 @@ describe('the browse page: zero-state relaxation (DATA-CONTRACT section 3)', () 
       expect(clearAll?.textContent).toBe('Clear all');
     } finally {
       page.close();
+    }
+  });
+
+  // The brief: "If a count cannot be read, render the button without a
+  // count rather than with a guess." A proxy in front of the real server
+  // fails only the relaxed re-query the skill-drop button depends on
+  // (GET /agents with no skill param), the same fault-injection shape
+  // deposit.test.ts:499 and staged.test.ts use for their own D1 guards.
+  // The hires-drop button stays client side and is unaffected, so its
+  // real count is the control proving the failure is isolated to the
+  // one read that broke.
+  it('a relaxation button with no readable count renders the label alone, never a guessed number', async () => {
+    const realPort = (server.address() as AddressInfo).port;
+    const proxy = http.createServer((req, res) => {
+      if (req.url !== undefined && /^\/agents(\?(?!.*\bskill=).*)?$/.test(req.url)) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'storage unavailable' }));
+        return;
+      }
+      const upstream = http.request({ hostname: '127.0.0.1', port: realPort, path: req.url, method: req.method, headers: req.headers }, (upstreamRes) => {
+        res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+        upstreamRes.pipe(res);
+      });
+      req.pipe(upstream);
+    });
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+    const proxyBaseUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
+    try {
+      const page = await render('/browse?skill=typescript&hires=1', proxyBaseUrl);
+      try {
+        const actions = page.document.getElementById('empty-actions');
+        const buttonTexts = Array.from(actions?.querySelectorAll('button') ?? []).map((b) => b.textContent ?? '');
+
+        // The skill relaxation's read failed: label only, no count, no dot.
+        expect(buttonTexts.some((t) => t === 'Drop "typescript"')).toBe(true);
+        expect(buttonTexts.some((t) => t.startsWith('Drop "typescript" \u00b7'))).toBe(false);
+
+        // The hires relaxation is client side and untouched by the proxy,
+        // so it still carries its real count.
+        expect(buttonTexts.some((t) => t.includes('Drop "verified hires"') && t.includes('1 result'))).toBe(true);
+      } finally {
+        page.close();
+      }
+    } finally {
+      await new Promise<void>((resolve) => proxy.close(() => resolve()));
     }
   });
 });
