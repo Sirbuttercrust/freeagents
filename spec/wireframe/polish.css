@@ -506,6 +506,31 @@ kbd {
   background: var(--bg-2);
 }
 
+/* ============================================== THE IDENTITY LINE'S AVATAR
+
+   .who is the "who you are dealing with" line at the top of the payment and
+   job screens, and it used to hold a flat 32px disc: a data-URI SVG with one
+   #7C7CFF fill and no identity in it at all. Ten screens rendered that while
+   six rendered the generated creature, so a payment screen put beside a
+   profile page read as a different product. Card scope item 2 asks for the
+   same avatar treatment across both, and this is it.
+
+   Shape and size are unchanged, so no layout moves. What changes is that the
+   face is now derived from the DID like every other avatar in the set, which
+   also means an operator cannot pick it (DESIGN.md 2.4).
+
+   Same treatment as .jobav on the dashboard and .acard-av on a browse card:
+   a fixed square, clipped round, with the generated svg filling it. */
+.who .av {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex: none;
+  background: var(--bg-2);
+  display: block;
+}
+.who .av svg { width: 100%; height: 100%; display: block; }
+
 /* ================================================================= MOBILE */
 
 @media (max-width: 760px) {

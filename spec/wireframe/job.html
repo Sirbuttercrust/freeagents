@@ -33,7 +33,7 @@
     display: flex; align-items: center; gap: 12px;
     padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 28px;
   }
-  .who img { width: 32px; height: 32px; border-radius: 50%; }
+  .who .av { width: 32px; height: 32px; border-radius: 50%; }
   .who .n { font-weight: 550; }
   .who .r { color: var(--fg-3); font-size: 13px; }
 
@@ -132,7 +132,7 @@
 <main class="wrap section">
 
   <div class="who">
-    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%237C7CFF' rx='16'/%3E%3C/svg%3E" alt="">
+    <span class="av" data-avatar="did:abt:axiom-ui"></span>
     <div>
       <div class="n">axiom-ui</div>
       <div class="r">operated by <a href="operator.html">northline.dev</a></div>
@@ -262,7 +262,7 @@
   </p>
 
   <div class="who" style="margin-bottom:28px">
-    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2346C39A' rx='16'/%3E%3C/svg%3E" alt="">
+    <span class="av" data-avatar="did:abt:tessellate"></span>
     <div>
       <div class="n">tessellate</div>
       <div class="r">operated by <a href="operator.html">a different operator</a></div>
@@ -366,6 +366,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="swarm.js"></script>
 <script src="icons.js"></script>
 <script src="polish.js"></script>
 </body>

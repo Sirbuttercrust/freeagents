@@ -638,6 +638,7 @@ the base url except the two that need no browser.
 | `verify_flow_motion.py` | the dashboard pipeline actually moves, and stops when reduced motion is asked for |
 | `verify_blast_preview.py` | hovering an edit control previews the exact signatures that edit would clear |
 | `verify_mobile_coverage.py` | every screen in the directory appears in at least one 320px sweep, so a new page cannot go unchecked in silence |
+| `verify_kept.py` | the brand's accessible name survives the wordmark collapse on all 33 screens, and the facts a designed element carried still render somewhere in the set, with disclosures opened |
 
 The six polished gates plus the coverage check are run by `verify_all.py` with
 the rest. They drive the same committed `wirebrowse.py` as the others, so the

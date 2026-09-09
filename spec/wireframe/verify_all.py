@@ -72,6 +72,9 @@ GATES = [
      "hovering an edit control previews the exact signatures it would clear"),
     ("verify_mobile_coverage.py", False,
      "every screen on disk is swept at 320px by at least one instrument"),
+    ("verify_kept.py", True,
+     "the brand's accessible name survives the wordmark collapse, and the "
+     "facts a designed element carried still render somewhere in the set"),
 ]
 
 env = dict(os.environ)

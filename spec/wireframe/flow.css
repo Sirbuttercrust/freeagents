@@ -97,7 +97,7 @@
   display: flex; align-items: center; gap: 12px;
   padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px;
 }
-.who img { width: 32px; height: 32px; border-radius: 50%; flex: none; }
+.who .av { width: 32px; height: 32px; border-radius: 50%; flex: none; }
 .who .n { font-weight: 550; }
 .who .r { color: var(--fg-2); font-size: 13px; }
 

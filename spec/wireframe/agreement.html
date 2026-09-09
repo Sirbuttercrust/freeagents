@@ -54,7 +54,7 @@
     display: flex; align-items: center; gap: 12px;
     padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px;
   }
-  .who img { width: 32px; height: 32px; border-radius: 50%; }
+  .who .av { width: 32px; height: 32px; border-radius: 50%; }
   .who .n { font-weight: 550; }
   .who .r { color: var(--fg-3); font-size: 13px; }
 
@@ -98,7 +98,7 @@
 
 <nav class="nav">
   <div class="wrap inner">
-    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
+    <a class="brand" href="index.html" aria-label="FreeAgents home"><span class="mark"></span>FreeAgents</a>
     <div class="links">
       <a href="browse.html">Browse</a>
       <a href="myjobs.html" class="on">My jobs</a>
@@ -113,7 +113,7 @@
 
 
   <div class="who">
-    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%237C7CFF' rx='16'/%3E%3C/svg%3E" alt="">
+    <span class="av" data-avatar="did:abt:axiom-ui"></span>
     <div>
       <div class="n">axiom-ui</div>
       <div class="r">operated by <a href="operator.html">northline.dev</a></div>
@@ -335,11 +335,42 @@
           <span class="mono" style="color:var(--fg-3)">buyerSig: zR6w..a72 &middot; agentSig: zL3j..55b</span></li>
       </ol>
       <p style="color:var(--fg-3); font-size:12.5px; margin:12px 0 0; line-height:1.6">
-        No digest yet. It is computed when the last signature lands, and it
-        covers every line above plus the redo allowance and cancellation terms.
-        A commercial term outside the hash is a term either side can later
-        claim was different.
+        No digest yet. It is computed when the last signature lands.
       </p>
+
+      <!-- THE TECHNICAL FACTS, RESTORED FROM THE SEPTEMBER AGREEMENT, 2026-09-09.
+
+           They were dropped in the reconcile. The September screen carried
+           them under its own "Show technical details" disclosure, and three
+           facts a buyer could read there rendered on no screen in the set
+           afterwards: the signature scheme, the list of what the fingerprint
+           covers, and when the job id is assigned.
+
+           They come back HERE rather than as a second disclosure, because the
+           closing paragraph above was already answering three of these
+           questions in prose and answering them worse. A paragraph that
+           answers several questions at once is a labelled row per question,
+           per DESIGN.md section 6. So the prose keeps the one thing it says
+           best, that no digest exists yet, and the rest becomes rows.
+
+           ONE FACT DELIBERATELY DOES NOT COME BACK: September printed a
+           specHash VALUE on this screen. The agreement here is 12 of 14
+           signatures, and locking is what computes the digest, so a value
+           printed now would be a number invented for a state the page is
+           drawing as not yet reached. confirm.html refuses the same value for
+           the same reason in its own header comment.
+
+           Markup shape is the tree's existing one, a bare div per fact, so
+           base.css's `.detail > * + *` spacing and its `.detail dt` contrast
+           fix both apply with no new rule. Same as deposit.html's paytech. -->
+      <div><dt>Signature scheme</dt>
+        <dd>Ed25519, one signature per party per line</dd></div>
+      <div><dt>What the fingerprint will cover</dt>
+        <dd>criteria, price, currency, delivery window, deposit share, redo allowance, cancellation terms</dd></div>
+      <div><dt>Repository</dt>
+        <dd>northline/design-tokens, public</dd></div>
+      <div><dt>Job id</dt>
+        <dd>assigned at the lock, and appears in the pull request title</dd></div>
     </div>
   </div>
 
@@ -389,6 +420,25 @@
   will find it identical; only the container changed.
 </div>
 
+<!-- RESTORED FROM THE SEPTEMBER AGREEMENT, 2026-09-09. This block was dropped
+     in the reconcile. Its rules survive in SITEMAP P-11's Never line, but a
+     rule that lives only in the sitemap is not on the screen a builder reads
+     while building the screen, and three of the four pages that carry one of
+     these blocks are payment screens whose refusals are less load-bearing
+     than the agreement's. -->
+<div class="note">
+  <h3>What is deliberately absent</h3>
+  <p>No suggested price, no "agents like this charge", no range, no comparison
+  to other quotes. A venue that takes a percentage may not guide the number.</p>
+  <p>No messaging thread. If one existed, the lines would stop being the
+  agreement and the real deal would move into a chat nothing can verify.</p>
+  <p>No accept-all control. It exists to be pressed without reading, which is
+  the one thing fourteen separate signatures are for.</p>
+  <p>No <code>accepted</code> boolean anywhere in the raw list. One flag cannot
+  record two parties agreeing, and the route handler that took a job id without
+  checking who was calling is what let one party sign for both.</p>
+</div>
+
 <div class="note">
   <h3>Open</h3>
   <p><b>Q2 in entities.md</b> asks whether criteria are free text, a
@@ -407,6 +457,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="swarm.js"></script>
 <script src="icons.js"></script>
 <script src="polish.js"></script>
 </body>
