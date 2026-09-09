@@ -412,6 +412,12 @@
   function renderDrafting(job_) {
     var stillDrafting = job_.status === "draft" || job_.status === "proposed";
     A.setTextById("drafting-heading", stillDrafting ? "Drafting the agreement" : "Earlier: drafting the agreement");
+    A.setTextById(
+      "drafting-sub",
+      stillDrafting
+        ? "This job has not been confirmed yet. Read the brief and review or sign the agreement."
+        : "This is the state the job was in before it was confirmed. Read the brief and what the agent drafted from it."
+    );
     var link = A.el("agreement-link");
     if (link) link.setAttribute("href", "/agreement?job=" + encodeURIComponent(job_.id));
     A.setTextById("drafting-brief", typeof job_.brief === "string" ? job_.brief : "");

@@ -731,6 +731,43 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
         page.close();
       }
     });
+
+    // qa D1, round 1: the sub paragraph under the drafting heading kept
+    // saying "This job has not been confirmed yet" even once the section
+    // was widened to render as history, which is false on a job that has
+    // moved past draft/proposed and offers an action ("sign the agreement")
+    // that state does not have. The sentence must track the job's real
+    // status the same way the heading now does.
+    it('a still-drafting job keeps the present-tense sub, unconfirmed and inviting review', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-draft', operatorSession);
+      try {
+        const sub = page.document.getElementById('drafting-sub');
+        expect(sub?.textContent).toBe('This job has not been confirmed yet. Read the brief and review or sign the agreement.');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a job that has moved past draft/proposed gets a history-true sub, never "has not been confirmed yet"', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-confirmed', operatorSession);
+      try {
+        const sub = page.document.getElementById('drafting-sub');
+        expect(sub?.textContent).toBe('This is the state the job was in before it was confirmed. Read the brief and what the agent drafted from it.');
+        expect(sub?.textContent).not.toContain('has not been confirmed yet');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a redo_requested job also gets the history-true sub, not the unconfirmed one', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-redo-requested', operatorSession);
+      try {
+        const sub = page.document.getElementById('drafting-sub');
+        expect(sub?.textContent).toBe('This is the state the job was in before it was confirmed. Read the brief and what the agent drafted from it.');
+      } finally {
+        page.close();
+      }
+    });
   });
 
   describe('the session token never rides in the document', () => {
