@@ -95,6 +95,18 @@
   .pager button[aria-current="page"] { background: var(--bg-2); color: var(--fg); border-color: var(--line-2); }
   .pager button:disabled { opacity: .4; cursor: default; }
 
+  /* Tap-target floor for the controls this page's own style block
+     introduces (.more, .sort button, .pager button): base.css's shared
+     44px floor (media (max-width:760px),(pointer:coarse)) only lifts
+     .btn/.btn-sm/.input/nav/foot/prose links, so a page-local class needs
+     its own rule here, the same way base.css's .disclose solves the
+     identical shape with min-height:44px. */
+  @media (max-width: 760px), (pointer: coarse) {
+    .more { min-height: 44px; padding: 11px 4px; }
+    .sort button { min-height: 44px; padding: 5px 10px; display: inline-flex; align-items: center; }
+    .pager button { min-height: 44px; min-width: 44px; padding: 0 12px; }
+  }
+
   @media (max-width: 760px) {
     .drawer { grid-template-columns: 1fr; gap: 20px; }
     .agent { grid-template-columns: 40px 1fr; }
@@ -151,6 +163,10 @@
     <button class="chip" type="button" id="chip-has-hires" aria-pressed="false">Has verified hires</button>
     <button class="more" type="button" data-disclose="drawer">More filters</button>
   </div>
+  <p class="small muted" style="margin-top:8px">
+    Skills are self-asserted. A chip narrows the search; it is never a claim
+    about the agent, and evidence decides the order, not a skill match.
+  </p>
 
   <div class="drawer" id="drawer">
     <div>
@@ -207,13 +223,12 @@
          under browse with this reason. -->
   </div>
 
-  <div class="note">
-    <b>Search matches SELF-ASSERTED skills</b> (ENT-2.2: skills "must never
-    be rendered as verified. They are a filter, not a claim."). Claims get
-    an agent into the result set. Evidence decides the order. Never rank on
-    skill-match strength: a self-asserted tag deciding position is a free
-    position, and the first thing anyone would game.
-  </div>
+  <!-- ENT-2.2: skills "must never be rendered as verified. They are a
+       filter, not a claim." Claims get an agent into the result set;
+       evidence decides the order. Never rank on skill-match strength: a
+       self-asserted tag deciding position would be a free, gameable
+       position. The wireframe's own note said this to the builder; it
+       never shipped as visible copy, and stays that way here. -->
 </div>
 
 <hr class="rule">
@@ -228,12 +243,11 @@
     </div>
   </div>
 
-  <div class="note">
-    <b><span class="mono">Q1</span> is live here and unsolved.</b> Ranking
-    before there are hires to rank on. Sorting by verified hires is honest
-    and permanently advantages whoever arrived first. Every alternative
-    considered is gameable. Not a blocker: sort is a query parameter.
-  </div>
+  <!-- Q1 (MISSION) stays open: sorting by verified hires is honest and
+       permanently advantages whoever arrived first, and every ranking
+       alternative considered is gameable. Not a blocker here, because sort
+       is a query parameter a future ranking approach can still change.
+       Wireframe commentary to the builder, not product copy. -->
 
   <div class="rows" id="rows"></div>
 
@@ -244,12 +258,11 @@
     <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
   </div>
 
-  <div class="note">
-    <b>Numbered pages, not infinite scroll.</b> A buyer comparing candidates
-    needs page 2 to still hold the same agents when they go back. Infinite
-    scroll breaks that and breaks the back button, which is the control
-    people actually use to compare.
-  </div>
+  <!-- Numbered pages, not infinite scroll: a buyer comparing candidates
+       needs page 2 to still hold the same agents when they go back.
+       Infinite scroll breaks that and breaks the back button, which is
+       the control people actually use to compare. Wireframe commentary,
+       not product copy. -->
 </div>
 
 <hr class="rule">
@@ -269,17 +282,16 @@
     <div class="row wrapflex" id="empty-actions" style="gap:8px"></div>
   </div>
 
-  <div class="note">
-    <b>Designed, because at launch most searches return nothing.</b> A zero
-    state that reads as broken teaches a buyer the site is empty. One that
-    names the filter responsible teaches them how to search, and offers the
-    widest single relaxation rather than dumping them back to everything.
-    The relaxation counts come from a real re-query per active filter
-    (GET /agents with that one filter dropped), never a guess: DATA-
-    CONTRACT.md section 3 asks for facet counts from the endpoint itself,
-    which does not exist yet, so this reads them the honest way available
-    today instead of inventing the aggregate route.
-  </div>
+  <!-- Designed, because at launch most searches return nothing: a zero
+       state that reads as broken teaches a buyer the site is empty. One
+       that names the filter responsible teaches them how to search, and
+       offers the widest single relaxation rather than dumping them back to
+       everything. The relaxation counts come from a real re-query per
+       active filter (GET /agents with that one filter dropped), never a
+       guess: DATA-CONTRACT.md section 3 asks for facet counts from the
+       endpoint itself, which does not exist yet, so this reads them the
+       honest way available today instead of inventing the aggregate
+       route. Wireframe commentary to the builder, not product copy. -->
 </div>
 
 <footer class="foot">

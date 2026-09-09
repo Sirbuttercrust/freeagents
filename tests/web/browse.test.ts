@@ -9,6 +9,7 @@ import type { AddressInfo } from 'node:net';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 import { createApp } from '../../src/api/app.js';
 import {
   MemoryAgentRepository,
@@ -306,6 +307,22 @@ describe('the browse page (W2, built from spec/wireframe/browse.html)', () => {
       page.close();
     }
   });
+
+  // The wireframe's own design notes (div.note) are commentary addressed
+  // to the builder, never product copy: "read them, do not render them"
+  // (this card's own binding-source instruction). conduct.html and
+  // settings.html already state the correct stance in their own comments.
+  // No rule in the shipped base.css hides .note (that rule lives only in
+  // the wireframe's own base.css, deliberately not ported), so any
+  // surviving .note element renders as plain visible body text.
+  it('carries none of the wireframe\'s builder-facing div.note blocks in the shipped markup', async () => {
+    const page = await render('/browse');
+    try {
+      expect(page.document.querySelectorAll('.note').length).toBe(0);
+    } finally {
+      page.close();
+    }
+  });
 });
 
 // The brief's per-tier table (W2 card), read off the three counts already
@@ -408,6 +425,64 @@ describe('the browse page: zero-state relaxation (DATA-CONTRACT section 3)', () 
       expect(clearAll?.textContent).toBe('Clear all');
     } finally {
       page.close();
+    }
+  });
+});
+
+// jsdom performs no layout, so it can tell a control exists but never
+// whether a real 320px screen renders it under the 44px floor. This drives
+// real headless Chrome the same way tests/web/dashboard.test.ts's own
+// tap-target case does. Fourteen agents (more than PAGE_SIZE=10) so the
+// pager actually renders a page-2 button and a live Next control, matching
+// the review's own reproduction harness.
+describe('the browse page: tap targets at 320px, real Chrome (tap-target-under-44px)', () => {
+  let tapServer: Server;
+  let tapBaseUrl: string;
+
+  beforeAll(async () => {
+    const agentRepo = new MemoryAgentRepository();
+    const operatorDid = 'did:abt:zBrowseTapOperator';
+    for (let i = 0; i < 14; i += 1) {
+      const did = `did:abt:zBrowseTapAgent${i}`;
+      await agentRepo.create({
+        did,
+        operatorDid,
+        delegation: delegation(did),
+        name: `Tap Target Agent ${i}`,
+        skills: ['python'],
+        githubLogin: null,
+      });
+    }
+    const app = createApp(new MemoryAccountRepository(), agentRepo);
+    tapServer = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => tapServer.once('listening', resolve));
+    tapBaseUrl = `http://127.0.0.1:${(tapServer.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => tapServer.close(() => resolve()));
+  });
+
+  it('More filters, the three sort buttons and the pager buttons are all at least 44px tall', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: 320, height: 900 });
+    try {
+      await browser.goto(`${tapBaseUrl}/browse`);
+
+      const undersized = await browser.evaluate<Array<[string, number, number]>>(`
+        Array.from(document.querySelectorAll('.more, .sort button, .pager button'))
+          .map((el) => {
+            const r = el.getBoundingClientRect();
+            return [el.textContent || '', r.width, r.height];
+          })
+          .filter(([, w, h]) => w < 44 || h < 44)
+      `);
+      expect(undersized, `undersized targets: ${JSON.stringify(undersized)}`).toEqual([]);
+    } finally {
+      await browser.close();
     }
   });
 });
