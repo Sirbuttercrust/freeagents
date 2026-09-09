@@ -377,6 +377,34 @@
       meta.appendChild(link);
     }
 
+    /* +added / -removed, N files (DATA-CONTRACT section 4: "verified hire
+       | ... additions/deletions/files ..."). Read straight off the item's
+       own credential-derived fields (agent-work-record.ts's
+       VerifiedHireItem, R-17), never computed here, so a row can never
+       show a diff size the credential itself does not carry. All three
+       fields are required on the type, so an object missing one of them
+       is a malformed item, not a valid absence; typeof guards keep a
+       partially-stubbed test fixture from throwing rather than treating
+       zero as unset. */
+    if (typeof item.additions === "number" && typeof item.deletions === "number" && typeof item.filesChanged === "number") {
+      var diff = document.createElement("span");
+      diff.textContent = "+" + item.additions + " / -" + item.deletions + ", " + A.plural(item.filesChanged, "file", "files");
+      meta.appendChild(diff);
+    }
+
+    /* The job id (DATA-CONTRACT section 4: "verified hire | job id, ...").
+       A credential id is '<base>/v1/credentials/<completedJobId>' (R-40),
+       so its last path segment IS the job id; A.credentialKey applies the
+       exact same rule server-side storage already uses to resolve one
+       (credentialLookupKey, src/adapters/storage/types.ts), rather than a
+       second parsing rule invented here. */
+    var jobId = A.credentialKey(typeof item.credentialId === "string" ? item.credentialId : "");
+    if (jobId !== "") {
+      var job = document.createElement("span");
+      job.textContent = "job " + jobId;
+      meta.appendChild(job);
+    }
+
     if (typeof item.mergeCommit === "string" && item.mergeCommit !== "") {
       var commit = document.createElement("span");
       commit.textContent = "merge " + item.mergeCommit.slice(0, 12);
@@ -396,16 +424,35 @@
 
     /* The verify affordance is present on a verified row and absent on a
        claim, unconditionally: that asymmetry is the whole design
-       (DATA-CONTRACT section 1). */
+       (DATA-CONTRACT section 1). Cloned from #tmpl-verify-hire (Proof
+       round 2, D1 conformance-satisfied-by-dead-markup) rather than a
+       hand-typed string, so the exact wording this row shows and the
+       wording the template markup carries -- the same markup the
+       conformance test scans -- can never drift apart. */
     if (verifyAffordance && typeof item.credentialId === "string" && item.credentialId !== "") {
       var path = A.credentialPath(item.credentialId);
-      if (path) {
-        var verify = document.createElement("a");
-        verify.className = "verify";
-        verify.textContent = "Check this receipt";
+      var template = document.getElementById("tmpl-verify-hire");
+      if (path && template) {
+        var verify = template.content.firstElementChild.cloneNode(true);
         verify.setAttribute("href", path);
         body.appendChild(verify);
       }
+    } else if (!verifyAffordance) {
+      /* Claim rows carry no verify affordance AT ALL (MISSION invariant 4:
+         "the absence of the verify button on a claim is the design").
+         Removing the button and saying nothing would still read as an
+         oversight next to a verified row with a link, so the wireframe
+         pairs the absence with this sentence (spec/wireframe/agent.html:
+         "We cannot check this."), stated once here rather than baked into
+         the row title so it never collides with a real work title if
+         ENT-12 (portfolio claim as its own entity, DATA-CONTRACT section 7
+         gap) lands later. */
+      var cannotCheck = document.createElement("div");
+      cannotCheck.className = "dim";
+      cannotCheck.style.fontSize = "13px";
+      cannotCheck.style.marginTop = "6px";
+      cannotCheck.textContent = "We cannot check this.";
+      body.appendChild(cannotCheck);
     }
 
     node.appendChild(body);

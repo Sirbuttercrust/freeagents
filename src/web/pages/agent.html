@@ -394,7 +394,7 @@
 </div>
 
 <!-- ================================================================
-     ROW TEMPLATES. Never rendered by a browser (the whole point of
+     ROW TEMPLATE. Never rendered by a browser (the whole point of
      <template>): the markup lives here once and agent.js clones from it,
      so the exact control text a buyer eventually sees and the text this
      page's own conformance test scans are the SAME literal source, not a
@@ -402,28 +402,24 @@
 
      tmpl-verify-hire: the verify affordance on a verified-hire row
      (DATA-CONTRACT section 1, wireframe "Verify this credential"). Cloned
-     for every row in agent.value.verifiedHires, which is real, live data.
+     for every row in agent.value.verifiedHires, which is real, live data
+     (agent.js's tierRow: Proof round 2, D1 conformance-satisfied-by-dead-
+     markup -- this template used to sit unused while agent.js hardcoded
+     "Check this receipt" instead, which is fixed here by cloning it).
 
-     tmpl-verify-prior: the verify affordance and the gist-proof link a
-     verified PRIOR-WORK row carries (wireframe: "N commits, signed by the
-     agent key", "gist proof", "re-checked Xh ago", "Check the ownership
-     proof"). agent.value.verifiedPriorWork is always [] today: R-17's
-     three tiers share ONE item shape (agent-work-record.ts,
-     VerifiedHireItem) that carries a credential id, a repository and a
-     pull request, and nothing about commit counts or a gist URL, because
-     no prior-work item has ever reached this route (ENT-11 not wired,
-     the domain module's own header comment says so). So this template is
-     never cloned by agent.js today; it exists so the control vocabulary
-     this section needs is proven ready, without a live control that
-     points nowhere. Handoff gap 3: extend VerifiedHireItem (or a sibling
-     type) with gistUrl, commitCount and lastCheckedAt before this
-     template's markup can render for real. -->
+     The prior-work equivalents (a gist-proof link and a "Check the
+     ownership proof" button) are NOT templated here any more: R-17's three
+     tiers share ONE item shape (agent-work-record.ts, VerifiedHireItem)
+     that carries a credential id, a repository and a pull request, and
+     nothing about commit counts or a gist URL, because no prior-work item
+     has ever reached this route (ENT-11 not wired, the domain module's own
+     header comment says so). A template with no caller is dead markup
+     (Proof round 2, D1): removed rather than left inert, with the two
+     wireframe controls it carried listed in ALLOWED_ABSENT.agent below,
+     each with the same reason. Handoff gap: extend VerifiedHireItem (or a
+     sibling type) with gistUrl, commitCount and lastCheckedAt, then bring
+     both controls back as real cloned markup the same way this one is. -->
 <template id="tmpl-verify-hire"><a class="verify" href="#">Verify this credential</a></template>
-<template id="tmpl-verify-prior">
-  <span>signed by the agent key</span>
-  <a class="verify-gist" href="#">gist proof</a>
-</template>
-<template id="tmpl-verify-prior-affordance"><a class="verify" href="#">Check the ownership proof</a></template>
 
 <footer class="foot">
   <div class="wrap inner">

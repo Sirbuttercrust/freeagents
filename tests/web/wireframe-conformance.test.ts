@@ -56,6 +56,17 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Hires 12': 'same reason as "All 45": a live count, never the wireframe\u2019s sample digit',
     'Prior 31': 'same reason as "All 45": a live count, never the wireframe\u2019s sample digit',
     'Claims 2': 'same reason as "All 45": a live count, never the wireframe\u2019s sample digit',
+    // Proof round 2, D1 (conformance-satisfied-by-dead-markup): these two
+    // prior-work controls used to sit inside <template> elements that
+    // nothing cloned, so removed conformance-agent-carries-every-control's
+    // pass by neither a page change nor an honest absence. R-17's three
+    // tiers share ONE item shape (VerifiedHireItem, agent-work-record.ts)
+    // that carries no commit count or gist URL, because no prior-work item
+    // has ever reached this route (ENT-11 not wired). Both controls are
+    // removed until that type gains gistUrl/commitCount/lastCheckedAt
+    // (handoff gap, this card).
+    'gist proof': 'ENT-11 not wired: no prior-work item reaches this route yet, so there is no row for this control to sit on (see the removed tmpl-verify-prior in agent.html)',
+    'Check the ownership proof': 'same reason as "gist proof": ENT-11 not wired, no prior-work row exists for this affordance yet',
   },
   browse: {},
   operator: {},

@@ -285,3 +285,41 @@ describe('"What it works on" renders honest facts (wireframe agent.html)', () =>
     expect(listedSince).not.toBe('not yet observed');
   });
 });
+
+// Round 2 (Proof FAIL, commit a7fbb89): D1 conformance-satisfied-by-dead-markup
+// and D2 wireframe-element-absent. Both fixed at the row-rendering level
+// (agent.js's tierRow), never by widening the conformance test's string
+// scan: a verified-hire row now carries the wireframe's own verify wording,
+// its diff size and job id (DATA-CONTRACT section 4, now readable off
+// CredentialEvidence's additions/deletions/filesChanged, R-17), and a claim
+// row carries the wireframe's "We cannot check this." sentence beside the
+// verify link's absence (MISSION invariant 4).
+describe('verified-hire and claim rows carry the wireframe row shape (Proof round 2, D1/D2)', () => {
+  it('a verified-hire row\'s verify affordance reads the wireframe\'s own wording, "Verify this credential"', async () => {
+    const document = await render();
+    const hireRow = document.getElementById('history')?.firstElementChild;
+    const verify = hireRow?.querySelector('.verify');
+    expect(verify?.textContent).toBe('Verify this credential');
+  });
+
+  it('a verified-hire row carries +added/-removed, N files, and its job id (DATA-CONTRACT section 4)', async () => {
+    const document = await render();
+    const hireRow = document.getElementById('history')?.firstElementChild;
+    const meta = hireRow?.querySelector('.meta')?.textContent ?? '';
+    expect(meta).toContain('+10 / -2, 1 file');
+    expect(meta).toContain('job tabs-job-hire');
+  });
+
+  it('a portfolio claim row carries "We cannot check this." and no verify affordance (MISSION invariant 4)', async () => {
+    const document = await render();
+    const claimRow = document.getElementById('portfolio')?.firstElementChild;
+    expect(claimRow?.textContent).toContain('We cannot check this.');
+    expect(claimRow?.querySelector('.verify')).toBeNull();
+  });
+
+  it('a verified-hire row carries no "We cannot check this." sentence (the absence is claim-only)', async () => {
+    const document = await render();
+    const hireRow = document.getElementById('history')?.firstElementChild;
+    expect(hireRow?.textContent ?? '').not.toContain('We cannot check this.');
+  });
+});

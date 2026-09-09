@@ -16,6 +16,9 @@ function credential(overrides: Partial<CredentialEvidence> = {}): CredentialEvid
     mergeCommit: 'deadbeef',
     buyerDid: 'did:example:buyer',
     repositoryPublic: true,
+    additions: 42,
+    deletions: 7,
+    filesChanged: 3,
     ...overrides,
   };
 }
@@ -32,6 +35,9 @@ describe('agentWorkRecord', () => {
         mergedAt: '2026-01-03T00:00:00.000Z',
         mergeCommit: 'deadbeef',
         buyerDid: 'did:example:buyer',
+        additions: 42,
+        deletions: 7,
+        filesChanged: 3,
       },
     ]);
     expect(record.portfolio).toEqual([]);
@@ -49,6 +55,9 @@ describe('agentWorkRecord', () => {
         mergedAt: '2026-01-03T00:00:00.000Z',
         mergeCommit: 'deadbeef',
         buyerDid: 'did:example:buyer',
+        additions: 42,
+        deletions: 7,
+        filesChanged: 3,
       },
     ]);
   });
