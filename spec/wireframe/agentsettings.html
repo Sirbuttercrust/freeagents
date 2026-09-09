@@ -89,8 +89,18 @@
       </div>
 
       <div>
-        <label class="small" style="display:block; color:var(--fg-2); margin-bottom:9px">Banner</label>
-        <div class="swatches">
+        <!-- A GROUP CAPTION, NOT A LABEL. This was a bare <label> naming
+             nothing: the banner control is five <button> swatches, and a
+             label with no `for` and no wrapped field announces itself to a
+             screen reader as labelling a form field that does not exist.
+             It is also a 292x21 tap target that does nothing when tapped.
+
+             A caption over a group of controls is what <fieldset>/<legend>
+             is for, and the group gets role="group" wiring through
+             aria-labelledby so the buttons announce as a set. -->
+        <div class="small" id="bannerlbl"
+             style="display:block; color:var(--fg-2); margin-bottom:9px">Banner</div>
+        <div class="swatches" role="group" aria-labelledby="bannerlbl">
           <div>
             <button type="button" class="swatch" data-pattern="grid" data-label="Grid" aria-pressed="true" aria-label="Grid banner"></button>
             <span class="swatch-lbl">Grid</span>

@@ -11,9 +11,14 @@ Checks per screen:
      leaves an empty span, which is invisible rather than loud)
   4. no interactive control left inert (a button with no handler attribute)
   5. no horizontal overflow at 320px
-  6. every tap target at least 44px under a real touch profile
+  6. every tap target at least 44px under a real touch profile, in EVERY
+     reachable state: closed, with every disclosure and drawer open, and
+     with each dialog open on its own. The count of states opened is printed,
+     because a gate that opens nothing reports a clean page in both the
+     broken and the fixed state and looks identical either way.
 
-Run with the wireframe served on 8821:
+Run with the wireframe served on 3111:
+    python3 devserver.py 3111 &
     python3 verify_polish.py
 """
 import sys, json, time
@@ -36,6 +41,9 @@ try:
     from webgrab import Browser
 except ImportError:
     from wirebrowse import Browser
+
+# The tap-target probe, shared with measure_taps.py and verify_flow.py.
+import tapfloor
 
 BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3111/")
 SCREENS = [
@@ -88,78 +96,11 @@ DESKTOP = """(function(){
   });
 })()"""
 
-TOUCH = """(function(){
-  /* IN A SENTENCE: the WCAG 2.5.8 inline exemption, tested against the
-     property the exemption is actually about.
-
-     Three wrong definitions were tried first, and each let a different real
-     defect through:
-
-       "display starts with inline AND the parent holds more text than the
-       link"  ->  excused four 71x18 roster names, because a card title sitting
-       on its own line above a description is a standalone target that happens
-       to be displayed inline.
-
-       "some other text rect overlaps the link's line"  ->  at 320px
-       "operated by northline.dev" WRAPS, so the link sits alone on the second
-       line and a purely geometric test calls a sentence a standalone control.
-       A wrapped sentence is still a sentence.
-
-       "any inline sibling anywhere in the parent carries text"  ->  excused a
-       "Back to settings" link because an inline-flex submit button sat 600px
-       further down the same wrapper. Distance in the DOM is not distance in
-       the sentence.
-
-     What the exemption is really about is whether the link is a run inside a
-     flow of text, and an inline formatting context is BOUNDED BY BLOCK BOXES.
-     So walk out from the link in both directions and stop at the first
-     block-level sibling. Only the text inside that run is the link's sentence. */
-  function inSentence(e) {
-    var p = e.parentElement;
-    if (!p) return false;
-    function isInline(n) {
-      var d = getComputedStyle(n).display;
-      return d.indexOf('inline') === 0 || d === 'contents';
-    }
-    function scan(dir) {
-      for (var n = e[dir]; n; n = n[dir]) {
-        if (n.nodeType === 3) {
-          if ((n.nodeValue || '').trim()) return true;
-          continue;
-        }
-        if (n.nodeType !== 1) continue;
-        if (!isInline(n)) return false;          /* block box ends the run */
-        if ((n.textContent || '').trim()) return true;
-      }
-      return false;
-    }
-    return scan('previousSibling') || scan('nextSibling');
-  }
-
-  var bad = [];
-  var els = document.querySelectorAll('a,button');
-  for (var i = 0; i < els.length; i++) {
-    var e = els[i];
-    var r = e.getBoundingClientRect();
-    if (r.width <= 0 || r.height <= 0) continue;
-    if (inSentence(e)) continue;
-
-    /* BOTH AXES. A control 20px wide and 44px tall is not a 44px target, and
-       reading only the height is how four 33x44 edit controls, three 32x44
-       pager buttons and two 20x44 rail anchors passed for a month. The
-       comment on the coarse-pointer block in agreement.css names this exact
-       shape as the defect that block was written for. */
-    if (r.height < 43.5 || r.width < 43.5) {
-      bad.push(((e.textContent||'').trim().slice(0,20) || e.className) +
-               ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
-    }
-  }
-  return JSON.stringify({
-    coarse: window.matchMedia('(pointer: coarse)').matches,
-    docW: document.documentElement.scrollWidth,
-    small: bad
-  });
-})()"""
+TOUCH_NOTE = """The touch probe lives in tapfloor.py, shared with
+measure_taps.py and verify_flow.py. Three copies of it drifted three different
+ways: one read only the height, all three read only `a,button`, and none of
+them opened a disclosure before reading. Twelve real failures sat behind that.
+One probe, one selector list, one set of exemptions."""
 
 fails = []
 rows = []
@@ -204,12 +145,9 @@ SWEPT = SCREENS + SUPERSEDED
 
 b = Browser(width=320, height=640)
 try:
-    b.send("Emulation.setDeviceMetricsOverride", width=320, height=640,
-           deviceScaleFactor=2, mobile=True)
-    b.send("Emulation.setTouchEmulationEnabled", enabled=True, maxTouchPoints=5)
+    tapfloor.touch(b)
     for i, s in enumerate(SWEPT):
-        b.goto(BASE + s, wait=1.6)
-        t = json.loads(b.js(TOUCH))
+        t = tapfloor.sweep(b, BASE + s)
         # ASSERT THE BRANCH APPLIED before trusting one number out of it.
         # Desktop Chrome sized to 320px does not match (pointer: coarse), so a
         # sweep without this line can measure the desktop rules and report a
@@ -219,21 +157,30 @@ try:
                   "profile did not apply and no number below is trustworthy" % s)
             sys.exit(2)
         rows[i]["docW"] = t["docW"]
-        rows[i]["small"] = t["small"]
+        rows[i]["opened"] = t["opened"]
+        rows[i]["small"] = [tapfloor.fmt(x) for x in t["bad"]]
         if t["docW"] > 320:
             fails.append("%s: horizontal overflow, scrollWidth %s" % (s, t["docW"]))
-        if t["small"]:
-            fails.append("%s: tap targets under 44px %s" % (s, t["small"][:4]))
+        if rows[i]["small"]:
+            fails.append("%s: tap targets under 44px %s" % (s, rows[i]["small"][:4]))
 finally:
     b.close()
 
-print("%-20s %7s %7s %6s" % ("screen", "icons", "width", "small"))
-print("-" * 46)
+# TOTAL STATES OPENED, printed rather than assumed. Round 3 of review found
+# this gate opening nothing at all while being credited with the open-state
+# coverage for 27 of 33 screens. A zero here now says so on the face of the
+# report instead of hiding inside a green result.
+opened_total = sum(r.get("opened", 0) for r in rows)
+
+print("%-20s %7s %7s %7s %6s" % ("screen", "icons", "width", "opened", "small"))
+print("-" * 54)
 for r in rows:
-    print("%-20s %7d %7d %6d" % (r["screen"], r["painted"], r["docW"], len(r["small"])))
+    print("%-20s %7d %7d %7d %6d"
+          % (r["screen"], r["painted"], r["docW"], r.get("opened", 0), len(r["small"])))
 
 print("\nscreens checked: %d" % len(rows))
 print("total icons painted: %d" % sum(r["painted"] for r in rows))
+print("states opened before measuring: %d" % opened_total)
 
 if fails:
     print("\nFAILURES (%d):" % len(fails))

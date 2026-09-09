@@ -562,7 +562,14 @@ kbd {
      the height-only check that let it stand for a month is the defect
      verify_polish.py's touch probe was rewritten to catch. */
   .sort button, .pager button { min-height: 44px; min-width: 44px; }
-  .drawer label { padding: 10px 0; }
+
+  /* .drawer label carried `padding: 10px 0` here and NEVER APPLIED. browse.html
+     defines .drawer itself and writes `padding: 4px 0` on the same selector in
+     a page-local <style>, which wins at equal specificity because it comes
+     after the linked stylesheets. The label measured 292x29 for a month with a
+     floor sitting in this file. The working floor is min-height, below, and
+     browse.html carries a copy in its own block. A property some pages
+     override is not a floor. */
 
   /* The brand is a link home on every screen, so it is a real target. */
   .brand { min-height: 44px; }
@@ -649,5 +656,43 @@ kbd {
   .act {
     min-height: 44px; min-width: 44px; display: inline-flex; align-items: center;
     justify-content: center; padding: 0 8px;
+  }
+
+  /* A LABEL WRAPPING A CHECKBOX OR RADIO IS THE TARGET, so it takes the floor.
+     The 13px dot is not what a thumb lands on and it is not what activates
+     the control: the label is both.
+
+     DESIGN.md 5.3 exempts "a radio or checkbox whose label clears the floor"
+     and names a 244x89 label as the case. That exemption was being read as
+     "any checkbox inside any label", which is how eleven facet checkboxes in
+     browse's drawer stood at 292x29 and a notification toggle at 45x21 while
+     three rounds of gates reported a clean set. An exemption is a statement
+     that some OTHER element meets the floor, so the other element has to
+     meet it.
+
+     This is the general rule. flow.css's .railopt and .picker labels already
+     set their own heights and clear it on both axes, and they are untouched
+     by this: a min-height cannot lower them. */
+  label:has(> input[type="checkbox"]),
+  label:has(> input[type="radio"]) {
+    min-height: 44px;
+  }
+}
+
+/* THE SAME FLOOR WITHOUT :has(), for a browser that does not support it.
+
+   :has() is the correct selector here and it degrades in the one way that
+   matters: silently. A browser without it drops the rule and paints a 29px
+   label that looks exactly like a 44px one in a screenshot. So the markup
+   pattern that produces these gets the floor a second way, keyed on the flex
+   layout the labels already use, and both routes are measured by
+   verify_polish.py rather than assumed.
+
+   Outside the :has() block on purpose. A parse failure inside a selector list
+   takes the whole rule with it, so these must not share a block. */
+@media (pointer: coarse) {
+  .drawer label,
+  .between label.row {
+    min-height: 44px;
   }
 }

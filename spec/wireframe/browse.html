@@ -144,6 +144,13 @@
      of the floor wide is not a 44px target. */
   @media (pointer: coarse) {
     .pager button { min-width: 44px; min-height: 44px; height: auto; }
+    /* The facet label is the tap target for its checkbox, not the 13px dot,
+       so the label takes the floor. It lives here as well as in polish.css
+       for the same reason .pager does: this page defines .drawer label
+       itself, and a page-local rule beats a linked one at equal specificity.
+       The shared rule's `padding: 10px 0` had been silently losing to the
+       `padding: 4px 0` above since it was written. */
+    .drawer label { min-height: 44px; }
   }
 
   @media (max-width: 760px) {
