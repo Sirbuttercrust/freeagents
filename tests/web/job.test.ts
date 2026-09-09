@@ -255,7 +255,7 @@ describe('an unknown job id answers a readable page, not raw JSON and not a blan
   });
 });
 
-describe('fourteen of the sixteen JobStatus values render a distinct plain sentence here (redo_requested and cited_closed have dedicated coverage below and in tests/web/staged.test.ts)', () => {
+describe('fourteen of the sixteen JobStatus values render a distinct plain sentence here (cited_closed has dedicated coverage below in this file, redo_requested has dedicated coverage in tests/web/staged.test.ts)', () => {
   const allStatuses: readonly JobStatus[] = [
     'draft',
     'proposed',
@@ -288,7 +288,7 @@ describe('fourteen of the sixteen JobStatus values render a distinct plain sente
     return `job-status-${status}`;
   }
 
-  it('covers exactly fourteen of the sixteen prisma JobStatus values (all but redo_requested and cited_closed), so a status with no sentence cannot go unnoticed', () => {
+  it('covers exactly fourteen of the sixteen prisma JobStatus values (all but cited_closed, covered below in this file, and redo_requested, covered in tests/web/staged.test.ts), so a status with no sentence cannot go unnoticed', () => {
     expect(allStatuses.length).toBe(14);
   });
 
