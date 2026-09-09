@@ -151,12 +151,39 @@
        The shared rule's `padding: 10px 0` had been silently losing to the
        `padding: 4px 0` above since it was written. */
     .drawer label { min-height: 44px; }
+
+    /* AND THE GROUPS HAVE TO SEPARATE AGAIN. Raising eleven 29px rows to 44px
+       pushes the items apart and leaves the gap between groups where it was,
+       so the heading stops reading as a heading and starts reading as another
+       row. Measured text to text: the space before a heading was 2.0x the
+       space between two items and the floor alone took it to 1.3x. The
+       separation has to scale with the row height, so the group gap goes up
+       with it. measure_groupgap.py is the instrument.
+
+       The gap itself is set in the max-width block below, NOT here. At 320px
+       both queries match, that block comes later in the file, and `.drawer`
+       is the same specificity in each, so a gap written here loses silently.
+       Setting it here first is exactly the mistake this page already
+       documents twice, and it cost another round trip to rediscover: the
+       measurement did not move, which is the tell that the rule is not
+       running. */
   }
 
   @media (max-width: 760px) {
+    /* One column, so the three facet groups stack and the gap that used to
+       separate columns now separates GROUPS. 20px was right beside 29px rows;
+       beside 44px rows the heading stops reading as a heading. See the note
+       in the coarse-pointer block above. */
     .drawer { grid-template-columns: 1fr; gap: 20px; }
     .agent { grid-template-columns: 40px 1fr; }
     .agent .right { grid-column: 2; align-items: flex-start; text-align: left; }
+  }
+
+  /* The touch gap, last, so it beats the max-width block at equal
+     specificity. Both queries match at 320px and the cascade decides on
+     source order. */
+  @media (pointer: coarse) and (max-width: 760px) {
+    .drawer { gap: 40px; }
   }
 </style>
 </head>
