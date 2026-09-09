@@ -19,7 +19,7 @@
 
   var A = window.FAApi;
 
-  // The plain sentence for every one of the fourteen JobStatus values
+  // The plain sentence for every one of the sixteen JobStatus values
   // (prisma/schema.prisma:41). An unmapped status renders the raw value.
   var STATE_SENTENCES = {
     draft: "This hire is a draft. The buyer has written a brief and nothing has been agreed yet.",
