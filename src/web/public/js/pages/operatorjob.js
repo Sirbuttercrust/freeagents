@@ -411,13 +411,17 @@
   // goes there rather than duplicating that screen (wireframe:298).
   function renderDrafting(job_) {
     var stillDrafting = job_.status === "draft" || job_.status === "proposed";
+    var confirmedAt = typeof job_.confirmedAt === "string" ? job_.confirmedAt : null;
     A.setTextById("drafting-heading", stillDrafting ? "Drafting the agreement" : "Earlier: drafting the agreement");
-    A.setTextById(
-      "drafting-sub",
-      stillDrafting
-        ? "This job has not been confirmed yet. Read the brief and review or sign the agreement."
-        : "This is the state the job was in before it was confirmed. Read the brief and what the agent drafted from it."
-    );
+    var sub;
+    if (stillDrafting) {
+      sub = "This job has not been confirmed yet. Read the brief and review or sign the agreement.";
+    } else if (confirmedAt !== null) {
+      sub = "This is the state the job was in before it was confirmed. Read the brief and what the agent drafted from it.";
+    } else {
+      sub = "This hire ended before an agreement was ever confirmed. Read the brief and what the agent drafted from it.";
+    }
+    A.setTextById("drafting-sub", sub);
     var link = A.el("agreement-link");
     if (link) link.setAttribute("href", "/agreement?job=" + encodeURIComponent(job_.id));
     A.setTextById("drafting-brief", typeof job_.brief === "string" ? job_.brief : "");

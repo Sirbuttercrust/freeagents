@@ -307,6 +307,13 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
 
     // Draft, for the drafting-section link.
     await jobRepo.create(jobFixture({ id: 'job-draft', status: 'draft', criteria: [] }));
+
+    // qa D2, round 2: draft and proposed can both be declined or withdrawn
+    // (job.ts:348-349) without ever reaching confirmed. jobProjection omits
+    // confirmedAt entirely for such a row (app.ts:353-356), so these two
+    // fixtures carry no confirmedSpecHash and no confirmedAt.
+    await jobRepo.create(jobFixture({ id: 'job-withdrawn-never-confirmed', status: 'withdrawn', criteria: [] }));
+    await jobRepo.create(jobFixture({ id: 'job-declined-never-confirmed', status: 'declined', criteria: [] }));
   });
 
   afterAll(async () => {
@@ -766,6 +773,31 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
         expect(sub?.textContent).toBe('This is the state the job was in before it was confirmed. Read the brief and what the agent drafted from it.');
       } finally {
         page.close();
+      }
+    });
+
+    // qa D2, round 2: the round-1 fix split the sub two ways on
+    // stillDrafting (draft/proposed), so every other status, including a
+    // job that was declined or withdrawn straight out of draft/proposed and
+    // never confirmed, got the sentence that claims it "was confirmed". That
+    // is false for these two: draft/proposed can go straight to declined or
+    // withdrawn without ever reaching confirmed (job.ts:348-349), and
+    // jobProjection omits confirmedAt entirely for such a row
+    // (app.ts:353-356). The sub must track the confirmation fact the
+    // payload actually carries, not just "not still drafting".
+    it('a job declined or withdrawn before it was ever confirmed never claims it was confirmed', async () => {
+      const withdrawn = await renderOperatorJob(baseUrl, 'job-withdrawn-never-confirmed', operatorSession);
+      const declined = await renderOperatorJob(baseUrl, 'job-declined-never-confirmed', operatorSession);
+      try {
+        const withdrawnSub = withdrawn.document.getElementById('drafting-sub')?.textContent ?? '';
+        const declinedSub = declined.document.getElementById('drafting-sub')?.textContent ?? '';
+        expect(withdrawnSub).toBe('This hire ended before an agreement was ever confirmed. Read the brief and what the agent drafted from it.');
+        expect(declinedSub).toBe('This hire ended before an agreement was ever confirmed. Read the brief and what the agent drafted from it.');
+        expect(withdrawnSub).not.toBe('This is the state the job was in before it was confirmed. Read the brief and what the agent drafted from it.');
+        expect(withdrawn.document.getElementById('drafting-section')?.hidden).toBe(false);
+      } finally {
+        withdrawn.close();
+        declined.close();
       }
     });
   });
