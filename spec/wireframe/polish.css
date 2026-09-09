@@ -532,7 +532,11 @@ kbd {
   .nav .inner > .btn-sm { min-height: 44px; }
   .tabs button { min-height: 44px; }
   .notetoggle { height: 44px; }
-  .sort button, .pager button { min-height: 44px; }
+  /* min-WIDTH as well as height. The pager's numbered buttons measured
+     32x44: a control two thirds of the floor wide is not a 44px target, and
+     the height-only check that let it stand for a month is the defect
+     verify_polish.py's touch probe was rewritten to catch. */
+  .sort button, .pager button { min-height: 44px; min-width: 44px; }
   .drawer label { padding: 10px 0; }
 
   /* The brand is a link home on every screen, so it is a real target. */
@@ -547,8 +551,24 @@ kbd {
   .avatardrop a { min-height: 44px; display: flex; align-items: center; }
 
   /* Standalone back links ("Back to the job", "Back to settings") are
-     navigation, not prose, so they get the floor too. */
-  .backlink { min-height: 44px; display: inline-flex; align-items: center; }
+     navigation, not prose, so they get the floor too.
+
+     .backlink was the class this rule was written for and NO markup ever used
+     it, so the rule sat dead while three back links stood at 15px tall. What
+     the pages actually write is an a.small directly inside .narrow, above the
+     h1. Keyed on that, and left as two selectors so a page that does adopt
+     .backlink is covered as well. */
+  .backlink,
+  .narrow > a.small[href] {
+    min-height: 44px; min-width: 44px; display: inline-flex; align-items: center;
+  }
+
+  /* An agent's name at the top of a roster row is the row's primary link and
+     sits on its own line above the description, so it is a target rather than
+     a word in a sentence. Measured 71x18. */
+  .arow .nm, .agent .nm {
+    min-height: 44px; display: inline-flex; align-items: center;
+  }
 
   /* The footer is a row of four standalone links on every screen, and a
      "See all" or a per-row "Settings" link is a control in a list, not a word
@@ -566,7 +586,8 @@ kbd {
   .rows .small[href],
   .between .small[href],
   .sechead .small[href] {
-    min-height: 44px; display: inline-flex; align-items: center;
+    min-height: 44px; min-width: 44px; display: inline-flex; align-items: center;
+    justify-content: center;
   }
 
   /* The remaining standalone controls, each found by measurement rather than
@@ -586,11 +607,22 @@ kbd {
   .ident a,
   .facts dd > a,
   .lbl > a {
-    min-height: 44px; display: inline-flex; align-items: center;
+    min-height: 44px; min-width: 44px; display: inline-flex; align-items: center;
+    justify-content: center;
   }
 
   /* Small inline row actions ("edit", "remove" on the criteria list) sit in a
      dense list, so they take the floor as a hit area with side padding rather
-     than as a taller line that would break the row. */
-  .act { min-height: 44px; display: inline-flex; align-items: center; padding: 0 8px; }
+     than as a taller line that would break the row.
+
+     min-WIDTH matters more here than anywhere else on the site. "edit" is four
+     characters and measured 33x44, and it is the only control that reopens a
+     signed line of a paid agreement. agreement.css carries the same floor for
+     the pages that load it; this copy is what reaches criteria.html and
+     confirm.html, which load base.css and polish.css only. A floor that lives
+     in a stylesheet two of the screens do not load is not a floor. */
+  .act {
+    min-height: 44px; min-width: 44px; display: inline-flex; align-items: center;
+    justify-content: center; padding: 0 8px;
+  }
 }

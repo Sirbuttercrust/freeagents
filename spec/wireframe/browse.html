@@ -136,6 +136,16 @@
   .pager button[aria-current="page"] { background: var(--bg-2); color: var(--fg); border-color: var(--line-2); }
   .pager button:disabled { opacity: .4; cursor: default; }
 
+  /* THE TOUCH FLOOR LIVES HERE, not only in polish.css, because this page
+     defines .pager itself. polish.css carries the same floor, but a page-local
+     rule of equal specificity written after the linked stylesheets wins the
+     cascade, so the shared floor was silently losing and the numbered buttons
+     measured 32x44 under a real touch profile. Both axes: a button two thirds
+     of the floor wide is not a 44px target. */
+  @media (pointer: coarse) {
+    .pager button { min-width: 44px; min-height: 44px; height: auto; }
+  }
+
   @media (max-width: 760px) {
     .drawer { grid-template-columns: 1fr; gap: 20px; }
     .agent { grid-template-columns: 40px 1fr; }

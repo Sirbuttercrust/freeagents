@@ -465,8 +465,14 @@ button.sig:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px;
    defect wearing a word instead of a glyph. */
 @media (pointer: coarse) {
   button.sig { min-height: 44px; padding: 3px 13px 3px 8px; }
+  /* BOTH AXES. min-height alone measured 22x44 on the edit control, which is
+     the exact failure this block was written for and the one the note below
+     names. A floor on one axis is not a floor. */
   .terms .act { min-height: 44px; min-width: 44px; }
-  .steps li a { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; }
+  .steps li a {
+    min-height: 44px; min-width: 44px; display: inline-flex; align-items: center;
+    justify-content: center;
+  }
 }
 
 /* ============================================ THE FIXED TERMS, AND THE RAIL

@@ -89,26 +89,76 @@ DESKTOP = """(function(){
 })()"""
 
 TOUCH = """(function(){
+  /* IN A SENTENCE: the WCAG 2.5.8 inline exemption, tested against the
+     property the exemption is actually about.
+
+     Three wrong definitions were tried first, and each let a different real
+     defect through:
+
+       "display starts with inline AND the parent holds more text than the
+       link"  ->  excused four 71x18 roster names, because a card title sitting
+       on its own line above a description is a standalone target that happens
+       to be displayed inline.
+
+       "some other text rect overlaps the link's line"  ->  at 320px
+       "operated by northline.dev" WRAPS, so the link sits alone on the second
+       line and a purely geometric test calls a sentence a standalone control.
+       A wrapped sentence is still a sentence.
+
+       "any inline sibling anywhere in the parent carries text"  ->  excused a
+       "Back to settings" link because an inline-flex submit button sat 600px
+       further down the same wrapper. Distance in the DOM is not distance in
+       the sentence.
+
+     What the exemption is really about is whether the link is a run inside a
+     flow of text, and an inline formatting context is BOUNDED BY BLOCK BOXES.
+     So walk out from the link in both directions and stop at the first
+     block-level sibling. Only the text inside that run is the link's sentence. */
+  function inSentence(e) {
+    var p = e.parentElement;
+    if (!p) return false;
+    function isInline(n) {
+      var d = getComputedStyle(n).display;
+      return d.indexOf('inline') === 0 || d === 'contents';
+    }
+    function scan(dir) {
+      for (var n = e[dir]; n; n = n[dir]) {
+        if (n.nodeType === 3) {
+          if ((n.nodeValue || '').trim()) return true;
+          continue;
+        }
+        if (n.nodeType !== 1) continue;
+        if (!isInline(n)) return false;          /* block box ends the run */
+        if ((n.textContent || '').trim()) return true;
+      }
+      return false;
+    }
+    return scan('previousSibling') || scan('nextSibling');
+  }
+
   var bad = [];
   var els = document.querySelectorAll('a,button');
   for (var i = 0; i < els.length; i++) {
     var e = els[i];
     var r = e.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) continue;
+    if (inSentence(e)) continue;
 
-    /* A link INSIDE a sentence is not a tap target in the 44px sense: its hit
-       area is the line box, and padding it to 44px would wreck the paragraph
-       it sits in. WCAG 2.5.8 exempts inline links in a block of text for
-       exactly this reason. Standalone controls are what the floor is for, so
-       only those are measured. */
-    var p = e.parentElement;
-    var inlineInProse = p && getComputedStyle(e).display.indexOf('inline') === 0 &&
-                        (p.textContent || '').trim().length > (e.textContent || '').trim().length + 2;
-    if (inlineInProse) continue;
-
-    if (r.height < 44) bad.push(((e.textContent||'').trim().slice(0,20) || e.className) + ' h=' + Math.round(r.height));
+    /* BOTH AXES. A control 20px wide and 44px tall is not a 44px target, and
+       reading only the height is how four 33x44 edit controls, three 32x44
+       pager buttons and two 20x44 rail anchors passed for a month. The
+       comment on the coarse-pointer block in agreement.css names this exact
+       shape as the defect that block was written for. */
+    if (r.height < 43.5 || r.width < 43.5) {
+      bad.push(((e.textContent||'').trim().slice(0,20) || e.className) +
+               ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
+    }
   }
-  return JSON.stringify({ docW: document.documentElement.scrollWidth, small: bad });
+  return JSON.stringify({
+    coarse: window.matchMedia('(pointer: coarse)').matches,
+    docW: document.documentElement.scrollWidth,
+    small: bad
+  });
 })()"""
 
 fails = []
@@ -160,6 +210,14 @@ try:
     for i, s in enumerate(SWEPT):
         b.goto(BASE + s, wait=1.6)
         t = json.loads(b.js(TOUCH))
+        # ASSERT THE BRANCH APPLIED before trusting one number out of it.
+        # Desktop Chrome sized to 320px does not match (pointer: coarse), so a
+        # sweep without this line can measure the desktop rules and report a
+        # clean pass on a layout that has no floors at all.
+        if not t["coarse"]:
+            print("ABORT: (pointer: coarse) did not match on %s; the touch "
+                  "profile did not apply and no number below is trustworthy" % s)
+            sys.exit(2)
         rows[i]["docW"] = t["docW"]
         rows[i]["small"] = t["small"]
         if t["docW"] > 320:
