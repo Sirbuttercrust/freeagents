@@ -12,6 +12,9 @@
 // /jobs/<id> got the bare `{"id":...}` JSON body, not a page.
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -20,6 +23,8 @@ import { createApp } from '../../src/api/app.js';
 import { MemoryJobRepository } from '../../src/adapters/storage/memory.js';
 import { createJob, type Job, type JobStatus } from '../../src/domain/job.js';
 
+const here = dirname(fileURLToPath(import.meta.url));
+const repoRoot = join(here, '../..');
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 
 function jobFixture(overrides: Partial<Job> & { id: string }): Job {
@@ -250,7 +255,7 @@ describe('an unknown job id answers a readable page, not raw JSON and not a blan
   });
 });
 
-describe('every one of the fourteen JobStatus values renders a distinct plain sentence', () => {
+describe('fourteen of the sixteen JobStatus values render a distinct plain sentence here (redo_requested and cited_closed have dedicated coverage below and in tests/web/staged.test.ts)', () => {
   const allStatuses: readonly JobStatus[] = [
     'draft',
     'proposed',
@@ -283,7 +288,7 @@ describe('every one of the fourteen JobStatus values renders a distinct plain se
     return `job-status-${status}`;
   }
 
-  it('covers exactly the fourteen prisma JobStatus values, so a status with no sentence cannot go unnoticed', () => {
+  it('covers exactly fourteen of the sixteen prisma JobStatus values (all but redo_requested and cited_closed), so a status with no sentence cannot go unnoticed', () => {
     expect(allStatuses.length).toBe(14);
   });
 
@@ -391,5 +396,38 @@ describe('the brief goes into the DOM through textContent, never as markup', () 
     } finally {
       page.close();
     }
+  });
+});
+
+// A pinning check for the prose count, so it can never again drift the
+// way "fourteen" drifted here: this reads both source files as text
+// (never imports job.js, which is a browser IIFE with no export) and
+// compares the enum's own member set against STATE_SENTENCES's key set,
+// not just their lengths. Removing a status from STATE_SENTENCES without
+// removing it from the schema, or the reverse, reddens this even if the
+// two sets happened to stay the same size.
+describe('STATE_SENTENCES in job.js covers exactly the JobStatus values prisma/schema.prisma declares', () => {
+  it('the two sets match member for member', () => {
+    const schema = readFileSync(join(repoRoot, 'prisma/schema.prisma'), 'utf8');
+    const enumBody = schema.match(/enum JobStatus \{([\s\S]*?)\n\}/);
+    if (enumBody === null) throw new Error('enum JobStatus not found in prisma/schema.prisma');
+    const schemaStatuses = (enumBody[1] ?? '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('//'))
+      .sort();
+
+    const jobJs = readFileSync(join(repoRoot, 'src/web/public/js/pages/job.js'), 'utf8');
+    const sentencesBody = jobJs.match(/var STATE_SENTENCES = \{([\s\S]*?)\n {2}\};/);
+    if (sentencesBody === null) throw new Error('STATE_SENTENCES not found in job.js');
+    const sentenceKeys = (sentencesBody[1] ?? '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '')
+      .map((line) => line.match(/^([a-zA-Z_]+):/)?.[1])
+      .filter((key): key is string => key !== undefined)
+      .sort();
+
+    expect(sentenceKeys, 'STATE_SENTENCES keys do not match the JobStatus enum members').toEqual(schemaStatuses);
   });
 });
