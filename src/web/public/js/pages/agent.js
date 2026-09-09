@@ -76,17 +76,29 @@
          responses carry for the same hire. Built before renderSummary so
          the summary's self-hire count and the rows' self-hire labels come
          from the same map and can never disagree with each other either.
-         A failed /hires read yields an empty map (selfHireLookup), which
-         renderSummary tells apart from "resolved to zero" by looking at
-         hires.state itself, not by the map's emptiness. */
+         A failed /hires read yields an empty map (selfHireByMergeCommit),
+         which renderSummary tells apart from "resolved to zero" by looking
+         at hires.state itself, not by the map's emptiness. */
       var selfHireByMergeCommit = selfHireLookup(hires);
       renderSummary(agent.value, hires, selfHireByMergeCommit);
+      /* The wireframe's record sentence (DESIGN.md "record sentence, not a
+         stat block") also names verified prior work and unchecked claims,
+         which #summary's own pinned wording does not carry. Read straight
+         off the same three tier arrays #summary and the work-history rows
+         both render from, so this line can never disagree with either. */
+      renderRecordLine(agent.value);
       /* The three tiers, one call each, same order every time (R-18,
          ENT-2.4): verified hires, then verified prior work, then
          portfolio claims. Nothing here decides that order per agent. */
       renderTier("history", "tier-hire", "Verified hire", agent.value.verifiedHires, true, selfHireByMergeCommit);
       renderTier("prior-work", "tier-prior", "Verified prior work", agent.value.verifiedPriorWork, true, selfHireByMergeCommit);
       renderTier("portfolio", "tier-claim", "Portfolio claim", agent.value.portfolio, false, selfHireByMergeCommit);
+      /* The tab bar's live counts and default "All" view (wireframe
+         agent.html): built after the three tiers have rendered, so the
+         chip labels count the SAME rows a reader sees, never a second
+         tally computed a different way. */
+      renderWorkHistoryTabs(agent.value);
+      renderFacts(agent.value);
       renderRotations(agent.value);
       renderCompromise(reports);
       renderReviews(reviews);
@@ -271,6 +283,26 @@
           " placed by this agent's own operator. Counted, and labelled on the row."
       );
     }
+  }
+
+  /* The wireframe's record sentence (DESIGN.md "record sentence, not a
+     stat block"): "N verified hires, N verified prior work, N unchecked
+     claims." Reads the SAME three tier arrays #summary and the
+     work-history rows render from (agent.verifiedHires,
+     agent.verifiedPriorWork, agent.portfolio), so it can never disagree
+     with either about how many an agent has. The wireframe's third clause,
+     "Merged N of M jobs taken", is not stated here: M needs the total
+     count of every job this agent TOOK, merged or not, and no route
+     serves that denominator yet (the same gap named beside the
+     work-history and "What it works on" markup). Listed as a handoff gap
+     rather than printed with an invented M. */
+  function renderRecordLine(agent) {
+    var verifiedPriorWork = Array.isArray(agent.verifiedPriorWork) ? agent.verifiedPriorWork.length : 0;
+    var portfolio = Array.isArray(agent.portfolio) ? agent.portfolio.length : 0;
+    A.setTextById(
+      "record-line",
+      verifiedPriorWork + " verified prior work, " + A.plural(portfolio, "unchecked claim", "unchecked claims") + "."
+    );
   }
 
   /* -------------------------------------------------------- tier rows
@@ -504,6 +536,69 @@
 
       host.appendChild(row);
     });
+  }
+
+  /* ---------------------------------------------------- work-history tabs
+
+     The wireframe's tab bar (All / Hires / Prior / Claims, each carrying a
+     live count) filters which of the three tier SECTIONS are visible; it
+     never moves a row between sections or recomputes a count a different
+     way; the counts are the section lengths agent.js already rendered
+     from R-17's three arrays, one DOM read each. Default is "all", which
+     shows every section: the page's behaviour before this bar existed,
+     so agent-cold-start.test.ts (which never touches a chip) still sees
+     every row and every empty-state exactly where it always found them. */
+  var TIER_SECTIONS = {
+    all: null,
+    hire: "history-section",
+    prior: "prior-work-section",
+    claim: "portfolio-section",
+  };
+
+  function renderWorkHistoryTabs(agent) {
+    var hireCount = Array.isArray(agent.verifiedHires) ? agent.verifiedHires.length : 0;
+    var priorCount = Array.isArray(agent.verifiedPriorWork) ? agent.verifiedPriorWork.length : 0;
+    var claimCount = Array.isArray(agent.portfolio) ? agent.portfolio.length : 0;
+    var counts = { all: hireCount + priorCount + claimCount, hire: hireCount, prior: priorCount, claim: claimCount };
+
+    var chips = document.querySelectorAll("#history-filters .chip");
+    Array.prototype.forEach.call(chips, function (chip) {
+      var bucket = chip.getAttribute("data-bucket");
+      var label = bucket === "all" ? "All" : bucket === "hire" ? "Hires" : bucket === "prior" ? "Prior" : "Claims";
+      chip.textContent = label + " " + counts[bucket];
+      chip.addEventListener("click", function () {
+        selectWorkHistoryBucket(bucket, chips);
+      });
+    });
+  }
+
+  function selectWorkHistoryBucket(bucket, chips) {
+    Array.prototype.forEach.call(chips, function (chip) {
+      chip.setAttribute("aria-pressed", chip.getAttribute("data-bucket") === bucket ? "true" : "false");
+    });
+    Object.keys(TIER_SECTIONS).forEach(function (key) {
+      var sectionId = TIER_SECTIONS[key];
+      if (sectionId === null) return;
+      var section = A.el(sectionId);
+      if (!section) return;
+      section.hidden = bucket !== "all" && bucket !== key;
+    });
+  }
+
+  /* --------------------------------------------------------------- facts
+
+     "What it works on" (wireframe agent.html): five loose facts, no
+     bordered grid (DESIGN.md 4.1: a grid reads as audited data, and this
+     page shows facts, never a judgement). Four of the five need the total
+     count of every job an agent TOOK, merged or not, which no route
+     serves yet (the same gap the work-history section names above); each
+     renders the honest "not yet observed" label the markup already ships
+     with, rather than a placeholder number. Only "Listed since" is
+     answered here, from agent.createdAt, the same read this page's
+     technical panel already renders under "Listed since". */
+  function renderFacts(agent) {
+    var listedSince = A.readableDate(agent.createdAt);
+    A.setTextById("fact-listed-since", listedSince === null ? "not recorded" : listedSince);
   }
 
   if (document.readyState === "loading") {

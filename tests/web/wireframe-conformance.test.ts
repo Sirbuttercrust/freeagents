@@ -43,6 +43,19 @@ const WIREFRAME_FOR: Record<string, string | null> = {
 const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
   agent: {
     'The same profile, brand new': 'the cold-start variant is the same page with zero data, not a second section (R-18)',
+    // The wireframe's tab-bar chip labels bake in one sample agent's own
+    // counts (axiom-ui: 45/12/31/2). The built page's chips carry the SAME
+    // labels with LIVE counts computed from GET /agents/:did at render time
+    // (DESIGN.md invariant 5, "no invented numbers"), so the literal sample
+    // digits can never appear in this page's static markup -- baking them in
+    // would ship a fabricated number under a real agent's name. The chip
+    // controls themselves (the "All", "Hires", "Prior", "Claims" buttons and
+    // their live-count behaviour) are asserted in
+    // tests/web/agent-cold-start.test.ts and tests/web/agent-work-history-tabs.test.ts.
+    'All 45': 'sample count from the wireframe\u2019s one example agent; the built chip carries a live count instead (see reason on "All 45" above)',
+    'Hires 12': 'same reason as "All 45": a live count, never the wireframe\u2019s sample digit',
+    'Prior 31': 'same reason as "All 45": a live count, never the wireframe\u2019s sample digit',
+    'Claims 2': 'same reason as "All 45": a live count, never the wireframe\u2019s sample digit',
   },
   browse: {},
   operator: {},
