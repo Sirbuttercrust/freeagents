@@ -359,6 +359,25 @@
 
     var body = document.createElement("div");
 
+    /* W1 follow-up (this card): the wireframe's .title slot carries a work
+       title (e.g. "Accessible combobox with async loading"), and this
+       renders the repository there instead. That is a deliberate departure,
+       not an oversight, because no read this page makes can honestly fill
+       that slot. VerifiedHireItem (agent-work-record.ts) carries no title
+       field: the credential stores briefHash only, never the buyer's brief
+       text (ENT-4, src/adapters/credentials/types.ts), and that is not an
+       accidental omission either. spec/work-history-extension-v1.md names
+       the reason directly: "A buyer's brief may contain anything they would
+       not want published, and this credential is public by construction."
+       CompletedJob (src/domain/job.ts), the one other record this row could
+       read, keeps the same shape: id, the two DIDs, mergeCommit,
+       completedAt, and nothing else, so the exclusion is structural, not a
+       route this card forgot to add. Deriving a title from the repository
+       name or the PR number was ruled out explicitly by this card's brief:
+       that would be an invented fact wearing a real one's clothes. So the
+       repository, a true fact the row's own PR link already implies, is
+       the honest content for this slot until a short, buyer-approved title
+       exists as its own field, distinct from the private brief. */
     var title = document.createElement("div");
     title.className = "title";
     title.textContent = typeof item.repository === "string" && item.repository !== ""
