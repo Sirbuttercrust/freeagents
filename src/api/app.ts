@@ -308,6 +308,9 @@ function credentialEvidenceOf(
       mergeCommit: entry.document.credentialSubject.hire.mergeCommit,
       buyerDid: entry.document.credentialSubject.hire.buyer,
       repositoryPublic: entry.repositoryPublic,
+      additions: entry.document.credentialSubject.hire.additions,
+      deletions: entry.document.credentialSubject.hire.deletions,
+      filesChanged: entry.document.credentialSubject.hire.filesChanged,
     }));
 }
 
@@ -2539,7 +2542,23 @@ export function createApp(
 
     try {
       const stored = await credentialRepo.listBySubjectDid(did);
-      const credentials = credentialEvidenceOf(stored);
+      const evidence = credentialEvidenceOf(stored);
+      // B9's own pinned contract: this route exposes exactly the seven
+      // fields it always has, never every field CredentialEvidence grows
+      // for other readers. W1 (spec/wireframe/agent.html) added
+      // additions/deletions/filesChanged to CredentialEvidence for the
+      // work-history row's diff-size display; those ride the profile
+      // route's own verifiedHires/portfolio arrays and must not silently
+      // widen this receipts listing's response shape too.
+      const credentials = evidence.map((entry) => ({
+        credentialId: entry.credentialId,
+        repository: entry.repository,
+        pullRequest: entry.pullRequest,
+        mergedAt: entry.mergedAt,
+        mergeCommit: entry.mergeCommit,
+        buyerDid: entry.buyerDid,
+        repositoryPublic: entry.repositoryPublic,
+      }));
       res.status(200).json({ agentDid: did, credentials });
     } catch (err) {
       console.error('GET /agents/:agentDid/credentials: storage failed', err);

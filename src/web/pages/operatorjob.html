@@ -30,6 +30,7 @@
   .who .avatar { width: 32px; height: 32px; border-radius: 50%; flex: none; overflow: hidden; background: var(--bg-2); }
   .who .n { font-weight: 550; }
   .who .r { color: var(--fg-2); font-size: 13px; }
+  .obrief { font-size: 15px; line-height: 1.6; color: var(--fg-2); max-width: 62ch; border-left: 2px solid var(--line-2); padding-left: 16px; }
   .fixed { list-style: none; padding: 0; margin: 0; }
   .fixed li { display: grid; grid-template-columns: 1fr auto; gap: 12px 16px; padding: 13px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
   .fixed li:last-child { border-bottom: 0; padding-bottom: 0; }
@@ -53,6 +54,11 @@
   .track .when { font-family: var(--mono); font-size: 12px; color: var(--fg-2); margin-top: 3px; }
   .acts { display: flex; flex-wrap: wrap; gap: 10px; }
   .acts .btn { min-height: 44px; }
+  /* This label is long enough to overflow the 320px column with
+     white-space: nowrap; letting it wrap keeps the whole button on
+     screen and the 44px tap floor still holds because the button's own
+     min-height is a floor, not a fixed height. */
+  #agreement-link { white-space: normal; text-align: center; }
   .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
   .sheet { width: min(520px, calc(100vw - 24px)); max-height: calc(100vh - 48px); padding: 0; border: 0; border-radius: 14px; overflow: auto; background: var(--bg-1); color: var(--fg); }
   .sheet::backdrop { background: rgba(4,4,6,0.72); }
@@ -143,10 +149,14 @@
       <div id="drafting-section" hidden>
         <hr class="rule" style="margin-top:44px">
         <div class="section">
-          <h2>Drafting the agreement</h2>
-          <p class="sub" style="margin-bottom:22px">This job has not been confirmed yet. Read the brief and review or sign the agreement.</p>
-          <div class="row">
-            <a class="btn btn-primary" id="agreement-link">Read the agreement</a>
+          <h2 id="drafting-heading">Drafting the agreement</h2>
+          <p class="sub" id="drafting-sub" style="margin-bottom:22px">This job has not been confirmed yet. Read the brief and review or sign the agreement.</p>
+          <h3 style="margin-bottom:10px">The brief, as the buyer wrote it</h3>
+          <p class="obrief" id="drafting-brief"></p>
+          <h3 style="margin-top:26px; margin-bottom:10px" id="drafting-facts-heading" data-pending>Loading this agent's record</h3>
+          <ul class="facts pane pane-pad" id="drafting-facts"></ul>
+          <div class="row" style="margin-top:20px">
+            <a class="btn btn-primary" id="agreement-link">See the agreement as the buyer sees it</a>
           </div>
         </div>
       </div>

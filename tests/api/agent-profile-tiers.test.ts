@@ -117,6 +117,9 @@ describe('GET /agents/:agentDid, three-tier work record (R-17)', () => {
         mergedAt: '2026-01-03T00:00:00.000Z',
         mergeCommit: 'deadbeef',
         buyerDid: 'did:example:buyer',
+        additions: 1,
+        deletions: 1,
+        filesChanged: 1,
       },
     ]);
     expect(body.verifiedPriorWork).toEqual([]);

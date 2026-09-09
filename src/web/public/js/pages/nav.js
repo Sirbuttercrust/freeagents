@@ -134,6 +134,16 @@
     renderMyAgentsLink(isSignedIn);
     renderDashboardLink(isSignedIn);
     renderSettingsLink(isSignedIn);
+
+    /* W6 round 2, D1: signin.js's "Once signed in" section is gated by
+       this exact session rule (S1), so it clears here too, wherever the
+       session is cleared, rather than in a second copy on signin.js's
+       own sign-out path (there is none: sign-out lives in nav.js only,
+       clicked from the nav this file already owns). A.showById is a
+       no-op when the page carries no #once-signed-in element, which is
+       every page except signin.html. */
+    A.showById("once-signed-in", isSignedIn);
+
     if (!signin || !signedIn) return;
 
     signin.hidden = isSignedIn;

@@ -251,6 +251,14 @@
     host.textContent = "";
     host.appendChild(fixedRow("The line they cited", citedIndex === null ? "not recorded" : "criterion " + (citedIndex + 1), citedText));
     A.showById("redo-panel", true);
+    // Wireframe operatorjob.html:157: "Accept, and take N more days" states
+    // the real cost of accepting before the click, from
+    // REDO_LAPSE_EXTENSION_DAYS so the label can never drift from the
+    // behaviour requestRedo actually applies. Both the row button and the
+    // confirm-sheet button carry this exact label (wireframe:157,323).
+    var acceptLabel = "Accept, and take " + REDO_LAPSE_EXTENSION_DAYS + " more " + (REDO_LAPSE_EXTENSION_DAYS === 1 ? "day" : "days");
+    A.setTextById("redo-accept-btn", acceptLabel);
+    A.setTextById("accept-confirm-btn", acceptLabel);
     renderRedoConsequences(job_);
   }
 
@@ -394,14 +402,69 @@
     return li;
   }
 
-  // DRAFTING: at draft/proposed, the agreement is not yet confirmed;
-  // this links to /agreement, the same screen the buyer signs from,
-  // rather than duplicating its content here.
+  // DRAFTING (EARLIER): the brief and the drafted facts, side by side, the
+  // same "earlier state on the same page" shape the wireframe draws
+  // (operatorjob.html:261-296). Renders for every status, since the brief
+  // and the draft are facts about the job that stay true once it has moved
+  // on; only the heading's tense changes, because draft/proposed's OWN
+  // present is the draft the wireframe illustrates. The link to /agreement
+  // goes there rather than duplicating that screen (wireframe:298).
   function renderDrafting(job_) {
-    if (job_.status !== "draft" && job_.status !== "proposed") return;
+    var stillDrafting = job_.status === "draft" || job_.status === "proposed";
+    var confirmedAt = typeof job_.confirmedAt === "string" ? job_.confirmedAt : null;
+    A.setTextById("drafting-heading", stillDrafting ? "Drafting the agreement" : "Earlier: drafting the agreement");
+    var sub;
+    if (stillDrafting) {
+      sub = "This job has not been confirmed yet. Read the brief and review or sign the agreement.";
+    } else if (confirmedAt !== null) {
+      sub = "This is the state the job was in before it was confirmed. Read the brief and what the agent drafted from it.";
+    } else {
+      sub = "This hire ended before an agreement was ever confirmed. Read the brief and what the agent drafted from it.";
+    }
+    A.setTextById("drafting-sub", sub);
     var link = A.el("agreement-link");
     if (link) link.setAttribute("href", "/agreement?job=" + encodeURIComponent(job_.id));
+    A.setTextById("drafting-brief", typeof job_.brief === "string" ? job_.brief : "");
+    renderDraftingFacts(job_);
     A.showById("drafting-section", true);
+  }
+
+  // The wireframe's five rows (operatorjob.html:284-288), each read from
+  // the job's own projection or the agent's own record, never a fixture
+  // figure. floorPriceUsd is nullable (P1, scope item 5: no floor set means
+  // no filter at all), so an operator who never set one gets no floor row
+  // and no "above your floor" row rather than a fabricated zero.
+  function renderDraftingFacts(job_) {
+    var host = A.el("drafting-facts");
+    if (!host) return;
+    host.textContent = "";
+    var criteria = Array.isArray(job_.criteria) ? job_.criteria : [];
+    host.appendChild(factRow("Criteria", A.plural(criteria.length, "line", "lines")));
+    var price = job_.price && typeof job_.price === "object" ? job_.price : null;
+    var priceUsd = price !== null && typeof price.priceUsd === "string" ? parseFloat(price.priceUsd) : null;
+    if (priceUsd !== null) host.appendChild(factRow("Price", money(priceUsd)));
+    if (price !== null && typeof price.deliveryWindowDays === "number") {
+      host.appendChild(factRow("Delivery", A.plural(price.deliveryWindowDays, "day", "days") + " from the deposit"));
+    }
+    var agentDid = typeof job_.agentDid === "string" ? job_.agentDid : "";
+    var headingHost = A.el("drafting-facts-heading");
+    if (agentDid === "") return;
+    A.get("/agents/" + encodeURIComponent(agentDid)).then(function (result) {
+      var name = A.shortDid(agentDid);
+      var floorUsd = null;
+      if (result.state === "ok") {
+        name = typeof result.value.name === "string" && result.value.name !== "" ? result.value.name : agentDid;
+        floorUsd = typeof result.value.floorPriceUsd === "string" ? parseFloat(result.value.floorPriceUsd) : null;
+      }
+      A.setText(headingHost, "What " + name + " drafted from it");
+      if (floorUsd !== null) {
+        host.appendChild(factRow("Your price floor on " + name, money(floorUsd)));
+        if (priceUsd !== null) {
+          var above = priceUsd - floorUsd;
+          host.appendChild(factRow("Above your floor", above >= 0 ? "yes, by " + money(above) : "no, by " + money(-above)));
+        }
+      }
+    });
   }
 
   function renderTechnical(job_) {

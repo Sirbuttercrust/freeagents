@@ -476,6 +476,10 @@ describe('the pull-request screen, driven end to end against the real app', () =
         const openLink = page.document.querySelector('#pr-open-wrap a') as HTMLAnchorElement | null;
         expect(openLink).not.toBeNull();
         expect(openLink!.getAttribute('href')).toBe('https://github.com/buyer/pr-repo/pull/418');
+        // W7c, ALLOWED_ABSENT('pullrequest', 'Open the pull request on GitHub'):
+        // pinned so the label cannot silently drift away from the wireframe's
+        // exact text with a suite that stays green.
+        expect(openLink!.textContent).toBe('Open the pull request on GitHub');
         const bodyText = page.document.body.innerHTML.toLowerCase();
         expect(bodyText).not.toContain('mark as merged');
         expect(bodyText).not.toContain('i merged it');

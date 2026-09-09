@@ -99,6 +99,26 @@
         : ", and this receipt says it merged on " + when + ". Here is how to confirm that without us."
     ));
 
+    /* V1: the action row. Each control is omitted (never shown pointing
+       at nothing) when the receipt itself does not carry the field it
+       needs: a receipt with no pullRequest gets no pull request button,
+       and a credential with no resolvable id gets no receipt button. */
+    if (typeof hire.pullRequest === "string" && hire.pullRequest !== "") {
+      setLink("pr-link", hire.pullRequest);
+    }
+    var credentialId = typeof credential.id === "string" ? credential.id : basePath;
+    var credentialPath = A.credentialPath(credentialId) || basePath;
+    if (credentialPath) {
+      setLink("receipt-link", credentialPath);
+    }
+    if (agentDid !== "") {
+      setLink("verify-agent-link", "/agents/" + encodeURIComponent(agentDid));
+    }
+
+    /* V2: Download JSON in the signature-check disclosure, the same
+       destination the receipt page's own download control uses. */
+    setLink("sig-download-link", credentialPath);
+
     /* Check one: fetch the exact document a verifier reads. The absolute
        URL is built from this origin, so the command works behind any
        hostname or proxy this deployment sits under. */
@@ -142,6 +162,17 @@
     if (node) node.textContent = command;
     var btn = A.el(id + "-copy");
     if (btn) btn.setAttribute("data-copy", command);
+  }
+
+  /* V1/V2: a control that ships hidden with no href in the markup, and
+     gets both only here, on the success path, and only when the caller
+     actually has a destination for it. A control whose own field is
+     absent from the receipt is never shown pointing at nothing. */
+  function setLink(id, href) {
+    var node = A.el(id);
+    if (!node || !href) return;
+    node.setAttribute("href", href);
+    node.hidden = false;
   }
 
   function setPair(id, value) {

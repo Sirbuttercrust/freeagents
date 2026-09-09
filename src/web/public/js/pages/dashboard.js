@@ -2,23 +2,48 @@
    from spec/wireframe/dashboard.html. Reads GET /accounts/me (the same
    departure P8m, P8n and P8q each already named in their own handoffs) to
    resolve the session to a DID, then GET /accounts/:did/jobs,
-   GET /accounts/:did/pending and GET /accounts/:did/incoming fire together
-   (ruling 1). No per-agent read, no fifth read, no read this page's own
-   buckets did not already come pre-computed from.
+   GET /accounts/:did/pending, GET /accounts/:did/incoming and
+   GET /accounts/:did/agents fire together (ruling 1, W5 ruling).
+
+   THE ROSTER READ IS UNCONDITIONAL (W5 ruling): accountProjection carries
+   no operated-agent count, so the page cannot know whether it operates any
+   agents without asking. A buyer who operates nothing still takes this
+   read and gets an empty roster back.
+
+   THE PER-AGENT READ IS SCOPED TO WHATEVER THE ROSTER RETURNED, exactly
+   the departure myagents.js already named for the same route: BrowseCard
+   carries no proofStatus (src/domain/browse.ts), so confirming GitHub for
+   section 3's unproven-GitHub half needs GET /agents/:agentDid once per
+   roster row, never fired speculatively and never more than once per row.
+   /agents/:agentDid sits behind verifyRateLimiter at 60 requests per
+   minute (src/api/app.ts), the same ceiling myagents.js's own handoff
+   named.
 
    FOUR SECTIONS, NEVER RECOMPUTED. Every bucket a row carries
    (job.bucket from jobListBucketOf, pending.waitingOn from waitingOnOf)
-   ran server side; this script only groups by it (ruling 1).
+   ran server side; this script only groups by it (ruling 1). Section 3's
+   unproven-GitHub half reads two independent facts straight off the
+   roster and the per-agent projection: never one inferred from the other
+   (unverified-state-claim).
 
    THE SCOPE FENCE (ruling 8): rows render in the order the routes
-   returned them, newest first, capped at five. No rank, no score, no
-   elapsed time, no age, no badge count, no total across sections.
+   returned them, newest first where the section sorts by date, capped at
+   five. No rank, no score, no elapsed time, no age, no badge count, no
+   total across sections.
 
    A SECTION WITH ZERO ROWS RENDERS NOTHING (ruling 4): no heading, no See
    all link. A FAILED READ RENDERS ITS OWN SENTENCE IN THE SECTION IT
    BREAKS, and never lets the page-level empty state fire
    (silent-success-on-failure): "nothing needs your attention" is a claim
-   a failed read knows nothing about.
+   a failed read knows nothing about. A failed PER-AGENT read leaves that
+   row exactly as the roster rendered it: no attention line, never a
+   guessed "confirmed" (the same stance myagents.js:174-179 states).
+
+   EVERY SECTION SHELL IS A <template> IN dashboard.html, cloned here
+   (conformance-satisfied-by-dead-markup, W1 round 2): the heading and
+   "See all" text a person sees and the text the wireframe-conformance
+   instrument scans are the same literal source, never a hand-typed
+   duplicate string living only in this file.
 
    EVERYTHING THROUGH textContent: brief, repository and agentName are
    buyer-supplied and operator-supplied strings, content, never markup
@@ -54,7 +79,8 @@
         A.getAuthed("/accounts/" + encodedDid + "/jobs", session.token),
         A.getAuthed("/accounts/" + encodedDid + "/pending", session.token),
         A.getAuthed("/accounts/" + encodedDid + "/incoming", session.token),
-      ]).then(onLoaded);
+        A.getAuthed("/accounts/" + encodedDid + "/agents", session.token),
+      ]).then(onCoreLoaded);
     });
   }
 
@@ -72,17 +98,42 @@
     return Array.isArray(body[field]) ? body[field] : null;
   }
 
-  function onLoaded(results) {
+  function numberOr(value) {
+    return typeof value === "number" && !isNaN(value) ? value : 0;
+  }
+
+  function onCoreLoaded(results) {
     var jobs = readArray(results[0], "jobs");
     var pending = readArray(results[1], "pending");
     var offers = readArray(results[2], "offers");
+    var rosterAgents = readArray(results[3], "agents");
 
+    // The per-agent reads: exactly one per roster row, fired only when the
+    // roster itself came back, and never fired at all when it did not
+    // (no speculative read on a failed or absent roster).
+    var agents = rosterAgents === null ? [] : rosterAgents;
+    var detailPromises = agents.map(function (agent) {
+      return A.get("/agents/" + encodeURIComponent(agent.did)).then(function (result) {
+        return { did: agent.did, result: result };
+      });
+    });
+
+    Promise.all(detailPromises).then(function (detailResults) {
+      var detailByDid = {};
+      detailResults.forEach(function (entry) {
+        if (entry.result.state === "ok") detailByDid[entry.did] = entry.result.value;
+      });
+      onLoaded(jobs, pending, offers, rosterAgents, detailByDid);
+    });
+  }
+
+  function onLoaded(jobs, pending, offers, rosterAgents, detailByDid) {
     A.showById("dashboard-body", true);
 
     var sections = [
       buildWaitingOnYou(jobs, pending),
       buildInProgress(jobs, pending),
-      buildIncomingSection(offers),
+      buildAttentionSection(rosterAgents, offers, detailByDid),
       buildRecentlyCompleted(jobs),
     ];
 
@@ -150,12 +201,36 @@
     return { failed: false, rows: combined };
   }
 
-  // Section 3 (ruling 1): every incoming offer, already newest first at
-  // the route (src/api/app.ts), capped at five here. Never re-sorted.
-  function buildIncomingSection(offers) {
-    if (offers === null) return { failed: true, rows: [] };
-    var rows = offers.slice(0, 5).map(function (offer) { return { kind: "offer", offer: offer }; });
-    return { failed: false, rows: rows };
+  // Section 3 (W5 ruling, handoff item 1): both halves SITEMAP P-9 names.
+  // The unproven-GitHub half reads two independent facts per roster row,
+  // never inferring one from the other: "no verified record yet" comes
+  // straight off the roster's own BrowseCard (verifiedHireCount and
+  // verifiedPriorWorkCount both zero), and "GitHub not confirmed" comes
+  // from that row's own per-agent read (proofStatus !== "verified"). An
+  // agent whose per-agent read failed carries no trail line at all: that
+  // fact is unknown, never guessed as either confirmed or unconfirmed. A
+  // row renders only when at least one half is true. The wireframe's
+  // order (unproven-GitHub first, incoming offers second) is kept, and
+  // the combined cap is five, not five of each. A failed roster read OR a
+  // failed offers read fails the whole section, the same as every other
+  // section here.
+  function attentionRowFor(agent, detail) {
+    var hireCount = numberOr(agent.verifiedHireCount);
+    var priorCount = numberOr(agent.verifiedPriorWorkCount);
+    var noRecord = hireCount === 0 && priorCount === 0;
+    var notConfirmed = detail !== undefined && detail.proofStatus !== "verified";
+    if (!noRecord && !notConfirmed) return null;
+    return { kind: "attention", agent: agent, noRecord: noRecord, notConfirmed: notConfirmed };
+  }
+
+  function buildAttentionSection(rosterAgents, offers, detailByDid) {
+    if (rosterAgents === null || offers === null) return { failed: true, rows: [] };
+    var attentionRows = rosterAgents
+      .map(function (agent) { return attentionRowFor(agent, detailByDid[agent.did]); })
+      .filter(function (row) { return row !== null; });
+    var offerRows = offers.map(function (offer) { return { kind: "offer", offer: offer }; });
+    var combined = attentionRows.concat(offerRows).slice(0, 5);
+    return { failed: false, rows: combined };
   }
 
   // Section 4 (ruling 5): only shipped/notShipped rows whose date is
@@ -177,13 +252,15 @@
   /* --------------------------------------------------------------- grid
      Each section is built fresh into the DOM only when it has something
      to show (a row, or a failure sentence): ruling 4 means a truly empty,
-     non-failed section contributes no node at all, not a hidden one. */
+     non-failed section contributes no node at all, not a hidden one.
+     Every shell below is a <template> in dashboard.html; this file only
+     clones and fills it (conformance-satisfied-by-dead-markup guard). */
 
-  var SECTION_META = [
-    { heading: "Waiting on you", seeAll: "/myjobs" },
-    { heading: "In progress", seeAll: "/myjobs" },
-    { heading: "Your agents need attention", seeAll: "/incoming" },
-    { heading: "Recently completed", seeAll: "/myjobs" },
+  var SECTION_TEMPLATE_IDS = [
+    "tmpl-section-waiting",
+    "tmpl-section-inprogress",
+    "tmpl-section-attention",
+    "tmpl-section-completed",
   ];
 
   function renderGrid(sections) {
@@ -192,34 +269,16 @@
     host.textContent = "";
     sections.forEach(function (section, i) {
       if (!section.failed && section.rows.length === 0) return;
-      host.appendChild(sectionPane(SECTION_META[i], section, i));
+      host.appendChild(sectionPane(SECTION_TEMPLATE_IDS[i], section, i));
     });
   }
 
-  function sectionPane(meta, section, index) {
-    var el = document.createElement("section");
-    el.className = "pane pane-pad reveal";
-    el.setAttribute("data-reveal", "");
+  function sectionPane(templateId, section, index) {
+    var tmpl = A.el(templateId);
+    var el = tmpl.content.firstElementChild.cloneNode(true);
     el.setAttribute("data-section", String(index));
 
-    var between = document.createElement("div");
-    between.className = "between";
-    var h2 = document.createElement("h2");
-    h2.style.margin = "0";
-    h2.textContent = meta.heading;
-    between.appendChild(h2);
-    var seeAll = document.createElement("a");
-    seeAll.className = "small seeall";
-    seeAll.style.color = "var(--fg-2)";
-    seeAll.href = meta.seeAll;
-    seeAll.textContent = "See all \u2192";
-    between.appendChild(seeAll);
-    el.appendChild(between);
-
-    var rows = document.createElement("div");
-    rows.className = "rows";
-    rows.style.marginTop = "14px";
-
+    var rows = el.querySelector(".rows");
     if (section.failed) {
       var sentence = document.createElement("p");
       sentence.className = "sub";
@@ -228,13 +287,13 @@
     } else {
       section.rows.forEach(function (entry) { rows.appendChild(rowFor(entry)); });
     }
-    el.appendChild(rows);
     return el;
   }
 
   function rowFor(entry) {
     if (entry.kind === "job") return jobRow(entry.job);
     if (entry.kind === "pending") return pendingRow(entry.pending, entry.primary === true);
+    if (entry.kind === "attention") return attentionRow(entry);
     return offerRow(entry.offer);
   }
 
@@ -295,8 +354,11 @@
 
   // A pending row (sections 1 and 2, ruling 2): not a hire, never linked
   // to /jobs/:id. Section 1's first waitingOnBuyer row carries the page's
-  // one primary (ruling 3); every other pending row here is a plain row,
-  // and a section-2 pending row carries no control at all.
+  // one primary (ruling 3): tmpl-primary-sign in dashboard.html, cloned
+  // here rather than hand-built, so the button text this file writes and
+  // the text the conformance instrument scans are the same literal
+  // source. Every other pending row here is a plain row, and a section-2
+  // pending row carries no control at all.
   function pendingRow(pending, primary) {
     var title = typeof pending.brief === "string" && pending.brief !== "" ? pending.brief : pending.id;
     var meta = agentRepoLine(pending.agentName, pending.repository);
@@ -305,10 +367,9 @@
       var wrap = document.createElement("div");
       wrap.className = "between";
       wrap.appendChild(rowText(title, meta));
-      var signLink = document.createElement("a");
-      signLink.className = "btn btn-sm btn-primary";
-      signLink.href = "/agreement?job=" + encodeURIComponent(pending.id);
-      signLink.textContent = "Read and sign";
+      var signTmpl = A.el("tmpl-primary-sign");
+      var signLink = signTmpl.content.firstElementChild.cloneNode(true);
+      signLink.setAttribute("href", "/agreement?job=" + encodeURIComponent(pending.id));
       wrap.appendChild(signLink);
       return wrap;
     }
@@ -335,6 +396,31 @@
     plainTrail.textContent = pending.waitingOn === "noReply" ? "Brief sent, no reply yet" : "Waiting on the agent to sign";
     plain.appendChild(plainTrail);
     return plain;
+  }
+
+  // The unproven-GitHub half of section 3 (W5 ruling, handoff item 1): a
+  // full-row link to /agents/:did, the screen that holds this agent's own
+  // record. The wireframe's own row links to provegithub.html, which is
+  // not built or mounted anywhere in src/web (no route in static.ts): the
+  // same substitution myagents.js already made for the identical fact,
+  // there rendered as inert text with no link at all. This row still
+  // needs a destination (it is a door, the wireframe's own words), so it
+  // goes to the agent's own profile, the nearest built page that holds
+  // the fact this row is about. Named in the PR body as a departure.
+  function attentionRow(entry) {
+    var a = document.createElement("a");
+    a.className = "row between";
+    a.href = "/agents/" + encodeURIComponent(entry.agent.did);
+    var name = typeof entry.agent.name === "string" && entry.agent.name !== "" ? entry.agent.name : A.shortDid(entry.agent.did);
+    var meta = entry.noRecord ? "no verified record yet" : "";
+    a.appendChild(rowText(name, meta));
+    if (entry.notConfirmed) {
+      var trail = document.createElement("span");
+      trail.className = "rowtrail";
+      trail.textContent = "GitHub not confirmed";
+      a.appendChild(trail);
+    }
+    return a;
   }
 
   // An incoming-offer row (section 3): P8v mounted P-25 (operatorjob.html)

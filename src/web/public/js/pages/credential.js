@@ -137,6 +137,15 @@
     setHref("agent-link", agentDid !== "" ? "/agents/" + encodeURIComponent(agentDid) : "/browse");
     setHref("download-link", basePath);
 
+    /* The raw-record disclosure's own two controls (W6 C1). The wireframe
+       carries two paths to the same place on purpose: "Check this
+       yourself" above is for the person deciding, "Check the signature"
+       here is for the skeptic already reading the raw document. Both ship
+       WITHOUT an href in the markup and get one only here, on the same
+       success path as the three above. */
+    setHref("raw-download-link", basePath);
+    setHref("raw-verify-link", "/verify?credential=" + encodeURIComponent(key));
+
     /* The technical half. */
     setPair("id-agent", agentDid);
     setPair("id-buyer", buyer);

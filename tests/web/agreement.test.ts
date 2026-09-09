@@ -232,6 +232,43 @@ describe('the agreement screen, driven end to end against the real app', () => {
     });
   });
 
+  describe('the who strip and the back link', () => {
+    it('the back link reads "Back to the brief" and points at the hire page (wireframe agreement.html:92)', async () => {
+      const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
+      try {
+        const back = page.document.getElementById('back-link');
+        expect(back?.textContent).toBe('Back to the brief');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('offers a plain exit to my jobs, "Leave this for now" (wireframe agreement.html:244)', async () => {
+      const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
+      try {
+        const leave = page.document.getElementById('leave-link') as HTMLAnchorElement | null;
+        expect(leave).not.toBeNull();
+        expect(leave!.textContent).toBe('Leave this for now');
+        expect(leave!.getAttribute('href')).toBe('/myjobs');
+      } finally {
+        page.close();
+      }
+    });
+  });
+
+  describe('the h1 names the live agent, never the wireframe\'s sample name (route 1 on the agreement h1)', () => {
+    it('reads "What <agent name> is offering" once the agent record loads, never a placeholder or empty string first', async () => {
+      const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
+      try {
+        const h1 = page.document.querySelector('.glow h1');
+        expect(h1?.textContent).toBe('What agreement-page-scout is offering');
+        expect(h1?.hasAttribute('data-pending')).toBe(false);
+      } finally {
+        page.close();
+      }
+    });
+  });
+
   describe('an unknown job id', () => {
     it('answers a readable page, not a blank screen', async () => {
       const page = await renderAgreement(baseUrl, 'no-such-job', { token: buyerToken });

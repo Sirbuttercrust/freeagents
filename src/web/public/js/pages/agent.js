@@ -76,17 +76,29 @@
          responses carry for the same hire. Built before renderSummary so
          the summary's self-hire count and the rows' self-hire labels come
          from the same map and can never disagree with each other either.
-         A failed /hires read yields an empty map (selfHireLookup), which
-         renderSummary tells apart from "resolved to zero" by looking at
-         hires.state itself, not by the map's emptiness. */
+         A failed /hires read yields an empty map (selfHireByMergeCommit),
+         which renderSummary tells apart from "resolved to zero" by looking
+         at hires.state itself, not by the map's emptiness. */
       var selfHireByMergeCommit = selfHireLookup(hires);
       renderSummary(agent.value, hires, selfHireByMergeCommit);
+      /* The wireframe's record sentence (DESIGN.md "record sentence, not a
+         stat block") also names verified prior work and unchecked claims,
+         which #summary's own pinned wording does not carry. Read straight
+         off the same three tier arrays #summary and the work-history rows
+         both render from, so this line can never disagree with either. */
+      renderRecordLine(agent.value);
       /* The three tiers, one call each, same order every time (R-18,
          ENT-2.4): verified hires, then verified prior work, then
          portfolio claims. Nothing here decides that order per agent. */
       renderTier("history", "tier-hire", "Verified hire", agent.value.verifiedHires, true, selfHireByMergeCommit);
       renderTier("prior-work", "tier-prior", "Verified prior work", agent.value.verifiedPriorWork, true, selfHireByMergeCommit);
       renderTier("portfolio", "tier-claim", "Portfolio claim", agent.value.portfolio, false, selfHireByMergeCommit);
+      /* The tab bar's live counts and default "All" view (wireframe
+         agent.html): built after the three tiers have rendered, so the
+         chip labels count the SAME rows a reader sees, never a second
+         tally computed a different way. */
+      renderWorkHistoryTabs(agent.value);
+      renderFacts(agent.value);
       renderRotations(agent.value);
       renderCompromise(reports);
       renderReviews(reviews);
@@ -273,6 +285,26 @@
     }
   }
 
+  /* The wireframe's record sentence (DESIGN.md "record sentence, not a
+     stat block"): "N verified hires, N verified prior work, N unchecked
+     claims." Reads the SAME three tier arrays #summary and the
+     work-history rows render from (agent.verifiedHires,
+     agent.verifiedPriorWork, agent.portfolio), so it can never disagree
+     with either about how many an agent has. The wireframe's third clause,
+     "Merged N of M jobs taken", is not stated here: M needs the total
+     count of every job this agent TOOK, merged or not, and no route
+     serves that denominator yet (the same gap named beside the
+     work-history and "What it works on" markup). Listed as a handoff gap
+     rather than printed with an invented M. */
+  function renderRecordLine(agent) {
+    var verifiedPriorWork = Array.isArray(agent.verifiedPriorWork) ? agent.verifiedPriorWork.length : 0;
+    var portfolio = Array.isArray(agent.portfolio) ? agent.portfolio.length : 0;
+    A.setTextById(
+      "record-line",
+      verifiedPriorWork + " verified prior work, " + A.plural(portfolio, "unchecked claim", "unchecked claims") + "."
+    );
+  }
+
   /* -------------------------------------------------------- tier rows
 
      Every row on the page, in all three sections, comes from the SAME
@@ -327,6 +359,42 @@
 
     var body = document.createElement("div");
 
+    /* W1 follow-up (this card, round 2): the wireframe's .title slot carries
+       a work title (e.g. "Accessible combobox with async loading"), and
+       this renders the repository there instead. That is a deliberate
+       departure, not an oversight, and the honest reason is narrower than
+       round 1's comment claimed.
+
+       VerifiedHireItem (agent-work-record.ts) itself carries no title
+       field: the issued credential stores briefHash only, never the
+       buyer's brief prose (ENT-4, src/adapters/credentials/types.ts), so
+       the value this row renders from cannot supply a title. But the
+       brief IS reachable from this page: GET /jobs/:jobId serves
+       job.brief as verbatim prose, publicly and with no auth (review
+       round 1 confirmed this live: an anonymous curl against a seeded job
+       returned HTTP 200 with the brief text; src/domain/access.ts
+       registers no capability gate on that route; and
+       tests/api/job-invariant2.test.ts pins `brief` into the response key
+       set deliberately, so a third party can recompute briefHash without
+       calling this service). This row already carries the job id that
+       read needs: the "job <jobId>" span below is parsed from the same
+       credentialId via A.credentialKey (R-40).
+
+       So the repository stays in .title for two reasons that are product
+       decisions, not missing data: (1) a second fetch per verified-hire
+       row would turn one profile GET into up to N /jobs/:jobId calls, and
+       (2) the buyer's brief is instructional prose written to the agent,
+       not a curated headline written for a public listing -- spec/work-
+       history-extension-v1.md says it plainly, "A buyer's brief may
+       contain anything, including things they would not want published,
+       and this credential is public by construction." Publishing it
+       raw as the row's most prominent line risks surfacing exactly that.
+       Deriving a title from the repository name or the PR number was
+       ruled out explicitly by this card's brief (an invented fact wearing
+       a real one's clothes), so until a short, buyer-approved title
+       exists as its own field, or a product call is made to fetch and
+       show the raw brief anyway, the repository -- a true fact the row's
+       own PR link already implies -- is what ships in this slot. */
     var title = document.createElement("div");
     title.className = "title";
     title.textContent = typeof item.repository === "string" && item.repository !== ""
@@ -343,6 +411,34 @@
       link.setAttribute("rel", "noreferrer");
       link.textContent = "the pull request";
       meta.appendChild(link);
+    }
+
+    /* +added / -removed, N files (DATA-CONTRACT section 4: "verified hire
+       | ... additions/deletions/files ..."). Read straight off the item's
+       own credential-derived fields (agent-work-record.ts's
+       VerifiedHireItem, R-17), never computed here, so a row can never
+       show a diff size the credential itself does not carry. All three
+       fields are required on the type, so an object missing one of them
+       is a malformed item, not a valid absence; typeof guards keep a
+       partially-stubbed test fixture from throwing rather than treating
+       zero as unset. */
+    if (typeof item.additions === "number" && typeof item.deletions === "number" && typeof item.filesChanged === "number") {
+      var diff = document.createElement("span");
+      diff.textContent = "+" + item.additions + " / -" + item.deletions + ", " + A.plural(item.filesChanged, "file", "files");
+      meta.appendChild(diff);
+    }
+
+    /* The job id (DATA-CONTRACT section 4: "verified hire | job id, ...").
+       A credential id is '<base>/v1/credentials/<completedJobId>' (R-40),
+       so its last path segment IS the job id; A.credentialKey applies the
+       exact same rule server-side storage already uses to resolve one
+       (credentialLookupKey, src/adapters/storage/types.ts), rather than a
+       second parsing rule invented here. */
+    var jobId = A.credentialKey(typeof item.credentialId === "string" ? item.credentialId : "");
+    if (jobId !== "") {
+      var job = document.createElement("span");
+      job.textContent = "job " + jobId;
+      meta.appendChild(job);
     }
 
     if (typeof item.mergeCommit === "string" && item.mergeCommit !== "") {
@@ -364,16 +460,35 @@
 
     /* The verify affordance is present on a verified row and absent on a
        claim, unconditionally: that asymmetry is the whole design
-       (DATA-CONTRACT section 1). */
+       (DATA-CONTRACT section 1). Cloned from #tmpl-verify-hire (Proof
+       round 2, D1 conformance-satisfied-by-dead-markup) rather than a
+       hand-typed string, so the exact wording this row shows and the
+       wording the template markup carries -- the same markup the
+       conformance test scans -- can never drift apart. */
     if (verifyAffordance && typeof item.credentialId === "string" && item.credentialId !== "") {
       var path = A.credentialPath(item.credentialId);
-      if (path) {
-        var verify = document.createElement("a");
-        verify.className = "verify";
-        verify.textContent = "Check this receipt";
+      var template = document.getElementById("tmpl-verify-hire");
+      if (path && template) {
+        var verify = template.content.firstElementChild.cloneNode(true);
         verify.setAttribute("href", path);
         body.appendChild(verify);
       }
+    } else if (!verifyAffordance) {
+      /* Claim rows carry no verify affordance AT ALL (MISSION invariant 4:
+         "the absence of the verify button on a claim is the design").
+         Removing the button and saying nothing would still read as an
+         oversight next to a verified row with a link, so the wireframe
+         pairs the absence with this sentence (spec/wireframe/agent.html:
+         "We cannot check this."), stated once here rather than baked into
+         the row title so it never collides with a real work title if
+         ENT-12 (portfolio claim as its own entity, DATA-CONTRACT section 7
+         gap) lands later. */
+      var cannotCheck = document.createElement("div");
+      cannotCheck.className = "dim";
+      cannotCheck.style.fontSize = "13px";
+      cannotCheck.style.marginTop = "6px";
+      cannotCheck.textContent = "We cannot check this.";
+      body.appendChild(cannotCheck);
     }
 
     node.appendChild(body);
@@ -504,6 +619,69 @@
 
       host.appendChild(row);
     });
+  }
+
+  /* ---------------------------------------------------- work-history tabs
+
+     The wireframe's tab bar (All / Hires / Prior / Claims, each carrying a
+     live count) filters which of the three tier SECTIONS are visible; it
+     never moves a row between sections or recomputes a count a different
+     way; the counts are the section lengths agent.js already rendered
+     from R-17's three arrays, one DOM read each. Default is "all", which
+     shows every section: the page's behaviour before this bar existed,
+     so agent-cold-start.test.ts (which never touches a chip) still sees
+     every row and every empty-state exactly where it always found them. */
+  var TIER_SECTIONS = {
+    all: null,
+    hire: "history-section",
+    prior: "prior-work-section",
+    claim: "portfolio-section",
+  };
+
+  function renderWorkHistoryTabs(agent) {
+    var hireCount = Array.isArray(agent.verifiedHires) ? agent.verifiedHires.length : 0;
+    var priorCount = Array.isArray(agent.verifiedPriorWork) ? agent.verifiedPriorWork.length : 0;
+    var claimCount = Array.isArray(agent.portfolio) ? agent.portfolio.length : 0;
+    var counts = { all: hireCount + priorCount + claimCount, hire: hireCount, prior: priorCount, claim: claimCount };
+
+    var chips = document.querySelectorAll("#history-filters .chip");
+    Array.prototype.forEach.call(chips, function (chip) {
+      var bucket = chip.getAttribute("data-bucket");
+      var label = bucket === "all" ? "All" : bucket === "hire" ? "Hires" : bucket === "prior" ? "Prior" : "Claims";
+      chip.textContent = label + " " + counts[bucket];
+      chip.addEventListener("click", function () {
+        selectWorkHistoryBucket(bucket, chips);
+      });
+    });
+  }
+
+  function selectWorkHistoryBucket(bucket, chips) {
+    Array.prototype.forEach.call(chips, function (chip) {
+      chip.setAttribute("aria-pressed", chip.getAttribute("data-bucket") === bucket ? "true" : "false");
+    });
+    Object.keys(TIER_SECTIONS).forEach(function (key) {
+      var sectionId = TIER_SECTIONS[key];
+      if (sectionId === null) return;
+      var section = A.el(sectionId);
+      if (!section) return;
+      section.hidden = bucket !== "all" && bucket !== key;
+    });
+  }
+
+  /* --------------------------------------------------------------- facts
+
+     "What it works on" (wireframe agent.html): five loose facts, no
+     bordered grid (DESIGN.md 4.1: a grid reads as audited data, and this
+     page shows facts, never a judgement). Four of the five need the total
+     count of every job an agent TOOK, merged or not, which no route
+     serves yet (the same gap the work-history section names above); each
+     renders the honest "not yet observed" label the markup already ships
+     with, rather than a placeholder number. Only "Listed since" is
+     answered here, from agent.createdAt, the same read this page's
+     technical panel already renders under "Listed since". */
+  function renderFacts(agent) {
+    var listedSince = A.readableDate(agent.createdAt);
+    A.setTextById("fact-listed-since", listedSince === null ? "not recorded" : listedSince);
   }
 
   if (document.readyState === "loading") {

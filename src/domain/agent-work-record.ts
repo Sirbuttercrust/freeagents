@@ -22,6 +22,14 @@ export interface CredentialEvidence {
   readonly mergeCommit: string;
   readonly buyerDid: string;
   readonly repositoryPublic: boolean;
+  // W1 (spec/wireframe/agent.html, DATA-CONTRACT section 4): the wireframe's
+  // work-history row carries "+added / -removed, N files" on every verified
+  // row, and these three are already on the stored credential
+  // (src/adapters/credentials/types.ts's WorkHistoryHire.additions/
+  // deletions/filesChanged); this struct only had to start copying them.
+  readonly additions: number;
+  readonly deletions: number;
+  readonly filesChanged: number;
 }
 
 // The verified-hire tier's public shape: exactly what a buyer can already
@@ -33,6 +41,9 @@ export interface VerifiedHireItem {
   readonly mergedAt: string;
   readonly mergeCommit: string;
   readonly buyerDid: string;
+  readonly additions: number;
+  readonly deletions: number;
+  readonly filesChanged: number;
 }
 
 // Three separate arrays, one per tier. No field here may be derived from
@@ -51,6 +62,9 @@ function toItem(credential: CredentialEvidence): VerifiedHireItem {
     mergedAt: credential.mergedAt,
     mergeCommit: credential.mergeCommit,
     buyerDid: credential.buyerDid,
+    additions: credential.additions,
+    deletions: credential.deletions,
+    filesChanged: credential.filesChanged,
   };
 }
 

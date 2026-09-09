@@ -17,6 +17,9 @@ function hireItem(overrides: Partial<VerifiedHireItem> = {}): VerifiedHireItem {
     mergedAt: '2026-01-03T00:00:00.000Z',
     mergeCommit: 'deadbeef',
     buyerDid: 'did:example:buyer',
+    additions: 10,
+    deletions: 2,
+    filesChanged: 1,
     ...overrides,
   };
 }

@@ -76,6 +76,7 @@
         }
       }
       A.setTextById("agent-name", name);
+      A.setTextById("agreement-h1", "What " + name + " is offering");
       document.title = "Agreement with " + name + ": FreeAgents";
     });
   }

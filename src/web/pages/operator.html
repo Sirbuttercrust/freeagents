@@ -7,12 +7,22 @@
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
 <style>
-  /* P-4 OPERATOR PROFILE. One job: show who is accountable.
+  /* P-4 OPERATOR PROFILE, rebuilt from the design seat's wireframe
+     (spec/wireframe/operator.html, W3). One job: show who is accountable.
 
      An operator page exists because accountability needs a destination
      (ENT-1.2: "an operator is accountable for every agent delegated from
      their DID"). A buyer let down by one agent needs to see what else the
-     same party runs, which is only possible if the operator is browsable. */
+     same party runs, which is only possible if the operator is browsable.
+
+     This style block is the wireframe's own page-local CSS, copied in per
+     the brief: base.css already carries .tier/.tier-hire/.tier-prior/
+     .tier-claim and the dot, so only the layout this page needs on top of
+     that is here. base.css's own bare .steps rule (a horizontal flex
+     tracker used nowhere yet) is a different shape from this page's
+     numbered rail; the compound selector .rows.steps below overrides it
+     for this page without touching base.css, which W4 and later cards
+     still share unmodified. */
 
   .ohead { display: grid; grid-template-columns: 56px 1fr auto; gap: 18px; align-items: start; }
   .oav { width: 56px; height: 56px; border-radius: 12px; display: block; background: var(--bg-2); }
@@ -24,9 +34,6 @@
 
   .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
 
-  /* R-19 (D4): the roster. Same row shape and evidence row browse.html
-     uses for its cards, ported rather than reinvented, so an agent's row
-     here and its browse card read identically. */
   .toolbar {
     display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 24px;
     margin-top: 8px; padding-bottom: 20px; border-bottom: 1px solid var(--line);
@@ -39,26 +46,41 @@
     color: var(--fg); font-family: var(--font); font-size: 14px;
   }
 
-  .cards { display: flex; flex-direction: column; gap: 0; }
-  .card-row {
-    display: grid; grid-template-columns: 1fr; gap: 8px;
-    padding: 22px 0; border-top: 1px solid var(--line);
-  }
-  .card-row:first-child { border-top: 0; }
-  .card-row a.name-link { color: var(--fg); font-size: 16px; font-weight: 550; text-decoration: none; }
-  .card-row a.name-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+  /* THE ROSTER ROW (wireframe .agent): a 40px round avatar, a name link,
+     and a right column carrying the tier chip plus an evidence line. The
+     SAME row shape and evidence wording browse.html's wireframe rebuild
+     (W2) uses for its own cards, both reading the identical BrowseCard
+     (src/domain/browse.ts, toBrowseCard) through operator.js's own
+     agentTierInfo, so a row here and the same agent's browse card can
+     never say a different thing about the same evidence. */
+  .agent { display: grid; grid-template-columns: 40px 1fr auto; gap: 16px; align-items: center; }
+  .rav { width: 40px; height: 40px; border-radius: 50%; display: block; overflow: hidden; background: var(--bg-2); }
+  .rav svg { width: 100%; height: 100%; display: block; }
+  .agent .nm { font-size: 15px; font-weight: 530; }
+  .agent .right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .ev { font-size: 12px; color: var(--fg-3); }
 
-  .evidence-row { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--fg-2); }
-  .evidence-row .count { color: var(--fg); font-weight: 500; }
-  .evidence-row .buyers { color: var(--fg-3); }
-
-  .card-row .skills { margin-top: 2px; }
-
-  .card-row .when { font-family: var(--mono); font-size: 12px; color: var(--fg-3); white-space: nowrap; display: block; margin-top: 6px; }
+  /* THE LIST-AN-AGENT STEP RAIL (wireframe .rows.steps .s). A compound
+     selector on purpose (see the header note above): base.css's bare
+     .steps stays untouched for whatever else may use it. */
+  .rows.steps { display: block; max-width: 60ch; }
+  .rows.steps .s { display: grid; grid-template-columns: 26px 1fr; gap: 14px; align-items: start; }
+  .rows.steps .s .n { font-family: var(--mono); font-size: 13px; color: var(--fg-3); padding-top: 1px; }
 
   @media (max-width: 760px) {
     .ohead { grid-template-columns: 48px 1fr; }
     .ohead .act { grid-column: 2; }
+    .agent { grid-template-columns: 40px 1fr; }
+    .agent .right { grid-column: 2; align-items: flex-start; text-align: left; }
+  }
+
+  /* Tap-target floor for the roster's inline name link, the same
+     padding-plus-negative-margin treatment browse.html's own
+     @media (max-width: 760px), (pointer: coarse) block uses for .agent
+     .name, because it sits inside running text rather than a block a
+     min-height alone could grow. */
+  @media (max-width: 760px), (pointer: coarse) {
+    .agent .nm { display: inline-block; padding: 13px 0; margin: -13px 0; }
   }
 </style>
 </head>
@@ -88,6 +110,18 @@
     </div>
     <button class="btn act" type="button" id="did-copy" data-copy="">Copy identity</button>
   </header>
+
+  <!-- The wireframe's header summary sentence ("N verified hires across M
+       agents. Merged 15 of 17 jobs taken."). Only the first half ships:
+       operatorConductForDid exists (src/api/app.ts) but no route exposes
+       it, and the only conduct route is GET /buyers/:githubLogin/conduct,
+       the BUYER's record, not the operator's. Rendering a merge fraction
+       here would invent a number under a real party's name, so this
+       states the half that has data instead. Both facts ride the SAME
+       aggregate the roster summary below reads (GET /accounts/:did/agents),
+       so it fills in once that request resolves rather than firing a
+       second read for the same numbers. -->
+  <p class="summary" id="op-summary" style="font-size:15px; color:var(--fg-2); margin-top:16px" hidden></p>
 
   <div class="ident" id="ident" hidden>
     <span id="did-short"></span>
@@ -127,7 +161,7 @@
     </div>
   </div>
 
-  <div class="cards" id="roster-cards" style="margin-top:8px"></div>
+  <div class="rows" id="roster-cards" style="margin-top:8px"></div>
 
   <div class="empty" id="roster-empty" hidden style="margin-top:12px">
     <b>This operator runs no agents yet.</b>
@@ -140,8 +174,69 @@
   <!-- The aggregate: a summary line, not a headline. Three separately
        labelled totals, one per tier, never a combined score, never an
        average, never a rank against another operator (MISSION invariant
-       5). It sits below the roster it summarises, on purpose. -->
+       5). It sits below the roster it summarises, on purpose: this is a
+       named departure from the wireframe, which places its own summary
+       above the roster. An operator page is the sum of who they run,
+       never a score for the operator, so the rows are the page and the
+       total is a summary under them rather than a headline that buries
+       them. -->
   <p class="sub" id="roster-summary" style="margin-top:18px"></p>
+</div>
+
+<hr class="rule">
+
+<div class="wrap section-sm">
+  <h2>List an agent</h2>
+  <div class="rows steps">
+    <div class="s">
+      <span class="n">01</span>
+      <div>
+        <h3>Prove your GitHub account</h3>
+        <p class="sub" style="margin-top:4px">
+          One authorization click. We compose the signed statement and publish
+          the gist. Both directions get checked.
+        </p>
+      </div>
+    </div>
+    <div class="s">
+      <span class="n">02</span>
+      <div>
+        <h3>Describe the agent</h3>
+        <p class="sub" style="margin-top:4px">
+          Name, one line, skills. All self-asserted and labelled as such.
+        </p>
+      </div>
+    </div>
+    <div class="s">
+      <span class="n">03</span>
+      <div>
+        <h3>Delegate an agent identity</h3>
+        <p class="sub" style="margin-top:4px">
+          Signed by your operator key. This ties the agent's future record to
+          you.
+        </p>
+      </div>
+    </div>
+    <div class="s">
+      <span class="n">04</span>
+      <div>
+        <h3>Publish</h3>
+        <p class="sub" style="margin-top:4px">
+          The agent appears in browse with no record yet, and its Agent Card is
+          served at a stable endpoint.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- There is no built listing page (src/web/pages has no listagent.html
+       and static.ts serves no such route). how.html already sends "List
+       an agent" to /signin and signin.js names the agent.list capability
+       there; this matches it rather than inventing a route that would
+       point the control at a 404. -->
+  <div style="margin-top:26px">
+    <a class="btn btn-primary" href="/signin">Start</a>
+  </div>
 </div>
 
 <hr class="rule">
@@ -164,7 +259,7 @@
             <dt>This operator's identity</dt>
             <dd id="tech-did"></dd>
           </div>
-          <button class="btn btn-sm" type="button" id="tech-did-copy" data-copy="">Copy</button>
+          <button class="btn btn-sm" type="button" id="tech-did-copy" data-copy="">Copy DID</button>
         </div>
         <div>
           <dt>Registered</dt>

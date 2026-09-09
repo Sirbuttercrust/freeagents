@@ -204,23 +204,69 @@ describe('the Incoming work screen, driven end to end against the real app', () 
       const briefs = rows.map((r) => r.querySelector('.brief')?.textContent);
       expect(briefs).toEqual(['Migrate billing endpoints.', 'Add property-based tests.', 'Watch for drift.']);
 
-      // P8v (edited per the brief's own instruction, superseding P8q's
-      // ruling 1: "no control anywhere on any row"): the operator's own
-      // job page (P-25, operatorjob.html) is built and mounted at
-      // /operatorjob now, so every row here IS a control -- a full-row
-      // link to that screen, mirroring dashboard.js's own offer row.
-      // The done-means item this test's own title still pins ("no
-      // control anywhere on the page points at an unmounted path") is
-      // proven below by the review round 1 D2 test, which fetches
-      // every href against the real app.
-      const rowLinks = page.document.querySelectorAll('#rows a');
-      expect(rowLinks.length).toBe(3);
-      Array.from(rowLinks).forEach((a) => {
+      // P8v built and mounted the operator job page, making every row a
+      // full-row link. W7b reverts that (see the test below, "each
+      // waitingOn state renders its own wireframe action"): a labelled
+      // anchor inside a row-wide anchor is invalid markup and a
+      // keyboard-navigation defect, so the destination moves from the
+      // row to the wireframe's own per-state .foot button. This
+      // assertion still proves the two things it always proved -- one
+      // control per offer, each carrying that offer's own id, reaching a
+      // path the app actually mounts (proven below by the review round 1
+      // D2 test, which fetches every href against the real app) -- just
+      // read off the button instead of the row.
+      const footLinks = page.document.querySelectorAll('#rows .foot a');
+      expect(footLinks.length).toBe(3);
+      Array.from(footLinks).forEach((a) => {
         expect(a.getAttribute('href')).toMatch(/^\/operatorjob\?job=/);
       });
+      expect(page.document.querySelectorAll('#rows a').length).toBe(3);
       expect(page.document.querySelectorAll('#rows button').length).toBe(0);
 
       expect(page.document.documentElement.outerHTML).not.toContain(operatorSession.token);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('each waitingOn state renders its own wireframe action, only noReply carries btn-primary, and each action reaches /operatorjob?job=<the offer\\u2019s own id> (W7b)', async () => {
+    const noReplyCriteria: Criterion[] = [];
+    const waitingOnBuyerCriteria: Criterion[] = [{ text: 'agent proposed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: true }];
+    const waitingOnOperatorCriteria: Criterion[] = [{ text: 'buyer edit', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: false }];
+
+    await jobRepo.create(jobFixture({ id: 'w7b-row-none', buyerDid: 'did:abt:w7b-buyer-1', agentDid, status: 'draft', criteria: noReplyCriteria }, new Date('2026-08-20T00:00:00Z')));
+    await jobRepo.create(jobFixture({ id: 'w7b-row-buyer', buyerDid: 'did:abt:w7b-buyer-2', agentDid, status: 'proposed', criteria: waitingOnBuyerCriteria }, new Date('2026-08-21T00:00:00Z')));
+    await jobRepo.create(jobFixture({ id: 'w7b-row-operator', buyerDid: 'did:abt:w7b-buyer-3', agentDid, status: 'proposed', criteria: waitingOnOperatorCriteria }, new Date('2026-08-22T00:00:00Z')));
+
+    const page = await renderIncoming(baseUrl, operatorSession);
+    try {
+      const rows = Array.from(page.document.querySelectorAll('#rows > .orow'));
+      expect(rows.length).toBeGreaterThanOrEqual(3);
+
+      function footFor(jobId: string) {
+        const link = Array.from(page.document.querySelectorAll('a')).find(
+          (a) => a.getAttribute('href') === `/operatorjob?job=${jobId}`,
+        );
+        const row = link?.closest('.orow');
+        return { link, foot: row?.querySelector('.foot') };
+      }
+
+      const noReply = footFor('w7b-row-none');
+      expect(noReply.link?.textContent).toContain('Draft the agreement');
+      expect(noReply.link?.classList.contains('btn-primary')).toBe(true);
+      expect(noReply.foot?.querySelector('.small.dim')).toBeTruthy();
+
+      const waitingOnBuyer = footFor('w7b-row-buyer');
+      expect(waitingOnBuyer.link?.textContent).toContain('See what you sent');
+      expect(waitingOnBuyer.link?.classList.contains('btn-primary')).toBe(false);
+
+      const waitingOnOperator = footFor('w7b-row-operator');
+      expect(waitingOnOperator.link?.textContent).toContain('Review the change');
+      expect(waitingOnOperator.link?.classList.contains('btn-primary')).toBe(false);
+
+      // The row itself is no longer a link: a labelled anchor inside a
+      // row-wide anchor is invalid markup and a keyboard-navigation defect.
+      expect(page.document.querySelector('#rows > a')).toBeNull();
     } finally {
       page.close();
     }
@@ -431,7 +477,7 @@ describe('the Incoming work screen, driven end to end against the real app', () 
   });
 
   describe('layout: 320px, the row wraps its .between and .foot rather than overflowing (layout-broken-at-desktop)', () => {
-    it('at 320px there is no horizontal overflow', async () => {
+    it('at 320px there is no horizontal overflow and the foot action measures 44px or taller', async () => {
       if (!hasRealBrowser()) {
         console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
         return;
@@ -448,6 +494,17 @@ describe('the Incoming work screen, driven end to end against the real app', () 
           ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth })
         `);
         expect(overflow.scrollWidth, 'the 320px page must not scroll sideways').toBe(overflow.clientWidth);
+
+        const footAction = await browser.evaluate<{ found: boolean; height: number } | null>(`
+          (function () {
+            var link = document.querySelector('.orow .foot a');
+            if (!link) return null;
+            var r = link.getBoundingClientRect();
+            return { found: true, height: r.height };
+          })()
+        `);
+        expect(footAction?.found, 'at least one row foot action must render').toBe(true);
+        expect(footAction?.height, 'the foot action must reach the 44px tap floor at 320px').toBeGreaterThanOrEqual(44);
       } finally {
         await browser.close();
       }

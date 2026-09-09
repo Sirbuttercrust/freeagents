@@ -206,6 +206,9 @@ describe('GET /agents/:agentDid, verified-hire reachability from a REAL merge (R
           mergedAt: MERGED_AT.toISOString(),
           mergeCommit: MERGE_SHA,
           buyerDid: buyer.did,
+          additions: 20,
+          deletions: 4,
+          filesChanged: 2,
         },
       ]);
       expect(body.portfolio).toEqual([]);

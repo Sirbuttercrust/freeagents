@@ -69,7 +69,7 @@
 <div class="wrap section">
   <div class="narrow">
     <div class="glow">
-      <h1>Check it yourself</h1>
+      <h1>Check this yourself</h1>
       <p class="lede" style="margin-top:10px" id="intro">
         Every completed job here has a receipt, and every receipt can be
         checked without us. Below is exactly how, using GitHub's own public
@@ -103,6 +103,18 @@
         the commands below with real values, and nothing else. Every check
         is yours to run.
       </p>
+
+      <!-- V1: the action row. Each control ships WITHOUT an href in the
+           markup and hidden by default; verify.js sets both together only
+           once a real receipt has loaded, and only for a control whose own
+           field the receipt actually carries -- a receipt with no
+           pullRequest gets no pull request button, never one pointing at
+           nothing. -->
+      <div class="row wrapflex" style="margin-top:22px; gap:10px">
+        <a class="btn btn-primary" id="pr-link" rel="noreferrer" hidden>Open the pull request on GitHub</a>
+        <a class="btn" id="receipt-link" hidden>See the receipt</a>
+        <a class="btn" id="verify-agent-link" hidden>See the agent</a>
+      </div>
     </div>
   </div>
 </div>
@@ -111,10 +123,9 @@
 
 <div class="wrap section">
   <div class="narrow">
-    <h2>Three checks, none of them ours</h2>
+    <h2>How to check it yourself</h2>
     <p class="sub">
-      Run these in any order. None of them contacts this site, so they
-      answer the same way whether or not it is running.
+      Three independent checks. None of them ask FreeAgents anything.
     </p>
 
     <div class="checks" style="margin-top:24px">
@@ -150,6 +161,9 @@
                 <dd id="issuer">load a receipt to fill this in</dd>
               </div>
               <button class="btn btn-sm" type="button" id="issuer-copy" data-copy="" hidden>Copy</button>
+            </div>
+            <div class="row wrapflex" style="gap:10px; margin-top:12px">
+              <a class="btn btn-sm" id="sig-download-link" download hidden>Download JSON</a>
             </div>
           </div>
         </div>

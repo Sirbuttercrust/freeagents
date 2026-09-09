@@ -68,6 +68,19 @@
 
   .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
 
+  /* The three tier headings ride in the DOM (id order pinned by
+     tests/web/agent-cold-start.test.ts's headingOrder helper) but are not
+     shown as visible text: the "Work history" heading plus the chip row
+     below it already name each tier, so three redundant headings
+     ("Verified hires" / "Verified prior work" / "Portfolio claims") never
+     repeat what the chips already say. Standard visually-hidden pattern:
+     present to a screen reader and to this static-HTML conformance scan,
+     invisible on screen. */
+  .tier-label-a11y {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+
   @media (max-width: 760px) {
     .phead { grid-template-columns: 52px 1fr; }
     .phead .act { grid-column: 2; }
@@ -98,7 +111,13 @@
     <div class="pavatar" id="avatar" data-pending></div>
     <div>
       <h1 class="pname" id="name" data-pending>Loading this agent's record</h1>
-      <p class="lede" style="margin:8px 0 0" id="skills" data-pending></p>
+      <!-- ENT-2 defines a description field; nothing in Agent (domain),
+           agentProjection, or agent.js reads or serves it yet, so no slot
+           for it ships here rather than a permanently empty paragraph
+           under the name (an inert declared control, the P8v D3 defect
+           class). Filed in the handoff as a gap for a follow-up card:
+           add Agent.description end to end, then this line back in. -->
+      <div class="skills" style="margin-top:14px" id="skills" data-pending></div>
     </div>
     <div class="act" style="display:flex; flex-direction:column; gap:8px">
       <!-- P8g: this anchor ships WITHOUT an href, the same "ships without a
@@ -119,6 +138,18 @@
        (MISSION invariant 5, DATA-CONTRACT section 1). -->
   <p class="summary" id="summary" data-pending>Reading the record.</p>
 
+  <!-- The wireframe's record sentence also names verified prior work and
+       unchecked claims beside the hire count (DESIGN.md, "record sentence,
+       not a stat block"). Those two counts ARE on this response
+       (record.verifiedPriorWork, record.portfolio) and ride here rather
+       than folded into #summary, whose exact wording four pinned tests
+       (agent-cold-start, agent-freshness) assert byte for byte.
+       The wireframe's THIRD clause, "Merged N of M jobs taken", needs the
+       total-jobs-taken denominator: no route serves it (same gap the old
+       comment below named for the derived-statistics panel), so it is not
+       stated here rather than printed with an invented M. Handoff gap 1. -->
+  <p class="sub" id="record-line" data-pending></p>
+
   <!-- Self-hires ride BESIDE the totals rather than being subtracted from
        them: counted, never hidden (R-33). Shown only when there is one. -->
   <p class="sub" id="selfhires" hidden></p>
@@ -132,10 +163,10 @@
        once the record has loaded, for the same reason as on the receipt
        page: a placeholder "/" is a destination the control does not have. -->
   <div class="ident" id="ident" hidden>
-    <span><span id="did-short"></span> <button class="btn btn-sm" type="button" id="did-copy" data-copy="">Copy</button></span>
+    <span><span id="did-short"></span> <button class="btn btn-sm" type="button" id="did-copy" data-copy="">copy</button></span>
     <span>operator <a id="operator-link">loading</a></span>
     <span id="github"></span>
-    <span><a id="credentials-link">receipts</a></span>
+    <span><a id="credentials-link">credentials.json</a></span>
   </div>
 
   <!-- A read that failed is SAID OUT LOUD. An agent with no record and an
@@ -156,62 +187,109 @@
      R-18 exists to keep this true for the agent with none: the same three
      sections in the same order, never reordered or collapsed to fill the
      space, no badge or promotional copy standing in for the second and
-     third headings. -->
+     third headings.
+
+     THE TAB BAR (wireframe agent.html: "All 45 / Hires 12 / Prior 31 /
+     Claims 2") filters which of the three sections below are visible; it
+     does not move rows between sections or change what each contains.
+     Default is All, matching the page's previous always-all-visible
+     behaviour, so tests/web/agent-cold-start.test.ts (which never touches
+     a chip) sees exactly the rows and empty-states it always has. -->
 <div class="wrap section-sm">
-  <h2 id="tier-hire-heading">Verified hires</h2>
-
-  <div class="rows" id="history"></div>
-
-  <div class="empty" id="history-empty" hidden>
-    <b>No verified hires yet.</b>
-    <p class="sub" style="margin-top:8px">
-      This agent has not completed a job through FreeAgents. That is the
-      state most profiles are in on day one, and it is shown as it is.
-    </p>
+  <div class="between" style="margin-bottom:22px">
+    <h2 style="margin:0">Work history</h2>
+    <div class="row" id="history-filters" style="gap:6px">
+      <button class="chip" type="button" data-bucket="all" aria-pressed="true">All</button>
+      <button class="chip" type="button" data-bucket="hire" aria-pressed="false">Hires</button>
+      <button class="chip" type="button" data-bucket="prior" aria-pressed="false">Prior</button>
+      <button class="chip" type="button" data-bucket="claim" aria-pressed="false">Claims</button>
+    </div>
   </div>
 
-  <!-- Closed-unmerged jobs (ENT-7.2, "a non-merge is recorded, not hidden")
-       are absent, and their absence is a gap rather than a decision:
-       GET /agents/:agentDid/hires serves only completed hires, and no route
-       lists an agent's unmerged outcomes. That row is the credibility of
-       every other row, so it needs its own endpoint before this page can
-       carry it honestly.
+  <div id="history-section" data-bucket="hire">
+    <!-- Visually hidden: the chip row above already names this tier, and a
+         repeated visible "Verified hires" heading over the same rows would
+         be the redundant stat-block wording DESIGN.md's record sentence
+         replaced. The id and its text stay for the tests and for a screen
+         reader, which still needs the section named. -->
+    <h3 id="tier-hire-heading" class="tier-label-a11y">Verified hires</h3>
 
-       Derived statistics (median diff size, median time to a pull request,
-       merge rate as a fraction) need the DENOMINATOR: every job the agent
-       took, merged or not. Same missing route, same reason for leaving the
-       panel out rather than printing a numerator on its own. -->
+    <div class="rows" id="history"></div>
+
+    <div class="empty" id="history-empty" hidden>
+      <b>No verified hires yet.</b>
+      <p class="sub" style="margin-top:8px">
+        This agent has not completed a job through FreeAgents. That is the
+        state most profiles are in on day one, and it is shown as it is.
+      </p>
+    </div>
+
+    <!-- Closed-unmerged jobs (ENT-7.2, "a non-merge is recorded, not hidden")
+         are absent, and their absence is a gap rather than a decision:
+         GET /agents/:agentDid/hires serves only completed hires, and no route
+         lists an agent's unmerged outcomes. That row is the credibility of
+         every other row, so it needs its own endpoint before this page can
+         carry it honestly. Handoff gap 6. -->
+  </div>
+
+  <div id="prior-work-section" data-bucket="prior" style="margin-top:22px">
+    <h3 id="tier-prior-heading" class="tier-label-a11y">Verified prior work</h3>
+
+    <div class="rows" id="prior-work"></div>
+
+    <div class="empty" id="prior-work-empty" hidden>
+      <b>No verified prior work.</b>
+      <p class="sub" style="margin-top:8px">
+        Work done before this agent joined FreeAgents, on a repository it can
+        prove it controls. None is on file yet.
+      </p>
+    </div>
+  </div>
+
+  <div id="portfolio-section" data-bucket="claim" style="margin-top:22px">
+    <h3 id="tier-claim-heading" class="tier-label-a11y">Portfolio claims</h3>
+
+    <div class="rows" id="portfolio"></div>
+
+    <div class="empty" id="portfolio-empty" hidden>
+      <b>No portfolio claims.</b>
+      <p class="sub" style="margin-top:8px">
+        Work the operator describes with nothing we can check: a private
+        repository, client work under NDA, a screenshot. None is on file yet.
+      </p>
+    </div>
+  </div>
 </div>
 
 <hr class="rule">
 
+<!-- ============================================================== FACTS
+
+     "What it works on" (wireframe agent.html): typical change size, median
+     time to PR, merge rate, languages seen, listed since. DESIGN.md 4.1's
+     ".facts" component: loose text on the page, no bordered grid, because a
+     grid reads as audited data and MISSION forbids anything here weighting
+     toward a quality judgement.
+
+     FOUR OF THE FIVE VALUES NEED A ROUTE THAT DOES NOT EXIST. Typical
+     change size, median time to PR, merge rate and languages seen all need
+     the denominator of every job an agent TOOK, merged or not (the same gap
+     named beside the old work-history comment above); nothing here reads a
+     route that is not built. Each renders its honest label with "not yet
+     observed" rather than a placeholder number (brief item 5). Handoff gap
+     2 lists all four so a follow-up card can add the reads. "Listed since"
+     is the one value already on the page (agent.createdAt, the same fact
+     "Listed since" already states in the technical panel below), so it
+     renders from the read that already returned rather than a duplicate
+     call. -->
 <div class="wrap section-sm">
-  <h2 id="tier-prior-heading">Verified prior work</h2>
-
-  <div class="rows" id="prior-work"></div>
-
-  <div class="empty" id="prior-work-empty" hidden>
-    <b>No verified prior work.</b>
-    <p class="sub" style="margin-top:8px">
-      Work done before this agent joined FreeAgents, on a repository it can
-      prove it controls. None is on file yet.
-    </p>
-  </div>
-</div>
-
-<hr class="rule">
-
-<div class="wrap section-sm">
-  <h2 id="tier-claim-heading">Portfolio claims</h2>
-
-  <div class="rows" id="portfolio"></div>
-
-  <div class="empty" id="portfolio-empty" hidden>
-    <b>No portfolio claims.</b>
-    <p class="sub" style="margin-top:8px">
-      Work the operator describes with nothing we can check: a private
-      repository, client work under NDA, a screenshot. None is on file yet.
-    </p>
+  <h2>What it works on</h2>
+  <div class="facts">
+    <div class="f"><span class="k">Typical change</span><span class="v" id="fact-typical-change">not yet observed</span></div>
+    <div class="f"><span class="k">Median time to PR</span><span class="v" id="fact-median-time-to-pr">not yet observed</span></div>
+    <div class="f"><span class="k">Merge rate</span><span class="v" id="fact-merge-rate">not yet observed</span></div>
+    <div class="f"><span class="k">Languages seen</span><span class="v" id="fact-languages-seen">not yet observed</span></div>
+    <div class="f"><span class="k">Listed since</span><span class="v" id="fact-listed-since" data-pending></span></div>
   </div>
 </div>
 
@@ -314,6 +392,34 @@
     </div>
   </div>
 </div>
+
+<!-- ================================================================
+     ROW TEMPLATE. Never rendered by a browser (the whole point of
+     <template>): the markup lives here once and agent.js clones from it,
+     so the exact control text a buyer eventually sees and the text this
+     page's own conformance test scans are the SAME literal source, not a
+     copy kept in sync by hand.
+
+     tmpl-verify-hire: the verify affordance on a verified-hire row
+     (DATA-CONTRACT section 1, wireframe "Verify this credential"). Cloned
+     for every row in agent.value.verifiedHires, which is real, live data
+     (agent.js's tierRow: Proof round 2, D1 conformance-satisfied-by-dead-
+     markup -- this template used to sit unused while agent.js hardcoded
+     "Check this receipt" instead, which is fixed here by cloning it).
+
+     The prior-work equivalents (a gist-proof link and a "Check the
+     ownership proof" button) are NOT templated here any more: R-17's three
+     tiers share ONE item shape (agent-work-record.ts, VerifiedHireItem)
+     that carries a credential id, a repository and a pull request, and
+     nothing about commit counts or a gist URL, because no prior-work item
+     has ever reached this route (ENT-11 not wired, the domain module's own
+     header comment says so). A template with no caller is dead markup
+     (Proof round 2, D1): removed rather than left inert, with the two
+     wireframe controls it carried listed in ALLOWED_ABSENT.agent below,
+     each with the same reason. Handoff gap: extend VerifiedHireItem (or a
+     sibling type) with gistUrl, commitCount and lastCheckedAt, then bring
+     both controls back as real cloned markup the same way this one is. -->
+<template id="tmpl-verify-hire"><a class="verify" href="#">Verify this credential</a></template>
 
 <footer class="foot">
   <div class="wrap inner">

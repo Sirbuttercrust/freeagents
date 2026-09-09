@@ -307,6 +307,13 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
 
     // Draft, for the drafting-section link.
     await jobRepo.create(jobFixture({ id: 'job-draft', status: 'draft', criteria: [] }));
+
+    // qa D2, round 2: draft and proposed can both be declined or withdrawn
+    // (job.ts:348-349) without ever reaching confirmed. jobProjection omits
+    // confirmedAt entirely for such a row (app.ts:353-356), so these two
+    // fixtures carry no confirmedSpecHash and no confirmedAt.
+    await jobRepo.create(jobFixture({ id: 'job-withdrawn-never-confirmed', status: 'withdrawn', criteria: [] }));
+    await jobRepo.create(jobFixture({ id: 'job-declined-never-confirmed', status: 'declined', criteria: [] }));
   });
 
   afterAll(async () => {
@@ -516,6 +523,42 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
         page.close();
       }
     });
+
+    // W7c, ALLOWED_ABSENT('operatorjob', 'A buyer sent it back'): pinned so
+    // the state heading cannot silently drift away from the wireframe's
+    // exact text with a suite that stays green.
+    it('renders the state heading as exactly "A buyer sent it back"', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-redo-requested', operatorSession);
+      try {
+        const heading = page.document.getElementById('state-heading')?.textContent ?? '';
+        expect(heading).toBe('A buyer sent it back');
+      } finally {
+        page.close();
+      }
+    });
+    // W7c, Group 3: the button carries the real cost of accepting, from
+    // REDO_LAPSE_EXTENSION_DAYS (job.ts), the same number the wireframe
+    // draws (spec/wireframe/operatorjob.html:157,323).
+    it('the redo-accept button reads "Accept, and take N more days" using the real extension constant', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-redo-requested', operatorSession);
+      try {
+        const btn = page.document.getElementById('redo-accept-btn');
+        expect(btn?.textContent).toBe(`Accept, and take ${REDO_LAPSE_EXTENSION_DAYS} more days`);
+      } finally {
+        page.close();
+      }
+    });
+
+    it('the confirm-sheet accept button carries the same label as the row button (wireframe operatorjob.html:157,323)', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-redo-requested', operatorSession);
+      try {
+        (page.document.getElementById('redo-accept-btn') as HTMLButtonElement).click();
+        const confirmBtn = page.document.getElementById('accept-confirm-btn');
+        expect(confirmBtn?.textContent).toBe(`Accept, and take ${REDO_LAPSE_EXTENSION_DAYS} more days`);
+      } finally {
+        page.close();
+      }
+    });
   });
 
   describe('the redo dialogs show the consequence from the job\'s own real numbers (round 2 fix, D2)', () => {
@@ -608,6 +651,48 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
         page.close();
       }
     });
+
+    // Group 2 (W7c): the wireframe's own wording tells the operator the
+    // screen behind this link is the buyer's view, not an operator-only
+    // one (spec/wireframe/operatorjob.html:298).
+    it('the link reads "See the agreement as the buyer sees it"', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-draft', operatorSession);
+      try {
+        const link = page.document.getElementById('agreement-link');
+        expect(link?.textContent).toBe('See the agreement as the buyer sees it');
+      } finally {
+        page.close();
+      }
+    });
+
+    // Group 3 (W7c): the brief and the drafted facts, rendered from the
+    // job's own real data (spec/wireframe/operatorjob.html:274-296).
+    it('renders the buyer\'s brief verbatim under "The brief, as the buyer wrote it"', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-draft', operatorSession);
+      try {
+        const heading = Array.from(page.document.querySelectorAll('#drafting-section h3')).find(
+          (h) => h.textContent === 'The brief, as the buyer wrote it',
+        );
+        expect(heading).not.toBeUndefined();
+        const brief = page.document.getElementById('drafting-brief')?.textContent ?? '';
+        expect(brief).toBe('Fix the checkout flow');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('renders the agent\'s drafted facts under "What <agent name> drafted from it"', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-draft', operatorSession);
+      try {
+        const heading = Array.from(page.document.querySelectorAll('#drafting-section h3')).find(
+          (h) => (h.textContent ?? '').indexOf('drafted from it') !== -1,
+        );
+        expect(heading?.textContent).toBe('What operatorjob-page-scout drafted from it');
+        expect(page.document.getElementById('drafting-facts')).not.toBeNull();
+      } finally {
+        page.close();
+      }
+    });
   });
 
   describe('the money facts, computed from the job\'s own agreed price', () => {
@@ -622,6 +707,97 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
         expect(text).toContain('$675.00'); // remainder
       } finally {
         page.close();
+      }
+    });
+  });
+
+  // Group 2 (W7c): route 1, the section becomes a genuine history block once
+  // the job has moved past draft/proposed, because Group 3 now builds its
+  // contents (the brief and the drafted facts) for real, so "Earlier:" can
+  // finally be true rather than a heading with nothing behind it.
+  describe('the drafting section as history, once the job has moved on (Group 2, "Earlier:")', () => {
+    it('a confirmed job still shows the drafting section, headed "Earlier: drafting the agreement"', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-confirmed', operatorSession);
+      try {
+        const heading = page.document.getElementById('drafting-heading');
+        expect(heading?.textContent).toBe('Earlier: drafting the agreement');
+        expect(page.document.getElementById('drafting-section')?.hidden).toBe(false);
+        const brief = page.document.getElementById('drafting-brief')?.textContent ?? '';
+        expect(brief).toBe('Fix the checkout flow');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a still-drafting job (draft/proposed) keeps the present-tense heading, "Drafting the agreement"', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-draft', operatorSession);
+      try {
+        const heading = page.document.getElementById('drafting-heading');
+        expect(heading?.textContent).toBe('Drafting the agreement');
+      } finally {
+        page.close();
+      }
+    });
+
+    // qa D1, round 1: the sub paragraph under the drafting heading kept
+    // saying "This job has not been confirmed yet" even once the section
+    // was widened to render as history, which is false on a job that has
+    // moved past draft/proposed and offers an action ("sign the agreement")
+    // that state does not have. The sentence must track the job's real
+    // status the same way the heading now does.
+    it('a still-drafting job keeps the present-tense sub, unconfirmed and inviting review', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-draft', operatorSession);
+      try {
+        const sub = page.document.getElementById('drafting-sub');
+        expect(sub?.textContent).toBe('This job has not been confirmed yet. Read the brief and review or sign the agreement.');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a job that has moved past draft/proposed gets a history-true sub, never "has not been confirmed yet"', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-confirmed', operatorSession);
+      try {
+        const sub = page.document.getElementById('drafting-sub');
+        expect(sub?.textContent).toBe('This is the state the job was in before it was confirmed. Read the brief and what the agent drafted from it.');
+        expect(sub?.textContent).not.toContain('has not been confirmed yet');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a redo_requested job also gets the history-true sub, not the unconfirmed one', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-redo-requested', operatorSession);
+      try {
+        const sub = page.document.getElementById('drafting-sub');
+        expect(sub?.textContent).toBe('This is the state the job was in before it was confirmed. Read the brief and what the agent drafted from it.');
+      } finally {
+        page.close();
+      }
+    });
+
+    // qa D2, round 2: the round-1 fix split the sub two ways on
+    // stillDrafting (draft/proposed), so every other status, including a
+    // job that was declined or withdrawn straight out of draft/proposed and
+    // never confirmed, got the sentence that claims it "was confirmed". That
+    // is false for these two: draft/proposed can go straight to declined or
+    // withdrawn without ever reaching confirmed (job.ts:348-349), and
+    // jobProjection omits confirmedAt entirely for such a row
+    // (app.ts:353-356). The sub must track the confirmation fact the
+    // payload actually carries, not just "not still drafting".
+    it('a job declined or withdrawn before it was ever confirmed never claims it was confirmed', async () => {
+      const withdrawn = await renderOperatorJob(baseUrl, 'job-withdrawn-never-confirmed', operatorSession);
+      const declined = await renderOperatorJob(baseUrl, 'job-declined-never-confirmed', operatorSession);
+      try {
+        const withdrawnSub = withdrawn.document.getElementById('drafting-sub')?.textContent ?? '';
+        const declinedSub = declined.document.getElementById('drafting-sub')?.textContent ?? '';
+        expect(withdrawnSub).toBe('This hire ended before an agreement was ever confirmed. Read the brief and what the agent drafted from it.');
+        expect(declinedSub).toBe('This hire ended before an agreement was ever confirmed. Read the brief and what the agent drafted from it.');
+        expect(withdrawnSub).not.toBe('This is the state the job was in before it was confirmed. Read the brief and what the agent drafted from it.');
+        expect(withdrawn.document.getElementById('drafting-section')?.hidden).toBe(false);
+      } finally {
+        withdrawn.close();
+        declined.close();
       }
     });
   });

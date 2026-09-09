@@ -33,6 +33,22 @@
     .arow { grid-template-columns: 36px 1fr; }
     .arow .right { grid-column: 2; align-items: flex-start; text-align: left; margin-top: 8px; }
   }
+
+  /* W7b: the work-offered attention anchor sits inside a 12px metadata
+     strip, the same shape base.css's own inline-link padding block
+     (base.css:527-559) already closes for .arow .nm, .ident a and the
+     rest of that list. base.css is shared across the whole site and this
+     card does not touch it, so the same treatment lands here instead:
+     padding widens the touch area, a matching negative margin keeps the
+     text exactly where it was, and the media query matches base.css's own
+     phone-shaped-viewport-or-coarse-pointer condition rather than a bare
+     width so it does not fire under a fine pointer at desktop width.
+     Measured 2026-09-09 at 320px before this rule: 146.7 x 33.8, under
+     the 44px floor. */
+  @media (max-width: 760px), (pointer: coarse) {
+    .arow .attn { row-gap: 10px; }
+    .arow .attn a { display: inline-block; padding: 15px 6px; margin: -15px -6px; }
+  }
 </style>
 </head>
 <body>

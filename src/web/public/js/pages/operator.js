@@ -1,4 +1,5 @@
-/* P-4 operator profile: read the record and render it.
+/* P-4 operator profile, rebuilt from the design seat's wireframe (W3,
+   spec/wireframe/operator.html): read the record and render it.
 
    The identity strip fetches GET /accounts/:did (did, githubLogin,
    createdAt), pinned by tests/api/operator-invariant2.test.ts. The roster
@@ -9,6 +10,8 @@
    ANCHOR: an operator page is the sum of who they run, never a score for
    the operator. The roster rows are the page; the aggregate is a summary
    line under them, never a headline that buries the agents it came from.
+   This is a named departure from the wireframe, which places its summary
+   above the roster (see the PR body).
 
    ONE LAYOUT, NO BRANCHING (D4). A roster table that gains sort and filter
    controls only above ten agents; a single-agent operator sees the same
@@ -21,7 +24,24 @@
    browse.js uses for #sort and #skill, so the roster stays bookmarkable
    and the server (GET /accounts/:did/agents) is the one place that decides
    what a sort or filter value means. There is no second, client-only sort
-   or filter rule for these eleven-plus rows. */
+   or filter rule for these eleven-plus rows.
+
+   THE ROSTER ROW (W3): the wireframe's .agent shape, a 40px round avatar,
+   a name link, and a right column carrying a tier chip plus an evidence
+   line, the SAME .tier/.dot vocabulary browse.js's own wireframe rebuild
+   (W2) applies to a browse card, both reading the identical BrowseCard
+   (src/domain/browse.ts) through the same three-way tier rule, so a row
+   here and the same agent's browse card can never disagree about the
+   evidence. The avatar rides the SAME per-agent read browse.js's
+   loadAvatar already makes (GET /agents/:agentDid, agentProjection's
+   avatar field), fired after the row is in the DOM so a slow avatar read
+   never holds up the rest of the roster.
+
+   THE DESCRIPTION LINE under a roster name (wireframe .ds): BrowseCard
+   carries no description field (src/domain/browse.ts), the same gap
+   browse.html's own row template comment records; there is nothing to
+   render, so the slot is omitted here too rather than substituting the
+   skills line for it silently. */
 
 (function () {
   "use strict";
@@ -168,6 +188,7 @@
   function renderRosterFailure() {
     A.showById("roster-empty", true);
     A.setTextById("roster-summary", "");
+    A.showById("op-summary", false);
     var empty = A.el("roster-empty");
     if (empty) {
       var b = empty.querySelector("b");
@@ -241,6 +262,23 @@
     A.showById("roster-controls", rosterSize > ROSTER_CONTROL_THRESHOLD);
 
     renderSummary(body.aggregate, rosterSize, agents.length);
+    renderHeaderSummary(body.aggregate, rosterSize);
+  }
+
+  /* W3: the wireframe's header summary sentence ("N verified hires across
+     M agents. Merged 15 of 17 jobs taken."). Only the first half ships.
+     operatorConductForDid exists (src/api/app.ts) but no route exposes it;
+     the only conduct route is GET /buyers/:githubLogin/conduct, the
+     BUYER's record, not the operator's. Rendering the merge fraction would
+     mean inventing a number under a real party's name, so this states the
+     half that has data: the verified-hire total and the agent count, both
+     already on the SAME aggregate the roster summary below reads. */
+  function renderHeaderSummary(aggregate, rosterSize) {
+    var totals = aggregate && typeof aggregate === "object" ? aggregate : {};
+    var hires = numberOr(totals.totalVerifiedHireCount);
+    A.el("op-summary").textContent =
+      A.plural(hires, "verified hire", "verified hires") + " across " + A.plural(rosterSize, "agent", "agents") + ".";
+    A.showById("op-summary", true);
   }
 
   function renderSummary(aggregate, rosterSize, shownCount) {
@@ -269,76 +307,132 @@
     );
   }
 
+  /* W3: the roster row rebuilt to the wireframe's .agent shape. A 40px
+     round avatar, a name link, and a right column carrying the tier chip
+     (.tier .dot plus its label) beside the evidence line, the same
+     vocabulary browse.js's applyTier uses for a browse card, so an agent's
+     row here and its browse card read identically for the same evidence.
+     The per-tier table is browse.js's own (agentTierInfo below mirrors
+     applyTier exactly, over the identical BrowseCard fields). */
   function rosterRow(agent) {
     var row = document.createElement("div");
-    row.className = "card-row";
+    row.className = "agent";
     row.setAttribute("data-agent-row", agent.did);
+
+    var avatarHost = document.createElement("div");
+    avatarHost.className = "rav";
+    avatarHost.setAttribute("data-pending", "");
+    row.appendChild(avatarHost);
+    loadAvatar(agent.did, avatarHost);
 
     var body = document.createElement("div");
 
     var name = document.createElement("a");
-    name.className = "name-link";
+    name.className = "nm";
     name.setAttribute("href", "/agents/" + encodeURIComponent(agent.did));
     name.textContent = typeof agent.name === "string" && agent.name !== "" ? agent.name : A.shortDid(agent.did);
     body.appendChild(name);
 
-    /* THE EVIDENCE ROW. Same three separately labelled counts a browse
-       card carries, read the same way (src/domain/browse.ts's toBrowseCard,
-       shared by both the browse route and this roster route), so a row
-       here and the same agent's browse card can never drift apart. */
-    var evidence = document.createElement("div");
-    evidence.className = "evidence-row";
-
-    var hireSpan = document.createElement("span");
-    var hireCount = document.createElement("span");
-    hireCount.className = "count";
-    hireCount.textContent = A.plural(numberOr(agent.verifiedHireCount), "verified hire", "verified hires");
-    hireSpan.appendChild(hireCount);
-    if (numberOr(agent.verifiedHireCount) > 0) {
-      var buyers = document.createElement("span");
-      buyers.className = "buyers";
-      buyers.textContent = ", " + A.plural(numberOr(agent.buyerCount), "buyer", "buyers");
-      hireSpan.appendChild(buyers);
-    }
-    evidence.appendChild(hireSpan);
-
-    var priorSpan = document.createElement("span");
-    priorSpan.textContent = A.plural(numberOr(agent.verifiedPriorWorkCount), "verified prior work", "verified prior work");
-    evidence.appendChild(priorSpan);
-
-    var portfolioSpan = document.createElement("span");
-    portfolioSpan.textContent = A.plural(numberOr(agent.portfolioCount), "portfolio claim", "portfolio claims");
-    evidence.appendChild(portfolioSpan);
-
-    body.appendChild(evidence);
-
-    var skills = Array.isArray(agent.skills) ? agent.skills.filter(function (s) { return typeof s === "string" && s !== ""; }) : [];
-    if (skills.length > 0) {
-      var skillsRow = document.createElement("div");
-      skillsRow.className = "skills";
-      skillsRow.textContent = skills.join("  \u00b7  ");
-      body.appendChild(skillsRow);
-    }
+    /* THE DESCRIPTION LINE (wireframe .ds): BrowseCard carries no
+       description field (src/domain/browse.ts), the same gap browse.js's
+       own row template records for its card, so there is nothing to
+       render here either. Never substitute the skills line for it. */
 
     row.appendChild(body);
 
-    /* THE DATE (Review finding, round 3, defect
-       roster-row-drifts-from-browse-card): browse's cardRow appends a .when
-       span with the same last-verified-or-registered date rule; a roster
-       row must carry it too, so the two surfaces cannot drift on any field,
-       not just the tier counts. */
-    var when = document.createElement("span");
-    when.className = "when";
-    var date = A.readableDate(agent.lastVerifiedAt) || A.readableDate(agent.createdAt);
-    when.textContent = date === null ? "" : date;
-    row.appendChild(when);
+    var right = document.createElement("div");
+    right.className = "right";
+
+    var info = agentTierInfo(agent);
+    var tier = document.createElement("span");
+    tier.className = "tier " + info.tierClass;
+    var dot = document.createElement("span");
+    dot.className = "dot";
+    tier.appendChild(dot);
+    var tierLabel = document.createElement("span");
+    tierLabel.textContent = info.tierLabel;
+    tier.appendChild(tierLabel);
+    right.appendChild(tier);
+
+    var ev = document.createElement("span");
+    ev.className = "ev";
+    ev.textContent = info.evidence;
+    right.appendChild(ev);
+
+    row.appendChild(right);
 
     return row;
+  }
+
+  /* Per-tier rendering, the identical table browse.js's applyTier applies
+     (W2), read over the same three BrowseCard fields, so a roster row and
+     the same agent's browse card can never disagree about which tier it
+     is in or what the evidence line says:
+
+       verified hires above zero   tier-hire,  "N verified hires",
+                                    evidence line with prior and claim
+                                    counts beside it
+       no hires, prior above zero  tier-prior, "N verified prior work",
+                                    evidence line "no hires yet"
+       neither                     tier-claim, "No verified record",
+                                    evidence line with the claim count
+
+     ENT-2.4 governs the third case: an agent with no verified record
+     renders as an agent with no verified record, no badge, no reordering. */
+  function agentTierInfo(agent) {
+    var hire = numberOr(agent.verifiedHireCount);
+    var prior = numberOr(agent.verifiedPriorWorkCount);
+    var claim = numberOr(agent.portfolioCount);
+
+    if (hire > 0) {
+      var parts = [];
+      if (prior > 0) parts.push(prior + " prior");
+      if (claim > 0) parts.push(A.plural(claim, "claim", "claims"));
+      return {
+        tierClass: "tier-hire",
+        tierLabel: A.plural(hire, "verified hire", "verified hires"),
+        evidence: parts.join("  \u00b7  "),
+      };
+    }
+    if (prior > 0) {
+      return {
+        tierClass: "tier-prior",
+        tierLabel: A.plural(prior, "verified prior work", "verified prior work"),
+        evidence: "no hires yet",
+      };
+    }
+    return {
+      tierClass: "tier-claim",
+      tierLabel: "No verified record",
+      evidence: A.plural(claim, "claim", "claims"),
+    };
+  }
+
+  /* The avatar rides the SAME per-agent read browse.js's loadAvatar makes
+     (GET /agents/:agentDid, agentProjection's avatar field), through the
+     SAME A.setAvatar sanitiser: not a second avatar path. Fired after the
+     row is already in the DOM, so a slow or failed read never holds up
+     the rest of the roster (the same ordering browse.js uses). */
+  function loadAvatar(did, avatarHost) {
+    A.get("/agents/" + encodeURIComponent(did)).then(function (result) {
+      if (result.state !== "ok") return;
+      if (typeof result.value.avatar === "string") A.setAvatar(avatarHost, result.value.avatar);
+    });
   }
 
   function numberOr(value) {
     return typeof value === "number" && !isNaN(value) ? value : 0;
   }
+
+  /* Test-only hook (W3 round 2, D2): agentTierInfo's tier-prior branch has
+     no HTTP fixture that can reach it, because agentWorkRecord
+     (src/domain/agent-work-record.ts) hardcodes verifiedPriorWork: [] until
+     ENT-11 lands, the same gap tests/web/browse.test.ts:338-346 documents
+     for browse's identical branch. Exposing the pure function here lets a
+     test call it directly over a shaped object rather than fabricating a
+     prior-work HTTP fixture the app cannot actually produce. Never read by
+     product code; only tests/web/operator-roster.test.ts reaches this. */
+  window.__operatorTestHooks = { agentTierInfo: agentTierInfo };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", start);
@@ -346,3 +440,4 @@
     start();
   }
 })();
+
