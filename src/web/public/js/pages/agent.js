@@ -359,25 +359,42 @@
 
     var body = document.createElement("div");
 
-    /* W1 follow-up (this card): the wireframe's .title slot carries a work
-       title (e.g. "Accessible combobox with async loading"), and this
-       renders the repository there instead. That is a deliberate departure,
-       not an oversight, because no read this page makes can honestly fill
-       that slot. VerifiedHireItem (agent-work-record.ts) carries no title
-       field: the credential stores briefHash only, never the buyer's brief
-       text (ENT-4, src/adapters/credentials/types.ts), and that is not an
-       accidental omission either. spec/work-history-extension-v1.md names
-       the reason directly: "A buyer's brief may contain anything they would
-       not want published, and this credential is public by construction."
-       CompletedJob (src/domain/job.ts), the one other record this row could
-       read, keeps the same shape: id, the two DIDs, mergeCommit,
-       completedAt, and nothing else, so the exclusion is structural, not a
-       route this card forgot to add. Deriving a title from the repository
-       name or the PR number was ruled out explicitly by this card's brief:
-       that would be an invented fact wearing a real one's clothes. So the
-       repository, a true fact the row's own PR link already implies, is
-       the honest content for this slot until a short, buyer-approved title
-       exists as its own field, distinct from the private brief. */
+    /* W1 follow-up (this card, round 2): the wireframe's .title slot carries
+       a work title (e.g. "Accessible combobox with async loading"), and
+       this renders the repository there instead. That is a deliberate
+       departure, not an oversight, and the honest reason is narrower than
+       round 1's comment claimed.
+
+       VerifiedHireItem (agent-work-record.ts) itself carries no title
+       field: the issued credential stores briefHash only, never the
+       buyer's brief prose (ENT-4, src/adapters/credentials/types.ts), so
+       the value this row renders from cannot supply a title. But the
+       brief IS reachable from this page: GET /jobs/:jobId serves
+       job.brief as verbatim prose, publicly and with no auth (review
+       round 1 confirmed this live: an anonymous curl against a seeded job
+       returned HTTP 200 with the brief text; src/domain/access.ts
+       registers no capability gate on that route; and
+       tests/api/job-invariant2.test.ts pins `brief` into the response key
+       set deliberately, so a third party can recompute briefHash without
+       calling this service). This row already carries the job id that
+       read needs: the "job <jobId>" span below is parsed from the same
+       credentialId via A.credentialKey (R-40).
+
+       So the repository stays in .title for two reasons that are product
+       decisions, not missing data: (1) a second fetch per verified-hire
+       row would turn one profile GET into up to N /jobs/:jobId calls, and
+       (2) the buyer's brief is instructional prose written to the agent,
+       not a curated headline written for a public listing -- spec/work-
+       history-extension-v1.md says it plainly, "A buyer's brief may
+       contain anything, including things they would not want published,
+       and this credential is public by construction." Publishing it
+       raw as the row's most prominent line risks surfacing exactly that.
+       Deriving a title from the repository name or the PR number was
+       ruled out explicitly by this card's brief (an invented fact wearing
+       a real one's clothes), so until a short, buyer-approved title
+       exists as its own field, or a product call is made to fetch and
+       show the raw brief anyway, the repository -- a true fact the row's
+       own PR link already implies -- is what ships in this slot. */
     var title = document.createElement("div");
     title.className = "title";
     title.textContent = typeof item.repository === "string" && item.repository !== ""
