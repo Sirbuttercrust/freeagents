@@ -1,0 +1,464 @@
+/* FreeAgents: the two-party agreement.
+
+   WHY THIS LAYER EXISTS. The 2026-08-28 money model replaced a checklist that
+   one party could accept alone with a list of terms carrying a signature from
+   BOTH parties per line. MAP.md, same date: "a signature per party per line,
+   not a boolean. accepted: true cannot record two parties agreeing."
+
+   That is not a restyle of the old row. A boolean has two states and renders
+   as one mark. Two signatures over one line have nine combinations, three of
+   which a person meets constantly:
+
+     both signed          the line is settled
+     one signed           waiting on somebody, and WHICH somebody is the point
+     neither signed       new, or just cleared by an edit
+
+   The old page drew a single .ptag string per row. This layer draws the pair,
+   because "waiting on axiom-ui" and "waiting on you" are different situations
+   and only one of them is your move.
+
+   LOAD ORDER: base.css, polish.css, market.css, agreement.css. Every rule here
+   adds a class name. Nothing below is overridden.
+
+   THE ACCENT IS NOT USED IN THIS FILE, deliberately. DESIGN.md 2.2 reserves it
+   for "we watched this happen": a verified hire, its count, its pull request,
+   the credential verify affordance. A signature on an agreement is a real
+   cryptographic fact, but it is a fact about what two parties PROMISED, not
+   about work we witnessed. Spending the accent here would make a signed
+   promise look like a merged pull request, which is the exact blur the tier
+   system exists to prevent. Signed reads as solid neutral. Nothing here
+   borrows evidence colour. */
+
+:root {
+  /* Named for the job, not the hue, so a later palette change does not have to
+     reason about what "amber" meant on which screen. Same value as
+     --cat-infra, measured 8.97:1 on --bg and 8.85:1 as dark ink on the solid
+     fill, so it clears AA as text and as a filled chip. */
+  --sig-open: #E0A24E;
+  --sig-open-wash: rgba(224, 162, 78, 0.12);
+}
+
+/* ============================================================ SIGNATURE PAIR
+
+   Two marks, always both present, always in the same order: you first, then
+   the other party. A missing mark would read as "no signature required from
+   that side", and there is no such line. */
+
+.sigpair {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 9px; flex-wrap: wrap;
+}
+
+/* IN THE MATRIX the mark stands alone in its column, so it carries no text
+   label at all. The column header says whose it is. A screen reader still
+   needs the pairing, so every bare mark carries an aria-label naming the party
+   and the state: the label is removed from the pixels, never from the
+   accessibility tree. */
+.sigcell { display: flex; align-items: center; justify-content: center; }
+.sigcell .sig { padding: 0; border: 0; background: none; gap: 0; }
+.sigcell .sig .sigdot { width: 22px; height: 22px; }
+.sigcell .sig .sigdot .ico { width: 11px; height: 11px; }
+
+.sig {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-family: var(--mono); letter-spacing: 0.01em;
+  padding: 3px 9px 3px 4px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--fg-3);
+  white-space: nowrap;
+}
+.sig .sigdot {
+  width: 14px; height: 14px; border-radius: 50%; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line-2);
+}
+.sig .sigdot .ico { width: 9px; height: 9px; }
+
+/* SIGNED. Solid, filled, done. The fill is the page foreground rather than
+   any hue: a settled line is not an achievement to celebrate, it is one fewer
+   thing to look at, and a coloured chip on every settled row would make a
+   finished agreement the loudest thing on the screen. */
+.sig.is-signed {
+  color: var(--fg); border-color: var(--line-2);
+  background: var(--bg-2);
+}
+.sig.is-signed .sigdot {
+  background: var(--fg); border-color: var(--fg); color: var(--bg);
+}
+
+/* NOT YET. A hollow dashed ring. Dashed is already the wireframe's word for
+   "nobody has done this": DESIGN.md 2.3 gives the portfolio claim a dashed
+   page for the same reason. Reusing it here means a reader who learned the
+   grammar once on the evidence tiers reads this row without being taught. */
+.sig.is-waiting .sigdot { border-style: dashed; border-color: var(--fg-3); }
+
+/* CLEARED BY AN EDIT. This is NOT the same as never signed, and it must not
+   look the same. Somebody signed this line, then the text moved underneath
+   them, so their signature was withdrawn by the system rather than by them.
+   That is a thing the other party needs told, and it is the one state on this
+   page that is anyone's fault. Amber reads as "needs attention" without
+   reading as "failed", which is the honest description. */
+.sig.is-cleared {
+  color: var(--sig-open); border-color: rgba(224, 162, 78, 0.4);
+  background: var(--sig-open-wash);
+}
+.sig.is-cleared .sigdot { border-color: var(--sig-open); }
+.sig.is-cleared .sigdot .ico { color: var(--sig-open); }
+
+/* YOUR OWN SIDE, WAITING, is the only mark that is also a control. Every other
+   mark is a report. */
+button.sig {
+  cursor: pointer; font-family: var(--mono); font-size: 12px;
+  background: none;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+button.sig:hover { color: var(--fg); border-color: var(--fg-3); background: var(--bg-2); }
+button.sig:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* ==================================================================== TERMS
+
+   Criteria, price and delivery window in ONE list. MAP.md 2026-08-28: price
+   and window are "negotiable in the same loop". A price panel beside a
+   criteria list would be a fixed quote with a checklist attached, which is the
+   shape the money model replaced.
+
+   THE LIST IS A MATRIX, NOT A STACK OF PARAGRAPHS. The operator, 2026-08-28:
+   "a whole lot of reading". Measured: the first build wrote the word "axiom-ui"
+   17 times on one screen, because every row carried its own labelled signature
+   pair. Two parties sign every line, so the party names are a property of the
+   COLUMN, not of the row. They are stated once in a header and each row carries
+   two bare marks under them.
+
+   That converts the page from reading to scanning: a column of marks answers
+   "what is outstanding" in one vertical glance, where a stack of labelled
+   chips forced a left-to-right read of the same two names on every line. */
+
+.terms { list-style: none; padding: 0; margin: 0; }
+
+/* The header names the two signing parties once. It is the only place their
+   names appear in the list. */
+.terms-head {
+  display: grid; grid-template-columns: 30px 1fr 74px 74px 40px; gap: 12px;
+  align-items: center; padding: 0 0 10px;
+  border-bottom: 1px solid var(--line-2);
+  font-size: 11px; font-family: var(--mono); letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--fg-3);
+}
+.terms-head .h-you, .terms-head .h-them { text-align: center; }
+
+.terms > li {
+  display: grid; grid-template-columns: 30px 1fr 74px 74px 40px; gap: 12px;
+  align-items: center; padding: 13px 0; border-bottom: 1px solid var(--line);
+}
+.terms > li:last-child { border-bottom: 0; }
+.terms .num { font-family: var(--mono); font-size: 12px; color: var(--fg-3); }
+.terms .txt { font-size: 14.5px; line-height: 1.45; display: block; color: var(--fg); }
+
+/* Provenance is a single glyph plus nothing. Who drafted a line matters, and
+   it cost 18 characters per row to say in words. An arrow pointing in from
+   the agent side or out from yours says it in one mark, and the header above
+   already establishes which side is which. */
+.terms .from { display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 11.5px; color: var(--fg-3); }
+.terms .from .ico { width: 11px; height: 11px; }
+
+/* A commercial term is still a term, so it sits in the same list under the
+   same rules. Label and value share one line rather than stacking, because a
+   stacked label was a third row of text on a page already accused of having
+   too much. */
+.terms .term-line { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.terms .term-label {
+  font-size: 11px; font-family: var(--mono); color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.terms .term-value { font-size: 18px; font-weight: 550; color: var(--fg); line-height: 1.2; }
+.terms .term-value .unit { font-size: 12.5px; font-weight: 450; color: var(--fg-2); margin-left: 3px; }
+
+.terms .act {
+  font-size: 13px; color: var(--fg-3); background: none; border: 0;
+  cursor: pointer; padding: 4px; display: inline-flex; align-items: center;
+  justify-content: center; border-radius: 7px;
+}
+.terms .act:hover { color: var(--fg); background: var(--bg-2); }
+.terms .act .ico { width: 14px; height: 14px; }
+
+/* A row whose signatures were cleared by an edit carries a quiet left rule so
+   the rows needing attention are findable in a long list without scrolling
+   through every signature pair. A tint across the whole row was tried and
+   rejected: it made the settled rows look disabled. */
+.terms > li.is-cleared { border-left: 2px solid var(--sig-open); padding-left: 14px; margin-left: -16px; }
+
+/* ============================================================== RULE PAIR
+
+   A criterion has to be checkable. That was a 188 character paragraph that
+   defined the passing case, then the failing case, then gave one example of
+   each, all in prose. The rule is a CONTRAST, so it draws as two cards side by
+   side and the reader gets it without reading a sentence.
+
+   The bad card is not red. Writing a vague criterion is a normal first draft,
+   not an error state, and colouring it like a failure would make a person feel
+   caught rather than taught. It is simply dimmer, which is the same treatment
+   DESIGN.md 2.3 gives an unverifiable claim. */
+.rulepair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 22px 0; max-width: 620px; }
+.rule-card {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 13px 15px; border-radius: 11px;
+  border: 1px solid var(--line); background: var(--bg-1);
+}
+.rule-card .ico { width: 15px; height: 15px; flex: none; margin-top: 1px; }
+.rule-card b { font-size: 13px; font-weight: 550; display: block; }
+.rule-card .rule-eg {
+  font-size: 12.5px; color: var(--fg-2); display: block; margin-top: 4px;
+  font-family: var(--mono); line-height: 1.45;
+}
+.rule-card.is-good b { color: var(--fg); }
+.rule-card.is-good .ico { color: var(--fg); }
+.rule-card.is-bad { border-style: dashed; background: none; }
+.rule-card.is-bad b { color: var(--fg-2); }
+.rule-card.is-bad .ico, .rule-card.is-bad .rule-eg { color: var(--fg-3); }
+
+@media (max-width: 560px) {
+  .rulepair { grid-template-columns: 1fr; }
+}
+
+/* ============================================================ BLAST RADIUS
+
+   MAP.md 2026-08-28: "Editing one line resets only that line. Today
+   request-changes resets every acceptance in the list, which punishes a long
+   spec for a one-word fix and pushes both sides toward accepting in bulk
+   without reading."
+
+   The old behaviour was the dangerous one and the old UI never mentioned it.
+   The new behaviour is safe, and saying so is what stops a person hesitating
+   over a typo fix. This states the consequence ON the row, before the click,
+   not in a modal after it. */
+.blast {
+  font-size: 12px; color: var(--fg-3); margin-top: 8px;
+  display: flex; align-items: flex-start; gap: 6px; max-width: 52ch; line-height: 1.5;
+}
+.blast .ico { width: 12px; height: 12px; flex: none; margin-top: 2px; }
+
+/* A sentence under the list states the rule once. It does not show a person
+   WHICH marks their click is about to remove, and a toast fired after the
+   click is too late to be a warning.
+
+   So hovering or focusing the edit control marks the exact signatures that
+   edit would clear, on that row only. The blast radius stops being a claim in
+   prose and becomes the thing itself, highlighted in place, before the press.
+   Amber matches the cleared state those marks are about to enter, so the
+   preview and the result are the same colour.
+
+   :has() carries this. Where it is unsupported the row simply does not
+   preview, the standing sentence still states the rule, and nothing is
+   broken or hidden. */
+.terms > li:has(.act:hover) .sig,
+.terms > li:has(.act:focus-visible) .sig {
+  border-color: rgba(224, 162, 78, 0.55);
+  color: var(--sig-open);
+}
+.terms > li:has(.act:hover) .sig.is-signed,
+.terms > li:has(.act:focus-visible) .sig.is-signed {
+  background: var(--sig-open-wash);
+}
+.terms > li:has(.act:hover) .sig.is-signed .sigdot,
+.terms > li:has(.act:focus-visible) .sig.is-signed .sigdot {
+  background: var(--sig-open); border-color: var(--sig-open); color: var(--bg);
+}
+.terms > li:has(.act:hover) .sig,
+.terms > li:has(.act:focus-visible) .sig {
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+/* A row with nothing signed has nothing to lose, so it must not pretend it
+   does. Only rows carrying at least one signature preview a loss. */
+.terms > li:not(:has(.sig.is-signed)):has(.act:hover) .sig { border-color: var(--line); color: var(--fg-3); }
+
+/* =============================================================== LOCK STATE
+
+   MAP.md: "when every line carries a signature from both parties, the
+   agreement freezes and its digest is computed."
+
+   This is a STATE, not a button. The brief is explicit: "There is no confirm
+   button that one party can press alone. The lock happens when the last
+   signature lands. That is a state transition to show, not a button to
+   design." So this element reports and never invites. It has no press
+   affordance at all, which is the design carrying the rule. */
+.lockbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 18px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--bg-1);
+  margin-top: 26px;
+}
+.lockbar .lockico {
+  width: 34px; height: 34px; border-radius: 9px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line-2); color: var(--fg-2);
+}
+.lockbar .lockico .ico { width: 16px; height: 16px; }
+.lockbar .lockmain { font-size: 14px; color: var(--fg); font-weight: 550; }
+.lockbar .locksub { font-size: 12.5px; color: var(--fg-2); margin-top: 3px; line-height: 1.5; }
+
+/* A COUNT AND A BAR INSTEAD OF A PARAGRAPH.
+
+   The first build explained the outstanding signatures in a sentence naming
+   the row numbers, which is a paragraph doing a progress meter's job and goes
+   stale the moment a signature lands. 14 marks, some filled: that is a
+   fraction, and a fraction draws.
+
+   The bar is a fraction with its denominator visible, never a percentage.
+   DESIGN.md already forbids rendering merge rate as a percentage for the same
+   reason: 12 of 14 is a fact a person can check against the list above it,
+   while 86 percent is a number they have to trust. */
+.lockprog { display: flex; align-items: center; gap: 12px; margin-left: auto; flex: none; }
+.lockcount { font-family: var(--mono); font-size: 13px; color: var(--fg-2); white-space: nowrap; }
+.lockcount b { color: var(--fg); font-weight: 550; }
+.lockmeter {
+  width: 132px; height: 6px; border-radius: 999px;
+  background: var(--bg-2); border: 1px solid var(--line);
+  overflow: hidden; flex: none;
+}
+.lockmeter span {
+  display: block; height: 100%; border-radius: 999px;
+  background: var(--fg-2);
+  transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.lockbar.is-locked .lockmeter span { background: var(--fg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .lockmeter span { transition: none; }
+}
+
+@media (max-width: 720px) {
+  /* The bar itself has to wrap, or the progress block reflows into a parent
+     that is still a single non-wrapping flex line and overflows the viewport.
+     Measured at 320px: .lockprog right edge 415 against a 320 viewport. */
+  .lockbar { flex-wrap: wrap; }
+  .lockprog { margin-left: 0; width: 100%; margin-top: 10px; }
+  .lockmeter { flex: 1; width: auto; min-width: 0; }
+}
+
+/* Open, and waiting on somebody. The useful fact is never "half signed", it is
+   WHOSE MOVE IT IS, so that is what the bar leads with. */
+.lockbar.is-open .lockico { border-color: rgba(224, 162, 78, 0.4); color: var(--sig-open); background: var(--sig-open-wash); }
+
+/* Locked. Solid neutral, not accent: a locked agreement is a promise both
+   parties made, not work anybody watched happen. */
+.lockbar.is-locked { border-color: var(--line-2); background: var(--bg-2); }
+.lockbar.is-locked .lockico { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+
+/* ================================================================ WHOSE TURN
+
+   For a LIST of jobs, where the reader is scanning rather than reading. Same
+   principle as the lock bar: not "half signed", but whether this row is
+   waiting on the reader. */
+.turn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-family: var(--mono);
+  padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--fg-3);
+}
+.turn .ico { width: 11px; height: 11px; }
+.turn.is-yours {
+  color: var(--sig-open); border-color: rgba(224, 162, 78, 0.4);
+  background: var(--sig-open-wash);
+}
+
+/* ============================================================= PRICE FLOOR
+
+   MAP.md 2026-08-28: "An agent with no floor shows no floor. It never renders
+   as zero, as free, or as a promotional badge."
+
+   Read the CSS carefully, because the rule is enforced by what is ABSENT: there
+   is no .floor-empty class, no placeholder, and no dash. A listing with no
+   floor emits no floor element at all.
+
+   That is not pedantry about markup. An empty labelled row looks like a field
+   that failed to load, and a "no minimum" label reads to a buyer as "offer
+   anything", which is downward price guidance from the venue. The 2026-08-28
+   ruling bans exactly that: "no suggested price, no recommended range, no
+   highlighting of cheaper agents". A label saying an agent has no floor would
+   be the platform putting a thumb on the scale, and it would press hardest on
+   the operator who is already the most exposed. verify_money_model.py fails
+   the build if any page renders a floor label with an empty value. */
+.floor {
+  display: inline-flex; align-items: baseline; gap: 7px;
+  font-size: 13px; color: var(--fg-2);
+}
+.floor .floor-label {
+  font-size: 11.5px; font-family: var(--mono); color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.floor .floor-value { font-size: 15px; font-weight: 550; color: var(--fg); }
+
+/* On a card the floor is one line in the footer, never a badge and never in
+   the banner. The banner is where the evidence badge lives, and a price
+   sharing that position would read as a second kind of credential. */
+.acard .floor { font-size: 12px; }
+.acard .floor .floor-value { font-size: 13px; }
+
+/* ============================================================ REDO ALLOWANCE
+
+   MAP.md: one repair pass, consumed once. The first state we have ever had
+   between merged and closed-unmerged.
+
+   Unused is drawn as available rather than as a prize, and used is drawn as
+   spent rather than as a failure. A buyer who spends their redo has done a
+   normal thing, and a job that used one is not a worse job. */
+.redo {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 12.5px; color: var(--fg-2);
+  padding: 5px 11px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--bg-1);
+}
+.redo .ico { width: 13px; height: 13px; flex: none; }
+.redo.is-used { color: var(--fg-3); }
+.redo.is-used .ico { opacity: 0.6; }
+
+@media (max-width: 640px) {
+  /* THE MATRIX STOPS BEING A MATRIX at phone width. Five columns cannot hold
+     at 320px, and squeezing them produces a term column two words wide.
+
+     So the marks drop under the text and take their labels back: the column
+     header is what let them go bare, and without it a lone dot has nothing
+     naming whose it is. This is the one place the party names return, and
+     they earn their space because the header is gone. */
+  .terms-head { display: none; }
+  .terms > li {
+    grid-template-columns: 26px minmax(0, 1fr) 40px;
+    gap: 4px 9px; align-items: start;
+  }
+  /* Every cell is pinned to an explicit track and row. Relying on source order
+     put the price value in the sigcell column at x=242 in a 320 viewport, and
+     let the edit control claim the number's cell so the number overprinted the
+     text. Auto-placement across a 3-column grid with mixed row structures is
+     not worth debugging twice. */
+  .terms > li > .num { grid-column: 1; grid-row: 1; }
+  .terms > li > span:not(.sigcell):not(.num) { grid-column: 2; grid-row: 1; min-width: 0; }
+  .terms > li > .act { grid-column: 3; grid-row: 1; justify-self: end; }
+  /* Both marks share row 2 of the grid, side by side, so a row stays compact
+     instead of growing a line per signature. The first is nudged back into
+     the number's gutter rather than sitting under the text, because the two
+     of them read as one pair and an indent would split them. */
+  .terms > li > .sigcell { grid-row: 2; margin-top: 6px; }
+  .terms > li > .sigcell:nth-of-type(1) { grid-column: 1 / 3; justify-self: start; }
+  .terms > li > .sigcell:nth-of-type(2) { grid-column: 2 / 4; justify-self: start; margin-left: 34px; }
+  .terms .sigcell .sig {
+    padding: 3px 9px 3px 4px; border: 1px solid var(--line);
+    border-radius: 999px; gap: 6px;
+  }
+  .terms .sigcell .sig::after {
+    content: attr(data-party);
+    font-size: 12px; font-family: var(--mono); letter-spacing: 0.01em;
+  }
+  .terms .sigcell .sig.is-signed { background: var(--bg-2); }
+  .terms .sigcell .sig .sigdot { width: 16px; height: 16px; }
+  .terms .sigcell .sig .sigdot .ico { width: 9px; height: 9px; }
+  /* The price label and its value share a line at desktop width. At 320px the
+     label plus "1,400 USDC" measured 325 against a 320 viewport, so the value
+     drops under its label rather than being clipped or shrunk. */
+  .terms .term-line { flex-direction: column; gap: 2px; }
+  .lockbar { align-items: flex-start; }
+}
+
+@media (pointer: coarse) {
+  button.sig { min-height: 44px; padding: 3px 13px 3px 8px; }
+  .terms .act { min-height: 44px; }
+}

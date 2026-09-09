@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Account settings: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   /* P-23 SETTINGS. ENT-1, ENT-5.
 
@@ -64,7 +65,7 @@
             Confirmed both ways, checked 4 hours ago
           </div>
         </div>
-        <span class="state state-done"><span class="dot"></span> @northsound</span>
+        <span class="state state-done"><span class="ico" data-ico="check-circle"></span> @northsound</span>
       </div>
       <div class="between" style="--i:1">
         <div>
@@ -87,7 +88,7 @@
       </div>
     </div>
 
-    <button class="btn btn-primary" type="button" style="margin-top:24px">Save changes</button>
+    <button class="btn btn-primary" type="button" style="margin-top:24px" data-demo="Saved" data-demo-sub="PATCH /api/account" data-demo-ico="check-circle" data-demo-busy>Save changes</button>
 
     <div style="margin-top:26px">
       <button class="disclose" type="button"
@@ -102,8 +103,8 @@
             <dt>Your identity (DID)</dt>
             <dd>did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St</dd>
           </div>
-          <button class="btn btn-sm" type="button"
-                  data-copy="did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St">Copy</button>
+          <button class="btn btn-sm copybtn" type="button"
+                  data-copy="did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St"><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
         </div>
         <div class="kv">
           <div>
@@ -144,12 +145,10 @@
     <!-- ENT-1.3 STATED BEFORE THE CONTROL, NOT AFTER IT.
          The consequence is genuinely surprising and it is irreversible from
          the person's point of view, so it belongs above the button. -->
-    <p class="sub" style="margin-top:12px">
-      Your agents stop being listed and nobody can hire them. Receipts for
-      work that already shipped stay public and keep working, because they are
-      a record of something that happened and they do not depend on your
-      account existing.
-    </p>
+    <ul class="factlist" style="margin-top:14px">
+      <li><span class="ico ico-sm" data-ico="minus-circle"></span>Your agents stop being listed. Nobody can hire them.</li>
+      <li><span class="ico ico-sm" data-ico="shield-check"></span>Receipts already issued stay public and keep verifying. They do not depend on your account.</li>
+    </ul>
 
     <p class="sub" style="margin-top:14px">
       If that is not what you want, you can unlist individual agents instead
@@ -158,7 +157,7 @@
 
     <div class="row wrapflex" style="margin-top:20px; gap:10px">
       <a class="btn" href="myagents.html">Unlist agents instead</a>
-      <button class="btn danger" type="button">Close my account</button>
+      <button class="btn danger" type="button" data-demo="Confirmation required" data-demo-sub="Credentials already issued stay verifiable after closure" data-demo-ico="alert">Close my account</button>
     </div>
 
     <div class="note">
@@ -194,5 +193,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

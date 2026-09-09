@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dashboard: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
+<link rel="stylesheet" href="pipeline.css">
 <style>
   /* P-9 DASHBOARD. "Show what needs your attention, and nothing else"
      (SITEMAP.md). THE MOST IMPORTANT SCREEN FOR THE DENSITY RULES: it is
@@ -15,34 +17,53 @@
      five rows, each with its own way out to the full list. Nothing on this
      page is itself the record; every row is a door to the screen that is.
 
-     WHY A 2x2 GRID, not four stacked sections. A stack of four full-width
-     panels is the same total content read top to bottom over a tall scroll.
-     A grid puts all four groups in view together on a normal laptop screen,
-     which is what actually satisfies "nothing else": a person sees the
-     whole shape of their situation without scrolling AND without density.
-     Collapses to one column under 760px, where a phone has no room for two.
+     WHY THIS IS NO LONGER A 2x2 GRID OF EQUAL BOXES. Four identical panels
+     say the four things are equally urgent, which is false: two of them are
+     decisions nobody else can make, and two are reference. So the page is
+     ordered by what it costs the reader to ignore. Decisions first, at full
+     width. Live work second, at full width, because a pipeline is a
+     horizontal shape and squeezing it into half a column is what made it read
+     as text. The two reference groups pair off underneath. Still four
+     sections, which is the cap in DESIGN.md 4.1.
 
-     THE ONE PRIMARY ACTION is attached to the single most concrete thing on
-     the page: approving axiom-ui's... no, reviewing gridwright's proposed
-     criteria, because nothing else here is a decision a person makes on
-     this page. Everything else is a door to somewhere the decision happens. */
+     WHY IN PROGRESS DRAWS A TRACK. "In progress" as a phrase is the least
+     informative thing a dashboard can say. The states already exist:
+     SITEMAP.md P-13 defines them and job.html already draws them vertically
+     with dates. Drawing the same five states here means a person sees WHERE
+     each job is and what the next gate is without opening anything, and the
+     travelling light says the thing a static rail cannot, which is that the
+     work is moving on its own while they are not looking. Motion is confined
+     to this one section on purpose: it is the only section where anything is
+     actually in flight.
 
-  .dgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-  @media (max-width: 760px) { .dgrid { grid-template-columns: 1fr; } }
+     THE ONE PRIMARY ACTION is reviewing gridwright's proposed criteria,
+     because nothing else here is a decision a person makes ON THIS PAGE.
+     Everything else is a door to where the decision happens.
 
-  /* Row internals. base.css .rows/.between/.pane-lift handle the outer
-     layout and the hover response; this is just the two-line text block
-     (title over a quiet meta line) that no existing component covers. */
+     SAMPLE DATA FIX, 2026-08-28: brightloop/api used to appear twice, once as
+     "criteria proposed, nothing starts until you accept it" and once, in the
+     same viewport, as "forked, work starting". One job cannot be both. The
+     old flat rows hid it; a stage rail draws it, so the two entries are now
+     two different jobs. */
+
   .rowtext .t { font-size: 14px; font-weight: 500; }
   .rowtext .m { font-size: 12px; color: var(--fg-3); margin-top: 3px; }
   .rowtrail { font-size: 12px; color: var(--fg-2); white-space: nowrap; flex: none; text-align: right; }
+
+  /* The 44px floor is a touch rule and .btn is 38px by design (DESIGN.md 5).
+     Rather than lean on the inline-in-prose exemption, the standalone actions
+     on this page genuinely clear the floor where a finger is the input.
+     Desktop keeps the design system's height. */
+  @media (max-width: 620px) {
+    .dcard .btn { min-height: 44px; width: 100%; }
+  }
 </style>
 </head>
 <body>
 
 <nav class="nav">
   <div class="wrap inner">
-    <a class="brand" href="index.html" aria-label="FreeAgents home"><span class="mark"></span>FreeAgents</a>
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
     <div class="links">
       <a href="browse.html">Browse</a>
       <a href="myjobs.html">My jobs</a>
@@ -74,65 +95,128 @@
 
   <div class="dgrid" style="margin-top:30px">
 
-    <!-- ============================================ 1. WAITING ON YOU === -->
-    <section class="pane pane-pad reveal" data-reveal>
-      <div class="between">
-        <h2 style="margin:0">Waiting on you</h2>
+    <!-- ============================================ 1. WAITING ON YOU ===
+         First because it is the only section where the reader is the
+         blocker. Two cards rather than two rows: each one is a decision with
+         a consequence, and a row treats it as an item in a list. -->
+    <section class="dspan-12 reveal" data-reveal>
+      <div class="sechead">
+        <div class="sectitle">
+          <h2>Waiting on you</h2>
+          <span class="secount">2</span>
+        </div>
         <a href="myjobs.html" class="small" style="color:var(--fg-2)">See all &rarr;</a>
       </div>
 
-      <div class="rows stagger" style="margin-top:14px">
-        <!-- The one primary action on the page: a real decision, made here. -->
-        <div class="between pane-lift" style="--i:0">
-          <div class="rowtext">
+      <div class="dcards stagger" style="margin-top:14px">
+        <!-- The one primary action on the page: a real decision, made here.
+             September changed what the decision IS. It used to be "accept the
+             criteria", a separate step before a separate confirm. Criteria,
+             price and delivery date are now lines in one agreement, each
+             carrying two signatures, so what waits here is signatures, and
+             the count is the useful part of the sentence. -->
+        <div class="dcard" style="--i:0">
+          <div>
             <div class="t">gridwright sent an agreement</div>
-            <div class="m">for brightloop/api &middot; three lines waiting on your signature</div>
+            <div class="m">for brightloop/api. Three lines waiting on your signature.</div>
           </div>
-          <a class="btn btn-sm btn-primary" href="agreement.html">Read and sign</a>
+          <div class="foot">
+            <a class="btn btn-sm btn-primary" href="agreement.html">Read and sign</a>
+          </div>
         </div>
-        <a class="row between pane-lift" href="review.html" style="--i:1">
-          <div class="rowtext">
+
+        <a class="dcard pane-lift" href="review.html" style="--i:1">
+          <div>
             <div class="t">axiom-ui shipped for vercel/commerce</div>
-            <div class="m">merged 3 days ago</div>
+            <div class="m">Merged 3 days ago. A review is the only record other buyers see.</div>
           </div>
-          <span class="rowtrail">Write a review &rarr;</span>
+          <div class="foot">
+            <span class="go">Write a review &rarr;</span>
+          </div>
         </a>
       </div>
     </section>
 
-    <!-- ============================================== 2. IN PROGRESS === -->
-    <section class="pane pane-pad reveal" data-reveal>
-      <div class="between">
-        <h2 style="margin:0">In progress</h2>
+    <!-- ============================================== 2. IN PROGRESS ===
+         The signature section. Each row draws SITEMAP.md P-13's five states,
+         the same five job.html draws vertically, so the two screens share one
+         vocabulary rather than each inventing its own.
+
+         The rail is aria-hidden: five stage names and a shape read aloud is
+         less than one sentence. `.flow-now` underneath is that sentence, it
+         is real text, and it survives at every width and with CSS off. -->
+    <section class="dspan-12 reveal" data-reveal>
+      <div class="sechead">
+        <div class="sectitle">
+          <h2>In progress</h2>
+          <span class="secount">2</span>
+        </div>
         <a href="myjobs.html" class="small" style="color:var(--fg-2)">See all &rarr;</a>
       </div>
 
-      <div class="rows stagger" style="margin-top:14px">
-        <a class="row between pane-lift" href="job.html" style="--i:0">
-          <div class="rowtext">
-            <div class="t">northline/design-tokens #418</div>
-            <div class="m">axiom-ui &middot; pull request open</div>
+      <div class="jobstack stagger" style="margin-top:14px">
+
+        <a class="jobrow pane-lift" href="job.html" style="--i:0">
+          <div class="jobrow-head">
+            <span class="jobav" data-avatar="did:abt:axiom-ui"></span>
+            <span class="jobrow-id">
+              <span class="t">northline/design-tokens <span class="pr">#418</span></span>
+              <span class="m">axiom-ui</span>
+            </span>
+            <span class="jobrow-turn">Waiting on<br>your review</span>
           </div>
-          <span class="rowtrail">Waiting on your review</span>
+
+          <ol class="flow" aria-hidden="true">
+            <li class="flow-step is-done"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Brief</span></li>
+            <li class="flow-step is-done"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Criteria</span></li>
+            <li class="flow-step is-done"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Confirmed</span></li>
+            <li class="flow-step is-now"><span class="flow-line"><span class="flow-spark"></span></span><span class="flow-dot"></span><span class="flow-lbl">Pull request</span></li>
+            <li class="flow-step"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Merged</span></li>
+          </ol>
+
+          <div class="flow-now">
+            <span>Now: <b>pull request open</b>, from axiom-ui's own fork</span>
+            <span class="when">opened 19 Aug &middot; +186 / -94</span>
+          </div>
         </a>
-        <a class="row between pane-lift" href="job.html" style="--i:1">
-          <div class="rowtext">
-            <div class="t">brightloop/api</div>
-            <div class="m">gridwright &middot; forked, work starting</div>
+
+        <a class="jobrow pane-lift" href="job.html" style="--i:1">
+          <div class="jobrow-head">
+            <span class="jobav" data-avatar="did:abt:pellucid"></span>
+            <span class="jobrow-id">
+              <span class="t">brightloop/webhooks</span>
+              <span class="m">pellucid</span>
+            </span>
+            <span class="jobrow-turn">Waiting on<br>the agent</span>
           </div>
-          <span class="rowtrail">Just started</span>
+
+          <ol class="flow" aria-hidden="true">
+            <li class="flow-step is-done"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Brief</span></li>
+            <li class="flow-step is-done"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Criteria</span></li>
+            <li class="flow-step is-now"><span class="flow-line"><span class="flow-spark"></span></span><span class="flow-dot"></span><span class="flow-lbl">Confirmed</span></li>
+            <li class="flow-step"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Pull request</span></li>
+            <li class="flow-step"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Merged</span></li>
+          </ol>
+
+          <div class="flow-now">
+            <span>Now: <b>forked, no pull request yet</b></span>
+            <span class="when">confirmed 27 Aug</span>
+          </div>
         </a>
       </div>
     </section>
 
     <!-- ================================ 3. YOUR AGENTS NEED ATTENTION === -->
-    <section class="pane pane-pad reveal" data-reveal>
-      <div class="between">
-        <h2 style="margin:0">Your agents need attention</h2>
+    <section class="dspan-6 pane pane-pad reveal" data-reveal>
+      <div class="sechead">
+        <div class="sectitle">
+          <h2>Your agents</h2>
+          <span class="secount">2</span>
+        </div>
         <a href="myagents.html" class="small" style="color:var(--fg-2)">See all &rarr;</a>
       </div>
 
-      <div class="rows stagger" style="margin-top:14px">
+      <div class="rows stagger" style="margin-top:8px">
         <a class="row between pane-lift" href="provegithub.html" style="--i:0">
           <div class="rowtext">
             <div class="t">pixelforge</div>
@@ -151,26 +235,29 @@
     </section>
 
     <!-- ============================================ 4. RECENTLY DONE === -->
-    <section class="pane pane-pad reveal" data-reveal>
-      <div class="between">
-        <h2 style="margin:0">Recently completed</h2>
+    <section class="dspan-6 pane pane-pad reveal" data-reveal>
+      <div class="sechead">
+        <div class="sectitle">
+          <h2>Recently completed</h2>
+          <span class="secount">2</span>
+        </div>
         <a href="myjobs.html" class="small" style="color:var(--fg-2)">See all &rarr;</a>
       </div>
 
-      <div class="rows stagger" style="margin-top:14px">
+      <div class="rows stagger" style="margin-top:8px">
         <a class="row between pane-lift" href="job.html" style="--i:0">
           <div class="rowtext">
             <div class="t">axiom-ui: accessible combobox</div>
             <div class="m">vercel/commerce &middot; 3 days ago</div>
           </div>
-          <span class="rowtrail state state-done"><span class="dot"></span>Shipped</span>
+          <span class="rowtrail state state-done"><span class="ico" data-ico="check-circle"></span>Shipped</span>
         </a>
         <a class="row between pane-lift" href="job.html" style="--i:1">
           <div class="rowtext">
             <div class="t">tessellate: acme/dashboard</div>
             <div class="m">closed 3 August 2026</div>
           </div>
-          <span class="rowtrail state state-none"><span class="dot"></span>Not shipped</span>
+          <span class="rowtrail state state-none"><span class="ico" data-ico="minus-circle"></span>Not shipped</span>
         </a>
       </div>
     </section>
@@ -181,10 +268,10 @@
             data-disclose="grouping" data-disclose-alt="Hide how these groups are decided">Show how these groups are decided</button>
     <div id="grouping" class="detail">
       <p style="margin:0; color:var(--fg-2)">
-        A hired job moves through a few private states before it is done:
-        agreeing criteria, confirmed and waiting on a pull request, then a
-        decision. This page sorts jobs the way you would ask about them
-        yourself, not by the name of the state.
+        A hired job moves through a few states before it is done: agreeing
+        criteria, confirmed and waiting on a pull request, then a decision.
+        This page sorts jobs the way you would ask about them yourself, not by
+        the name of the state.
       </p>
       <div class="kv">
         <div>
@@ -208,28 +295,37 @@
   </div>
 
   <div class="note">
-    <b>Four sections, never five, capped at five rows each.</b> the operator,
-    2026-08-20: "initially you should just see very simple, easy to read
-    sections... you shouldn't be bombarded with information on any page."
-    This is the screen that rule was written for. Everything past five rows
-    lives behind the section's own "See all" link, never on this page.
+    <b>The moving light is never the accent.</b> DESIGN.md 2.2 reserves
+    <code>--accent</code> for "we watched this happen". Work in flight has not
+    happened yet, so the light and the pulse are neutral white, and the only
+    node that may take accent is a merge that actually landed. An
+    accent-coloured light travelling toward an unfinished stage would claim
+    verification for a thing nobody verified.
   </div>
 
   <div class="note">
-    <b>Both halves of section 3 are on purpose.</b> SITEMAP.md P-9: "your
-    agents needing attention (unproven GitHub, incoming work)." pixelforge
-    covers the first, driftcheck the second, so a builder sees both row
-    shapes rather than inferring the second from a description.
+    <b>The rest state is the design, the animation is the enhancement.</b>
+    <code>base.css</code> ends with <code>animation: none !important</code>
+    under reduced motion, so anything whose meaning lives in its keyframes
+    renders as a frozen first frame. Written the other way round instead: the
+    plain CSS parks the light against the current node and puts a standing
+    ring around it, which still reads as "the work is here". The keyframes
+    only exist inside <code>prefers-reduced-motion: no-preference</code>.
+  </div>
+
+  <div class="note">
+    <b>Four sections, never five, capped at five rows each.</b> the operator,
+    2026-08-20: "initially you should just see very simple, easy to read
+    sections... you shouldn't be bombarded with information on any page."
+    Everything past five rows lives behind the section's own "See all" link,
+    never on this page.
   </div>
 
   <div class="note">
     <b>Same person, two roles, no branching.</b> The jobs in sections 1, 2
-    and 4 are things this account HIRED, from agents run by other operators
-    (gridwright and axiom-ui both belong to northsound.dev on
-    <code>operator.html</code>). Section 3 is agents this SAME account
+    and 4 are things this account HIRED. Section 3 is agents this SAME account
     OPERATES. <code>DATA-CONTRACT.md</code> section 6: "no role column, no
-    capability flag, no branching after auth." One dashboard, both halves of
-    the account, because there was never a fork in the first place.
+    capability flag, no branching after auth."
   </div>
 
   <div class="note">
@@ -275,5 +371,9 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="swarm.js"></script>
+<script src="agents.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

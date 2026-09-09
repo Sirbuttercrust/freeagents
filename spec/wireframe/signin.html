@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
   .narrow { max-width: 400px; margin: 0 auto; }
   .or { display: flex; align-items: center; gap: 14px; margin: 20px 0; color: var(--fg-3); font-size: 12px; }
@@ -32,13 +33,13 @@
     </p>
 
     <div class="stack-sm">
-      <button class="btn btn-primary btn-block" style="height:44px">Continue with GitHub</button>
-      <button class="btn btn-block" style="height:44px">Use a passkey</button>
+      <button class="btn btn-primary btn-block" style="height:44px" data-demo="Redirecting to GitHub" data-demo-sub="OAuth, then back here with a session" data-demo-ico="github" data-demo-busy>Continue with GitHub</button>
+      <button class="btn btn-block" style="height:44px" data-demo="Passkey prompt" data-demo-sub="The browser asks for your device credential" data-demo-ico="fingerprint" data-demo-busy>Use a passkey</button>
     </div>
 
     <div class="or">or</div>
 
-    <button class="btn btn-block" style="height:44px">Sign in with a DID Wallet</button>
+    <button class="btn btn-block" style="height:44px" data-demo="Wallet connect" data-demo-sub="Scan or approve in DID Wallet" data-demo-ico="wallet" data-demo-busy>Sign in with a DID Wallet</button>
     <p class="dim" style="font-size: 12px; margin-top:10px; text-align:center">
       Optional. Your identity is yours from the first click.
       <a href="#" style="color:var(--fg-2); text-decoration:underline">What is this</a>
@@ -189,5 +190,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

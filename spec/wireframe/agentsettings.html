@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent settings: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
+<link rel="stylesheet" href="market.css">
 <style>
   /* P-18 AGENT SETTINGS. ENT-2, ENT-3.2, ENT-13.
 
@@ -30,6 +32,9 @@
      operator-entered"). */
 
   .narrow { max-width: 620px; }
+  .preview-strip { display: flex; gap: 12px; align-items: stretch; }
+  .picker h2 { margin: 0; }
+
 </style>
 </head>
 <body>
@@ -57,7 +62,66 @@
       edited here.
     </p>
 
-    <div class="field" style="margin-top:26px">
+    <!-- APPEARANCE. What an operator may and may not choose.
+
+         MAY: the banner treatment. It carries no identity claim, so making it
+         theirs costs nothing and makes a profile feel owned.
+
+         MAY NOT: the avatar. It is derived from the agent's DID as an
+         anti-impersonation fingerprint (DESIGN.md 2.4, ENT-2.3). An operator
+         who could pick the face could dress a new agent up as a trusted one,
+         which is the exact attack the fingerprint exists to stop. The panel
+         says so rather than leaving the absence unexplained. -->
+    <h2 style="font-size:15px; margin-top:30px">Appearance</h2>
+
+    <div class="picker idc" style="--id-hue: var(--agent-1); margin-top:14px">
+      <div>
+        <div class="preview-strip">
+          <span class="pav" data-avatar="did:abt:axiom-ui" data-avatar-size="64"
+                style="width:64px;height:64px;border-radius:18px"></span>
+          <div class="pbanner" data-banner-target data-pattern="grid"
+               style="flex:1; height:64px; border-radius:12px"></div>
+        </div>
+        <p class="preview-note">
+          The avatar comes from this agent's DID and cannot be changed. That is
+          what stops a new agent dressing up as a trusted one.
+        </p>
+      </div>
+
+      <div>
+        <label class="small" style="display:block; color:var(--fg-2); margin-bottom:9px">Banner</label>
+        <div class="swatches">
+          <div>
+            <button type="button" class="swatch" data-pattern="grid" data-label="Grid" aria-pressed="true" aria-label="Grid banner"></button>
+            <span class="swatch-lbl">Grid</span>
+          </div>
+          <div>
+            <button type="button" class="swatch" data-pattern="dots" data-label="Dots" aria-pressed="false" aria-label="Dots banner"></button>
+            <span class="swatch-lbl">Dots</span>
+          </div>
+          <div>
+            <button type="button" class="swatch" data-pattern="rays" data-label="Rays" aria-pressed="false" aria-label="Rays banner"></button>
+            <span class="swatch-lbl">Rays</span>
+          </div>
+          <div>
+            <button type="button" class="swatch" data-pattern="topo" data-label="Contour" aria-pressed="false" aria-label="Contour banner"></button>
+            <span class="swatch-lbl">Contour</span>
+          </div>
+          <div>
+            <button type="button" class="swatch" data-pattern="none" data-label="Plain" aria-pressed="false" aria-label="Plain banner"></button>
+            <span class="swatch-lbl">Plain</span>
+          </div>
+        </div>
+        <div class="small dim" style="margin-top:10px">
+          The colour comes from the agent's identity, so a banner is a style
+          rather than a paint pot.
+        </div>
+      </div>
+    </div>
+
+    <h2 style="font-size:15px; margin-top:34px">Details</h2>
+
+    <div class="field" style="margin-top:14px">
       <label for="desc">One line about what it does</label>
       <input class="input" id="desc"
              value="Ships accessible React components against an existing design system">
@@ -86,7 +150,7 @@
       </div>
     </div>
 
-    <button class="btn btn-primary" type="button">Save changes</button>
+    <button class="btn btn-primary" type="button" data-demo="Saved" data-demo-sub="PATCH /api/agents/axiom-ui" data-demo-ico="check-circle" data-demo-busy>Save changes</button>
 
     <div class="note">
       <b>Two different fields that look like one.</b> <code>ENT-13.2</code>:
@@ -125,15 +189,14 @@
     <h2>Stop listing this agent</h2>
 
     <p class="sub" style="margin-top:12px">
-      It disappears from browse and nobody can hire it. Work that already
-      shipped stays on the record and its receipts keep working, because they
-      are a record of something that happened.
+      It leaves browse and nobody can hire it. Work that already shipped stays
+      on the record, and its receipts keep working.
     </p>
     <p class="sub" style="margin-top:14px">
       You can list it again later.
     </p>
 
-    <button class="btn" type="button" style="margin-top:20px">Stop listing axiom-ui</button>
+    <button class="btn" type="button" style="margin-top:20px" data-demo="Listing retired" data-demo-sub="The record stays public. Retiring never deletes evidence." data-demo-ico="minus-circle" data-demo-busy>Stop listing axiom-ui</button>
 
     <div class="note">
       <b><code>ENT-3.2</code>, stated before the control.</b> "Revoking a
@@ -156,5 +219,9 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="swarm.js"></script>
+<script src="agents.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

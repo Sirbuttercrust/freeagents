@@ -969,17 +969,49 @@
 
      In production this is `blobatar`, rendered server side. This is the
      wireframe stand-in so a mockup does not pull a dependency it will not
-     keep. */
+     keep.
+
+     UPGRADED 2026-08-27 to the same material as the landing page agents.
+     This used to be a flat fill, which reads as a sticker on a dark page
+     while the live agents read as objects. The difference was never the
+     shape, it was the lighting, and all three parts of it are cheap and
+     static:
+
+       1. one radial gradient, light source up and to the left
+       2. a rim light along the lit edge, clipped to the body, which is what
+          stops a dark shape dissolving into a dark page
+       3. a soft contact shadow underneath, so it sits on the surface rather
+          than floating in front of it
+
+     Still zero animation and still one string, so a profile, a card and a
+     search result all cost the same as before.
+
+     DESIGN.md 2.4 is unchanged and still binds: every visual property here is
+     derived from the DID hash, never chosen. Two agents that pick the same
+     name still get different faces, which is the whole point of a
+     fingerprint. */
   function avatar(did, size, palette) {
     var h = 0;
     for (var i = 0; i < did.length; i++) h = (h * 31 + did.charCodeAt(i)) >>> 0;
 
     var radii = SHAPES[SHAPE_IDS[h % SHAPE_IDS.length]];
     var colours = palette || ["#3A3F47", "#4A5058", "#2E333A"];
-    var fill = colours[(h >> 5) % colours.length];
-    var poses = eyePoses({ yaw: ((h >> 9) % 40) - 20, pitch: ((h >> 13) % 26) - 8, roll: 0 }, 15.0);
+    /* `>>` is a SIGNED shift, so a hash with the top bit set produces a
+       negative index and colours[-1] is undefined. That fed an undefined
+       fill straight into the SVG, which browsers render as black. It went
+       unnoticed while the avatar was a flat shape on a near-black page and
+       became obvious the moment it was lit. `>>>` keeps it unsigned.
+       Caught on the avatar bench, 2026-08-27: 8 of 16 faces were black. */
+    var fill = colours[(h >>> 5) % colours.length];
+    var poses = eyePoses({ yaw: ((h >>> 9) % 40) - 20, pitch: ((h >>> 13) % 26) - 8, roll: 0 }, 15.0);
     var d = closedPath(toPoints(radii, BALL, 1, 1, []));
-    var cid = "av" + (h % 100000);
+    var uid = "av" + (h % 100000);
+
+    /* Same two-stop treatment applyColour uses on a live agent, so a static
+       avatar and a floating one are recognisably the same material. */
+    var light = mixHex(fill, "#FFFFFF", relLum(fill) < 0.18 ? 0.22 : 0.14);
+    var dark = mixHex(fill, "#000000", 0.32);
+    var rim = mixHex(fill, "#FFFFFF", 0.45);
 
     var eyeMarkup = "";
     for (var k = 0; k < 2; k++) {
@@ -994,9 +1026,20 @@
 
     return '<svg viewBox="-100 -100 200 200" width="' + size + '" height="' + size + '" aria-hidden="true" ' +
       'style="display:block;overflow:visible">' +
-      '<defs><clipPath id="' + cid + '"><path d="' + d + '"/></clipPath></defs>' +
-      '<path d="' + d + '" fill="' + fill + '"/>' +
-      '<g clip-path="url(#' + cid + ')">' + eyeMarkup + '</g></svg>';
+      '<defs>' +
+        '<clipPath id="' + uid + '-clip"><path d="' + d + '"/></clipPath>' +
+        '<radialGradient id="' + uid + '-g" cx="34%" cy="24%" r="80%">' +
+          '<stop offset="0" stop-color="' + light + '"/>' +
+          '<stop offset="1" stop-color="' + dark + '"/>' +
+        '</radialGradient>' +
+      '</defs>' +
+      '<ellipse cx="0" cy="' + r2(BALL * 0.98) + '" rx="' + r2(BALL * 0.62) + '" ry="' + r2(BALL * 0.13) + '" ' +
+        'fill="#000" opacity="0.28"/>' +
+      '<path d="' + d + '" fill="url(#' + uid + '-g)"/>' +
+      '<g clip-path="url(#' + uid + '-clip)">' +
+        '<path d="' + d + '" fill="none" stroke="' + rim + '" stroke-width="2.6" opacity="0.5"/>' +
+        eyeMarkup +
+      '</g></svg>';
   }
 
   /* Solve the eyefit table now that shapes, temperaments and expressions all

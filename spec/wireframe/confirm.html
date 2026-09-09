@@ -5,39 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Confirm and hire axiom-ui: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <style>
-  /* P-12 CONFIRM. SUPERSEDED 2026-09-05, kept as the pre-payment design.
-     ============================================================
-     THIS SCREEN NO LONGER EXISTS IN THE PRODUCT. Nothing links to it and
-     nothing should.
-
-     It was a page whose entire content was a button one party pressed to make
-     an agreement real. Under the two-party signing model that landed with the
-     payment rulings, the agreement locks when the LAST SIGNATURE lands, which
-     is a state transition rather than a control. There is no page for a
-     confirm button to be on, because there is no confirm button.
-
-     Its live replacement is agreement.html, where the terms are signed line by
-     line by both parties, and deposit.html, where the money moves.
-
-     Two specific things on this page are now FALSE and are the reason it is
-     kept rather than deleted, as a record of what changed:
-
-       the "Payment terms" pane renders four fields as "not set in this
-       version" and says FreeAgents moves no money. Both were true when
-       written; the money model landed on 2026-09-01.
-
-       the closing note says no path exists from confirmed back out. Walking
-       away before the lock is now answered (free, terminal, nothing
-       recorded), so only the post-lock half is still open.
-
-     Read agreement.html and deposit.html instead. Kept because a deleted file
-     leaves the next reader wondering whether a confirm step was ever
-     considered, and it was: it was built, and then the model made it
-     impossible.
-     ============================================================ */
-
-  /* The original notes, kept verbatim below this line.
+  /* P-12 CONFIRM. Step 3, the gate. THE JOB EXISTS AFTER THIS AND NOT
+     BEFORE (ENT-4.1). Everything on this page is arranged around one fact:
+     the click at the bottom is the only irreversible thing on it.
 
      Rail and .who copied verbatim from hire.html's local <style>, because
      this page is steps 2 and 3's real destination and the brief requires
@@ -118,7 +90,7 @@
 
 <nav class="nav">
   <div class="wrap inner">
-    <a class="brand" href="index.html" aria-label="FreeAgents home"><span class="mark"></span>FreeAgents</a>
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
     <div class="links">
       <a href="browse.html">Browse</a>
       <a href="myjobs.html" class="on">My jobs</a>
@@ -134,9 +106,13 @@
   <!-- A VISIBLE banner, not only a comment. A reviewer who opens this file
        directly (from a bookmark, a stale link in an old document, or by
        walking the directory) sees a screen that looks finished and current.
-       The comment at the top of the file is invisible to them. -->
-  <div class="pane pane-pad" style="margin-bottom:34px; border-left:2px solid var(--fg-3)">
-    <h2 style="margin-bottom:8px">This screen was replaced</h2>
+       The comment at the top of the file is invisible to them.
+
+       Kept on the polished system rather than redrawn: this is a retired
+       screen, so it gets the shared chrome and the pane treatment and no
+       further design attention. -->
+  <div class="pane pane-pad reveal" style="margin-bottom:34px; border-left:2px solid var(--fg-3)">
+    <h2 style="margin-bottom:8px"><span class="ico" data-ico="alert"></span> This screen was replaced</h2>
     <p class="sub" style="max-width:62ch; margin-bottom:12px">
       There is no confirm step any more. The agreement locks by itself when
       both parties have signed every line, so there is no button here to press
@@ -145,7 +121,7 @@
       1 September 2026.
     </p>
     <div class="row wrapflex" style="gap:10px">
-      <a class="btn" href="agreement.html">The agreement, as it works now</a>
+      <a class="btn" href="criteria.html">The agreement, as it works now</a>
       <a class="btn" href="deposit.html">The deposit</a>
     </div>
   </div>
@@ -162,8 +138,8 @@
 
   <div class="pane pane-pad reveal" style="margin-bottom:40px">
     <ol class="steps">
-      <li class="done" id="s1">1 &nbsp;Brief</li>
-      <li class="done" id="s2">2 &nbsp;Criteria</li>
+      <li class="done" id="s1"><a href="hire.html"><span class="ico ico-sm stepico" data-ico="check"></span>Brief</a></li>
+      <li class="done" id="s2"><a href="criteria.html"><span class="ico ico-sm stepico" data-ico="check"></span>Criteria</a></li>
       <li class="on"   id="s3">3 &nbsp;Confirm</li>
       <li              id="s4">4 &nbsp;Work</li>
     </ol>
@@ -210,15 +186,15 @@
       <div class="between"><dt class="small muted">Platform fee</dt><dd class="mono" style="margin:0">not set in this version</dd></div>
       <div class="between"><dt class="small muted">Status</dt><dd class="mono" style="margin:0">recorded intent</dd></div>
     </dl>
-    <p class="sub" style="margin-top:14px">
-      FreeAgents moves no money in this version. These fields are recorded
-      with the job so a price can be added later without rebuilding the
-      record; nothing is charged or transferred now.
+    <p class="sub callout-sm" style="margin-top:14px">
+      <span class="ico ico-sm" data-ico="wallet"></span>
+      <span>No money moves in this version. The fields are recorded so a price
+      can be added later without rebuilding the job.</span>
     </p>
   </div>
 
   <div class="row" style="margin-top:28px">
-    <button class="btn btn-primary" type="button" onclick="location.href='job.html'">Confirm and hire</button>
+    <button class="btn btn-primary" type="button" onclick="location.href='job.html'" data-demo="Job created" data-demo-sub="POST /api/jobs, status confirmed. This is the moment it exists." data-demo-ico="briefcase" data-demo-busy>Confirm and hire</button>
     <a class="btn" href="criteria.html">Back to criteria</a>
   </div>
 
@@ -326,5 +302,7 @@
 </div>
 
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

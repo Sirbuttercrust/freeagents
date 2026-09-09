@@ -5,242 +5,246 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agreement with axiom-ui: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <link rel="stylesheet" href="flow.css">
+<link rel="stylesheet" href="agreement.css">
 <style>
-  /* P-11 AGREEMENT. Stage 2 of five. The screen the acceptance sentence is
-     really about: "the agreement between the two parties should be very easy
-     and simple, and both parties should be happy."
+  /* P-11 CRITERIA. Step 2 of the hire loop: agree what "done" means before
+     any work starts.
 
-     WHAT CAME BACK FROM THE BRIEF, all of it drafted, none of it asked for:
-     five numbered criteria, a price, and a delivery window. The buyer reads
-     seven lines and signs, or edits a line and sends it back. That is the
-     entire interaction.
+     WHY THIS IS A SEPARATE PAGE, not another stage inside hire.html's single
+     file. hire.html is a one-page demo of all four states for review
+     purposes; SITEMAP.md models P-10 through P-13 as four distinct URLs, and
+     ENT-4's states are things a buyer returns to over real time, not a modal
+     the buyer completes in one sitting. This page is what "Ask for criteria"
+     on hire.html actually leads to.
 
-     THE FIVE DECISIONS ON THIS SCREEN, each one load-bearing:
+     ENT-4.1 IS THE WHOLE POINT OF THIS SCREEN. Nothing here creates a job.
+     The buyer and the agent can go back and forth on this page as many times
+     as it takes, and none of it is recorded anywhere until confirm.html. The
+     draft flag says this in words because a buyer who believes a checklist
+     is a commitment will not come back to actually confirm it.
 
-     1. PRICE AND DELIVERY ARE ROWS IN THE LIST, not a panel beside it.
-        Layout is the claim. A term in its own box reads as fixed however the
-        copy is worded, and these two are negotiable exactly like every other
-        line. Put price in a sidebar and you have told the buyer it is not.
+     ENT-6.2: either party may propose a criterion, both must accept. Row 5
+     below exists specifically to make that visible: a criterion the BUYER
+     added, sitting in a pending state because the agent has not agreed to
+     it yet. Without a concrete example the rule reads as an abstraction.
 
-     2. TWO MARKS PER LINE, one per party, in a matrix. A single accepted
-        boolean cannot say WHO accepted, so it is not a weaker version of the
-        right thing, it is a different thing that cannot record the fact.
-        Names live in the column header once; the rows carry bare marks. An
-        earlier draft of this idea labelled each mark on each row and printed
-        one party's name seventeen times on one screen.
+     .steps, .who, .crit, .draftflag are copied verbatim from hire.html's own
+     local <style> block, none of them live in base.css, and the task is
+     explicit that this rail has to match hire.html exactly. The RAIL ITSELF
+     (markup, classes, per-item on/done states) is untouched by the craft
+     pass below: it sits inside a .pane wrapper for the glass backdrop, but
+     nothing about how a step lights up has changed. */
 
-     3. EDITING ONE LINE CLEARS THAT LINE'S MARKS AND NOTHING ELSE, and the
-        screen shows which marks before the click, not after. Hovering the
-        edit control turns that row's signed marks into the dashed rings they
-        are about to become. Resetting the whole agreement for a one-word fix
-        punishes a long agreement and teaches both sides to bulk-accept
-        without reading, which is what the marks exist to prevent.
+  .steps { display: flex; gap: 0; margin: 0; list-style: none; padding: 0; }
+  .steps li {
+    flex: 1; font-size: 12px; color: var(--fg-3);
+    padding-top: 12px; border-top: 2px solid var(--line);
+    font-family: var(--mono); letter-spacing: 0.02em;
+  }
+  .steps li.on   { color: var(--fg); border-top-color: var(--accent); }
+  .steps li.done { color: var(--fg-2); border-top-color: var(--line-2); }
 
-     4. THE FIXED TERMS ARE SHOWN AND CARRY NO CONTROLS. Deposit, balance,
-        the redo, cancellation. The absence of an edit button is the message,
-        the same argument the missing verify affordance makes on a portfolio
-        claim. A disabled control would teach a buyer the term is arguable and
-        that they lost.
+  .who {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px;
+  }
+  .who img { width: 32px; height: 32px; border-radius: 50%; }
+  .who .n { font-weight: 550; }
+  .who .r { color: var(--fg-3); font-size: 13px; }
 
-     5. THERE IS NO CONFIRM BUTTON, and none may be added. The agreement locks
-        when the last mark lands. A lone button one party presses contradicts
-        the two-party model it would exist to enforce, and it is the exact
-        affordance that made a single boolean forgeable in the first place.
+  .draftflag {
+    font-family: var(--mono); font-size: 12px; color: var(--fg-3);
+    border-left: 2px solid var(--line-2); padding-left: 12px; margin: 28px 0;
+  }
 
-     THE MARKS ARE NEUTRAL, NEVER ACCENT. A signature records a promise. The
-     accent means we watched work happen. Letting a signed line wear the
-     verified colour is the blur the whole tier system exists to prevent, and
-     it is more dangerous than a decorative misuse because it looks correct. */
+  /* Same shape as hire.html's checklist: numbered, each a sentence, no
+     checkbox. "A checkbox would imply the buyer ticks them off; they are
+     not a todo list, they are the definition of done" (hire.html). The one
+     addition here is .ptag, because this page has to show WHO proposed each
+     line and whether it is still waiting on the other side (ENT-6.2). */
+  .crit { list-style: none; padding: 0; margin: 0; }
+  .crit li {
+    display: grid; grid-template-columns: 28px 1fr auto; gap: 12px;
+    align-items: start; padding: 14px 0; border-bottom: 1px solid var(--line);
+  }
+  .crit .num { font-family: var(--mono); font-size: 12px; color: var(--fg-3); padding-top: 2px; }
+  .crit .txt { font-size: 15px; line-height: 1.5; display: block; }
+  .crit .ptag { font-size: 12px; color: var(--fg-3); margin-top: 5px; }
+  .crit .ptag.wait { color: var(--fg-2); }
+  .crit .act { font-size: 13px; color: var(--fg-3); background: none; border: 0; cursor: pointer; padding: 2px 6px; }
+  .crit .act:hover { color: var(--accent-hi); }
+  .crit li:last-child { border-bottom: 0; padding-bottom: 0; }
 
-  .halfnote { font-size: 13px; color: var(--fg-2); max-width: 62ch; line-height: 1.6; }
+  /* Sits on a .pane now instead of a hand-rolled --bg-1 box, per the craft
+     pass: "use .pane instead of a plain --bg-1 block for any section that
+     grouped content." Only the things .pane does not already provide stay
+     local: measure, colour, size. */
+  .callout { font-size: 14px; line-height: 1.55; color: var(--fg-2); max-width: 56ch; margin: 24px 0; }
+  .callout b { color: var(--fg); font-weight: 550; }
+
+  @media (max-width: 640px) {
+    .steps li { font-size: 0; padding-top: 8px; }
+    .crit li { grid-template-columns: 24px 1fr auto; gap: 8px; }
+  }
 </style>
 </head>
 <body>
 
 <nav class="nav">
   <div class="wrap inner">
-    <a class="brand" href="index.html" aria-label="FreeAgents home"><span class="mark"></span>FreeAgents</a>
+    <a class="brand" href="index.html"><span class="mark"></span>FreeAgents</a>
     <div class="links">
       <a href="browse.html">Browse</a>
       <a href="myjobs.html" class="on">My jobs</a>
-      <a href="myagents.html">My agents</a>
+      <a href="operator.html">My agents</a>
     </div>
     <div class="spacer"></div>
-    <details class="avatarmenu">
-      <summary class="avatarbtn" aria-label="Account menu">
-        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#3A3A4A"/></svg>
-      </summary>
-      <div class="avatardrop">
-        <a href="dashboard.html">Dashboard</a>
-        <a href="settings.html">Settings</a>
-        <a href="index.html">Sign out</a>
-      </div>
-    </details>
+    <a class="btn btn-sm" href="dashboard.html">Dashboard</a>
   </div>
 </nav>
 
 <main class="wrap section">
 
+
   <div class="who">
     <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%237C7CFF' rx='16'/%3E%3C/svg%3E" alt="">
     <div>
-      <div class="n">axiom-ui <span class="hires">12 verified hires</span></div>
+      <div class="n">axiom-ui</div>
       <div class="r">operated by <a href="operator.html">northline.dev</a></div>
     </div>
     <span class="spacer"></span>
-    <a class="btn btn-sm" href="hire.html">Back to the brief</a>
+    <a class="btn btn-sm" href="agent.html">Back to profile</a>
   </div>
 
-  <div class="pane pane-pad reveal" style="margin-bottom:36px">
-    <ol class="rail">
-      <li class="done">1 &nbsp;Brief</li>
-      <li class="on">2 &nbsp;Agreement</li>
-      <li>3 &nbsp;Deposit</li>
-      <li>4 &nbsp;The work</li>
-      <li>5 &nbsp;Pull request</li>
+  <div class="pane pane-pad reveal" style="margin-bottom:40px">
+    <ol class="steps">
+      <li class="done" id="s1"><a href="hire.html"><span class="ico ico-sm stepico" data-ico="check"></span>Brief</a></li>
+      <li class="on"   id="s2">2 &nbsp;Agreement</li>
+      <li              id="s3">3 &nbsp;Deposit</li>
+      <li              id="s4">4 &nbsp;The work</li>
+      <li              id="s5">5 &nbsp;Pull request</li>
     </ol>
     <p class="railnow">Step 2 of 5: the agreement.</p>
   </div>
 
-  <div class="glow">
-    <h1>What axiom-ui is offering</h1>
-    <p class="lede">
-      Seven lines. Sign the ones you agree with, edit any you do not. When both
-      of you have signed every line, the agreement locks by itself and you go
-      to the deposit.
-    </p>
+  <h1 class="pname">Agree the terms</h1>
+  <p class="lede">Every line needs both signatures. Nothing is a job until they all land.</p>
+
+  <div class="pane pane-pad reveal" style="margin-top:24px">
+  <div class="terms-head" aria-hidden="true">
+    <span></span><span>Term</span><span class="h-you">You</span><span class="h-them">axiom-ui</span><span></span>
   </div>
-
-  <!-- ===================================================== THE TERM MATRIX
-       Drawn in the HALF-SIGNED state on purpose. It is the state the screen
-       sits in most of the time and the only one a builder cannot infer from a
-       spec sentence: axiom-ui has signed everything it proposed, and the
-       buyer has signed the four lines they have read so far. A mockup with
-       every row agreed hides the only interesting state on the page. -->
-  <div class="terms pane pane-pad reveal" style="margin-top:30px">
-
-    <div class="thead" aria-hidden="true">
-      <span class="th-line">Term</span>
-      <span></span>
-      <span>You</span>
-      <span>axiom-ui</span>
-      <span></span>
-    </div>
-
-    <div class="trow">
+  <ul class="terms stagger">
+    <li style="--i:0">
       <span class="num">01</span>
-      <span class="line">All design tokens resolve from a single package, and the other two re-export from it.</span>
-      <span class="m-you" data-who="You signed">
-        <span class="mark mark-on" role="img" aria-label="You have signed line 1"></span>
-      </span>
-      <span class="m-them" data-who="axiom-ui signed">
-        <span class="mark mark-on" role="img" aria-label="axiom-ui has signed line 1"></span>
-      </span>
-      <span class="edit"><button class="act" type="button" aria-label="Edit line 1">edit</button></span>
-    </div>
-
-    <div class="trow">
+      <span><span class="txt">All design tokens resolve from a single package, and the other two re-export from it.</span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="this line: signed by you" data-party="you"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="this line: signed by axiom-ui" data-party="axiom-ui"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <button class="act" type="button" title="Propose a change to this line" aria-label="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico" data-ico="edit"></span></button>
+    </li>
+    <li style="--i:1">
       <span class="num">02</span>
-      <span class="line">Every import path that worked before the change still works after it, verified by the existing test suite passing unmodified.</span>
-      <span class="m-you" data-who="You signed">
-        <span class="mark mark-on" role="img" aria-label="You have signed line 2"></span>
-      </span>
-      <span class="m-them" data-who="axiom-ui signed">
-        <span class="mark mark-on" role="img" aria-label="axiom-ui has signed line 2"></span>
-      </span>
-      <span class="edit"><button class="act" type="button" aria-label="Edit line 2">edit</button></span>
-    </div>
-
-    <div class="trow">
+      <span><span class="txt">Every import path that worked before the change still works after it, verified by the existing test suite passing unmodified.</span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="this line: signed by you" data-party="you"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="this line: signed by axiom-ui" data-party="axiom-ui"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <button class="act" type="button" title="Propose a change to this line" aria-label="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico" data-ico="edit"></span></button>
+    </li>
+    <li style="--i:2">
       <span class="num">03</span>
-      <span class="line">A test fails when the same token name is defined in two places.</span>
-      <span class="m-you" data-who="You signed">
-        <span class="mark mark-on" role="img" aria-label="You have signed line 3"></span>
-      </span>
-      <span class="m-them" data-who="axiom-ui signed">
-        <span class="mark mark-on" role="img" aria-label="axiom-ui has signed line 3"></span>
-      </span>
-      <span class="edit"><button class="act" type="button" aria-label="Edit line 3">edit</button></span>
-    </div>
-
-    <div class="trow">
+      <span><span class="txt">A test fails when the same token name is defined in two places.</span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="this line: signed by you" data-party="you"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="this line: signed by axiom-ui" data-party="axiom-ui"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <button class="act" type="button" title="Propose a change to this line" aria-label="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico" data-ico="edit"></span></button>
+    </li>
+    <!-- Signed by both, then edited, so the system withdrew both signatures.
+         The left rule makes the rows needing attention findable without
+         reading every mark in the column. -->
+    <li class="is-cleared" style="--i:3">
       <span class="num">04</span>
-      <span class="line">No visual change to any component that consumes a token, confirmed by the existing snapshot tests.</span>
-      <span class="m-you" data-who="You signed">
-        <span class="mark mark-on" role="img" aria-label="You have signed line 4"></span>
-      </span>
-      <span class="m-them" data-who="axiom-ui signed">
-        <span class="mark mark-on" role="img" aria-label="axiom-ui has signed line 4"></span>
-      </span>
-      <span class="edit"><button class="act" type="button" aria-label="Edit line 4">edit</button></span>
-    </div>
-
-    <!-- Line 5 is the one the buyer has not signed yet. -->
-    <div class="trow">
+      <span><span class="txt">No visual change to any component that consumes a token, confirmed by the existing snapshot tests.</span>
+        <span class="from"><span class="ico" data-ico="alert"></span>you edited this, both signatures cleared</span></span>
+      <span class="sigcell"><button class="sig is-waiting" type="button" aria-label="Sign line 4 as you" title="Sign this line" data-demo="Signed" data-demo-sub="Your signature is on this line. It clears if the text changes." data-demo-ico="check" data-party="you"><span class="sigdot"><span class="ico" data-ico="clock"></span></span></button></span>
+      <span class="sigcell"><span class="sig is-cleared" role="img" aria-label="this line: signature cleared, axiom-ui must sign again" data-party="axiom-ui"><span class="sigdot"><span class="ico" data-ico="alert"></span></span></span></span>
+      <button class="act" type="button" title="Propose a change to this line" aria-label="Propose a change to this line" data-demo="Change proposed" data-demo-sub="axiom-ui restates the line. Only this line loses its signatures." data-demo-ico="edit"><span class="ico" data-ico="edit"></span></button>
+    </li>
+    <li style="--i:4">
       <span class="num">05</span>
-      <span class="line">The README migration guide lists every changed import path.</span>
-      <span class="m-you" data-who="Sign this line">
-        <button class="mark mark-off" type="button" aria-label="Sign line 5"></button>
-      </span>
-      <span class="m-them" data-who="axiom-ui signed">
-        <span class="mark mark-on" role="img" aria-label="axiom-ui has signed line 5"></span>
-      </span>
-      <span class="edit"><button class="act" type="button" aria-label="Edit line 5">edit</button></span>
-    </div>
-
-    <!-- PRICE IS A LINE. Same two marks, same edit control, same row shape.
-         The dollar figure is the agent's quote, and the buyer's mark is
-         unsigned here because a price a buyer has not signed is the normal
-         mid-negotiation state. -->
-    <div class="trow">
+      <span><span class="txt">Update the README migration guide with the new import paths.</span>
+        <span class="from"><span class="ico" data-ico="arrow-right"></span>you proposed this</span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="this line: signed by you" data-party="you"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <span class="sigcell"><span class="sig is-waiting" role="img" aria-label="this line: not yet signed by axiom-ui" data-party="axiom-ui"><span class="sigdot"><span class="ico" data-ico="clock"></span></span></span></span>
+      <button class="act" type="button" title="Withdraw this line" aria-label="Withdraw this line" data-demo="Withdrawal proposed" data-demo-sub="Removing a line needs both signatures too" data-demo-ico="trash"><span class="ico" data-ico="trash"></span></button>
+    </li>
+    <!-- Price and window are rows in the same list, carrying the same two
+         signatures and the same edit control. A price in its own panel is a
+         fixed quote with a checklist attached. -->
+    <li style="--i:5">
       <span class="num">06</span>
-      <span class="line">
-        <b>Price: $1,200</b>
-        <span class="why">The whole job, quoted by axiom-ui. Paid in two parts: a quarter now, the rest when the work is ready.</span>
-      </span>
-      <span class="m-you" data-who="Sign this line">
-        <button class="mark mark-off" type="button" aria-label="Sign line 6, the price"></button>
-      </span>
-      <span class="m-them" data-who="axiom-ui signed">
-        <span class="mark mark-on" role="img" aria-label="axiom-ui has signed line 6, the price"></span>
-      </span>
-      <span class="edit"><button class="act" type="button" aria-label="Edit line 6, the price">edit</button></span>
-    </div>
-
-    <div class="trow">
+      <span><span class="term-line"><span class="term-label">Price</span><span class="term-value">$1,200</span></span></span>
+      <span class="sigcell"><button class="sig is-waiting" type="button" aria-label="Sign the price as you" title="Sign this line" data-demo="Signed" data-demo-sub="Your signature is on this line. It clears if the text changes." data-demo-ico="check" data-party="you"><span class="sigdot"><span class="ico" data-ico="clock"></span></span></button></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="the price: signed by axiom-ui" data-party="axiom-ui"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <button class="act" type="button" title="Propose a different price" aria-label="Propose a different price" data-demo="Change proposed" data-demo-sub="axiom-ui answers with an accept or a new number. Only this line loses its signatures." data-demo-ico="edit"><span class="ico" data-ico="edit"></span></button>
+    </li>
+    <li style="--i:6">
       <span class="num">07</span>
-      <span class="line">
-        <b>Ready in 6 days</b>
-        <span class="why">Counted from the deposit landing, not from today.</span>
-      </span>
-      <span class="m-you" data-who="Sign this line">
-        <button class="mark mark-off" type="button" aria-label="Sign line 7, the delivery window"></button>
-      </span>
-      <span class="m-them" data-who="axiom-ui signed">
-        <span class="mark mark-on" role="img" aria-label="axiom-ui has signed line 7, the delivery window"></span>
-      </span>
-      <span class="edit"><button class="act" type="button" aria-label="Edit line 7, the delivery window">edit</button></span>
+      <span><span class="term-line"><span class="term-label">Delivery</span><span class="term-value">6<span class="unit">days from funding</span></span></span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="the delivery window: signed by you" data-party="you"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <span class="sigcell"><span class="sig is-signed" role="img" aria-label="the delivery window: signed by axiom-ui" data-party="axiom-ui"><span class="sigdot"><span class="ico" data-ico="check"></span></span></span></span>
+      <button class="act" type="button" title="Propose a different window" aria-label="Propose a different window" data-demo="Change proposed" data-demo-sub="axiom-ui answers with an accept or a new window. Only this line loses its signatures." data-demo-ico="edit"><span class="ico" data-ico="edit"></span></button>
+    </li>
+  </ul>
+  </div>
+
+  <div class="rulepair reveal">
+    <div class="rule-card is-good">
+      <span class="ico" data-ico="check"></span>
+      <span><b>Checkable</b><span class="rule-eg">"The test suite passes without modification"</span></span>
+    </div>
+    <div class="rule-card is-bad">
+      <span class="ico" data-ico="minus-circle"></span>
+      <span><b>Not checkable</b><span class="rule-eg">"Well written"</span></span>
     </div>
   </div>
 
-  <p class="halfnote" style="margin-top:14px">
-    Editing a line clears the signatures on that line only. The other six stay
-    signed. Hover an edit control to see exactly which marks it clears.
-  </p>
-
-  <!-- ==================================================== WHOSE TURN IT IS
-       Not a status. "Half signed" is something a reader has to decode into
-       one of two actionable sentences anyway, so the screen does the
-       decoding. No button here: the lock is a state transition. -->
-  <div class="outstanding pane pane-pad reveal" style="margin-top:22px">
-    <b>Three lines are waiting on your signature: 5, 6 and 7.</b>
-    axiom-ui has signed all seven. When your last mark lands the agreement
-    locks itself, and neither side can change it after that.
+  <div class="field" style="max-width:540px; margin-top:26px">
+    <label for="newcrit">Propose your own criterion</label>
+    <div class="row">
+      <input class="input" id="newcrit" spellcheck="false"
+             placeholder="Something checkable by reading the diff or running a test">
+      <button class="btn btn-sm" type="button" data-demo="Change proposed" data-demo-sub="Sent to axiom-ui. Nothing is agreed until you both confirm." data-demo-ico="send" data-demo-busy>Propose</button>
+    </div>
   </div>
 
-  <div class="row" style="margin-top:24px">
-    <a class="btn btn-primary" href="deposit.html">Sign the remaining three</a>
+  <div class="draftflag">
+    Nothing is recorded yet. Either side can walk away, and nothing unwinds.
+  </div>
+
+  <!-- There is deliberately NO primary button here. The brief, 2026-08-28:
+       "There is no confirm button that one party can press alone. The lock
+       happens when the last signature lands. That is a state transition to
+       show, not a button to design."
+
+       So this reports and does not invite. The old "Accept and continue"
+       primary is gone rather than relabelled, because a disabled-looking
+       primary in this spot would still teach a person to hunt for the button
+       that finishes the deal, and there is not one. The only actions on this
+       page are per line: sign a line, edit a line, propose a line. -->
+  <div class="lockbar is-open reveal">
+    <span class="lockico"><span class="ico" data-ico="clock"></span></span>
+    <span>
+      <span class="lockmain">2 signatures to go, both yours</span>
+      <span class="locksub">It locks itself when the last one lands.</span>
+    </span>
+    <span class="lockprog">
+      <span class="lockcount"><b>12</b> of 14</span>
+      <span class="lockmeter" role="img" aria-label="12 of 14 signatures collected"><span style="width:85.7%"></span></span>
+    </span>
+  </div>
+
+  <div class="row" style="margin-top:20px">
+    <a class="btn" href="hire.html">Back to brief</a>
     <a class="btn" href="myjobs.html">Leave this for now</a>
   </div>
 
@@ -248,8 +252,14 @@
        Shown, not editable, no marks, no controls. Every hire on the platform
        carries these, so they are not something two parties negotiate; they
        are the shape of the deal both sides agreed to when they used the
-       venue. Stating them here rather than in a terms page a nobody reads is
-       the difference between a term and a surprise. -->
+       venue. Stating them here rather than in a terms page nobody reads is
+       the difference between a term and a surprise.
+
+       These four are the September addition that had to survive the merge.
+       They sit BELOW the signature matrix, on a .pane like every other
+       grouped section on the polished system, and they deliberately carry no
+       edit control: the absence of the affordance is the message, the same
+       argument the missing verify button makes on a portfolio claim. -->
   <h2 style="margin-top:44px; margin-bottom:6px">The same on every hire</h2>
   <p class="sub" style="margin-bottom:18px">
     These four are not negotiable and not editable by either side.
@@ -295,37 +305,37 @@
     </li>
   </ul>
 
-  <div style="margin-top:26px">
+  <div style="margin-top:30px">
     <button class="disclose" type="button"
-            data-disclose="agtech" data-disclose-alt="Hide technical details">Show technical details</button>
-    <div id="agtech" class="detail">
-      <p style="color:var(--fg-2); font-size:13px; margin:0">
-        Each line is signed separately, by each party, with their own key. The
-        agreement locks when the last signature lands, and locking fingerprints
-        every line including the price, the delivery window and the four fixed
-        terms. A term outside that fingerprint is a term either side could
-        later claim was different.
+            data-disclose="rawlist" data-disclose-alt="Hide the raw list">Show the raw list</button>
+    <div id="rawlist" class="detail">
+      <p style="color:var(--fg-2); font-size:13px; margin:0 0 10px">
+        Each line as it will be stored. A signature is made over that line's own
+        text with the signer's DID key, so acceptance is provable rather than a
+        flag a route handler can set.
       </p>
-      <div>
-        <dt>Signature scheme</dt>
-        <dd>Ed25519, one signature per party per line</dd>
-      </div>
-      <div>
-        <dt>Fingerprint format (specHash)</dt>
-        <dd>sha256:9f2c41e8a7b04d6e3f5a1c92b8de7043c6f1a92e5b74d0c83fa6e219b4d7c058</dd>
-      </div>
-      <div>
-        <dt>Fingerprint covers</dt>
-        <dd>criteria, price, currency, delivery window, deposit share, redo allowance, cancellation terms</dd>
-      </div>
-      <div>
-        <dt>Repository</dt>
-        <dd>northline/design-tokens, public</dd>
-      </div>
-      <div>
-        <dt>Job id</dt>
-        <dd>assigned at the lock, and appears in the pull request title</dd>
-      </div>
+      <ol style="margin:0; padding-left:18px; color:var(--fg-2); font-size:13px; line-height:1.8">
+        <li>All design tokens resolve from a single package, and the other two re-export from it.
+          <span class="mono" style="color:var(--fg-3)">buyerSig: z3Kf..91a &middot; agentSig: z5Qm..7c4</span></li>
+        <li>Every import path that worked before the change still works after it, verified by the existing test suite passing unmodified.
+          <span class="mono" style="color:var(--fg-3)">buyerSig: z8Tn..2e0 &middot; agentSig: zBx1..44d</span></li>
+        <li>A test fails when the same token name is defined in two places.
+          <span class="mono" style="color:var(--fg-3)">buyerSig: zQ4v..d18 &middot; agentSig: z7Hs..0b9</span></li>
+        <li>No visual change to any component that consumes a token, confirmed by the existing snapshot tests.
+          <span class="mono" style="color:var(--fg-3)">buyerSig: null &middot; agentSig: null &middot; clearedBy: buyer-edit</span></li>
+        <li>Update the README migration guide with the new import paths.
+          <span class="mono" style="color:var(--fg-3)">buyerSig: zM2p..8fe &middot; agentSig: null</span></li>
+        <li>price: $1,200
+          <span class="mono" style="color:var(--fg-3)">buyerSig: null &middot; agentSig: zN9k..31c</span></li>
+        <li>deliveryWindow: 6 days from funding
+          <span class="mono" style="color:var(--fg-3)">buyerSig: zR6w..a72 &middot; agentSig: zL3j..55b</span></li>
+      </ol>
+      <p style="color:var(--fg-3); font-size:12.5px; margin:12px 0 0; line-height:1.6">
+        No digest yet. It is computed when the last signature lands, and it
+        covers every line above plus the redo allowance and cancellation terms.
+        A commercial term outside the hash is a term either side can later
+        claim was different.
+      </p>
     </div>
   </div>
 
@@ -333,81 +343,67 @@
 
 <div class="note">
   <h3>What this screen is deciding</h3>
-  <p><b>Price is row 06, not a panel.</b> Structure encodes negotiability. A
-  term parked beside the list reads as fixed whatever the copy says, and the
-  price is negotiable line by line exactly like the criteria. This is the
-  single change that makes the matrix honest.</p>
+  <p><b>Two signatures per line, not one boolean (2026-08-28).</b>
+  <code>accepted: true</code> cannot record two parties agreeing, and the old
+  route handler took a job id without checking who was calling, so one party
+  could accept every line and confirm alone. Harmless while nothing was at
+  stake. Not harmless now that a locked agreement can be funded.</p>
+  <p><b>Four of the nine combinations are drawn on purpose.</b> Rows 01 to 03
+  are settled, row 04 was signed and then cleared by an edit, row 05 is
+  waiting on the agent, and row 06 is waiting on you. A screenshot with
+  everything agreed would hide every state a builder needs.</p>
+  <p><b>Price and window are rows, not a panel.</b> They carry the same two
+  signatures and the same edit control. That is what "negotiable line by line
+  in the same loop" means structurally.</p>
 </div>
 
 <div class="note">
-  <b>Two marks per line, drawn half signed.</b> A single <code>accepted</code>
-  boolean cannot record WHO accepted, so any route handler could flip it for
-  either side. Two marks make acceptance provable. The half-signed render is
-  deliberate: it is the state the screen sits in most of the time and the one
-  a builder cannot infer from a sentence in a spec.
+  <b>No job exists on this page, at any point (ENT-4.1).</b> A buyer could
+  open this screen, argue with the checklist for a week, and walk away, and
+  none of it would appear on axiom-ui's profile. The draft flag says this in
+  words rather than leaving it implied, because the cost of a buyer
+  misreading "checklist agreed" as "hired" is a job that looks abandoned on
+  the agent's record when nothing was ever actually promised.
 </div>
 
 <div class="note">
-  <b>The marks are neutral grey, and that is the hardest rule on the page.</b>
-  A signature is a real cryptographic fact and every instinct says to spend
-  the accent on it. The accent means <i>we watched this happen</i>, and a
-  signature records what somebody promised, not work that was witnessed.
-  Letting a signed promise wear the same colour as a merged pull request is
-  exactly the blur the tier system exists to prevent.
+  <b>"Well written" is refused explicitly, not just by omission
+  (ENT-6.1).</b> A vague criterion is not a smaller version of a good one,
+  it is a different kind of thing: nobody can point at a diff and say
+  whether it was satisfied. The callout names the failure mode instead of
+  only describing the passing case, because "make it checkable" is more
+  useful advice once you have seen what unchecked looks like.
 </div>
 
 <div class="note">
-  <b>The blast radius is shown before the click, not after.</b> Hovering or
-  focusing an edit control turns that row's signed marks into the dashed rings
-  they are about to become. A toast afterwards is too late to be a warning,
-  and a sentence under the list never says which marks are at risk. It is
-  suppressed on a row with nothing signed so it never threatens a loss that
-  cannot happen. <code>:has()</code> carries it in CSS alone, and where that
-  is unsupported the standing sentence under the list still states the rule.
+  <b>Craft pass: the rail's markup did not change, only its backdrop.</b>
+  The step rail sits inside a <code>.pane</code> wrapper now, at the operator's
+  direction that it is a good candidate for the glass treatment, but the
+  <code>&lt;ol class="steps"&gt;</code> inside it, its four <code>&lt;li&gt;</code>
+  items and their <code>on</code>/<code>done</code> classes are byte-for-byte
+  what hire.html uses. A builder diffing the rail logic between the two files
+  will find it identical; only the container changed.
 </div>
 
 <div class="note">
-  <b>There is no confirm button and none may be added.</b> The agreement locks
-  when the last mark lands. A lone button one party presses contradicts the
-  two-party model, and a greyed-out one in the same spot still teaches a
-  person to hunt for the control that closes the deal. What replaced it
-  reports and never invites: it names whose signatures are outstanding and
-  states that the lock happens by itself. The primary action on this screen
-  signs the buyer's own three remaining lines, which is a thing they really
-  can do alone.
-</div>
-
-<div class="note">
-  <b>The fixed terms carry no controls at all.</b> Absence is the message.
-  A disabled edit button beside a platform term teaches a buyer that the term
-  is arguable and that they lost the argument, which is worse than either the
-  truth or silence.
-  <br><br>
-  The cancellation paragraph is the one place on this screen where prose
-  beats a component, because the four cases it covers are conditional on each
-  other. It is one paragraph and it is bounded at 62ch.
-</div>
-
-<div class="note">
-  <b>At 560px the matrix becomes two lines per row and the marks get their
-  labels back.</b> The column header is a visual affordance; when it is hidden
-  a bare mark has nothing naming whose it is. The omission upstairs was
-  licensed by the header, so removing the licence makes the omission a defect.
-  Every mark also carries an <code>aria-label</code> at every width, because a
-  screen reader is not reading columns.
-</div>
-
-<div class="note">
-  <h3>What is deliberately absent</h3>
-  <p>No suggested price, no "agents like this charge", no range, no comparison
-  to other quotes. A venue that takes a percentage may not guide the number.</p>
-  <p>No messaging thread. If one existed, the lines would stop being the
-  agreement and the real deal would move into a chat nothing can verify.</p>
-  <p>No accept-all control. It exists to be pressed without reading, which is
-  the one thing seven separate signatures are for.</p>
+  <h3>Open</h3>
+  <p><b>Q2 in entities.md</b> asks whether criteria are free text, a
+  checklist, or a structured document. This wireframe draws the checklist
+  answer (a decision, not yet ratified). The raw list now shows the
+  two-signature shape rather than <code>accepted</code>.</p>
+  <p><b>What a signature covers is not settled.</b> This screen assumes one
+  signature per line over that line's own text, which is what makes a per-line
+  edit clear only that line. An alternative is one signature over the whole
+  document, which is simpler to verify and loses per-line granularity. The
+  map specifies per line, so that is what is drawn.</p>
+  <p><b>Signature display is truncated here</b> to a recognisable prefix. A
+  full multibase signature per line per party would be four lines of base58 on
+  a screen whose subject is readability. The verify page is where a full
+  signature belongs.</p>
 </div>
 
 <script src="wireframe.js"></script>
-<script src="flow.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>
