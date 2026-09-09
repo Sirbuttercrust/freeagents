@@ -611,6 +611,10 @@ describe('the My agents screen, driven end to end against the real app', () => {
         skills: ['layout'],
         githubLogin: null,
       });
+      // A noReply offer on the layout agent so the row actually carries the
+      // work-offered attention line this describe block measures below: a
+      // layout assertion on a control that never renders proves nothing.
+      await jobRepo.create(jobFixture({ id: 'myagents-layout-offer', buyerDid: 'did:abt:myagents-layout-buyer', agentDid: LAYOUT_AGENT_DID, status: 'draft', criteria: [] }, new Date('2026-08-17T00:00:00Z')));
     });
 
     it('at 320px there is no horizontal overflow and the row name link measures at least 44px tall', async () => {
@@ -649,6 +653,19 @@ describe('the My agents screen, driven end to end against the real app', () => {
           })()
         `);
         expect(disclosure?.height, 'the disclosure control must reach the 44px tap floor at 320px').toBeGreaterThanOrEqual(44);
+
+        // W7b: the work-offered attention anchor this card added, the
+        // control QA's review measured at 33.8px against the real app.
+        const attnLink = await browser.evaluate<{ found: boolean; height: number } | null>(`
+          (function () {
+            var link = document.querySelector('.arow .attn a');
+            if (!link) return null;
+            var r = link.getBoundingClientRect();
+            return { found: true, height: r.height };
+          })()
+        `);
+        expect(attnLink?.found, 'the layout agent must carry a work-offered attention anchor to measure').toBe(true);
+        expect(attnLink?.height, 'the work-offered attention anchor must reach the 44px tap floor at 320px').toBeGreaterThanOrEqual(44);
       } finally {
         await browser.close();
       }
