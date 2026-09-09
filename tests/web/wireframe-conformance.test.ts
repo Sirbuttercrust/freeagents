@@ -130,7 +130,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // wireframe says "GitHub": the built label names the thing (the
     // repository) rather than the vendor, the same naming rule this repo
     // already applies to its adapters, carried into footer copy.
-    'GitHub': 'the built footer emits this link at serve time from sourceLinks() (src/web/static.ts:200-216, pinned by tests/web/static.test.ts:394,409) under the label "Source code", which names the thing rather than the vendor (this repo\\u2019s adapter-naming rule applied to copy); this instrument reads the file on disk and can only see the <!--SOURCE_LINKS--> placeholder',
+    'GitHub': 'the built footer emits this link at serve time from sourceLinks() (src/web/static.ts:200-216, pinned by tests/web/static.test.ts:394,409) under the label "Source code", which names the thing rather than the vendor (this repo\u2019s adapter-naming rule applied to copy); this instrument reads the file on disk and can only see the <!--SOURCE_LINKS--> placeholder',
     'Licence': 'the built footer emits Licence at serve time from sourceLinks() (src/web/static.ts:200-216, pinned by tests/web/static.test.ts:394,409); this instrument reads the file on disk and can only see the <!--SOURCE_LINKS--> placeholder',
   },
   conduct: {
@@ -147,8 +147,8 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // operatorCounts, never a DID. "Their agents" points at operator.html,
     // addressed by DID, so this route holds nothing to build that href
     // from. tests/web/conduct.test.ts's inert-declared-control mutation
-    // proof (line 419) asserts no such anchor and no /accounts/ href ships.
-    'Their agents': 'GET /buyers/:githubLogin/conduct (src/api/app.ts:2576-2590) carries githubLogin, counts and operatorCounts, never a DID; the button\\u2019s destination (operator.html, addressed by DID) cannot be built from this response, so it is dropped rather than shipped inert (conduct.js:37-40, tests/web/conduct.test.ts:419-439)',
+    // proof (line 446) asserts no such anchor and no /accounts/ href ships.
+    'Their agents': 'GET /buyers/:githubLogin/conduct (src/api/app.ts:2576-2590) carries githubLogin, counts and operatorCounts, never a DID; the button\u2019s destination (operator.html, addressed by DID) cannot be built from this response, so it is dropped rather than shipped inert (conduct.js:37-40, tests/web/conduct.test.ts:446-463)',
   },
   deposit: {
     // The wireframe's own comment (deposit.html:238-240) says the drawn QR
@@ -160,7 +160,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // Telling someone to scan when nothing on screen can be scanned is the
     // inert-declared-control defect wearing copy instead of markup; the
     // heading follows the mechanism the page actually ships.
-    'Scan with your DID Wallet': 'the wireframe\\u2019s own comment (deposit.html:238-240) says its drawn QR "encodes nothing"; the built sheet ships a real mechanism instead, a one-time payment URL in a readonly input with a Copy button headed "Open this in your DID Wallet" (src/web/pages/deposit.html:158), because a heading promising a scan with nothing to scan is the inert-declared-control defect in copy',
+    'Scan with your DID Wallet': 'the wireframe\u2019s own comment (deposit.html:238-240) says its drawn QR "encodes nothing"; the built sheet ships a real mechanism instead, a one-time payment URL in a readonly input with a Copy button headed "Open this in your DID Wallet" (src/web/pages/deposit.html:158), because a heading promising a scan with nothing to scan is the inert-declared-control defect in copy',
   },
   credential: {
     // The wireframe draws the closed-without-shipping state as a second
