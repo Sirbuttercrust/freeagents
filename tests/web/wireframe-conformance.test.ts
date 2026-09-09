@@ -336,6 +336,74 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // name what is behind it, so the label stays honest to its panel.
     'Show the identity document': 'no DID document route exists in src/api/app.ts and none may be added (a document this site served would be a check depending on us); the built disclosure "Show the identity check" names what is actually behind it (DESIGN 4.2), the agent\u2019s identity and the merge-commit signer from the receipt',
   },
+  agreement: {
+    // Group 1 (W7c): the wireframe's h1 names its sample agent, axiom-ui.
+    // The built h1 renders the LIVE agent name fetched from GET
+    // /agents/:agentDid (agreement.js's renderWho), the same call the
+    // agent profile page already makes for its own sample names above.
+    // Pinned by tests/web/agreement.test.ts, "the h1 names the live
+    // agent, never the wireframe's sample name".
+    'What axiom-ui is offering': 'wireframe sample data (axiom-ui is the wireframe\u2019s one example agent); the built h1 renders the live agent name fetched from GET /agents/:agentDid (agreement.js renderWho), pinned by tests/web/agreement.test.ts, "the h1 names the live agent, never the wireframe\u2019s sample name"',
+    // Group 4 (W7c): the wireframe's bulk sign-remaining control. This
+    // build marks one line at a time (agreement.js signLine, one POST per
+    // line, no batch route); the header comment at
+    // src/web/pages/agreement.html:9-15 already records the departure as
+    // a P8h decision, and per-line marking is exactly the design that
+    // makes signing seven terms with one click impossible. The
+    // wireframe's own count ("three") is the sample job's state, not a
+    // shape this page's control would ever hardcode.
+    'Sign the remaining three': 'this build has no bulk sign-remaining: agreement.js\u2019s signLine marks one line at a time via a per-line POST (no batch route exists), the departure already recorded at src/web/pages/agreement.html:9-15 (P8h decision); per-line marking is the design that prevents signing seven terms unread, which a bulk-sign control would defeat',
+  },
+  operatorjob: {
+    // Group 1 (W7c): the wireframe draws the redo_requested state because
+    // that is the state it chose to illustrate; the built page draws
+    // whichever state the job is actually in
+    // (STATE_HEADINGS.redo_requested, operatorjob.js:76, written into
+    // #state-heading, static text "Reading this job" in the file on
+    // disk). Baking "A buyer sent it back" into static markup would show
+    // that sentence on a job nobody sent back. Pinned by
+    // tests/web/operatorjob.test.ts, "renders the state heading as
+    // exactly \"A buyer sent it back\"".
+    'A buyer sent it back': 'STATE_HEADINGS.redo_requested (operatorjob.js:76) writes this into #state-heading only when the job\u2019s real status is redo_requested; the file on disk carries the static placeholder "Reading this job" because the heading must track whichever state the job is actually in, pinned by tests/web/operatorjob.test.ts, test "renders the state heading as exactly A buyer sent it back"',
+    // Group 1 (W7c): the "Earlier:" prefix is only true once the job has
+    // moved past draft/proposed (renderDrafting, operatorjob.js), so the
+    // heading's tense is computed from the job's own status at render
+    // time; the file on disk carries the present-tense default "Drafting
+    // the agreement", which is the true heading for a job still at
+    // draft/proposed. Pinned by tests/web/operatorjob.test.ts, "a
+    // confirmed job still shows the drafting section, headed \"Earlier:
+    // drafting the agreement\"".
+    'Earlier: drafting the agreement': 'renderDrafting (operatorjob.js) computes the heading\u2019s tense from the job\u2019s own live status: "Earlier:" only when the job has moved past draft/proposed. The file on disk carries the present-tense default "Drafting the agreement", correct for a job still drafting, pinned by tests/web/operatorjob.test.ts, test "a confirmed job still shows the drafting section, headed Earlier: drafting the agreement"',
+    // Group 3 (W7c): the wireframe's sample agent name, axiom-ui, baked
+    // into its own section heading. renderDraftingFacts (operatorjob.js)
+    // fetches the real agent from GET /agents/:agentDid and renders its
+    // live name into this heading, the same live-name pattern the agent
+    // page and this page's own #agent-name already use. Pinned by
+    // tests/web/operatorjob.test.ts, "renders the agent's drafted facts
+    // under \"What <agent name> drafted from it\"".
+    'What axiom-ui drafted from it': 'wireframe sample data (axiom-ui is the wireframe\u2019s one example agent); renderDraftingFacts (operatorjob.js) fetches the real agent from GET /agents/:agentDid and renders its live name into this heading, pinned by tests/web/operatorjob.test.ts, test "renders the agent\u2019s drafted facts under What agent name drafted from it"',
+    // Group 3 (W7c): the wireframe's sample redo extension, "6 more
+    // days". renderRedoPanel (operatorjob.js) renders the label from
+    // REDO_LAPSE_EXTENSION_DAYS (src/domain/job.ts:519, currently 7), so
+    // the number can never drift from the behaviour requestRedo actually
+    // applies, and it can never coincidentally match the wireframe's
+    // fixed sample digit either. Pinned by tests/web/operatorjob.test.ts,
+    // "the redo-accept button reads \"Accept, and take N more days\"
+    // using the real extension constant".
+    'Accept, and take 6 more days': 'wireframe sample data (a fixed "6" for the sample job); renderRedoPanel (operatorjob.js) renders the label from REDO_LAPSE_EXTENSION_DAYS (src/domain/job.ts:519, currently 7) so the number can never drift from requestRedo\u2019s real behaviour, pinned by tests/web/operatorjob.test.ts, test "the redo-accept button reads Accept, and take N more days using the real extension constant"',
+  },
+  pullrequest: {
+    // Group 1 (W7c): pullrequest.js's renderPrLink (lines 171-177) builds
+    // this anchor and sets this exact label only when job.pullRequestUrl
+    // parses and its origin is https://github.com; a URL from anywhere
+    // else renders as text with no anchor at all. That conditional is a
+    // security property (never sending someone to an unverified
+    // destination under a "GitHub" label), so the control cannot be
+    // static markup. Pinned by tests/web/pullrequest.test.ts, "the link
+    // href is byte-identical to pullRequestUrl, and no merge control
+    // exists anywhere".
+    'Open the pull request on GitHub': 'pullrequest.js\u2019s renderPrLink (lines 171-177) builds this anchor and sets this exact label only when job.pullRequestUrl parses and its origin is https://github.com (a non-GitHub URL renders as text with no anchor); this security conditional means the control can never be static markup, pinned by tests/web/pullrequest.test.ts, "the link href is byte-identical to pullRequestUrl, and no merge control exists anywhere"',
+  },
 };
 
 // Sample values the wireframe uses to look real. Not design; never required.
