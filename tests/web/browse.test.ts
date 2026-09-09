@@ -485,4 +485,39 @@ describe('the browse page: tap targets at 320px, real Chrome (tap-target-under-4
       await browser.close();
     }
   });
+
+  // Round 2 review, D3: a guard that only re-selects the classes a human
+  // already reported can only ever re-find what that human already found.
+  // This sweeps every interactive control the page actually renders,
+  // filtered to elements that are laid out (an offsetParent, so a control
+  // still hidden behind [hidden] is not falsely counted), and opens the
+  // drawer first so its labels and checkboxes are part of the sweep. A
+  // checkbox itself is allowed to stay visually small: its LABEL is the
+  // real tap target, because clicking the label already toggles the box
+  // (the same relationship pullrequest.html's .picker label documents).
+  it('every rendered interactive control is at least 44px, drawer open, real Chrome (tap-target-under-44px)', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: 320, height: 900 });
+    try {
+      await browser.goto(`${tapBaseUrl}/browse`);
+      await browser.evaluate(`document.querySelector('[data-disclose="drawer"]').click()`);
+
+      const undersized = await browser.evaluate<Array<[string, number, number]>>(`
+        Array.from(document.querySelectorAll('button, a, input, label'))
+          .filter((el) => el.offsetParent !== null && el.closest('[hidden]') === null)
+          .filter((el) => el.tagName !== 'INPUT' || el.type !== 'checkbox' || !el.closest('label'))
+          .map((el) => {
+            const r = el.getBoundingClientRect();
+            return [el.tagName + ' ' + (el.textContent || '').trim(), r.width, r.height];
+          })
+          .filter(([, w, h]) => w < 44 || h < 44)
+      `);
+      expect(undersized, `undersized targets: ${JSON.stringify(undersized)}`).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  });
 });

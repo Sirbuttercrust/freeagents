@@ -96,15 +96,25 @@
   .pager button:disabled { opacity: .4; cursor: default; }
 
   /* Tap-target floor for the controls this page's own style block
-     introduces (.more, .sort button, .pager button): base.css's shared
-     44px floor (media (max-width:760px),(pointer:coarse)) only lifts
+     introduces (.more, .sort button, .pager button, .drawer label,
+     .agent .name): base.css's shared 44px floor (media
+     (max-width:760px),(pointer:coarse)) only lifts
      .btn/.btn-sm/.input/nav/foot/prose links, so a page-local class needs
      its own rule here, the same way base.css's .disclose solves the
-     identical shape with min-height:44px. */
+     identical shape with min-height:44px, and the same way
+     pullrequest.html's .picker label solves the identical checkbox-plus-
+     label shape. The checkbox itself stays visually small; the label is
+     the tap target, because clicking the label already toggles the box.
+     .agent .name gets the padding-plus-negative-margin treatment base.css
+     already uses for every other inline link in a row (.arow .nm,
+     .card-row a.name-link), because it sits inside running text rather
+     than a block a min-height alone could grow. */
   @media (max-width: 760px), (pointer: coarse) {
     .more { min-height: 44px; padding: 11px 4px; }
     .sort button { min-height: 44px; padding: 5px 10px; display: inline-flex; align-items: center; }
     .pager button { min-height: 44px; min-width: 44px; padding: 0 12px; }
+    .drawer label { min-height: 44px; padding: 13px 0; }
+    .agent .name { display: inline-block; padding: 13px 0; margin: -13px 0; }
   }
 
   @media (max-width: 760px) {
