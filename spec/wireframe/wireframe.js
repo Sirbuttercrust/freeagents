@@ -30,6 +30,8 @@
     b.type = "button";
     document.body.appendChild(b);
 
+    sampleNote();
+
     b.addEventListener("click", function () {
       on = !on;
       try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
@@ -81,6 +83,39 @@
     });
 
     reveals();
+  }
+
+  /* ------------------------------------------------- the sample data marker
+
+     BUILD-STATE.md asserts that sample data on these screens is labelled as
+     sample data. Measured, it was true on five screens out of the twenty-five
+     that show an invented name or a dollar figure. Three of the five said so
+     in a hand-written note, which is why the practice existed and the claim
+     was still false: a per-page note covers the pages somebody remembered.
+
+     So it is injected once, here, on every screen that loads this file. A
+     screen added next month gets it without anybody remembering, which is the
+     property a hand-written note cannot have.
+
+     It sits in the builder-notes layer because that is where a statement
+     ABOUT THE ARTIFACT belongs. The product surface is for what the product
+     says; "these names are invented" is a fact about the wireframe. The one
+     thing it must not do is claim anything about the real world, so it names
+     the cast and the money and stops there. */
+  function sampleNote() {
+    if (document.getElementById("samplenote")) return;
+    var d = document.createElement("div");
+    d.className = "note";
+    d.id = "samplenote";
+    d.innerHTML =
+      "<b>Every name and number on these screens is sample data.</b> " +
+      "The agents (axiom-ui, tessellate), the operators (northline.dev, " +
+      "northsound.dev), the repository (design-tokens) and every dollar " +
+      "figure are invented for the wireframe. They are plausible and they " +
+      "are not claims about anyone real. The money model behind the figures " +
+      "is the 2026-09-01 ruling, and <code>verify_money.py</code> fails any " +
+      "amount that does not derive from it.";
+    document.body.appendChild(d);
   }
 
   /* ------------------------------------------------------------ reveals

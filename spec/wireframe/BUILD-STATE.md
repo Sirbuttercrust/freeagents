@@ -104,22 +104,50 @@ There is no `verify_mobile.py`, and there never has been on any branch. The
 all inside `verify_flow.py` and `verify_polish.py`. If a document tells you to
 run `verify_mobile.py`, that document is wrong.
 
-**The tap-target floor is measured on BOTH axes, and was not always.**
-`verify_polish.py` read only `height` until 2026-09-09, so a control 20px wide
-and 44px tall passed: 13 real failures were standing behind a green gate,
-including the `edit` control that reopens a signed line of a paid agreement.
-Two rules follow, and neither is optional:
+**The tap-target floor is measured on BOTH axes, in EVERY reachable state, on
+every kind of control. It took three rounds to get there, and the shape of
+those rounds is the lesson.**
 
-- A floor written as `min-height` alone is not a floor. Set both.
+Round 1: `verify_polish.py` read only `height`, so a control 20px wide and
+44px tall passed. 13 real failures stood behind that green gate, including the
+`edit` control that reopens a signed line of a paid agreement.
+
+Round 2 fixed the axis and left the SELECTOR and the state coverage untouched.
+Three probes in the tree each read `querySelectorAll('a,button')`, so no
+`input`, `select`, `textarea` or `label` was ever measured, and no gate opened
+a disclosure or a drawer before reading. 12 more real failures stood behind
+that: eleven facet checkboxes in browse's drawer and a settings toggle.
+
+Round 3 moved the probe into `tapfloor.py` and had the gates import it. One
+selector list, one set of exemptions, one definition of which states get
+opened. `verify_polish.py` now prints how many states it opened per screen,
+because a gate that opens nothing reports a clean page in both the broken and
+the fixed state.
+
+Five rules follow, and none is optional:
+
+- A floor written as `min-height` alone is not a floor. Set both axes.
 - A floor written in a stylesheet that some screens do not load is not a floor
   either. The `.act` and `.steps li a` floors lived in `agreement.css`, which
   `criteria.html` and `confirm.html` do not load, so `SITEMAP.md` claimed a
   standard those two screens did not meet. Shared floors belong in
   `polish.css`, which all 33 screens load.
+- A property some pages override is not a floor. `polish.css` carried
+  `.drawer label { padding: 10px 0 }` and it never once applied, because
+  `browse.html` defines `.drawer label` in its own `<style>` and a page-local
+  rule wins at equal specificity.
+- An EXEMPTION is a statement that some other element meets the floor, so
+  that element has to meet it. `DESIGN.md` 5.3 exempts a checkbox whose label
+  clears the floor and names a 244x89 label as the case; the code read it as
+  any checkbox inside any label, which excused a 292x29 one.
+- A gate that measures one state measures its own fiction. The card's
+  constraint is "320px with every open state", and for two rounds the
+  instrument covering 27 of the 33 screens opened none.
 
 A page-local rule beats a linked stylesheet at equal specificity, so
-`browse.html` carries its own copy of the pager floor. If you define a
-component inside a page's `<style>`, its touch floor goes there too.
+`browse.html` carries its own copy of the pager floor and the drawer label
+floor. If you define a component inside a page's `<style>`, its touch floor
+goes there too.
 
 ## Serving it
 
@@ -153,7 +181,15 @@ every other device, which is the most confusing possible failure.
   `verify_money.py` fails any figure that does not derive from it.
 - **Nothing on any screen has the platform running, scoring or reviewing an
   agent's work.** The attestation is facts only.
-- **Sample data is labelled as sample data.** No invented metrics, anywhere.
+- **Sample data is labelled as sample data**, on every screen that shows any.
+  Twenty-five of the thirty-three carry an invented name or a dollar figure,
+  and `wireframe.js` puts the marker in the builder-notes layer of all of
+  them. It is injected once in the shared chrome rather than written per page,
+  because the per-page version was the reason this sentence was false when it
+  was first written: five screens said so and twenty did not.
+  `verify_sampledata.py` is the instrument, and it defines "shows sample data"
+  by reading the rendered text rather than by naming a list of pages.
+  No invented metrics, anywhere.
 - **Every avatar in the set is generated from the DID.** One hook,
   `[data-avatar="did:abt:<name>"]`, painted by `polish.js` through
   `FASwarm.avatar`. There is no flat placeholder disc left in the tree and no

@@ -497,8 +497,11 @@ element both look identical in a screenshot, so neither is checked by eye.
 Covered by the `no-ai-writing` skill, which binds every word in the product.
 The parts that are specifically visual:
 
-- **No em dashes anywhere.** Enforced: `grep -o $'\u2014' *.html *.css *.js`
-  must return zero.
+- **No em dashes anywhere.** Enforced by `verify_housestyle.py`, which reads
+  every file in this directory rather than a list of them, and adds the en
+  dash and the AI writing tells. Do not enforce this with a shell grep: the
+  one this line used to name could not fail on bash 3.2, which does not
+  expand the `\u` escape inside a dollar-quoted string.
 - **No invented facts.** No fabricated testimonial, metric, company name, or
   agent. Wireframe sample data is plausible and clearly sample; it never
   states a claim about the real world.
@@ -608,16 +611,27 @@ python3 verify_all.py http://127.0.0.1:3111
 #    Run separately: these edit files and take several minutes.
 python3 verify_flow_mutation.py   http://127.0.0.1:3111
 python3 verify_round2_mutation.py http://127.0.0.1:3111
+python3 verify_round3_mutation.py http://127.0.0.1:3111
 
-# house rule: zero em dashes
-grep -o $'\u2014' *.html *.css *.js *.md | wc -l
+# house rule: zero em dashes, enforced across EVERY file here.
+# Run the gate, not a grep. The grep this line used to name,
+#   grep -o $'\u2014' *.html *.css *.js *.md | wc -l
+# cannot fail on bash 3.2: it does not expand \u inside $'...', so that
+# greps for six literal characters and returns the lines quoting the command
+# itself whether or not a real em dash exists anywhere in the tree.
+python3 verify_housestyle.py
 ```
 
 Exit codes: `0` pass, `1` a real failure, `3` no browser on this machine,
 which is neither. The suite never folds a missing browser into a pass.
 
-`verify_all.py` runs the ten below. Each can also be run alone, and each takes
-the base url except the two that need no browser.
+`verify_all.py` runs the table below, and checks that claim rather than
+asserting it: the runner compares this table against its own list and fails on
+any disagreement in either direction. The count is deliberately not written
+here, because a number in prose goes stale the moment a gate is added and
+nothing checks a number. Run `python3 verify_all.py` to see it. Each gate can
+also be run alone, and each takes the base url except the ones needing no
+browser.
 
 | gate | what it covers |
 |---|---|
@@ -639,6 +653,8 @@ the base url except the two that need no browser.
 | `verify_blast_preview.py` | hovering an edit control previews the exact signatures that edit would clear |
 | `verify_mobile_coverage.py` | every screen in the directory appears in at least one 320px sweep, so a new page cannot go unchecked in silence |
 | `verify_kept.py` | the brand's accessible name survives the wordmark collapse on all 33 screens, and the facts a designed element carried still render somewhere in the set, with disclosures opened |
+| `verify_housestyle.py` | no em dash or en dash in ANY file in this directory, plus the AI writing tells in prose files. No browser, no server |
+| `verify_sampledata.py` | every screen showing an invented name or a dollar figure says on it that the data is sample data |
 
 The six polished gates plus the coverage check are run by `verify_all.py` with
 the rest. They drive the same committed `wirebrowse.py` as the others, so the

@@ -75,6 +75,16 @@ GATES = [
     ("verify_kept.py", True,
      "the brand's accessible name survives the wordmark collapse, and the "
      "facts a designed element carried still render somewhere in the set"),
+
+    # The two from round 3. Both close a gate that was scoped to a list of
+    # files rather than to the directory, which is how a screen added later
+    # ends up outside a rule nobody knew was narrow.
+    ("verify_housestyle.py", False,
+     "no em dash or en dash in ANY file here, plus the AI writing tells in "
+     "prose files. verify_flow.py's version read ten files out of forty-three"),
+    ("verify_sampledata.py", True,
+     "every screen showing an invented name or a dollar figure says it is "
+     "sample data"),
 ]
 
 env = dict(os.environ)
@@ -134,6 +144,7 @@ if os.path.exists(design):
     # The mutation tests are deliberately outside verify_all.py.
     listed.discard("verify_flow_mutation.py")
     listed.discard("verify_round2_mutation.py")
+    listed.discard("verify_round3_mutation.py")
     listed.discard("verify_all.py")
     # A gate the doc explicitly declares SUPERSEDED is not a coverage claim,
     # so it is allowed to be named without being run. Only that exact word
