@@ -130,6 +130,61 @@
   </div>
 </footer>
 
+<!-- ================================================================
+     SECTION SHELL TEMPLATES. Never rendered by a browser directly
+     (the whole point of <template>): dashboard.js clones one of these
+     four per section that actually has something to show, the same
+     technique browse.html's tmpl-row and agent.html's tmpl-verify-hire
+     already use, so the heading and "See all" text a person sees and
+     the text this page's own conformance test scans are the same
+     literal source. Section 3's See all goes to /myagents, the full
+     list of the thing its heading names (spec/wireframe/dashboard.html
+     line 132), not /incoming: the handoff's item 2. -->
+<template id="tmpl-section-waiting">
+  <section class="pane pane-pad reveal" data-reveal>
+    <div class="between">
+      <h2 style="margin:0">Waiting on you</h2>
+      <a class="small seeall" style="color:var(--fg-2)" href="/myjobs">See all &rarr;</a>
+    </div>
+    <div class="rows" style="margin-top:14px"></div>
+  </section>
+</template>
+<template id="tmpl-section-inprogress">
+  <section class="pane pane-pad reveal" data-reveal>
+    <div class="between">
+      <h2 style="margin:0">In progress</h2>
+      <a class="small seeall" style="color:var(--fg-2)" href="/myjobs">See all &rarr;</a>
+    </div>
+    <div class="rows" style="margin-top:14px"></div>
+  </section>
+</template>
+<template id="tmpl-section-attention">
+  <section class="pane pane-pad reveal" data-reveal>
+    <div class="between">
+      <h2 style="margin:0">Your agents need attention</h2>
+      <a class="small seeall" style="color:var(--fg-2)" href="/myagents">See all &rarr;</a>
+    </div>
+    <div class="rows" style="margin-top:14px"></div>
+  </section>
+</template>
+<template id="tmpl-section-completed">
+  <section class="pane pane-pad reveal" data-reveal>
+    <div class="between">
+      <h2 style="margin:0">Recently completed</h2>
+      <a class="small seeall" style="color:var(--fg-2)" href="/myjobs">See all &rarr;</a>
+    </div>
+    <div class="rows" style="margin-top:14px"></div>
+  </section>
+</template>
+
+<!-- THE ONE PRIMARY ACTION (the wireframe's own words), cloned once per
+     render when section 1's first pending row is waiting on the buyer's
+     signature. Never a second, hand-typed copy of "Read and sign" living
+     only inside dashboard.js. -->
+<template id="tmpl-primary-sign">
+  <a class="btn btn-sm btn-primary" href="#">Read and sign</a>
+</template>
+
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
 <script src="/js/pages/dashboard.js"></script>

@@ -12,11 +12,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
-import { MemoryAccountRepository, MemoryAgentRepository, MemoryJobRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAccountRepository, MemoryAgentRepository, MemoryCredentialRepository, MemoryJobRepository } from '../../src/adapters/storage/memory.js';
 import { createJob, type Job, type Criterion } from '../../src/domain/job.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSession } from '../helpers/session-fixtures.js';
 import type { Session } from '../../src/adapters/identity/session.js';
 import type { Delegation } from '../../src/domain/agent.js';
+import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
@@ -43,6 +44,36 @@ function jobFixture(overrides: Partial<Job> & { id: string; buyerDid: string; ag
     createdAt,
   );
   return { ...base, ...overrides };
+}
+
+// Mirrors tests/web/myagents.test.ts's own credentialDoc: the minimal
+// CompletedHireCredential shape agentWorkRecord needs to promote an agent
+// to the verified-hire tier, so section 3's "no verified record yet" test
+// can drive a real read rather than a stub.
+function credentialDoc(id: string, subjectDid: string, mergeCommit: string, buyerDid: string): VerifiableCredential {
+  return {
+    '@context': ['https://www.w3.org/ns/credentials/v2'],
+    id,
+    type: ['VerifiableCredential', 'CompletedHireCredential'],
+    issuer: 'did:abt:platform',
+    validFrom: '2026-08-30T00:00:00.000Z',
+    credentialSubject: {
+      id: subjectDid,
+      hire: {
+        brief: 'sha256:brief',
+        repository: 'buyer/target-repo',
+        pullRequest: 'https://github.com/buyer/target-repo/pull/1',
+        mergedAt: '2026-08-30T00:00:00.000Z',
+        mergeCommit,
+        signedBy: `${subjectDid}#key-1`,
+        buyer: buyerDid,
+        additions: 4,
+        deletions: 1,
+        filesChanged: 1,
+      },
+    },
+    proof: { type: 'Ed25519Signature2020', proofValue: 'zProof' },
+  };
 }
 
 interface Rendered {
@@ -98,6 +129,7 @@ describe('the dashboard screen, driven end to end against the real app', () => {
   let agentRepo: MemoryAgentRepository;
   let jobRepo: MemoryJobRepository;
   let accountRepo: MemoryAccountRepository;
+  let credentialRepo: MemoryCredentialRepository;
   let server: Server;
   let baseUrl: string;
   let buyerSession: Session;
@@ -125,13 +157,14 @@ describe('the dashboard screen, driven end to end against the real app', () => {
     await accountRepo.register({ did: operatorDid, githubLogin: 'dashboard-page-operator-login' });
 
     jobRepo = new MemoryJobRepository();
+    credentialRepo = new MemoryCredentialRepository();
 
     const sessionAdapter = createSessionAdapter({
       github: fakeGitHubConfig(),
       fetchImpl: fakeGitHubFetch({ login: 'dashboard-page-buyer', id: 9801 }),
     });
 
-    const app = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter);
+    const app = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, credentialRepo, undefined, undefined, undefined, sessionAdapter);
     server = app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
@@ -182,7 +215,7 @@ describe('the dashboard screen, driven end to end against the real app', () => {
     }
   });
 
-  it('takes exactly four reads: /accounts/me, then jobs, pending and incoming, no per-agent read (done-means 3)', async () => {
+  it('takes exactly five reads for a buyer who operates nothing: /accounts/me, then jobs, pending, incoming and the agent roster, no per-agent read (done-means 3, W5 ruling)', async () => {
     const requested: string[] = [];
     const virtualConsole = new VirtualConsole();
     const failures: string[] = [];
@@ -220,15 +253,110 @@ describe('the dashboard screen, driven end to end against the real app', () => {
       const jobsCount = paths.filter((p) => p.endsWith('/jobs')).length;
       const pendingCount = paths.filter((p) => p.endsWith('/pending')).length;
       const incomingCount = paths.filter((p) => p.endsWith('/incoming')).length;
+      const rosterCount = paths.filter((p) => p.endsWith('/agents')).length;
       expect(jobsCount).toBe(1);
       expect(pendingCount).toBe(1);
       expect(incomingCount).toBe(1);
-      // Exactly four reads total: me + jobs + pending + incoming.
-      expect(paths.length).toBe(4);
-      // No per-agent read: /agents/:agentDid never appears.
+      expect(rosterCount).toBe(1);
+      // Exactly five reads total: me + jobs + pending + incoming + roster.
+      // The roster read is unconditional (W5 ruling): accountProjection
+      // carries no operated-agent count, so the page cannot know whether
+      // this buyer operates anything without asking.
+      expect(paths.length).toBe(5);
+      // No per-agent read: this buyer's roster is empty, so
+      // /agents/:agentDid never appears. This is the assertion that
+      // proves per-agent reads are scoped to rows the roster actually
+      // returned and are never fired speculatively.
       expect(paths.some((p) => /^\/agents\/[^/]+$/.test(p))).toBe(false);
     } finally {
       dom.window.close();
+    }
+  });
+
+  it('an operator holding N operated agents takes 5 + N reads: the same five, plus exactly one /agents/:agentDid per roster row, matching the roster DIDs (W5 ruling)', async () => {
+    const operatorSessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'dashboard-roster-operator', id: 9808 }),
+    });
+    const app2 = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, operatorSessionAdapter);
+    const server2 = app2.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server2.once('listening', resolve));
+    const address2 = server2.address();
+    if (address2 === null || typeof address2 === 'string') throw new Error('expected a port');
+    const baseUrl2 = `http://127.0.0.1:${address2.port}`;
+    try {
+      const operatorSession = await mintSession(operatorSessionAdapter);
+      const meRes = await fetch(`${baseUrl2}/accounts/me`, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${operatorSession.token}` },
+      });
+      const me = (await meRes.json()) as { did: string };
+      const operatorDid = me.did;
+
+      const rosterAgentA = 'did:abt:dashboard-roster-agent-a';
+      const rosterAgentB = 'did:abt:dashboard-roster-agent-b';
+      await agentRepo.create({
+        did: rosterAgentA,
+        operatorDid,
+        delegation: delegationFixture(rosterAgentA, operatorDid),
+        name: 'roster-agent-a',
+        skills: [],
+        githubLogin: null,
+      });
+      await agentRepo.create({
+        did: rosterAgentB,
+        operatorDid,
+        delegation: delegationFixture(rosterAgentB, operatorDid),
+        name: 'roster-agent-b',
+        skills: [],
+        githubLogin: null,
+      });
+
+      const requested: string[] = [];
+      const virtualConsole = new VirtualConsole();
+      const failures: string[] = [];
+      virtualConsole.on('jsdomError', (error: Error) => failures.push(error.message));
+      const response = await fetch(`${baseUrl2}/dashboard`, { headers: { Accept: HTML } });
+      const markup = await response.text();
+      const dom = new JSDOM(markup, {
+        url: `${baseUrl2}/dashboard`,
+        runScripts: 'dangerously',
+        resources: 'usable',
+        pretendToBeVisual: true,
+        virtualConsole,
+        beforeParse(window) {
+          window.sessionStorage.setItem('fa_session', JSON.stringify(operatorSession));
+          Object.defineProperty(window, 'fetch', {
+            writable: true,
+            value: (input: string, init?: RequestInit) => {
+              requested.push(String(input));
+              return fetch(new URL(input, baseUrl2), init);
+            },
+          });
+        },
+      });
+      try {
+        await new Promise<void>((resolve) => {
+          if (dom.window.document.readyState === 'complete') resolve();
+          else dom.window.addEventListener('load', () => resolve());
+        });
+        for (let waited = 0; waited < 500; waited += 50) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
+        const paths = requested.map((r) => new URL(r, baseUrl2).pathname);
+        const perAgentPaths = paths.filter((p) => /^\/agents\/[^/]+$/.test(p));
+        // Exactly one per roster row, matching the roster DIDs: a
+        // duplicate or speculative read fails this.
+        expect(perAgentPaths.sort()).toEqual(
+          [`/agents/${encodeURIComponent(rosterAgentA)}`, `/agents/${encodeURIComponent(rosterAgentB)}`].sort(),
+        );
+        // The same five, plus exactly N (2) per-agent reads: 7 total.
+        expect(paths.length).toBe(7);
+      } finally {
+        dom.window.close();
+      }
+    } finally {
+      await new Promise<void>((resolve) => server2.close(() => resolve()));
     }
   });
 
@@ -310,49 +438,294 @@ describe('the dashboard screen, driven end to end against the real app', () => {
     }
   });
 
-  it('section 3 renders incoming offers, newest first, capped at five, See all to /incoming (done-means 6)', async () => {
-    const operatorDid = 'did:abt:dashboard-page-operator';
-    await jobRepo.create(jobFixture({ id: 'd3-offer-a', buyerDid: 'did:abt:dashboard-buyer-x', agentDid, status: 'draft', criteria: [] }, new Date('2026-08-03T00:00:00Z')));
-    await jobRepo.create(jobFixture({ id: 'd3-offer-b', buyerDid: 'did:abt:dashboard-buyer-y', agentDid, status: 'draft', criteria: [] }, new Date('2026-08-08T00:00:00Z')));
-
-    // Sign in as the operator who runs this agent.
-    const operatorSessionAdapter = createSessionAdapter({
+  it('section 3 renders incoming offers alongside the unproven-GitHub half, newest first among the offers, capped at five combined, See all to /myagents (done-means 6, W5 ruling)', async () => {
+    // An isolated agent and operator, not shared with any other case in
+    // this file: the combined cap (attention rows plus offer rows) needs
+    // a roster and an offer set this test fully controls, the same
+    // isolation the roster-read tests above already take.
+    const isolatedAgentDid = 'did:abt:dashboard-section3-agent';
+    const isolatedOperatorSessionAdapter = createSessionAdapter({
       github: fakeGitHubConfig(),
-      fetchImpl: fakeGitHubFetch({ login: 'dashboard-page-operator-login', id: 9802 }),
+      fetchImpl: fakeGitHubFetch({ login: 'dashboard-section3-operator', id: 9809 }),
     });
-    // Reuse the same account by resolving through /accounts/me on a fresh
-    // session for the operator login already registered in beforeAll.
-    const operatorSession = await mintSession(operatorSessionAdapter);
-    const app2 = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, operatorSessionAdapter);
+    const app2 = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, isolatedOperatorSessionAdapter);
     const server2 = app2.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server2.once('listening', resolve));
     const address2 = server2.address();
     if (address2 === null || typeof address2 === 'string') throw new Error('expected a port');
     const baseUrl2 = `http://127.0.0.1:${address2.port}`;
     try {
+      const isolatedOperatorSession = await mintSession(isolatedOperatorSessionAdapter);
       const meRes = await fetch(`${baseUrl2}/accounts/me`, {
-        headers: { Accept: 'application/json', Authorization: `Bearer ${operatorSession.token}` },
+        headers: { Accept: 'application/json', Authorization: `Bearer ${isolatedOperatorSession.token}` },
       });
       const me = (await meRes.json()) as { did: string };
-      expect(me.did).toBe(operatorDid);
+      const isolatedOperatorDid = me.did;
 
-      const page = await renderDashboard(baseUrl2, operatorSession);
+      await agentRepo.create({
+        did: isolatedAgentDid,
+        operatorDid: isolatedOperatorDid,
+        delegation: delegationFixture(isolatedAgentDid, isolatedOperatorDid),
+        name: 'section3-scout',
+        skills: [],
+        githubLogin: null,
+      });
+
+      await jobRepo.create(jobFixture({ id: 'd3-offer-a', buyerDid: 'did:abt:dashboard-buyer-x', agentDid: isolatedAgentDid, status: 'draft', criteria: [] }, new Date('2026-08-03T00:00:00Z')));
+      await jobRepo.create(jobFixture({ id: 'd3-offer-b', buyerDid: 'did:abt:dashboard-buyer-y', agentDid: isolatedAgentDid, status: 'draft', criteria: [] }, new Date('2026-08-08T00:00:00Z')));
+
+      const page = await renderDashboard(baseUrl2, isolatedOperatorSession);
       try {
         const section = sectionByHeading(page.document, 'Your agents need attention');
         expect(section).not.toBeNull();
-        expect(section?.querySelector('a.small')?.getAttribute('href')).toBe('/incoming');
+        // W5 ruling, handoff item 2: See all now goes to /myagents, the
+        // full list of the thing this heading names, not /incoming.
+        expect(section?.querySelector('a.small')?.getAttribute('href')).toBe('/myagents');
         const rows = Array.from(section?.querySelectorAll('.rows > *') ?? []);
-        expect(rows.length).toBeGreaterThanOrEqual(2);
-        // Newest first: d3-offer-b (Aug 8) before d3-offer-a (Aug 3), among
-        // whatever offers already exist on this shared agent/repo.
-        // P8v (edited per the brief's own instruction, superseding this
-        // test's own earlier "/incoming" pin): P-25 (operatorjob.html)
-        // is built and mounted, so each offer row now links to the
-        // operator's own job page for that offer, naming its id.
-        const hrefs = rows.map((r) => r.getAttribute('href'));
-        expect(hrefs.every((h) => typeof h === 'string' && h.startsWith('/operatorjob?job='))).toBe(true);
+        // The wireframe's order (handoff item 1): the unproven-GitHub
+        // row (this roster's one agent, githubLogin null, no verified
+        // record) comes first, the two offers second, newest first.
+        expect(rows.length).toBe(3);
+        expect(rows[0]?.getAttribute('href')).toBe(`/agents/${encodeURIComponent(isolatedAgentDid)}`);
+        expect(rows[0]?.textContent).toContain('section3-scout');
+        expect(rows[0]?.textContent).toContain('no verified record yet');
+        expect(rows[0]?.textContent).toContain('GitHub not confirmed');
+        expect(rows[1]?.getAttribute('href')).toBe('/operatorjob?job=d3-offer-b');
+        expect(rows[2]?.getAttribute('href')).toBe('/operatorjob?job=d3-offer-a');
       } finally {
         page.close();
+      }
+    } finally {
+      await new Promise<void>((resolve) => server2.close(() => resolve()));
+    }
+  });
+
+  it('section 3 renders an agent whose proofStatus is not verified but who DOES have a verified record: only the GitHub-not-confirmed trail, never the no-record meta (handoff item 1, unverified-state-claim guard)', async () => {
+    const isolatedAgentDid = 'did:abt:dashboard-s3-unconfirmed-only-agent';
+    const isolatedOperatorSessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'dashboard-s3-unconfirmed-only-operator', id: 9810 }),
+    });
+    const app2 = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, credentialRepo, undefined, undefined, undefined, isolatedOperatorSessionAdapter);
+    const server2 = app2.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server2.once('listening', resolve));
+    const address2 = server2.address();
+    if (address2 === null || typeof address2 === 'string') throw new Error('expected a port');
+    const baseUrl2 = `http://127.0.0.1:${address2.port}`;
+    try {
+      const isolatedOperatorSession = await mintSession(isolatedOperatorSessionAdapter);
+      const meRes = await fetch(`${baseUrl2}/accounts/me`, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${isolatedOperatorSession.token}` },
+      });
+      const me = (await meRes.json()) as { did: string };
+      const isolatedOperatorDid = me.did;
+
+      await agentRepo.create({
+        did: isolatedAgentDid,
+        operatorDid: isolatedOperatorDid,
+        delegation: delegationFixture(isolatedAgentDid, isolatedOperatorDid),
+        name: 'unconfirmed-only-scout',
+        skills: [],
+        githubLogin: null,
+      });
+      // A verified hire: verifiedHireCount > 0, so "no verified record
+      // yet" must NOT render. proofStatus stays 'unverified' (the
+      // repository's own default), so "GitHub not confirmed" must.
+      await credentialRepo.save({
+        completedJobId: 'dashboard-s3-unconfirmed-only-job',
+        subjectDid: isolatedAgentDid,
+        document: credentialDoc('https://platform.example/v1/credentials/dashboard-s3-unconfirmed-only-job', isolatedAgentDid, 'dashboard-s3-unconfirmed-only-commit', 'did:example:dashboard-s3-buyer'),
+        repositoryPublic: true,
+      });
+
+      const page = await renderDashboard(baseUrl2, isolatedOperatorSession);
+      try {
+        const section = sectionByHeading(page.document, 'Your agents need attention');
+        expect(section).not.toBeNull();
+        const rows = Array.from(section?.querySelectorAll('.rows > *') ?? []);
+        const row = rows.find((r) => r.getAttribute('href') === `/agents/${encodeURIComponent(isolatedAgentDid)}`);
+        expect(row, 'the unproven-GitHub row must exist').toBeTruthy();
+        expect(row?.textContent).toContain('GitHub not confirmed');
+        expect(row?.textContent).not.toContain('no verified record yet');
+      } finally {
+        page.close();
+      }
+    } finally {
+      await new Promise<void>((resolve) => server2.close(() => resolve()));
+    }
+  });
+
+  it('section 3 renders an agent with no verified record who IS confirmed: only the no-record meta, never the GitHub-not-confirmed trail (handoff item 1, unverified-state-claim guard)', async () => {
+    const isolatedAgentDid = 'did:abt:dashboard-s3-norecord-only-agent';
+    const isolatedOperatorSessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'dashboard-s3-norecord-only-operator', id: 9811 }),
+    });
+    const app2 = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, credentialRepo, undefined, undefined, undefined, isolatedOperatorSessionAdapter);
+    const server2 = app2.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server2.once('listening', resolve));
+    const address2 = server2.address();
+    if (address2 === null || typeof address2 === 'string') throw new Error('expected a port');
+    const baseUrl2 = `http://127.0.0.1:${address2.port}`;
+    try {
+      const isolatedOperatorSession = await mintSession(isolatedOperatorSessionAdapter);
+      const meRes = await fetch(`${baseUrl2}/accounts/me`, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${isolatedOperatorSession.token}` },
+      });
+      const me = (await meRes.json()) as { did: string };
+      const isolatedOperatorDid = me.did;
+
+      // No credential ever saved for this agent: verifiedHireCount and
+      // verifiedPriorWorkCount are both zero, so "no verified record
+      // yet" must render. githubLogin is set and updateGithubBinding
+      // marks proofStatus 'verified', so "GitHub not confirmed" must
+      // NOT.
+      await agentRepo.create({
+        did: isolatedAgentDid,
+        operatorDid: isolatedOperatorDid,
+        delegation: delegationFixture(isolatedAgentDid, isolatedOperatorDid),
+        name: 'norecord-only-scout',
+        skills: [],
+        githubLogin: 'norecord-only-gh',
+      });
+      await agentRepo.updateGithubBinding(isolatedAgentDid, { handle: 'norecord-only-gh', status: 'verified' });
+
+      const page = await renderDashboard(baseUrl2, isolatedOperatorSession);
+      try {
+        const section = sectionByHeading(page.document, 'Your agents need attention');
+        expect(section).not.toBeNull();
+        const rows = Array.from(section?.querySelectorAll('.rows > *') ?? []);
+        const row = rows.find((r) => r.getAttribute('href') === `/agents/${encodeURIComponent(isolatedAgentDid)}`);
+        expect(row, 'the no-record row must exist').toBeTruthy();
+        expect(row?.textContent).toContain('no verified record yet');
+        expect(row?.textContent).not.toContain('GitHub not confirmed');
+      } finally {
+        page.close();
+      }
+    } finally {
+      await new Promise<void>((resolve) => server2.close(() => resolve()));
+    }
+  });
+
+  it('section 3 renders an agent with BOTH no verified record and an unconfirmed GitHub: both independent lines together, from two independent facts, never one inferred from the other (handoff item 1)', async () => {
+    const isolatedAgentDid = 'did:abt:dashboard-s3-both-agent';
+    const isolatedOperatorSessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'dashboard-s3-both-operator', id: 9812 }),
+    });
+    const app2 = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, credentialRepo, undefined, undefined, undefined, isolatedOperatorSessionAdapter);
+    const server2 = app2.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server2.once('listening', resolve));
+    const address2 = server2.address();
+    if (address2 === null || typeof address2 === 'string') throw new Error('expected a port');
+    const baseUrl2 = `http://127.0.0.1:${address2.port}`;
+    try {
+      const isolatedOperatorSession = await mintSession(isolatedOperatorSessionAdapter);
+      const meRes = await fetch(`${baseUrl2}/accounts/me`, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${isolatedOperatorSession.token}` },
+      });
+      const me = (await meRes.json()) as { did: string };
+      const isolatedOperatorDid = me.did;
+
+      await agentRepo.create({
+        did: isolatedAgentDid,
+        operatorDid: isolatedOperatorDid,
+        delegation: delegationFixture(isolatedAgentDid, isolatedOperatorDid),
+        name: 'both-scout',
+        skills: [],
+        githubLogin: null,
+      });
+
+      const page = await renderDashboard(baseUrl2, isolatedOperatorSession);
+      try {
+        const section = sectionByHeading(page.document, 'Your agents need attention');
+        expect(section).not.toBeNull();
+        const rows = Array.from(section?.querySelectorAll('.rows > *') ?? []);
+        const row = rows.find((r) => r.getAttribute('href') === `/agents/${encodeURIComponent(isolatedAgentDid)}`);
+        expect(row, 'the row must exist').toBeTruthy();
+        expect(row?.textContent).toContain('no verified record yet');
+        expect(row?.textContent).toContain('GitHub not confirmed');
+      } finally {
+        page.close();
+      }
+    } finally {
+      await new Promise<void>((resolve) => server2.close(() => resolve()));
+    }
+  });
+
+  it('section 3: a failed per-agent read leaves that row exactly as the roster rendered it, no attention line, never a guessed confirmed (handoff item 1, myagents.js:174-179 parity)', async () => {
+    const isolatedAgentDid = 'did:abt:dashboard-s3-flaky-agent';
+    const isolatedOperatorSessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'dashboard-s3-flaky-operator', id: 9813 }),
+    });
+    const app2 = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, credentialRepo, undefined, undefined, undefined, isolatedOperatorSessionAdapter);
+    const server2 = app2.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server2.once('listening', resolve));
+    const address2 = server2.address();
+    if (address2 === null || typeof address2 === 'string') throw new Error('expected a port');
+    const baseUrl2 = `http://127.0.0.1:${address2.port}`;
+    try {
+      const isolatedOperatorSession = await mintSession(isolatedOperatorSessionAdapter);
+      const meRes = await fetch(`${baseUrl2}/accounts/me`, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${isolatedOperatorSession.token}` },
+      });
+      const me = (await meRes.json()) as { did: string };
+      const isolatedOperatorDid = me.did;
+
+      // No verified record either: if the per-agent read's failure were
+      // ever mistaken for a section-level failure, the whole section
+      // would render its failure sentence instead of this row.
+      await agentRepo.create({
+        did: isolatedAgentDid,
+        operatorDid: isolatedOperatorDid,
+        delegation: delegationFixture(isolatedAgentDid, isolatedOperatorDid),
+        name: 'flaky-scout',
+        skills: [],
+        githubLogin: null,
+      });
+
+      // A proxy that answers GET /agents/<isolatedAgentDid> with a
+      // storage failure and passes every other request straight
+      // through, the same technique myagents.test.ts and
+      // agent-cold-start.test.ts already use.
+      const realPort2 = (server2.address() as AddressInfo).port;
+      const flakyPath = `/agents/${encodeURIComponent(isolatedAgentDid)}`;
+      const proxy = http.createServer((req, res) => {
+        if (req.url === flakyPath) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'storage unavailable' }));
+          return;
+        }
+        const upstream = http.request(
+          { hostname: '127.0.0.1', port: realPort2, path: req.url, method: req.method, headers: req.headers },
+          (upstreamRes) => {
+            res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+            upstreamRes.pipe(res);
+          },
+        );
+        req.pipe(upstream);
+      });
+      await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+      const proxyBaseUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
+
+      try {
+        const page = await renderDashboard(proxyBaseUrl, isolatedOperatorSession);
+        try {
+          const section = sectionByHeading(page.document, 'Your agents need attention');
+          expect(section, 'the section itself must still render (a per-agent failure is not a section failure)').not.toBeNull();
+          const rows = Array.from(section?.querySelectorAll('.rows > *') ?? []);
+          const row = rows.find((r) => r.getAttribute('href') === `/agents/${encodeURIComponent(isolatedAgentDid)}`);
+          expect(row, 'the row itself still renders despite the failed detail read').toBeTruthy();
+          // Never a guessed "confirmed": no attention line at all, not
+          // a false positive claiming the proof state either way.
+          expect(row?.textContent).not.toContain('GitHub not confirmed');
+          expect((row?.textContent ?? '').toLowerCase()).not.toContain('confirmed');
+        } finally {
+          page.close();
+        }
+      } finally {
+        await new Promise<void>((resolve) => proxy.close(() => resolve()));
       }
     } finally {
       await new Promise<void>((resolve) => server2.close(() => resolve()));
