@@ -637,8 +637,9 @@ the base url except the two that need no browser.
 | `verify_reduced_motion.py` | every animation has a dignified static end state under `prefers-reduced-motion` |
 | `verify_flow_motion.py` | the dashboard pipeline actually moves, and stops when reduced motion is asked for |
 | `verify_blast_preview.py` | hovering an edit control previews the exact signatures that edit would clear |
+| `verify_mobile_coverage.py` | every screen in the directory appears in at least one 320px sweep, so a new page cannot go unchecked in silence |
 
-The last six came from the polished pass and are run by `verify_all.py` with
+The six polished gates plus the coverage check are run by `verify_all.py` with
 the rest. They drive the same committed `wirebrowse.py` as the others, so the
 whole suite is still one command against a clone with no environment set up.
 

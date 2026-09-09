@@ -129,8 +129,24 @@ COLLECT = r"""
     if (!reachable(el)) return;
     if (el.type === 'hidden') return;
     var name = labelFor(el).replace(/\s+/g, ' ').slice(0, 90);
-    // A control with NO name is a different defect and a different gate.
-    if (!name) return;
+    // A control with NO name was deferred to "a different gate" that was never
+    // written, so stripping every aria-label off the agreement's edit controls
+    // made this file report a clean pass: seven buttons a screen reader
+    // announces as "button", and the duplicate check cannot see them because
+    // they have no name to duplicate. Nameless controls are collected here and
+    // reported separately, which is the same defect class this gate exists for
+    // (a control you cannot tell apart from another) in its worst form.
+    if (!name) {
+      out.push({
+        name: '',
+        tag: el.tagName.toLowerCase(),
+        target: el.getAttribute('href') || el.getAttribute('data-opens') ||
+                el.getAttribute('value') || '',
+        cls: (el.className && el.className.toString ?
+              el.className.toString() : '').slice(0, 30)
+      });
+      return;
+    }
     out.push({
       name: name,
       tag: el.tagName.toLowerCase(),
@@ -190,7 +206,21 @@ def run():
                          "if(d&&!d.open)d.showModal();return 1;})()" % sel)
                 items = collect(b, sel) or []
                 total += len(items)
-                for name, members in dupes_in(items):
+
+                # Nameless controls first. A button a screen reader announces
+                # as bare "button" is worse than two buttons sharing a name,
+                # and it is invisible to the duplicate check below because it
+                # has no name to collide with.
+                nameless = [i for i in items if not i.get("name")]
+                if nameless:
+                    bad += 1
+                    where = ", ".join(
+                        "%s.%s" % (m["tag"], m["cls"].split(" ")[0] or "-")
+                        for m in nameless[:8])
+                    fails.append("%s [%s]: %d control(s) with NO accessible name  [%s]"
+                                 % (s, label, len(nameless), where))
+
+                for name, members in dupes_in([i for i in items if i.get("name")]):
                     bad += 1
                     where = ", ".join(
                         "%s.%s" % (m["tag"], m["cls"].split(" ")[0] or "-")

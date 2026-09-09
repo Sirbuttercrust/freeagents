@@ -37,6 +37,24 @@ BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:3111"
 FLOW = os.path.join(HERE, "flow.css")
 DEPOSIT = os.path.join(HERE, "deposit.html")
 AGREEMENT = os.path.join(HERE, "agreement.html")
+AGREEMENT_CSS = os.path.join(HERE, "agreement.css")
+BASE_CSS = os.path.join(HERE, "base.css")
+
+# THE PRE-LIFT GREY. #666B73 measured 3.72:1 on --bg and 3.41:1 on a pane,
+# both under the 4.5 AA needs at 12 and 13px. --fg-3 was lifted to #7C828C on
+# 2026-08-27 and now clears AA on both surfaces (5.15 and 4.72, computed by
+# verify_tokens.py).
+#
+# That lift is why these mutations had to change. They used to set text "back
+# to --fg-3" and expect verify_ink.py to catch it. On the reconciled tree that
+# introduces no defect at all, because --fg-3 is legible now: the mutation was
+# asking the gate to fail on a colour that passes. Every one of them came back
+# missed, and the honest reading is that the mutations were stale rather than
+# the gate being blind.
+#
+# So they regress the token to the value the lift replaced, which is the
+# defect the gate was actually written to catch.
+FG3_PRE_LIFT = "#666B73"
 
 
 def read(p):
@@ -72,39 +90,53 @@ def sub_once(path, old, new):
 
 
 MUTATIONS = [
-    ("edit control back to --fg-3", "verify_ink.py", FLOW,
-     lambda: sub_once(FLOW,
-                      ".trow .edit .act {\n  font-size: 13px; color: var(--fg-2);",
-                      ".trow .edit .act {\n  font-size: 13px; color: var(--fg-3);")),
+    # The whole grey, regressed at the token. Every 12 and 13px run that sits
+    # on --fg-3 goes back under AA at once: the row numbers, the column
+    # headers naming each party, the timestamps, the meta lines. This is the
+    # single edit that undoes the lift.
+    ("the --fg-3 lift reverted at the token", "verify_ink.py", BASE_CSS,
+     lambda: sub_once(BASE_CSS,
+                      "  --fg-3:      #7C828C;",
+                      "  --fg-3:      %s;" % FG3_PRE_LIFT)),
 
-    ("party headers back to --fg-3", "verify_ink.py", FLOW,
-     lambda: sub_once(FLOW,
-                      ".thead span {\n  font-size: 12px; color: var(--fg-2);",
-                      ".thead span {\n  font-size: 12px; color: var(--fg-3);")),
+    # The party headers name whose signature each column carries. Without them
+    # a lone mark has nothing saying whose it is.
+    #
+    # The edit control used to be mutated here too and was dropped on
+    # 2026-09-09. In September it was the word "edit" and its colour was a
+    # contrast question. On the polished system it is an icon with no text at
+    # all, so verify_ink.py correctly finds nothing to measure and MISSED was
+    # the honest result: an ink gate cannot fail on ink that does not exist.
+    # What protects that control now is verify_names.py, which is the gate the
+    # last mutation exercises, plus the 44px floor in agreement.css.
+    ("party headers back to the pre-lift grey", "verify_ink.py", AGREEMENT_CSS,
+     lambda: sub_once(AGREEMENT_CSS,
+                      "  text-transform: uppercase; color: var(--fg-3);",
+                      "  text-transform: uppercase; color: %s;" % FG3_PRE_LIFT)),
 
-    ("agreement row numbers back to --fg-3", "verify_ink.py", FLOW,
-     lambda: sub_once(FLOW,
-                      ".trow .num { grid-column: 1; font-family: var(--mono); "
-                      "font-size: 12px; color: var(--fg-2);",
-                      ".trow .num { grid-column: 1; font-family: var(--mono); "
-                      "font-size: 12px; color: var(--fg-3);")),
+    ("agreement row numbers back to the pre-lift grey", "verify_ink.py", AGREEMENT_CSS,
+     lambda: sub_once(AGREEMENT_CSS,
+                      ".terms .num { font-family: var(--mono); font-size: 12px; color: var(--fg-3); }",
+                      ".terms .num { font-family: var(--mono); font-size: 12px; color: %s; }" % FG3_PRE_LIFT)),
 
-    ("deposit's page-local .num back to --fg-3", "verify_ink.py", DEPOSIT,
+    ("deposit's page-local .num back to the pre-lift grey", "verify_ink.py", DEPOSIT,
      lambda: sub_once(DEPOSIT,
                       ".getlist .num { font-family: var(--mono); "
                       "font-size: 12px; color: var(--fg-2); }",
                       ".getlist .num { font-family: var(--mono); "
-                      "font-size: 12px; color: var(--fg-3); }")),
+                      "font-size: 12px; color: %s; }" % FG3_PRE_LIFT)),
 
+    # Every edit control on the agreement loses its name, so a screen reader
+    # hears seven identical buttons and cannot tell which line each reopens.
     ("strip the seven edit aria-labels", "verify_names.py", AGREEMENT,
      lambda: write(AGREEMENT, re.sub(
-         r'<button class="act" type="button" aria-label="[^"]*">',
-         '<button class="act" type="button">', read(AGREEMENT)))),
+         r'<button class="act" type="button" title="[^"]*" aria-label="[^"]*"',
+         '<button class="act" type="button"', read(AGREEMENT)))),
 ]
 
 
 def main():
-    files = [FLOW, DEPOSIT, AGREEMENT]
+    files = [FLOW, DEPOSIT, AGREEMENT, AGREEMENT_CSS, BASE_CSS]
     before = digest(files)
     saved = dict((p, read(p)) for p in files)
 

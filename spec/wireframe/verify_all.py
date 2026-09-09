@@ -70,6 +70,8 @@ GATES = [
      "the dashboard pipeline moves, and stops when reduced motion is asked for"),
     ("verify_blast_preview.py", False,
      "hovering an edit control previews the exact signatures it would clear"),
+    ("verify_mobile_coverage.py", False,
+     "every screen on disk is swept at 320px by at least one instrument"),
 ]
 
 env = dict(os.environ)

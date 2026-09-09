@@ -66,6 +66,19 @@ SCREENS = [
 # exactly the violation this check exists for.
 ACCENT_OK = frozenset(["btn-primary", "hires", "brand", "railnow"])
 
+# The chosen rail's row. Surfaced once the accent probe stopped skipping
+# elements that wrap children (see ACCENT_JS): the selected radio's label
+# carries an accent border and the --accent-dim wash, which is a SELECTION
+# state on the control a person is actively operating, not a claim about
+# evidence. DESIGN.md 2.2 permits the accent on a focus ring for the same
+# reason, and the rail chooser is the one place on these screens where the
+# buyer picks between two options that change the total.
+#
+# Matched by RELATIONSHIP rather than a class name, because the offending
+# element is a bare <label> with no class of its own, and adding one purely to
+# satisfy an allow list would be the tail wagging the dog.
+ACCENT_OK_WITHIN = ".railopt"
+
 # "Celebrate the rails, never toll them": chain vocabulary is allowed where a
 # person is choosing a rail or reading the technical panel, and nowhere else.
 CHAIN_WORDS = ["TransferV3Tx", "ERC-20", "Ed25519", "blockchain", "gas fee", "on-chain"]
@@ -221,19 +234,30 @@ ACCENT_JS = """(() => {
   const ACC = 'rgb(124, 124, 255)';
   document.querySelectorAll('main *, dialog *').forEach(el => {
     const s = getComputedStyle(el);
-    // leaf elements only: a container inherits its child's colour and would
-    // report the same finding twice at two levels
-    if (el.children.length > 0) return;
     const painted = s.backgroundColor === ACC || s.borderTopColor === ACC ||
                     s.borderLeftColor === ACC;
     const inked = s.color === ACC && (el.textContent || '').trim();
     if (!painted && !inked) return;
+    // LEAF ONLY, FOR INK. A container inherits its child's colour and would
+    // report the same finding twice at two levels, so text findings are still
+    // taken at the leaf.
+    //
+    // BUT A FILL IS NOT INHERITED. The signature mark is a .sigdot with an
+    // icon <span> inside it, so it has a child and the old leaf-only rule
+    // skipped it at every level: the dot was excluded for having a child, and
+    // the icon inside it is transparent and carries no fill of its own.
+    // Painting a signature accent therefore passed cleanly, which is the exact
+    // misuse the comment above says is the most tempting one on these screens.
+    // A background or border the element paints ITSELF is its own claim
+    // whether or not it wraps something.
+    if (el.children.length > 0 && !painted) return;
     // the wordmark's dot is the one .mark that may carry the accent, and it
     // is identified by WHERE it is, not by a class-name substring
     if (el.closest('.brand')) return;
     hits.push({cls: (el.className || el.tagName),
                classes: (el.className || '').split(/\\s+/).filter(Boolean),
                how: painted ? 'fill' : 'ink',
+               within: el.closest('.railopt') ? '.railopt' : '',
                txt: (el.textContent || '').trim().slice(0, 30)});
   });
   return hits;
@@ -256,7 +280,14 @@ ACCENT_JS = """(() => {
 # Also checks the outcome cards and the fact list, because they are the other
 # two multi-row components here and they would fail the same way.
 OVERLAP_JS = """(() => {
-  const groups = [['.terms .trow', 'agreement row'],
+  // '.terms .trow' was the September agreement's row. The reconciled agreement
+  // is the polished signature matrix and its rows are the <li> of ul.terms, so
+  // the old selector matched nothing and this check quietly measured no rows
+  // on the one screen it was written for. Both are listed: the old one still
+  // says something true about an older tree, and a selector that matches
+  // nothing is skipped by the rows.length < 2 guard rather than failing.
+  const groups = [['.terms > li', 'agreement row'],
+                  ['.terms .trow', 'agreement row'],
                   ['.facts > li', 'fact'],
                   ['.outcomes > .oc', 'outcome card'],
                   ['.fixed > li', 'fixed term'],
@@ -368,7 +399,8 @@ try:
         acc = b.js(ACCENT_JS)
         # whole class names, never substrings: see the ACCENT_OK comment
         stray = [h for h in acc
-                 if not (set(h.get("classes") or []) & ACCENT_OK)]
+                 if not (set(h.get("classes") or []) & ACCENT_OK)
+                 and h.get("within") != ACCENT_OK_WITHIN]
 
         if d["noHref"]:
             fails.append(f"{s}: anchors with no href: {d['noHref'][:3]}")

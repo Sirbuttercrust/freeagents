@@ -38,9 +38,29 @@ def run_gate():
 
 
 MUTATIONS = [
-    ("base.css",
-     "@media (pointer: coarse) {\n  .notetoggle { min-height: 44px; }\n}",
-     "@media (pointer: coarse) {\n  /* mutated: floor removed */\n}",
+    # RETARGETED 2026-09-09, and the reason is measured rather than asserted.
+    #
+    # This used to delete base.css's `.notetoggle { min-height: 44px }` alone
+    # and expect a failure. On the reconciled tree that introduces NO defect,
+    # because polish.css carries `.notetoggle { height: 44px }` in its own
+    # coarse-pointer block and holds the floor by itself. Deleting either one
+    # alone leaves the control at 44px, measured with measure_notetoggle.py at
+    # 320px on a touch profile:
+    #
+    #     both rules present:              100.9x44
+    #     base.css min-height deleted:     100.9x44   (polish.css holds it)
+    #     polish.css height deleted:       100.9x44   (base.css holds it)
+    #
+    # Two rules doing one job is not a bug, it is the reason a single-rule
+    # mutation could never fail. So the mutation removes the floor, which means
+    # removing it from both places. A mutation that breaks nothing tests
+    # nothing.
+    ([("base.css",
+       "@media (pointer: coarse) {\n  .notetoggle { min-height: 44px; }\n}",
+       "@media (pointer: coarse) {\n  /* mutated: floor removed */\n}"),
+      ("polish.css",
+       "  .notetoggle { height: 44px; }",
+       "  /* mutated: floor removed */")],
      "notetoggle tap target"),
 
     # WAS: width: min(520px, ...) -> width: 520px, labelled "sheet overflows".
@@ -62,17 +82,55 @@ MUTATIONS = [
      'data-copy="">Copy',
      "dead copy button"),
 
-    ("flow.css",
-     ".mark-on  { background: var(--fg-2); }",
-     ".mark-on  { background: var(--accent); }",
+    # RETARGETED 2026-09-09. Both of these used to mutate flow.css, which owned
+    # the September agreement's `.trow` markup. The reconciled agreement is the
+    # polished signature matrix in agreement.css, and NO page renders .trow or
+    # .mark-on any more (checked: zero of 33 files). So both mutations were
+    # editing rules that nothing on any screen matched, which is why they came
+    # back MISSED. They now mutate the rules that actually paint the live
+    # matrix.
+    #
+    # A signed mark is --fg, deliberately. Spending the reserved accent on a
+    # signature would make every settled row compete with the one primary
+    # action on the page, and DESIGN.md 2.2 does not list a signature among
+    # the four things allowed to hold it.
+    ("agreement.css",
+     ".sig.is-signed .sigdot {\n  background: var(--fg); border-color: var(--fg); color: var(--bg);\n}",
+     ".sig.is-signed .sigdot {\n  background: var(--accent); border-color: var(--accent); color: var(--bg);\n}",
      "accent spent on a signature"),
 
-    # The defect a screenshot found and no number would have: the parent stays
-    # a grid in the narrow branch, so rows auto-place side by side and print
-    # on top of each other while every element stays inside 320px.
-    ("flow.css",
-     "@media (max-width: 560px) {\n  .terms { display: block; }",
-     "@media (max-width: 560px) {\n  .terms { grid-template-columns: 24px 1fr; }",
+    # RETARGETED 2026-09-09, twice, and the second time for a better reason
+    # than the first.
+    #
+    # This mutation used to remove the narrow-viewport `.terms { display:
+    # block }` from flow.css and expect rows to auto-place beside each other.
+    # That rule belonged to the September agreement, which no page renders any
+    # more. Retargeting it at agreement.css was not enough either: the polished
+    # matrix pins every cell to an explicit grid track AND row, so deleting any
+    # single pinning rule changes nothing a person could see. Measured with
+    # measure_agreement_rows.py at 320px, removing each of them in turn:
+    #
+    #     pinning intact:                 7 rows, 0 overlapping pairs
+    #     .num unpinned:                  7 rows, 0 overlapping pairs
+    #     .sigcell row unpinned:          7 rows, 0 overlapping pairs
+    #     text cell unpinned:             7 rows, 0 overlapping pairs
+    #     narrow grid reverted to wide:   7 rows, 0 overlapping pairs
+    #
+    # That robustness is the design working, and it is worth saying plainly:
+    # the overlap class of defect was structural to the old row markup and the
+    # matrix does not have it. So the mutation now takes the rows out of flow
+    # entirely, which is the one edit that does reproduce overlapping rows:
+    #
+    #     row absolutely positioned:      13 overlapping pairs, up to 127px
+    #
+    # The anchor includes the `.terms > li {` line because the declaration
+    # alone appears TWICE in agreement.css: .terms-head carries the identical
+    # grid. A single-occurrence replace was silently mutating the HEADER, which
+    # is one element and therefore cannot overlap itself, so the gate passed
+    # and the mutation read as MISSED when the gate was in fact working.
+    ("agreement.css",
+     ".terms > li {\n  display: grid; grid-template-columns: 30px 1fr 74px 74px 40px; gap: 12px;",
+     ".terms > li {\n  display: grid; grid-template-columns: 30px 1fr 74px 74px 40px; gap: 12px; position: absolute;",
      "agreement rows overlapping at 320px"),
 ]
 
@@ -108,9 +166,11 @@ if os.path.exists(LOCK):
     sys.exit(2)
 
 SNAPSHOT = {}
-for fname, _, _, _ in MUTATIONS:
-    p = os.path.join(HERE, fname)
-    SNAPSHOT[p] = open(p, encoding="utf-8").read()
+for _entry in MUTATIONS:
+    _edits = _entry[0] if isinstance(_entry[0], list) else [_entry[:3]]
+    for _fname, _, _ in _edits:
+        p = os.path.join(HERE, _fname)
+        SNAPSHOT[p] = open(p, encoding="utf-8").read()
 
 
 def restore_all(*_a):
@@ -136,27 +196,40 @@ if code != 0:
     sys.exit(2)
 
 results = []
-for fname, old, new, label in MUTATIONS:
-    path = os.path.join(HERE, fname)
-    original = open(path, encoding="utf-8").read()
-    if old not in original:
+for entry in MUTATIONS:
+    # A mutation is one or more edits applied together. Most are a single
+    # (file, old, new) triple; a few have to touch two files at once, because
+    # a rule held in two places is not removed by deleting one of them, and a
+    # mutation that leaves the behaviour intact tests nothing.
+    label = entry[-1]
+    edits = entry[0] if isinstance(entry[0], list) else [entry[:3]]
+
+    paths = [os.path.join(HERE, f) for f, _, _ in edits]
+    originals = {p: open(p, encoding="utf-8").read() for p in paths}
+
+    stale = [f for (f, old, _), p in zip(edits, paths) if old not in originals[p]]
+    if stale:
         results.append((label, "SKIP", "anchor text not found, mutation is stale"))
-        print(f"\n{label}: SKIP (anchor not found in {fname})")
+        print(f"\n{label}: SKIP (anchor not found in {', '.join(stale)})")
         continue
+
     try:
         with open(LOCK, "w", encoding="utf-8") as fh:
-            fh.write(f"{fname}\n{label}\n")
-        open(path, "w", encoding="utf-8").write(original.replace(old, new, 1))
+            fh.write("%s\n%s\n" % (", ".join(f for f, _, _ in edits), label))
+        for (fname, old, new), p in zip(edits, paths):
+            open(p, "w", encoding="utf-8").write(originals[p].replace(old, new, 1))
         code, tail = run_gate()
         caught = code != 0
         hit = next((t for t in tail if t.startswith("  - ")), "")
         results.append((label, "CAUGHT" if caught else "MISSED", hit.strip()))
         print(f"\n{label}")
-        print(f"   mutated {fname}: exit {code} -> {'CAUGHT' if caught else 'MISSED'}")
+        print("   mutated %s: exit %s -> %s"
+              % (", ".join(f for f, _, _ in edits), code, "CAUGHT" if caught else "MISSED"))
         if hit:
             print(f"   {hit.strip()[:100]}")
     finally:
-        open(path, "w", encoding="utf-8").write(original)
+        for p in paths:
+            open(p, "w", encoding="utf-8").write(originals[p])
         if os.path.exists(LOCK):
             os.remove(LOCK)
 
