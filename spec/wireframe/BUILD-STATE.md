@@ -79,6 +79,25 @@ screens. The general 320px sweep is the COMPLEMENT of the payment sweep rather
 than a second list, so a screen added next month is measured by default
 instead of forgotten by default.
 
+**Round 5 found the same defect one layer down, inside that gate.**
+`verify_coverage.py` inspected assignments whose value is a literal list, and
+four gates passed it while each measuring one hardcoded page, because none of
+them bound a list: `verify_rail` and `verify_blast_preview` wrote the page
+into a `goto`, `verify_flow_motion` into a `URL` constant, `verify_pickers`
+into a list of tuples the detector read as empty. All four printed "no screen
+loop" in the coverage table, which reads as "no population to derive" and
+meant "a population of one that nothing can see".
+
+Each of the four now derives its screens from the markup its own assertion
+needs (the rail radio, the signature chip, the travelling spark, the picker
+list), and each refuses to pass on an empty population rather than iterating
+zero times in silence. `verify_coverage.py` walks the whole syntax tree, so an
+inline name fails the same way a list does, with an `INLINE_WITH_REASON` table
+beside the existing one for the cases that are genuinely a fact about one page
+rather than a scope decision. `verify_round5_mutation.py` restores each of the
+four to the exact shape it shipped in and asserts the gate names both the file
+and the reason, because a mutation caught for the wrong reason proves nothing.
+
 The six that came from the polished pass (`verify_polish.py`,
 `verify_profile_header.py`, `verify_agents_below.py`,
 `verify_reduced_motion.py`, `verify_flow_motion.py`,
@@ -97,6 +116,7 @@ python3 verify_flow_mutation.py   http://127.0.0.1:3111
 python3 verify_round2_mutation.py http://127.0.0.1:3111
 python3 verify_round3_mutation.py http://127.0.0.1:3111
 python3 verify_round4_mutation.py http://127.0.0.1:3111
+python3 verify_round5_mutation.py
 ```
 
 `verify_round3_mutation.py` is the one to read if you are wondering why the

@@ -613,6 +613,7 @@ python3 verify_flow_mutation.py   http://127.0.0.1:3111
 python3 verify_round2_mutation.py http://127.0.0.1:3111
 python3 verify_round3_mutation.py http://127.0.0.1:3111
 python3 verify_round4_mutation.py http://127.0.0.1:3111
+python3 verify_round5_mutation.py
 
 # house rule: zero em dashes, enforced across EVERY file here.
 # Run the gate, not a grep. The grep this line used to name,
@@ -657,7 +658,7 @@ browser.
 | `verify_housestyle.py` | no em dash or en dash in ANY file in this directory, plus the AI writing tells in prose files. No browser, no server |
 | `verify_sampledata.py` | every screen showing an invented name or a dollar figure says on it that the data is sample data |
 | `verify_linknames.py` | a link whose text names its destination names it correctly, checked against what the destination page calls itself |
-| `verify_coverage.py` | no gate names its own screens. Every gate's scope is derived from the directory, so a screen added later cannot sit unmeasured behind a green table. No browser, no server |
+| `verify_coverage.py` | no gate names its own screens, in a list OR inline in a goto. Every gate's scope is derived from the directory, so a screen added later cannot sit unmeasured behind a green table. No browser, no server |
 
 **A gate's SCOPE is derived, never written down.** This table used to say
 `verify_ink.py` covered "every rendered character at both viewports" while
@@ -674,6 +675,27 @@ second list, so a new screen is measured by default instead of forgotten by
 default. A gate that is narrow on purpose stays narrow, but by rule:
 `verify_profile_header.py` measures the screens that HAVE a profile header
 rather than the two that had one the day it was written.
+
+**And a name written inline is the same decision as a name in a list.** The
+round-4 fix above checked assignments whose value is a literal list, and four
+gates then passed it while each measuring one hardcoded page, because they
+never bound a list at all:
+
+```
+b.goto(BASE + "/deposit.html")          verify_rail
+b.goto(BASE + "/agreement.html")        verify_blast_preview
+URL = BASE + "dashboard.html"           verify_flow_motion
+PICKERS = [("staged.html", sel, ...)]   verify_pickers
+```
+
+Every one of them printed "no screen loop" in the coverage table, which reads
+as "nothing to derive" and meant "a population of one that nothing can see".
+Each now derives its screens from the markup its assertion needs: the rail
+radio, the signature chip, the travelling spark, the picker list. A second
+screen that grows one of those components is measured the day it exists.
+`verify_coverage.py` walks the whole syntax tree, so both shapes fail, and
+`verify_round5_mutation.py` restores each of the four to the exact form it
+shipped in and proves the gate names the file and the reason.
 
 The six polished gates plus the coverage check are run by `verify_all.py` with
 the rest. They drive the same committed `wirebrowse.py` as the others, so the

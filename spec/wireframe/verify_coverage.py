@@ -86,6 +86,13 @@ NAMED_WITH_REASON = {
         "conduct.html shows one account acting as BOTH buyer and operator, "
         "which is that screen's subject. An exemption is a judgement about "
         "one page and has to be written down where it can be argued with.",
+    ("verify_sitemap.py", "KNOWN"):
+        "a MAP, not a population: which SITEMAP page id belongs to which "
+        "file, for the pages whose section says 'Built.' with no filename or "
+        "whose filename is not derivable from the title. Which id names which "
+        "page is a fact about the document, unreadable from the directory, "
+        "and the gate already fails on any served page missing from it, so a "
+        "screen added later cannot hide behind this dict.",
     ("verify_sitemap.py", "SUPERSEDED"):
         "confirm.html and criteria.html carry a visible replaced-by banner "
         "and are excluded from the reachability sweep on purpose. Which "
@@ -93,15 +100,49 @@ NAMED_WITH_REASON = {
         "directory.",
 }
 
+# ROUND 5's exemption table, and it is deliberately separate from the one
+# above. NAMED_WITH_REASON excuses a screen name in a LIST; this excuses a
+# screen name written INLINE, in a goto, a URL or a message.
+#
+# The same distinction governs both: a SCOPE decision (which screens does this
+# assertion apply to) must be derived, because a name silently omits a screen
+# added later. A SEMANTIC fact about one page cannot be derived at all.
+INLINE_WITH_REASON = {
+    "verify_links.py": {
+        # index.html is the site root, not a member of a population: this gate
+        # asks which pages are reachable FROM it, so the entry point is the
+        # question rather than part of the answer.
+        "index.html",
+    },
+    "verify_flow_mutation.py": {"staged.html"},
+    "verify_round2_mutation.py": {"deposit.html", "agreement.html"},
+    "verify_round3_mutation.py": {"browse.html", "settings.html",
+                                  "notfound.html"},
+    "verify_round4_mutation.py": {"browse.html", "agreement.html",
+                                  "zz_ghost_screen.html"},
+}
+
 
 def _is_screen(v):
-    """A real screen NAME, not the string '.html'.
+    """A real screen NAME, not the string '.html' and not a glob.
 
     An extension constant is a file-type test, not a scope decision, and
     calling one a named screen list is the kind of noise that gets a gate
-    switched off. The name has to be a file that exists.
+    switched off. Same for a glob: "*.html" passed to glob.glob IS the
+    derivation this gate wants, so reading it as a named screen would fail
+    every correctly written gate in the directory.
+
+    THE NAME HAS TO BE A FILE THAT EXISTS. That is what separates a scope
+    decision from a string that merely ends in .html, and it is the check
+    this function's first version claimed in its docstring without making.
     """
-    return isinstance(v, str) and v.endswith(".html") and len(v) > len(".html")
+    if not isinstance(v, str) or not v.endswith(".html"):
+        return False
+    if len(v) <= len(".html"):
+        return False
+    if "*" in v or "?" in v or "/" in v.strip("/"):
+        return False
+    return os.path.exists(os.path.join(HERE, v.lstrip("/")))
 
 
 def literal_lists(path):
@@ -121,11 +162,84 @@ def literal_lists(path):
             names = []
             if isinstance(val, (list, tuple, set)):
                 names = [v for v in val if _is_screen(v)]
+                # A LIST OF TUPLES IS STILL A LIST OF SCREENS. verify_pickers
+                # held [("staged.html", sel, label), ...] and this function
+                # returned nothing for it, so the gate table printed "no
+                # screen loop" over a hardcoded population of two. Round 5.
+                for item in (val if isinstance(val, (list, tuple, set)) else []):
+                    if isinstance(item, (list, tuple)):
+                        names += [v for v in item if _is_screen(v)]
             elif isinstance(val, dict):
                 names = [k for k in val if _is_screen(k)]
+                names += [v for v in val.values() if _is_screen(v)]
             if names:
-                out.append((target.id, names, node.lineno))
+                out.append((target.id, sorted(set(names)), node.lineno))
     return out
+
+
+def inline_screen_names(path):
+    """Screen names written ANYWHERE in the file, outside a literal list.
+
+    ROUND 5 OF THE SAME DEFECT, and the reason this function exists beside
+    the one above.
+
+    verify_coverage was written to fail a gate whose SCREENS is a literal
+    list. Four gates then passed it while measuring a hardcoded page each,
+    because they never bound a list at all: the page was written inline in
+    the call that loads it.
+
+        b.goto(BASE + "/deposit.html")          verify_rail
+        b.goto(BASE + "/agreement.html")        verify_blast_preview
+        URL = BASE + "dashboard.html"           verify_flow_motion
+        PICKERS = [("staged.html", ...)]        verify_pickers
+
+    Every one printed "no screen loop" in the coverage table, which reads as
+    "this gate has no population to derive" and actually meant "this gate's
+    population is one name nobody can see". A gate that measures the wrong
+    single screen after a page is renamed fails loudly; a gate that measures
+    a screen that still exists while a second screen grows the same component
+    stays green forever. That is the hole.
+
+    So the scope test is now the whole ast rather than the assignment list:
+    a screen NAME in a gate is a scope decision wherever it is written.
+    Docstrings and comments are exempt because they are prose, not scope.
+    """
+    src = open(path, encoding="utf-8").read()
+    tree = ast.parse(src)
+
+    # Docstrings are prose: a gate is allowed to SAY which page it was written
+    # for. Collect their line spans so the walk below can skip them.
+    doc_lines = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)):
+            body = getattr(node, "body", [])
+            if (body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                d = body[0].value
+                for ln in range(d.lineno, getattr(d, "end_lineno", d.lineno) + 1):
+                    doc_lines.add(ln)
+
+    # Names inside a literal list are already reported by literal_lists, so
+    # they are not double-counted here.
+    in_lists = set()
+    for _, names, _ in literal_lists(path):
+        in_lists.update(names)
+
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+            continue
+        v = node.value
+        if not _is_screen(v):
+            continue
+        if node.lineno in doc_lines:
+            continue
+        if v in in_lists:
+            continue
+        out.append((v, node.lineno))
+    return sorted(set(out))
 
 
 def main():
@@ -150,6 +264,23 @@ def main():
                 "      NAMED_WITH_REASON in this file WITH the reason."
                 % (name, lineno, var, len(names), " ".join(names[:6])
                    + (" ..." if len(names) > 6 else "")))
+
+        # ROUND 5. A screen name written inline is the same scope decision as
+        # a screen name in a list, and it was invisible to the check above.
+        inline = inline_screen_names(os.path.join(HERE, name))
+        allowed = INLINE_WITH_REASON.get(name, set())
+        offending = [(v, ln) for v, ln in inline if v not in allowed]
+        if offending:
+            where = ", ".join("%s:%d" % (v, ln) for v, ln in offending[:6])
+            fails.append(
+                "%s  names %d screen(s) inline, outside any list: %s\n"
+                "      A page written into a goto or a URL is a population of\n"
+                "      one that nothing can see. Derive it with\n"
+                "      population.screens_with_source(<markup it needs>), or\n"
+                "      add it to INLINE_WITH_REASON WITH the reason."
+                % (name, len(offending), where))
+        elif inline:
+            excused.append((name, "inline", len(inline)))
 
     # And the derivations themselves have to still cover the directory. A
     # partition that drifts is the same hole arriving by another road.
@@ -232,8 +363,8 @@ def main():
         return 1
 
     print()
-    print("PASS: no gate carries a literal screen list, and the population")
-    print("      derivations cover the directory exactly once.")
+    print("PASS: no gate names a screen, in a list or inline, and the")
+    print("      population derivations cover the directory exactly once.")
     return 0
 
 

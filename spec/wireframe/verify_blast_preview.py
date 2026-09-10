@@ -35,6 +35,17 @@ except ImportError:
 
 BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3111")
 
+# DERIVED, NOT PINNED. This gate pinned agreement.html inline in its goto,
+# which is a screen list of one written where verify_coverage.py cannot see
+# it: that gate inspects assignments whose value is a literal LIST, so a bare
+# string in a goto reads as "no screen loop" and the row looks clean.
+#
+# The needle is the signature chip the assertion reads. A screen cannot show a
+# blast radius without one, so a second screen that grows a signature matrix
+# joins the population on its own.
+import population                                              # noqa: E402
+SCREENS = population.screens_with_source('class="sig')
+
 READ = """
 (function () {
   var row = document.querySelectorAll('.terms > li')[0];
@@ -69,60 +80,94 @@ def _read(b, expr):
 
 
 def main():
+    # AN EMPTY POPULATION IS NOT A PASS. With no screen carrying a signature
+    # chip the loop below runs zero times and every assertion is vacuous.
+    if not SCREENS:
+        print("FAIL  no screen carries a signature chip (needle 'class=\"sig'),")
+        print("      so this gate measured nothing. Fix the needle if the")
+        print("      markup was renamed, or retire the gate.")
+        return 1
+
     b = Browser()
     failures = []
+    print("screens measured: %d of %d on disk, derived by the signature chip"
+          % (len(SCREENS), len(population.every_screen())))
+    print("itself: %s\n" % " ".join(SCREENS))
     try:
-        # THE MATRIX MOVED, 2026-09-09. It was drawn on criteria.html and the
-        # reconcile settled it at agreement.html, which is the URL SITEMAP
-        # P-11 names. criteria.html is now the superseded stub and has no
-        # .terms rows at all, so this gate read a null row and died on a
-        # TypeError instead of reporting anything about the blast preview.
-        b.goto(BASE + "/agreement.html", wait=3.0)
+        for screen in SCREENS:
+            # THE MATRIX MOVED, 2026-09-09. It was drawn on criteria.html and
+            # the reconcile settled it at agreement.html, which is the URL
+            # SITEMAP P-11 names. criteria.html is now the superseded stub
+            # and has no .terms rows at all, so this gate read a null row and
+            # died on a TypeError instead of reporting anything about the
+            # blast preview. Deriving the population is what stops the next
+            # such move breaking it silently.
+            b.goto(BASE + "/" + screen, wait=3.0)
 
-        resting = _read(b, READ)
-        point = _read(b, HOVER)
-        if not resting or not point:
-            print("could not read the agreement matrix at %s/agreement.html" % BASE)
-            print("the page must carry ul.terms rows with a .sig.is-signed and an .act")
-            return 1
+            resting = _read(b, READ)
+            point = _read(b, HOVER)
+            if not resting or not point:
+                failures.append(
+                    "%s: could not read the signature matrix. The page must "
+                    "carry ul.terms rows with a .sig.is-signed and an .act"
+                    % screen)
+                continue
 
-        # A real pointer move, not a synthetic class swap. A synthetic class
-        # would pass even if the :has() selector were broken.
-        b.send("Input.dispatchMouseEvent", type="mouseMoved",
-               x=point["x"], y=point["y"])
-        b.send("Runtime.evaluate", expression="new Promise(r=>setTimeout(r,350))",
-               awaitPromise=True)
+            # A real pointer move, not a synthetic class swap. A synthetic
+            # class would pass even if the :has() selector were broken.
+            b.send("Input.dispatchMouseEvent", type="mouseMoved",
+                   x=point["x"], y=point["y"])
+            b.send("Runtime.evaluate",
+                   expression="new Promise(r=>setTimeout(r,350))",
+                   awaitPromise=True)
 
-        hovered = _read(b, READ)
+            hovered = _read(b, READ)
 
-        print("resting:", resting)
-        print("hovered:", hovered)
-        print()
+            print("--- %s" % screen)
+            print("resting:", resting)
+            print("hovered:", hovered)
+            print()
 
-        if hovered == resting:
-            failures.append(
-                "hovering the edit control changed nothing on the signature "
-                "chips, so the blast radius is not previewed"
-            )
+            # A NULL READ IS A FAILURE, NOT A CRASH. This file already died
+            # once on a TypeError when the matrix moved and the row read null,
+            # which reported nothing about the blast preview at all. If the
+            # hover removes the chip, say so and move on.
+            if not hovered:
+                failures.append(
+                    "%s: the signature chip could not be read while hovering "
+                    "the edit control, so the preview cannot be judged" % screen
+                )
+                continue
 
-        # The preview must land on the amber that the cleared state uses, not
-        # on some other colour that merely differs from resting.
-        if "224, 162, 78" not in hovered["background"] and \
-           "224, 162, 78" not in hovered["border"]:
-            failures.append(
-                "preview colour is not the cleared-state amber: got border=%s "
-                "background=%s" % (hovered["border"], hovered["background"])
-            )
+            if hovered == resting:
+                failures.append(
+                    "%s: hovering the edit control changed nothing on the "
+                    "signature chips, so the blast radius is not previewed"
+                    % screen
+                )
 
-        # Moving away must restore it, or the page keeps a false warning up.
-        b.send("Input.dispatchMouseEvent", type="mouseMoved", x=5, y=5)
-        b.send("Runtime.evaluate", expression="new Promise(r=>setTimeout(r,350))",
-               awaitPromise=True)
-        restored = _read(b, READ)
-        if restored != resting:
-            failures.append(
-                "preview did not clear when the pointer left: %s" % restored
-            )
+            # The preview must land on the amber that the cleared state uses,
+            # not on some other colour that merely differs from resting.
+            if "224, 162, 78" not in hovered["background"] and \
+               "224, 162, 78" not in hovered["border"]:
+                failures.append(
+                    "%s: preview colour is not the cleared-state amber: got "
+                    "border=%s background=%s"
+                    % (screen, hovered["border"], hovered["background"])
+                )
+
+            # Moving away must restore it, or the page keeps a false warning
+            # up.
+            b.send("Input.dispatchMouseEvent", type="mouseMoved", x=5, y=5)
+            b.send("Runtime.evaluate",
+                   expression="new Promise(r=>setTimeout(r,350))",
+                   awaitPromise=True)
+            restored = _read(b, READ)
+            if restored != resting:
+                failures.append(
+                    "%s: preview did not clear when the pointer left: %s"
+                    % (screen, restored)
+                )
     finally:
         b.close()
 

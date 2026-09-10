@@ -167,11 +167,14 @@ design = os.path.join(HERE, "DESIGN.md")
 if os.path.exists(design):
     text = open(design, encoding="utf-8").read()
     listed = set(re.findall(r"`(verify_[a-z_0-9]+\.py)`", text))
-    # The mutation tests are deliberately outside verify_all.py.
-    listed.discard("verify_flow_mutation.py")
-    listed.discard("verify_round2_mutation.py")
-    listed.discard("verify_round3_mutation.py")
-    listed.discard("verify_round4_mutation.py")
+    # The mutation tests are deliberately outside verify_all.py. READ THEM
+    # OFF DISK rather than naming them: this block discarded four suites by
+    # name while the closing note twenty lines below already globbed for them,
+    # so adding a fifth suite failed the doc-sync check for no reason. A list
+    # of names cannot stay in step with a directory, which is the whole
+    # subject of verify_coverage.py.
+    for m in glob.glob(os.path.join(HERE, "verify_*mutation*.py")):
+        listed.discard(os.path.basename(m))
     listed.discard("verify_all.py")
     # A gate the doc explicitly declares SUPERSEDED is not a coverage claim,
     # so it is allowed to be named without being run. Only that exact word

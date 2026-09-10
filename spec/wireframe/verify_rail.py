@@ -39,8 +39,20 @@ import sys
 # result. That is the whole point of committing the driver.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wirebrowse import Browser, NoBrowser
+import population
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:3111"
+
+# THE SCREENS THIS MEASURES ARE DERIVED, NOT PINNED. Round 5 of one defect:
+# rounds 1 to 4 were an axis, a selector, the open states and a named SCREENS
+# list, and each fix landed on the shape a reviewer named. This gate carried
+# the same hole in the shape verify_coverage.py could not see, because the
+# page was written inline in the goto rather than in a list it inspects.
+#
+# The needle is the rail radio itself. A screen cannot offer a choice of rail
+# without it, so a second screen that grows a rail selector is measured the
+# day it exists rather than the day somebody remembers this file.
+SCREENS = population.screens_with_source("rail-usdc")
 
 # Deposit is a quarter of a $1,200 price, so $300, and the fee rides on top.
 EXPECT = {
@@ -124,122 +136,148 @@ b = Browser(1280, 1400)
 fails = []
 seen = {}
 scan = {}
+
+# AN EMPTY POPULATION IS NOT A PASS. A derivation that matches nothing makes
+# every assertion below vacuous, and a vacuous gate prints the same green as a
+# working one. If the rail markup is renamed, this says so instead of quietly
+# measuring no screens.
+if not SCREENS:
+    print("FAIL  no screen carries the rail selector (needle 'rail-usdc').")
+    print("      Either the markup was renamed, in which case fix the needle,")
+    print("      or the rail was removed, in which case this gate is retired.")
+    sys.exit(1)
+
 try:
-    b.goto(BASE + "/deposit.html")
-    b.js("window.__errs=[];window.addEventListener('error',function(e){"
-         "window.__errs.push(e.message+' @'+e.filename+':'+e.lineno)});")
+    for screen in SCREENS:
+        b.goto(BASE + "/" + screen)
+        b.js("window.__errs=[];window.addEventListener('error',function(e){"
+             "window.__errs.push(e.message+' @'+e.filename+':'+e.lineno)});")
 
-    for rail in ("abt", "usdc"):
-        hit = b.js("(function(){var e=document.getElementById('rail-%s');"
-                   "if(!e)return 'missing';e.click();return 'ok';})()" % rail)
-        if hit == "missing":
-            fails.append("no #rail-%s control on the page" % rail)
-            continue
-        b.js("new Promise(function(r){setTimeout(r,250)})")
-        s = json.loads(b.js(PROBE))
-        seen[rail] = s
+        for rail in ("abt", "usdc"):
+            hit = b.js("(function(){var e=document.getElementById('rail-%s');"
+                       "if(!e)return 'missing';e.click();return 'ok';})()" % rail)
+            if hit == "missing":
+                fails.append("%s: no #rail-%s control on the page"
+                             % (screen, rail))
+                continue
+            b.js("new Promise(function(r){setTimeout(r,250)})")
+            s = json.loads(b.js(PROBE))
+            seen[(screen, rail)] = s
 
-        want = EXPECT[rail]["total"]
-        other = "usdc" if rail == "abt" else "abt"
-        stale = EXPECT[other]["total"]
+            want = EXPECT[rail]["total"]
+            other = "usdc" if rail == "abt" else "abt"
+            stale = EXPECT[other]["total"]
 
-        if s["rail"] != "rail-" + rail:
-            fails.append("clicked #rail-%s but %s is checked" % (rail, s["rail"]))
-        if s["big"] != want:
-            fails.append("%s: headline total reads %r, expected %r"
-                         % (rail, s["big"], want))
-        if not s["button"] or want not in s["button"]:
-            fails.append("%s: pay button reads %r, expected it to carry %s"
-                         % (rail, s["button"], want))
-        if s["button"] and stale in s["button"]:
-            fails.append("%s: pay button also shows %s, the other rail's total"
-                         % (rail, stale))
+            if s["rail"] != "rail-" + rail:
+                fails.append("%s: clicked #rail-%s but %s is checked"
+                             % (screen, rail, s["rail"]))
+            if s["big"] != want:
+                fails.append("%s, %s: headline total reads %r, expected %r"
+                             % (screen, rail, s["big"], want))
+            if not s["button"] or want not in s["button"]:
+                fails.append("%s, %s: pay button reads %r, expected it to carry %s"
+                             % (screen, rail, s["button"], want))
+            if s["button"] and stale in s["button"]:
+                fails.append("%s, %s: pay button also shows %s, the other rail's total"
+                             % (screen, rail, stale))
 
-        # Every pair reveals exactly its own side, nothing from the other.
-        wrong = [p for p in s["pairs"] if p["shown"] and p["rail"] != rail]
-        if wrong:
-            fails.append("%s: %d element(s) of the OTHER rail are painted: %s"
-                         % (rail, len(wrong), [p["text"] for p in wrong][:3]))
-        missing = [p for p in s["pairs"]
-                   if not p["shown"] and p["rail"] == rail and not p["inClosedDialog"]]
-        if missing:
-            fails.append("%s: %d of its own element(s) are hidden: %s"
-                         % (rail, len(missing), [p["text"] for p in missing][:3]))
+            # Every pair reveals exactly its own side, nothing from the other.
+            wrong = [p for p in s["pairs"] if p["shown"] and p["rail"] != rail]
+            if wrong:
+                fails.append("%s, %s: %d element(s) of the OTHER rail are painted: %s"
+                             % (screen, rail, len(wrong),
+                                [p["text"] for p in wrong][:3]))
+            missing = [p for p in s["pairs"]
+                       if not p["shown"] and p["rail"] == rail
+                       and not p["inClosedDialog"]]
+            if missing:
+                fails.append("%s, %s: %d of its own element(s) are hidden: %s"
+                             % (screen, rail, len(missing),
+                                [p["text"] for p in missing][:3]))
 
-        # Outside the comparison, the other rail's total must not appear.
-        bleed = [t for t in s["outside"] if stale in t]
-        if bleed:
-            fails.append("%s: %s leaks outside the rail selector: %s"
-                         % (rail, stale, bleed[:2]))
-        if EXPECT[rail]["fee"] not in " ".join(s["outside"]):
-            fails.append("%s: fee %s is not visible"
-                         % (rail, EXPECT[rail]["fee"]))
-        if s["errors"]:
-            fails.append("page errors: %s" % s["errors"])
+            # Outside the comparison, the other rail's total must not appear.
+            bleed = [t for t in s["outside"] if stale in t]
+            if bleed:
+                fails.append("%s, %s: %s leaks outside the rail selector: %s"
+                             % (screen, rail, stale, bleed[:2]))
+            if EXPECT[rail]["fee"] not in " ".join(s["outside"]):
+                fails.append("%s, %s: fee %s is not visible"
+                             % (screen, rail, EXPECT[rail]["fee"]))
+            if s["errors"]:
+                fails.append("%s: page errors: %s" % (screen, s["errors"]))
 
-    # ---------------------------------------------------------------- pass 2
-    # The scan sheet, OPEN. The sentence a USDC buyer needs ("you will be
-    # asked to approve twice") lives only here, so a gate that never opens the
-    # dialog never checks the single most surprising thing on the screen.
-    for rail in ("abt", "usdc"):
-        b.js("(function(){var e=document.getElementById('rail-%s');"
-             "if(e)e.click();})()" % rail)
-        b.js("(function(){var d=document.getElementById('scan');"
-             "if(d&&!d.open){d.showModal?d.showModal():d.setAttribute('open','');}})()")
-        b.js("new Promise(function(r){setTimeout(r,250)})")
-        s = json.loads(b.js(PROBE))
-        scan[rail] = s
+        # ------------------------------------------------------------ pass 2
+        # The scan sheet, OPEN. The sentence a USDC buyer needs ("you will be
+        # asked to approve twice") lives only here, so a gate that never opens
+        # the dialog never checks the single most surprising thing on screen.
+        for rail in ("abt", "usdc"):
+            b.js("(function(){var e=document.getElementById('rail-%s');"
+                 "if(e)e.click();})()" % rail)
+            b.js("(function(){var d=document.getElementById('scan');"
+                 "if(d&&!d.open){d.showModal?d.showModal():d.setAttribute('open','');}})()")
+            b.js("new Promise(function(r){setTimeout(r,250)})")
+            s = json.loads(b.js(PROBE))
+            scan[(screen, rail)] = s
 
-        inscan = [p for p in s["pairs"] if "approval" in p["text"].lower()]
-        painted_here = [p for p in inscan if p["shown"]]
-        if len(painted_here) != 1:
-            fails.append("scan sheet, %s: %d approval sentences painted, expected 1"
-                         % (rail, len(painted_here)))
-        elif painted_here[0]["rail"] != rail:
-            fails.append("scan sheet, %s: the %s sentence is showing"
-                         % (rail, painted_here[0]["rail"]))
-        else:
-            got = painted_here[0]["text"].lower()
-            need = "one approval" if rail == "abt" else "two approvals"
-            if need not in got:
-                fails.append("scan sheet, %s: expected %r, got %r"
-                             % (rail, need, painted_here[0]["text"]))
-        # Close it again so the next iteration starts from a known state.
-        b.js("(function(){var d=document.getElementById('scan');"
-             "if(d&&d.open){d.close?d.close():d.removeAttribute('open');}})()")
+            inscan = [p for p in s["pairs"] if "approval" in p["text"].lower()]
+            painted_here = [p for p in inscan if p["shown"]]
+            if len(painted_here) != 1:
+                fails.append("%s scan sheet, %s: %d approval sentences painted, expected 1"
+                             % (screen, rail, len(painted_here)))
+            elif painted_here[0]["rail"] != rail:
+                fails.append("%s scan sheet, %s: the %s sentence is showing"
+                             % (screen, rail, painted_here[0]["rail"]))
+            else:
+                got = painted_here[0]["text"].lower()
+                need = "one approval" if rail == "abt" else "two approvals"
+                if need not in got:
+                    fails.append("%s scan sheet, %s: expected %r, got %r"
+                                 % (screen, rail, need, painted_here[0]["text"]))
+            # Close it again so the next iteration starts from a known state.
+            b.js("(function(){var d=document.getElementById('scan');"
+                 "if(d&&d.open){d.close?d.close():d.removeAttribute('open');}})()")
 finally:
     b.close()
 
 print("=" * 72)
-print("RAIL / MONEY COHERENCE: " + BASE + "/deposit.html")
+print("RAIL / MONEY COHERENCE: " + BASE)
 print("=" * 72)
-print("\ndeposit is a quarter of $1,200 = $300.00, the fee rides on top\n")
-print("%-6s %-5s %-8s %-10s %s" % ("rail", "fee%", "fee", "headline", "pay button, as painted"))
-for rail in ("abt", "usdc"):
-    s = seen.get(rail)
-    if not s:
-        continue
-    print("%-6s %-5s %-8s %-10s %s" % (
-        rail, "%d%%" % EXPECT[rail]["pct"], EXPECT[rail]["fee"],
-        s["big"], s["button"]))
+print("\nscreens measured: %d of %d on disk, derived from the directory by the"
+      % (len(SCREENS), len(population.every_screen())))
+print("rail control itself: %s\n" % " ".join(SCREENS))
+print("deposit is a quarter of $1,200 = $300.00, the fee rides on top\n")
+print("%-14s %-6s %-5s %-8s %-10s %s"
+      % ("screen", "rail", "fee%", "fee", "headline", "pay button, as painted"))
+for screen in SCREENS:
+    for rail in ("abt", "usdc"):
+        s = seen.get((screen, rail))
+        if not s:
+            continue
+        print("%-14s %-6s %-5s %-8s %-10s %s" % (
+            screen, rail, "%d%%" % EXPECT[rail]["pct"], EXPECT[rail]["fee"],
+            s["big"], s["button"]))
 
-for rail in ("abt", "usdc"):
-    s = seen.get(rail)
-    if not s:
-        continue
-    shown = sum(1 for p in s["pairs"] if p["shown"])
-    closed = sum(1 for p in s["pairs"] if p["inClosedDialog"])
-    print("\n%-5s rail-specific elements: %d of %d painted (all %s), %d behind the closed scan sheet"
-          % (rail, shown, len(s["pairs"]), rail, closed))
+for screen in SCREENS:
+    for rail in ("abt", "usdc"):
+        s = seen.get((screen, rail))
+        if not s:
+            continue
+        shown = sum(1 for p in s["pairs"] if p["shown"])
+        closed = sum(1 for p in s["pairs"] if p["inClosedDialog"])
+        print("\n%s %-5s rail-specific elements: %d of %d painted (all %s), "
+              "%d behind the closed scan sheet"
+              % (screen, rail, shown, len(s["pairs"]), rail, closed))
 
 print("\nthe scan sheet, opened:")
-for rail in ("abt", "usdc"):
-    s = scan.get(rail)
-    if not s:
-        continue
-    line = [p["text"] for p in s["pairs"]
-            if p["shown"] and "approval" in p["text"].lower()]
-    print("  %-5s %s" % (rail, line[0] if line else "(nothing painted)"))
+for screen in SCREENS:
+    for rail in ("abt", "usdc"):
+        s = scan.get((screen, rail))
+        if not s:
+            continue
+        line = [p["text"] for p in s["pairs"]
+                if p["shown"] and "approval" in p["text"].lower()]
+        print("  %s %-5s %s"
+              % (screen, rail, line[0] if line else "(nothing painted)"))
 
 print()
 if fails:

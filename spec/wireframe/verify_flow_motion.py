@@ -34,7 +34,17 @@ except ImportError:
     from wirebrowse import Browser
 
 BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3111/")
-URL = BASE + "dashboard.html"
+
+# DERIVED, NOT PINNED. Round 5 of the defect population.py was written for:
+# this gate named its page inline in a URL constant, which is a screen list of
+# one that verify_coverage.py could not see, because it inspects assignments
+# whose value is a literal LIST rather than a bare string.
+#
+# The needle is the travelling light itself. A screen cannot show the pipeline
+# without a .flow-spark, so a second screen that grows one is measured the day
+# it exists.
+import population                                              # noqa: E402
+SCREENS = population.screens_with_source("flow-spark")
 
 SHAPE = """(function(){
   var jobs = document.querySelectorAll('.jobrow');
@@ -79,43 +89,63 @@ SAMPLE = """(function(){
 
 fails = []
 
+# AN EMPTY POPULATION IS NOT A PASS. With no screen carrying the pipeline,
+# every loop below iterates zero times and the gate prints "no failures",
+# which is indistinguishable from a working sweep.
+if not SCREENS:
+    print("FAIL  no screen carries a .flow-spark, so this gate measured")
+    print("      nothing. Fix the needle if the markup was renamed, or")
+    print("      retire the gate if the pipeline was removed.")
+    sys.exit(1)
+
 print("=" * 62)
 print("MOTION ON  (prefers-reduced-motion: no-preference)")
 print("=" * 62)
+print("screens measured: %d of %d on disk, derived by the spark itself: %s\n"
+      % (len(SCREENS), len(population.every_screen()), " ".join(SCREENS)))
 b = Browser(width=1280, height=900)
 try:
-    b.goto(URL, wait=2.0)
-    data = json.loads(b.js(SHAPE))
-    for i, j in enumerate(data):
-        print("job %d: steps=%d done=%d sparks=%d sparkInNow=%d"
-              % (i, j["steps"], j["done"], j["sparks"], j["sparkInNow"]))
-        print("        rect=%s" % j["rect"])
-        print("        anim=%s" % j["anim"])
-        print("        ring=%s" % j["ring"])
-        print("        now: %s" % j["nowText"])
-        if j["steps"] != 5:
-            fails.append("job %d: expected 5 stages, found %d" % (i, j["steps"]))
-        if j["sparks"] != 1:
-            fails.append("job %d: expected exactly 1 spark, found %d" % (i, j["sparks"]))
-        if j["sparkInNow"] != 1:
-            fails.append("job %d: spark is not on the is-now segment" % i)
-        if not j["anim"] or j["anim"]["name"] != "flow-run":
-            fails.append("job %d: flow-run not bound (%s)" % (i, j["anim"]))
-        if j["anim"] and j["anim"]["play"] != "running":
-            fails.append("job %d: animation not running (%s)" % (i, j["anim"]["play"]))
-        if not j["ring"] or j["ring"]["border"] in ("0px", ""):
-            fails.append("job %d: no standing ring on current node" % i)
+    for screen in SCREENS:
+        b.goto(BASE + screen, wait=2.0)
+        print("--- %s" % screen)
+        data = json.loads(b.js(SHAPE))
+        for i, j in enumerate(data):
+            print("job %d: steps=%d done=%d sparks=%d sparkInNow=%d"
+                  % (i, j["steps"], j["done"], j["sparks"], j["sparkInNow"]))
+            print("        rect=%s" % j["rect"])
+            print("        anim=%s" % j["anim"])
+            print("        ring=%s" % j["ring"])
+            print("        now: %s" % j["nowText"])
+            if j["steps"] != 5:
+                fails.append("%s job %d: expected 5 stages, found %d"
+                             % (screen, i, j["steps"]))
+            if j["sparks"] != 1:
+                fails.append("%s job %d: expected exactly 1 spark, found %d"
+                             % (screen, i, j["sparks"]))
+            if j["sparkInNow"] != 1:
+                fails.append("%s job %d: spark is not on the is-now segment"
+                             % (screen, i))
+            if not j["anim"] or j["anim"]["name"] != "flow-run":
+                fails.append("%s job %d: flow-run not bound (%s)"
+                             % (screen, i, j["anim"]))
+            if j["anim"] and j["anim"]["play"] != "running":
+                fails.append("%s job %d: animation not running (%s)"
+                             % (screen, i, j["anim"]["play"]))
+            if not j["ring"] or j["ring"]["border"] in ("0px", ""):
+                fails.append("%s job %d: no standing ring on current node"
+                             % (screen, i))
 
-    # movement proof
-    t1 = b.js(SAMPLE)
-    time.sleep(0.45)
-    t2 = b.js(SAMPLE)
-    print("\ntransform sample 1: %s" % t1)
-    print("transform sample 2: %s" % t2)
-    if t1 == t2:
-        fails.append("spark transform did not change over 450ms: rail is dead")
-    else:
-        print("-> transform CHANGED, the light is genuinely travelling")
+        # movement proof
+        t1 = b.js(SAMPLE)
+        time.sleep(0.45)
+        t2 = b.js(SAMPLE)
+        print("\ntransform sample 1: %s" % t1)
+        print("transform sample 2: %s" % t2)
+        if t1 == t2:
+            fails.append("%s: spark transform did not change over 450ms: rail is dead"
+                         % screen)
+        else:
+            print("-> transform CHANGED, the light is genuinely travelling")
 finally:
     b.close()
 
@@ -127,34 +157,38 @@ b = Browser(width=1280, height=900)
 try:
     b.send("Emulation.setEmulatedMedia",
            features=[{"name": "prefers-reduced-motion", "value": "reduce"}])
-    b.goto(URL, wait=2.0)
-    data = json.loads(b.js(SHAPE))
-    for i, j in enumerate(data):
-        print("job %d: sparks=%d" % (i, j["sparks"]))
-        print("        rect=%s" % j["rect"])
-        print("        anim=%s" % j["anim"])
-        print("        ring=%s" % j["ring"])
-        if j["anim"] and j["anim"]["name"] not in ("none", ""):
-            fails.append("job %d: animation still bound under reduce (%s)"
-                         % (i, j["anim"]["name"]))
-        # the whole point: content must still be THERE
-        if not j["rect"] or j["rect"]["w"] < 1 or j["rect"]["h"] < 1:
-            fails.append("job %d: spark has no box under reduce, content vanished" % i)
-        if j["rect"] and float(j["rect"]["op"]) < 0.99:
-            fails.append("job %d: spark stranded at opacity %s under reduce"
-                         % (i, j["rect"]["op"]))
-        if not j["ring"] or j["ring"]["border"] in ("0px", ""):
-            fails.append("job %d: standing ring missing under reduce" % i)
+    for screen in SCREENS:
+        b.goto(BASE + screen, wait=2.0)
+        print("--- %s" % screen)
+        data = json.loads(b.js(SHAPE))
+        for i, j in enumerate(data):
+            print("job %d: sparks=%d" % (i, j["sparks"]))
+            print("        rect=%s" % j["rect"])
+            print("        anim=%s" % j["anim"])
+            print("        ring=%s" % j["ring"])
+            if j["anim"] and j["anim"]["name"] not in ("none", ""):
+                fails.append("%s job %d: animation still bound under reduce (%s)"
+                             % (screen, i, j["anim"]["name"]))
+            # the whole point: content must still be THERE
+            if not j["rect"] or j["rect"]["w"] < 1 or j["rect"]["h"] < 1:
+                fails.append("%s job %d: spark has no box under reduce, content vanished"
+                             % (screen, i))
+            if j["rect"] and float(j["rect"]["op"]) < 0.99:
+                fails.append("%s job %d: spark stranded at opacity %s under reduce"
+                             % (screen, i, j["rect"]["op"]))
+            if not j["ring"] or j["ring"]["border"] in ("0px", ""):
+                fails.append("%s job %d: standing ring missing under reduce"
+                             % (screen, i))
 
-    t1 = b.js(SAMPLE)
-    time.sleep(0.45)
-    t2 = b.js(SAMPLE)
-    print("\ntransform sample 1: %s" % t1)
-    print("transform sample 2: %s" % t2)
-    if t1 != t2:
-        fails.append("spark still moving under reduced motion")
-    else:
-        print("-> transform HELD still, and the element is still painted")
+        t1 = b.js(SAMPLE)
+        time.sleep(0.45)
+        t2 = b.js(SAMPLE)
+        print("\ntransform sample 1: %s" % t1)
+        print("transform sample 2: %s" % t2)
+        if t1 != t2:
+            fails.append("%s: spark still moving under reduced motion" % screen)
+        else:
+            print("-> transform HELD still, and the element is still painted")
 finally:
     b.close()
 
