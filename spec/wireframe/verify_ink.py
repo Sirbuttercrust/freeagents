@@ -578,10 +578,32 @@ def reveal_all(b, settle=0.45):
     immediately measures the first frame of the reveal and reports content as
     invisible when it is on its way in. Returns the number of text nodes a
     person still cannot see.
+
+    WAIT FOR THE TRANSITION, DO NOT ASSUME ONE SETTLE IS ENOUGH. A single
+    0.45s settle against a 0.5s transition has no margin, so this gate passed
+    alone and failed inside verify_all.py on the same tree and the same
+    server: the suite runs 22 gates and the machine was busy enough that the
+    reveal had not finished when the count was taken. A timing-sensitive
+    assertion that fails under load is an instrument defect, not a finding,
+    and it costs a reviewer a round to rediscover.
+
+    So poll instead: re-settle while anything is still hidden, up to a
+    deadline comfortably past the page's own 3 second backstop. A genuinely
+    stalled reveal still fails, because it is still hidden when the deadline
+    passes. Only the false positive goes away.
     """
     b.js(REVEAL_JS)
     settle_page(b, settle)
-    return int(b.js(STILL_HIDDEN_JS) or 0)
+    left = int(b.js(STILL_HIDDEN_JS) or 0)
+    waited = settle
+    while left and waited < 4.0:
+        # Re-apply as well as wait: a card that entered the viewport during
+        # the previous settle may have been added after the first pass.
+        b.js(REVEAL_JS)
+        settle_page(b, 0.5)
+        waited += 0.5
+        left = int(b.js(STILL_HIDDEN_JS) or 0)
+    return left
 
 
 # Is the layout STILL? Two reads of the same geometry, and they must agree.
