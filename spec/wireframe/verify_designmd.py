@@ -165,6 +165,33 @@ def _tint_ratio_claims(text):
 _MS = re.compile(r"\*\*(\d+)ms\*\*")
 
 
+# SHAPE 3, a HISTORICAL claim: "It was `#666B73` ... where it measured 3.72:1
+# on `--bg` and 3.41:1 on `--bg-2`". The ink is a literal hex rather than a
+# token, because the token no longer holds it.
+#
+# THESE HAVE TO BE CHECKED TOO, and it is tempting to skip them. A number
+# about a value the tree stopped using cannot be recomputed from the shipped
+# tokens, so the two checks above are structurally blind to it, and "it is
+# only history" is the argument that would leave the last unchecked ratio in
+# the file sitting in the exact paragraph this whole round is about. A hex is
+# a hex: contrast(#666B73, --bg) is 3.72 today and forever, so the claim is
+# verifiable and stays verified.
+_HIST = re.compile(
+    r"`(#[0-9A-Fa-f]{6})`(?:(?!\n\n).)*?measured\s+(\d+\.\d+):1\s+on\s+`(--[a-z0-9-]+)`"
+    r"(?:\s+and\s+(\d+\.\d+):1\s+on\s+`(--[a-z0-9-]+)`)?", re.S)
+
+
+def _historical_ratio_claims(text):
+    """Ratios stated against a literal hex, for a value the tree no longer ships."""
+    out = []
+    for m in _HIST.finditer(text):
+        line = text[:m.start()].count("\n") + 1
+        out.append((m.group(1), m.group(3), float(m.group(2)), line))
+        if m.group(4):
+            out.append((m.group(1), m.group(5), float(m.group(4)), line))
+    return out
+
+
 def ratio_claims(text):
     """Every ratio claim in the document, prose and table alike.
 
@@ -180,6 +207,7 @@ def ratio_claims(text):
             out.append((m.group(1), m.group(4), float(m.group(5)), line))
     out += _table_ratio_claims(text)
     out += _tint_ratio_claims(text)
+    out += _historical_ratio_claims(text)
     seen, uniq = set(), []
     for c in out:
         if c in seen:
@@ -298,25 +326,32 @@ def main():
 
     # ---- D. a ratio stated in prose that the tokens do not produce -------
     ratios = ratio_claims(text)
+
+    def _ink(name):
+        """Resolve a claim's ink, which is a token OR a literal historical hex."""
+        if name.startswith("#"):
+            return tokens.as_rgb(name), name
+        if name not in ship:
+            return None, None
+        return tokens.as_rgb(ship[name][0]), ship[name][0]
+
     for ink, bg, claimed, line in ratios:
-        if ink not in ship or bg not in ship:
-            fails.append("%s:%d  claims a ratio for `%s` on `%s`, and one of "
-                         "them is not a shipped token." % (DOC, line, ink, bg))
-            continue
-        a, b = tokens.as_rgb(ship[ink][0]), tokens.as_rgb(ship[bg][0])
+        a, avalue = _ink(ink)
+        b = tokens.as_rgb(ship[bg][0]) if bg in ship else None
         if a is None or b is None:
-            fails.append("%s:%d  claims a ratio for `%s` on `%s`, and one of "
-                         "them is not an opaque colour, so no single ratio "
-                         "exists." % (DOC, line, ink, bg))
+            fails.append(
+                "%s:%d  claims a ratio for `%s` on `%s`, and one of them is "
+                "not an opaque\n      colour this tree defines, so no single "
+                "ratio exists." % (DOC, line, ink, bg))
             continue
         real = tokens.contrast(a, b)
         if abs(real - claimed) > 0.05:
             fails.append(
-                "%s:%d  says `%s` on `%s` measures %.2f:1. The shipped tokens "
-                "measure %.2f:1.\n      A paragraph reasoning from a stale "
+                "%s:%d  says `%s` on `%s` measures %.2f:1. %s on `%s` "
+                "measures %.2f:1.\n      A paragraph reasoning from a stale "
                 "number is worse than the number: it\n      sounds "
                 "authoritative and sends the next builder somewhere false."
-                % (DOC, line, ink, bg, claimed, real))
+                % (DOC, line, ink, bg, claimed, avalue, bg, real))
 
     # ---- E. a duration stated in prose that nothing ships -----------------
     ships_ms = shipped_durations()
@@ -411,11 +446,12 @@ def main():
         print()
         print("ratios, recomputed from the shipped values:")
         for ink, bg, claimed, line in ratios:
-            a, b = tokens.as_rgb(ship.get(ink, ("",))[0]), tokens.as_rgb(ship.get(bg, ("",))[0])
+            a, _ = _ink(ink)
+            b = tokens.as_rgb(ship[bg][0]) if bg in ship else None
             real = tokens.contrast(a, b) if a and b else float("nan")
-            print("  %s:%-4d %-8s on %-8s doc %.2f   tree %.2f   %s"
+            print("  %s:%-4d %-14s on %-8s doc %5.2f   tree %5.2f   %s"
                   % (DOC, line, ink, bg, claimed, real,
-                     "PASS" if real >= 4.5 else "below AA"))
+                     "PASS" if real >= 4.5 else "below AA, stated as history"))
 
     if fails:
         print()

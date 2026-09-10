@@ -236,9 +236,9 @@ did:
 | `--fg-2` | 7.68 | 7.39 | 7.04 |
 | `--fg-3` | 5.15 | 4.96 | 4.72 |
 
-`--fg-3` is the one that had to move. It was `#666B73` until 2026-08-27 and
-measured 3.72:1 on `--bg` and 3.41:1 on a pane, which fails AA at 12 and 13px,
-so it was lifted to the smallest value in the same hue that clears 4.5:1 on
+`--fg-3` is the one that had to move. It was `#666B73` until 2026-08-27, where
+it measured 3.72:1 on `--bg` and 3.41:1 on `--bg-2`, and both fail AA at 12 and
+13px. It was lifted to the smallest value in the same hue that clears 4.5:1 on
 the lightest surface it ever sits on. The lift is why the token can carry text
 at all: it paints 268 character runs across the set, including the party names
 and the row numbers on the agreement.

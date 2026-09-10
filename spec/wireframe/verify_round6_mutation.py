@@ -142,6 +142,19 @@ def mut_phantom_script():
         "these\nnumbers. Section 10 lists them")
 
 
+# ---- I. a stale HISTORICAL ratio, stated against a literal hex -------------
+def mut_historical_ratio():
+    """The last unchecked number in the file, and it sat in 2.5.
+
+    A ratio about a value the tree stopped using cannot be recomputed from
+    the shipped tokens, so the token-based checks are structurally blind to
+    it. A hex is still a hex: contrast(#666B73, --bg) is 3.72 today and
+    forever, so the claim is verifiable and stays verified.
+    """
+    sub(DOC, "it measured 3.72:1 on `--bg` and 3.41:1 on `--bg-2`",
+        "it measured 4.60:1 on `--bg` and 3.41:1 on `--bg-2`")
+
+
 MUTATIONS = [
     ("A  an absurd value in the normative token row", mut_doc_absurd,
      "--fg-3", "documented as #FF00FF"),
@@ -154,11 +167,13 @@ MUTATIONS = [
     ("E  a duration in prose that nothing ships", mut_phantom_duration,
      "800ms", "no stylesheet uses it"),
     ("F  a stale ratio in a TABLE cell, not in prose", mut_table_ratio,
-     "--fg-3", "measure 5.15:1"),
+     "--fg-3", "measures 5.15:1"),
     ("G  a stale ratio in the tint table's last column", mut_tint_ratio,
-     "--cat-testing", "measure 6.78:1"),
+     "--cat-testing", "measures 6.78:1"),
     ("H  a script named as available that is not on disk", mut_phantom_script,
      "measure_density.py", "not in this directory"),
+    ("I  a stale HISTORICAL ratio, against a literal hex", mut_historical_ratio,
+     "#666B73", "measures 3.72:1"),
 ]
 
 
