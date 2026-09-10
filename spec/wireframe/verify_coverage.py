@@ -320,6 +320,24 @@ def main():
             how = "SCREENS present, NOT derived"
             fails.append("%s has a SCREENS binding that is neither derived "
                          "from population.py nor a directory glob." % name)
+        elif "import tokens" in src:
+            # A gate whose subject is not a screen at all. verify_designmd
+            # measures the stylesheets and the normative document, and its
+            # population (every :root block in every *.css) is derived by
+            # tokens.py the same way population.py derives screens.
+            #
+            # KEYED ON THE IMPORT, NOT ON THE FILE NAME. Naming the gate here
+            # would be this file's own rule broken inside this file: the next
+            # document-level gate would print the ambiguous row again and
+            # somebody would come back to add a second name.
+            #
+            # REPORTED DISTINCTLY ON PURPOSE. Round 5's finding was that "no
+            # screen loop" reads as "nothing to derive" while meaning "a
+            # population of one that nothing can see". Letting a genuinely
+            # screen-free gate print that same string puts a second meaning on
+            # a phrase that was already ambiguous, and the next reader has to
+            # open the file to tell which is which.
+            how = "derived (tokens, not screens)"
         else:
             how = "no screen loop"
         rows.append((name, how))

@@ -96,6 +96,14 @@ GATES = [
     ("verify_coverage.py", False,
      "no gate names its own screens: every scope is derived from the "
      "directory, so a screen added later cannot be silently unmeasured"),
+
+    # Round 6. Every previous round gated the SCREENS. This one gates the
+    # normative document, which nothing in this directory was reading: a
+    # planted #FF00FF in DESIGN.md's token row was invisible to five gates,
+    # and a real stale hex sat in that row with a paragraph reasoning from it.
+    ("verify_designmd.py", False,
+     "every value DESIGN.md states is the value the tree ships: tokens, "
+     "contrast ratios and durations, both sides derived rather than listed"),
 ]
 
 env = dict(os.environ)

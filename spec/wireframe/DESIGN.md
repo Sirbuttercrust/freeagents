@@ -130,7 +130,7 @@ that is not in this table does not exist in the product.
 | `--bg-2` | `#141517` | an inset surface: an input, a code block |
 | `--fg` | `#F7F8F8` | primary text |
 | `--fg-2` | `#9CA1AA` | supporting text, labels, metadata |
-| `--fg-3` | `#666B73` | the quietest legible grey; unverifiable content |
+| `--fg-3` | `#7C828C` | the quietest legible grey; unverifiable content |
 | `--line` | `rgba(255,255,255,0.08)` | a divider that must exist |
 | `--line-2` | `rgba(255,255,255,0.16)` | a border on an interactive element |
 | `--accent` | `#7C7CFF` | **verified only.** See 2.2 |
@@ -141,6 +141,26 @@ that is not in this table does not exist in the product.
 **Dark only.** There is no light theme in v1 and no token reserved for one.
 Adding it later is a token-layer change, not a rewrite, because no screen
 hardcodes a colour.
+
+**Three tokens carry the evidence tiers**, so a tier's colour is named by what
+it means rather than picked at each use. Section 2.3 governs the treatment;
+these are the values.
+
+| token | value | tier |
+|---|---|---|
+| `--t-hire` | `#7C7CFF` | verified hire. The same value as `--accent`, and that is the point: a verified hire IS the reserved signal |
+| `--t-prior` | `#F7F8F8` | verified prior work. Full-strength text, no marker |
+| `--t-claim` | `#7C828C` | portfolio claim. The same value as `--fg-3` |
+
+The two duplications are deliberate and neither is a shortcut. A tier token
+that reads `var(--accent)` would let a later accent change silently repaint
+the tier system, and a screen that reaches for `--fg-3` because a claim looks
+quiet would be spending a text token on a meaning. Two names for one value is
+cheaper than one name for two meanings.
+
+**One token is not for a screen at all.** `--eye` is the agent renderer's eye
+colour, read by `agents.js` and by nothing else. It equals `--bg` on purpose,
+so an eye reads as a hole cut in the creature rather than as paint.
 
 ### 2.2 The accent is reserved
 
@@ -181,6 +201,7 @@ not decoration, and they never carry meaning about evidence.
 | `--agent-3` | `#46C39A` |
 | `--agent-4` | `#E0A24E` |
 | `--agent-5` | `#E4757F` |
+| `--eye` | `#08090A` | the agent renderer's eye. Equal to `--bg` on purpose, so an eye reads as a hole cut in the creature rather than as paint. Read by `agents.js` and by no screen |
 
 **Avatars are not from this palette.** An agent's avatar is generated from its
 DID with `blobatar`, server-rendered (`ENT-2.3`). There is no upload path
@@ -191,10 +212,7 @@ anywhere in the product and none may be added.
 Every text and background pair meets **WCAG 2.2 AA**: 4.5:1 for body text,
 3:1 for text at 18px+ and for the boundary of an interactive control.
 
-`--fg-3` on `--bg` measures **3.72:1**, and on `--bg-2` **3.41:1**. Both fail
-AA at 12 and 13px. It follows that on the flow screens `--fg-3` paints no
-characters at all: it is for the dashed unsigned ring, hairlines, hover
-borders, and placeholder text. The rule is one line and admits no exemption:
+The rule is one line and admits no exemption:
 
 > **If it renders characters, it meets AA.**
 
@@ -207,6 +225,33 @@ column headers name whose signature each column carries, and a row number is
 how a person says which line they want changed. Short text you have to read is
 still text you have to read, and length is not a category of meaning.
 
+**Every text token clears AA on every surface**, which is what makes the flat
+rule affordable. Recomputed from the shipped values by `verify_designmd.py` on
+every run, so this table cannot go stale the way the paragraph it replaced
+did:
+
+| ink | on `--bg` | on `--bg-1` | on `--bg-2` |
+|---|---|---|---|
+| `--fg` | 18.73 | 18.02 | 17.17 |
+| `--fg-2` | 7.68 | 7.39 | 7.04 |
+| `--fg-3` | 5.15 | 4.96 | 4.72 |
+
+`--fg-3` is the one that had to move. It was `#666B73` until 2026-08-27 and
+measured 3.72:1 on `--bg` and 3.41:1 on a pane, which fails AA at 12 and 13px,
+so it was lifted to the smallest value in the same hue that clears 4.5:1 on
+the lightest surface it ever sits on. The lift is why the token can carry text
+at all: it paints 268 character runs across the set, including the party names
+and the row numbers on the agreement.
+
+**This paragraph is the reason `verify_designmd.py` exists.** Until round 6 it
+said the opposite, in the same confident register, because the lift landed in
+`base.css` and never reached this file: it named `#666B73`, quoted 3.72 and
+3.41, and concluded that the token paints no characters on the flow screens.
+Every sentence described a branch that had not existed for two weeks, and five
+gates read past a deliberately absurd value planted in the table above. A
+number in a normative document that nothing recomputes is a number that is
+already wrong.
+
 Measured with a real browser, not eyeballed, and by an instrument that does
 not guess at the background: `verify_ink.py` makes every glyph transparent,
 photographs the page, and reads the pixel where the characters sit. Sampling
@@ -214,6 +259,61 @@ photographs the page, and reads the pixel where the characters sit. Sampling
 uncomposited alpha, and produces confident wrong numbers in both directions.
 Anything reporting `lab()` or `oklch()` must be converted before comparison;
 parsing those as RGB is another known way to get a confident wrong answer.
+
+### 2.6 Panes: the surface recipe
+
+A raised surface is not one colour. It is a fill, a rim, a highlight and a
+shadow tuned as a set, because the rim and the highlight have to agree about
+where the light comes from.
+
+| token | value | what it does |
+|---|---|---|
+| `--pane-fill` | `rgba(255,255,255,0.028)` | the body of the surface, at rest |
+| `--pane-fill-2` | `rgba(255,255,255,0.055)` | the top of the gradient, so the surface has a direction |
+| `--pane-rim` | `rgba(255,255,255,0.11)` | the border |
+| `--pane-rim-hi` | `rgba(255,255,255,0.22)` | the lit edge, top only |
+| `--pane-glow` | `rgba(255,255,255,0.05)` | the inner highlight beneath the rim |
+| `--pane-shadow` | `0 1px 2px rgba(0,0,0,0.35), 0 8px 24px -12px rgba(0,0,0,0.6)` | the cast shadow at rest |
+| `--pane-shadow-hi` | `0 2px 4px rgba(0,0,0,0.4), 0 18px 44px -16px rgba(0,0,0,0.75)` | the same shadow, raised |
+
+Every value is an alpha over whatever sits beneath it, never a hex. A pane over
+`--bg` and the same pane over `--bg-1` are then one recipe rather than two
+hand-matched colours that drift apart the first time a background moves.
+
+**A pane is a surface, not a state.** Raising one on hover uses the `-hi`
+pair. It never takes a colour, because colour on this product means evidence.
+
+### 2.7 Discipline tints
+
+Five hues in `market.css`, one per filter, for the discipline tag on an agent
+card. What an agent does is a fact about the work, not about whether anyone
+checked it, so a discipline can carry colour without colliding with the accent.
+
+| token | value | discipline | on `--bg` |
+|---|---|---|---|
+| `--cat-frontend` | `#6EA8FF` | frontend | 8.26 |
+| `--cat-backend` | `#52C8A0` | backend | 9.61 |
+| `--cat-infra` | `#E0A24E` | infrastructure | 8.97 |
+| `--cat-data` | `#C48BE8` | data | 7.79 |
+| `--cat-testing` | `#E4757F` | testing | 6.78 |
+
+Distinct in hue, matched in chroma and value, so no category shouts louder
+than another. The ratios are recomputed on every run like the ones in 2.5.
+
+**A tint never means verified, featured, promoted or ranked**, and it never
+appears on a count, a sort order or a card border. It is on the tag and
+nowhere else.
+
+**The unsigned amber** lives with the agreement matrix rather than with the
+tints, because it is a state and they are labels.
+
+| token | value | what it is for | on `--bg` |
+|---|---|---|---|
+| `--sig-open` | `#E0A24E` | a line signed by one party and waiting on the other | 8.97 |
+| `--sig-open-wash` | `rgba(224, 162, 78, 0.12)` | the row fill behind that state | n/a |
+
+It holds the same value as `--cat-infra` by coincidence, not by relation.
+Neither reads the other, and moving one must not move the other.
 
 ---
 
@@ -458,7 +558,18 @@ screen:
   whole pixels freezes slow motion and then pops.
 
 Durations: **120ms** for a state change on a control, **240ms** for something
-entering or leaving, **800ms** for a shape morph. Nothing else.
+entering or leaving. Anything slower is a considered exception and says so
+where it is written: the reveal-on-scroll pair at 450 and 500ms, the tab and
+toast transitions at 300ms, and the ambient loops in 6.1, which are measured
+in seconds because they are not responses to anything.
+
+The three tokens in `polish.css` name the everyday cases so a screen does not
+pick a number: `--dur-1` .14s for a control, `--dur-2` .22s for a small
+reveal, `--dur-3` .38s for a panel. This section previously named three
+durations and finished with "Nothing else" while the tree shipped seventeen,
+which is a rule nobody could follow and nothing could check.
+`verify_designmd.py` now fails on any duration this file names that no
+stylesheet uses.
 
 ### 6.1 Ambient motion
 
@@ -659,6 +770,7 @@ browser.
 | `verify_sampledata.py` | every screen showing an invented name or a dollar figure says on it that the data is sample data |
 | `verify_linknames.py` | a link whose text names its destination names it correctly, checked against what the destination page calls itself |
 | `verify_coverage.py` | no gate names its own screens, in a list OR inline in a goto. Every gate's scope is derived from the directory, so a screen added later cannot sit unmeasured behind a green table. No browser, no server |
+| `verify_designmd.py` | every value THIS FILE states is the value the tree ships: tokens against every `:root` block, contrast ratios and durations recomputed. Both sides derived, so a token added next month is compared the day it exists. No browser, no server |
 
 **A gate's SCOPE is derived, never written down.** This table used to say
 `verify_ink.py` covered "every rendered character at both viewports" while
@@ -696,6 +808,28 @@ screen that grows one of those components is measured the day it exists.
 `verify_coverage.py` walks the whole syntax tree, so both shapes fail, and
 `verify_round5_mutation.py` restores each of the four to the exact form it
 shipped in and proves the gate names the file and the reason.
+
+**And THIS FILE was the last thing nothing read.** Every gate above measures
+the screens. Round 6 planted `#FF00FF` in the normative token row of section
+2.1 and five gates read past it, because a rendered page cannot tell you that
+the document describing it is wrong. The row really did hold `#666B73` while
+`base.css` shipped `#7C828C`, with section 2.5 reasoning from the stale value
+in prose: it said the token fails AA and paints no characters on the flow
+screens, and the shipped value clears AA on all three surfaces and paints 268
+character runs.
+
+`verify_designmd.py` closes that, and neither side of its comparison is
+written down. `tokens.py` reads the shipped set out of every `:root` block in
+every stylesheet in this directory and the documented set out of this file's
+own table shape, so a token added next month is compared the day it exists.
+Three kinds of claim are checked: a token value, a contrast ratio, a duration.
+A shipped token that is neither documented nor excluded with a written reason
+fails, so the table cannot be silently partial, which is how the pane recipe
+and the tier tokens went five months without a row.
+
+The ratios in 2.5 and 2.7 are **recomputed on every run** rather than typed.
+That is the difference between a document that goes stale and one that cannot:
+a number nothing recalculates is already wrong, it just has not been read yet.
 
 The six polished gates plus the coverage check are run by `verify_all.py` with
 the rest. They drive the same committed `wirebrowse.py` as the others, so the
