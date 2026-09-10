@@ -98,6 +98,60 @@ rather than a scope decision. `verify_round5_mutation.py` restores each of the
 four to the exact shape it shipped in and asserts the gate names both the file
 and the reason, because a mutation caught for the wrong reason proves nothing.
 
+**Round 6 found the same defect one layer OUT.** Every gate above measures the
+screens, and nothing in this directory read the normative document. Review
+planted `#FF00FF` in `DESIGN.md`'s token row for `--fg-3` and five gates read
+straight past it, because a rendered page cannot tell you the document
+describing it is wrong.
+
+It was not hypothetical. That row held `#666B73` while `base.css` has shipped
+`#7C828C` since August, and section 2.5 reasoned from the stale value in prose:
+it said the token fails AA at 12 and 13px and therefore paints no characters on
+the flow screens. Measured, it clears AA on all three surfaces and paints 268
+character runs across the set. A stale hex is one wrong fact. A paragraph
+reasoning from a stale hex sounds authoritative and sends the next builder
+somewhere false, and the rebuild cards are told to read that file as the design
+source.
+
+`tokens.py` derives BOTH sides, so neither is a list: the shipped set is every
+`:root` block in every stylesheet here, the documented set is every row of the
+document's own table shape. `verify_designmd.py` compares them and checks three
+kinds of claim, a token value, a contrast ratio and a duration, plus one
+guarantee that found most of the rest: a shipped token that is neither
+documented nor excluded with a written reason fails.
+
+That last check is why this was more than one hex. The tree ships **45 tokens
+and the document named 19**. The pane surface recipe (seven tokens carrying the
+polished pass's whole look), the three evidence-tier tokens, the five
+discipline tints, `--eye` and `--sig-open` had no row anywhere, while section
+2.1 says a colour not in the table does not exist in the product. Sections 2.5,
+2.6 and 2.7 now carry them, and every ratio in those tables is **recomputed on
+each run** rather than typed.
+
+Two more corrections came from the gate rather than from a reviewer. Section 6
+named 120, 240 and 800ms and finished "Nothing else" while the tree ships
+seventeen durations and 800ms appears nowhere. Section 4.1 said
+`measure_density.py` is "in this directory" while section 10 of the same file
+said it does not exist on this branch.
+
+`verify_round6_mutation.py` carries eight controls. Two are worth knowing about
+before you trust the gate:
+
+- **B mutates `base.css`, not the document.** The defect is a DISAGREEMENT and
+  either side can be the one that moves. A gate that only watches the document
+  goes green the next time a token is lifted in a stylesheet and not written
+  down, which is exactly how this arrived.
+- **F plants a stale ratio in a TABLE CELL.** The first version of this gate
+  read only the prose sentence, so moving the numbers into a table dropped its
+  ratio coverage to zero while it went on printing PASS. If F ever stops
+  failing, the ratios in 2.5 are unchecked again.
+
+Control H caught a vacuous check in this gate's own first draft: the
+script-exists test excused a name when an absence phrase appeared within 400
+characters, and the phrase excusing the planted defect was in the sentence
+describing that very gate. It checks per SENTENCE now. A window is a guess
+about where a qualifier lives; the sentence making a claim has to carry it.
+
 The six that came from the polished pass (`verify_polish.py`,
 `verify_profile_header.py`, `verify_agents_below.py`,
 `verify_reduced_motion.py`, `verify_flow_motion.py`,
@@ -117,6 +171,7 @@ python3 verify_round2_mutation.py http://127.0.0.1:3111
 python3 verify_round3_mutation.py http://127.0.0.1:3111
 python3 verify_round4_mutation.py http://127.0.0.1:3111
 python3 verify_round5_mutation.py
+python3 verify_round6_mutation.py
 ```
 
 `verify_round3_mutation.py` is the one to read if you are wondering why the

@@ -728,6 +728,7 @@ python3 verify_round2_mutation.py http://127.0.0.1:3111
 python3 verify_round3_mutation.py http://127.0.0.1:3111
 python3 verify_round4_mutation.py http://127.0.0.1:3111
 python3 verify_round5_mutation.py
+python3 verify_round6_mutation.py
 
 # house rule: zero em dashes, enforced across EVERY file here.
 # Run the gate, not a grep. The grep this line used to name,
