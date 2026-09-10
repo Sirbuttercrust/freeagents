@@ -217,7 +217,12 @@ def main():
 
     if fails:
         print()
-        print("FAIL: %d gate(s) name their own screens." % len(fails))
+        # The header used to say "N gate(s) name their own screens" for every
+        # entry in this list, including the partition failures, which made a
+        # correctly-caught partition break read as a naming violation. A
+        # failure message that misnames the failure sends the next reader to
+        # the wrong file.
+        print("FAIL: %d scope problem(s)." % len(fails))
         for f in fails:
             print("  " + f)
         print()

@@ -15,18 +15,26 @@ discriminates. So each fix is mutated back here and asserted to FAIL.
 The mutations:
 
   A  verify_ink.py's SCREENS re-narrowed to a literal list     verify_coverage
-  B  a new screen added to the directory and named nowhere     verify_coverage
+  B  a new screen added to the directory and named nowhere     verify_sitemap
   C  population's partition made to overlap                    verify_coverage
   D  the evidence separator restored to a hairline "|" glyph   verify_ink
-  E  verify_ink's ancestor-opacity check removed               verify_ink
+  E  verify_ink's scroll-in reveal removed                     verify_ink
   F  verify_ink's edge inset removed                           verify_ink
 
 D through F are the three real instrument bugs this round found, each
 mutated back to the exact shape it had when it was producing wrong numbers.
 
 B is the one that matters most, because it is the defect rather than an
-instance of it: a screen that exists and that no gate has ever opened. Under
-the old arrangement nothing failed. Here the coverage gate names it.
+instance of it: a screen that exists and that nothing accounts for. It is
+aimed at verify_sitemap rather than verify_coverage on purpose, and the
+reason is worth reading. Under the derived arrangement the planted screen is
+swept AUTOMATICALLY, because the general 320px population is the complement
+of the payment one, so the coverage gates correctly report 34 of 34 and pass.
+That is the fix working, not a hole. What still has to fail is the claim that
+every served page is accounted for, and that is verify_sitemap's job.
+
+The first version of this suite pointed B at verify_coverage and recorded a
+MISS. The gate was right and the assertion was wrong.
 
 Every mutation is reverted from a copy held in memory, in a finally block,
 and the tree is verified byte-identical at the end.
@@ -131,10 +139,17 @@ def mut_b():
 
 
 def mut_c():
-    """Break the partition: the general sweep stops being the complement."""
+    """Break the partition: the general sweep stops being the complement.
+
+    Written WITHOUT inserting a screen name, so the failure is the partition
+    check rather than the literal-list check. The first version subtracted
+    {'browse.html'} and the gate caught it on "a gate names its own screens",
+    which is a real finding about the mutated file and says nothing about
+    whether the partition assertion works.
+    """
     sub_once(POP, "return sorted(set(every_screen()) - set(payment_screens()))",
              "return sorted(set(every_screen()) - set(payment_screens())\n"
-             "                  - {'browse.html'})")
+             "                  - set(every_screen()[:1]))")
 
 
 def mut_d():
@@ -148,11 +163,29 @@ def mut_d():
 
 
 def mut_e():
-    """Remove the ancestor-opacity check. Round 4's twelve wrong numbers."""
-    sub_once(INK,
-             "      var po = parseFloat(getComputedStyle(p).opacity);\n"
-             "      if (!isNaN(po) && po < 0.05) { hidden = true; break; }",
-             "      /* removed by mutation */")
+    """Measure without revealing the scroll-in content.
+
+    Aimed at the ORDER, not at one guard, and it took two tries to aim it
+    right. Removing the ancestor-opacity check alone changes nothing now,
+    because reveal_all puts the content into its finished state before
+    anything is collected, so there is no invisible text left to catch.
+
+    Skipping reveal_all alone was not enough either: settle_page then waits
+    until the layout stops moving, and wireframe.js reveals everything
+    unconditionally after 3 seconds, so the page reveals itself while the
+    gate is waiting. The mutation has to remove BOTH the reveal and the wait
+    to reproduce the state the gate was actually in, which is a photograph
+    taken 0.6 seconds after load.
+
+    That the page heals itself given three seconds is worth knowing: it means
+    the old defect only ever showed up because the gate was fast, and a
+    slower machine would have hidden it. Skipping the reveal without the wait
+    is exactly the flaky-green case.
+    """
+    sub_once(INK, "                left = reveal_all(b)",
+             "                left = 0  # mutation: skip the reveal")
+    sub_once(INK, "                if not settle_page(b):",
+             "                if False:  # mutation: and skip the wait")
 
 
 def mut_f():
@@ -161,20 +194,28 @@ def mut_f():
              '    inset = 1.0')
 
 
-# name, the gate that must fail, the mutation, the screens to limit it to
+# name, the gate that must fail, the mutation, the screens to limit it to,
+# and a fragment that MUST appear in the failure output.
+#
+# THE EXPECTED REASON IS NOT DECORATION. Mutation C broke population's
+# partition and the gate exited 1, which reads as CAUGHT. It was failing on
+# "a gate names its own screens" instead, because the mutation's own inserted
+# literal tripped the earlier check. A mutation caught for the wrong reason
+# proves nothing about the assertion it was written for, and it is invisible
+# unless the suite reads the message.
 MUTATIONS = [
     ("A  verify_ink SCREENS re-narrowed to 8 names", "verify_coverage.py",
-     mut_a, None),
-    ("B  a screen on disk that no gate opens", "verify_coverage.py",
-     mut_b, None),
+     mut_a, None, "SCREENS is a literal list"),
+    ("B  a screen on disk that nothing accounts for", "verify_sitemap.py",
+     mut_b, None, "zz_ghost_screen.html"),
     ("C  population's partition made to overlap", "verify_coverage.py",
-     mut_c, None),
+     mut_c, None, "partition misses"),
     ("D  the separator restored to a hairline glyph", "verify_ink.py",
-     mut_d, ["browse.html"]),
-    ("E  verify_ink's ancestor-opacity check removed", "verify_ink.py",
-     mut_e, ["browse.html"]),
+     mut_d, ["browse.html"], "span.sep"),
+    ("E  the scroll-in reveal skipped before measuring", "verify_ink.py",
+     mut_e, ["browse.html"], "pverified"),
     ("F  verify_ink's edge inset removed", "verify_ink.py",
-     mut_f, ["agreement.html"]),
+     mut_f, ["agreement.html"], "span.v"),
 ]
 
 
@@ -192,9 +233,9 @@ def main():
     print("that stays green here has never seen the bug it claims to catch.")
     print()
 
-    caught, missed = 0, []
+    caught, missed, wrong_reason = 0, [], []
     try:
-        for name, gate, mutate, only in MUTATIONS:
+        for name, gate, mutate, only, expect in MUTATIONS:
             mutate()
             code, out = run_gate(gate, only)
             # restore before judging, so a raised assertion cannot strand it
@@ -207,17 +248,22 @@ def main():
                 print("  SKIP  %-46s (no browser)" % name)
                 return 3
             hit = code == 1
+            reason_ok = expect.lower() in out.lower()
+            verdict = "CAUGHT" if hit and reason_ok else (
+                "REASON" if hit else "MISSED")
             print("  %-6s %-46s %-22s exit %d"
-                  % ("CAUGHT" if hit else "MISSED", name, gate, code))
+                  % (verdict, name, gate, code))
             if hit:
-                # the line that names the finding, so the proof is legible
                 for line in out.splitlines():
-                    if line.strip().startswith(("FAIL", "  verify_ink.py:",
-                                                "  browse.html", "  agreement",
-                                                "  zz_ghost")):
-                        print("           %s" % line.strip()[:96])
+                    s = line.strip()
+                    if s and (s.startswith(("FAIL", "FAILURES"))
+                              or expect.lower() in s.lower()):
+                        print("           %s" % s[:96])
                         break
+            if hit and reason_ok:
                 caught += 1
+            elif hit:
+                wrong_reason.append("%s: caught, but not for %r" % (name, expect))
             else:
                 missed.append(name)
     finally:
@@ -247,17 +293,19 @@ def main():
         print("  %-24s exit %d  %s" % (gate, code, "PASS" if code == 0 else "FAIL"))
         ok = ok and code == 0
 
-    if missed or not ok:
-        print("\nMUTATION TEST FAILED: %d of %d caught%s"
+    if missed or wrong_reason or not ok:
+        print("\nMUTATION TEST FAILED: %d of %d caught for the right reason%s"
               % (caught, len(MUTATIONS),
                  "" if ok else ", and a gate does not pass clean"))
         for m in missed:
             print("  missed: %s" % m)
+        for w in wrong_reason:
+            print("  wrong reason: %s" % w)
         return 1
 
-    print("\nMUTATION TEST PASSED: %d of %d mutations caught, tree reverted"
+    print("\nMUTATION TEST PASSED: %d of %d mutations caught, each for the"
           % (caught, len(MUTATIONS)))
-    print("clean, both gates green on the restored tree.")
+    print("reason it was written for, tree reverted clean, both gates green.")
     return 0
 
 
