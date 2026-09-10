@@ -83,4 +83,14 @@ else:
     print("\nevery live page is reachable from another live page")
 
 print(f"\nlinks checked: {sum(len(v) for v in outgoing.values())}")
+
+# A VERDICT LINE THE RUNNER CAN READ. This gate exited correctly all along
+# but printed no PASS or FAIL, so verify_all's table showed "(no verdict
+# line)" beside it: a green exit with no stated result, which is the shape a
+# gate has on the day it stops asserting anything. verify_all now refuses a
+# gate that says nothing.
+if broken or orphans:
+    print(f"\nFAIL: {len(broken)} broken link(s), {len(orphans)} orphan(s)")
+else:
+    print(f"\nPASS  every local link resolves and every live page is reachable")
 sys.exit(1 if broken or orphans else 0)

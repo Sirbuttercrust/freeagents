@@ -21,6 +21,7 @@ The mutation tests are NOT run here: they take several minutes and
 deliberately edit files, so they are run on their own.
 """
 
+import glob
 import os
 import re
 import subprocess
@@ -105,6 +106,7 @@ env = dict(os.environ)
 env["WF_BASE"] = BASE if BASE.endswith("/") else BASE + "/"
 
 results = []
+silent = []
 for name, takes_url, covers in GATES:
     path = os.path.join(HERE, name)
     if not os.path.exists(path):
@@ -126,7 +128,13 @@ for name, takes_url, covers in GATES:
     # line)", which hides whether a gate said anything at all.
     tail = [l for l in p.stdout.splitlines()
             if l.startswith(("PASS", "FAIL", "REAL FAILURES", "RESULT:", "FAILURES ("))]
-    results.append((name, p.returncode, dt, tail[-1][:52] if tail else "(no verdict line)", covers))
+    verdict = tail[-1][:52] if tail else "(no verdict line)"
+    results.append((name, p.returncode, dt, verdict, covers))
+    # A GATE THAT PRINTS NO VERDICT IS NOT GREEN, IT IS SILENT. verify_links
+    # exited 0 for weeks with "(no verdict line)" in this column, which is
+    # indistinguishable from a gate whose assertions have all been removed.
+    if not tail:
+        silent.append(name)
 
 print("=" * 78)
 print("EVERY GATE, %s" % BASE)
@@ -141,6 +149,14 @@ for name, _, _, _, covers in results:
     print("  %-22s %s" % (name, covers))
 
 bad = [r for r in results if r[1] != 0]
+
+if silent:
+    print("\n%d gate(s) exited without printing a verdict:" % len(silent))
+    for s in silent:
+        print("  %s" % s)
+    print("An exit code with no stated result cannot be told apart from a")
+    print("gate whose assertions have all been removed. Print PASS or FAIL.")
+    bad.append(("silent gates", 1, 0.0, "no verdict printed", ""))
 
 # The DESIGN.md table and this runner must list the same gates. Written as a
 # check rather than a note, because "keep these in step" is a hope: a gate
@@ -186,9 +202,17 @@ if bad:
     sys.exit(1)
 print("PASS: %d of %d gates green." % (len(results), len(results)))
 print()
-print("NOT COVERED HERE, and judged by a person:  whether the copy is")
+print("\nNOT COVERED HERE, and judged by a person:  whether the copy is")
 print("comprehensible to a first-time buyer, whether the attestation reads as")
 print("neutral rather than as a verdict, and whether the two seven day clocks")
-print("are distinguishable. Run the three mutation suites separately")
-print("(verify_flow_mutation.py, verify_round2_mutation.py,")
-print("verify_round3_mutation.py): they edit files and take several minutes.")
+print("are distinguishable.")
+# Read the mutation suites off disk rather than naming them. This line said
+# "the three mutation suites" and listed three while a fourth sat beside it,
+# which is the same defect the round-4 gates exist to stop: a count in prose
+# that nothing checks.
+muts = sorted(os.path.basename(p) for p in
+              glob.glob(os.path.join(HERE, "verify_*mutation*.py")))
+print("\nRun the %d mutation suites separately, they edit files and take" % len(muts))
+print("several minutes:")
+for m in muts:
+    print("  python3 %s %s" % (m, BASE))
