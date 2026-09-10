@@ -38,7 +38,10 @@ except ImportError:
     from wirebrowse import Browser
 
 BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3111/")
-SCREENS = ["agent.html", "operator.html"]
+# The screens that HAVE a profile header, not the two that had one the day
+# this was written. A screen that grows a .phead joins this sweep on its own.
+import population                                             # noqa: E402
+SCREENS = population.screens_with_source("phead")
 
 PROBE = """(function(){
   var banner = document.querySelector('.pbanner');

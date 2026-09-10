@@ -612,6 +612,7 @@ python3 verify_all.py http://127.0.0.1:3111
 python3 verify_flow_mutation.py   http://127.0.0.1:3111
 python3 verify_round2_mutation.py http://127.0.0.1:3111
 python3 verify_round3_mutation.py http://127.0.0.1:3111
+python3 verify_round4_mutation.py http://127.0.0.1:3111
 
 # house rule: zero em dashes, enforced across EVERY file here.
 # Run the gate, not a grep. The grep this line used to name,
@@ -656,6 +657,23 @@ browser.
 | `verify_housestyle.py` | no em dash or en dash in ANY file in this directory, plus the AI writing tells in prose files. No browser, no server |
 | `verify_sampledata.py` | every screen showing an invented name or a dollar figure says on it that the data is sample data |
 | `verify_linknames.py` | a link whose text names its destination names it correctly, checked against what the destination page calls itself |
+| `verify_coverage.py` | no gate names its own screens. Every gate's scope is derived from the directory, so a screen added later cannot sit unmeasured behind a green table. No browser, no server |
+
+**A gate's SCOPE is derived, never written down.** This table used to say
+`verify_ink.py` covered "every rendered character at both viewports" while
+that gate named eight screens, so twenty-five screens on disk had never been
+measured against the rule above at all. Widening the list would have fixed
+that instance and left the shape: a list of names cannot fail on a file it
+does not mention, and the next screen added would have reopened the hole in
+silence.
+
+So `population.py` computes each gate's population from the directory, and
+`verify_coverage.py` fails any gate that goes back to naming its screens. The
+general 320px sweep takes the COMPLEMENT of the payment sweep rather than a
+second list, so a new screen is measured by default instead of forgotten by
+default. A gate that is narrow on purpose stays narrow, but by rule:
+`verify_profile_header.py` measures the screens that HAVE a profile header
+rather than the two that had one the day it was written.
 
 The six polished gates plus the coverage check are run by `verify_all.py` with
 the rest. They drive the same committed `wirebrowse.py` as the others, so the

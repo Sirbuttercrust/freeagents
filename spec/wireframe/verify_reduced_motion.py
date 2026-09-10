@@ -38,14 +38,12 @@ except ImportError:
     from wirebrowse import Browser
 
 BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3111/")
-SCREENS = [
-    "index.html", "browse.html", "agent.html", "operator.html", "credential.html",
-    "verify.html", "how.html", "signin.html", "dashboard.html", "hire.html",
-    "criteria.html", "confirm.html", "job.html", "myjobs.html", "review.html",
-    "myagents.html", "listagent.html", "agentsettings.html", "provegithub.html",
-    "priorwork.html", "claim.html", "incoming.html", "settings.html", "keys.html",
-    "notfound.html", "error.html",
-]
+
+# EVERY SCREEN. DESIGN.md section 6 states the reduced-motion rule of the
+# whole set, and this used to name 26, so the seven payment screens drawn in
+# September were never asked whether their motion has a dignified static end.
+import population                                             # noqa: E402
+SCREENS = population.every_screen()
 
 PROBE = """(function(){
   function hidden(el){

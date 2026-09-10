@@ -41,16 +41,10 @@ import tapfloor
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:3111"
 
-SCREENS = [
-    "hire.html",
-    "agreement.html",
-    "deposit.html",
-    "staged.html",
-    "pullrequest.html",
-    "outcomes.html",
-    "operatorjob.html",
-    "conduct.html",
-]
+# The payment flow, derived: the screens that load flow.css, plus the two
+# that carry the flow's layout in a page-local block. See population.py.
+import population                                             # noqa: E402
+SCREENS = population.payment_screens()
 
 # DESIGN.md 2.2. The accent is permitted on a verified hire row and its count,
 # the credential verify affordance, the single primary action, and a focus

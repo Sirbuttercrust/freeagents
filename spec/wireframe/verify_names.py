@@ -69,9 +69,12 @@ from wirebrowse import require_browser            # noqa: E402
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:3111"
 
-SCREENS = ["hire.html", "agreement.html", "deposit.html", "staged.html",
-           "pullrequest.html", "outcomes.html", "operatorjob.html",
-           "conduct.html"]
+# EVERY SCREEN. "No two controls a person can reach at the same time answer
+# to the same accessible name" is a rule about every surface, and a duplicate
+# name is likeliest on the screens with the most controls, not on the eight
+# this used to name.
+import population                                             # noqa: E402
+SCREENS = population.every_screen()
 
 CONTROLS = "a[href], button, input, select, textarea, summary, [role=button]"
 

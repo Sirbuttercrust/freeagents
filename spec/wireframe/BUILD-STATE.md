@@ -47,15 +47,15 @@ dashboard one is why both survive. Do not merge them.
 
 ## The gates
 
-Eighteen, all runnable from a clone with python3 and any Chrome. No environment
+All runnable from a clone with python3 and any Chrome. No environment
 variables, no pip install, no file outside this directory.
 
 ```
 python3 devserver.py 3111 &
-python3 verify_all.py            # exit 0 only if all eighteen pass
+python3 verify_all.py            # exit 0 only if every gate passes
 ```
 
-Count it rather than trusting this sentence, which was wrong once already:
+Count them rather than trusting a sentence, which was wrong here once already:
 
 ```
 grep -c '^    ("verify_' verify_all.py     # gates the runner runs
@@ -65,6 +65,19 @@ grep -c '^| `verify_' DESIGN.md            # gates the doc claims
 Those two must agree, and `verify_all.py` fails if they do not, in both
 directions. A gate in the doc but not the runner is a coverage claim nothing
 backs; a gate in the runner but not the doc is invisible.
+
+**And a gate's SCOPE is derived, never named.** That is round 4's finding and
+it is the reason `population.py` and `verify_coverage.py` exist.
+`verify_ink.py` carried a list of eight screen names while DESIGN.md, this
+file and the gate table all asserted AA of the whole set, so twenty-five
+screens had never been measured against it. Nothing failed, because a list of
+names cannot fail on a file it does not mention.
+
+Nine gates carried such a list. Every one now computes its population from the
+directory, and `verify_coverage.py` fails any gate that goes back to naming
+screens. The general 320px sweep is the COMPLEMENT of the payment sweep rather
+than a second list, so a screen added next month is measured by default
+instead of forgotten by default.
 
 The six that came from the polished pass (`verify_polish.py`,
 `verify_profile_header.py`, `verify_agents_below.py`,
@@ -76,13 +89,14 @@ back to the committed `wirebrowse.py` and take their url from `WF_BASE`, which
 port they reported "polish layer not loaded" on all 26 screens, which reads
 exactly like a real regression and is not one.
 
-The three mutation suites are run separately, because they edit files and take
+The mutation suites are run separately, because they edit files and take
 several minutes:
 
 ```
 python3 verify_flow_mutation.py   http://127.0.0.1:3111
 python3 verify_round2_mutation.py http://127.0.0.1:3111
 python3 verify_round3_mutation.py http://127.0.0.1:3111
+python3 verify_round4_mutation.py http://127.0.0.1:3111
 ```
 
 `verify_round3_mutation.py` is the one to read if you are wondering why the
@@ -211,6 +225,41 @@ every other device, which is the most confusing possible failure.
   `[data-avatar]` must load `swarm.js`, or the span paints an empty 32x32 box
   and throws nothing. `load_swarm.py` checks that and fails if any page misses
   it.
+
+## The scope claim that was wrong, and the gate that replaced it
+
+Round 4 found that `verify_ink.py` measured 8 of 33 screens while this file,
+DESIGN.md and the gate table all asserted AA of every screen. Twenty-five
+screens had never been opened by it. Nothing failed, because a list of names
+cannot fail on a file it does not mention.
+
+Widening that list would have been the same mistake the three previous rounds
+made: round 1 fixed an axis, round 2 fixed a selector, round 3 fixed the open
+states, and each time the identical defect was already sitting elsewhere in a
+different shape. So the fix is `population.py` plus `verify_coverage.py`: a
+gate declares the RULE that decides its scope, and a gate that names screens
+fails.
+
+Widening the sweep then found three instrument bugs in `verify_ink.py`
+itself, each of which had been producing confident wrong numbers on the
+screens it had never looked at:
+
+| what it did | what it reported | the truth |
+|---|---|---|
+| collected text whose ANCESTOR was at opacity 0, mid scroll-in reveal | a badge at 1.01 against the page background | 5.79 against its own fill |
+| force-opened the account menu, an absolutely positioned panel, over the page | a primary button at 1.03 against the panel | 5.79, and nobody sees both at once |
+| sampled the last pixel of a text run, which sits on the pane's 1px rim | the agreement's `$300 of $1,200` at 3.64 | 6.95, confirmed by hand arithmetic from the tokens |
+
+All three are the same error: photographing a composite of surfaces a person
+never sees together. The gate now reveals the scroll-in content, waits until
+two reads of the layout agree that nothing is moving, opens in-flow
+disclosures together and each overlay panel alone in its own scope, and insets
+its samples two pixels from the run's edges.
+
+Two counts are printed on the face of the report for the same reason
+`verify_polish.py` prints its opened-state count: `states opened` and `content
+still hidden after the reveal`. A gate that reveals nothing and a gate that
+reveals everything otherwise produce the same green result.
 
 ## The claim that was wrong, and the gate that replaced it
 

@@ -30,7 +30,24 @@
     font-size: 14px; color: var(--fg-2); line-height: 1.6;
     max-width: 56ch; margin: 12px 0 0;
   }
-  .orow .foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+  /* THE BUTTON MUST NOT SHRINK BELOW ITS LABEL.
+
+     A flex item shrinks by default, and this row is a caption plus a button
+     with no wrap. At 320px the pair does not fit, so the button was squeezed
+     to 90px while its label stayed 134px wide and spilled 22px past the
+     accent fill on both sides. The dark button ink then sat on the panel
+     behind it and measured 1.08 against 4.5, which is what verify_ink
+     reported and which is a real defect rather than a sampling artifact.
+
+     Two rules, because either alone leaves a version of it: the button keeps
+     its content width, and the row wraps so keeping it cannot push the
+     document past 320px. This is the same trap base.css already documents at
+     `.kv .btn-sm`, one screen over. */
+  .orow .foot {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; margin-top: 14px; flex-wrap: wrap;
+  }
+  .orow .foot .btn { flex: none; }
 </style>
 </head>
 <body>

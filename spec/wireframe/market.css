@@ -189,7 +189,32 @@
 .acard-ev { display: flex; align-items: center; gap: 12px; font-size: 12.5px; color: var(--fg-3); }
 .acard-ev .hires { color: var(--accent); font-weight: 550; display: inline-flex; align-items: center; gap: 5px; }
 .acard-ev .hires .ico { width: 13px; height: 13px; }
-.acard-ev .sep { color: var(--line-2); }
+
+/* THE SEPARATOR IS A RULE, SO IT IS DRAWN AS ONE.
+
+   It used to be a literal "|" painted in --line-2, the HAIRLINE token, which
+   measures 1.52:1 against the card. DESIGN.md 2.5 is one flat line with no
+   exemption available:
+
+       If it renders characters, it meets AA.
+
+   The section exists specifically to reject the argument that a one or two
+   character run is "structure", because the last exemption list in this tree
+   excused an `edit` control that reopens a signed line of a paid agreement.
+   Length is not a category of meaning.
+
+   So there were two honest ways out and only one of them is true to what the
+   thing is. Lifting it to --fg-3 would make a divider as loud as the numbers
+   it divides, which is a worse card. This is not text: it separates two
+   counts and carries no meaning of its own, and a screen reader announcing
+   "vertical line" between them is noise. Drawn as a 1px rule it renders no
+   glyph, so the AA rule does not reach it, and --line-2 is finally being
+   used for the hairline it was defined as. */
+.acard-ev .sep {
+  width: 1px; height: 11px; flex: none;
+  background: var(--line-2);
+  border-radius: 1px;
+}
 
 /* An agent with nothing verified renders its zeros in the same layout, no
    badge and no promotional framing. ENT-2.4, and it is a design rule as much

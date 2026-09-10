@@ -78,9 +78,14 @@ LEDGER["headroom over the floor"] = PRICE - FLOOR
 
 ALLOWED = {v.quantize(Decimal("0.01")): k for k, v in LEDGER.items()}
 
-SCREENS = ["hire.html", "agreement.html", "deposit.html", "staged.html",
-           "pullrequest.html", "outcomes.html", "operatorjob.html",
-           "conduct.html"]
+# EVERY SCREEN, not the eight that carried a figure when this was written.
+# The gate table says "every dollar figure on every screen derives from one
+# model of the deal", and a list of eight names cannot fail on a figure
+# somebody adds to a ninth. The extra screens cost a page load each and
+# report nothing, which is the correct outcome for a screen with no money on
+# it and the whole point of asking.
+import population                                             # noqa: E402
+SCREENS = population.every_screen()
 
 # Figures that are deliberate copy rather than a figure to reconcile. Each is
 # named so an unexplained number cannot hide behind a blanket exemption.

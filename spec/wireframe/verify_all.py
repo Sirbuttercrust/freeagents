@@ -88,6 +88,13 @@ GATES = [
     ("verify_linknames.py", True,
      "a link whose text names its destination names it correctly, checked "
      "against what the destination page calls itself"),
+
+    # Round 4. The three previous rounds each fixed the instance a reviewer
+    # named while the same defect sat elsewhere in another shape, so this one
+    # is a gate on the gates rather than another gate on the screens.
+    ("verify_coverage.py", False,
+     "no gate names its own screens: every scope is derived from the "
+     "directory, so a screen added later cannot be silently unmeasured"),
 ]
 
 env = dict(os.environ)
@@ -148,6 +155,7 @@ if os.path.exists(design):
     listed.discard("verify_flow_mutation.py")
     listed.discard("verify_round2_mutation.py")
     listed.discard("verify_round3_mutation.py")
+    listed.discard("verify_round4_mutation.py")
     listed.discard("verify_all.py")
     # A gate the doc explicitly declares SUPERSEDED is not a coverage claim,
     # so it is allowed to be named without being run. Only that exact word

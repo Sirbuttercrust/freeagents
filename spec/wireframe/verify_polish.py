@@ -46,14 +46,13 @@ except ImportError:
 import tapfloor
 
 BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3111/")
-SCREENS = [
-    "index.html", "browse.html", "agent.html", "operator.html", "credential.html",
-    "verify.html", "how.html", "signin.html", "dashboard.html", "hire.html",
-    "agreement.html", "job.html", "myjobs.html", "review.html",
-    "myagents.html", "listagent.html", "agentsettings.html", "provegithub.html",
-    "priorwork.html", "claim.html", "incoming.html", "settings.html", "keys.html",
-    "notfound.html", "error.html",
-]
+
+# THE COMPLEMENT OF THE PAYMENT FLOW, so a screen added next month is swept
+# by this instrument the day it lands rather than falling between two lists
+# that were each supposed to be complete. That fallback direction is the
+# whole argument: see population.py.
+import population                                             # noqa: E402
+SCREENS = population.general_screens()
 
 # SUPERSEDED SCREENS ARE NOT AUDITED FOR LIVE CONTROLS, 2026-09-09.
 #
@@ -68,6 +67,14 @@ SCREENS = [
 # the polish layer loads, icons paint, and the contrast and mobile gates
 # cover them like any other screen.
 SUPERSEDED = ["criteria.html", "confirm.html"]
+
+# THE LIVE-CONTROL PASS TAKES THE COMPLEMENT, and this line is load-bearing.
+# While SCREENS was a hand-written list, the two retired pages were simply
+# absent from it. Deriving SCREENS put them back, so they were audited twice:
+# once in the main loop, which correctly reported six inert buttons, and once
+# in the superseded loop that exists to excuse exactly those buttons. The
+# exclusion has to be explicit now that the population is not.
+LIVE = [s for s in SCREENS if s not in SUPERSEDED]
 
 DESKTOP = """(function(){
   var hosts = document.querySelectorAll('[data-ico]');
@@ -107,7 +114,7 @@ rows = []
 
 b = Browser(width=1280, height=900)
 try:
-    for s in SCREENS:
+    for s in LIVE:
         b.goto(BASE + s, wait=2.2)
         errs = b.js("JSON.stringify(window.__consoleErrors || [])")
         d = json.loads(b.js(DESKTOP))
@@ -141,7 +148,12 @@ finally:
 # 320px without overflowing and still has to meet the 44px floor: the whole
 # reason it exists is that somebody arrives on it from an old link, and half
 # of those arrivals are on a phone.
-SWEPT = SCREENS + SUPERSEDED
+#
+# SCREENS already contains them, because it is derived from the directory
+# rather than written by hand. This used to read `SCREENS + SUPERSEDED`,
+# which was right when SCREENS was a list that omitted them and would now
+# sweep both pages twice and report every finding on them twice over.
+SWEPT = list(SCREENS)
 
 b = Browser(width=320, height=640)
 try:

@@ -39,7 +39,12 @@ except ImportError:
     from wirebrowse import Browser
 
 BASE = os.environ.get("WF_BASE", "http://127.0.0.1:3111/")
-SCREENS = ["index.html", "browse.html"]
+
+# The screens that HAVE a decorative agent layer, not the two that had one
+# the day this was written. perch.js is what creates .perch-layer, so a
+# screen that adopts the layer joins this sweep by loading the script.
+import population                                             # noqa: E402
+SCREENS = population.screens_with_source("perch.js")
 
 PROBE = """(function(){
   var layer = document.querySelector('.perch-layer');
