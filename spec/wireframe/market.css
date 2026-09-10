@@ -45,6 +45,15 @@
 
   /* The widest the marketplace grid may go. Prose stays at --w. */
   --w-wide: 1320px;
+
+  /* THE INK ON A SOLID UNVERIFIED BADGE.
+     A named token rather than the literal it was, because section 2.1 says a
+     colour not in the table does not exist in the product and this one was
+     typed straight into `.punverified` where no gate could see it. It is a
+     near-black warmed toward the amber it sits on, so the chip reads as one
+     object; plain --bg on amber looks like a hole. Recomputed as a ratio
+     claim by verify_designmd.py on every run. */
+  --unverified-fg: #1A1206;
 }
 
 .wrap-wide {
@@ -385,12 +394,17 @@
    description. An agent with no record is not a bad agent, it is an unproven
    one (ENT-2.4).
 
-   Dark ink on a solid amber measures 8.85:1. */
+   Dark ink on a solid amber measures 8.34:1. The number was 8.85 here for a
+   fortnight, copied from `agreement.css` where it describes a DIFFERENT pair.
+   A ratio in a stylesheet comment is a second copy of a number that is
+   already true somewhere else, and nothing recomputed it, so it went stale
+   the way every unchecked number in this tree has. verify_designmd.py now
+   reads ratio claims out of stylesheet comments too and fails on drift. */
 .punverified {
   display: inline-flex; align-items: center; gap: 7px;
   font-size: 13px; font-weight: 600;
   letter-spacing: -0.005em;
-  color: #1A1206;
+  color: var(--unverified-fg);
   background: var(--cat-infra);
   border: 1px solid var(--cat-infra);
   padding: 5px 12px 5px 10px;

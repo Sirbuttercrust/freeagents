@@ -150,8 +150,14 @@
    MEASURED, and it changes what --fg-3 may be used for here.
 
    contrast_check.py sampled 21 real failures across the eight flow screens,
-   every one of them --fg-3 (#666B73) carrying real body text: 3.44:1 on a
-   pane, 3.72:1 on the page, against the 4.5 AA needs at 12 and 13px.
+   every one of them --fg-3 carrying real body text. The token was #666B73 at
+   the time and measured 3.44:1 on a pane and 3.72:1 on the page, against the
+   4.5 AA needs at 12 and 13px. It was lifted to #7C828C on 2026-08-27 and now
+   clears AA on all three surfaces, so the numbers in this paragraph are
+   history and are written as history: a present-tense sentence about a value
+   the tree stopped shipping is the exact defect round 6 was spent on. What is
+   NOT history is the rule the failures produced, which is the rest of this
+   block.
 
    DESIGN.md 2.5 already anticipated this. --fg-3 is "the quietest legible
    grey", permitted "for portfolio claim text and for nothing that a user must

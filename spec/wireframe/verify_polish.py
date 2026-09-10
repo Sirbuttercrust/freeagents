@@ -9,9 +9,12 @@ Checks per screen:
   2. both polish layers loaded (FAIcon, FAToast)
   3. every [data-ico] host actually painted an <svg> (a typo in a glyph name
      leaves an empty span, which is invisible rather than loud)
-  4. no interactive control left inert (a button with no handler attribute)
-  5. no horizontal overflow at 320px
-  6. every tap target at least 44px under a real touch profile, in EVERY
+  4. every [data-avatar] host actually painted an <svg>, for the same reason:
+     polish.js returns early when the generator is missing, so the page shows
+     a blank disc and the console stays silent
+  5. no interactive control left inert (a button with no handler attribute)
+  6. no horizontal overflow at 320px
+  7. every tap target at least 44px under a real touch profile, in EVERY
      reachable state: closed, with every disclosure and drawer open, and
      with each dialog open on its own. The count of states opened is printed,
      because a gate that opens nothing reports a clean page in both the
@@ -82,6 +85,17 @@ DESKTOP = """(function(){
   for (var i = 0; i < hosts.length; i++) {
     if (!hosts[i].querySelector('svg')) unpainted.push(hosts[i].getAttribute('data-ico'));
   }
+  /* SAME CHECK, THE OTHER GENERATED THING. An empty [data-avatar] is a blank
+     32x32 box that throws nothing, exactly like an unpainted icon: polish.js
+     returns early when FASwarm is absent, so a page that renders an avatar
+     without loading swarm.js looks like a page with a plain circle on it.
+     Two of the eight screens converted in round 7 were missing the script,
+     and no gate here would have said so. */
+  var avs = document.querySelectorAll('[data-avatar]');
+  var blank = [];
+  for (var k = 0; k < avs.length; k++) {
+    if (!avs[k].querySelector('svg')) blank.push(avs[k].getAttribute('data-avatar'));
+  }
   var inert = [];
   var btns = document.querySelectorAll('button');
   for (var j = 0; j < btns.length; j++) {
@@ -99,6 +113,8 @@ DESKTOP = """(function(){
     toast: typeof window.FAToast,
     painted: document.querySelectorAll('.ico svg').length,
     unpainted: unpainted,
+    avatars: avs.length,
+    blank: blank,
     inert: inert
   });
 })()"""
@@ -118,11 +134,17 @@ try:
         b.goto(BASE + s, wait=2.2)
         errs = b.js("JSON.stringify(window.__consoleErrors || [])")
         d = json.loads(b.js(DESKTOP))
-        row = {"screen": s, "painted": d["painted"], "unpainted": d["unpainted"], "inert": d["inert"]}
+        row = {"screen": s, "painted": d["painted"], "unpainted": d["unpainted"],
+               "avatars": d["avatars"], "inert": d["inert"]}
         if d["icons"] != "object" or d["toast"] != "function":
             fails.append("%s: polish layer not loaded" % s)
         if d["unpainted"]:
             fails.append("%s: unpainted icons %s" % (s, d["unpainted"]))
+        if d["blank"]:
+            fails.append("%s: [data-avatar] painted nothing for %s. The page "
+                         "renders an avatar and the generator never ran, which "
+                         "is a blank disc that throws no error."
+                         % (s, d["blank"]))
         if d["inert"]:
             fails.append("%s: inert buttons %s" % (s, d["inert"]))
         rows.append(row)
@@ -134,11 +156,15 @@ try:
         b.goto(BASE + s, wait=2.2)
         d = json.loads(b.js(DESKTOP))
         rows.append({"screen": s + " (superseded)", "painted": d["painted"],
-                     "unpainted": d["unpainted"], "inert": []})
+                     "unpainted": d["unpainted"], "avatars": d["avatars"],
+                     "inert": []})
         if d["icons"] != "object" or d["toast"] != "function":
             fails.append("%s: polish layer not loaded" % s)
         if d["unpainted"]:
             fails.append("%s: unpainted icons %s" % (s, d["unpainted"]))
+        if d["blank"]:
+            fails.append("%s: [data-avatar] painted nothing for %s"
+                         % (s, d["blank"]))
 finally:
     b.close()
 
@@ -184,14 +210,18 @@ finally:
 # report instead of hiding inside a green result.
 opened_total = sum(r.get("opened", 0) for r in rows)
 
-print("%-20s %7s %7s %7s %6s" % ("screen", "icons", "width", "opened", "small"))
-print("-" * 54)
+print("%-20s %7s %7s %7s %7s %6s"
+      % ("screen", "icons", "avatars", "width", "opened", "small"))
+print("-" * 62)
 for r in rows:
-    print("%-20s %7d %7d %7d %6d"
-          % (r["screen"], r["painted"], r["docW"], r.get("opened", 0), len(r["small"])))
+    print("%-20s %7d %7d %7d %7d %6d"
+          % (r["screen"], r["painted"], r.get("avatars", 0), r["docW"],
+             r.get("opened", 0), len(r["small"])))
 
 print("\nscreens checked: %d" % len(rows))
 print("total icons painted: %d" % sum(r["painted"] for r in rows))
+print("total avatars painted: %d, every one a generated svg"
+      % sum(r.get("avatars", 0) for r in rows))
 print("states opened before measuring: %d" % opened_total)
 
 if fails:

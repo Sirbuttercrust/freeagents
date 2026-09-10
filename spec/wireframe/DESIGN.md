@@ -142,6 +142,27 @@ that is not in this table does not exist in the product.
 Adding it later is a token-layer change, not a rewrite, because no screen
 hardcodes a colour.
 
+**What "introduces a colour" means**, because this rule is now enforced in
+three media and an unstated definition is one a gate gets to invent. A colour
+literal is judged by the POSITION it sits in, never by its value:
+
+| position | rule |
+|---|---|
+| a `:root` block | a token definition. It belongs in a table in this section |
+| a paint declaration, or a `fill` / `stroke` on a screen | **forbidden.** This is the rule above, and `#418` in a paragraph is a pull request number rather than paint, so a text node is not this |
+| a translucent `rgba` | a surface, governed by 2.6. It has no single colour until it is composited, so it is not a palette entry |
+| a colour inside a `mask` declaration | a stencil. Only its alpha channel is used and nothing renders it |
+| a literal in `swarm.js`, `agents.js` or `perch.js` | the generative renderer's colour space, governed by 2.4. If it equals a token it must say so with `/* = --token */`, and the value is recomputed against that token on every run |
+
+That last row is the one worth reading twice. `swarm.js` keeps a hue band
+empty around `--accent` so a generated agent can never come out wearing the
+colour that means verified, and it holds its own copy of the accent to do it.
+Moving `--accent` without moving that copy would silently reserve the wrong
+band. The annotation is what makes the copy checkable.
+
+`verify_designmd.py` derives this population from every file the browser
+loads. Nothing is exempt by name.
+
 **Three tokens carry the evidence tiers**, so a tier's colour is named by what
 it means rather than picked at each use. Section 2.3 governs the treatment;
 these are the values.
@@ -303,6 +324,25 @@ than another. The ratios are recomputed on every run like the ones in 2.5.
 **A tint never means verified, featured, promoted or ranked**, and it never
 appears on a count, a sort order or a card border. It is on the tag and
 nowhere else.
+
+**The two inks that sit on a filled chip or a wrong field** are tokens for the
+same reason the tier colours are: they were literals typed into a rule, so a
+change to the tint they resemble would have moved them silently, and no gate
+could see them at all.
+
+| token | value | what it is for |
+|---|---|---|
+| `--unverified-fg` | `#1A1206` | dark ink on the solid amber "not verified" badge. A near black warmed toward the amber under it, so the chip reads as one object rather than a hole |
+| `--bad` | `#E4757F` | a field that fails validation, and a character count that is over |
+
+`--unverified-fg` on `--cat-infra` measures **8.34:1**, and `--bad` on `--bg`
+measures **6.78:1**. Both are recomputed on every run like the tints above,
+which is the only reason they are written here at all.
+
+`--bad` holds the same value as `--cat-testing` and must not read it. A tint is
+a label saying what an agent does; `--bad` is a state saying something is
+wrong. Repainting the testing discipline must not repaint every form error,
+which is what one shared literal would have done.
 
 **The unsigned amber** lives with the agreement matrix rather than with the
 tints, because it is a state and they are labels.

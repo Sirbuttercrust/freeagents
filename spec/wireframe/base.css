@@ -160,7 +160,31 @@ p:last-child { margin-bottom: 0; }
 }
 .avatarbtn::-webkit-details-marker { display: none; }
 .avatarbtn::marker { content: ""; }
-.avatarbtn svg { width: 30px; height: 30px; border-radius: 50%; display: block; }
+
+/* THE AVATAR IN HERE IS THE READER'S OWN IDENTITY, NOT A PLACEHOLDER.
+
+   It used to be an inline `<circle fill="#3A3A4A">`, a hex no token defined,
+   painted directly into eight screens. Two rules were broken by one disc.
+   DESIGN.md 2.1: a colour that is not in the token table does not exist in
+   the product. DESIGN.md 2.4: an avatar is generated from the DID, so an
+   operator cannot choose it, and a flat disc is a chosen one.
+
+   It survived twenty-three gates because every gate read the direction the
+   rule was easy to check in, walking `:root` blocks for token definitions.
+   No gate ever opened an HTML file looking for a colour, so the direction
+   section 2.1 actually points, at screens, was unread.
+
+   The span is sized to 30px in the markup rather than measured from this
+   box, because polish.js falls back to the element's rendered width and the
+   summary is 44px: the tap target stays 44, the face inside it stays 30. */
+.avatarbtn .av {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: block;
+  background: var(--bg-2);
+}
+.avatarbtn .av svg { width: 100%; height: 100%; display: block; }
 .avatarmenu[open] .avatarbtn { box-shadow: 0 0 0 2px var(--line-2); }
 .avatardrop {
   position: absolute; top: 100%; right: 0; margin-top: 8px; z-index: 50;
@@ -437,13 +461,13 @@ body.notes-on .notetoggle { background: var(--accent); color: var(--accent-fg); 
   max-width: 68ch;
 }
 .detail > * + * { margin-top: 12px; }
-/* --fg-2, not --fg-3. Measured: --fg-3 on the detail panel's inset background
-   is 3.44:1, against the 4.5 AA needs at 12px. DESIGN.md 2.5: --fg-3 is
-   permitted "for portfolio claim text and for nothing that a user must read
-   to act", and "if a measurement says it fails, the fix is to lift the token,
-   never to leave it". A <dt> is the label naming the value beside it, which
-   is read. The <dd> below it stays --fg-2 and the hierarchy still reads,
-   because size and weight carry it. */
+/* --fg-2, not --fg-3. Measured when --fg-3 was #666B73: it was 3.44:1 on the
+   detail panel's inset background, against the 4.5 AA needs at 12px. DESIGN.md
+   2.5: --fg-3 is permitted "for portfolio claim text and for nothing that a
+   user must read to act", and "if a measurement says it fails, the fix is to
+   lift the token, never to leave it". A <dt> is the label naming the value
+   beside it, which is read. The <dd> below it stays --fg-2 and the hierarchy
+   still reads, because size and weight carry it. */
 .detail dt { font-size: 12px; color: var(--fg-2); margin-bottom: 3px; }
 .detail dd { margin: 0; font-family: var(--mono); font-size: 12px; color: var(--fg-2); overflow-wrap: anywhere; }
 

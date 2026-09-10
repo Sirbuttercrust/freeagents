@@ -296,7 +296,12 @@ every other device, which is the most confusing possible failure.
   `[data-avatar="did:abt:<name>"]`, painted by `polish.js` through
   `FASwarm.avatar`. There is no flat placeholder disc left in the tree and no
   new one should appear: an avatar is an identity fingerprint, so an operator
-  must not be able to choose it (DESIGN.md 2.4). A page that renders
+  must not be able to choose it (DESIGN.md 2.4). That sentence was written
+  when it was true only of the `.who` identity line, while eight screens still
+  drew an inline `<circle fill="#3A3A4A">` in the account menu. It is now true
+  of the set, and it is checked rather than asserted: `verify_designmd.py`
+  fails on any opaque colour a screen paints, which is the shape a placeholder
+  disc has to take. A page that renders
   `[data-avatar]` must load `swarm.js`, or the span paints an empty 32x32 box
   and throws nothing. `load_swarm.py` checks that and fails if any page misses
   it.

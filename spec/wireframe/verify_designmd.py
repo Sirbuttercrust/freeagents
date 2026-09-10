@@ -225,6 +225,108 @@ def duration_claims(text):
     return out
 
 
+def css_ratio_claims():
+    """Every contrast ratio asserted in a STYLESHEET comment, with its pair.
+
+    THE SECOND MEDIUM THE SAME DEFECT LIVES IN.
+
+    `market.css` said "Dark ink on a solid amber measures 8.85:1" beside a
+    pair that measures 8.34. The number had been copied from `agreement.css`,
+    where it describes a different pair and is correct. Nothing recomputed it,
+    because every ratio check in this directory reads `DESIGN.md` and this
+    tree writes its reasoning in stylesheet comments as a matter of house
+    style: nineteen ratio-shaped numbers live in `.css` files.
+
+    A ratio in a comment is a SECOND COPY of a number that is derivable. Copies
+    go stale, and this one sat next to the value it described while being wrong
+    about it, which is the most persuasive way to be wrong.
+
+    RESOLVING THE PAIR IS THE HARD HALF, AND GUESSING AT IT IS THE DEFECT.
+
+    The first version of this function took "the two most distant colours
+    mentioned nearby" and produced five confident wrong pairs on its first
+    run: it read `flow.css`'s note about the OLD `#666B73` as a claim about
+    `--fg-3`, and it read `market.css`'s note about a wash that no longer
+    exists as a claim about the fill that replaced it. Every one of those
+    would have been a real failure printed against a correct stylesheet. A
+    gate that cries wolf is retired by the first person who reads it, and
+    then the real drift goes through.
+
+    So a claim is checked only when its pair is UNAMBIGUOUS:
+
+      * the clause holding the number names exactly two resolvable colours, or
+      * the clause names none, and the rule immediately below the comment
+        declares both a `color` and a `background` that resolve
+
+    A clause in the past tense is not checked at all and is reported as
+    history: "it used to measure 4.94" is a fact about a value the tree no
+    longer ships, and recomputing it from today's tokens answers a different
+    question. Everything unresolved is PRINTED, because a checker whose
+    coverage is invisible is how `ratio claims checked: 0` printed green.
+
+    Returns (checked, unresolved, historical).
+    """
+    import glob
+    # Past tense: this clause is about a value the tree no longer ships.
+    hist = re.compile(r"\b(?:was|were|used to|had been|previously|"
+                      r"before the lift|until|old|former)\b", re.I)
+    out, unresolved, historical = [], [], []
+    ship = tokens.shipped()
+    for path in sorted(glob.glob(os.path.join(HERE, "*.css"))):
+        name = os.path.basename(path)
+        src = open(path, encoding="utf-8").read()
+        for cm in re.finditer(r"/\*.*?\*/", src, re.S):
+            body = cm.group(0)
+            # What the rule under this comment paints. That is the pair a
+            # sentence like "dark ink on a solid amber" is describing without
+            # naming either value.
+            tail = src[cm.end():cm.end() + 700]
+            block = {}
+            for prop in ("color", "background"):
+                dm = re.search(r"[;{\s]%s\s*:\s*([^;}]+)" % prop, tail)
+                if not dm:
+                    continue
+                val = dm.group(1).strip()
+                vm = re.match(r"var\(\s*(--[a-zA-Z0-9-]+)", val)
+                if vm and vm.group(1) in ship:
+                    block[prop] = (vm.group(1), tokens.as_rgb(ship[vm.group(1)][0]))
+                else:
+                    block[prop] = (val, tokens.as_rgb(val))
+            for rm in re.finditer(r"(\d+\.\d+):1", body):
+                claimed = float(rm.group(1))
+                line = src[:cm.start() + rm.start()].count("\n") + 1
+                # The CLAUSE, not the sentence: "measured 8.97:1 on --bg and
+                # 8.85:1 as dark ink on the fill" is two claims about two
+                # pairs, and resolving them together gets one of them wrong.
+                seg = body[max(0, rm.start() - 260):rm.end()]
+                clause = re.split(r"(?<=[.!?])\s|,\s+and\s+|\s+and\s+|;\s*", seg)[-1]
+                if hist.search(clause):
+                    historical.append((name, line, claimed, clause.strip()[:66]))
+                    continue
+                named = []
+                for tok in re.findall(r"--[a-zA-Z0-9-]+", clause):
+                    if tok in ship and tokens.as_rgb(ship[tok][0]):
+                        named.append((tok, tokens.as_rgb(ship[tok][0])))
+                for h in re.findall(r"#[0-9A-Fa-f]{6}\b", clause):
+                    named.append((h, tokens.as_rgb(h)))
+                uniq, seen = [], set()
+                for label, rgb in named:
+                    if rgb in seen:
+                        continue
+                    seen.add(rgb)
+                    uniq.append((label, rgb))
+                if len(uniq) >= 2:
+                    a, b = uniq[0], uniq[1]
+                elif not uniq and len(block) == 2 and all(v[1] for v in block.values()):
+                    a, b = block["color"], block["background"]
+                else:
+                    unresolved.append((name, line, claimed, clause.strip()[:66]))
+                    continue
+                out.append((name, line, claimed, tokens.contrast(a[1], b[1]),
+                            "%s on %s" % (a[0], b[0])))
+    return out, unresolved, historical
+
+
 def shipped_durations():
     """Every transition and animation DURATION the stylesheets ship, in ms.
 
@@ -276,6 +378,10 @@ def main():
     if not doc:
         fails.append("no token rows found in %s. The table shape this gate "
                      "reads (| `--token` | `value` | ...) matched nothing." % DOC)
+    if not tokens.literals():
+        fails.append("no colour literals found in any file. Every stylesheet "
+                     "in this tree holds\n      dozens, so a zero here is the "
+                     "derivation matching nothing, not a clean tree.")
 
     # ---- A. the round-5 defect: a value in both that disagrees -----------
     drift = []
@@ -429,6 +535,152 @@ def main():
                     % (DOC, start_line + 2 + i, row.count("|") - 1, width,
                        row.strip()[:96]))
 
+    # ---- H. a screen or stylesheet that introduces a colour ---------------
+    #
+    # SECTION 2.1, READ IN THE DIRECTION IT IS WRITTEN.
+    #
+    #     No screen may introduce a hex value. A colour that is not in this
+    #     table does not exist in the product.
+    #
+    # Every check above reads the token DEFINITIONS: it answers "what colours
+    # does the product have". 2.1's sentence is about SCREENS, and until this
+    # round nothing in the directory ever opened an HTML file looking for a
+    # colour. Twenty-three gates passed a tree where nine screens painted an
+    # inline `<circle fill="#3A3A4A">` into the account menu, and a planted
+    # `#D8D8D8` swatch (chosen to CLEAR AA, so no contrast gate could catch it
+    # for the wrong reason) went green on all twenty-three.
+    #
+    # The population is derived, not listed, and classified by POSITION rather
+    # than by value: `#418` in a paragraph is a pull request number, `#418` in
+    # a `fill=` is paint. See tokens.literals().
+    lits = tokens.literals()
+    ship_values = {tokens.normalise(v) for v, _ in ship.values()}
+    paints = [x for x in lits if x["kind"] == "paint"]
+    css_html = [x for x in paints if not x["file"].endswith(".js")]
+    for lit in css_html:
+        fails.append(
+            "%s:%d  paints `%s`, which no token defines.\n"
+            "      %s\n"
+            "      %s 2.1: a colour that is not in the token table does not "
+            "exist in\n      the product. Give it a token, or use the one "
+            "that already holds it."
+            % (lit["file"], lit["line"], lit["value"], lit["context"], DOC))
+
+    # ---- I. a renderer's copy of a token that no longer matches it --------
+    #
+    # A generative renderer works in a colour space, so it holds literals that
+    # are NOT palette entries: twelve arcade hues, a white and a black to mix
+    # toward. Those are section 2.4's subject and 2.1 does not reach them.
+    #
+    # Three of them are different: they are COPIES of tokens. `swarm.js` holds
+    # `RESERVED = { hex: "#7C7CFF" }`, the accent, used to keep a hue band
+    # empty so a generated agent can never come out wearing the colour that
+    # means verified. Move `--accent` and that guard reserves the old hue: the
+    # product silently breaks 2.2 and nothing fails.
+    #
+    # So a copy has to declare itself with `/* = --token */` beside the value,
+    # and every declared copy is recomputed here. The claim lives where the
+    # value lives, which is the only place it cannot be forgotten.
+    for lit in paints:
+        name = lit["mirror"]
+        if not name:
+            continue
+        if name not in ship:
+            fails.append(
+                "%s:%d  declares `%s` a copy of `%s`, and no stylesheet "
+                "defines that token."
+                % (lit["file"], lit["line"], lit["value"], name))
+        elif tokens.normalise(lit["value"]) != tokens.normalise(ship[name][0]):
+            fails.append(
+                "%s:%d  holds %s and calls it `%s`, which %s ships as %s.\n"
+                "      A renderer reasoning from a stale copy of a token "
+                "keeps obeying the old\n      value after the product has "
+                "moved, and every gate stays green."
+                % (lit["file"], lit["line"], lit["value"], name,
+                   ship[name][1], ship[name][0]))
+
+    # A renderer literal that happens to equal a shipped token and does NOT
+    # say so is the same defect waiting to happen, so it is named rather than
+    # ignored. Reported as a fail with the annotation as the fix, because the
+    # alternative is a reader deciding case by case whether a copy is a copy.
+    for lit in [x for x in paints if x["file"].endswith(".js")]:
+        if lit["mirror"]:
+            continue
+        if tokens.normalise(lit["value"]) in ship_values:
+            match = [n for n, (v, _) in ship.items()
+                     if tokens.normalise(v) == tokens.normalise(lit["value"])]
+            fails.append(
+                "%s:%d  holds %s, which is the value of %s, and does not say "
+                "so.\n      %s\n      Annotate it `/* = %s */` so it is "
+                "recomputed when the token moves,\n      or change the value "
+                "so it is not a silent copy."
+                % (lit["file"], lit["line"], lit["value"],
+                   " and ".join("`%s`" % n for n in sorted(match)),
+                   lit["context"], sorted(match)[0]))
+
+    # ---- J. a contrast ratio asserted in a stylesheet comment -------------
+    css_ratios, css_unresolved, css_historical = css_ratio_claims()
+    for name, line, claimed, real, pair in css_ratios:
+        if abs(real - claimed) > 0.05:
+            fails.append(
+                "%s:%d  a comment says %.2f:1 and %s measures %.2f:1.\n"
+                "      A ratio in a comment is a second copy of a derivable "
+                "number. This one was\n      copied from another stylesheet "
+                "where it describes a different pair."
+                % (name, line, claimed, pair, real))
+
+    # ---- K. a ratio-shaped number in the document that no claim covers ----
+    #
+    # ROUND 6 FOUND THE LAST UNCHECKED RATIO BY HAND, WHICH IS NOT A METHOD.
+    #
+    # After the ratio tables landed, a manual sweep asked which ratio-shaped
+    # numbers in DESIGN.md a claim actually covered, and found two that none
+    # did: the historical pair in 2.5. That sweep was a person remembering to
+    # look. Round 7 then added two more numbers to the file, and the same
+    # question had to be asked again.
+    #
+    # So it is asked on every run. A gate's coverage is a property a gate can
+    # measure about itself, and leaving it to a reviewer's memory is how the
+    # count drifts back down the next time a section is reorganised.
+    #
+    # TWO THINGS ARE NOT CLAIMS, and calling them claims makes this check
+    # useless rather than strict:
+    #
+    #   a THRESHOLD. "4.5:1 for body text" and "clears 4.5:1" name the bar AA
+    #   sets, not a measurement of a pair. There is nothing to recompute; the
+    #   number is 4.5 because WCAG says so.
+    #
+    #   a claim WRAPPED across lines. A sentence hard-wrapped between its ink
+    #   and its ratio reports the ratio's line, and the claim reader reports
+    #   the line the sentence starts on. Same claim, two line numbers.
+    #
+    # Both are recognised by shape rather than by a list of line numbers,
+    # because a list is the thing this whole round is about.
+    threshold = re.compile(r"(?:clears?|meets?|needs?|against the|at least|"
+                           r"minimum of|AA[^.]{0,20})\s*$", re.I)
+    claimed_lines = {line for _, _, _, line in ratios}
+    # A wrapped claim covers the line it starts on and the lines it runs onto.
+    for _, _, _, line in ratios:
+        claimed_lines.add(line + 1)
+        claimed_lines.add(line + 2)
+    for m in re.finditer(r"(?<![\d.])(\d+\.\d+)\s*:\s*1", text):
+        line = text[:m.start()].count("\n") + 1
+        if line in claimed_lines:
+            continue
+        # The words immediately before the number decide what it is.
+        head = text[max(0, m.start() - 90):m.start()]
+        if threshold.search(head.replace("\n", " ")):
+            continue
+        fails.append(
+            "%s:%d  states %s:1 and no claim in this gate covers it.\n"
+            "      %s\n"
+            "      Every ratio in this document is derivable from the shipped "
+            "tokens, so an\n      unchecked one is a number that goes stale "
+            "silently. Write it in a shape\n      this gate reads (`--ink` on "
+            "`--surface` measures **N:1**, or a ratio table)."
+            % (DOC, line, m.group(1),
+               text.splitlines()[line - 1].strip()[:96]))
+
     # ---- the report ------------------------------------------------------
     print("=" * 78)
     print("verify_designmd.py  the normative document against the tree")
@@ -441,7 +693,30 @@ def main():
           % (len(doc), DOC))
     print("tokens excluded by hand:   %d  each with its reason in this file"
           % len(UNDOCUMENTED_WITH_REASON))
-    print("ratio claims checked:      %d" % len(ratios))
+    print("ratio claims checked:      %d  in %s, %d more in stylesheet comments"
+          % (len(ratios), DOC, len(css_ratios)))
+    for name, line, claimed, real, pair in css_ratios:
+        print("    %s:%-4d %5.2f:1  %-28s tree %5.2f" % (name, line, claimed,
+                                                         pair, real))
+    if css_historical:
+        print("  stated in the past tense, about a value the tree no longer "
+              "ships, not checked:")
+        for name, line, claimed, clause in css_historical:
+            print("    %s:%-4d %5.2f:1  %s" % (name, line, claimed, clause))
+    if css_unresolved:
+        print("  ratio-shaped numbers in a comment whose pair does not resolve:")
+        for name, line, claimed, clause in css_unresolved:
+            print("    %s:%-4d %5.2f:1  %s" % (name, line, claimed, clause))
+        print("  These are NOT checked. Name both colours in the clause to "
+              "check one.")
+    print("colour literals read:      %d  across every html, js and css file"
+          % len(lits))
+    print("  %-24s %s"
+          % ("by position:",
+             "  ".join("%s %d" % (k, sum(1 for x in lits if x["kind"] == k))
+                       for k in ("root", "paint", "alpha", "mask", "text"))))
+    print("  %-24s %d  each recomputed against its token"
+          % ("declared token copies:", sum(1 for x in paints if x["mirror"])))
     print("duration claims checked:   %d  against %d distinct shipped values"
           % (len(durs), len(ships_ms)))
     print("scripts named in %-9s %d  of which %d are on disk"

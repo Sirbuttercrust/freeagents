@@ -180,7 +180,7 @@
     return (hi + 0.05) / (lo + 0.05);
   }
 
-  var BG = "#08090A";
+  var BG = "#08090A"; /* = --bg */
 
   /* Lift lightness in HSL until the colour clears `min` against the page.
      Hue and saturation survive; only value moves. A saturated blue needs a
@@ -252,7 +252,7 @@
     return out;
   })();
 
-  var RESERVED = { hex: "#7C7CFF", loDeg: 228, hiDeg: 258 };
+  var RESERVED = { hex: "#7C7CFF" /* = --accent */, loDeg: 228, hiDeg: 258 };
 
   /* ------------------------------------------------------------ material
 

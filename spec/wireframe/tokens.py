@@ -57,8 +57,8 @@ def stylesheets():
                   for p in glob.glob(os.path.join(HERE, "*.css")))
 
 
-def _root_blocks(src):
-    """The bodies of every `:root` rule in a stylesheet.
+def _root_spans(src):
+    """Every `:root` rule as (rule_start, body_start, end) over the source.
 
     Written as a brace scan rather than a regex. `re.search(r":root\\s*\\{(.*?)\\}")`
     is the obvious version and it is wrong twice over: non-greedy, it stops at
@@ -66,6 +66,11 @@ def _root_blocks(src):
     exactly that) silently contributes only the first. That is how the pane
     surface system, seven tokens carrying the polished pass's whole look, was
     invisible to every reader of this tree including the round-5 audit probe.
+
+    One scan, used by both directions of section 2.1: `shipped()` reads the
+    bodies, `literals()` uses the spans to know what is NOT a definition. Two
+    copies of a brace walker would answer the same question differently the
+    first time either one is fixed.
     """
     out = []
     for m in re.finditer(r":root[^{]*\{", src):
@@ -76,8 +81,13 @@ def _root_blocks(src):
             elif src[i] == "}":
                 depth -= 1
             i += 1
-        out.append(src[m.end():i - 1])
+        out.append((m.start(), m.end(), i))
     return out
+
+
+def _root_blocks(src):
+    """The bodies of every `:root` rule in a stylesheet."""
+    return [src[body:end - 1] for _, body, end in _root_spans(src)]
 
 
 def shipped():
@@ -144,6 +154,139 @@ def as_rgb(value):
     if m:
         return tuple(int(g) for g in m.groups())
     return None
+
+
+# ---------------------------------------------------------------- literals
+#
+# THE OTHER DIRECTION OF SECTION 2.1.
+#
+# `shipped()` above reads the token definitions. That answers "what colours
+# does the product have", and every gate in this directory was built on it.
+# Section 2.1 states a second rule pointing the opposite way:
+#
+#     No screen may introduce a hex value. A colour that is not in this
+#     table does not exist in the product.
+#
+# Nothing read that direction. Twenty-three gates passed a tree in which nine
+# screens painted `#3A3A4A` into an inline `<svg>`, because a gate that walks
+# `:root` blocks cannot see a colour that was never defined as a token. The
+# rule was enforced over the population that obeys it.
+#
+# So the population is derived here, from every file a browser loads, and the
+# classification is by the POSITION a colour sits in rather than by its value.
+# Position is the thing that decides whether a rule about screens applies:
+# `#418` in a paragraph is a pull request number and `#418` in a `fill=` is
+# paint, and no list of values can tell them apart.
+
+_JS_LINE_COMMENT = re.compile(r"^[ \t]*//[^\n]*$", re.M)
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+
+# Hex, rgb/rgba and hsl/hsla alike. A rule that only reads hex is answered by
+# typing the same colour a different way, which is a list pretending to be a
+# derivation.
+_COLOUR = re.compile(
+    r"#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{3}\b|"
+    r"rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+[^)]*\)|"
+    r"hsla?\([^)]*\)")
+
+# A colour inside one of these declarations is a stencil. `mask-image:
+# linear-gradient(#000 0 0)` uses the alpha channel of a black gradient to
+# cut a shape; nothing renders that black, and calling it a palette entry
+# would bury the twelve colours the rule is about.
+_MASK_DECL = re.compile(r"(?:-webkit-)?mask(?:-image|-composite)?\s*:[^;{}]*$")
+
+# The attributes and properties that put a colour on screen in HTML. A colour
+# anywhere else in an HTML file is a text node.
+_PAINT_ATTR = re.compile(
+    r"(?:fill|stroke|stop-color|flood-color|lighting-color|color|"
+    r"background(?:-color)?|border(?:-[a-z]+)?-color|box-shadow|"
+    r"text-shadow|outline(?:-color)?)\s*[:=]\s*[\"']?[^\"'<>;]*$", re.I)
+
+
+# A literal in a renderer may declare itself a MIRROR of a token by naming it
+# in a comment immediately after the value: `var BG = "#08090A"; /* = --bg */`.
+#
+# WHY AN ANNOTATION AND NOT A LIST IN THE GATE. `swarm.js` holds `RESERVED =
+# { hex: "#7C7CFF" }`, a copy of `--accent`, used to keep a hue band empty so
+# a generated agent can never come out wearing the colour that means verified.
+# Move `--accent` and the guard still reserves the old hue: the product breaks
+# its own rule and every gate stays green. The annotation puts the claim where
+# the value is, and the gate recomputes it, so the two cannot drift apart.
+_MIRROR = re.compile(r"\A\s*(?:;|,|\))?\s*/\*\s*=\s*(--[a-zA-Z0-9-]+)\s*\*/")
+
+
+def _blank(src, rx):
+    """Blank out matches, keeping every offset and newline where it was.
+
+    Deleting comments shifts every line number after them, and a gate that
+    reports the wrong line teaches a reader to stop trusting its output.
+    """
+    return rx.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), src)
+
+
+def _alpha_of(value):
+    """The alpha of a colour literal, or 1.0 for an opaque one."""
+    m = re.match(r"(?:rgba|hsla)\([^)]*?([\d.]+)\s*\)$", value.strip())
+    return float(m.group(1)) if m else 1.0
+
+
+def literals():
+    """Every colour literal a browser loads, outside `:root`, with its class.
+
+    Returns a list of dicts: file, line, value, kind, context.
+
+    The five kinds, and the rule that owns each:
+
+      root      a token definition. `shipped()`'s subject, skipped here
+      mask      a stencil in a mask declaration. Renders nothing
+      alpha     a translucent value. Section 2.6: a surface is an alpha over
+                whatever sits beneath it, never a hex, so it has no single
+                colour and cannot be a palette entry
+      text      a colour-shaped run in an HTML text node. `#418` is a pull
+                request. Excluded by POSITION, never by value
+      paint     an opaque colour a person sees. Section 2.1's subject
+
+    A `paint` in a script also carries `mirror`: the token it declares itself
+    a copy of, read from a `/* = --token */` comment after the value.
+    """
+    out = []
+    for name in sorted(os.path.basename(p) for p in
+                       glob.glob(os.path.join(HERE, "*.html"))
+                       + glob.glob(os.path.join(HERE, "*.js"))
+                       + glob.glob(os.path.join(HERE, "*.css"))):
+        raw = open(os.path.join(HERE, name), encoding="utf-8").read()
+        if name.endswith(".css"):
+            src = _blank(raw, _COMMENT)
+            spans = [(a, c) for a, _, c in _root_spans(src)]
+        elif name.endswith(".js"):
+            src = _blank(_blank(raw, _COMMENT), _JS_LINE_COMMENT)
+            spans = []
+        else:
+            src = _blank(_blank(raw, _HTML_COMMENT), _COMMENT)
+            spans = []
+        lines = raw.splitlines()
+        for m in _COLOUR.finditer(src):
+            if any(a <= m.start() < b for a, b in spans):
+                kind = "root"
+            else:
+                before = src[max(0, m.start() - 120):m.start()]
+                if name.endswith(".css") and _MASK_DECL.search(before):
+                    kind = "mask"
+                elif name.endswith(".html") and not _PAINT_ATTR.search(before):
+                    kind = "text"
+                elif _alpha_of(m.group(0)) < 1.0:
+                    kind = "alpha"
+                else:
+                    kind = "paint"
+            line = src[:m.start()].count("\n") + 1
+            # The mirror comment is read from the RAW source, past the closing
+            # quote, because the blanked copy has every comment erased.
+            after = raw[m.end():m.end() + 60].lstrip("\"'")
+            mm = _MIRROR.match(after)
+            out.append({"file": name, "line": line, "value": m.group(0),
+                        "kind": kind, "mirror": mm.group(1) if mm else None,
+                        "context": lines[line - 1].strip()[:110]})
+    return out
 
 
 def _channel(c):
