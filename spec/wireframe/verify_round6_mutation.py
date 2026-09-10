@@ -155,6 +155,20 @@ def mut_historical_ratio():
         "it measured 4.60:1 on `--bg` and 3.41:1 on `--bg-2`")
 
 
+# ---- J. a table row with more cells than its header ------------------------
+def mut_ragged_row():
+    """The `--eye` row as it was first written: three cells, two-cell header.
+
+    A markdown renderer drops the extras, so the reason for the token
+    disappears from the page while still sitting in the source. Found by
+    looking at the rendered document, which is the one thing no gate here
+    does.
+    """
+    sub(DOC, "| token | value | what it is |\n|---|---|---|\n"
+             "| `--agent-1` | `#7C7CFF` | the lead, which carries the accent |",
+        "| token | value |\n|---|---|\n| `--agent-1` | `#7C7CFF` | the lead |")
+
+
 MUTATIONS = [
     ("A  an absurd value in the normative token row", mut_doc_absurd,
      "--fg-3", "documented as #FF00FF"),
@@ -174,6 +188,8 @@ MUTATIONS = [
      "measure_density.py", "not in this directory"),
     ("I  a stale HISTORICAL ratio, against a literal hex", mut_historical_ratio,
      "#666B73", "measures 3.72:1"),
+    ("J  a table row with more cells than its header", mut_ragged_row,
+     "--eye", "cells under a 2-cell header"),
 ]
 
 

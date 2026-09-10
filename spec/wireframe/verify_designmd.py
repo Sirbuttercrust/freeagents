@@ -406,6 +406,29 @@ def main():
                 "SENTENCE, the way section 10 does."
                 % (DOC, line, s, sentence.strip()[:100]))
 
+    # ---- G. a token table whose rows do not match its header --------------
+    #
+    # Found by looking at the rendered document rather than by any check: the
+    # `--eye` row was added to section 2.4 with three cells under a two-cell
+    # header, so a markdown renderer drops the third and the reason for the
+    # token vanishes from the page while remaining in the source. A gate that
+    # reads the source is blind to what a reader actually sees, which is the
+    # same gap in a different medium.
+    for block in re.finditer(r"^\|(?:[^\n]*\|)\n\|[-\s|:]+\|\n((?:\|[^\n]*\|\n)+)",
+                             text, re.M):
+        head = text[block.start():text.index("\n", block.start())]
+        width = head.count("|") - 1
+        start_line = text[:block.start()].count("\n") + 1
+        for i, row in enumerate(block.group(1).rstrip("\n").split("\n")):
+            if row.count("|") - 1 != width:
+                fails.append(
+                    "%s:%d  a table row has %d cells under a %d-cell header:\n"
+                    "      %s\n      A renderer drops the extras, so the "
+                    "reason for a token disappears from\n      the page while "
+                    "still sitting in the source."
+                    % (DOC, start_line + 2 + i, row.count("|") - 1, width,
+                       row.strip()[:96]))
+
     # ---- the report ------------------------------------------------------
     print("=" * 78)
     print("verify_designmd.py  the normative document against the tree")

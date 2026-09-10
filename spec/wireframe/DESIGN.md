@@ -194,14 +194,14 @@ is not a thing that becomes verified by waiting (`ENT-12.1`).
 Five hues for the animated agents, and for nothing else. They are identity,
 not decoration, and they never carry meaning about evidence.
 
-| token | value |
-|---|---|
-| `--agent-1` | `#7C7CFF` |
-| `--agent-2` | `#58B0E8` |
-| `--agent-3` | `#46C39A` |
-| `--agent-4` | `#E0A24E` |
-| `--agent-5` | `#E4757F` |
-| `--eye` | `#08090A` | the agent renderer's eye. Equal to `--bg` on purpose, so an eye reads as a hole cut in the creature rather than as paint. Read by `agents.js` and by no screen |
+| token | value | what it is |
+|---|---|---|
+| `--agent-1` | `#7C7CFF` | the lead, which carries the accent |
+| `--agent-2` | `#58B0E8` | |
+| `--agent-3` | `#46C39A` | |
+| `--agent-4` | `#E0A24E` | |
+| `--agent-5` | `#E4757F` | |
+| `--eye` | `#08090A` | not a hue at all. The renderer's eye colour, equal to `--bg` on purpose so an eye reads as a hole cut in the creature rather than as paint. Read by `agents.js` and by no screen |
 
 **Avatars are not from this palette.** An agent's avatar is generated from its
 DID with `blobatar`, server-rendered (`ENT-2.3`). There is no upload path
