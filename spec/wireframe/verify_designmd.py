@@ -330,6 +330,47 @@ def main():
                 "number in prose that nothing checks goes stale the\n"
                 "      day after it is written." % (DOC, line, ms))
 
+    # ---- F. a script named as available that is not on disk ---------------
+    #
+    # Same class as D13 and found by the same survey. Section 4.1 said
+    # "`measure_density.py` in this directory measures a live page against
+    # these numbers" while section 10 of the SAME FILE said the two density
+    # scripts "do not exist on this branch". A document that contradicts
+    # itself about what a reader can run is worse than one that says nothing,
+    # because the reader who starts at 4.1 never reaches 10.
+    #
+    # CHECKED PER SENTENCE, NOT BY PROXIMITY. The first version of this check
+    # excused a name when an absence phrase appeared within 400 characters,
+    # and its own mutation control MISSED: the phrase that excused the planted
+    # defect was in the very sentence describing THIS GATE ("fails if this
+    # file ever names a script here that is not on disk"). A window is a guess
+    # about where a qualifier lives. The definition is that the sentence
+    # making the claim has to carry it, so a paragraph cannot launder a false
+    # statement by sitting next to a true one.
+    named_scripts = sorted(set(re.findall(r"`([a-z_0-9]+\.py)`", text)))
+    absent = [s for s in named_scripts
+              if not os.path.exists(os.path.join(HERE, s))]
+    marker = re.compile(r"do(?:es)? not exist|not on disk|as absent|"
+                        r"unmerged|never existed", re.I)
+    # Join wrapped lines inside a paragraph before splitting, or a name and
+    # its qualifier land in different "sentences" purely because of where the
+    # text was hard-wrapped.
+    flat = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
+    for s in absent:
+        for sentence in re.split(r"(?<=[.!?])\s+", flat):
+            if "`%s`" % s not in sentence:
+                continue
+            if marker.search(sentence):
+                continue
+            line = text[:text.index("`%s`" % s)].count("\n") + 1
+            fails.append(
+                "%s:%d  names `%s` in a sentence that presents it as "
+                "available:\n      %r\n"
+                "      It is not in this directory. A script a reader cannot "
+                "run is a claim,\n      not a check. Say it is absent IN THAT "
+                "SENTENCE, the way section 10 does."
+                % (DOC, line, s, sentence.strip()[:100]))
+
     # ---- the report ------------------------------------------------------
     print("=" * 78)
     print("verify_designmd.py  the normative document against the tree")
@@ -345,6 +386,11 @@ def main():
     print("ratio claims checked:      %d" % len(ratios))
     print("duration claims checked:   %d  against %d distinct shipped values"
           % (len(durs), len(ships_ms)))
+    print("scripts named in %-9s %d  of which %d are on disk"
+          % (DOC + ":", len(named_scripts), len(named_scripts) - len(absent)))
+    if absent:
+        print("%-26s %s  named as absent, with the reason stated"
+              % ("", " ".join(absent)))
     print()
 
     # An accounting line that can exceed the total is a broken instrument, not

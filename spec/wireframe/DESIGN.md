@@ -381,9 +381,12 @@ is expanded.
 A screen over budget is not fixed by shrinking the type. It is fixed by moving
 something behind a disclosure, or by becoming two screens.
 
-`measure_density.py` in this directory measures a live page against these
-numbers, and `calibrate_density.py` compares against real reference sites so
-the budget stays grounded rather than arbitrary.
+**No instrument on this branch measures the budget.** `measure_density.py` and
+`calibrate_density.py` were written on an unmerged branch, so section 10 lists
+them as absent and `verify_designmd.py` fails if this file ever names a script
+here that is not on disk. Until one lands, the budget is checked by reading
+the screen, and a number nobody can run is a number to be honest about rather
+than to cite.
 
 ### 4.2 Progressive disclosure, mechanically
 

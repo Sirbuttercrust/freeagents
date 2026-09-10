@@ -127,6 +127,21 @@ def mut_tint_ratio():
         "| `--cat-testing` | `#E4757F` | testing | 4.10 |")
 
 
+# ---- H. a script named as available that is not on disk -------------------
+def mut_phantom_script():
+    """Section 4.1's defect, restored.
+
+    It said "`measure_density.py` in this directory measures a live page"
+    while section 10 of the same file said the density scripts do not exist
+    on this branch. The reader who starts at 4.1 never reaches 10.
+    """
+    sub(DOC, "**No instrument on this branch measures the budget.** "
+             "`measure_density.py` and\n`calibrate_density.py` were written "
+             "on an unmerged branch, so section 10 lists\nthem as absent",
+        "`measure_density.py` in this directory measures a live page against "
+        "these\nnumbers. Section 10 lists them")
+
+
 MUTATIONS = [
     ("A  an absurd value in the normative token row", mut_doc_absurd,
      "--fg-3", "documented as #FF00FF"),
@@ -142,6 +157,8 @@ MUTATIONS = [
      "--fg-3", "measure 5.15:1"),
     ("G  a stale ratio in the tint table's last column", mut_tint_ratio,
      "--cat-testing", "measure 6.78:1"),
+    ("H  a script named as available that is not on disk", mut_phantom_script,
+     "measure_density.py", "not in this directory"),
 ]
 
 
