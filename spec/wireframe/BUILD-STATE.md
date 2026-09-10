@@ -152,6 +152,59 @@ characters, and the phrase excusing the planted defect was in the sentence
 describing that very gate. It checks per SENTENCE now. A window is a guess
 about where a qualifier lives; the sentence making a claim has to carry it.
 
+### Round 7: the rule was read in the direction it was easy to check
+
+Round 6 gated the normative document. Round 7 found that one of its rules had
+never been read in the direction it points. Section 2.1 says **no screen may
+introduce a hex value**, and every gate in the directory read the token
+DEFINITIONS instead: 23 of them passed a tree where nine screens painted
+`#3A3A4A` into an inline `<svg>`, and a `#D8D8D8` swatch planted by review
+(chosen to CLEAR AA, so no contrast gate could catch it for the wrong reason)
+went green on all 23.
+
+`tokens.literals()` derives that population from every file the browser loads
+and classifies each literal by the POSITION it sits in, never by its value:
+
+| position | n | who owns it |
+|---|---|---|
+| `:root` | 39 | a token definition, 2.1's table |
+| paint | 35 | 2.1's actual subject |
+| translucent | 55 | 2.6, a surface, not a palette entry |
+| mask stencil | 10 | an alpha channel written in colour syntax |
+| HTML text node | 9 | `#418` is a pull request, not paint |
+
+Position is what tells `#418` in a paragraph from `#418` in a `fill=`, and no
+list of values can. Twelve paints had no token: eight account-menu discs, the
+unverified badge ink, and three copies of the form-error colour.
+
+**The eight discs became the generated identity avatar**, keyed on the DID
+`settings.html` states as the reader's own, read at run time by
+`port_menu_avatars.py` rather than typed into it. That closes the
+"no flat placeholder disc left in the tree" claim by construction rather than
+by editing the sentence. Two of those eight were not loading `swarm.js` and
+would have painted a blank 32x32 box that throws nothing, so `verify_polish.py`
+now measures `[data-avatar]` the way it already measured `[data-ico]`.
+
+**`--bad` is a separate token from `--cat-testing` on purpose**, though they
+hold the same value. A tint is a label saying what an agent does; `--bad` is a
+state saying something is wrong. One shared literal meant repainting the
+testing discipline would silently repaint every form error.
+
+**A renderer's copy of a token now has to declare itself.** `swarm.js` keeps a
+hue band empty around its own copy of `--accent` so a generated agent can never
+come out wearing the colour that means verified. Move `--accent` and that guard
+reserves the old hue: a real product defect with every gate green. Three copies
+are annotated `/* = --token */` and recomputed on every run.
+
+`verify_round7_mutation.py` carries twelve controls, and the four that matter
+most are the ones that must NOT fire. They plant a pull request number in a
+paragraph, an alpha over a surface, a stencil in a mask, and a thirteenth hue
+in the renderer, and they assert exit 0. That half exists because the first
+version of the stylesheet-comment ratio reader guessed at which colours a claim
+was about and produced five confident wrong failures against correct
+stylesheets. A gate that cries wolf is retired by the first person who reads
+its output, and then the real drift goes through.
+
 The six that came from the polished pass (`verify_polish.py`,
 `verify_profile_header.py`, `verify_agents_below.py`,
 `verify_reduced_motion.py`, `verify_flow_motion.py`,
@@ -172,6 +225,7 @@ python3 verify_round3_mutation.py http://127.0.0.1:3111
 python3 verify_round4_mutation.py http://127.0.0.1:3111
 python3 verify_round5_mutation.py
 python3 verify_round6_mutation.py
+python3 verify_round7_mutation.py
 ```
 
 `verify_round3_mutation.py` is the one to read if you are wondering why the

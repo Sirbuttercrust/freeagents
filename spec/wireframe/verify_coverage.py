@@ -120,6 +120,14 @@ INLINE_WITH_REASON = {
                                   "notfound.html"},
     "verify_round4_mutation.py": {"browse.html", "agreement.html",
                                   "zz_ghost_screen.html"},
+    # A mutation suite plants a defect in a specific file and asserts the gate
+    # names THAT file. The screen is the fixture, not a population: round 7's
+    # controls put a legible swatch in conduct.html and restore the flat
+    # account-menu disc in deposit.html, and both assertions are about the
+    # gate's output naming the file it was planted in. Deriving the fixture
+    # would mean planting a defect in a page chosen at run time and then not
+    # knowing which name to expect.
+    "verify_round7_mutation.py": {"conduct.html", "deposit.html"},
 }
 
 
@@ -143,6 +151,34 @@ def _is_screen(v):
     if "*" in v or "?" in v or "/" in v.strip("/"):
         return False
     return os.path.exists(os.path.join(HERE, v.lstrip("/")))
+
+
+def _binds_screens(path):
+    """Does this file ASSIGN a name containing SCREENS, at module level?
+
+    A SUBSTRING SEARCH IS NOT A BINDING TEST, and this line used to be
+    `"SCREENS" in src`. Two round-7 files failed it for writing the word in
+    prose: verify_designmd.py explains that "2.1's sentence is about SCREENS",
+    and verify_round7_mutation.py quotes the same rule in its docstring. Both
+    were reported as holding a hardcoded screen list. Neither has a list of
+    any kind.
+
+    That is this gate's own subject in miniature. A gate that reads for a
+    STRING where it means a STRUCTURE fails on a file that merely talks about
+    the thing, and the fix is the same one this file already applies to every
+    other question it asks: parse it. `literal_lists` above walks the AST.
+    """
+    tree = ast.parse(open(path, encoding="utf-8").read())
+    for node in ast.walk(tree):
+        targets = []
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            targets = [node.target]
+        for t in targets:
+            if isinstance(t, ast.Name) and "SCREENS" in t.id:
+                return True
+    return False
 
 
 def literal_lists(path):
@@ -316,7 +352,7 @@ def main():
             # already. Naming it that way stops a reader assuming the row is
             # a gap and stops the row hiding one.
             how = "derived (own glob)"
-        elif "SCREENS" in src:
+        elif _binds_screens(os.path.join(HERE, name)):
             how = "SCREENS present, NOT derived"
             fails.append("%s has a SCREENS binding that is neither derived "
                          "from population.py nor a directory glob." % name)
