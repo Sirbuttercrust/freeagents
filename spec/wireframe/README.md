@@ -85,10 +85,14 @@ and require it to PASS, so a green gate is known to discriminate rather than
 merely to run:
 
 ```bash
-python3 verify_flow_mutation.py   http://127.0.0.1:3111
-python3 verify_round2_mutation.py http://127.0.0.1:3111
-python3 verify_round3_mutation.py http://127.0.0.1:3111
+for m in verify_*mutation*.py; do python3 "$m" http://127.0.0.1:3111; done
 ```
+
+Written as a glob rather than as a list of names. This paragraph named three of
+the six suites for a fortnight, because a list of files in prose goes stale the
+day a seventh is added and nothing ever tells you. `verify_all.py` reads them
+off disk the same way for the same reason. The suites that take no url ignore
+the argument.
 
 ## Rules that bind anyone building from this
 

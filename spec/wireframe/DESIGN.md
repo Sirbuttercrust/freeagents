@@ -763,13 +763,11 @@ python3 verify_all.py http://127.0.0.1:3111
 
 # 3. and prove the gates can FAIL, on the bugs they were written for.
 #    Run separately: these edit files and take several minutes.
-python3 verify_flow_mutation.py   http://127.0.0.1:3111
-python3 verify_round2_mutation.py http://127.0.0.1:3111
-python3 verify_round3_mutation.py http://127.0.0.1:3111
-python3 verify_round4_mutation.py http://127.0.0.1:3111
-python3 verify_round5_mutation.py
-python3 verify_round6_mutation.py
-python3 verify_round7_mutation.py
+#    A GLOB, not a list of names. This block named the suites individually
+#    and had to be edited every round, which is the same defect the suites
+#    themselves exist to catch: a list cannot fail on the entry it does not
+#    mention. The ones that take no url ignore the argument.
+for m in verify_*mutation*.py; do python3 "$m" http://127.0.0.1:3111; done
 
 # house rule: zero em dashes, enforced across EVERY file here.
 # Run the gate, not a grep. The grep this line used to name,
@@ -803,7 +801,7 @@ browser.
 | `verify_rail.py` | the headline total, the fee and the pay button follow the chosen rail, including inside the scan sheet |
 | `verify_pickers.py` | every picker row traces to a real agreement line with matching text, and every omitted line is explained on screen |
 | `verify_primary.py` | no surface ever shows two accent-filled primaries at once |
-| `verify_polish.py` | the polish layer loads on every screen, every icon paints, no button is inert, and 320px holds with 44px targets |
+| `verify_polish.py` | the polish layer loads on every screen, every icon and every generated avatar paints, no button is inert, and 320px holds with 44px targets |
 | `verify_profile_header.py` | the profile header never clips its banner and the verified badge reads as a stamp |
 | `verify_agents_below.py` | the decorative agents never paint over text, asked of the browser at six scroll positions |
 | `verify_reduced_motion.py` | every animation has a dignified static end state under `prefers-reduced-motion` |
@@ -815,7 +813,7 @@ browser.
 | `verify_sampledata.py` | every screen showing an invented name or a dollar figure says on it that the data is sample data |
 | `verify_linknames.py` | a link whose text names its destination names it correctly, checked against what the destination page calls itself |
 | `verify_coverage.py` | no gate names its own screens, in a list OR inline in a goto. Every gate's scope is derived from the directory, so a screen added later cannot sit unmeasured behind a green table. No browser, no server |
-| `verify_designmd.py` | every value THIS FILE states is the value the tree ships: tokens against every `:root` block, contrast ratios and durations recomputed. Both sides derived, so a token added next month is compared the day it exists. No browser, no server |
+| `verify_designmd.py` | every value THIS FILE states is the value the tree ships: tokens against every `:root` block, contrast ratios and durations recomputed. Both sides derived, so a token added next month is compared the day it exists. Also section 2.1 read in the direction it points, at screens: every colour literal in every html, js and css file, classified by the position it sits in, and a renderer's declared copy of a token recomputed against it. No browser, no server |
 
 **A gate's SCOPE is derived, never written down.** This table used to say
 `verify_ink.py` covered "every rendered character at both viewports" while

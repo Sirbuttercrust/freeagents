@@ -60,7 +60,8 @@ GATES = [
     # audit whatever happened to be on their default port. WF_BASE is set
     # below from the same BASE every other gate gets.
     ("verify_polish.py", False,
-     "the polish layer loads, icons paint, no inert buttons, 320px with 44px targets"),
+     "the polish layer loads, icons and generated avatars paint, no inert "
+     "buttons, 320px with 44px targets"),
     ("verify_profile_header.py", False,
      "the profile header never clips its banner, the verified badge reads as a stamp"),
     ("verify_agents_below.py", False,
@@ -103,7 +104,9 @@ GATES = [
     # and a real stale hex sat in that row with a paragraph reasoning from it.
     ("verify_designmd.py", False,
      "every value DESIGN.md states is the value the tree ships: tokens, "
-     "contrast ratios and durations, both sides derived rather than listed"),
+     "contrast ratios and durations, both sides derived rather than listed. "
+     "Round 7: and section 2.1 read at screens, every colour literal in "
+     "every file classified by the position it sits in"),
 ]
 
 env = dict(os.environ)

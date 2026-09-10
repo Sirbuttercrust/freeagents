@@ -216,16 +216,12 @@ port they reported "polish layer not loaded" on all 26 screens, which reads
 exactly like a real regression and is not one.
 
 The mutation suites are run separately, because they edit files and take
-several minutes:
+several minutes. A GLOB, not a list of names: this block named them one by one
+and went stale every round, which is the defect the suites themselves exist to
+catch. The ones that take no url ignore the argument.
 
 ```
-python3 verify_flow_mutation.py   http://127.0.0.1:3111
-python3 verify_round2_mutation.py http://127.0.0.1:3111
-python3 verify_round3_mutation.py http://127.0.0.1:3111
-python3 verify_round4_mutation.py http://127.0.0.1:3111
-python3 verify_round5_mutation.py
-python3 verify_round6_mutation.py
-python3 verify_round7_mutation.py
+for m in verify_*mutation*.py; do python3 "$m" http://127.0.0.1:3111; done
 ```
 
 `verify_round3_mutation.py` is the one to read if you are wondering why the
