@@ -26,6 +26,27 @@ This directory is the result: 33 screens, one visual system.
 
 There is no other wireframe to consult. If you find one, it is older than this.
 
+**What the reconcile changed is recorded in `RECONCILE-NOTES.md`**, one line per
+element that was renamed, folded or retired, with the reason. Read it before
+concluding that something is missing: 26 class names left the product and every
+one of them has an entry. Two content questions are recorded there as OPEN rather
+than decided, because what a reader needs is not a visual-system call.
+
+```
+python3 reconcile_inventory.py     # what each parent had that the result does not
+python3 check_renames.py           # every rename in those notes still holds
+python3 flowcss_deadrules.py       # which flow.css rules govern nothing
+```
+
+`reconcile_inventory.py` is the instrument that found the losses, and it is worth
+knowing why a file-list comparison could not: every file on either parent exists
+here, and elements inside them still left. Its own first two versions printed a
+clean green over a broken comparison, because `git ls-tree` prints paths relative
+to the CWD and the failed reads were swallowed. Its positive control (pointed at
+HEAD as the parent and the pre-review reconcile as the result, where it must
+report what the review rounds added) is the reason that is known rather than
+hoped.
+
 ## What "one system" means here, concretely
 
 Every screen loads `base.css` then `polish.css`. Every screen loads
@@ -308,6 +329,19 @@ git checkout -- spec/wireframe/base.css spec/wireframe/polish.css   # or whateve
 rm spec/wireframe/.mutation-in-progress
 ```
 
+**The lock is ignored by git on purpose, and it was committed once.** A commit
+landed from another seat while a suite was mid-run and captured both the lock and
+a MUTATED `tapfloor.py`, which silently reverted round 9's own two-edge fix in the
+commit whose subject said it fixed the gate that could not see it. Two lessons,
+and the second is the expensive one:
+
+- Stage named paths, never `git add -A` or `commit -a`, in a tree a suite may be
+  editing. Check for the lock before staging, not only before starting a suite.
+- **A mutation applied to an already-mutated tree is a no-op**, so the suite's
+  later controls measured an unmutated-looking probe and reported MISSED. That
+  reads exactly like a gate that cannot discriminate. A MISSED verdict on a dirty
+  tree is a fact about the tree: re-run it clean before touching the gate.
+
 `verify_flow_mutation.py` now warns at startup when the files it mutates are
 dirty, which turns that confusing red run into one line.
 
@@ -365,6 +399,27 @@ asked which SCREENS each one visits and never which ASSERTIONS each one makes.
 compares each sweeper's `HANDLED` against the shared probe's `KINDS`, and the
 probe's `KINDS` against the kinds its JavaScript actually pushes. Both
 directions, so a declaration and an implementation cannot drift.
+
+**`verify_round9_mutation.py` carries three kinds of control, and conflating two
+of them cost two rounds of false red.** A MUTATION plants a defect and requires a
+failure. A NEGATIVE plants legal layout and requires silence. A BLINDING plants a
+defect AND weakens the probe, and requires a PASS: the instrument has gone blind
+to something still on the page.
+
+Two controls began life in the mutation list asserting a failure for removing a
+clause from the probe, and reported MISSED while both gates were fine. Weakening
+an instrument on a tree with no defect in it cannot make any gate fail, because
+the round fixed the CSS that positioned the toggle at x=-20 AND the clause that
+could see it. So the assertion is a pair:
+
+```
+defect planted, probe intact      exit 1, names 'div r9plant @-40..80'
+defect planted, probe weakened    exit 0, r9plant invisible
+```
+
+The defect for a blinding pair must be visible ONLY to the clause under test. A
+`.chrome` plant that also overflowed was caught by the overflow check, so the
+pair read NOT BEARING with the contract check already deleted.
 
 Six rules follow, and none is optional:
 
