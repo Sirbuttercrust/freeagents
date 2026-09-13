@@ -446,6 +446,26 @@ Six rules follow, and none is optional:
   reports anything else as unhandled rather than dropping it. A law added to
   the probe is then enforced everywhere on the day it lands, instead of on the
   day somebody remembers to teach the second gate about it.
+- **And a law enforced in one STATE is not enforced.** Round 10. Declaring the
+  kinds says nothing about the states they are asserted in.  `verify_flow.py`
+  declared all three truthfully, walked closed, disclosures and each dialog,
+  and then read `chrome` and the unhandled-kind backstop from the CLOSED read
+  alone, because those two lines sat above its own dialog walk. So the
+  `.chrome` contract was unenforced inside every sheet in the payment flow,
+  which is where a person pays a balance, asks for a redo, and declines a job.
+  One element on one screen in two states:
+
+  ```
+  planted in dialog #paybal on staged.html   verify_flow.py exit 0, never named
+  the SAME element visible on load           verify_flow.py exit 1, named it
+  ```
+
+  A per-state `HANDLED` would move the hole to the next state nobody
+  enumerated, which is how this class survived five rounds of widening lists.
+  Both sweepers drive `tapfloor.sweep`, which opens every disclosure and each
+  dialog alone and tags each finding with the state it was reachable in, and
+  `verify_mobile_coverage.py` fails any sweeper that reads the raw probe and
+  owns a walk it cannot audit.
 
 A page-local rule beats a linked stylesheet at equal specificity, so
 `browse.html` carries its own copy of the pager floor and the drawer label

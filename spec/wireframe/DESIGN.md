@@ -621,8 +621,9 @@ context so the decorative agent layer can never paint over content. Page chrome
 is appended to `<body>`, which makes it one of those siblings, and the lift
 overrode `position: fixed` at equal specificity from further down the file.
 The lift excludes `.chrome`, and in exchange every `.chrome` element must
-compute to `fixed` or `sticky`, checked on all 33 screens. A later rule that
-captures chrome the way that one did fails a gate instead of shipping.
+compute to `fixed` or `sticky`, checked on all 33 screens **in every state a
+person can reach**, dialogs included. A later rule that captures chrome the way
+that one did fails a gate instead of shipping.
 
 **Both laws are measured by one probe** (`tapfloor.py`), which emits every
 finding tagged with its kind, and each sweeping gate declares in `HANDLED`
@@ -630,6 +631,15 @@ which kinds it consumes. Two instruments enforcing one law with two
 definitions is how the weaker of the two goes unnoticed: see section 10, where
 `verify_mobile_coverage.py` compares those declarations rather than counting
 screen names.
+
+**And both gates read the probe through one state walk** (`tapfloor.sweep`),
+which opens every disclosure and each dialog alone and tags each finding with
+the state it was reachable in. Declaring a kind says nothing about the states
+it is asserted in: `verify_flow.py` declared all three and read two of them
+from the page as it loads, so the `.chrome` contract above was unenforced
+inside every sheet in the payment flow. Planting a static `.chrome` element
+inside `#paybal` on `staged.html` passed; the identical element rendered on
+load failed.
 
 ---
 
@@ -857,7 +867,7 @@ browser.
 | `verify_reduced_motion.py` | every animation has a dignified static end state under `prefers-reduced-motion` |
 | `verify_flow_motion.py` | the dashboard pipeline actually moves, and stops when reduced motion is asked for |
 | `verify_blast_preview.py` | hovering an edit control previews the exact signatures that edit would clear |
-| `verify_mobile_coverage.py` | every screen in the directory appears in at least one 320px sweep, AND every sweeper consumes every assertion the shared probe makes. A screen visited by an instrument that drops a law is reported as the hole it is, rather than counted as covered. Both directions of the probe's own declaration are checked too: a kind in `tapfloor.KINDS` its JavaScript never pushes, and a kind pushed but never declared. No browser, no server |
+| `verify_mobile_coverage.py` | every screen in the directory appears in at least one 320px sweep, AND every sweeper consumes every assertion the shared probe makes, AND every sweeper drives the shared state walk so a kind is asserted in every state a person can reach rather than on the page as it loads. A screen visited by an instrument that drops a law, or that asserts it only before anything is opened, is reported as the hole it is rather than counted as covered. Both directions of the probe's own declaration are checked too: a kind in `tapfloor.KINDS` its JavaScript never pushes, and a kind pushed but never declared. No browser, no server |
 | `verify_kept.py` | the brand's accessible name survives the wordmark collapse on all 33 screens, and the facts a designed element carried still render somewhere in the set, with disclosures opened |
 | `verify_housestyle.py` | no em dash or en dash in ANY file in this directory, plus the AI writing tells in prose files. No browser, no server |
 | `verify_sampledata.py` | every screen showing an invented name or a dollar figure says on it that the data is sample data |
