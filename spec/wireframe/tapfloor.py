@@ -232,7 +232,7 @@ _PROBE_TEMPLATE = """(function(){
     var ro = box(o);
     if (ro.width === 0) continue;
     if (!reachable(o)) continue;
-    if (ro.right <= W + 0.5) continue;
+    if (ro.right <= W + 0.5 && ro.left >= -0.5) continue;
     bad.push({
       kind: 'overflow',
       t: (o.textContent || '').trim().slice(0, 24),

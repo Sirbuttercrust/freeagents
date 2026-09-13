@@ -1,0 +1,11 @@
+# A mutation suite's lock is a RUNTIME record, never a tracked file.
+#
+# It names the files a suite is part way through editing, so the next run can
+# refuse to start and say which paths may be dirty. Committing one publishes a
+# permanent "a suite is mid-run" to every clone, and the next suite anywhere
+# refuses to start on a tree that is perfectly clean.
+#
+# It happened on this branch: a concurrent commit landed while a suite was
+# mid-run and captured both the lock AND a mutated tapfloor.py, which silently
+# reverted round 9's own two-edge fix in the same commit that looked like a fix.
+.mutation-in-progress
