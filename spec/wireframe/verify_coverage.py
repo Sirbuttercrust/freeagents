@@ -133,6 +133,16 @@ INLINE_WITH_REASON = {
     # gate names conduct.html back. One negative control plants a legal
     # `href="#4471"` there for the same reason.
     "verify_round8_mutation.py": {"conduct.html"},
+    # Round 9's fixtures are chosen by what each one has to PROVE, which is
+    # why they cannot be derived. notfound.html is a general screen swept only
+    # by verify_polish.py, so a plant there is the reviewer's own control for
+    # the 25 screens that had no element-level overflow check: deriving the
+    # fixture at run time would sometimes pick a payment screen, where
+    # verify_flow.py has always caught it and the control would prove nothing.
+    # browse.html is named because it is one of the exactly two screens that
+    # declare a .perch-host, which is the condition the real inherited defect
+    # needs in order to reproduce at all.
+    "verify_round9_mutation.py": {"browse.html", "notfound.html"},
 }
 
 

@@ -181,6 +181,12 @@ finally:
 # sweep both pages twice and report every finding on them twice over.
 SWEPT = list(SCREENS)
 
+# THE KINDS THIS GATE HANDLES, declared so the leftover is computable. Anything
+# tapfloor.py returns that is not in here is reported as an unhandled kind
+# rather than dropped, so adding an assertion to the shared probe cannot
+# silently do nothing on these 25 screens.
+HANDLED = ("tap", "overflow", "chrome")
+
 b = Browser(width=320, height=640)
 try:
     tapfloor.touch(b)
@@ -196,11 +202,34 @@ try:
             sys.exit(2)
         rows[i]["docW"] = t["docW"]
         rows[i]["opened"] = t["opened"]
-        rows[i]["small"] = [tapfloor.fmt(x) for x in t["bad"]]
+        # EVERY FINDING THE SHARED PROBE RETURNS, not the one kind this gate
+        # remembered to ask for. Round 5 of review: this gate read only
+        # `docW`, which cannot grow for an element hanging off the LEFT edge,
+        # so 25 screens had no element-level overflow check at all while
+        # BUILD-STATE and DESIGN.md 5.3 asserted one of all 33. Failing on the
+        # whole list means the next assertion added to tapfloor.py is enforced
+        # here on the day it lands rather than on the day somebody remembers.
+        taps = [tapfloor.fmt(x) for x in tapfloor.of_kind(t["bad"], "tap")]
+        over = [tapfloor.fmt(x) for x in tapfloor.of_kind(t["bad"], "overflow")]
+        chrome = [tapfloor.fmt(x) for x in tapfloor.of_kind(t["bad"], "chrome")]
+        other = [tapfloor.fmt(x) for x in t["bad"]
+                 if x.get("kind") not in HANDLED]
+        rows[i]["small"] = taps
+        rows[i]["over"] = over + chrome
         if t["docW"] > 320:
             fails.append("%s: horizontal overflow, scrollWidth %s" % (s, t["docW"]))
-        if rows[i]["small"]:
-            fails.append("%s: tap targets under 44px %s" % (s, rows[i]["small"][:4]))
+        if over:
+            fails.append("%s: overflow at 320px %s" % (s, over[:4]))
+        if taps:
+            fails.append("%s: tap targets under 44px %s" % (s, taps[:4]))
+        if chrome:
+            fails.append("%s: .chrome element not positioning itself %s"
+                         % (s, chrome[:4]))
+        # A kind this gate does not know about is a failure, not a silence.
+        # The alternative is that adding an assertion to the shared probe
+        # quietly does nothing here, which is the defect this round is about.
+        if other:
+            fails.append("%s: findings of an unhandled kind %s" % (s, other[:4]))
 finally:
     b.close()
 
@@ -210,13 +239,13 @@ finally:
 # report instead of hiding inside a green result.
 opened_total = sum(r.get("opened", 0) for r in rows)
 
-print("%-20s %7s %7s %7s %7s %6s"
-      % ("screen", "icons", "avatars", "width", "opened", "small"))
-print("-" * 62)
+print("%-20s %7s %7s %7s %7s %6s %5s"
+      % ("screen", "icons", "avatars", "width", "opened", "small", "over"))
+print("-" * 68)
 for r in rows:
-    print("%-20s %7d %7d %7d %7d %6d"
+    print("%-20s %7d %7d %7d %7d %6d %5d"
           % (r["screen"], r["painted"], r.get("avatars", 0), r["docW"],
-             r.get("opened", 0), len(r["small"])))
+             r.get("opened", 0), len(r["small"]), len(r.get("over", []))))
 
 print("\nscreens checked: %d" % len(rows))
 print("total icons painted: %d" % sum(r["painted"] for r in rows))

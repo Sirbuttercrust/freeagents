@@ -78,12 +78,34 @@ def guard(files):
     return dirty
 
 
-def acquire(files):
+def acquire(files, restore=None):
     """Write the lock naming what is about to be edited.
 
     Written BEFORE the first mutation, so the window where a kill goes
     unrecorded is zero. The file names the paths rather than merely existing,
     because "something somewhere is dirty" is not a diagnosis.
+
+    `restore` is the caller's own revert, and passing it is what makes a
+    catchable kill self-healing.
+
+    WHY THE SIGNAL PATH IS WRITTEN THIS WAY, found by being killed.
+
+    The first version of this handler called release() and exited. That is
+    worse than having no handler at all: the mutation stays on disk and the
+    lock that would have ANNOUNCED it is deleted on the way out, so the next
+    run snapshots a damaged tree and nothing says so. It happened during
+    round 9: a suite killed mid-run left a planted element in notfound.html
+    with no lock beside it, and only a grep found it.
+
+    So the order is restore, then release, and the lock survives anything
+    that leaves the tree unproven:
+
+      restore given and it succeeds   tree is clean, drop the lock
+      restore given and it raises     tree is unknown, KEEP the lock
+      no restore given                tree is unknown, KEEP the lock
+
+    A lock left standing costs the next person one `git checkout`. A lock
+    wrongly deleted costs them a debugging session that ends somewhere else.
     """
     with open(LOCK, "w", encoding="utf-8") as fh:
         fh.write("\n".join(sorted(os.path.basename(f) for f in files)) + "\n")
@@ -92,7 +114,14 @@ def acquire(files):
     # a test runner or a supervisor sends. Only SIGKILL gets past both, and
     # that is what the lock file itself is for.
     def _bail(signum, frame):
-        release()
+        if restore is not None:
+            try:
+                restore()
+            except Exception:                                 # noqa: BLE001
+                # Could not put the tree back. The lock is now the only
+                # record that these files may carry a mutation, so it stays.
+                os._exit(130)
+            release()
         os._exit(130)
 
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -100,6 +129,9 @@ def acquire(files):
             signal.signal(sig, _bail)
         except (ValueError, OSError):
             pass
+    # Only on a NORMAL interpreter exit, by which point the suite's own
+    # `finally` has restored the tree. The signal path above does not come
+    # through here, because os._exit skips atexit deliberately.
     atexit.register(release)
 
 

@@ -384,10 +384,28 @@ body.notes-on .notetoggle { background: var(--accent); color: var(--accent-fg); 
    The second rule gives every following section its own stacking context
    above the layer. Proven by verify_agents_below.py, which walks each screen
    at six scroll positions, and for every agent-over-text overlap asks
-   elementsFromPoint which one the browser actually paints on top. */
+   elementsFromPoint which one the browser actually paints on top.
+
+   THE LIFT IS FOR FLOW CONTENT, NOT FOR CHROME THAT POSITIONS ITSELF.
+
+   `~ *` reaches every later sibling of the host, and page chrome is appended
+   to <body>, which makes it one. So this rule was silently overriding
+   `position: fixed` on the builder-notes toggle at equal specificity from
+   further down the file: on the two screens that declare a .perch-host, the
+   toggle became `position: relative`, landed at x=-20, and rendered cut off
+   at the bottom-left reading `uilder notes`. Two screens, both of them
+   carrying the decorative layer, neither of them failing a gate.
+
+   Chrome does not need the lift. It declares its own z-index (the toggle sits
+   at 60, far above the layer's 0) and its own position, which is the whole
+   point of it being chrome. So the lift excludes anything marked .chrome, and
+   that is a contract rather than a name: an element carrying .chrome must
+   compute to a fixed or sticky position, checked on all 33 screens by the
+   shared mobile probe in tapfloor.py. A later rule that captures chrome the
+   way this one did fails there instead of shipping. */
 .perch-host > *:not(.perch-layer) { position: relative; z-index: 2; }
-.perch-host ~ *,
-.perch-host ~ * .pane { position: relative; z-index: 2; }
+.perch-host ~ *:not(.chrome),
+.perch-host ~ *:not(.chrome) .pane { position: relative; z-index: 2; }
 
 /* The line an agent says when clicked. Reserved height, so the layout does
    not jump when it appears and vanishes. */

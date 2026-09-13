@@ -1,6 +1,6 @@
-"""The 44px floor, measured once, in one place, by every gate that claims it.
+"""The mobile laws, measured once, in one place, by every gate that claims them.
 
-WHY THIS FILE EXISTS, and it is the third round of the same defect:
+WHY THIS FILE EXISTS, and it is the fifth round of the same defect:
 
   round 1  verify_polish.py read `r.height` and never `r.width`, so a control
            20px wide and 44px tall passed. 13 real failures sat behind it.
@@ -8,16 +8,35 @@ WHY THIS FILE EXISTS, and it is the third round of the same defect:
            input, select, textarea or label was ever measured, and no gate
            opened a disclosure, a drawer or a details element before reading.
            12 more real failures sat behind THAT.
+  round 5  the TAP probe was unified here and the OVERFLOW probe was not.
+           verify_flow.py kept an element-level check over 8 screens while
+           verify_polish.py asserted only `scrollWidth > 320` over the other
+           25. scrollWidth DOES NOT GROW for an element hanging off the LEFT
+           edge in an LTR document, so on 25 screens nothing could fail on
+           left-side overflow at any magnitude, and two screens were rendering
+           the builder-notes control at x=-20 while every gate was green.
 
-Both times the fix was applied to the instance the reviewer named while three
-copies of the same probe, each with its own selector list and its own idea of
-the WCAG exemption, stayed in the tree. So the probe now lives here and the
-gates import it. There is one selector list, one set of exemptions, and one
-definition of which states get opened before reading.
+Rounds 1, 2 and 5 are one defect: a law asserted of the whole set, enforced by
+two instruments, one of them weaker. The first two were fixed by unifying the
+probe. Round 5 is what was left over BECAUSE only one of the two probes got
+unified, so this module now owns both.
 
-  verify_polish.py    imports it   (27 screens, the polished set)
+  verify_polish.py    imports it   (25 screens, the polished set)
   measure_taps.py     imports it   (all 33 screens, prints every offender)
   verify_flow.py      imports it   (the 8 payment screens)
+
+ONE FINDINGS LIST, AND THE FALLBACK DIRECTION IS THE WHOLE ARGUMENT
+
+Every assertion this module makes goes into ONE `findings` list, each entry
+tagged with its `kind`. A gate fails on the list, not on a key it remembered
+to read. So a NEW assertion added here is enforced on every screen every
+consumer visits, the day it lands, whether or not anybody updates the gates.
+
+That is population.py's safety argument moved from screens to assertions. A
+partition whose fallback is "measured" cannot open a hole; one whose fallback
+is "not measured" opens one silently the day somebody adds an assertion to the
+instrument they happen to be reading. Opting out has to be WRITTEN DOWN, as a
+kind filter that verify_mobile_coverage.py can see and report.
 
 WHAT IT MEASURES
 
@@ -25,6 +44,8 @@ WHAT IT MEASURES
              and anything carrying an interactive ARIA role or a positive
              tabindex. Not `a,button`.
   axes       BOTH. A floor on one axis is not a floor.
+  edges      BOTH. `right > W` and `left < 0` are one law, and only the first
+             of them is visible in scrollWidth.
   states     closed, then every disclosure/details/aria-expanded control
              opened together, then each <dialog> opened on its own. Every
              offender is reported with the state it was found in, so the
@@ -57,6 +78,11 @@ import json
 
 FLOOR = 43.5   # 44px, with half a pixel for subpixel layout
 
+# The viewport the laws are stated at. Set by touch(), read by the probe
+# builder, so a gate that sweeps at another width measures overflow against
+# THAT width rather than against a number baked in here.
+VIEWPORT = 320
+
 # One selector list. Adding an interactive element type here covers every gate
 # at once, which is the point.
 SELECTOR = (
@@ -66,8 +92,9 @@ SELECTOR = (
     '[tabindex]:not([tabindex="-1"])'
 )
 
-PROBE_JS = """(function(){
+_PROBE_TEMPLATE = """(function(){
   var FLOOR = %(floor)s;
+  var W = %(width)s;
 
   /* IN A SENTENCE: WCAG 2.5.8, tested against the property the exemption is
      actually about. Three wrong definitions were tried first and each let a
@@ -179,6 +206,7 @@ PROBE_JS = """(function(){
     }
 
     bad.push({
+      kind: 'tap',
       t: (e.textContent || '').trim().slice(0, 24),
       c: (typeof e.className === 'string' && e.className) || e.tagName,
       tag: e.tagName.toLowerCase() + (e.type ? '[' + e.type + ']' : ''),
@@ -186,12 +214,97 @@ PROBE_JS = """(function(){
       w: Math.round(r.width), h: Math.round(r.height)
     });
   }
+
+  /* HORIZONTAL OVERFLOW, BOTH EDGES, IN THE SAME PASS AND THE SAME LIST.
+
+     This used to live in verify_flow.py, which meant the 8 payment screens
+     got an element-level check and the other 25 got `scrollWidth > 320`.
+     scrollWidth does not grow for an element hanging off the LEFT edge in an
+     LTR document, so the weaker half of the set could not fail on left
+     overflow at any magnitude. Two screens were rendering a control at
+     x=-20, reading as `uilder notes`, with every gate green.
+
+     It is in THIS list, tagged, rather than in a second return key, so a gate
+     that fails on findings gets it without being taught to look for it. */
+  var offenders = document.querySelectorAll('body *');
+  for (var j = 0; j < offenders.length; j++) {
+    var o = offenders[j];
+    var ro = box(o);
+    if (ro.width === 0) continue;
+    if (!reachable(o)) continue;
+    if (ro.right <= W + 0.5 && ro.left >= -0.5) continue;
+    bad.push({
+      kind: 'overflow',
+      t: (o.textContent || '').trim().slice(0, 24),
+      c: (typeof o.className === 'string' && o.className) || o.tagName,
+      tag: o.tagName.toLowerCase(),
+      p: path(o),
+      left: Math.round(ro.left), right: Math.round(ro.right),
+      w: Math.round(ro.width), h: Math.round(ro.height)
+    });
+  }
+
+  /* THE CHROME CONTRACT, checked rather than trusted.
+
+     base.css lifts every later sibling of a .perch-host into its own stacking
+     context, and page chrome appended to <body> is one of those siblings. That
+     rule rewrote `position: fixed` to `relative` on the builder-notes toggle
+     and put it at x=-20 on two screens. The fix excludes .chrome from the
+     lift, which makes .chrome a promise: this element positions itself.
+
+     A class that carries a promise nothing checks is the same defect one level
+     up, so the promise is measured here on every screen every gate visits. Any
+     .chrome element computing to static, relative or absolute means some rule
+     captured it the way the perch lift did. */
+  var chrome = document.querySelectorAll('.chrome');
+  for (var k = 0; k < chrome.length; k++) {
+    var c = chrome[k];
+    if (!reachable(c)) continue;
+    var pos = getComputedStyle(c).position;
+    if (pos === 'fixed' || pos === 'sticky') continue;
+    var rc = box(c);
+    bad.push({
+      kind: 'chrome',
+      t: (c.textContent || '').trim().slice(0, 24),
+      c: (typeof c.className === 'string' && c.className) || c.tagName,
+      tag: c.tagName.toLowerCase(),
+      p: path(c),
+      pos: pos,
+      left: Math.round(rc.left), right: Math.round(rc.right),
+      w: Math.round(rc.width), h: Math.round(rc.height)
+    });
+  }
+
   return JSON.stringify({
     coarse: window.matchMedia('(pointer: coarse)').matches,
     docW: document.documentElement.scrollWidth,
     bad: bad
   });
-})()""" % {"floor": FLOOR, "selector": json.dumps(SELECTOR)}
+})()"""
+
+
+def probe_js(width=None):
+    """The probe, built for a viewport width.
+
+    A gate sweeping at 320 and a gate sweeping at 360 must use the same
+    definition of overflow with a different edge, not two definitions.
+    """
+    return _PROBE_TEMPLATE % {"floor": FLOOR,
+                              "width": VIEWPORT if width is None else width,
+                              "selector": json.dumps(SELECTOR)}
+
+
+# THE ASSERTIONS THIS MODULE MAKES, declared so something can check that a
+# consumer receives all of them. verify_mobile_coverage.py reads this by
+# importing the module, and reads each gate's filter from its source, so a
+# screen swept by an instrument that drops an assertion is reported as the
+# hole it is rather than counted as covered.
+#
+# Adding a kind here without adding it to the probe fails that gate too: the
+# declaration and the implementation check each other.
+KINDS = ("tap", "overflow", "chrome")
+
+PROBE_JS = probe_js()
 
 
 # Open everything a person can open without leaving the page, then report how
@@ -238,29 +351,41 @@ def sweep(b, url, wait=1.6):
     """Measure one screen in every state a person can reach.
 
     Returns {"coarse", "docW", "opened", "dialogs", "bad"} where each entry in
-    "bad" carries the state it was found in. Raises nothing: a caller that
-    wants to fail on `coarse` being false does so itself, loudly.
+    "bad" carries the state it was found in and the `kind` of law it broke.
+    Raises nothing: a caller that wants to fail on `coarse` being false does so
+    itself, loudly.
+
+    DEDUPED BY (kind, DOM path) ACROSS EVERY STATE, keeping the state a finding
+    was FIRST reachable in. A page-level control is still measurable while a
+    modal is open (showModal makes the rest inert, not invisible), so without
+    this every page-level offender is re-reported once per dialog and the real
+    finding inside the dialog hides in the repeats. Keying on class plus size
+    plus text instead would collapse eleven distinct facet checkboxes into one,
+    which is the under-report this instrument exists to prevent.
     """
     b.goto(url, wait=wait)
     first = json.loads(b.js(PROBE_JS))
     out = {"coarse": first["coarse"], "docW": first["docW"],
            "opened": 0, "dialogs": [], "bad": []}
-    for x in first["bad"]:
-        x["state"] = "closed"
-        out["bad"].append(x)
+    seen = set()
+
+    def take(records, state):
+        for x in records:
+            key = (x.get("kind", "tap"), x["p"])
+            if key in seen:
+                continue
+            seen.add(key)
+            x["state"] = state
+            out["bad"].append(x)
+
+    take(first["bad"], "closed")
 
     # every disclosure, drawer and details, together
     out["opened"] = int(b.js(OPEN_JS) or 0)
     if out["opened"]:
         _settle(b)
         after = json.loads(b.js(PROBE_JS))
-        seen = set(x["p"] for x in out["bad"])
-        for x in after["bad"]:
-            if x["p"] in seen:
-                continue
-            seen.add(x["p"])
-            x["state"] = "opened"
-            out["bad"].append(x)
+        take(after["bad"], "opened")
         # An open drawer can push the page wider. Report the worse of the two.
         out["docW"] = max(out["docW"], after["docW"])
 
@@ -272,17 +397,33 @@ def sweep(b, url, wait=1.6):
              "if(d&&!d.open&&d.showModal)d.showModal();return 1;})()" % d)
         _settle(b, 120)
         r = json.loads(b.js(PROBE_JS))
-        for x in r["bad"]:
-            x["state"] = "dialog #" + d
-            out["bad"].append(x)
+        take(r["bad"], "dialog #" + d)
+        out["docW"] = max(out["docW"], r["docW"])
         b.js("(function(){var d=document.getElementById('%s');"
              "if(d&&d.open)d.close();return 1;})()" % d)
 
     return out
 
 
+def of_kind(records, kind):
+    """The findings of one kind. A gate that wants only one still says so."""
+    return [x for x in records if x.get("kind", "tap") == kind]
+
+
 def fmt(x):
-    """One offender, as a line a person can act on."""
+    """One offender, as a line a person can act on.
+
+    An overflow finding prints its EDGES, because -20..81 and 300..401 are
+    different bugs and a width alone does not separate them.
+    """
+    if x.get("kind") == "overflow":
+        return "%s %s @%d..%d [%s]" % (
+            x.get("tag", "?"), (x.get("c") or "")[:26],
+            x.get("left", 0), x.get("right", 0), x.get("state", "closed"))
+    if x.get("kind") == "chrome":
+        return "%s %s position:%s @%d..%d [%s]" % (
+            x.get("tag", "?"), (x.get("c") or "")[:26], x.get("pos", "?"),
+            x.get("left", 0), x.get("right", 0), x.get("state", "closed"))
     return "%s %s %dx%d \"%s\" [%s]" % (
         x.get("tag", "?"), (x.get("c") or "")[:26], x["w"], x["h"],
         (x.get("t") or "")[:24], x.get("state", "closed"))

@@ -102,20 +102,36 @@ def narrow(b):
     b.send("Emulation.setTouchEmulationEnabled", enabled=True, maxTouchPoints=5)
 
 
-OVERFLOW_JS = """(() => {
-  const out = {coarse: matchMedia('(pointer: coarse)').matches,
-               doc: document.documentElement.scrollWidth, off: []};
-  document.querySelectorAll('body *').forEach(el => {
-    const r = el.getBoundingClientRect();
-    if (r.width === 0) return;
-    if (r.right > 320.5 || r.left < -0.5) {
-      out.off.push((el.className || el.tagName) + ' @' +
-                   Math.round(r.left) + '..' + Math.round(r.right));
-    }
-  });
-  out.off = out.off.slice(0, 6);
-  return out;
-})()"""
+# HORIZONTAL OVERFLOW, READ FROM THE SHARED PROBE.
+#
+# This file used to carry its own element-level overflow JS, and it was the
+# only instrument that had one: verify_polish.py asserted `scrollWidth > 320`
+# over the other 25 screens, and scrollWidth does not grow for an element
+# hanging off the LEFT edge in an LTR document. So the same law had a strong
+# enforcement on 8 screens and an unfailable one on 25, and two screens shipped
+# a control at x=-20 with every gate green.
+#
+# The definition now lives in tapfloor.py beside the tap floor, for the same
+# reason the tap probe was moved there in round 3: two copies of one law drift,
+# and the weaker copy is the one nobody notices. This function adapts the
+# shared records to the shape this gate has always reported, so the output does
+# not change while the definition is no longer duplicated.
+def overflow(b):
+    """{coarse, doc, off} from the shared probe. One definition, one edge rule."""
+    r = json.loads(b.js(tapfloor.PROBE_JS))
+    return {"coarse": r["coarse"], "doc": r["docW"],
+            "off": [tapfloor.fmt(x) for x in tapfloor.of_kind(r["bad"], "overflow")][:6],
+            "chrome": [tapfloor.fmt(x) for x in tapfloor.of_kind(r["bad"], "chrome")],
+            "other": [tapfloor.fmt(x) for x in r["bad"]
+                      if x.get("kind") not in HANDLED],
+            "bad": r["bad"]}
+
+
+# The kinds this gate handles. Anything else the shared probe returns is
+# reported as unhandled rather than dropped, for the same reason it is in
+# verify_polish.py: an assertion added to tapfloor.py must not be able to land
+# in the tree and do nothing on the screens this gate owns.
+HANDLED = ("tap", "overflow", "chrome")
 
 # WCAG 2.5.8 exempts a link inside a sentence: it has a line-box hit area and
 # padding it to 44px wrecks the paragraph. Without the exemption the report is
@@ -304,10 +320,16 @@ try:
     print(f"{'screen':<20} {'coarse':>7} {'docW':>6} {'overflow':>9} {'openOverflow':>13} {'tap<44':>7} {'overlap':>8}")
     for s in SCREENS:
         url = f"{BASE}/{s}"
-        r = probe(b, url, OVERFLOW_JS)
+        # ONE READ, BOTH LAWS. The shared probe returns tap findings and
+        # overflow findings from the same pass, so the two cannot be measured
+        # against different DOM states or different definitions of reachable.
+        b.goto(url)
+        b.send("Runtime.evaluate", expression="new Promise(r=>setTimeout(r,220))",
+               awaitPromise=True)
+        r = overflow(b)
         # The shared probe returns rich records; flatten to the strings this
         # gate has always reported so the output shape does not change.
-        tap = [tapfloor.fmt(x) for x in json.loads(b.js(TAP_JS))["bad"]]
+        tap = [tapfloor.fmt(x) for x in tapfloor.of_kind(r["bad"], "tap")]
         lap = b.js(OVERLAP_JS)
 
         if not r["coarse"]:
@@ -323,11 +345,11 @@ try:
                  f"if(d && !d.open) d.showModal(); return 1;}})()")
             b.send("Runtime.evaluate", expression="new Promise(r=>setTimeout(r,120))",
                    awaitPromise=True)
-            ro = b.js(OVERFLOW_JS)
+            ro = overflow(b)
             openoff += len(ro["off"])
             if ro["off"]:
                 fails.append(f"{s}: dialog #{d} overflows 320px: {ro['off'][:3]}")
-            ot = json.loads(b.js(TAP_JS))["bad"]
+            ot = tapfloor.of_kind(ro["bad"], "tap")
             opentap += [f"#{d} {tapfloor.fmt(x)}" for x in ot]
             b.js(f"(() => {{const d=document.getElementById('{d}');"
                  f"if(d && d.open) d.close(); return 1;}})()")
@@ -343,15 +365,26 @@ try:
         if opened:
             b.send("Runtime.evaluate",
                    expression="new Promise(r=>setTimeout(r,160))", awaitPromise=True)
+            ropen = overflow(b)
             seen = set(alltap)
-            for x in json.loads(b.js(TAP_JS))["bad"]:
+            for x in tapfloor.of_kind(ropen["bad"], "tap"):
                 line = tapfloor.fmt(x)
                 if line not in seen:
                     seen.add(line)
                     alltap.append(line)
+            # An opened drawer can push a control off either edge, and that
+            # state was previously measured for tap targets only.
+            for line in ropen["off"]:
+                if line not in r["off"]:
+                    openoff += 1
+                    fails.append(f"{s}: overflow at 320px with disclosures open: {line}")
 
         if r["off"]:
             fails.append(f"{s}: overflow at 320px: {r['off'][:3]}")
+        if r["chrome"]:
+            fails.append(f"{s}: .chrome element not positioning itself: {r['chrome'][:3]}")
+        if r["other"]:
+            fails.append(f"{s}: findings of an unhandled kind: {r['other'][:3]}")
         if r["doc"] > 320.5:
             fails.append(f"{s}: document scrollWidth {r['doc']} > 320")
         if alltap:

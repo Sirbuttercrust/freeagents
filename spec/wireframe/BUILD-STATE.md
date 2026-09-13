@@ -311,6 +311,19 @@ rm spec/wireframe/.mutation-in-progress
 `verify_flow_mutation.py` now warns at startup when the files it mutates are
 dirty, which turns that confusing red run into one line.
 
+**A catchable kill now restores the tree before it exits.** `mutationsafe`
+took a `release()` on SIGTERM and SIGINT and nothing else, which is worse than
+having no handler: the mutation stayed on disk and the lock that would have
+ANNOUNCED it was deleted on the way out, so the next run would snapshot a
+damaged tree with nothing saying so. It happened here in round 9, when a
+timeout killed a suite mid-run and left a planted element in `notfound.html`
+with no lock beside it. A suite passes its own revert now
+(`mutationsafe.acquire(FILES, restore=restore)`) and the order is restore,
+then release. The lock SURVIVES anything that leaves the tree unproven: a
+restore that raises, or a suite that passed no restore at all. A lock left
+standing costs the next person one `git checkout`; a lock wrongly deleted
+costs them a debugging session that ends somewhere else.
+
 There is no `verify_mobile.py`, and there never has been on any branch. The
 320px sweep with every dialog open, the 44px floor and the overflow check are
 all inside `verify_flow.py` and `verify_polish.py`. If a document tells you to
@@ -336,7 +349,24 @@ opened. `verify_polish.py` now prints how many states it opened per screen,
 because a gate that opens nothing reports a clean page in both the broken and
 the fixed state.
 
-Five rules follow, and none is optional:
+Round 5 found what round 3 left behind: it unified the TAP probe and not the
+OVERFLOW probe. `verify_flow.py` kept an element-level check over the 8 payment
+screens while `verify_polish.py` asserted only `scrollWidth > 320` over the
+other 25, and **`scrollWidth` does not grow for an element hanging off the LEFT
+edge in an LTR document**. So on 25 of the 33 screens nothing could fail on
+left-side overflow at any magnitude. Two screens were rendering the
+builder-notes control at x=-20, cut off and reading `uilder notes`, and they
+had been since the polished parent was merged.
+
+`verify_mobile_coverage.py` was green throughout and was correct about what it
+measured: both instruments really did visit all 33 screens between them. It
+asked which SCREENS each one visits and never which ASSERTIONS each one makes.
+**A count of names cannot see a weaker assertion**, which is why that gate now
+compares each sweeper's `HANDLED` against the shared probe's `KINDS`, and the
+probe's `KINDS` against the kinds its JavaScript actually pushes. Both
+directions, so a declaration and an implementation cannot drift.
+
+Six rules follow, and none is optional:
 
 - A floor written as `min-height` alone is not a floor. Set both axes.
 - A floor written in a stylesheet that some screens do not load is not a floor
@@ -355,6 +385,12 @@ Five rules follow, and none is optional:
 - A gate that measures one state measures its own fiction. The card's
   constraint is "320px with every open state", and for two rounds the
   instrument covering 27 of the 33 screens opened none.
+- **Two instruments enforcing one law will hold two definitions of it, and the
+  weaker one is the one nobody notices.** One probe emits every mobile
+  finding tagged with its kind; each gate declares which kinds it consumes and
+  reports anything else as unhandled rather than dropping it. A law added to
+  the probe is then enforced everywhere on the day it lands, instead of on the
+  day somebody remembers to teach the second gate about it.
 
 A page-local rule beats a linked stylesheet at equal specificity, so
 `browse.html` carries its own copy of the pager floor and the drawer label

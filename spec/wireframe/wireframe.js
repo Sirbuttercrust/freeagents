@@ -25,7 +25,12 @@
     try { on = localStorage.getItem(KEY) === "1"; } catch (e) {}
 
     var b = document.createElement("button");
-    b.className = "notetoggle";
+    /* .chrome is a contract, not decoration: an element carrying it declares
+       its own position and opts out of the .perch-host lift in base.css, which
+       otherwise rewrites `position: fixed` to `relative` on every later
+       sibling of the decorative layer. The shared mobile probe fails any
+       .chrome element that does not compute to fixed or sticky. */
+    b.className = "notetoggle chrome";
     b.id = "notetoggle";
     b.type = "button";
     document.body.appendChild(b);

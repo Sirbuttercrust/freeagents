@@ -595,6 +595,42 @@ the document scrolled sideways, and horizontal overflow is the worse defect.
 The product name moves into the link's accessible name: text may leave the
 pixels, never the accessibility tree.
 
+### 5.4 No horizontal overflow, on either edge
+
+**Nothing renders outside the 320px viewport, left or right, in any reachable
+state.** Closed, with every disclosure and drawer open, and with each dialog
+open on its own.
+
+The law names both edges because only one of them is visible in the obvious
+measurement. `document.documentElement.scrollWidth` **does not grow for an
+element hanging off the LEFT edge** in an LTR document, so a check written as
+`scrollWidth > 320` cannot fail on left-side overflow at any magnitude. It ran
+that way over 25 of the 33 screens for several rounds while two of them
+rendered the builder-notes control at x=-20, cut off at the bottom-left and
+reading `uilder notes`. Every gate was green.
+
+So the assertion is per element and on both sides:
+
+```js
+if (r.right > 320.5 || r.left < -0.5)     // one law, two edges
+```
+
+**Chrome that positions itself carries `.chrome`, and that is a contract.**
+`base.css` lifts every later sibling of a `.perch-host` into its own stacking
+context so the decorative agent layer can never paint over content. Page chrome
+is appended to `<body>`, which makes it one of those siblings, and the lift
+overrode `position: fixed` at equal specificity from further down the file.
+The lift excludes `.chrome`, and in exchange every `.chrome` element must
+compute to `fixed` or `sticky`, checked on all 33 screens. A later rule that
+captures chrome the way that one did fails a gate instead of shipping.
+
+**Both laws are measured by one probe** (`tapfloor.py`), which emits every
+finding tagged with its kind, and each sweeping gate declares in `HANDLED`
+which kinds it consumes. Two instruments enforcing one law with two
+definitions is how the weaker of the two goes unnoticed: see section 10, where
+`verify_mobile_coverage.py` compares those declarations rather than counting
+screen names.
+
 ---
 
 ## 6. Motion
@@ -821,7 +857,7 @@ browser.
 | `verify_reduced_motion.py` | every animation has a dignified static end state under `prefers-reduced-motion` |
 | `verify_flow_motion.py` | the dashboard pipeline actually moves, and stops when reduced motion is asked for |
 | `verify_blast_preview.py` | hovering an edit control previews the exact signatures that edit would clear |
-| `verify_mobile_coverage.py` | every screen in the directory appears in at least one 320px sweep, so a new page cannot go unchecked in silence |
+| `verify_mobile_coverage.py` | every screen in the directory appears in at least one 320px sweep, AND every sweeper consumes every assertion the shared probe makes. A screen visited by an instrument that drops a law is reported as the hole it is, rather than counted as covered. Both directions of the probe's own declaration are checked too: a kind in `tapfloor.KINDS` its JavaScript never pushes, and a kind pushed but never declared. No browser, no server |
 | `verify_kept.py` | the brand's accessible name survives the wordmark collapse on all 33 screens, and the facts a designed element carried still render somewhere in the set, with disclosures opened |
 | `verify_housestyle.py` | no em dash or en dash in ANY file in this directory, plus the AI writing tells in prose files. No browser, no server |
 | `verify_sampledata.py` | every screen showing an invented name or a dollar figure says on it that the data is sample data |
