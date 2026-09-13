@@ -262,9 +262,11 @@ unverified badge ink, and three copies of the form-error colour.
 `settings.html` states as the reader's own, read at run time by
 `port_menu_avatars.py` rather than typed into it. That closes the
 "no flat placeholder disc left in the tree" claim by construction rather than
-by editing the sentence. Two of those eight were not loading `swarm.js` and
-would have painted a blank 32x32 box that throws nothing, so `verify_polish.py`
-now measures `[data-avatar]` the way it already measured `[data-ico]`.
+by editing the sentence. Two of those eight were not loading `swarm.js`, so
+`verify_polish.py` now measures `[data-avatar]` the way it already measured
+`[data-ico]`. What those two would have painted is written wrong here and was
+corrected in round 11: not a blank box, but a face from the older `FA.avatar`
+engine that `polish.js` falls back to. See the avatar entry further down.
 
 **`--bad` is a separate token from `--cat-testing` on purpose**, though they
 hold the same value. A tint is a label saying what an agent does; `--bad` is a
@@ -540,10 +542,18 @@ every other device, which is the most confusing possible failure.
   drew an inline `<circle fill="#3A3A4A">` in the account menu. It is now true
   of the set, and it is checked rather than asserted: `verify_designmd.py`
   fails on any opaque colour a screen paints, which is the shape a placeholder
-  disc has to take. A page that renders
-  `[data-avatar]` must load `swarm.js`, or the span paints an empty 32x32 box
-  and throws nothing. `load_swarm.py` checks that and fails if any page misses
-  it.
+  disc has to take. A page that renders `[data-avatar]` must load `swarm.js`,
+  and the failure is not what this file said for four rounds. `polish.js`
+  prefers `FASwarm.avatar` and **falls back to the older `FA.avatar` engine**,
+  so a screen missing the script paints a DIFFERENT face rather than an empty
+  box: measured on a planted `agentsettings.html`, 12 shapes against the
+  swarm's 213, with every gate green. `load_swarm.py` was credited here with
+  catching that. It does not: it REPAIRS the page, exits 0, and is in no gate
+  run. `verify_polish.py` now asserts the generator is loaded on any screen
+  rendering an avatar, which is the causal fact rather than a signature of
+  today's output, and its `[data-avatar]` svg check stays for the case where
+  neither engine is present. Measured across the set the day it landed: 36
+  hosts on 18 screens, all swarm, nothing behind the hole.
 
 ## The scope claim that was wrong, and the gate that replaced it
 

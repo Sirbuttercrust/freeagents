@@ -861,7 +861,7 @@ browser.
 | `verify_rail.py` | the headline total, the fee and the pay button follow the chosen rail, including inside the scan sheet |
 | `verify_pickers.py` | every picker row traces to a real agreement line with matching text, and every omitted line is explained on screen |
 | `verify_primary.py` | no surface ever shows two accent-filled primaries at once |
-| `verify_polish.py` | the polish layer loads on every screen, every icon and every generated avatar paints, no button is inert, and 320px holds with 44px targets |
+| `verify_polish.py` | the polish layer loads on every screen, every icon paints, every generated avatar is painted BY THE SWARM GENERATOR rather than by the older fallback engine, no button is inert, and 320px holds with 44px targets |
 | `verify_profile_header.py` | the profile header never clips its banner and the verified badge reads as a stamp |
 | `verify_agents_below.py` | the decorative agents never paint over text, asked of the browser at six scroll positions |
 | `verify_reduced_motion.py` | every animation has a dignified static end state under `prefers-reduced-motion` |

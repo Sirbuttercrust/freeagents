@@ -115,7 +115,17 @@ DESKTOP = """(function(){
     unpainted: unpainted,
     avatars: avs.length,
     blank: blank,
-    inert: inert
+    inert: inert,
+    /* WHICH ENGINE PAINTED THEM, not merely whether something did.
+       polish.js prefers FASwarm.avatar and FALLS BACK to the older FA.avatar
+       when swarm.js is absent, so a screen missing the script does not render
+       an empty box: it renders a DIFFERENT face. Measured on a planted
+       agentsettings.html, 12 shapes against the swarm's 213, with `blank`
+       above empty and every gate green. An <svg> exists in both states, which
+       is why asking for one cannot separate them. The generator's presence is
+       the causal fact and is what gets asserted; a shape count would be a
+       signature of today's output. */
+    swarm: typeof (window.FASwarm && FASwarm.avatar)
   });
 })()"""
 
@@ -145,6 +155,21 @@ try:
                          "renders an avatar and the generator never ran, which "
                          "is a blank disc that throws no error."
                          % (s, d["blank"]))
+        # A SCREEN RENDERING AN AVATAR WITHOUT THE SWARM DOES NOT RENDER
+        # NOTHING. polish.js falls back to the older FA.avatar engine, so the
+        # page paints a different face and the `blank` check above stays empty.
+        # BUILD-STATE described the failure as an empty box and credited
+        # load_swarm.py with catching it; load_swarm.py REPAIRS the page and
+        # exits 0, and is in no gate run. Measured on a planted
+        # agentsettings.html: 12 shapes against the swarm's 213, verify_polish
+        # green. Two avatar systems inside one set is the defect this whole
+        # card exists to end, so it fails here.
+        if d["avatars"] and d.get("swarm") != "function":
+            fails.append("%s: renders %d [data-avatar] host(s) with no swarm "
+                         "generator loaded. polish.js falls back to the older "
+                         "FA.avatar engine, so this screen paints a different "
+                         "face rather than an empty box. Add swarm.js."
+                         % (s, d["avatars"]))
         if d["inert"]:
             fails.append("%s: inert buttons %s" % (s, d["inert"]))
         rows.append(row)
@@ -165,6 +190,13 @@ try:
         if d["blank"]:
             fails.append("%s: [data-avatar] painted nothing for %s"
                          % (s, d["blank"]))
+        # The retired screens hold to the engine rule too. A page kept so an
+        # old link lands somewhere honest still has to look like this product
+        # while it says so.
+        if d["avatars"] and d.get("swarm") != "function":
+            fails.append("%s: renders %d [data-avatar] host(s) with no swarm "
+                         "generator loaded, so the older engine paints them"
+                         % (s, d["avatars"]))
 finally:
     b.close()
 

@@ -27,11 +27,19 @@ the three shapes are pinned here and run.
   L3  third route   reach tapfloor through getattr
                     -> CAUGHT. Unrecognised is a failure, never a pass, and
                        that disposition is what makes L1 and L2 tolerable
+  L4  the same audit, run over the other claim sentences in the documents,
+      found a second one: BUILD-STATE said a screen rendering [data-avatar]
+      without swarm.js "paints an empty 32x32 box" and credited load_swarm.py
+      with failing on it. Measured, neither was true. polish.js falls back to
+      the older FA.avatar engine, so the page paints a DIFFERENT face, 12
+      shapes against the swarm's 213, and load_swarm.py REPAIRS the page and
+      exits 0 and is in no gate run. verify_polish.py now asserts the
+      generator, and L4 is the ordinary mutation proving it fails.
 
 L1 and L2 assert a PASS on a tree carrying a real defect, which is the inverse
 of a mutation control and the reason this file is separate from the others: a
-green here means the documented limit is real. L3 asserts a failure. If L3
-ever starts passing, the fallback direction has been inverted and the two
+green here means the documented limit is real. L3 and L4 assert a failure. If
+L3 ever starts passing, the fallback direction has been inverted and the two
 named limits stop being tolerable, so the document has to change with it.
 
 Run from the wireframe directory with the preview server up. Reverts on any
@@ -56,10 +64,16 @@ if not BASE.endswith("/"):
 
 FLOW = os.path.join(HERE, "verify_flow.py")
 STAGED = os.path.join(HERE, "staged.html")
+# The avatar fixture. Named rather than derived for the reason the dialog one
+# is: the control asserts the gate names THIS screen back, so a fixture chosen
+# at run time would leave nothing to expect. agentsettings.html renders one
+# [data-avatar] host and loads swarm.js, which is exactly the pair the plant
+# needs to break.
+SETTINGS = os.path.join(HERE, "agentsettings.html")
 # Exactly the files this suite writes to. A path declared and never written is
 # an exemption for a file nothing touches, which is how a real one gets waved
 # through later.
-FILES = [FLOW, STAGED]
+FILES = [FLOW, STAGED, SETTINGS]
 
 # Unique to this suite, so the stray check after the revert cannot fire on a
 # document paragraph describing another round's plant.
@@ -73,6 +87,9 @@ PLANT = ('  <div class="chrome r11probe" style="position:relative;left:0;'
          'width:120px;height:44px">r11probe</div>\n')
 
 SWEEP_CALL = "        t = tapfloor.sweep(b, url)"
+
+# The avatar generator's script tag. Removing it is the whole L4 plant.
+SWARM_TAG = '<script src="swarm.js"></script>\n'
 
 CHROME_READ = ('             "chrome": [tapfloor.fmt(x)\n'
                '                        for x in tapfloor.of_kind(t["bad"], "chrome")],\n')
@@ -163,6 +180,10 @@ def attribute_routes(path):
     return (not found), " ".join(sorted(found))
 
 
+def run_polish():
+    return run("verify_polish.py")
+
+
 def main():
     before = digest(FILES)
     saved = dict((p, read(p)) for p in FILES)
@@ -179,9 +200,9 @@ def main():
     print("verify_round11_mutation.py   tree %s   %s" % (before, BASE))
     print("=" * 78)
     print("L1 and L2 assert a PASS on a tree that carries a real defect: they")
-    print("prove the limits DESIGN.md 10 names are real. L3 asserts a FAILURE,")
-    print("because unrecognised has to stay a failure for L1 and L2 to be")
-    print("tolerable at all.")
+    print("prove the limits DESIGN.md 10 names are real. L3 and L4 assert a")
+    print("FAILURE, because unrecognised has to stay a failure for L1 and L2")
+    print("to be tolerable at all.")
     print()
 
     results = []
@@ -247,6 +268,29 @@ def main():
         print("L3  reaching the probe by getattr touches neither known route")
         print("    tapfloor attribute access in the AST: %s" % (why or "none"))
         print("    coverage        exit %d  %s" % (c3, row3[:72]))
+
+        # ------------------------------------------------------------- L4
+        # A MUTATION, in the ordinary direction: plant a real defect and
+        # require the gate to fail naming it. It lives in this suite because
+        # the defect was FOUND by auditing a claim sentence, the same way D19
+        # was, and because the sentence describing it was wrong in the same
+        # way: BUILD-STATE said a screen missing swarm.js paints an empty box
+        # and credited load_swarm.py with catching it. Neither held. polish.js
+        # falls back to the older FA.avatar engine, so the page paints a
+        # different face, and load_swarm.py repairs the page and exits 0.
+        sub(SETTINGS, SWARM_TAG, "")
+        renders = "data-avatar" in read(SETTINGS)
+        p4, out4 = run_polish()
+        named4 = [l.strip() for l in out4.splitlines()
+                  if "agentsettings.html" in l and "swarm generator" in l]
+        restore()
+        ok4 = (renders and p4 != 0 and named4)
+        results.append(("L4 an avatar with no swarm generator FAILS", ok4))
+        print()
+        print("L4  a screen renders [data-avatar] and does not load swarm.js")
+        print("    still renders an avatar host: %s" % renders)
+        print("    verify_polish.py exit %d  %s"
+              % (p4, (named4[0][:80] if named4 else "does NOT name it")))
     finally:
         for p, s in saved.items():
             write(p, s)

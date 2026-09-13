@@ -156,8 +156,11 @@ INLINE_WITH_REASON = {
     # to show that is to leave a real defect inside a specific <dialog> and
     # watch the gate stay green. A fixture chosen at run time could land on a
     # screen with no dialog, where the control would pass while proving
-    # nothing.
-    "verify_round11_mutation.py": {"staged.html"},
+    # nothing. agentsettings.html is its second fixture, for the avatar
+    # control: the plant strips swarm.js from a screen that renders
+    # [data-avatar], and the assertion is that verify_polish.py names that
+    # screen back. A screen picked at run time might render no avatar at all.
+    "verify_round11_mutation.py": {"staged.html", "agentsettings.html"},
 }
 
 
