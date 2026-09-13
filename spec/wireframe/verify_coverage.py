@@ -160,7 +160,12 @@ INLINE_WITH_REASON = {
     # control: the plant strips swarm.js from a screen that renders
     # [data-avatar], and the assertion is that verify_polish.py names that
     # screen back. A screen picked at run time might render no avatar at all.
-    "verify_round11_mutation.py": {"staged.html", "agentsettings.html"},
+    # notfound.html is its third, for the brand-name control: the plant adds
+    # an aria-labelledby beside the brand's untouched aria-label, and the
+    # assertion is that verify_kept.py names that screen and the hijacked
+    # name.
+    "verify_round11_mutation.py": {"staged.html", "agentsettings.html",
+                                   "notfound.html"},
 }
 
 

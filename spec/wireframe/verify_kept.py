@@ -26,6 +26,16 @@ Two assertions, and they are different in kind:
      screen reader would say. base.css sets .brand{font-size:0} below 420px,
      so the visible word is gone and the accessible name is all there is.
 
+     THAT SENTENCE WAS TRUE OF THE INTENT AND FALSE OF THE CODE FOR SIX
+     ROUNDS. The probe read `getAttribute('aria-label') || textContent`, which
+     is the file it says it is not reading. Round 11 measured it rather than
+     arguing about it: an `aria-labelledby` planted beside the existing
+     `aria-label` on notfound.html left the attribute read at "FreeAgents
+     home" while Chrome announced "Untitled page", and this gate passed. The
+     name now comes from `Accessibility.getPartialAXTree`. The markup's answer
+     is still printed, because it is what you edit when the computed one is
+     wrong.
+
   2. FACTS THAT MUST RENDER SOMEWHERE, searched across the rendered text of
      every screen with disclosures OPENED. Scoped to the set, not to one page,
      so moving a fact to a better home is allowed and losing it is not. A
@@ -125,14 +135,48 @@ BRAND = """(function(){
   if (!a) return JSON.stringify({found: false});
   return JSON.stringify({
     found: true,
-    /* what a screen reader would announce, computed rather than read out of
-       the markup: aria-label, then the text content. */
-    name: (a.getAttribute('aria-label') || a.textContent || '').trim(),
+    /* The MARKUP's answer, kept for the report: it is what to edit when the
+       computed name below is wrong. The assertion is made on the computed
+       name, not on this. */
+    attr: (a.getAttribute('aria-label') || a.textContent || '').trim(),
     fontSize: getComputedStyle(a).fontSize,
     w: Math.round(a.getBoundingClientRect().width),
     h: Math.round(a.getBoundingClientRect().height)
   });
 })()"""
+
+
+def computed_brand_name(b):
+    """What Chrome would announce for a.brand, asked of the browser.
+
+    THIS FUNCTION IS THE DIFFERENCE BETWEEN THIS GATE'S CLAIM AND ITS CODE.
+    The docstring above has always said the name is "computed by Chrome... not
+    'the attribute is in the file': the attribute could be there and
+    overridden". The probe read `getAttribute('aria-label') || textContent`,
+    which is the file. Round 11 measured the gap rather than reasoning about
+    it: adding an `aria-labelledby` beside the existing `aria-label` on
+    notfound.html left the attribute read at "FreeAgents home" while Chrome
+    computed "Untitled page", because a related element wins over aria-label
+    in the accessible name calculation. The gate passed.
+
+    So the name comes from the accessibility tree now. `aria-labelledby`, a
+    `<title>` inside the mark, a `role="presentation"` on the link, and a
+    label pointing at an empty node all change what a screen reader says
+    without touching the attribute this gate used to read.
+    """
+    b.send("Accessibility.enable")
+    doc = b.send("DOM.getDocument", depth=-1)
+    node = b.send("DOM.querySelector", nodeId=doc["root"]["nodeId"],
+                  selector="a.brand")
+    if not node.get("nodeId"):
+        return None
+    ax = b.send("Accessibility.getPartialAXTree", nodeId=node["nodeId"],
+                fetchRelatives=False)
+    for n in ax.get("nodes", []):
+        if n.get("backendDOMNodeId") is not None and n.get("name"):
+            return (n["name"].get("value") or "").strip()
+    return ""
+
 
 fails = []
 rows = []
@@ -151,11 +195,19 @@ try:
             fails.append("%s: no a.brand at all" % s)
             rows.append((s, "(none)", "-"))
             continue
-        if d["name"] != BRAND_NAME:
+        # THE ASSERTION IS ON THE COMPUTED NAME, not on the attribute. See
+        # computed_brand_name: the two disagree whenever anything overrides
+        # aria-label, and a screen reader follows the computed one.
+        name = computed_brand_name(b)
+        if name != BRAND_NAME:
+            extra = ("" if name == d["attr"] else
+                     " The markup still says %r, so something is overriding "
+                     "it: check aria-labelledby, a role, or a title inside "
+                     "the mark." % d["attr"])
             fails.append("%s: brand announces %r, wanted %r (the word is "
-                         "%s at 320px, so the name is all there is)"
-                         % (s, d["name"], BRAND_NAME, d["fontSize"]))
-        rows.append((s, d["name"], d["fontSize"]))
+                         "%s at 320px, so the name is all there is).%s"
+                         % (s, name, BRAND_NAME, d["fontSize"], extra))
+        rows.append((s, name, d["fontSize"]))
         # Disclosures open, notes still OFF: this is the product surface.
         b.js(OPEN_ALL)
         buyer_text[s] = b.js(TEXT) or ""

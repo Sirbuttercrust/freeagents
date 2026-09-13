@@ -487,6 +487,21 @@ Six rules follow, and none is optional:
   the first draft of THIS entry claimed two limits where a control then proved
   one of them was actually covered.
 
+- **A gate can claim to ask the browser and read the file instead.** Round 11,
+  found by auditing all 58 sentences in these documents that name an
+  instrument and a detection rather than only the one a review named. Three
+  were wrong, and this is the one that had a cheap real fix.
+  `verify_kept.py`'s docstring said the brand's accessible name is "computed
+  by Chrome... not 'the attribute is in the file'". Its probe read
+  `getAttribute('aria-label') || textContent`, which is the file. Planting an
+  `aria-labelledby` beside the untouched `aria-label` made Chrome announce
+  "Untitled page" while the gate read "FreeAgents home" and passed, because a
+  related element wins the accessible name calculation. It reads
+  `Accessibility.getPartialAXTree` now, and prints the markup's answer beside
+  it because that is what you edit when the computed one is wrong. **Audit the
+  claim sentences as a population, the way a gate's scope is a population.**
+  One reviewed sentence is one instance of a class.
+
 A page-local rule beats a linked stylesheet at equal specificity, so
 `browse.html` carries its own copy of the pager floor and the drawer label
 floor. If you define a component inside a page's `<style>`, its touch floor

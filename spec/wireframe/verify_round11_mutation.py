@@ -28,19 +28,24 @@ the three shapes are pinned here and run.
                     -> CAUGHT. Unrecognised is a failure, never a pass, and
                        that disposition is what makes L1 and L2 tolerable
   L4  the same audit, run over the other claim sentences in the documents,
-      found a second one: BUILD-STATE said a screen rendering [data-avatar]
+      found two more. BUILD-STATE said a screen rendering [data-avatar]
       without swarm.js "paints an empty 32x32 box" and credited load_swarm.py
       with failing on it. Measured, neither was true. polish.js falls back to
       the older FA.avatar engine, so the page paints a DIFFERENT face, 12
       shapes against the swarm's 213, and load_swarm.py REPAIRS the page and
       exits 0 and is in no gate run. verify_polish.py now asserts the
       generator, and L4 is the ordinary mutation proving it fails.
+  L5  verify_kept.py's own docstring said the brand's accessible name is
+      "computed by Chrome... not 'the attribute is in the file'", while its
+      probe read getAttribute('aria-label'). An aria-labelledby planted beside
+      the untouched attribute made Chrome announce "Untitled page" with the
+      gate green. It reads the accessibility tree now, and L5 proves it.
 
 L1 and L2 assert a PASS on a tree carrying a real defect, which is the inverse
 of a mutation control and the reason this file is separate from the others: a
-green here means the documented limit is real. L3 and L4 assert a failure. If
-L3 ever starts passing, the fallback direction has been inverted and the two
-named limits stop being tolerable, so the document has to change with it.
+green here means the documented limit is real. L3, L4 and L5 assert a failure.
+If L3 ever starts passing, the fallback direction has been inverted and the
+two named limits stop being tolerable, so the document has to change with it.
 
 Run from the wireframe directory with the preview server up. Reverts on any
 exit, including SIGTERM.
@@ -70,14 +75,18 @@ STAGED = os.path.join(HERE, "staged.html")
 # [data-avatar] host and loads swarm.js, which is exactly the pair the plant
 # needs to break.
 SETTINGS = os.path.join(HERE, "agentsettings.html")
+# The brand-name fixture. notfound.html is the smallest screen in the set that
+# carries a.brand, so the plant is unambiguous, and the assertion is that the
+# gate names THIS screen back.
+NOTFOUND = os.path.join(HERE, "notfound.html")
 # Exactly the files this suite writes to. A path declared and never written is
 # an exemption for a file nothing touches, which is how a real one gets waved
 # through later.
-FILES = [FLOW, STAGED, SETTINGS]
+FILES = [FLOW, STAGED, SETTINGS, NOTFOUND]
 
 # Unique to this suite, so the stray check after the revert cannot fire on a
 # document paragraph describing another round's plant.
-MARKERS = ("r11probe",)
+MARKERS = ("r11probe", "r11hijack")
 
 # The fixture is named rather than derived, for the reason round 10's was: the
 # defect only exists inside a specific <dialog>, and a screen chosen at run
@@ -90,6 +99,14 @@ SWEEP_CALL = "        t = tapfloor.sweep(b, url)"
 
 # The avatar generator's script tag. Removing it is the whole L4 plant.
 SWARM_TAG = '<script src="swarm.js"></script>\n'
+
+# L5: the brand keeps its aria-label and gains a label pointing elsewhere. A
+# related element WINS over aria-label in the accessible name calculation, so
+# a screen reader announces the other text while the attribute is untouched.
+BRAND_LABEL = 'aria-label="FreeAgents home"'
+BRAND_HIJACK = ('aria-label="FreeAgents home" aria-labelledby="r11hijack"')
+HIJACK_NODE = ('<span id="r11hijack" style="position:absolute;left:-9999px">'
+               'Untitled page</span>\n</body>')
 
 CHROME_READ = ('             "chrome": [tapfloor.fmt(x)\n'
                '                        for x in tapfloor.of_kind(t["bad"], "chrome")],\n')
@@ -184,6 +201,10 @@ def run_polish():
     return run("verify_polish.py")
 
 
+def run_kept():
+    return run("verify_kept.py", with_url=True)
+
+
 def main():
     before = digest(FILES)
     saved = dict((p, read(p)) for p in FILES)
@@ -200,8 +221,8 @@ def main():
     print("verify_round11_mutation.py   tree %s   %s" % (before, BASE))
     print("=" * 78)
     print("L1 and L2 assert a PASS on a tree that carries a real defect: they")
-    print("prove the limits DESIGN.md 10 names are real. L3 and L4 assert a")
-    print("FAILURE, because unrecognised has to stay a failure for L1 and L2")
+    print("prove the limits DESIGN.md 10 names are real. L3, L4 and L5 assert")
+    print("a FAILURE, because unrecognised has to stay a failure for L1 and L2")
     print("to be tolerable at all.")
     print()
 
@@ -291,6 +312,36 @@ def main():
         print("    still renders an avatar host: %s" % renders)
         print("    verify_polish.py exit %d  %s"
               % (p4, (named4[0][:80] if named4 else "does NOT name it")))
+
+        # ------------------------------------------------------------- L5
+        # The third claim sentence the survey caught, and the one with the
+        # cheapest real fix. verify_kept.py's docstring says the brand's
+        # accessible name is "computed by Chrome... not 'the attribute is in
+        # the file'". Its probe read the attribute. An aria-labelledby beside
+        # the untouched aria-label makes the two disagree, because a related
+        # element wins the name calculation, and the old probe passed.
+        sub(NOTFOUND, BRAND_LABEL, BRAND_HIJACK)
+        sub(NOTFOUND, "</body>", HIJACK_NODE)
+        still_labelled = BRAND_LABEL in read(NOTFOUND)
+        p5, out5 = run_kept()
+        # PIN THE FAILURE LINE, NOT THE REPORT TABLE. The first version of
+        # this control matched any line holding the screen and the hijacked
+        # name, and the gate's own table prints exactly that for every screen
+        # whether or not it asserts anything. So the control would have passed
+        # on a gate that printed the name and made no assertion, which is the
+        # state this gate was in before round 11. "brand announces" appears
+        # only in the failure.
+        named5 = [l.strip() for l in out5.splitlines()
+                  if "notfound.html" in l and "brand announces" in l
+                  and "Untitled page" in l]
+        restore()
+        ok5 = (still_labelled and p5 != 0 and named5)
+        results.append(("L5 the brand name is read from the a11y tree", ok5))
+        print()
+        print("L5  the brand keeps aria-label and gains a label pointing away")
+        print("    the aria-label attribute is untouched: %s" % still_labelled)
+        print("    verify_kept.py   exit %d  %s"
+              % (p5, (named5[0][:80] if named5 else "does NOT name it")))
     finally:
         for p, s in saved.items():
             write(p, s)
