@@ -105,8 +105,9 @@ GATES = [
     ("verify_designmd.py", False,
      "every value DESIGN.md states is the value the tree ships: tokens, "
      "contrast ratios and durations, both sides derived rather than listed. "
-     "Round 7: and section 2.1 read at screens, every colour literal in "
-     "every file classified by the position it sits in"),
+     "Round 8: and section 2.1 read at screens, every colour literal in "
+     "every file, in every spelling a browser renders, classified by the "
+     "position it is parsed in"),
 ]
 
 env = dict(os.environ)

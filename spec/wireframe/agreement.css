@@ -32,8 +32,17 @@
 :root {
   /* Named for the job, not the hue, so a later palette change does not have to
      reason about what "amber" meant on which screen. Same value as
-     --cat-infra, measured 8.97:1 on --bg and 8.85:1 as dark ink on the solid
-     fill, so it clears AA as text and as a filled chip. */
+     --cat-infra. --sig-open on --bg measures 8.97:1, and --bg on --sig-open
+     measures 8.97:1, so it clears AA as text and as a filled chip.
+
+     THE SECOND NUMBER USED TO READ 8.85:1 and was wrong, the same stale copy
+     review found in market.css. It is stated as a named PAIR now, on one
+     line each, because verify_designmd.py checks a comment ratio only when
+     both its colours resolve: the old wording spanned a line break and said
+     "dark ink", which resolves to nothing, so the gate printed it as
+     unchecked and the wrong number sat in a stylesheet for three rounds.
+     Contrast is symmetric, so the two clauses are one measurement written
+     twice, which is deliberate: the chip paints --bg on the fill below. */
   --sig-open: #E0A24E;
   --sig-open-wash: rgba(224, 162, 78, 0.12);
 }
