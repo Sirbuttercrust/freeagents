@@ -34,9 +34,31 @@ THE CONTROLS ARE AIMED AT THE GUARANTEE, NOT AT THE BUG.
 Re-planting the x=-20 toggle proves one fix. It does not prove the arrangement
 that stops the sixth shape of this defect. So most of what follows breaks the
 MECHANISM: a sweeper that stops consuming a kind, a probe that declares a kind
-it never emits, a gate that reads only one edge, a kind emitted but declared
-nowhere. Each must fail, and each must fail NAMING the instrument, because the
-failure a person has to act on is "this gate is weaker than that one".
+it never emits, a kind emitted but declared nowhere. Each must fail, and each
+must fail NAMING the instrument, because the failure a person has to act on is
+"this gate is weaker than that one".
+
+THERE ARE THREE KINDS OF CONTROL HERE, AND CONFLATING TWO OF THEM COST TWO
+ROUNDS OF FALSE RED.
+
+    MUTATIONS   plant a DEFECT in the product, require the gate to FAIL
+    BLINDINGS   plant a defect AND weaken the instrument, require it to go
+                blind: a PASS with the defect still present is the finding
+    NEGATIVES   plant legal layout, require SILENCE
+
+H and I began life in MUTATIONS and reported MISSED twice while both gates were
+fine. Weakening an instrument on a tree with no defect in it cannot make any
+gate fail: round 9 fixed the CSS that positioned the toggle at x=-20 AND the
+probe clause that could see it, so with the clause removed there is nothing left
+at the left edge to miss. The gate passed because the tree was correct.
+
+    defect planted, probe intact      exit 1, names 'div r9plant @-40..80'
+    defect planted, probe weakened    exit 0, r9plant invisible
+
+I carried a second, independent error worth naming separately: it mutates the
+probe's RUNTIME behaviour and was pointed at verify_mobile_coverage.py, which
+reads the probe's SOURCE with `ast`. A clause that suppresses findings at run
+time cannot move a gate that never executes the probe.
 
 THE NEGATIVE CONTROLS ARE HALF OF THIS FILE. An overflow rule reads every
 element on the page, so the things it must NOT fire on are ordinary layout: a
@@ -219,9 +241,23 @@ def mut_emitted_but_never_declared():
 def mut_one_edge_only():
     """The probe reads the right edge and forgets the left.
 
-    The original defect at its source. If this survives, every screen in the
-    directory loses left-edge overflow at once and the arrangement above is
-    decoration.
+    NOT IN MUTATIONS. This is a BLINDING control, and it took two rounds of
+    MISSED to see why it cannot be a fail-expecting one.
+
+    A mutation control plants a DEFECT and requires the gate to fail. This
+    plants no defect: it weakens the INSTRUMENT. Round 9 fixed two things
+    together, the CSS that positioned the builder-notes toggle at x=-20 and the
+    probe clause that could see it, so on a fixed tree there is nothing at the
+    left edge to miss. Removing the clause correctly changes nothing, the gate
+    correctly passes, and the suite called that MISSED for two rounds while
+    printing "the probe reads one edge only" as though the gate were weak.
+
+    Measured, with the clause removed and a real element planted at x=-40:
+
+        defect planted, probe intact    exit 1, names 'div r9plant @-40..80'
+        defect planted, probe weakened  exit 0, r9plant invisible
+
+    The pair is the assertion. See BLINDINGS.
     """
     sub(TAPFLOOR, "if (ro.right <= W + 0.5 && ro.left >= -0.5) continue;",
         "if (ro.right <= W + 0.5) continue;")
@@ -230,10 +266,16 @@ def mut_one_edge_only():
 def mut_chrome_contract_unchecked():
     """.chrome stops being a contract and becomes a name.
 
-    The fix for the real bug is an exclusion in a CSS selector, and an
-    exclusion is a promise: this element positions itself. A promise nothing
-    measures is the same defect one level up, so deleting the check must fail
-    rather than pass quietly.
+    NOT IN MUTATIONS, for a second reason worth keeping separate from the one
+    above: this mutation changes the probe's RUNTIME behaviour, and it was
+    pointed at verify_mobile_coverage.py, which reads the probe's SOURCE with
+    `ast` for the kinds it pushes. A clause that suppresses findings at run time
+    cannot move a gate that never executes the probe. The control asserted
+    against an instrument that structurally cannot see it.
+
+    As a blinding pair against verify_polish.py, which does run the probe, it
+    says something true: break the position contract and every .chrome finding
+    disappears.
     """
     sub(TAPFLOOR, "    if (pos === 'fixed' || pos === 'sticky') continue;",
         "    if (pos !== 'THIS-NEVER-MATCHES') continue;")
@@ -309,6 +351,31 @@ def mut_chrome_sticky():
         'width:100px;height:44px">r9plant</div>\n</body>')
 
 
+def mut_chrome_static_onscreen():
+    """A .chrome element that does NOT position itself.
+
+    Control I's defect half, and it has to be a defect ONLY this check can see.
+    Two earlier shapes were wrong:
+
+      mut_chrome_sticky          a NEGATIVE. Sticky satisfies the contract and
+                                 must stay quiet, so it cannot be the defect.
+      the same div at right:60px  caught by the OVERFLOW check as well, so
+                                 removing the contract check left the gate
+                                 failing anyway and the pair read NOT BEARING.
+
+    The contract check fires on POSITION alone and needs no overflow, so the
+    plant sits fully inside the viewport. Then the only instrument that can see
+    it is the one being tested, which is what makes the blinding half meaningful.
+
+    `.chrome` is a promise that the element positions itself, and that promise is
+    what licenses the perch lift to skip it. An element carrying the class while
+    statically laid out is that promise broken.
+    """
+    sub(NOTFOUND, "</body>",
+        '<div class="chrome r9plant" style="position:relative;left:0;'
+        'width:120px;height:44px">r9plant</div>\n</body>')
+
+
 # Every marker this suite writes to disk, for the stray check after the
 # revert. `r9plant` appears nowhere else in the tree, so the check cannot fire
 # on a document paragraph describing a previous round's plant.
@@ -332,10 +399,35 @@ MUTATIONS = [
      run_coverage, "contrast", "declared"),
     ("G  a kind emitted but never declared", mut_emitted_but_never_declared,
      run_coverage, "edgebleed", "not declared"),
-    ("H  the probe reads one edge only", mut_one_edge_only,
-     run_polish, "browse.html", "notetoggle"),
-    ("I  the .chrome contract stops being checked", mut_chrome_contract_unchecked,
-     run_coverage, "chrome", "emit"),
+]
+
+# ======================================================================
+# BLINDING PAIRS: is this clause LOAD-BEARING?
+#
+# A third kind of control, and the reason H and I sat in MUTATIONS reporting
+# MISSED for two rounds. A mutation plants a DEFECT and requires a failure. A
+# negative plants legal code and requires silence. Neither shape fits "this
+# clause in the instrument is what catches the defect", because weakening an
+# instrument on a tree with no defect in it cannot make any gate fail.
+#
+# So the assertion is a pair, and the second half is a PASS that means blindness:
+#
+#   plant the defect, probe intact    -> gate FAILS, naming the plant
+#   plant the defect, probe weakened  -> gate PASSES, plant invisible
+#
+# Both halves are required. If the first does not fail, the gate never caught it
+# and the clause is not the reason. If the second does not pass, the clause is
+# not what was doing the catching, and something else is.
+#
+# (name, weaken, plant, gate, marker the gate must name when the probe is intact)
+# ======================================================================
+
+BLINDINGS = [
+    ("H  the left-edge clause is load-bearing", mut_one_edge_only,
+     mut_left_overflow_plant, run_polish, "r9plant"),
+    ("I  the .chrome position contract is load-bearing",
+     mut_chrome_contract_unchecked, mut_chrome_static_onscreen, run_polish,
+     "chrome r9plant"),
 ]
 
 NEGATIVES = [
@@ -381,6 +473,7 @@ def main():
 
     caught, missed, wrong_reason = 0, [], []
     clean, false_alarm = 0, []
+    load_bearing, not_bearing = 0, []
     try:
         for name, mutate, gate, where, expect in MUTATIONS:
             mutate()
@@ -407,6 +500,45 @@ def main():
                 print("  MISSED %-46s exit %d" % (name, code))
             for p, s in saved.items():
                 write(p, s)
+
+        print()
+        for name, weaken, plant, gate, marker in BLINDINGS:
+            # Half 1: the defect alone. The gate must SEE it, or this clause
+            # was never what caught it and the pair proves nothing.
+            plant()
+            code_a, out_a = gate()
+            named = [l.strip() for l in out_a.splitlines() if marker in l]
+            for p, s in saved.items():
+                write(p, s)
+
+            # Half 2: the same defect with the clause removed. A PASS here is
+            # the finding: the instrument has gone blind to a defect that is
+            # still on the page.
+            plant()
+            weaken()
+            code_b, out_b = gate()
+            blind = marker not in out_b
+            for p, s in saved.items():
+                write(p, s)
+
+            if code_a != 0 and named and code_b == 0 and blind:
+                load_bearing += 1
+                print("  LOAD-BEARING %-41s intact exit %d, weakened exit %d"
+                      % (name, code_a, code_b))
+                print("         sees it:   %s" % named[0][:86])
+                print("         blinded:   %s no longer reported" % marker)
+            elif code_a == 0 or not named:
+                not_bearing.append(
+                    (name, "the gate did not fail on the planted defect with "
+                           "the probe INTACT (exit %d), so this clause is not "
+                           "what catches it" % code_a))
+                print("  NOT BEARING  %-41s intact exit %d" % (name, code_a))
+            else:
+                not_bearing.append(
+                    (name, "the gate still failed with the clause removed "
+                           "(exit %d), so something else catches this and the "
+                           "clause is not load-bearing" % code_b))
+                print("  NOT BEARING  %-41s weakened exit %d" % (name, code_b))
 
         print()
         for name, mutate, gate, why in NEGATIVES:
@@ -459,13 +591,16 @@ def main():
         if line.startswith("PASS"):
             print("    %s" % line.strip()[:92])
 
-    ok = (not missed and not wrong_reason and not false_alarm and not strays
+    ok = (not missed and not wrong_reason and not false_alarm
+          and not not_bearing and not strays
           and after == before and ccode == 0 and pcode == 0)
     print()
     if ok:
-        print("MUTATION TEST PASSED: %d of %d defects caught, %d of %d legal "
-              "layouts left alone," % (caught, len(MUTATIONS), clean, len(NEGATIVES)))
-        print("tree reverted clean, both gates green on the restored tree.")
+        print("MUTATION TEST PASSED: %d of %d defects caught, %d of %d clauses "
+              "proved load-bearing," % (caught, len(MUTATIONS),
+                                        load_bearing, len(BLINDINGS)))
+        print("%d of %d legal layouts left alone, tree reverted clean, both "
+              "gates green." % (clean, len(NEGATIVES)))
         return 0
 
     print("MUTATION TEST FAILED")
@@ -473,6 +608,8 @@ def main():
         print("  MISSED       %s" % n)
     for n, why in wrong_reason:
         print("  WRONG REASON %s: %s" % (n, why))
+    for n, why in not_bearing:
+        print("  NOT BEARING  %s: %s" % (n, why))
     for n, why in false_alarm:
         print("  FALSE ALARM  %s: %s" % (n, why))
     if after != before:
