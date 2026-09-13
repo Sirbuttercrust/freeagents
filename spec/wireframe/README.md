@@ -88,11 +88,11 @@ merely to run:
 for m in verify_*mutation*.py; do python3 "$m" http://127.0.0.1:3111; done
 ```
 
-Written as a glob rather than as a list of names. This paragraph named three of
-the six suites for a fortnight, because a list of files in prose goes stale the
-day a seventh is added and nothing ever tells you. `verify_all.py` reads them
-off disk the same way for the same reason. The suites that take no url ignore
-the argument.
+Written as a glob rather than as a list of names, and with no count in the
+sentence. This paragraph used to name three suites by hand and went stale the
+day a fourth was added, with nothing ever telling anyone. `verify_all.py`
+reads them off disk the same way for the same reason, and prints the number it
+found. The suites that take no url ignore the argument.
 
 ## Rules that bind anyone building from this
 

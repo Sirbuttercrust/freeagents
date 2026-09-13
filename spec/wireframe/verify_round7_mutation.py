@@ -214,10 +214,16 @@ def mut_renderer_hue():
 MUTATIONS = [
     ("A  a legible swatch painted onto a screen", mut_screen_hex,
      "conduct.html", "which no token defines"),
+    # THE EXPECTATION IS THE VALUE, NOT THE SENTENCE AROUND IT. These two read
+    # "paints `#3A3A4A`" until round 8 added the property name to the failure
+    # line ("paints `fill` `#3A3A4A`"), at which point both reported WRONG
+    # REASON: the defect was caught, and the control could not tell. That is
+    # the suite doing its job, and the lesson is to pin the thing the defect
+    # IS rather than the prose a later round may improve.
     ("B  the flat account-menu disc, as it shipped", mut_menu_disc,
-     "deposit.html", "paints `#3A3A4A`"),
+     "deposit.html", "#3A3A4A"),
     ("C  a colour typed into a rule, as rgb() not hex", mut_css_literal,
-     "market.css", "paints `rgb(26, 18, 6)`"),
+     "market.css", "rgb(26, 18, 6)"),
     ("D  a token moves and the renderer's copy does not", mut_stale_mirror,
      "swarm.js", "calls it `--accent`"),
     ("E  a renderer literal that silently equals a token", mut_undeclared_mirror,

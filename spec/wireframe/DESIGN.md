@@ -142,23 +142,37 @@ that is not in this table does not exist in the product.
 Adding it later is a token-layer change, not a rewrite, because no screen
 hardcodes a colour.
 
-**What "introduces a colour" means**, because this rule is now enforced in
-three media and an unstated definition is one a gate gets to invent. A colour
-literal is judged by the POSITION it sits in, never by its value:
+**What "introduces a colour" means**, because this rule is enforced in four
+media and an unstated definition is one a gate gets to invent. A colour is
+judged by the POSITION it sits in, never by its value, and a position is
+READ rather than guessed at: the value of a declaration or of an attribute,
+with the property name parsed rather than found by looking backwards a fixed
+number of characters.
 
 | position | rule |
 |---|---|
 | a `:root` block | a token definition. It belongs in a table in this section |
-| a paint declaration, or a `fill` / `stroke` on a screen | **forbidden.** This is the rule above, and `#418` in a paragraph is a pull request number rather than paint, so a text node is not this |
+| the value of a paint property or attribute: `fill`, `stroke`, `color`, a `background`, a shadow, a border colour, or a custom property a stylesheet paints from | **forbidden.** This is the rule above. It holds in a stylesheet, in a `style=` attribute, and in a screen's own `<style>` block alike |
+| a colour-shaped run that is not a value | not a colour. `#418` in a paragraph is a pull request, `#4471` in an `href` is a fragment, `white` in `white-space` is half a property name, and `white.png` in a `url()` is a file |
 | a translucent `rgba` | a surface, governed by 2.6. It has no single colour until it is composited, so it is not a palette entry |
-| a colour inside a `mask` declaration | a stencil. Only its alpha channel is used and nothing renders it |
+| a colour inside a `mask` declaration | a stencil. Only its alpha channel is used and nothing renders it, at any length of value |
+| `currentColor`, `transparent` | introduces nothing. One takes the ink of the text around it, the other paints no pixels |
 | a literal in `swarm.js`, `agents.js` or `perch.js` | the generative renderer's colour space, governed by 2.4. If it equals a token it must say so with `/* = --token */`, and the value is recomputed against that token on every run |
 
-That last row is the one worth reading twice. `swarm.js` keeps a hue band
-empty around `--accent` so a generated agent can never come out wearing the
-colour that means verified, and it holds its own copy of the accent to do it.
-Moving `--accent` without moving that copy would silently reserve the wrong
-band. The annotation is what makes the copy checkable.
+That last row is the one worth reading twice, and it is read FROM THIS TABLE
+by the gate rather than copied into it. `swarm.js` keeps a hue band empty
+around `--accent` so a generated agent can never come out wearing the colour
+that means verified, and it holds its own copy of the accent to do it. Moving
+`--accent` without moving that copy would silently reserve the wrong band. The
+annotation is what makes the copy checkable. Take a file out of that row and
+its literals stop being exempt the same run; a script this row does not name
+is an ordinary screen script and every colour in it is paint.
+
+**Spelling is not a defence.** `#D8D8D8`, `#D8D8D8FF`, `#D8DF`,
+`rgb(216 216 216)` and `oklch(0.87 0.01 250)` are the same paint, and a rule
+that reads one of them is a rule about one spelling. All of them are read,
+along with the named keywords, which is why position has to be parsed: `red`
+in a `fill` is paint and `red` in a sentence is a word.
 
 `verify_designmd.py` derives this population from every file the browser
 loads. Nothing is exempt by name.
@@ -813,7 +827,7 @@ browser.
 | `verify_sampledata.py` | every screen showing an invented name or a dollar figure says on it that the data is sample data |
 | `verify_linknames.py` | a link whose text names its destination names it correctly, checked against what the destination page calls itself |
 | `verify_coverage.py` | no gate names its own screens, in a list OR inline in a goto. Every gate's scope is derived from the directory, so a screen added later cannot sit unmeasured behind a green table. No browser, no server |
-| `verify_designmd.py` | every value THIS FILE states is the value the tree ships: tokens against every `:root` block, contrast ratios and durations recomputed. Both sides derived, so a token added next month is compared the day it exists. Also section 2.1 read in the direction it points, at screens: every colour literal in every html, js and css file, classified by the position it sits in, and a renderer's declared copy of a token recomputed against it. No browser, no server |
+| `verify_designmd.py` | every value THIS FILE states is the value the tree ships: tokens against every `:root` block, contrast ratios and durations recomputed. Both sides derived, so a token added next month is compared the day it exists. Also section 2.1 read in the direction it points, at screens: every colour literal in every html, js and css file, in every spelling a browser renders, classified by the position it is parsed in rather than by a window of characters, including a screen's own `<style>` block and its `style=` attributes. The renderer exemption is read from 2.1's own table, and a renderer's declared copy of a token is recomputed against it. No browser, no server |
 
 **A gate's SCOPE is derived, never written down.** This table used to say
 `verify_ink.py` covered "every rendered character at both viewports" while

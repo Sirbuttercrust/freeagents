@@ -178,29 +178,78 @@ def as_rgb(value):
 # `#418` in a paragraph is a pull request number and `#418` in a `fill=` is
 # paint, and no list of values can tell them apart.
 
-_JS_LINE_COMMENT = re.compile(r"^[ \t]*//[^\n]*$", re.M)
+_JS_LINE_COMMENT = re.compile(r"//[^\n]*")
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 
-# Hex, rgb/rgba and hsl/hsla alike. A rule that only reads hex is answered by
-# typing the same colour a different way, which is a list pretending to be a
-# derivation.
+# THE VOCABULARY, and why it is this wide.
+#
+# Round 8 planted eight colours on a screen and round 7's reader saw one. Four
+# of the misses were spelling: `#D8D8D8FF`, `#D8DF`, `oklch(...)` and
+# `rgb(216 216 218)` are the same paint as `#D8D8D8` and every browser this
+# tree targets renders all of them. A rule about hex values is a rule about
+# one spelling, and a person who wants the colour writes it another way
+# without ever meaning to evade anything.
+#
+# A NAMED KEYWORD IS THE HARD ONE and it decides the shape of this module.
+# `red` in a `fill` is paint. `white` in `white-space: nowrap` is half a
+# property name, and this tree ships nine of those. No amount of widening the
+# pattern separates them, because the difference is not in the characters. It
+# is in whether the run is a VALUE. So the vocabulary can only widen once the
+# reader parses declarations, which is the same fix the mask window needed.
+_NAMED = (
+    "aliceblue antiquewhite aqua aquamarine azure beige bisque black "
+    "blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse "
+    "chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan "
+    "darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta "
+    "darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen "
+    "darkslateblue darkslategray darkslategrey darkturquoise darkviolet "
+    "deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite "
+    "forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green "
+    "greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender "
+    "lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan "
+    "lightgoldenrodyellow lightgray lightgreen lightgrey lightpink "
+    "lightsalmon lightseagreen lightskyblue lightslategray lightslategrey "
+    "lightsteelblue lightyellow lime limegreen linen magenta maroon "
+    "mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen "
+    "mediumslateblue mediumspringgreen mediumturquoise mediumvioletred "
+    "midnightblue mintcream mistyrose moccasin navajowhite navy oldlace "
+    "olive olivedrab orange orangered orchid palegoldenrod palegreen "
+    "paleturquoise palevioletred papayawhip peachpuff peru pink plum "
+    "powderblue purple rebeccapurple red rosybrown royalblue saddlebrown "
+    "salmon sandybrown seagreen seashell sienna silver skyblue slateblue "
+    "slategray slategrey snow springgreen steelblue tan teal thistle tomato "
+    "turquoise violet wheat white whitesmoke yellow yellowgreen").split()
+
 _COLOUR = re.compile(
-    r"#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{3}\b|"
-    r"rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+[^)]*\)|"
-    r"hsla?\([^)]*\)")
+    r"#[0-9A-Fa-f]{8}\b|#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{4}\b|#[0-9A-Fa-f]{3}\b|"
+    r"\brgba?\([^)]*\)|\bhsla?\([^)]*\)|"
+    r"\b(?:oklch|oklab|lab|lch|hwb|color)\([^)]*\)|"
+    r"\b(?:" + "|".join(_NAMED) + r")\b(?![-\w])")
 
-# A colour inside one of these declarations is a stencil. `mask-image:
-# linear-gradient(#000 0 0)` uses the alpha channel of a black gradient to
-# cut a shape; nothing renders that black, and calling it a palette entry
-# would bury the twelve colours the rule is about.
-_MASK_DECL = re.compile(r"(?:-webkit-)?mask(?:-image|-composite)?\s*:[^;{}]*$")
+# `currentColor` and `transparent` are colour keywords that introduce nothing:
+# one takes the ink of the text around it, the other paints no pixels. The
+# icon sprite uses `currentColor` throughout, which is the opposite of a
+# screen introducing a colour.
+_NO_PAINT = {"currentcolor", "transparent", "inherit", "initial", "unset",
+             "none", "revert"}
 
-# The attributes and properties that put a colour on screen in HTML. A colour
-# anywhere else in an HTML file is a text node.
-_PAINT_ATTR = re.compile(
-    r"(?:fill|stroke|stop-color|flood-color|lighting-color|color|"
-    r"background(?:-color)?|border(?:-[a-z]+)?-color|box-shadow|"
-    r"text-shadow|outline(?:-color)?)\s*[:=]\s*[\"']?[^\"'<>;]*$", re.I)
+# A property whose value is a stencil rather than paint. `mask-image:
+# linear-gradient(#000 0 0)` uses the alpha channel of a black gradient to cut
+# a shape; nothing renders that black.
+_MASK_PROP = re.compile(r"\A-?(?:webkit-|moz-|ms-)?mask(?:-[a-z]+)*\Z")
+
+# The SVG presentation attributes and the CSS properties that put a colour on
+# screen. A custom property counts: `--id-hue` set in a style attribute is
+# read by market.css and painted on the identity band, the avatar ring and the
+# card rim, so a literal there is the identity colour introduced on a screen
+# with one level of indirection.
+_PAINT_PROP = re.compile(
+    r"\A(?:--[\w-]+|fill|stroke|stop-color|flood-color|lighting-color|color|"
+    r"background|background-color|background-image|border[\w-]*color|border|"
+    r"box-shadow|text-shadow|text-decoration-color|caret-color|column-rule|"
+    r"column-rule-color|outline|outline-color|accent-color|text-emphasis-color|"
+    r"-webkit-text-fill-color|-webkit-text-stroke-color|filter|backdrop-filter)\Z",
+    re.I)
 
 
 # A literal in a renderer may declare itself a MIRROR of a token by naming it
@@ -226,8 +275,165 @@ def _blank(src, rx):
 
 def _alpha_of(value):
     """The alpha of a colour literal, or 1.0 for an opaque one."""
-    m = re.match(r"(?:rgba|hsla)\([^)]*?([\d.]+)\s*\)$", value.strip())
+    m = re.match(r"(?:rgba|hsla)\([^)]*?[,/]\s*([\d.]+)%?\s*\)$", value.strip())
     return float(m.group(1)) if m else 1.0
+
+
+_URL_FN = re.compile(r"url\([^)]*\)")
+_CSS_STRING = re.compile(r"\"[^\"\n]*\"|'[^'\n]*'")
+
+
+def _css_blank(src):
+    """Blank `url()` contents and quoted strings in CSS, keeping offsets.
+
+    `url(white.png)` is a file name and `content: "red"` is a character. Both
+    sit inside the value of a real paint property, so once the vocabulary
+    knows the named colours, a scan that reads them condemns correct code:
+    round 8's own negative control planted `background-image: url(white.png)`
+    and the first version of this fix reported it as a screen painting
+    `white`. Blanking here rather than only inside the declaration parser
+    means the colour scan and the property scan see the same text.
+    """
+    return _blank(_blank(src, _URL_FN), _CSS_STRING)
+
+
+def _css_declarations(src):
+    """Every `property: value` in CSS source, as (name, value_start, value_end).
+
+    WHY THIS REPLACED A CHARACTER WINDOW. Round 7 decided what owned a colour
+    by reading the 120 characters in front of it. That is a guess about where
+    a property name lives, and a long value answers it. Two mask declarations
+    identical in kind were classified differently purely by length:
+
+        property to colour   57 chars   stencil, exempt
+        property to colour  183 chars   PAINT, gate failed
+
+    A verdict that turns on how many gradient stops somebody wrote is not
+    reading a position. The scan below walks braces, so the property name is
+    read rather than guessed, and a declaration may be any length.
+
+    Strings and `url()` contents are blanked first: `url(white.png)` is a file
+    name and `content: "red"` is a character, and both would otherwise enter
+    the value as a colour word the moment the vocabulary widened.
+    """
+    src = _css_blank(src)
+    out, i, n = [], 0, len(src)
+    while i < n:
+        ch = src[i]
+        if ch in "{};":
+            i += 1
+            continue
+        # A property name runs to the next colon, and cannot contain a brace.
+        j = i
+        while j < n and src[j] not in ":{};":
+            j += 1
+        if j >= n or src[j] != ":":
+            i = j + 1
+            continue
+        name = src[i:j].strip()
+        # Everything after a selector, an at-rule or a pseudo-class is not a
+        # declaration. A property name is one identifier.
+        k, depth = j + 1, 0
+        while k < n:
+            c = src[k]
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth = max(0, depth - 1)
+            elif depth == 0 and c in ";}{":
+                break
+            k += 1
+        if re.fullmatch(r"-?-?[a-zA-Z][\w-]*", name):
+            out.append((name, j + 1, k))
+        i = k + 1 if k < n and src[k] == ";" else k
+    return out
+
+
+def _html_attributes(src):
+    """Every `name="value"` inside a tag, as (name, value_start, value_end).
+
+    Reads tags rather than looking backwards from the value, for the same
+    reason as the CSS scan: `#4471` in `href="#4471"` and `#4471` in a
+    paragraph are both "not paint", and a window cannot tell either of them
+    from a `fill=`.
+    """
+    out = []
+    for tag in re.finditer(r"<[a-zA-Z][^>]*>", src, re.S):
+        body = tag.group(0)
+        base = tag.start()
+        for m in re.finditer(r"([:\w-]+)\s*=\s*(\"[^\"]*\"|'[^']*')", body):
+            out.append((m.group(1), base + m.start(2) + 1,
+                        base + m.end(2) - 1))
+    return out
+
+
+# The property a script is assigning, read from the text IMMEDIATELY before a
+# value. Each pattern is anchored with `$`, so it matches adjacency rather
+# than proximity: an object key, a style assignment, a `setProperty` or a
+# `setAttribute` sits against its value or it is not that value's property.
+# Same shape as `_MIRROR`, which is anchored with `\A` for the same reason.
+#
+# WHY A SCRIPT NEEDS THIS AT ALL. A bare colour NAME in a script is usually
+# not a colour: `swarm.js` holds `{ id: "red", deg: 0, base: "#FF2D2D" }`,
+# where `red` is the hue's IDENTIFIER and the colour is the hex beside it.
+# Counting that word as paint puts nine false entries in the population, and
+# the day the renderer exemption moves they become nine false failures. The
+# discriminator is the same one the CSS scan uses: `id:` is not a paint
+# property and `fill:` is.
+_JS_PROP = [
+    re.compile(r"([A-Za-z_$][\w$-]*)\s*:\s*$"),
+    re.compile(r"\.style\.([A-Za-z][\w]*)\s*=\s*$"),
+    re.compile(r"setProperty\(\s*[\"']([\w-]+)[\"']\s*,\s*$"),
+    re.compile(r"setAttribute\(\s*[\"']([\w-]+)[\"']\s*,\s*$"),
+]
+
+
+def _js_property(src, start):
+    """The property name a script literal is the value of, or None."""
+    before = src[max(0, start - 64):start].rstrip("\"'")
+    for rx in _JS_PROP:
+        m = rx.search(before)
+        if m:
+            return m.group(1)
+    return None
+
+
+
+
+def renderers(doc="DESIGN.md"):
+    """The files DESIGN.md 2.1 declares as the generative renderer's space.
+
+    READ FROM THE DOCUMENT, not hardcoded here, and that is the whole point.
+    2.1's position table names three scripts whose literals are section 2.4's
+    subject rather than 2.1's: they are points in a colour space a creature is
+    generated from, not palette entries. Round 7's gate exempted EVERY script
+    instead, so the document said three files and the instrument meant seven,
+    and `polish.js` could paint an `h1` on all 33 screens with the suite green.
+
+    Two things follow from reading it here. A fourth renderer added to the
+    document is exempt the day it is written down, and a renderer REMOVED from
+    the document immediately fails on its own literals, which is what makes
+    the exemption checkable rather than a hole with a comment over it.
+    """
+    text = open(os.path.join(HERE, doc), encoding="utf-8").read()
+    row = re.search(r"^\|\s*a literal in ([^|]+)\|", text, re.M)
+    if not row:
+        return set()
+    return set(re.findall(r"`([a-z_0-9]+\.js)`", row.group(1)))
+
+
+def _html_style_spans(src):
+    """The contents of every `<style>` element, as (start, end) offsets.
+
+    A page-local `<style>` block is CSS that the browser applies to that
+    screen, and every one of the 33 screens has one. Round 7 read an HTML file
+    as markup and text nodes only, so a colour typed in a page's own style
+    block was classified as a TEXT NODE and waved through: the largest unread
+    surface in the tree, and the one place a page-specific component actually
+    gets styled.
+    """
+    return [(m.start(1), m.end(1)) for m in
+            re.finditer(r"<style\b[^>]*>(.*?)</style>", src, re.S | re.I)]
 
 
 def literals():
@@ -235,19 +441,32 @@ def literals():
 
     Returns a list of dicts: file, line, value, kind, context.
 
-    The five kinds, and the rule that owns each:
+    The six kinds, and the rule that owns each:
 
       root      a token definition. `shipped()`'s subject, skipped here
       mask      a stencil in a mask declaration. Renders nothing
       alpha     a translucent value. Section 2.6: a surface is an alpha over
                 whatever sits beneath it, never a hex, so it has no single
                 colour and cannot be a palette entry
-      text      a colour-shaped run in an HTML text node. `#418` is a pull
-                request. Excluded by POSITION, never by value
+      text      a colour-shaped run that is not the value of a paint property
+                or attribute. `#418` in a paragraph is a pull request, `#4471`
+                in an `href` is a fragment, and `white` in `white-space` is
+                half a property name. Excluded by POSITION, never by value
+      keyword   `currentColor`, `transparent`. A colour keyword that
+                introduces no colour: one takes the ink around it, the other
+                paints nothing
       paint     an opaque colour a person sees. Section 2.1's subject
 
-    A `paint` in a script also carries `mirror`: the token it declares itself
-    a copy of, read from a `/* = --token */` comment after the value.
+    A `paint` also carries `mirror`: the token it declares itself a copy of,
+    read from a `/* = --token */` comment after the value.
+
+    POSITION IS READ, NOT GUESSED. Round 7 classified by looking back 120
+    characters from the value. Both directions of that are wrong: a long value
+    pushed its own property out of the window, and a paragraph could not be
+    told from an attribute. CSS declarations and HTML attributes are parsed
+    now, so `fill="red"` is paint, `white-space: nowrap` is not a colour at
+    all, and a mask with eight gradient stops is the same stencil as a mask
+    with two.
     """
     out = []
     for name in sorted(os.path.basename(p) for p in
@@ -256,35 +475,74 @@ def literals():
                        + glob.glob(os.path.join(HERE, "*.css"))):
         raw = open(os.path.join(HERE, name), encoding="utf-8").read()
         if name.endswith(".css"):
-            src = _blank(raw, _COMMENT)
-            spans = [(a, c) for a, _, c in _root_spans(src)]
+            src = _css_blank(_blank(raw, _COMMENT))
+            roots = [(a, c) for a, _, c in _root_spans(src)]
+            decls = _css_declarations(src)
+            attrs = []
         elif name.endswith(".js"):
             src = _blank(_blank(raw, _COMMENT), _JS_LINE_COMMENT)
-            spans = []
+            roots, decls, attrs = [], [], []
         else:
-            src = _blank(_blank(raw, _HTML_COMMENT), _COMMENT)
-            spans = []
+            # `url()` contents are blanked in HTML too, since a page's own
+            # <style> block is CSS. Quoted strings are NOT: an HTML attribute
+            # value is quoted, so blanking those would erase `fill="red"`,
+            # which is the thing this scan exists to read.
+            src = _blank(_blank(_blank(raw, _HTML_COMMENT), _COMMENT), _URL_FN)
+            roots = [(a, c) for a, _, c in _root_spans(src)]
+            attrs = _html_attributes(src)
+            # A style attribute holds declarations, and so does every page's
+            # own <style> block. Both are CSS and both are read as CSS.
+            decls = []
+            for prop, vs, ve in attrs:
+                if prop.lower() == "style":
+                    decls += [(p, vs + a, vs + b) for p, a, b
+                              in _css_declarations(src[vs:ve])]
+            for ss, se in _html_style_spans(src):
+                decls += [(p, ss + a, ss + b) for p, a, b
+                          in _css_declarations(src[ss:se])]
+                roots += [(ss + a, ss + c) for a, _, c
+                          in _root_spans(src[ss:se])]
         lines = raw.splitlines()
         for m in _COLOUR.finditer(src):
-            if any(a <= m.start() < b for a, b in spans):
+            off = m.start()
+            prop = next((p for p, a, b in decls if a <= off < b), None)
+            if prop is None:
+                prop = next((p for p, a, b in attrs if a <= off < b), None)
+            if any(a <= off < b for a, b in roots):
                 kind = "root"
-            else:
-                before = src[max(0, m.start() - 120):m.start()]
-                if name.endswith(".css") and _MASK_DECL.search(before):
-                    kind = "mask"
-                elif name.endswith(".html") and not _PAINT_ATTR.search(before):
+            elif m.group(0).lower() in _NO_PAINT:
+                kind = "keyword"
+            elif name.endswith(".js"):
+                # A bare colour WORD in a script is a name unless it sits in a
+                # paint position. `{ id: "red", base: "#FF2D2D" }` holds one
+                # colour and one identifier, and nine of those would otherwise
+                # enter the population as paint.
+                prop = _js_property(src, off)
+                if (re.fullmatch(r"[a-z]+", m.group(0))
+                        and not (prop and _PAINT_PROP.match(prop))):
                     kind = "text"
                 elif _alpha_of(m.group(0)) < 1.0:
                     kind = "alpha"
                 else:
                     kind = "paint"
-            line = src[:m.start()].count("\n") + 1
+            elif prop is None:
+                kind = "text"
+            elif _MASK_PROP.match(prop.lower()):
+                kind = "mask"
+            elif not _PAINT_PROP.match(prop):
+                kind = "text"
+            elif _alpha_of(m.group(0)) < 1.0:
+                kind = "alpha"
+            else:
+                kind = "paint"
+            line = src[:off].count("\n") + 1
             # The mirror comment is read from the RAW source, past the closing
             # quote, because the blanked copy has every comment erased.
             after = raw[m.end():m.end() + 60].lstrip("\"'")
             mm = _MIRROR.match(after)
             out.append({"file": name, "line": line, "value": m.group(0),
-                        "kind": kind, "mirror": mm.group(1) if mm else None,
+                        "kind": kind, "prop": prop,
+                        "mirror": mm.group(1) if mm else None,
                         "context": lines[line - 1].strip()[:110]})
     return out
 

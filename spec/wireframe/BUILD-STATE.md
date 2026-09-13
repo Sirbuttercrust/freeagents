@@ -152,6 +152,66 @@ characters, and the phrase excusing the planted defect was in the sentence
 describing that very gate. It checks per SENTENCE now. A window is a guess
 about where a qualifier lives; the sentence making a claim has to carry it.
 
+### Round 8: the gate written to read a rule at screens read one spelling
+
+Round 7 built the first check that reads section 2.1 at screens instead of at
+token definitions, and proved it with twelve controls. Round 8 asked the
+question every gate in this directory eventually has to be asked: what shape
+of the same defect does the NEW gate still not see? Eight colours planted on a
+screen, each one a person would see, all through a green suite:
+
+```
+a named keyword in a fill                      exit 0
+an 8 digit hex in a style attribute            exit 0
+a 4 digit hex in a fill                        exit 0
+oklch() in a stylesheet                        exit 0
+space separated rgb()                          exit 0
+a hex in an inline custom property             exit 0
+a hex in a page-local <style> block            exit 0
+a hex in a script the document calls a screen  exit 0
+```
+
+**The cause was not a short list of colour syntaxes.** It was that position
+was GUESSED at. Round 7 decided what owned a colour by reading the 120
+characters in front of it, and a value can be longer than that. Two mask
+declarations identical in kind, differing only in how many gradient stops sat
+between the property and the colour:
+
+```
+property to colour   57 chars   stencil, exempt
+property to colour  183 chars   PAINT, gate failed
+```
+
+A verdict that turns on the length of a value is not reading a position.
+`tokens.py` parses declarations and attributes now: CSS by walking braces, a
+`style=` attribute as CSS, a screen's own `<style>` block as CSS, an HTML
+attribute by reading tags. A property name is read rather than found.
+
+That is also what let the vocabulary widen safely. `red` in a `fill` is paint
+and `red` in a sentence is a word, and no pattern separates those, because the
+difference is not in the characters. With positions parsed, the named colours,
+`#RRGGBBAA`, `#RGBA` and `oklch`/`oklab`/`lab`/`lch`/`hwb` all became readable
+without condemning `white-space: nowrap`, of which this tree ships nine.
+
+**Two exemptions stopped being lists in the instrument.** Which files are the
+generative renderer's colour space is read from 2.1's own position table:
+round 7 exempted every `.js`, so the document said three files and the gate
+meant seven, and `polish.js` could paint an `h1` on all 33 screens. Take a
+file out of that row and its literals fail the same run.
+
+`verify_round8_mutation.py` carries nine defects and eight legal colours. The
+negatives are the half that matters here, because widening a colour vocabulary
+is exactly the change that starts condemning correct code, and two of them
+caught real bugs in this round's own work: `url(white.png)` was reported as a
+screen painting `white`, and nine `{ id: "red" }` hue identifiers in
+`swarm.js` entered the population as paint. The paint count is 35 before and
+after, which is how the rewrite is known to have moved no verdict on real
+code while closing eight holes.
+
+Round 7's suite reported WRONG REASON twice afterwards: the defects were
+caught and the controls were pinned to the old failure wording. Their
+expectations name the planted VALUE now rather than the sentence around it.
+
 ### Round 7: the rule was read in the direction it was easy to check
 
 Round 6 gated the normative document. Round 7 found that one of its rules had

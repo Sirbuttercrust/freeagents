@@ -556,15 +556,30 @@ def main():
     lits = tokens.literals()
     ship_values = {tokens.normalise(v) for v, _ in ship.values()}
     paints = [x for x in lits if x["kind"] == "paint"]
-    css_html = [x for x in paints if not x["file"].endswith(".js")]
-    for lit in css_html:
+    # WHICH FILES ARE A RENDERER IS READ FROM THE DOCUMENT, never from a list
+    # here. Round 7 exempted every `.js`, so 2.1's position table declared
+    # three scripts and this gate meant seven, and `polish.js` (which runs on
+    # all 33 screens and owns the dialogs, the toasts and the scroll spy)
+    # could paint an `h1` with the whole suite green. An exemption the
+    # document does not state is a hole with a comment over it.
+    rend = tokens.renderers(DOC)
+    if not rend:
         fails.append(
-            "%s:%d  paints `%s`, which no token defines.\n"
+            "%s 2.1 no longer declares any file the generative renderer's "
+            "colour space.\n      That row is what exempts a hue in swarm.js "
+            "from the palette rule, so this\n      gate cannot tell a "
+            "generated creature's colour from a colour on a screen." % DOC)
+    css_html = [x for x in paints if x["file"] not in rend]
+    for lit in css_html:
+        where = ("`%s` " % lit["prop"]) if lit["prop"] else ""
+        fails.append(
+            "%s:%d  paints %s`%s`, which no token defines.\n"
             "      %s\n"
             "      %s 2.1: a colour that is not in the token table does not "
             "exist in\n      the product. Give it a token, or use the one "
             "that already holds it."
-            % (lit["file"], lit["line"], lit["value"], lit["context"], DOC))
+            % (lit["file"], lit["line"], where, lit["value"],
+               lit["context"], DOC))
 
     # ---- I. a renderer's copy of a token that no longer matches it --------
     #
@@ -603,7 +618,7 @@ def main():
     # say so is the same defect waiting to happen, so it is named rather than
     # ignored. Reported as a fail with the annotation as the fix, because the
     # alternative is a reader deciding case by case whether a copy is a copy.
-    for lit in [x for x in paints if x["file"].endswith(".js")]:
+    for lit in [x for x in paints if x["file"] in rend]:
         if lit["mirror"]:
             continue
         if tokens.normalise(lit["value"]) in ship_values:
@@ -711,10 +726,20 @@ def main():
               "check one.")
     print("colour literals read:      %d  across every html, js and css file"
           % len(lits))
-    print("  %-24s %s"
+    # THE POSITION TALLY IS DERIVED FROM THE DATA, not typed as a tuple of
+    # names. The first version listed five kinds; the classifier grew a sixth
+    # (`keyword`, for currentColor and transparent) and the printed counts
+    # silently stopped summing to the total. A coverage line that under-counts
+    # is the same defect this whole round is about, one medium further out.
+    kinds = {}
+    for x in lits:
+        kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
+    print("  %-24s %s  = %d"
           % ("by position:",
-             "  ".join("%s %d" % (k, sum(1 for x in lits if x["kind"] == k))
-                       for k in ("root", "paint", "alpha", "mask", "text"))))
+             "  ".join("%s %d" % (k, kinds[k]) for k in sorted(kinds)),
+             sum(kinds.values())))
+    print("  %-24s %s  (read from %s 2.1, exempt as section 2.4)"
+          % ("declared renderers:", " ".join(sorted(rend)) or "none", DOC))
     print("  %-24s %d  each recomputed against its token"
           % ("declared token copies:", sum(1 for x in paints if x["mirror"])))
     print("duration claims checked:   %d  against %d distinct shipped values"

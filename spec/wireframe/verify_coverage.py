@@ -128,6 +128,11 @@ INLINE_WITH_REASON = {
     # would mean planting a defect in a page chosen at run time and then not
     # knowing which name to expect.
     "verify_round7_mutation.py": {"conduct.html", "deposit.html"},
+    # Round 8's controls are the same shape: conduct.html is the fixture that
+    # receives eight colours typed eight ways, and every assertion is that the
+    # gate names conduct.html back. One negative control plants a legal
+    # `href="#4471"` there for the same reason.
+    "verify_round8_mutation.py": {"conduct.html"},
 }
 
 
