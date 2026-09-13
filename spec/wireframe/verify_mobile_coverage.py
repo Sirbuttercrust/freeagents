@@ -47,11 +47,14 @@ SCREENS each one visits and never which ASSERTIONS each one makes, so a screen
 swept by the weaker of two instruments read as covered. A count of names cannot
 see that, which is why the same class of defect has now been found five times.
 
-So the question this gate asks is now two questions:
+So the question this gate asks is now three questions:
 
   1. is every screen on disk visited by some sweeper           (round 4)
   2. does every sweeper consume every assertion the shared      (round 5)
      probe makes, so a visit means the same thing everywhere
+  3. does every sweeper consume them in every STATE a person    (round 6)
+     can reach, so a visit means the same thing on a page as
+     it loads and inside the sheet where the money moves
 
 Question 2 is answered against tapfloor.KINDS, which is the probe's own
 declaration of what it measures. A sweeper must either handle every kind or
@@ -60,6 +63,22 @@ neither place is reported. That makes an omission WRITTEN DOWN and auditable
 instead of invisible, and it makes the safe direction the default: add a kind
 to the shared probe, and every sweeper that has not been taught about it fails
 here rather than quietly ignoring it.
+
+QUESTION 3 EXISTS BECAUSE HANDLED CANNOT EXPRESS IT. verify_flow.py declared
+all three kinds, truthfully, and read two of them from the CLOSED page only:
+it drove its own dialog walk and asserted `chrome` and the unhandled-kind
+backstop before opening anything. So the .chrome position contract had a real
+enforcement on six payment screens as they load and none at all inside their
+dialogs, which is where a person pays a balance, asks for a redo, or declines.
+Planting a static `.chrome` element inside `#paybal` on staged.html passed;
+the identical element rendered on load failed. Same screen, same law, same
+gate, different state.
+
+A per-state HANDLED would only move the hole to the next state nobody
+enumerated, so the check is structural: an instrument drives tapfloor.sweep,
+which opens every disclosure and each dialog on its own and tags each finding
+with the state it was reachable in, or it reads the raw probe and owns a walk
+this gate cannot see into. The second is a failure here.
 
 No browser and no server needed.
 
@@ -131,6 +150,43 @@ def handled_of(path):
     return set(value)
 
 
+def walk_of(path):
+    """How an instrument gets its readings: the shared state walk, or its own.
+
+    THE THIRD QUESTION, AND THE ONE HANDLED CANNOT ANSWER. A sweeper declares
+    which KINDS it consumes, and that declaration says nothing about the STATES
+    it consumes them in. verify_flow.py declared all three kinds honestly while
+    reading `chrome` and the unhandled-kind backstop from the closed page only,
+    so the .chrome position contract was unenforced inside every dialog in the
+    payment flow: the six screens where the money decisions are made.
+
+    A per-state HANDLED would just move the problem, because the next hole is
+    a state nobody enumerated. So the check is structural instead: an
+    instrument either drives tapfloor.sweep, which walks closed, disclosures
+    and each dialog and tags every finding with the state it was found in, or
+    it reads the raw probe and owns a state walk this gate cannot see into.
+
+    Returns ("sweep", None) or ("raw", <the attribute it reads>).
+    """
+    tree = ast.parse(open(path, encoding="utf-8").read())
+    raw = []
+    sweeps = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        if not (isinstance(node.value, ast.Name) and node.value.id == "tapfloor"):
+            continue
+        if node.attr == "sweep":
+            sweeps = True
+        elif node.attr in ("PROBE_JS", "probe_js"):
+            raw.append("tapfloor." + node.attr)
+    if raw:
+        return ("raw", sorted(set(raw))[0])
+    if sweeps:
+        return ("sweep", None)
+    return ("raw", "neither: it never touches the shared probe")
+
+
 def probe_kinds():
     """The kinds the shared probe can actually EMIT, read out of its source.
 
@@ -153,6 +209,7 @@ def main():
     covered = set()
     per_sweeper = {}
     handled = {}
+    walk = {}
     for name in SWEEPERS:
         path = os.path.join(HERE, name)
         if not os.path.exists(path):
@@ -172,17 +229,26 @@ def main():
             print("FAIL could not determine what %s asserts: %s: %s"
                   % (name, type(exc).__name__, exc))
             return 1
+        try:
+            walk[name] = walk_of(path)
+        except Exception as exc:                              # noqa: BLE001
+            print("FAIL could not determine how %s walks states: %s: %s"
+                  % (name, type(exc).__name__, exc))
+            return 1
 
     declared = set(tapfloor.KINDS)
     emitted = probe_kinds()
 
-    print("%-26s %-12s %s" % ("instrument", "screens", "assertions consumed"))
-    print("-" * 72)
+    print("%-26s %-12s %-22s %s"
+          % ("instrument", "screens", "assertions consumed", "state walk"))
+    print("-" * 84)
     for name in SWEEPERS:
         h = handled[name]
-        print("%-26s %-12d %s"
+        kind, detail = walk[name]
+        print("%-26s %-12d %-22s %s"
               % (name, len(per_sweeper[name]),
-                 "NONE DECLARED" if h is None else " ".join(sorted(h))))
+                 "NONE DECLARED" if h is None else " ".join(sorted(h)),
+                 "tapfloor.sweep" if kind == "sweep" else "own (%s)" % detail))
     print("%-26s %-12d %s" % ("union", len(covered), ""))
     print("%-26s %-12d" % ("html files on disk", len(on_disk)))
     print("%-26s %-12s %s" % ("shared probe declares", "", " ".join(sorted(declared))))
@@ -238,6 +304,25 @@ def main():
                   % (name, " ".join(sorted(unknown))))
             fails.append("%s handles a phantom kind" % name)
 
+    # AND IN WHICH STATES. HANDLED says which kinds a sweeper consumes and
+    # nothing about the states it consumes them in, so a sweeper can declare
+    # all three honestly and still read one of them from the closed page only.
+    # That is what verify_flow.py did: the .chrome contract and the
+    # unhandled-kind backstop were unenforced inside every dialog in the
+    # payment flow, on the six screens where the money decisions are made,
+    # while this gate reported full coverage and 3 of 3 kinds.
+    for name in SWEEPERS:
+        kind, detail = walk[name]
+        if kind != "sweep":
+            print("\nFAIL: %s reads %s and walks states itself, so the states "
+                  "it asserts in cannot be determined." % (name, detail))
+            print("An instrument drives tapfloor.sweep, which opens every")
+            print("disclosure and each dialog on its own and tags every finding")
+            print("with the state it was reachable in. A private walk is how a")
+            print("kind comes to be asserted closed and dropped once a sheet")
+            print("opens, which no count of kinds can see.")
+            fails.append("%s owns its state walk" % name)
+
     if fails:
         return 1
 
@@ -246,8 +331,10 @@ def main():
         print("\nNOTE: %d screen(s) swept twice: %s"
               % (len(overlap), " ".join(sorted(overlap))))
 
-    print("\nPASS  all %d screens are swept at 320px, and every sweeper "
-          "consumes all %d assertions (%s)."
+    print("\nPASS  all %d screens are swept at 320px, every sweeper consumes "
+          "all %d assertions (%s),\n      and both drive the shared state walk, "
+          "so a kind is asserted in every\n      state a person can reach rather "
+          "than on the page as it loads."
           % (len(on_disk), len(declared), " ".join(sorted(declared))))
     return 0
 

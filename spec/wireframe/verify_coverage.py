@@ -143,6 +143,14 @@ INLINE_WITH_REASON = {
     # declare a .perch-host, which is the condition the real inherited defect
     # needs in order to reproduce at all.
     "verify_round9_mutation.py": {"browse.html", "notfound.html"},
+    # Round 10's fixture is staged.html, and the reason it cannot be derived
+    # is the finding itself: the defect is a law asserted in one STATE and not
+    # another, so the plant has to go inside a specific <dialog> whose id the
+    # control names. staged.html carries three dialogs, the most in the set,
+    # and its #paybal sheet is where a person pays a balance. A fixture chosen
+    # at run time could land on a screen with no dialog at all, where the
+    # control would pass while proving nothing.
+    "verify_round10_mutation.py": {"staged.html"},
 }
 
 

@@ -102,7 +102,7 @@ def narrow(b):
     b.send("Emulation.setTouchEmulationEnabled", enabled=True, maxTouchPoints=5)
 
 
-# HORIZONTAL OVERFLOW, READ FROM THE SHARED PROBE.
+# HORIZONTAL OVERFLOW AND THE STATE WALK, BOTH READ FROM tapfloor.
 #
 # This file used to carry its own element-level overflow JS, and it was the
 # only instrument that had one: verify_polish.py asserted `scrollWidth > 320`
@@ -111,20 +111,12 @@ def narrow(b):
 # enforcement on 8 screens and an unfailable one on 25, and two screens shipped
 # a control at x=-20 with every gate green.
 #
-# The definition now lives in tapfloor.py beside the tap floor, for the same
-# reason the tap probe was moved there in round 3: two copies of one law drift,
-# and the weaker copy is the one nobody notices. This function adapts the
-# shared records to the shape this gate has always reported, so the output does
-# not change while the definition is no longer duplicated.
-def overflow(b):
-    """{coarse, doc, off} from the shared probe. One definition, one edge rule."""
-    r = json.loads(b.js(tapfloor.PROBE_JS))
-    return {"coarse": r["coarse"], "doc": r["docW"],
-            "off": [tapfloor.fmt(x) for x in tapfloor.of_kind(r["bad"], "overflow")][:6],
-            "chrome": [tapfloor.fmt(x) for x in tapfloor.of_kind(r["bad"], "chrome")],
-            "other": [tapfloor.fmt(x) for x in r["bad"]
-                      if x.get("kind") not in HANDLED],
-            "bad": r["bad"]}
+# Round 5 moved the DEFINITION into tapfloor.py. This file then kept its own
+# adapter plus its own hand-rolled state walk, and asserted two of the three
+# kinds from the closed read alone, which is how the .chrome contract came to
+# be unenforced inside every dialog in the flow. The walk is tapfloor.sweep
+# now, the same one verify_polish.py uses, and there is no local reader of
+# PROBE_JS left: a second reader is how a second definition starts.
 
 
 # The kinds this gate handles. Anything else the shared probe returns is
@@ -166,7 +158,6 @@ HANDLED = ("tap", "overflow", "chrome")
 # nav links are narrower than 44px because they are short words in a horizontal
 # bar, and padding them sideways pushes the document past 320px. That trade is
 # named in base.css rather than hidden here.
-TAP_JS = tapfloor.PROBE_JS
 
 # An element's own state is not what a person experiences. Assert what is
 # REACHABLE and whether it is backed, not whether some named element is hidden.
@@ -303,11 +294,6 @@ OVERLAP_JS = """(() => {
   return found.slice(0, 6);
 })()"""
 
-OPEN_ALL_JS = """(() => {
-  const ids = [...document.querySelectorAll('dialog')].map(d => d.id);
-  return ids;
-})()"""
-
 print("=" * 74)
 print("FLOW GATE:", BASE)
 print("=" * 74)
@@ -320,64 +306,53 @@ try:
     print(f"{'screen':<20} {'coarse':>7} {'docW':>6} {'overflow':>9} {'openOverflow':>13} {'tap<44':>7} {'overlap':>8}")
     for s in SCREENS:
         url = f"{BASE}/{s}"
-        # ONE READ, BOTH LAWS. The shared probe returns tap findings and
-        # overflow findings from the same pass, so the two cannot be measured
-        # against different DOM states or different definitions of reachable.
-        b.goto(url)
-        b.send("Runtime.evaluate", expression="new Promise(r=>setTimeout(r,220))",
-               awaitPromise=True)
-        r = overflow(b)
+        # ONE STATE WALK, SHARED WITH THE OTHER SWEEPER. This was a hand
+        # rolled walk that read the probe in every state, and then asserted
+        # `chrome` and `other` from the CLOSED read alone. So the .chrome
+        # position contract and the unhandled-kind backstop had a real
+        # enforcement on the page as it loads and NO enforcement at all inside
+        # a dialog, on the six screens whose dialogs are where the money
+        # decisions are made.
+        #
+        # That is round 5's shape one layer in. Round 4 asked which SCREENS an
+        # instrument visits. Round 5 asked which KINDS it consumes. Neither
+        # asks in which STATES it consumes them, and a kind asserted closed and
+        # dropped once a sheet opens is a hole HANDLED cannot express.
+        #
+        # tapfloor.sweep is the walk verify_polish.py already used: it opens
+        # every disclosure, then each dialog on its own, dedupes by DOM path
+        # across states, and tags every finding with the state it was first
+        # reachable in. Both instruments now agree on the screens, the kinds
+        # AND the states.
+        #
+        # The settle is tapfloor's default rather than this gate's old 1.42s,
+        # which is a small INCREASE. A shorter wait here would make the two
+        # sweepers disagree again, in the one way that is invisible in a diff:
+        # a gate that passes on an idle machine and fails under load is
+        # reporting how busy the box is, not what the page does.
+        t = tapfloor.sweep(b, url)
+        r = {"coarse": t["coarse"], "doc": t["docW"],
+             "off": [tapfloor.fmt(x)
+                     for x in tapfloor.of_kind(t["bad"], "overflow")],
+             "chrome": [tapfloor.fmt(x)
+                        for x in tapfloor.of_kind(t["bad"], "chrome")],
+             "other": [tapfloor.fmt(x) for x in t["bad"]
+                       if x.get("kind") not in HANDLED],
+             "bad": t["bad"]}
         # The shared probe returns rich records; flatten to the strings this
         # gate has always reported so the output shape does not change.
-        tap = [tapfloor.fmt(x) for x in tapfloor.of_kind(r["bad"], "tap")]
+        tap = [tapfloor.fmt(x) for x in tapfloor.of_kind(t["bad"], "tap")]
         lap = b.js(OVERLAP_JS)
 
         if not r["coarse"]:
             fails.append(f"{s}: (pointer: coarse) did not match, results not trustworthy")
 
-        # Every dialog opened together, then re-measured. A modal that
-        # overflows at 320px is invisible to a plain width sweep.
-        dlgs = b.js(OPEN_ALL_JS)
-        openoff = 0
-        opentap = []
-        for d in dlgs:
-            b.js(f"(() => {{const d=document.getElementById('{d}');"
-                 f"if(d && !d.open) d.showModal(); return 1;}})()")
-            b.send("Runtime.evaluate", expression="new Promise(r=>setTimeout(r,120))",
-                   awaitPromise=True)
-            ro = overflow(b)
-            openoff += len(ro["off"])
-            if ro["off"]:
-                fails.append(f"{s}: dialog #{d} overflows 320px: {ro['off'][:3]}")
-            ot = tapfloor.of_kind(ro["bad"], "tap")
-            opentap += [f"#{d} {tapfloor.fmt(x)}" for x in ot]
-            b.js(f"(() => {{const d=document.getElementById('{d}');"
-                 f"if(d && d.open) d.close(); return 1;}})()")
-
-        alltap = tap + opentap
-
-        # AND THE DISCLOSURES, which are not dialogs. Every drawer, details
-        # element and .disclose target on these screens hides controls that a
-        # person reaches with one tap, and a sweep that opens only <dialog>
-        # reports a clean page in both the broken and the fixed state. This is
-        # the hole round 3 found on verify_polish.py; it was here too.
-        opened = int(b.js(tapfloor.OPEN_JS) or 0)
-        if opened:
-            b.send("Runtime.evaluate",
-                   expression="new Promise(r=>setTimeout(r,160))", awaitPromise=True)
-            ropen = overflow(b)
-            seen = set(alltap)
-            for x in tapfloor.of_kind(ropen["bad"], "tap"):
-                line = tapfloor.fmt(x)
-                if line not in seen:
-                    seen.add(line)
-                    alltap.append(line)
-            # An opened drawer can push a control off either edge, and that
-            # state was previously measured for tap targets only.
-            for line in ropen["off"]:
-                if line not in r["off"]:
-                    openoff += 1
-                    fails.append(f"{s}: overflow at 320px with disclosures open: {line}")
+        # Findings from a state other than the page as it loads, counted for
+        # the report only. Each is already asserted below; the split keeps the
+        # table's distinction between "on load" and "once you open something",
+        # which are different fixes.
+        openoff = len([x for x in tapfloor.of_kind(t["bad"], "overflow")
+                       if x.get("state") != "closed"])
 
         if r["off"]:
             fails.append(f"{s}: overflow at 320px: {r['off'][:3]}")
@@ -387,14 +362,14 @@ try:
             fails.append(f"{s}: findings of an unhandled kind: {r['other'][:3]}")
         if r["doc"] > 320.5:
             fails.append(f"{s}: document scrollWidth {r['doc']} > 320")
-        if alltap:
-            fails.append(f"{s}: tap targets under 44px: {alltap[:4]}")
+        if tap:
+            fails.append(f"{s}: tap targets under 44px: {tap[:4]}")
         if lap:
             fails.append(f"{s}: rows overlapping at 320px: {lap[:3]}")
 
         rows.append(s)
         print(f"{s:<20} {str(r['coarse']):>7} {r['doc']:>6} {len(r['off']):>9} "
-              f"{openoff:>13} {len(alltap):>7} {len(lap):>8}")
+              f"{openoff:>13} {len(tap):>7} {len(lap):>8}")
 
     # ---------------------------------------------------------------- pass 2
     b.send("Emulation.clearDeviceMetricsOverride")
