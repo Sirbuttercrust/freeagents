@@ -466,6 +466,24 @@ Six rules follow, and none is optional:
   dialog alone and tags each finding with the state it was reachable in, and
   `verify_mobile_coverage.py` fails any sweeper that reads the raw probe and
   owns a walk it cannot audit.
+- **That coverage gate reads provenance, not consumption, and says so.**
+  Round 11. It asks which route a sweeper's SOURCE reaches for and never what
+  the sweeper filters out of the records, so a gate can drive the shared walk,
+  receive every state, and assert on the closed read alone. Three characters of
+  filter in `verify_flow.py`'s chrome comprehension took it from exit 1 naming
+  a planted element to exit 0 silent, with the coverage gate green through
+  both. Nor does it ask whether the call it found can run: a `tapfloor.sweep`
+  under `if False:` reads the same in an AST as a live one. A third shape,
+  reaching the probe through `getattr`, IS caught, because an instrument
+  touching neither known route is reported as owning its walk. Unrecognised
+  fails, which is what makes the other two tolerable. Both are named in
+  `DESIGN.md` 10, in the gate's docstring and on its PASS banner rather than
+  closed: a sixth instrument auditing the fifth costs more than the gap, at
+  this size. **When you write the sentence describing a fix in the same commit
+  as the fix, that is the moment a claim is cheapest to overstate.** Five
+  review rounds here were a document promising a detection the code lacked, and
+  the first draft of THIS entry claimed two limits where a control then proved
+  one of them was actually covered.
 
 A page-local rule beats a linked stylesheet at equal specificity, so
 `browse.html` carries its own copy of the pager floor and the drawer label

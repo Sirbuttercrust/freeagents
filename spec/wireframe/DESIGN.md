@@ -867,7 +867,7 @@ browser.
 | `verify_reduced_motion.py` | every animation has a dignified static end state under `prefers-reduced-motion` |
 | `verify_flow_motion.py` | the dashboard pipeline actually moves, and stops when reduced motion is asked for |
 | `verify_blast_preview.py` | hovering an edit control previews the exact signatures that edit would clear |
-| `verify_mobile_coverage.py` | every screen in the directory appears in at least one 320px sweep, AND every sweeper consumes every assertion the shared probe makes, AND every sweeper drives the shared state walk so a kind is asserted in every state a person can reach rather than on the page as it loads. A screen visited by an instrument that drops a law, or that asserts it only before anything is opened, is reported as the hole it is rather than counted as covered. Both directions of the probe's own declaration are checked too: a kind in `tapfloor.KINDS` its JavaScript never pushes, and a kind pushed but never declared. No browser, no server |
+| `verify_mobile_coverage.py` | every screen in the directory appears in at least one 320px sweep, AND every sweeper consumes every assertion the shared probe makes, AND every sweeper's source reaches for the shared state walk rather than for the raw probe, so no instrument quietly measures fewer states than the other and a state added to the walk reaches both the day it lands. A screen visited by an instrument that drops a law is reported as the hole it is rather than counted as covered. What this gate does NOT read is written beside it below. Both directions of the probe's own declaration are checked too: a kind in `tapfloor.KINDS` its JavaScript never pushes, and a kind pushed but never declared. No browser, no server |
 | `verify_kept.py` | the brand's accessible name survives the wordmark collapse on all 33 screens, and the facts a designed element carried still render somewhere in the set, with disclosures opened |
 | `verify_housestyle.py` | no em dash or en dash in ANY file in this directory, plus the AI writing tells in prose files. No browser, no server |
 | `verify_sampledata.py` | every screen showing an invented name or a dollar figure says on it that the data is sample data |
@@ -890,6 +890,40 @@ second list, so a new screen is measured by default instead of forgotten by
 default. A gate that is narrow on purpose stays narrow, but by rule:
 `verify_profile_header.py` measures the screens that HAVE a profile header
 rather than the two that had one the day it was written.
+
+**What the coverage gate reads, and where its reach stops.** It parses each
+sweeper's source and asks what that source reaches for: `tapfloor.sweep`, or
+the raw probe with a walk of its own. That is provenance, read statically, and
+provenance is all of it. Two limits, both established by control rather than
+by reasoning about the code:
+
+- **It does not read what a sweeper does with the records it gets back.** An
+  instrument can drive the shared walk, receive every state, and filter the
+  findings down to the closed read before asserting. Isolated on one variable,
+  with the same plant inside dialog `#paybal` on `staged.html`:
+
+  ```
+  verify_flow.py unmodified               exit 1, names the element
+  the same plant, plus a closed-state     verify_mobile_coverage.py  exit 0
+    filter in that gate's own chrome      verify_flow.py             exit 0
+    comprehension, still calling sweep
+  ```
+
+- **It does not ask whether the call it found can run.** A `tapfloor.sweep`
+  under `if False:` reads identically in an AST to a live one, so a sweeper
+  keeping a dead call while its live code reads the probe by another route
+  passes with `tapfloor.sweep` printed in its row.
+
+The third shape tried against it is **caught**, and by the fallback direction
+rather than by a rule aimed at it: a sweeper reaching `tapfloor` through
+`getattr` touches neither known route, and an instrument that touches neither
+is reported as owning its walk. Unrecognised means failed here, which is the
+disposition that makes the two limits above tolerable.
+
+Reading either limit out would mean a sixth instrument auditing the fifth, and
+this suite already grows a layer a round. So they are written here beside the
+claim, the way 5.4 names the `scrollWidth` trap. The row above promises where
+a sweeper's source points, and nothing further.
 
 **And a name written inline is the same decision as a name in a list.** The
 round-4 fix above checked assignments whose value is a literal list, and four

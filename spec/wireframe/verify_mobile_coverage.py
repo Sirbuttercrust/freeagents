@@ -52,9 +52,9 @@ So the question this gate asks is now three questions:
   1. is every screen on disk visited by some sweeper           (round 4)
   2. does every sweeper consume every assertion the shared      (round 5)
      probe makes, so a visit means the same thing everywhere
-  3. does every sweeper consume them in every STATE a person    (round 6)
-     can reach, so a visit means the same thing on a page as
-     it loads and inside the sheet where the money moves
+  3. does every sweeper get its readings from the shared        (round 6)
+     state walk, rather than from a private one that measures
+     fewer states than the other sweeper does
 
 Question 2 is answered against tapfloor.KINDS, which is the probe's own
 declaration of what it measures. A sweeper must either handle every kind or
@@ -79,6 +79,33 @@ enumerated, so the check is structural: an instrument drives tapfloor.sweep,
 which opens every disclosure and each dialog on its own and tags each finding
 with the state it was reachable in, or it reads the raw probe and owns a walk
 this gate cannot see into. The second is a failure here.
+
+AND WHERE QUESTION 3 STOPS, WHICH IS THE HONEST LIMIT OF THIS FILE.
+
+walk_of() reads PROVENANCE, statically: which of two routes a sweeper's source
+reaches for. It does not read CONSUMPTION, and it does not ask whether the
+call it found can execute. Two controls, both run rather than reasoned:
+
+  a sweeper drives tapfloor.sweep, receives every state, and filters the
+  findings to the closed read before asserting. The same plant inside dialog
+  #paybal on staged.html took verify_flow.py from exit 1 naming the element to
+  exit 0 silent, with this gate green through both.
+
+  a sweeper keeps `if False: t = tapfloor.sweep(...)` and reads the probe
+  another way in the live path. This gate prints tapfloor.sweep in its row and
+  exits 0.
+
+A third shape IS caught, by the fallback direction rather than by a rule aimed
+at it: reaching tapfloor through getattr touches neither known route, and
+walk_of returns ("raw", "neither: it never touches the shared probe"), which
+fails. Unrecognised means failed, which is what makes the two above tolerable.
+
+Both are NAMED rather than closed, by ruling on 2026-09-13. Closing either
+means a sixth instrument auditing the fifth, and the suite already grows a
+layer a round. So the PASS banner below claims provenance and stops there, and
+DESIGN.md section 10 carries the same two limits beside the same claim. A gate
+that says what it does not check is worth more than one that grows a layer to
+avoid admitting it.
 
 No browser and no server needed.
 
@@ -151,7 +178,7 @@ def handled_of(path):
 
 
 def walk_of(path):
-    """How an instrument gets its readings: the shared state walk, or its own.
+    """Where an instrument's readings come from: the shared walk, or its own.
 
     THE THIRD QUESTION, AND THE ONE HANDLED CANNOT ANSWER. A sweeper declares
     which KINDS it consumes, and that declaration says nothing about the STATES
@@ -165,6 +192,21 @@ def walk_of(path):
     instrument either drives tapfloor.sweep, which walks closed, disclosures
     and each dialog and tags every finding with the state it was found in, or
     it reads the raw probe and owns a state walk this gate cannot see into.
+
+    THIS IS PROVENANCE, NOT CONSUMPTION, AND IT IS STATIC. Driving the shared
+    walk means the sweeper RECEIVES every state. Whether it then asserts on all
+    of them is a property of its comprehensions, not of its call sites, and a
+    closed-state filter added to a consumer keeps this function's answer at
+    "sweep". Nor is the call checked for reachability: `if False: tapfloor
+    .sweep(...)` reads the same here as a live call. Both were run as controls
+    in round 11, and both are named in the module docstring and in DESIGN.md 10
+    rather than closed, by ruling.
+
+    THE FALLBACK DIRECTION IS WHAT MAKES THAT TOLERABLE. An instrument reaching
+    tapfloor by any third route, getattr included, touches neither branch below
+    and gets the "neither" answer, which fails. Unrecognised is a failure here,
+    never a pass, so the two limits above are the two shapes that keep a real
+    call and lie about it, not an open door.
 
     Returns ("sweep", None) or ("raw", <the attribute it reads>).
     """
@@ -240,7 +282,7 @@ def main():
     emitted = probe_kinds()
 
     print("%-26s %-12s %-22s %s"
-          % ("instrument", "screens", "assertions consumed", "state walk"))
+          % ("instrument", "screens", "assertions consumed", "readings from"))
     print("-" * 84)
     for name in SWEEPERS:
         h = handled[name]
@@ -332,9 +374,10 @@ def main():
               % (len(overlap), " ".join(sorted(overlap))))
 
     print("\nPASS  all %d screens are swept at 320px, every sweeper consumes "
-          "all %d assertions (%s),\n      and both drive the shared state walk, "
-          "so a kind is asserted in every\n      state a person can reach rather "
-          "than on the page as it loads."
+          "all %d assertions (%s),\n      and every sweeper obtains its readings "
+          "from the shared state walk rather\n      than from a private one. "
+          "Where a sweeper's readings come from is what this\n      gate reads. "
+          "What it then filters out of them is not: DESIGN.md 10."
           % (len(on_disk), len(declared), " ".join(sorted(declared))))
     return 0
 

@@ -151,6 +151,13 @@ INLINE_WITH_REASON = {
     # at run time could land on a screen with no dialog at all, where the
     # control would pass while proving nothing.
     "verify_round10_mutation.py": {"staged.html"},
+    # Round 11's suite plants the same defect in the same sheet, for the same
+    # reason: it proves what the coverage gate does NOT read, and the only way
+    # to show that is to leave a real defect inside a specific <dialog> and
+    # watch the gate stay green. A fixture chosen at run time could land on a
+    # screen with no dialog, where the control would pass while proving
+    # nothing.
+    "verify_round11_mutation.py": {"staged.html"},
 }
 
 
