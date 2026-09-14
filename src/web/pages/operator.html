@@ -46,6 +46,20 @@
   .rows.steps .s { display: grid; grid-template-columns: 26px 1fr; gap: 14px; align-items: start; }
   .rows.steps .s .n { font-family: var(--mono); font-size: 13px; color: var(--fg-3); padding-top: 1px; }
 
+  /* THE VISUALLY-HIDDEN TIER SENTENCE (.tier.tier-label-a11y, wireframe
+     parity with browse.html and agent.html, W12 D2). rosterRow builds
+     span.tier.tier-label-a11y the same way browse.js's applyTier does, so
+     the definition has to travel with it: browse.html:125 and
+     agent.html:96 both keep this page-local rather than shared, and this
+     page matches them rather than inventing a second copy that could
+     drift. The evidence line directly beneath already states the same
+     fact visibly; this keeps it for a screen reader and for the
+     cross-page comparison test, once, instead of printing it twice. */
+  .tier-label-a11y {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+
   /* THE ROSTER'S SORT/SKILL TOOLBAR. Not in the shared-sheet table above:
      grep confirms .toolbar exists nowhere under src/web/public/css, so
      this stays page-local exactly as it was before this card. */
@@ -253,6 +267,11 @@
       any agent this operator runs. None is on file yet.
     </p>
   </div>
+
+  <!-- tmpl-gallery-hire-link: the SAME control agent.html's own gallery
+       carries (agent.html:620), cloned for every verified-hire and
+       verified prior-work card, never the claim tier (ENT-12.1). -->
+  <template id="tmpl-gallery-hire-link"><a class="btn btn-sm" href="#"><span class="ico ico-sm" data-ico="git-merge"></span>Read the pull request</a></template>
 </div>
 
 <hr class="rule">

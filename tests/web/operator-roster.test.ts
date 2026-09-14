@@ -947,6 +947,16 @@ describe('the operator page gallery, work across the roster behind the evidence 
       );
       expect(hireCard).toBeTruthy();
       expect(hireCard?.querySelector('.work-frame.is-empty')).toBeNull();
+
+      // D1: a card-count check alone cannot fail if the evidence gate is
+      // deleted outright, since the claim card above carries no link
+      // either way. This asserts the hire card's own link is a real
+      // anchor pointed at the SAME pullRequest field credentialDoc set
+      // (line 77), the same two fields agent.js's galleryCard keys its
+      // link on (credentialId, pullRequest).
+      const hireLink = hireCard?.querySelector('.work-links a');
+      expect(hireLink).toBeTruthy();
+      expect(hireLink?.getAttribute('href')).toBe('https://github.com/buyer/target-repo/pull/1');
     } finally {
       page.close();
     }
@@ -999,6 +1009,37 @@ describe('the operator page gallery, work across the roster behind the evidence 
           .filter(([, w, h]) => w < 44 || h < 44)
       `);
       expect(undersized, `undersized targets: ${JSON.stringify(undersized)}`).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  // D2: the visually-hidden tier sentence (.tier.tier-label-a11y) has to
+  // actually be hidden on screen, not merely carry the class name. jsdom
+  // performs no layout and cannot tell the difference between a class that
+  // is defined and one that is not; this drives real Chrome the same way
+  // the tap-target case above does, over the same roster that already
+  // carries both a hire row and a no-record row (GALLERY_OPERATOR_DID),
+  // and reads the box real Chrome laid out.
+  it('the roster card .tier sentence stays visually hidden in real Chrome, matching browse (unstyled-ported-component)', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: 1280, height: 900 });
+    try {
+      await browser.goto(`${baseUrl}/accounts/${GALLERY_OPERATOR_DID}`);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+
+      const visible = await browser.evaluate<Array<[string, number, number]>>(`
+        Array.from(document.querySelectorAll('.acard .tier'))
+          .map((el) => {
+            const r = el.getBoundingClientRect();
+            return [(el.textContent || '').trim(), r.width, r.height];
+          })
+          .filter(([, w, h]) => w > 1 || h > 1)
+      `);
+      expect(visible, `.tier sentences rendered on screen: ${JSON.stringify(visible)}`).toEqual([]);
     } finally {
       await browser.close();
     }

@@ -331,10 +331,11 @@
 
      Merge rate needs the total-jobs-taken denominator; no route serves
      it (the same gap agent.html's own #pstat-merge-rate already carries
-     honestly, agent.html:239), so this row carries no merge-rate cell at
-     all rather than a fraction this build cannot source. The wireframe's
-     own comment (operator.html lines 113-123 on the pre-W12 build)
-     already recorded this reasoning; it carries forward unchanged. */
+     honestly, agent.html:239), so this row's merge-rate cell renders the
+     same static "not yet observed" fallback rather than a fraction this
+     build cannot source (operator.html:183-187, #pstat-merge-rate). The
+     wireframe's own comment (operator.html lines 113-123 on the pre-W12
+     build) already recorded this reasoning; it carries forward unchanged. */
   function renderPstats(aggregate, rosterSize) {
     var totals = aggregate && typeof aggregate === "object" ? aggregate : {};
     var hires = numberOr(totals.totalVerifiedHireCount);
@@ -779,6 +780,22 @@
     head.appendChild(tierBadge(tier === "prior" ? "prior" : "hire"));
     caption.appendChild(head);
     caption.appendChild(workByRow(agentName));
+
+    /* The verify link, the same two fields agent.js's own galleryCard
+       keys its link on (agent.js:786-795): credentialId gates whether the
+       control renders at all, pullRequest gives it a real destination.
+       Never built on galleryClaimCard, the evidence gate ENT-12.1 holds. */
+    var links = document.createElement("div");
+    links.className = "work-links";
+    if (typeof item.credentialId === "string" && item.credentialId !== "") {
+      var template = document.getElementById("tmpl-gallery-hire-link");
+      if (template) {
+        var linkEl = template.content.firstElementChild.cloneNode(true);
+        linkEl.setAttribute("href", typeof item.pullRequest === "string" && item.pullRequest !== "" ? item.pullRequest : "#");
+        links.appendChild(linkEl);
+      }
+    }
+    caption.appendChild(links);
 
     figure.appendChild(caption);
     paintIcons(figure);
