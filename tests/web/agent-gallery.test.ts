@@ -235,4 +235,35 @@ describe('the Portfolio gallery renders every tier, including a claim (wireframe
     expect(hireFigure).not.toBeNull();
     expect(hireFigure!.querySelector('.work-frame.is-empty')).toBeNull();
   });
+
+  // Proof round 2, D3 (gallery-tier-label-missing): the wireframe puts a
+  // tier badge in every card's div.work-head beside the title (lines 296,
+  // 321, 348, 379, 409) and closes the panel with a p.callout-sm sentence
+  // naming the rule. A dashed border alone does not say which tier a card
+  // is in or why the difference exists; the label is what makes the
+  // absence of a preview read as a message rather than a missing asset.
+  it('the hire card carries a "Verified hire" tier badge in its work-head', async () => {
+    const document = await render();
+    const hireFigure = document.querySelector('#gallery > figure.work:not(.is-claim)');
+    expect(hireFigure).not.toBeNull();
+    const badge = hireFigure!.querySelector('.work-head .pverified.pverified-sm');
+    expect(badge).not.toBeNull();
+    expect(badge!.textContent).toContain('Verified hire');
+  });
+
+  it('the claim card carries a "Portfolio claim" tier badge in its work-head', async () => {
+    const document = await render();
+    const claimFigure = document.querySelector('#gallery > figure.work.is-claim');
+    expect(claimFigure).not.toBeNull();
+    const badge = claimFigure!.querySelector('.work-head .tier.tier-claim');
+    expect(badge).not.toBeNull();
+    expect(badge!.textContent).toContain('Portfolio claim');
+  });
+
+  it('the panel closes with the callout naming the rule that gates a preview', async () => {
+    const document = await render();
+    const callout = document.querySelector('#tab-portfolio .callout-sm');
+    expect(callout).not.toBeNull();
+    expect(callout!.textContent).toContain('A preview is earned by a public repository');
+  });
 });

@@ -614,17 +614,25 @@
     var verified = Array.isArray(agent.verifiedHires) ? agent.verifiedHires : [];
     var prior = Array.isArray(agent.verifiedPriorWork) ? agent.verifiedPriorWork : [];
     var claims = Array.isArray(agent.portfolio) ? agent.portfolio : [];
-    var previewed = verified.concat(prior);
     var host = A.el("gallery");
     if (!host) return;
 
-    if (previewed.length === 0 && claims.length === 0) {
+    if (verified.length === 0 && prior.length === 0 && claims.length === 0) {
       A.showById("gallery-empty", true);
       return;
     }
 
-    previewed.forEach(function (item, index) {
-      host.appendChild(galleryCard(item, index));
+    /* One shared index across both previewed tiers, so the CSS texture
+       (WORK_SHOT_CLASSES) still cycles by card position rather than
+       restarting at 1 for the prior-work tier. */
+    var previewIndex = 0;
+    verified.forEach(function (item) {
+      host.appendChild(galleryCard(item, previewIndex, "hire"));
+      previewIndex += 1;
+    });
+    prior.forEach(function (item) {
+      host.appendChild(galleryCard(item, previewIndex, "prior"));
+      previewIndex += 1;
     });
     /* A portfolio claim earns no preview, ever (ENT-12.1: the absence of
        the verify control IS the message). It still gets a card, because
@@ -633,6 +641,57 @@
     claims.forEach(function (item) {
       host.appendChild(galleryClaimCard(item));
     });
+
+    renderGalleryCallout(claims.length > 0);
+  }
+
+  /* Proof round 2, D3: the wireframe closes the panel with a sentence
+     naming the whole rule (agent.html line 424-430). Its third clause
+     ("The claim above has no picture...") only makes sense when a claim
+     is actually on the page, so that clause is appended only when this
+     agent has one; the first two sentences are true of every profile
+     that reaches this panel at all. */
+  function renderGalleryCallout(hasClaim) {
+    var text = "A preview is earned by a public repository that traces to an account this agent proved it controls. Work it was hired for and work it built on its own both qualify.";
+    if (hasClaim) {
+      text += " A portfolio claim carries no picture, because there is nothing public to point at.";
+    }
+    A.setTextById("gallery-callout-text", text);
+    A.showById("gallery-callout", true);
+  }
+
+  /* Proof round 2, D3 (gallery-tier-label-missing): every gallery card
+     carries a tier badge beside its title (wireframe agent.html lines
+     296, 321, 348, 379, 409), because the dashed empty frame on a claim
+     is not enough on its own to say which tier a card is in or why the
+     three tiers look different. tierRow (above) already builds the same
+     three labels for the work-history rows; this is the gallery panel's
+     own copy because it renders a different element (span, not the
+     tierRow's div.tier) and only two of the three tiers ever reach it. */
+  function tierBadge(tier) {
+    var span = document.createElement("span");
+    var icon = document.createElement("span");
+    icon.setAttribute("aria-hidden", "true");
+    var label;
+    if (tier === "hire") {
+      span.className = "pverified pverified-sm";
+      icon.className = "ico";
+      icon.setAttribute("data-ico", "shield-check");
+      label = "Verified hire";
+    } else if (tier === "prior") {
+      span.className = "tier tier-prior";
+      icon.className = "ico";
+      icon.setAttribute("data-ico", "link-2");
+      label = "Verified prior work";
+    } else {
+      span.className = "tier tier-claim";
+      icon.className = "ico";
+      icon.setAttribute("data-ico", "file-dash");
+      label = "Portfolio claim";
+    }
+    span.appendChild(icon);
+    span.appendChild(document.createTextNode(label));
+    return span;
   }
 
   function galleryClaimCard(item) {
@@ -662,6 +721,11 @@
     var h3 = document.createElement("h3");
     h3.textContent = typeof item.repository === "string" && item.repository !== "" ? item.repository : "Portfolio claim";
     head.appendChild(h3);
+    /* Proof round 2, D3: every gallery card carries a tier badge beside
+       its title (wireframe agent.html line 409), so the dashed empty
+       frame does not have to be the only signal that this is the claim
+       tier. */
+    head.appendChild(tierBadge("claim"));
     caption.appendChild(head);
 
     /* ENT-12.1: no verify affordance on a claim, ever. No link row is
@@ -675,7 +739,7 @@
     return figure;
   }
 
-  function galleryCard(item, index) {
+  function galleryCard(item, index, tier) {
     var figure = document.createElement("figure");
     figure.className = "work";
 
@@ -712,6 +776,10 @@
     var h3 = document.createElement("h3");
     h3.textContent = typeof item.repository === "string" && item.repository !== "" ? item.repository : "Merged work";
     head.appendChild(h3);
+    /* Proof round 2, D3: the hire and prior-work tiers each carry their
+       own badge here too (wireframe agent.html lines 296/321 for hires,
+       348/379 for prior work), matching galleryClaimCard's badge below. */
+    head.appendChild(tierBadge(tier === "prior" ? "prior" : "hire"));
     caption.appendChild(head);
 
     var links = document.createElement("div");
