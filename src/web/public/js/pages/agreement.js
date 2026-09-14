@@ -155,6 +155,14 @@
     renderLockbar(job, lines);
     renderFixedTerms(job);
     renderRawList(job, lines);
+    /* QA round 2, D2 script-rendered-icon-never-painted: icons.js paints
+       once on DOMContentLoaded and polish.js once in init(), both before
+       this fetch resolves, so every host this function builds (the eight
+       .sigdot marks, the .from proposer arrow) would otherwise stay
+       empty forever, including after a re-render on sign or propose.
+       Same guarded call polish.js:66 already uses for script-inserted
+       toast nodes. */
+    if (window.FAIcon) window.FAIcon.paint(host);
   }
 
   /* One <li> per line, the wireframe's five-column matrix grid

@@ -913,4 +913,40 @@ describe('the agreement screen, driven end to end against the real app', () => {
       }
     });
   });
+
+  // QA round 2, D2 script-rendered-icon-never-painted: every .ico host
+  // agreement.js builds in script (the eight .sigdot marks, the .from
+  // proposer arrow) ships empty. icons.js paints once on DOMContentLoaded
+  // and polish.js paints once in init(), both before the job fetch
+  // resolves, and nothing repaints after. This is DOM shape, not layout,
+  // so jsdom (which builds the SVG element FAIcon.paint appends same as a
+  // real browser) is the right instrument; no RealBrowser needed.
+  describe('the sigdot marks carry a painted icon, not an empty host (D2 script-rendered-icon-never-painted)', () => {
+    it('after the terms render, every .sigdot host has a painted svg child', async () => {
+      const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
+      try {
+        const dots = Array.from(page.document.querySelectorAll('.sigdot .ico'));
+        expect(dots.length).toBeGreaterThan(0);
+        dots.forEach((dot) => {
+          expect(dot.querySelector('svg')).not.toBeNull();
+        });
+      } finally {
+        page.close();
+      }
+    });
+
+    it('after clicking a mark and the row re-renders, the new sigdot host is still painted', async () => {
+      const page = await renderAgreement(baseUrl, 'job-two-unsigned', { token: buyerToken });
+      try {
+        await clickMark(page, 0, 'm-you');
+        const dots = Array.from(page.document.querySelectorAll('.sigdot .ico'));
+        expect(dots.length).toBeGreaterThan(0);
+        dots.forEach((dot) => {
+          expect(dot.querySelector('svg')).not.toBeNull();
+        });
+      } finally {
+        page.close();
+      }
+    });
+  });
 });
