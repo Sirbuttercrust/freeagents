@@ -511,7 +511,7 @@ Six rules follow, and none is optional:
   every mobile law here is measured under does not have.
 
   Two controls were living in exactly that gap, and a review had named one of
-  them on one screen. Measuring the SOURCE of all 574 names found the other:
+  them on one screen. Measuring the SOURCE of every name found the other:
 
   ```
   browse.html  search field   announced "React components, Postgres migration,
@@ -529,6 +529,31 @@ Six rules follow, and none is optional:
   **A finding a review reports on one screen is one instance. Ask it of the
   population before fixing it**, or the second instance ships and the round
   that found the first reads as complete.
+
+- **That gate then dropped eight controls on a spelling, and its census
+  reproduced nowhere.** Round 13, both found by a reviewer measuring rather
+  than reading. `CONTROL_ROLES` held `"disclosure triangle"` and Chrome
+  returns `DisclosureTriangle`, so the eight account-menu `<summary>` controls
+  were collected by the markup selector and dropped by the role filter,
+  unchecked for a name, a duplicate or an invisible source. On a copy of the
+  tree, a genuinely nameless one passed at exit 0.
+
+  Roles are compared through `role_key()` now, which normalises case, spaces
+  and hyphens, so the next role the browser spells its own way is not the next
+  silent drop. More useful than the fix: the report prints the count it
+  COLLECTED beside the count it CHECKED and fails when they differ. `544`
+  against `536` is the line that would have shown this the day it opened.
+
+  The same round found that the `574 controls: 460 contents, 66 aria-label, 46
+  an associated label` stated here and in three other files reproduces under no
+  counting method. The gate prints 544 collected, 544 checked, `contents 433`,
+  `aria-label 76`, `relatedElement 35`. Round 12's `aria-label 66` and both
+  invisible-source findings DO reproduce exactly, so the defects it fixed were
+  real; the totals came from the ad-hoc field probe its own handoff reports as
+  buggy, and survived into the normative document after the fix landed.
+
+  **A number in a handoff is not a measurement.** Name the command that prints
+  it, and let the next reader run it.
 
 A page-local rule beats a linked stylesheet at equal specificity, so
 `browse.html` carries its own copy of the pager floor and the drawer label
