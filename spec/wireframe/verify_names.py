@@ -50,20 +50,64 @@ control with something A PERSON CANNOT SEE:
                law in this set is measured under `(pointer: coarse)`, where
                a title is unreachable by construction.
 
-Measured across all 33 screens in every state, 574 controls: 460 named by
-their own contents, 66 by `aria-label`, 46 by an associated label, ONE by
-`title` (agent.html's DID copy button) and ONE by `placeholder`
-(browse.html's search field, announced as "React components, Postgres
-migration, flaky tests", an example list rather than a name, and never
-painted because the field ships with `value="React, accessibility"`).
+THE CENSUS, AND HOW TO REPRODUCE IT
 
-So the gate now reads `Accessibility.getFullAXTree` per scope and joins it to
-the markup by `backendDOMNodeId`, and a control whose winning source is
-`placeholder` or `title` FAILS with the source named. Both cost about 0.02s
-per scope, which is why one tree per scope replaced a call per node.
+Run this gate and read the two blocks it prints under "the population,
+reconciled" and "where the names come from". On the tree at round 13, all 33
+screens with every dialog opened:
 
-The markup's own answer is still printed beside the computed one, because the
+  markup controls collected        544
+  checked against the name rules   544
+  contents 433, aria-label 76, relatedElement 35
+
+The pre-fix state is reproducible without editing a file: remove in the live
+DOM the two `aria-label` attributes round 12 added (browse.html's `#q` and
+agent.html's `.copybtn`) and the census comes back 433 / 74 / 35 plus one
+`title` and one `placeholder`, which is the defect round 12 reported.
+
+ROUND 13 CORRECTED THESE NUMBERS, AND THE CORRECTION IS THE INTERESTING PART.
+This docstring, DESIGN.md and BUILD-STATE.md all said "574 controls: 460
+contents, 66 aria-label, 46 an associated label". No counting method
+reproduces 574, 460 or 46: not with dialog contents in the page scope, not
+with them out, not before the fix and not after. Round 12's handoff reports
+that its ad-hoc field probe was buggy and miscounted controls inside closed
+dialogs, and those numbers are what it printed. The fix landed and the number
+from the broken instrument stayed in the normative document, which is the
+same defect as a stale token value: a reader cannot tell a measurement from a
+leftover. Two of the five figures did reproduce exactly, `aria-label` 66 and
+both invisible-source findings, so round 12's defects were real and only its
+arithmetic was not.
+
+SO A NUMBER IN THIS FILE NAMES THE COMMAND THAT PRINTS IT. Numbers copied out
+of a run go stale the moment the tree moves, and there is no way to tell how
+long ago it moved.
+
+The gate reads `Accessibility.getFullAXTree` per scope and joins it to the
+markup by `backendDOMNodeId`, and a control whose winning source is
+`placeholder` or `title` FAILS with the source named. Both calls cost about
+0.02s per scope, which is why one tree per scope replaced a call per node.
+The markup's own answer is printed beside the computed one, because the
 markup is what you edit when the computed name is wrong.
+
+A ROLE STRING IS A POPULATION, AND THIS ONE WAS EIGHT SHORT
+
+Round 13 found that `CONTROL_ROLES` listed `"disclosure triangle"` while
+Chrome returns `DisclosureTriangle`. The strings never matched, so all eight
+account-menu `<summary>` controls were collected by the markup selector,
+dropped by the role filter, and checked for nothing. A reviewer's positive
+control on a copy of this tree removed one of those `aria-label`s and the
+gate passed at exit 0, on the promise that no control is nameless.
+
+Two things changed, and the second matters more than the first:
+
+  1. roles are compared through `role_key()`, so a role spelled CamelCase,
+     spaced or hyphenated is one role. Adding the missing string alone would
+     have closed this instance and left the next differently-spelled role to
+     be dropped just as silently.
+  2. the report prints what it COLLECTED beside what it CHECKED. A gate that
+     prints only the second number reports the same green whether its
+     population is whole or eight short. 544 against 536 is the line that
+     would have shown this the day it opened.
 
 SCOPING, AND A BUG THIS GATE HAD ON ITS FIRST RUN
 
@@ -91,7 +135,8 @@ DEPENDENCIES: none beyond wirebrowse.py beside this file and any Chrome.
     python3 devserver.py 3111 &
     python3 verify_names.py http://127.0.0.1:3111
 
-Exit 0 clean, 1 duplicate names found, 3 no browser.
+Exit 0 clean, 1 a name defect or a control this gate could not check,
+3 no browser.
 """
 
 import os
@@ -113,13 +158,33 @@ CONTROLS = "a[href], button, input, select, textarea, summary, [role=button]"
 
 # The roles the accessibility tree gives the things in CONTROLS. Read from the
 # tree rather than from the selector, because the tree is what a screen reader
-# walks: a <summary> is a "disclosure triangle" there, and an element with
+# walks: a <summary> is a disclosure triangle there, and an element with
 # role=button is a "button" whatever its tag.
+#
+# SPELLING IS NOT MEANING, and this list cost eight controls by pretending it
+# was. It held `"disclosure triangle"`; Chrome returns `DisclosureTriangle`.
+# The strings never matched, so all eight account-menu summaries were collected
+# by the selector above, dropped here, and never checked for a name, a
+# duplicate, or an invisible source. Every comparison goes through role_key()
+# now, so the same role written CamelCase, spaced or hyphenated is one role.
 CONTROL_ROLES = frozenset((
     "button", "link", "textbox", "searchbox", "combobox", "checkbox",
     "radio", "slider", "spinbutton", "listbox", "menuitem", "switch",
-    "tab", "disclosure triangle",
+    "tab", "DisclosureTriangle",
 ))
+
+
+def role_key(role):
+    """One role, one key, whatever the browser calls it this version.
+
+    `DisclosureTriangle`, `disclosure triangle` and `disclosure-triangle` are
+    the same thing said three ways, and a frozenset compared by equality can
+    only ever recognise the one spelling somebody typed.
+    """
+    return "".join(c for c in (role or "").lower() if c.isalnum())
+
+
+CONTROL_ROLE_KEYS = frozenset(role_key(r) for r in CONTROL_ROLES)
 
 # A name that exists only in one of these is a name nobody on the screen can
 # read. See the module docstring: a placeholder is painted only while the
@@ -195,12 +260,26 @@ def collect(b, scope=None):
       DOM.getDocument            the markup, which is what you edit
       Accessibility.getFullAXTree the computed name and the source that won it
 
-    A call per node was the obvious shape and is too slow at 574 controls;
+    A call per node was the obvious shape and is too slow at 544 controls;
     both of these cost about 0.02s for a whole document.
+
+    RETURNS (admitted, unaccounted). The second half is the point. Until round
+    13 this function returned the admitted list alone, so the eight controls
+    its role filter dropped left no trace anywhere in the output: the gate
+    collected 544 and reported on 536, and both numbers printed as the same
+    green. Every element the selector collects now leaves this function in
+    exactly one of the two lists, and the report prints both counts, so the
+    next role Chrome spells differently moves a number on the face of the
+    page instead of quietly shrinking the population.
+
+    GROUPED PER ELEMENT, NOT PER AX NODE. Six controls in this set carry two
+    AX nodes each, an ignored `none` beside the real one, so counting nodes
+    would report 550 against 544 collected and the accounting would never
+    balance. The live node is the one a screen reader reads.
     """
     items = b.js(MARKUP.replace("SCOPE", "'%s'" % scope if scope else "null"))
     if not items:
-        return []
+        return [], []
     by_key = dict((it["key"], it) for it in items)
 
     # markup key -> backendNodeId, walked from the document once
@@ -219,21 +298,43 @@ def collect(b, scope=None):
     walk(doc["root"])
 
     tree = b.send("Accessibility.getFullAXTree")
-    out = []
+    nodes = dict((k, []) for k in by_key)
     for n in tree.get("nodes", []):
         key = backend.get(n.get("backendDOMNodeId"))
-        if key is None or key not in by_key:
+        if key is not None and key in nodes:
+            nodes[key].append(n)
+
+    out, unaccounted = [], []
+    for key in sorted(by_key, key=int):
+        it = dict(by_key[key])
+        live = [n for n in nodes[key] if not n.get("ignored")]
+        if not live:
+            # No node a screen reader reads. Either the tree has nothing for
+            # this element, or every node it has is ignored, and the reason
+            # Chrome gives is the useful half: `ariaHiddenSubtree` on a
+            # control a mouse can still click is a real defect, and the gate
+            # that silently dropped it could not have said so.
+            why = []
+            for n in nodes[key]:
+                why += [r.get("name") for r in (n.get("ignoredReasons") or [])]
+            it["why"] = ("ignored: " + ", ".join(sorted(set(w for w in why if w))
+                                                 ) if why else
+                         "no node in the accessibility tree")
+            unaccounted.append(it)
             continue
+        n = live[0]
         role = (n.get("role") or {}).get("value")
-        if role not in CONTROL_ROLES:
+        if role_key(role) not in CONTROL_ROLE_KEYS:
+            it["why"] = "role %r is not in CONTROL_ROLES" % role
+            it["role"] = role
+            unaccounted.append(it)
             continue
         nm = n.get("name") or {}
-        it = dict(by_key[key])
         it["name"] = (nm.get("value") or "").replace("\n", " ").strip()[:90]
         it["source"] = winning_source(nm)
         it["role"] = role
         out.append(it)
-    return out
+    return out, unaccounted
 
 
 def dupes_in(items):
@@ -259,6 +360,10 @@ def run():
     print("=" * 78)
 
     sources = {}
+    roles = {}
+    collected_total = 0
+    admitted_total = 0
+    dropped = []
     b = require_browser(width=1280, height=900)
     try:
         b.send("Accessibility.enable")
@@ -274,11 +379,16 @@ def run():
                 if sel:
                     b.js("(function(){var d=document.querySelector('%s');"
                          "if(d&&!d.open)d.showModal();return 1;})()" % sel)
-                items = collect(b, sel) or []
+                items, skipped = collect(b, sel)
+                collected_total += len(items) + len(skipped)
+                admitted_total += len(items)
                 total += len(items)
                 for it in items:
                     key = it.get("source") or "(none)"
                     sources[key] = sources.get(key, 0) + 1
+                    roles[it.get("role")] = roles.get(it.get("role"), 0) + 1
+                for it in skipped:
+                    dropped.append((s, label, it))
 
                 # Nameless controls first. A button a screen reader announces
                 # as bare "button" is worse than two buttons sharing a name,
@@ -324,6 +434,44 @@ def run():
     finally:
         b.close()
 
+    # THE TWO COUNTS, SIDE BY SIDE. This is the line that would have shown the
+    # role-filter hole the day it opened: 544 collected, 536 checked. A gate
+    # that prints only what it admitted reports the same green whether its
+    # population is whole or eight short, and the difference is invisible
+    # precisely because nothing ever names it.
+    #
+    # AND A PRINTED NUMBER NOBODY ASSERTS IS THE SAME DEFECT ONE LAYER OUT.
+    # This directory has paid for a documented claim nothing checks four times
+    # now, so the reconciliation FAILS rather than merely printing: every
+    # element the markup selector collects is either checked against the name
+    # rules or reported here by name. Both outcomes it can land in are real
+    # findings and neither is this gate's business to wave through:
+    #
+    #   a role not in CONTROL_ROLES     the instrument cannot see a control a
+    #                                   person can reach. Admit the role.
+    #   every AX node ignored           the browser will not announce a control
+    #                                   a mouse can still click, usually an
+    #                                   `aria-hidden` ancestor. Fix the markup.
+    print("\nthe population, reconciled:")
+    print("  %-34s %4d" % ("markup controls collected", collected_total))
+    print("  %-34s %4d" % ("checked against the name rules", admitted_total))
+    print("  %-34s %4d" % ("collected and NOT checked", len(dropped)))
+    if dropped:
+        shown = {}
+        for s, label, it in dropped:
+            key = (it.get("why"), it["tag"], it["cls"].split(" ")[0] or "-")
+            shown.setdefault(key, []).append("%s [%s]" % (s, label))
+        for (why, tag, cls), where in sorted(shown.items()):
+            print("    %s.%-14s %2d  %s" % (tag, cls, len(where), why))
+            print("      %s" % ", ".join(where[:6]) +
+                  (", and %d more" % (len(where) - 6) if len(where) > 6 else ""))
+            fails.append(
+                "%d control(s) reached by a person and checked by nothing: "
+                "%s.%s\n      %s\n      [%s]"
+                % (len(where), tag, cls, why,
+                   ", ".join(where[:6]) +
+                   (", and %d more" % (len(where) - 6) if len(where) > 6 else "")))
+
     # The name-source census, on the face of the report. A gate that stopped
     # reading the accessibility tree and went back to guessing would still
     # print a clean table; this line is what changes.
@@ -331,6 +479,9 @@ def run():
     for k, v in sorted(sources.items(), key=lambda kv: -kv[1]):
         mark = "   <- nobody can see this" if k in INVISIBLE_SOURCES else ""
         print("  %-18s %4d%s" % (k, v, mark))
+    print("\nthe roles Chrome returned for them, as it spells them:")
+    for k, v in sorted(roles.items(), key=lambda kv: -kv[1]):
+        print("  %-22s %4d" % (k, v))
 
     print("\n" + "-" * 78)
     if fails:
@@ -344,7 +495,10 @@ def run():
           % len(SCREENS))
     print("      same time answer to the same name unless they go to the same")
     print("      place, no control is nameless, and no name exists only in a")
-    print("      placeholder or a title. Every name read from the browser.")
+    print("      placeholder or a title. Every name read from the browser,")
+    print("      and every one of the %d controls the markup selector collected"
+          % collected_total)
+    print("      was checked: collected and checked are the same number.")
     return 0
 
 
