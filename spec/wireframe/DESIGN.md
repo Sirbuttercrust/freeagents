@@ -856,7 +856,7 @@ browser.
 | `verify_sitemap.py` | SITEMAP build claims match the directory, and no page is served without a page id |
 | `verify_tokens.py` | WCAG ratios computed by hand, no browser, no server |
 | `verify_ink.py` | every rendered character against AA at both viewports, with ink composited over the pixel measured behind it |
-| `verify_names.py` | no two controls a person can reach at the same time answer to the same accessible name |
+| `verify_names.py` | no two controls a person can reach at the same time answer to the same accessible name, no control is nameless, and no name exists only in a `placeholder` or a `title`. Every name read from `Accessibility.getFullAXTree` rather than computed from the markup |
 | `verify_money.py` | every dollar figure on every screen derives from one model of the deal |
 | `verify_rail.py` | the headline total, the fee and the pay button follow the chosen rail, including inside the scan sheet |
 | `verify_pickers.py` | every picker row traces to a real agreement line with matching text, and every omitted line is explained on screen |
@@ -924,6 +924,51 @@ Reading either limit out would mean a sixth instrument auditing the fifth, and
 this suite already grows a layer a round. So they are written here beside the
 claim, the way 5.4 names the `scrollWidth` trap. The row above promises where
 a sweeper's source points, and nothing further.
+
+**A gate that says it asks the browser can be reading the file, and the cost
+is a name nobody on the screen can see.** Round 11 found one instance of that
+in `verify_kept.py`. Round 12 found the class's other half in
+`verify_names.py`, which computed the accessible name for every control on
+all 33 screens with its own JavaScript ladder, ending in two rungs that name
+a control with something a person cannot reach:
+
+| rung | why it is not a name |
+|---|---|
+| `placeholder` | painted only while the field is EMPTY, so a field shipping with a value never paints it |
+| `title` | needs a hover, and a touch device has none. Every mobile law here is measured under `(pointer: coarse)` |
+
+Measured across all 33 screens in every state, 574 controls: 460 named by
+their own contents, 66 by `aria-label`, 46 by an associated label, one by a
+`title` and one by a `placeholder`. Both of those were real:
+
+```
+browse.html   the search field announced "React components, Postgres
+              migration, flaky tests", an example list rather than a name,
+              on a field carrying value="React, accessibility"
+agent.html    the DID copy button announced "Copy the DID" from a title,
+              unreachable on the profile this set is measured under
+```
+
+The gate reads `Accessibility.getFullAXTree` per scope now, joined to the
+markup by `backendDOMNodeId`, and fails any control whose WINNING source is a
+placeholder or a title. It prints the source census on the face of the report,
+because a gate that went back to guessing would still print a clean table and
+that line is what would change. Both CDP calls cost about 0.02s per scope,
+which is why one tree per scope replaced a call per node.
+
+**The negative half of that rule is what makes it usable.** A rule that fired
+on any placeholder would condemn every well-labelled field in the set, and the
+first person to hit a false failure stops reading the gate. What fails is a
+name that exists ONLY in an invisible source, which is why the assertion is
+written against the winning source rather than against the attribute.
+`verify_round12_mutation.py` plants a placeholder beside a real label, a title
+beside an `aria-label`, and a title on a radio named by its wrapping label
+inside a dialog, and requires silence on all three.
+
+**And a name census is the reason those two were found at all.** A review had
+named one field on one screen. Asking the same question of the population
+found the second on a different screen with a different source, and closed
+both with one rule.
 
 **And a name written inline is the same decision as a name in a list.** The
 round-4 fix above checked assignments whose value is a literal list, and four

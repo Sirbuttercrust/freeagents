@@ -502,6 +502,34 @@ Six rules follow, and none is optional:
   claim sentences as a population, the way a gate's scope is a population.**
   One reviewed sentence is one instance of a class.
 
+- **And that class had a second half in the gate that names controls, where it
+  cost two real names.** Round 12. `verify_names.py` computed the accessible
+  name for every control on all 33 screens with its own JavaScript ladder,
+  ending in `title` and then `placeholder`. Both of those name a control with
+  something A PERSON CANNOT SEE: a placeholder is painted only while the field
+  is empty, and a title needs a hover that the `(pointer: coarse)` profile
+  every mobile law here is measured under does not have.
+
+  Two controls were living in exactly that gap, and a review had named one of
+  them on one screen. Measuring the SOURCE of all 574 names found the other:
+
+  ```
+  browse.html  search field   announced "React components, Postgres migration,
+                              flaky tests", an example list rather than a name,
+                              on a field carrying value="React, accessibility"
+  agent.html   DID copy btn   announced "Copy the DID", from a title
+  ```
+
+  Both now carry an `aria-label`, and the gate reads
+  `Accessibility.getFullAXTree` joined to the markup by `backendDOMNodeId`,
+  failing any control whose WINNING source is a placeholder or a title. The
+  census of sources prints on the face of the report, because a gate that went
+  back to guessing would still print a clean table.
+
+  **A finding a review reports on one screen is one instance. Ask it of the
+  population before fixing it**, or the second instance ships and the round
+  that found the first reads as complete.
+
 A page-local rule beats a linked stylesheet at equal specificity, so
 `browse.html` carries its own copy of the pager floor and the drawer label
 floor. If you define a component inside a page's `<style>`, its touch floor

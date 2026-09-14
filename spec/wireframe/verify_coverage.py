@@ -166,6 +166,19 @@ INLINE_WITH_REASON = {
     # name.
     "verify_round11_mutation.py": {"staged.html", "agentsettings.html",
                                    "notfound.html"},
+    # Round 12's fixtures are each chosen for a property the control needs,
+    # and the two mutation fixtures are the two real defects the round found:
+    # browse.html's search field is the only field in the set named by its
+    # placeholder, and agent.html's DID copy button the only control named by
+    # its title, so the controls restore the exact pre-fix markup rather than
+    # inventing a defect. agentsettings.html carries a text field with a real
+    # <label for>, which is what the placeholder negative control needs, and
+    # staged.html a radio named by a WRAPPING label inside a dialog, which is
+    # what the title negative control needs and also proves the source read
+    # survives the state walk. A fixture chosen at run time would land on a
+    # screen with no field, no dialog, or no defect to restore.
+    "verify_round12_mutation.py": {"browse.html", "agent.html",
+                                   "agentsettings.html", "staged.html"},
 }
 
 
