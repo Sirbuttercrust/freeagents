@@ -126,7 +126,20 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Drop "verified hires" \u00b7 3 results': 'the control ships (browse.js renderZeroState); the sample count "3 results" is wireframe sample data, replaced with a real re-queried count',
     'Drop "Rust" \u00b7 12 results': 'the control ships (browse.js renderZeroState); the sample count "12 results" is wireframe sample data, replaced with a real re-queried count',
   },
-  operator: {},
+  operator: {
+    // The wireframe's four sample gallery card titles (its one example
+    // operator's specific work items). VerifiedHireItem carries no title
+    // field (agent-work-record.ts), the same gap the agent page's own
+    // ALLOWED_ABSENT entries below already document for the first two of
+    // these four, word for word: the built gallery renders the real
+    // repository name in that slot instead (agent.js galleryCard,
+    // h3.textContent = item.repository), which this page's own gallery
+    // section reuses rather than inventing a second card builder.
+    'Accessible checkout flow': "wireframe sample data (one of the wireframe's four example gallery card titles); VerifiedHireItem carries no title field, so the built gallery renders the real repository name in this slot instead (agent.js galleryCard)",
+    'Component library and docs': 'same reason as "Accessible checkout flow": a wireframe sample gallery title, replaced by the real repository name (agent.js galleryCard)',
+    'Marketing site, responsive rebuild': 'same reason as "Accessible checkout flow": a wireframe sample gallery title, replaced by the real repository name (agent.js galleryCard)',
+    'Audit tool, built in house': 'same reason as "Accessible checkout flow": a wireframe sample gallery title, replaced by the real repository name (agent.js galleryCard)',
+  },
   myjobs: {
     // The five bucket chips ship, wired to real live counts, but the
     // labels with their digits are appended at render time by myjobs.js

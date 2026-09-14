@@ -1,5 +1,16 @@
-/* P-4 operator profile, rebuilt from the design seat's wireframe (W3,
+/* P-4 operator profile, rebuilt on the polished wireframe (W12,
    spec/wireframe/operator.html): read the record and render it.
+
+   THE POLISHED STACK. This page now loads swarm.js and icons.js (compare
+   agent.html), which each sweep the DOM ONCE at load, before this file's
+   own fetches resolve. Anything built here AFTER that sweep (the roster
+   cards, the gallery cards, the header avatar) needs an explicit paint
+   call: window.FAIcon.paint(host) for every [data-ico] span this file
+   builds, and a direct window.FASwarm.avatar(...) call for every
+   [data-avatar] host, the same pattern agent.js and browse.js already use
+   for their own script-built hosts. This is the W11 D2 defect class
+   (script-rendered-icon-never-painted); it is fixed here by construction
+   rather than left to be re-earned.
 
    The identity strip fetches GET /accounts/:did (did, githubLogin,
    createdAt), pinned by tests/api/operator-invariant2.test.ts. The roster
@@ -26,31 +37,49 @@
    what a sort or filter value means. There is no second, client-only sort
    or filter rule for these eleven-plus rows.
 
-   THE ROSTER ROW (W3): the wireframe's .agent shape, a 40px round avatar,
-   a name link, and a right column carrying a tier chip plus an evidence
-   line, the SAME .tier/.dot vocabulary browse.js's own wireframe rebuild
-   (W2) applies to a browse card, both reading the identical BrowseCard
-   (src/domain/browse.ts) through the same three-way tier rule, so a row
-   here and the same agent's browse card can never disagree about the
-   evidence. The avatar rides the SAME per-agent read browse.js's
-   loadAvatar already makes (GET /agents/:agentDid, agentProjection's
-   avatar field), fired after the row is in the DOM so a slow avatar read
-   never holds up the rest of the roster.
+   THE ROSTER ROW (W12): market.css's own .acard shape (div.agrid.stagger
+   of article.acard), the SAME card browse.html ships (W10), so an agent's
+   card reads identically on browse and on its operator's page. Reads
+   browse.js's own applyTier/cardbadgeFor/evidenceLineFor table over the
+   identical BrowseCard fields, mirrored here rather than imported (page
+   scripts here share no module system, the same reason browse.js and
+   myagents.js each carry their own numberOr), so a row here and the same
+   agent's browse card can never disagree about the evidence.
 
-   THE DESCRIPTION LINE under a roster name (wireframe .ds): BrowseCard
-   carries no description field (src/domain/browse.ts), the same gap
-   browse.html's own row template comment records; there is nothing to
-   render, so the slot is omitted here too rather than substituting the
-   skills line for it silently. */
+   THE GALLERY (W12): "Work from these agents" (wireframe lines 133-216).
+   Backed by the SAME per-agent read the roster avatar already makes
+   (GET /agents/:agentDid), read once per agent and reused for both the
+   avatar paint and the work items, never a second request. Built from
+   agent.js's own galleryCard/galleryClaimCard vocabulary
+   (src/web/public/js/pages/agent.js), with one addition: .work-by, naming
+   which agent produced the item. Same evidence gate as the agent page's
+   own gallery (ENT-12.1): a claim never gets a preview. */
 
 (function () {
   "use strict";
 
   var A = window.FAApi;
   var ROSTER_CONTROL_THRESHOLD = 10;
+  var AVATAR_SIZE = 52; // matches market.css .acard-av { width:52px; height:52px }
+  var WORK_SHOT_CLASSES = ["work-shot-1", "work-shot-2", "work-shot-3", "work-shot-4"];
+
+  // market.css's five discipline tints (.cat-frontend etc), the same table
+  // browse.js's own CAT_CLASS uses, mirrored here rather than imported for
+  // the reason stated above.
+  var CAT_CLASS = {
+    frontend: "cat-frontend",
+    backend: "cat-backend",
+    infrastructure: "cat-infra",
+    data: "cat-data",
+    testing: "cat-testing",
+  };
 
   function currentParams() {
     return new URLSearchParams(window.location.search);
+  }
+
+  function paintIcons(host) {
+    if (window.FAIcon) window.FAIcon.paint(host);
   }
 
   function start() {
@@ -99,26 +128,41 @@
       "Accountable for every agent listed under this identity."
     );
 
+    /* THE AVATAR: painted directly from the DID through the swarm
+       generator, the same call agent.js's renderAgent makes for its own
+       #avatar host (never the generic polish.js [data-avatar] sweep,
+       which runs at load and has nothing to key on yet). The square
+       corner (.pav.is-op, market.css) is the one deliberate difference
+       from an agent's own round avatar. */
+    var avatarEl = A.el("avatar");
+    if (avatarEl && typeof operator.did === "string" && operator.did !== "" && window.FASwarm) {
+      avatarEl.setAttribute("data-avatar", operator.did);
+      avatarEl.innerHTML = window.FASwarm.avatar(operator.did, 96);
+      avatarEl.removeAttribute("data-pending");
+    }
+
     A.showById("ident", true);
     A.setTextById("did-short", A.shortDid(operator.did));
 
     var github = A.el("github");
     if (github) {
-      /* "GitHub account confirmed" is reserved for a checked account proof
-         (DESIGN 1.3). The operator record carries the handle it registered
-         with and no proof status, so this says only what it knows: the
-         handle. Claiming more would be the exact overstatement the
-         vocabulary table forbids. */
+      /* "proven both ways" is reserved for a checked account proof
+         (DESIGN 1.3). accountProjection (src/api/app.ts) carries the
+         handle an operator registered with and no proof status at all, so
+         this says only what it knows: the handle. This is a DEPARTURE
+         from the wireframe, which prints "proven both ways" for its own
+         sample operator; the same box on the agent page can say more
+         because AN AGENT record carries a checked account proof and an
+         operator record does not. Claiming more here would be the exact
+         overstatement the vocabulary table forbids. */
       github.textContent = login !== "" ? "registered as github @" + login : "no GitHub handle registered";
     }
 
     var since = A.readableDate(operator.createdAt);
-    A.setTextById("since", since === null ? "" : "registered " + since);
+    A.setTextById("since", since === null ? "not recorded" : since);
 
     setCopy("did-copy", operator.did);
-    setCopy("tech-did-copy", operator.did);
-    A.setTextById("tech-did", operator.did);
-    A.setTextById("tech-created", since === null ? "not recorded" : since);
+    setCopy("did-copy-2", operator.did);
   }
 
   function setCopy(id, value) {
@@ -196,15 +240,13 @@
       if (b) b.textContent = "The roster could not be read just now.";
       if (p) p.textContent = "Reloading may work.";
     }
+    renderGalleryEmpty();
   }
 
   /* D5: distinguishes an operator with a genuinely empty roster from a
      skill filter that matched none of a non-empty roster's rows. The two
      read the same wrong element (agents.length === 0) before this fix;
-     rosterSize (agentCount, the full roster) is what tells them apart.
-     The filtered-to-zero copy mirrors browse.html's #empty state
-     (src/web/pages/browse.html) for the identical case, word for word,
-     so the two surfaces do not diverge on what "nothing matched" means. */
+     rosterSize (agentCount, the full roster) is what tells them apart. */
   function renderEmptyState(agents, rosterSize) {
     var isEmpty = agents.length === 0;
     A.showById("roster-empty", isEmpty);
@@ -239,46 +281,71 @@
     var host = A.el("roster-cards");
     if (host) {
       host.textContent = "";
-      agents.forEach(function (agent) {
-        host.appendChild(rosterRow(agent));
+      agents.forEach(function (agent, i) {
+        var card = rosterRow(agent);
+        card.style.setProperty("--i", String(i));
+        host.appendChild(card);
       });
     }
 
-    /* Two different truths share one element (Review finding, round 3,
-       defect empty-state-contradicts-roster): a roster with zero agents
-       and a roster that a filter narrowed to zero rows are not the same
-       fact, and the copy must say which one happened. Gated on rosterSize
-       (agentCount, the FULL roster), the same fix D1 applied to the
-       controls one block above, never on the post-filter row count. */
     renderEmptyState(agents, rosterSize);
 
-    /* D4: controls appear only above ten agents. Below that the table
-       renders plain, one layout either way. Gated on the FULL roster size
-       (agentCount), never the filtered row count on screen (Review
-       finding, round 3, defect control-hides-itself-under-its-own-effect):
-       filtering an above-ten roster down to a handful of rows must not
-       remove the controls that produced the filter. Browse keeps its
-       controls visible in the identical case; this matches it. */
+    /* D4: controls appear only above ten agents, gated on the FULL roster
+       size (agentCount), never the filtered row count on screen. */
     A.showById("roster-controls", rosterSize > ROSTER_CONTROL_THRESHOLD);
 
     renderSummary(body.aggregate, rosterSize, agents.length);
     renderHeaderSummary(body.aggregate, rosterSize);
+    renderPstats(body.aggregate, rosterSize);
+
+    /* THE GALLERY: fires one read per agent in the roster
+       (GET /agents/:agentDid), the SAME read the avatar paint below
+       needs, and builds every gallery card from that shared response
+       rather than a second request per agent. */
+    loadGallery(agents);
   }
 
-  /* W3: the wireframe's header summary sentence ("N verified hires across
-     M agents. Merged 15 of 17 jobs taken."). Only the first half ships.
-     operatorConductForDid exists (src/api/app.ts) but no route exposes it;
-     the only conduct route is GET /buyers/:githubLogin/conduct, the
-     BUYER's record, not the operator's. Rendering the merge fraction would
-     mean inventing a number under a real party's name, so this states the
-     half that has data: the verified-hire total and the agent count, both
-     already on the SAME aggregate the roster summary below reads. */
+  /* W12: the wireframe's header summary sentence ("N verified hires
+     across M agents. Merged 15 of 17 jobs taken."). Only the first half
+     ships: operatorConductForDid exists (src/api/app.ts) but no route
+     exposes it, and the only conduct route is
+     GET /buyers/:githubLogin/conduct, the BUYER's record, not the
+     operator's. Rendering the merge fraction would mean inventing a
+     number under a real party's name, so this states the half that has
+     data: the verified-hire total and the agent count, both already on
+     the SAME aggregate the roster summary and the .pstats row below
+     read. */
   function renderHeaderSummary(aggregate, rosterSize) {
     var totals = aggregate && typeof aggregate === "object" ? aggregate : {};
     var hires = numberOr(totals.totalVerifiedHireCount);
     A.el("op-summary").textContent =
       A.plural(hires, "verified hire", "verified hires") + " across " + A.plural(rosterSize, "agent", "agents") + ".";
     A.showById("op-summary", true);
+  }
+
+  /* The .pstats four-cell row (wireframe lines 83-104). Three separately
+     labelled tier totals plus the agent count, never combined into one
+     number (MISSION invariant 5): the same table renderSummary below
+     applies to its own sentence, read off the SAME aggregate so the two
+     can never disagree.
+
+     Merge rate needs the total-jobs-taken denominator; no route serves
+     it (the same gap agent.html's own #pstat-merge-rate already carries
+     honestly, agent.html:239), so this row's merge-rate cell renders the
+     same static "not yet observed" fallback rather than a fraction this
+     build cannot source (operator.html:183-187, #pstat-merge-rate). The
+     wireframe's own comment (operator.html lines 113-123 on the pre-W12
+     build) already recorded this reasoning; it carries forward unchanged. */
+  function renderPstats(aggregate, rosterSize) {
+    var totals = aggregate && typeof aggregate === "object" ? aggregate : {};
+    var hires = numberOr(totals.totalVerifiedHireCount);
+    var prior = numberOr(totals.totalVerifiedPriorWorkCount);
+    var claims = numberOr(totals.totalPortfolioCount);
+    A.setTextById("pstat-hires", String(hires));
+    A.setTextById("pstat-hires-sub", "across " + A.plural(rosterSize, "agent", "agents"));
+    A.setTextById("pstat-prior", String(prior));
+    A.setTextById("pstat-claims", String(claims));
+    A.setTextById("pstat-agents", String(rosterSize));
   }
 
   function renderSummary(aggregate, rosterSize, shownCount) {
@@ -293,10 +360,7 @@
 
        The aggregate is always over the FULL roster (src/api/app.ts), even
        when a skill filter narrows what is on screen: an operator's
-       accountability does not shrink because a visitor filtered. Review
-       finding, round 3, defect summary-contradicts-tier: the wording must
-       say whose count this is, honestly, rather than claiming "every
-       agent listed here" over rows that are a strict subset. */
+       accountability does not shrink because a visitor filtered. */
     var subject = shownCount < rosterSize ? "Across every agent this operator runs" : "Across every agent listed here";
     A.setTextById(
       "roster-summary",
@@ -307,132 +371,442 @@
     );
   }
 
-  /* W3: the roster row rebuilt to the wireframe's .agent shape. A 40px
-     round avatar, a name link, and a right column carrying the tier chip
-     (.tier .dot plus its label) beside the evidence line, the same
-     vocabulary browse.js's applyTier uses for a browse card, so an agent's
-     row here and its browse card read identically for the same evidence.
-     The per-tier table is browse.js's own (agentTierInfo below mirrors
-     applyTier exactly, over the identical BrowseCard fields). */
+  /* THE ROSTER ROW, market.css's own .acard shape (browse.js's cardFor,
+     mirrored rather than imported). .acard-top holds the avatar host,
+     .acard-body holds the name link, the discipline chips and the
+     visually-hidden tier sentence, .acard-foot holds the evidence line
+     and the go icon. Keeps --id-hue, the identity colour, the same way
+     browse.js derives it from the DID (window.FACore.hash), never picked
+     and never cycled by position. */
   function rosterRow(agent) {
-    var row = document.createElement("div");
-    row.className = "agent";
-    row.setAttribute("data-agent-row", agent.did);
+    var article = document.createElement("article");
+    article.className = "acard idc";
+    article.setAttribute("data-agent-row", agent.did);
 
-    var avatarHost = document.createElement("div");
-    avatarHost.className = "rav";
+    if (window.FACore && typeof agent.did === "string") {
+      var hue = window.FACore.hash(agent.did) % 5;
+      article.style.setProperty("--id-hue", "var(--agent-" + (hue + 1) + ")");
+    }
+
+    var top = document.createElement("div");
+    top.className = "acard-top";
+    var avatarHost = document.createElement("span");
+    avatarHost.className = "acard-av";
     avatarHost.setAttribute("data-pending", "");
-    row.appendChild(avatarHost);
-    loadAvatar(agent.did, avatarHost);
+    top.appendChild(avatarHost);
 
-    var body = document.createElement("div");
-
-    var name = document.createElement("a");
-    name.className = "nm";
-    name.setAttribute("href", "/agents/" + encodeURIComponent(agent.did));
-    name.textContent = typeof agent.name === "string" && agent.name !== "" ? agent.name : A.shortDid(agent.did);
-    body.appendChild(name);
-
-    /* THE DESCRIPTION LINE (wireframe .ds): BrowseCard carries no
-       description field (src/domain/browse.ts), the same gap browse.js's
-       own row template records for its card, so there is nothing to
-       render here either. Never substitute the skills line for it. */
-
-    row.appendChild(body);
-
-    var right = document.createElement("div");
-    right.className = "right";
-
-    var info = agentTierInfo(agent);
-    var tier = document.createElement("span");
-    tier.className = "tier " + info.tierClass;
-    var dot = document.createElement("span");
-    dot.className = "dot";
-    tier.appendChild(dot);
-    var tierLabel = document.createElement("span");
-    tierLabel.textContent = info.tierLabel;
-    tier.appendChild(tierLabel);
-    right.appendChild(tier);
-
-    var ev = document.createElement("span");
-    ev.className = "ev";
-    ev.textContent = info.evidence;
-    right.appendChild(ev);
-
-    row.appendChild(right);
-
-    return row;
-  }
-
-  /* Per-tier rendering, the identical table browse.js's applyTier applies
-     (W2), read over the same three BrowseCard fields, so a roster row and
-     the same agent's browse card can never disagree about which tier it
-     is in or what the evidence line says:
-
-       verified hires above zero   tier-hire,  "N verified hires",
-                                    evidence line with prior and claim
-                                    counts beside it
-       no hires, prior above zero  tier-prior, "N verified prior work",
-                                    evidence line "no hires yet"
-       neither                     tier-claim, "No verified record",
-                                    evidence line with the claim count
-
-     ENT-2.4 governs the third case: an agent with no verified record
-     renders as an agent with no verified record, no badge, no reordering. */
-  function agentTierInfo(agent) {
     var hire = numberOr(agent.verifiedHireCount);
     var prior = numberOr(agent.verifiedPriorWorkCount);
     var claim = numberOr(agent.portfolioCount);
+    var badge = cardbadgeFor(hire, prior, claim);
+    if (badge) top.appendChild(badge);
+    article.appendChild(top);
 
+    var body = document.createElement("div");
+    body.className = "acard-body";
+
+    var nameWrap = document.createElement("div");
+    var nameLink = document.createElement("a");
+    nameLink.className = "acard-name";
+    nameLink.setAttribute("href", "/agents/" + encodeURIComponent(agent.did));
+    nameLink.textContent = typeof agent.name === "string" && agent.name !== "" ? agent.name : A.shortDid(agent.did);
+    nameWrap.appendChild(nameLink);
+    body.appendChild(nameWrap);
+
+    /* THE DESCRIPTION LINE (wireframe .acard-desc): BrowseCard carries no
+       description field (src/domain/browse.ts), the same gap browse.js's
+       own row template already records for its card, so there is nothing
+       to render here either. */
+
+    var skills = Array.isArray(agent.skills) ? agent.skills.filter(function (s) { return typeof s === "string" && s !== ""; }) : [];
+    if (skills.length > 0) {
+      var cats = document.createElement("div");
+      cats.className = "acard-cats";
+      skills.forEach(function (s) {
+        var span = document.createElement("span");
+        var mapped = CAT_CLASS[s.toLowerCase()];
+        span.className = mapped ? "cat " + mapped : "cat";
+        span.textContent = s;
+        cats.appendChild(span);
+      });
+      body.appendChild(cats);
+    }
+
+    /* The visually-hidden tier sentence: the SAME per-tier table
+       browse.js's applyTier applies, read over the identical BrowseCard
+       fields, so a roster row and the same agent's browse card can never
+       disagree about which tier it is in. */
+    var tier = document.createElement("span");
+    tier.className = "tier tier-label-a11y";
     if (hire > 0) {
-      var parts = [];
-      if (prior > 0) parts.push(prior + " prior");
-      if (claim > 0) parts.push(A.plural(claim, "claim", "claims"));
-      return {
-        tierClass: "tier-hire",
-        tierLabel: A.plural(hire, "verified hire", "verified hires"),
-        evidence: parts.join("  \u00b7  "),
-      };
+      tier.classList.add("tier-hire");
+      tier.textContent = A.plural(hire, "verified hire", "verified hires");
+    } else if (prior > 0) {
+      tier.classList.add("tier-prior");
+      tier.textContent = A.plural(prior, "verified prior work", "verified prior work");
+    } else {
+      tier.classList.add("tier-claim");
+      tier.textContent = "No verified record";
     }
-    if (prior > 0) {
-      return {
-        tierClass: "tier-prior",
-        tierLabel: A.plural(prior, "verified prior work", "verified prior work"),
-        evidence: "no hires yet",
-      };
-    }
-    return {
-      tierClass: "tier-claim",
-      tierLabel: "No verified record",
-      evidence: A.plural(claim, "claim", "claims"),
-    };
+    body.appendChild(tier);
+
+    article.appendChild(body);
+
+    var foot = document.createElement("div");
+    foot.className = "acard-foot";
+    var ev = document.createElement("span");
+    ev.className = "acard-ev";
+    ev.appendChild(evidenceLineFor(hire, prior, claim));
+    foot.appendChild(ev);
+    var go = document.createElement("span");
+    go.className = "ico ico-sm go";
+    go.setAttribute("data-ico", "chevron-right");
+    foot.appendChild(go);
+    article.appendChild(foot);
+
+    paintIcons(article);
+    return article;
   }
 
-  /* The avatar rides the SAME per-agent read browse.js's loadAvatar makes
-     (GET /agents/:agentDid, agentProjection's avatar field), through the
-     SAME A.setAvatar sanitiser: not a second avatar path. Fired after the
-     row is already in the DOM, so a slow or failed read never holds up
-     the rest of the roster (the same ordering browse.js uses). */
-  function loadAvatar(did, avatarHost) {
-    A.get("/agents/" + encodeURIComponent(did)).then(function (result) {
-      if (result.state !== "ok") return;
-      if (typeof result.value.avatar === "string") A.setAvatar(avatarHost, result.value.avatar);
-    });
+  /* The wireframe's cardbadge (market.css .pverified/.punverified), the
+     same table browse.js's own cardbadgeFor uses over the identical
+     fields. Omitted when the card has nothing to report at all (ENT-2.4:
+     no promotional framing, nothing to state). */
+  function cardbadgeFor(hire, prior, claim) {
+    var span = document.createElement("span");
+    var icon = document.createElement("span");
+    icon.className = "ico";
+    icon.setAttribute("aria-hidden", "true");
+
+    if (hire > 0) {
+      span.className = "pverified pverified-sm cardbadge";
+      icon.setAttribute("data-ico", "shield-check");
+      span.appendChild(icon);
+      var b = document.createElement("b");
+      b.textContent = String(hire);
+      span.appendChild(b);
+      span.appendChild(document.createTextNode(" verified"));
+      return span;
+    }
+    if (prior > 0) {
+      span.className = "punverified punverified-sm cardbadge";
+      icon.setAttribute("data-ico", "link-2");
+      span.appendChild(icon);
+      span.appendChild(document.createTextNode("No hires yet"));
+      return span;
+    }
+    if (claim > 0) {
+      span.className = "punverified punverified-sm cardbadge";
+      icon.setAttribute("data-ico", "file-dash");
+      span.appendChild(icon);
+      span.appendChild(document.createTextNode("Unverified"));
+      return span;
+    }
+    return null;
+  }
+
+  /* The wireframe's footer evidence line (market.css .acard-ev), the same
+     table browse.js's own evidenceLineFor uses. */
+  function evidenceLineFor(hire, prior, claim) {
+    var frag = document.createDocumentFragment();
+
+    var first = document.createElement("span");
+    first.className = hire > 0 ? "hires" : "none";
+    if (hire > 0) {
+      var icon = document.createElement("span");
+      icon.className = "ico";
+      icon.setAttribute("data-ico", "shield-check");
+      icon.setAttribute("aria-hidden", "true");
+      first.appendChild(icon);
+    }
+    first.appendChild(document.createTextNode(hire + " verified"));
+    frag.appendChild(first);
+
+    var secondText = "";
+    var secondNone = false;
+    if (prior > 0) {
+      secondText = prior + " prior";
+    } else if (claim > 0) {
+      secondText = A.plural(claim, "claim", "claims");
+      secondNone = true;
+    }
+    if (secondText !== "") {
+      var sep = document.createElement("span");
+      sep.className = "sep";
+      sep.setAttribute("aria-hidden", "true");
+      frag.appendChild(sep);
+
+      var second = document.createElement("span");
+      if (secondNone) second.className = "none";
+      second.textContent = secondText;
+      frag.appendChild(second);
+    }
+
+    return frag;
   }
 
   function numberOr(value) {
     return typeof value === "number" && !isNaN(value) ? value : 0;
   }
 
-  /* Test-only hook (W3 round 2, D2): agentTierInfo's tier-prior branch has
-     no HTTP fixture that can reach it, because agentWorkRecord
-     (src/domain/agent-work-record.ts) hardcodes verifiedPriorWork: [] until
-     ENT-11 lands, the same gap tests/web/browse.test.ts:338-346 documents
-     for browse's identical branch. Exposing the pure function here lets a
-     test call it directly over a shaped object rather than fabricating a
-     prior-work HTTP fixture the app cannot actually produce. Never read by
-     product code; only tests/web/operator-roster.test.ts reaches this. */
-  window.__operatorTestHooks = { agentTierInfo: agentTierInfo };
+  /* ---------------------------------------------------------- gallery */
+
+  /* Fires ONE read per roster agent (GET /agents/:agentDid), the same
+     route browse.js's loadAvatar already calls for its own card, and
+     reuses that SAME response for both the avatar paint and the work
+     items rather than a second request. Once every read has settled
+     (success or failure, Promise.allSettled so one bad agent never blanks
+     the whole gallery), the collected work is sorted, capped, and
+     rendered. */
+  function loadGallery(agents) {
+    if (agents.length === 0) {
+      renderGalleryEmpty();
+      return;
+    }
+
+    var reads = agents.map(function (agent) {
+      return A.get("/agents/" + encodeURIComponent(agent.did)).then(function (result) {
+        paintRosterAvatar(agent.did, result);
+        return { agent: agent, result: result };
+      });
+    });
+
+    Promise.all(reads).then(function (pairs) {
+      renderGallery(collectGalleryItems(pairs));
+    });
+  }
+
+  /* The roster avatar, painted directly from the DID through the swarm
+     generator once the per-agent read has settled, the same call
+     browse.js's own loadAvatar makes for its card (window.FASwarm.avatar
+     keyed on the DID, never the server's older avatar field, DESIGN.md
+     2.4). Painted here rather than through the generic [data-avatar]
+     sweep because that sweep already ran at load, before this fetch had
+     anything to key on. */
+  function paintRosterAvatar(did, result) {
+    if (result.state !== "ok") return;
+    var host = document.querySelector('[data-agent-row="' + cssEscape(did) + '"] .acard-av');
+    if (!host || !window.FASwarm) return;
+    host.setAttribute("data-avatar", did);
+    host.innerHTML = window.FASwarm.avatar(did, AVATAR_SIZE);
+    host.removeAttribute("data-pending");
+  }
+
+  function cssEscape(value) {
+    if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(value);
+    return String(value).replace(/["\\]/g, "\\$&");
+  }
+
+  /* Sort and cap: the verified-hire tier across EVERY agent first, most
+     recent mergedAt first, then verified prior work, then claims. A cap
+     keeps one prolific agent from filling the whole strip; twelve is the
+     wireframe's own four cards times three, generous enough that a
+     four-agent roster like the wireframe's own example never notices it
+     and small enough that an operator running fifty agents does not ship
+     an unbounded page. */
+  var GALLERY_CAP = 12;
+
+  function collectGalleryItems(pairs) {
+    var hires = [];
+    var prior = [];
+    var claims = [];
+    pairs.forEach(function (pair) {
+      if (pair.result.state !== "ok") return;
+      var agentName = typeof pair.agent.name === "string" && pair.agent.name !== "" ? pair.agent.name : A.shortDid(pair.agent.did);
+      var record = pair.result.value;
+      (Array.isArray(record.verifiedHires) ? record.verifiedHires : []).forEach(function (item) {
+        hires.push({ item: item, agentName: agentName, tier: "hire" });
+      });
+      (Array.isArray(record.verifiedPriorWork) ? record.verifiedPriorWork : []).forEach(function (item) {
+        prior.push({ item: item, agentName: agentName, tier: "prior" });
+      });
+      (Array.isArray(record.portfolio) ? record.portfolio : []).forEach(function (item) {
+        claims.push({ item: item, agentName: agentName, tier: "claim" });
+      });
+    });
+
+    hires.sort(function (a, b) { return dateMs(b.item.mergedAt) - dateMs(a.item.mergedAt); });
+    prior.sort(function (a, b) { return dateMs(b.item.mergedAt) - dateMs(a.item.mergedAt); });
+
+    return hires.concat(prior, claims).slice(0, GALLERY_CAP);
+  }
+
+  function dateMs(value) {
+    var ms = typeof value === "string" ? Date.parse(value) : NaN;
+    return isNaN(ms) ? -Infinity : ms;
+  }
+
+  function renderGalleryEmpty() {
+    A.el("gallery").textContent = "";
+    A.showById("gallery-empty", true);
+  }
+
+  function renderGallery(entries) {
+    var host = A.el("gallery");
+    if (!host) return;
+    host.textContent = "";
+
+    if (entries.length === 0) {
+      A.showById("gallery-empty", true);
+      return;
+    }
+    A.showById("gallery-empty", false);
+
+    entries.forEach(function (entry, i) {
+      var card = entry.tier === "claim"
+        ? galleryClaimCard(entry.item, entry.agentName)
+        : galleryCard(entry.item, entry.agentName, i, entry.tier);
+      card.style.setProperty("--i", String(i));
+      host.appendChild(card);
+    });
+  }
+
+  /* .work-by (wireframe line 187): the one element the operator gallery
+     adds beyond the agent page's own galleryCard, naming WHICH of the
+     operator's agents produced the item. */
+  function workByRow(agentName) {
+    var span = document.createElement("span");
+    span.className = "work-by";
+    var icon = document.createElement("span");
+    icon.className = "ico ico-sm";
+    icon.setAttribute("data-ico", "user");
+    span.appendChild(icon);
+    span.appendChild(document.createTextNode(agentName));
+    return span;
+  }
+
+  function tierBadge(tier) {
+    var span = document.createElement("span");
+    var icon = document.createElement("span");
+    icon.setAttribute("aria-hidden", "true");
+    var label;
+    if (tier === "hire") {
+      span.className = "pverified pverified-sm";
+      icon.className = "ico";
+      icon.setAttribute("data-ico", "shield-check");
+      label = "Verified hire";
+    } else if (tier === "prior") {
+      span.className = "tier tier-prior";
+      icon.className = "ico";
+      icon.setAttribute("data-ico", "link-2");
+      label = "Verified prior work";
+    } else {
+      span.className = "tier tier-claim";
+      icon.className = "ico";
+      icon.setAttribute("data-ico", "file-dash");
+      label = "Portfolio claim";
+    }
+    span.appendChild(icon);
+    span.appendChild(document.createTextNode(label));
+    return span;
+  }
+
+  /* ENT-12.1, the evidence gate: a claim never gets a preview, ever. The
+     same dashed-frame shape agent.js's galleryClaimCard uses, plus
+     .work-by naming the agent. */
+  function galleryClaimCard(item, agentName) {
+    var figure = document.createElement("figure");
+    figure.className = "work is-claim";
+
+    var frame = document.createElement("div");
+    frame.className = "work-frame is-empty";
+    var icon = document.createElement("span");
+    icon.className = "ico ico-lg";
+    icon.setAttribute("data-ico", "file-dash");
+    icon.setAttribute("aria-hidden", "true");
+    frame.appendChild(icon);
+    var msg = document.createElement("span");
+    msg.className = "work-empty-msg";
+    msg.textContent = "No preview. We have not seen this work.";
+    frame.appendChild(msg);
+    figure.appendChild(frame);
+
+    var caption = document.createElement("figcaption");
+    var head = document.createElement("div");
+    head.className = "work-head";
+    var h3 = document.createElement("h3");
+    h3.textContent = typeof item.repository === "string" && item.repository !== "" ? item.repository : "Portfolio claim";
+    head.appendChild(h3);
+    head.appendChild(tierBadge("claim"));
+    caption.appendChild(head);
+    caption.appendChild(workByRow(agentName));
+
+    /* ENT-12.1: no verify affordance on a claim, ever. */
+    var note = document.createElement("p");
+    note.className = "work-note";
+    note.textContent = "Anyone can write this. Treat it as a description, not a record.";
+    caption.appendChild(note);
+
+    figure.appendChild(caption);
+    paintIcons(figure);
+    return figure;
+  }
+
+  function galleryCard(item, agentName, index, tier) {
+    var figure = document.createElement("figure");
+    figure.className = "work";
+
+    var frame = document.createElement("div");
+    frame.className = "work-frame";
+    var chrome = document.createElement("div");
+    chrome.className = "work-chrome";
+    for (var d = 0; d < 3; d += 1) {
+      var dot = document.createElement("span");
+      dot.className = "dot";
+      chrome.appendChild(dot);
+    }
+    var url = document.createElement("span");
+    url.className = "work-url";
+    url.textContent = typeof item.repository === "string" && item.repository !== "" ? item.repository : "";
+    chrome.appendChild(url);
+    frame.appendChild(chrome);
+
+    var shot = document.createElement("div");
+    shot.className = "work-shot " + WORK_SHOT_CLASSES[index % WORK_SHOT_CLASSES.length];
+    shot.setAttribute("role", "img");
+    shot.setAttribute(
+      "aria-label",
+      "Preview of " + (typeof item.repository === "string" && item.repository !== "" ? item.repository : "this work"),
+    );
+    frame.appendChild(shot);
+    figure.appendChild(frame);
+
+    var caption = document.createElement("figcaption");
+    var head = document.createElement("div");
+    head.className = "work-head";
+    var h3 = document.createElement("h3");
+    h3.textContent = typeof item.repository === "string" && item.repository !== "" ? item.repository : "Merged work";
+    head.appendChild(h3);
+    head.appendChild(tierBadge(tier === "prior" ? "prior" : "hire"));
+    caption.appendChild(head);
+    caption.appendChild(workByRow(agentName));
+
+    /* The verify link, the same two fields agent.js's own galleryCard
+       keys its link on (agent.js:786-795): credentialId gates whether the
+       control renders at all, pullRequest gives it a real destination.
+       Never built on galleryClaimCard, the evidence gate ENT-12.1 holds. */
+    var links = document.createElement("div");
+    links.className = "work-links";
+    if (typeof item.credentialId === "string" && item.credentialId !== "") {
+      var template = document.getElementById("tmpl-gallery-hire-link");
+      if (template) {
+        var linkEl = template.content.firstElementChild.cloneNode(true);
+        linkEl.setAttribute("href", typeof item.pullRequest === "string" && item.pullRequest !== "" ? item.pullRequest : "#");
+        links.appendChild(linkEl);
+      }
+    }
+    caption.appendChild(links);
+
+    figure.appendChild(caption);
+    paintIcons(figure);
+    return figure;
+  }
+
+  /* Test-only hook, mirroring the W3 round 2 pattern (agentTierInfo): a
+     pure function exposed so a test can call it directly over a shaped
+     object rather than fabricating an HTTP fixture. Never read by product
+     code. */
+  window.__operatorTestHooks = { cardbadgeFor: cardbadgeFor, evidenceLineFor: evidenceLineFor };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", start);
@@ -440,4 +814,3 @@
     start();
   }
 })();
-
