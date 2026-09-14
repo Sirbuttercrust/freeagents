@@ -1018,6 +1018,25 @@ The numbers now state what the gate prints, and the gate's own docstring names
 the command that prints them instead of carrying a copy. A measurement written
 down is a measurement that stops being one the next time the tree moves.
 
+`verify_round13_mutation.py` proves both halves. It reproduces the reviewer's
+positive control in this tree (the account menu loses its `aria-label`, and
+against the pre-round-13 instrument that nameless control passes at exit 0),
+drops the role from the vocabulary and requires the reconciliation to name all
+eight, plants a clickable control inside an `aria-hidden` subtree, and puts
+the OLD spelling back to require SILENCE, which is the assertion that
+separates fixing a class from widening a list by one name.
+
+**A BLINDING CONTROL IS ONLY VALID WHEN THE DEFECT IS VISIBLE TO ONE CLAUSE,
+and this suite got that wrong on its first run.** It asserted a pass with
+`role_key` reverted alone, and reported WRONG: the eight summaries fell out of
+the population and the reconciliation caught them, so the gate exited 1 naming
+a different finding. Neither fix was broken. The two clauses overlap on
+purpose, one keeping a control in the population and the other noticing when
+anything leaves it. So the control split in two: one blinds everything and
+asserts the pass a reviewer measured, and one blinds a single clause and
+asserts the OTHER still speaks. Asserting a pass in that second position would
+have asserted a blindness the gate does not have.
+
 **And a name written inline is the same decision as a name in a list.** The
 round-4 fix above checked assignments whose value is a literal list, and four
 gates then passed it while each measuring one hardcoded page, because they
