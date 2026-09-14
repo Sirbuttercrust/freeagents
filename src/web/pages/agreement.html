@@ -20,9 +20,46 @@
      .terms-head, .trow -> .terms > li, .m-you/.m-them -> .sigcell (with
      .h-you/.h-them in the head), .mark-on/.mark-off ->
      .sig.is-signed/.sig.is-waiting/.sig.is-cleared, .edit -> .act,
-     .outstanding -> .lockbar. Every rule below is genuinely page-local:
-     agreement.css and polish.css already own the matrix, the steps rail,
-     the who strip and the fixed-terms list. */
+     .outstanding -> .lockbar. agreement.css owns the matrix and the fixed
+     terms list.
+
+     QA round 1, D1 unstyled-ported-component: .steps, .who and .draftflag
+     are NOT owned by base.css, polish.css or agreement.css. The wireframe
+     says so itself at spec/wireframe/agreement.html:32 ("copied verbatim
+     from hire.html's own local <style> block, none of them live in
+     base.css") and defines them page-locally at lines 39-64. The first
+     pass dropped this block on the assumption that the polished stack
+     covered it; it does not, and this build had shipped .who at
+     display:block and a step rail with no current-step indicator as a
+     result. Ported verbatim from spec/wireframe/agreement.html:39-64
+     below, with one line skipped: `.who .av` is left to polish.css
+     (:536), which already renders that avatar as the generated DID
+     creature rather than the wireframe's flat disc, so restating the
+     flat version here would silently regress it back. */
+  .steps { display: flex; gap: 0; margin: 0; list-style: none; padding: 0; }
+  .steps li {
+    flex: 1; font-size: 12px; color: var(--fg-3);
+    padding-top: 12px; border-top: 2px solid var(--line);
+    font-family: var(--mono); letter-spacing: 0.02em;
+  }
+  .steps li.on   { color: var(--fg); border-top-color: var(--fg); }
+  .steps li.done { color: var(--fg-2); border-top-color: var(--line-2); }
+
+  .who {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px;
+  }
+  .who .n { font-weight: 550; }
+  .who .r { color: var(--fg-3); font-size: 13px; }
+
+  .draftflag {
+    font-family: var(--mono); font-size: 12px; color: var(--fg-3);
+    border-left: 2px solid var(--line-2); padding-left: 12px; margin: 28px 0;
+  }
+
+  @media (max-width: 640px) {
+    .steps li { font-size: 0; padding-top: 8px; }
+  }
 
   /* The propose field is not in the wireframe's own <style> block (it
      reuses .field/.row/.input/.btn from base.css) and this build's field

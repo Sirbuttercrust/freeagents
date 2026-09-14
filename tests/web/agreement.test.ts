@@ -21,6 +21,7 @@ import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { createJob, type Job, type CompletedJob } from '../../src/domain/job.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSessionToken } from '../helpers/session-fixtures.js';
 import type { Delegation } from '../../src/domain/agent.js';
+import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const AGENT_DID = 'did:abt:agreement-page-agent';
@@ -772,6 +773,144 @@ describe('the agreement screen, driven end to end against the real app', () => {
     it('the collected sentences are pairwise distinct (mutation proof 5)', () => {
       expect(sentences.length).toBe(3);
       expect(new Set(sentences).size).toBe(sentences.length);
+    });
+  });
+
+  // QA round 1, D1 unstyled-ported-component: the polished-stack swap
+  // deleted the page-local rules for .who, .steps li/.on/.done and
+  // .draftflag, and nothing in base.css, polish.css or agreement.css
+  // replaced them, so all three rendered with zero matching author rules.
+  // jsdom performs no layout and cannot see this (it never computed a
+  // border width from a stylesheet a browser would apply), so this is
+  // driven through RealBrowser, the same instrument QA used to find it.
+  describe('the who strip, step rail and draft flag carry real styling (D1 unstyled-ported-component)', () => {
+    it('at 1280px, .who is a flex row with its border and the current step is visually distinct from the rest', async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      const browser = await RealBrowser.launch({ width: 1280, height: 900 });
+      try {
+        await browser.goto(`${baseUrl}/agreement?job=job-half-signed`);
+        await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify({ token: buyerToken }))})`);
+        await browser.goto(`${baseUrl}/agreement?job=job-half-signed`);
+
+        const who = await browser.evaluate<{ display: string; borderBottomWidth: string; marginBottom: string; nameWeight: string }>(`
+          (function () {
+            var who = document.getElementById('who');
+            var name = document.getElementById('agent-name');
+            var s = getComputedStyle(who);
+            var ns = getComputedStyle(name);
+            return { display: s.display, borderBottomWidth: s.borderBottomWidth, marginBottom: s.marginBottom, nameWeight: ns.fontWeight };
+          })()
+        `);
+        expect(who.display).toBe('flex');
+        expect(parseFloat(who.borderBottomWidth)).toBeGreaterThan(0);
+        expect(parseFloat(who.marginBottom)).toBeGreaterThan(0);
+        expect(parseFloat(who.nameWeight)).toBeGreaterThanOrEqual(550);
+
+        const rail = await browser.evaluate<{ borderTops: string[]; borderColors: string[] }>(`
+          (function () {
+            var items = Array.from(document.querySelectorAll('.steps li'));
+            return {
+              borderTops: items.map(function (li) { return getComputedStyle(li).borderTopWidth; }),
+              borderColors: items.map(function (li) { return getComputedStyle(li).borderTopColor; }),
+            };
+          })()
+        `);
+        // The current step (#s2, "on") must carry a border WIDTH (the
+        // wireframe's own state carrier: the rule is 2px solid on every
+        // step, and the current one is distinguished by colour, not
+        // width) and a COLOUR distinct from an untouched future step
+        // (#s3); zero width on all five, or an identical colour on every
+        // step, is the exact QA finding: the rail cannot show where you
+        // are.
+        expect(rail.borderTops[1]).not.toBe('0px');
+        expect(rail.borderColors[1]).not.toBe(rail.borderColors[2]);
+
+        const draftflag = await browser.evaluate<{ fontFamily: string; borderLeftWidth: string; paddingLeft: string }>(`
+          (function () {
+            var el = document.querySelector('.draftflag');
+            var s = getComputedStyle(el);
+            return { fontFamily: s.fontFamily, borderLeftWidth: s.borderLeftWidth, paddingLeft: s.paddingLeft };
+          })()
+        `);
+        expect(draftflag.fontFamily.toLowerCase()).not.toContain('geist');
+        expect(parseFloat(draftflag.borderLeftWidth)).toBeGreaterThan(0);
+        expect(parseFloat(draftflag.paddingLeft)).toBeGreaterThan(0);
+      } finally {
+        await browser.close();
+      }
+    });
+
+    it('at 320px the step rail collapses its labels and .railnow carries the current step in words, with no horizontal overflow', async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      const browser = await RealBrowser.launch({ width: 320, height: 900 });
+      try {
+        await browser.goto(`${baseUrl}/agreement?job=job-half-signed`);
+        await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify({ token: buyerToken }))})`);
+        await browser.goto(`${baseUrl}/agreement?job=job-half-signed`);
+
+        const metrics = await browser.evaluate<{ scrollWidth: number; clientWidth: number; stepFontSize: string; railnowDisplay: string; railnowText: string }>(`
+          (function () {
+            var step = document.querySelector('.steps li');
+            var railnow = document.querySelector('.railnow');
+            return {
+              scrollWidth: document.documentElement.scrollWidth,
+              clientWidth: document.documentElement.clientWidth,
+              stepFontSize: getComputedStyle(step).fontSize,
+              railnowDisplay: getComputedStyle(railnow).display,
+              railnowText: railnow.textContent || '',
+            };
+          })()
+        `);
+        expect(metrics.scrollWidth, `scrollWidth ${metrics.scrollWidth} vs clientWidth ${metrics.clientWidth}`).toBe(metrics.clientWidth);
+        expect(metrics.stepFontSize).toBe('0px');
+        expect(metrics.railnowDisplay).toBe('block');
+        expect(metrics.railnowText.toLowerCase()).toContain('step 2 of 5');
+      } finally {
+        await browser.close();
+      }
+    });
+  });
+
+  // QA round 1 note (not a defect, but worth pinning): renderLockbar's
+  // `needed = lines.length * 2` is the only place the "signatures needed"
+  // half of the count comes from, and none of the existing assertions
+  // read the number pair, only the phrase. A mutation to
+  // `lines.length` kept all 27 tests green while the live page rendered
+  // "6 of 3" at 200% meter width on the fully-agreed fixture. This test
+  // reads the actual digits so that mutation goes red.
+  describe('the lockbar count states two signatures needed per line, not one', () => {
+    it('on a fully-agreed job with 3 lines (1 criterion + price + delivery), the count reads 6 of 6, not 6 of 3', async () => {
+      const page = await renderAgreement(baseUrl, 'job-fully-agreed', { token: buyerToken });
+      try {
+        const count = page.document.getElementById('lockcount')?.textContent ?? '';
+        expect(count).toContain('6');
+        expect(count).toMatch(/6\s*(of|\/)\s*6/i);
+        const meter = page.document.getElementById('lockmeter-fill') as HTMLElement | null;
+        expect(meter?.style.width).toBe('100%');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('on a half-signed job with 4 lines, the denominator reads 8, not 4', async () => {
+      const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
+      try {
+        // Fixture: criterion 0 both signed (2), criterion 1 agent-only (1),
+        // price agent-only (1), delivery shares price's pair, agent-only
+        // (1). Collected = 5, needed = 4 lines x 2 = 8. The mutation this
+        // test is written against (needed = lines.length) would read the
+        // denominator as 4, half the true figure.
+        const count = page.document.getElementById('lockcount')?.textContent ?? '';
+        expect(count).toMatch(/5\s*(of|\/)\s*8/i);
+      } finally {
+        page.close();
+      }
     });
   });
 });
