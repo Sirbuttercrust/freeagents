@@ -856,7 +856,7 @@ browser.
 | `verify_sitemap.py` | SITEMAP build claims match the directory, and no page is served without a page id |
 | `verify_tokens.py` | WCAG ratios computed by hand, no browser, no server |
 | `verify_ink.py` | every rendered character against AA at both viewports, with ink composited over the pixel measured behind it |
-| `verify_names.py` | no two controls a person can reach at the same time answer to the same accessible name, no control is nameless, and no name exists only in a `placeholder` or a `title`. Every name read from `Accessibility.getFullAXTree` rather than computed from the markup |
+| `verify_names.py` | no two controls a person can reach at the same time answer to the same accessible name, no control is nameless, and no name exists only in a `placeholder` or a `title`. Every name read from `Accessibility.getFullAXTree` rather than computed from the markup, and every control the markup selector collects is either checked or reported: collected and checked are printed side by side and must match |
 | `verify_money.py` | every dollar figure on every screen derives from one model of the deal |
 | `verify_rail.py` | the headline total, the fee and the pay button follow the chosen rail, including inside the scan sheet |
 | `verify_pickers.py` | every picker row traces to a real agreement line with matching text, and every omitted line is explained on screen |
@@ -937,9 +937,12 @@ a control with something a person cannot reach:
 | `placeholder` | painted only while the field is EMPTY, so a field shipping with a value never paints it |
 | `title` | needs a hover, and a touch device has none. Every mobile law here is measured under `(pointer: coarse)` |
 
-Measured across all 33 screens in every state, 574 controls: 460 named by
-their own contents, 66 by `aria-label`, 46 by an associated label, one by a
-`title` and one by a `placeholder`. Both of those were real:
+Measured across all 33 screens in every state, the gate reports 544 controls
+collected and 544 checked: 433 named by their own contents, 76 by
+`aria-label`, 35 by an associated label. Removing in the live DOM only the two
+`aria-label`s round 12 added reproduces the pre-fix state exactly: 433
+contents, 74 `aria-label`, 35 an associated label, ONE `title` and ONE
+`placeholder`. Both of those were real:
 
 ```
 browse.html   the search field announced "React components, Postgres
@@ -969,6 +972,70 @@ inside a dialog, and requires silence on all three.
 named one field on one screen. Asking the same question of the population
 found the second on a different screen with a different source, and closed
 both with one rule.
+
+**A ROLE STRING IS A POPULATION, AND THAT GATE'S WAS EIGHT SHORT.** Round 13.
+`CONTROL_ROLES` in `verify_names.py` listed `"disclosure triangle"`, compared
+by equality against what Chrome returns, which is `DisclosureTriangle`. The
+strings never matched, so all eight account-menu `<summary>` controls were
+collected by the markup selector, dropped by the role filter, and checked for
+neither a name, a duplicate name, nor an invisible source. On a copy of the
+tree with one of those `aria-label`s removed, a genuinely nameless control
+passed at exit 0, under the promise stated above that no control is nameless.
+
+This is the eighth shape of the scope-blind class and the first that is not a
+screen, a kind, a state or a consumption. It is a VOCABULARY: a hand-written
+list of strings compared against an enum a browser owns and can respell.
+
+Two things closed it, and the second is the general one:
+
+| the fix | what it buys |
+|---|---|
+| `role_key()` normalises case, spaces and hyphens before comparing | one role spelled three ways is one role, so the next role Chrome writes differently is not the next silent drop |
+| the report prints what it COLLECTED beside what it CHECKED, and fails when they differ | a population that shrinks moves a number on the face of the output instead of shrinking invisibly |
+
+Adding the missing string alone would have been round 13's version of widening
+a list by one name, which is the move every round above has already paid for.
+`544` against `536` is the line that would have shown this the day it opened,
+and a gate that prints only what it admitted cannot produce that line at all.
+
+**A NUMBER IN A NORMATIVE DOCUMENT IS A CLAIM, AND THIS ONE REPRODUCED
+NOWHERE.** The same round found that the census three paragraphs above, also
+stated in `BUILD-STATE.md`, `verify_names.py` and
+`verify_round12_mutation.py`, said `574 controls: 460 contents, 66
+aria-label, 46 an associated label`. The shipped gate printed `536`, `433` and
+`35`, and no counting method reproduces the documented figures: not with
+dialog contents folded into the page scope, not with them out, not before
+round 12's fix and not after, and not with the dropped role admitted.
+
+Two of the five figures DID reproduce exactly, `aria-label` 66 and both
+invisible-source findings, so round 12 found two real defects and fixed them.
+Its arithmetic came from the ad-hoc field probe its own handoff reports as
+buggy, which miscounted controls inside closed dialogs. The fix landed and the
+number from the broken instrument stayed in the document the rebuild cards are
+told to read.
+
+The numbers now state what the gate prints, and the gate's own docstring names
+the command that prints them instead of carrying a copy. A measurement written
+down is a measurement that stops being one the next time the tree moves.
+
+`verify_round13_mutation.py` proves both halves. It reproduces the reviewer's
+positive control in this tree (the account menu loses its `aria-label`, and
+against the pre-round-13 instrument that nameless control passes at exit 0),
+drops the role from the vocabulary and requires the reconciliation to name all
+eight, plants a clickable control inside an `aria-hidden` subtree, and puts
+the OLD spelling back to require SILENCE, which is the assertion that
+separates fixing a class from widening a list by one name.
+
+**A BLINDING CONTROL IS ONLY VALID WHEN THE DEFECT IS VISIBLE TO ONE CLAUSE,
+and this suite got that wrong on its first run.** It asserted a pass with
+`role_key` reverted alone, and reported WRONG: the eight summaries fell out of
+the population and the reconciliation caught them, so the gate exited 1 naming
+a different finding. Neither fix was broken. The two clauses overlap on
+purpose, one keeping a control in the population and the other noticing when
+anything leaves it. So the control split in two: one blinds everything and
+asserts the pass a reviewer measured, and one blinds a single clause and
+asserts the OTHER still speaks. Asserting a pass in that second position would
+have asserted a blindness the gate does not have.
 
 **And a name written inline is the same decision as a name in a list.** The
 round-4 fix above checked assignments whose value is a literal list, and four

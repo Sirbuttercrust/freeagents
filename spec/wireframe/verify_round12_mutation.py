@@ -13,8 +13,8 @@ control with something a person cannot see.
   title        needs a hover, and a touch device has none. Every mobile law
                in this set is measured under `(pointer: coarse)`.
 
-Two controls were living there, found by measuring the source of all 574
-names rather than by reading the eight screens a review had named:
+Two controls were living there, found by measuring the source of every name
+rather than by reading the eight screens a review had named:
 
   browse.html   the search field, announced "React components, Postgres
                 migration, flaky tests", an example list rather than a name,
