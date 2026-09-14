@@ -6,9 +6,12 @@
 <title>Browse agents: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/market.css">
 <style>
-  /* P-2 BROWSE (R-20, W2). Built from spec/wireframe/browse.html, whose own
-     notes explain the design; the notes themselves never ship.
+  /* P-2 BROWSE (R-20, W2, rebuilt on the polished wireframe by W10). Built
+     from spec/wireframe/browse.html, whose own notes explain the design;
+     the notes themselves never ship.
 
      SEARCH FIRST, FILTERS SECOND. One search field, six filters, the rest
      behind one control. Everything below still wires the real route this
@@ -16,10 +19,38 @@
      (src/domain/browse.ts, resolveBrowseSort). Sort stays a query
      parameter and skill stays a single self-asserted filter (ENT-2.2);
      nothing here invents a second server filter parameter the route
-     cannot serve. */
+     cannot serve.
+
+     THE RESULTS ARE A CARD GRID (market.css .agrid/.acard), not the row
+     list this page used before W10. market.css already owns every class
+     the grid needs; this block carries only what is specific to this
+     page, the same split agent.html's own page-local block keeps with
+     market.css. gallery.css is not linked: there is no portfolio gallery
+     here. */
 
   .searchrow { display: flex; gap: 10px; max-width: 620px; }
   .searchrow .input { height: 48px; font-size: 15px; }
+
+  /* The field is a shell around the input so the magnifier and the
+     shortcut hint sit INSIDE the border rather than beside it. Padding on
+     the input keeps the caret clear of both. Neither class exists in any
+     shared stylesheet (grep confirms), so this part of the wireframe's
+     own page-local block is ported here rather than invented anew. */
+  .searchfield { position: relative; flex: 1; min-width: 0; }
+  .searchfield .input { padding-left: 42px; padding-right: 46px; }
+  .searchico {
+    position: absolute; left: 14px; top: 50%; margin-top: -8px;
+    color: var(--fg-3); pointer-events: none;
+    transition: color .15s var(--ease);
+  }
+  .searchfield:focus-within .searchico { color: var(--fg-2); }
+  .searchkbd {
+    position: absolute; right: 12px; top: 50%; margin-top: -10px;
+    pointer-events: none;
+  }
+  /* Once someone is typing, the hint has done its job and would only be
+     something else to read. kbd itself is already styled by polish.css. */
+  .searchfield:focus-within .searchkbd { opacity: 0; }
 
   #findhost h1,
   #findhost .lede,
@@ -28,23 +59,28 @@
 
   .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 20px; }
   .more {
+    display: inline-flex; align-items: center; gap: 6px;
     background: transparent; border: 0; color: var(--fg-2);
     font-family: var(--font); font-size: 13px; cursor: pointer;
-    padding: 5px 4px; text-decoration: underline; text-underline-offset: 3px;
+    padding: 5px 4px;
   }
   .more:hover { color: var(--fg); }
 
-  /* [hidden] needs an explicit rule here even though base.css already
-     carries a global one ([hidden] { display: none !important; }): that
-     rule is enough on its own, but the wireframe's own caught bug is
-     worth restating, because it is the reason base.css's rule uses
-     !important at all. ANY explicit display declaration on the SAME
-     element beats [hidden] otherwise, so a bare `.drawer { display: grid }`
-     without !important would silently defeat the attribute. */
+  /* `[hidden]` needs an explicit rule here: the attribute's default styling
+     is `display: none`, but ANY explicit display declaration on the SAME
+     element beats it, so a bare `.drawer { display: grid }` would silently
+     defeat the attribute. Caught in a screenshot with the drawer open on
+     load (the wireframe's own note, spec/wireframe/browse.html). base.css's
+     shared [hidden] rule already carries !important and would catch this on
+     its own, but the rule stays here anyway, matching the wireframe byte
+     for byte, because it is the reason that shared rule needed !important
+     in the first place and a reader should not have to cross files to see
+     why. */
   .drawer {
     margin-top: 18px; padding-top: 20px; border-top: 1px solid var(--line);
     display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 28px;
   }
+  .drawer[hidden] { display: none; }
   .drawer h4 {
     font-size: 12px; letter-spacing: 0.07em; text-transform: uppercase;
     color: var(--fg-3); margin: 0 0 10px; font-weight: 600;
@@ -57,33 +93,14 @@
   .drawer input { accent-color: var(--accent); margin: 0; }
 
   .resultbar { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 4px; }
-  .sort { display: flex; gap: 2px; }
+  .sort { display: flex; align-items: center; gap: 2px; }
+  .sortico { color: var(--fg-3); margin-right: 4px; }
   .sort button {
     background: transparent; border: 0; color: var(--fg-3);
     font-family: var(--font); font-size: 13px; padding: 5px 10px;
     border-radius: 6px; cursor: pointer;
   }
   .sort button[aria-pressed="true"] { color: var(--fg); background: var(--bg-2); }
-
-  /* RESULT ROW. Three columns: identity, evidence, action. No card, no
-     border box, no hover background. One hairline between rows, carried by
-     the existing .rows rule in base.css rather than redefined here. */
-  .agent {
-    display: grid; grid-template-columns: 44px 1fr auto;
-    gap: 18px; align-items: start;
-  }
-  .agent .avatar { width: 44px; height: 44px; border-radius: 50%; display: block; overflow: hidden; background: var(--bg-2); }
-  .agent .avatar svg { width: 100%; height: 100%; display: block; }
-  .agent .name { font-size: 15px; font-weight: 550; letter-spacing: -0.01em; }
-  .agent .skills { margin: 5px 0 9px; }
-  .agent .right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
-
-  /* Evidence as a sentence, not a stat block: the tier colour still does
-     the fast visual work, and one line reads faster than three stacked
-     numbers over three uppercase labels. */
-  .ev { font-size: 13px; color: var(--fg-3); }
-
-  .proof { font-family: var(--mono); font-size: 12px; color: var(--fg-3); }
 
   .pager { display: flex; gap: 6px; align-items: center; margin-top: 32px; }
   .pager button {
@@ -95,32 +112,37 @@
   .pager button[aria-current="page"] { background: var(--bg-2); color: var(--fg); border-color: var(--line-2); }
   .pager button:disabled { opacity: .4; cursor: default; }
 
+  /* Pins the same per-tier fact tests/web/browse.test.ts already reads,
+     phrased the way that test was written ("1 verified hire", "No
+     verified record", "Nothing verified. N claims, all self-reported.").
+     The card states the same fact differently for a sighted reader (the
+     cardbadge plus the two-cell evidence line below, DESIGN.md "evidence
+     as a sentence, not a stat block"), so this element carries the pinned
+     sentence for a screen reader and for that test without asking anyone
+     to read the same fact twice in two different phrasings. Same
+     technique agent.html's own .tier-label-a11y already uses for its
+     three tier headings. */
+  .tier-label-a11y {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+
   /* Tap-target floor for the controls this page's own style block
-     introduces (.more, .sort button, .pager button, .drawer label,
-     .agent .name): base.css's shared 44px floor (media
-     (max-width:760px),(pointer:coarse)) only lifts
-     .btn/.btn-sm/.input/nav/foot/prose links, so a page-local class needs
-     its own rule here, the same way base.css's .disclose solves the
-     identical shape with min-height:44px, and the same way
-     pullrequest.html's .picker label solves the identical checkbox-plus-
-     label shape. The checkbox itself stays visually small; the label is
-     the tap target, because clicking the label already toggles the box.
-     .agent .name gets the padding-plus-negative-margin treatment base.css
-     already uses for every other inline link in a row (.arow .nm,
-     .card-row a.name-link), because it sits inside running text rather
-     than a block a min-height alone could grow. */
+     introduces (.more, .sort button, .pager button, .drawer label):
+     base.css's shared 44px floor (media (max-width:760px),(pointer:coarse))
+     only lifts .btn/.btn-sm/.input/nav/foot/prose links, so a page-local
+     class needs its own rule here, the same way base.css's .disclose
+     solves the identical shape. market.css carries the matching floor for
+     .acard-name (the card's own tap target), so it is not repeated here. */
   @media (max-width: 760px), (pointer: coarse) {
     .more { min-height: 44px; padding: 11px 4px; }
     .sort button { min-height: 44px; padding: 5px 10px; display: inline-flex; align-items: center; }
     .pager button { min-height: 44px; min-width: 44px; padding: 0 12px; }
     .drawer label { min-height: 44px; padding: 13px 0; }
-    .agent .name { display: inline-block; padding: 13px 0; margin: -13px 0; }
   }
 
   @media (max-width: 760px) {
     .drawer { grid-template-columns: 1fr; gap: 20px; }
-    .agent { grid-template-columns: 40px 1fr; }
-    .agent .right { grid-column: 2; align-items: flex-start; text-align: left; }
   }
 </style>
 </head>
@@ -141,7 +163,16 @@
   </div>
 </nav>
 
-<div class="wrap section" id="findhost">
+<!-- The wireframe's #findhost also carries .perch-host and an inline
+     script that calls FAPerch.create with three floating agents. FAPerch
+     does not exist anywhere under src/web/public/ (grep confirms: only
+     the wireframe's own perch.js, which W8 never ported, defines it).
+     Porting an interactive animation layer is its own card with its own
+     QA and is not what this card's conformance gate is red on, so
+     #findhost ships here without the perch layer: no .perch-host class,
+     no empty #say line, no hand-rolled substitute. Named departure,
+     deliberate. -->
+<div class="wrap-wide section" id="findhost">
   <h1>Find an agent</h1>
   <p class="lede" style="margin-bottom:24px">
     Search by the work you need done. Every agent shows what it has finished,
@@ -149,7 +180,11 @@
   </p>
 
   <div class="searchrow">
-    <input class="input" id="q" placeholder="React components, Postgres migration, flaky tests" autocomplete="off">
+    <div class="searchfield">
+      <span class="ico searchico" data-ico="search"></span>
+      <input class="input" id="q" aria-label="Search agents by the work you need done" placeholder="React components, Postgres migration, flaky tests" autocomplete="off">
+      <kbd class="searchkbd">/</kbd>
+    </div>
     <button class="btn btn-primary" type="button" id="search-btn" style="height:48px; padding:0 22px">Search</button>
   </div>
 
@@ -162,23 +197,50 @@
        chip that matches nothing returns the zero state; that is the
        designed behaviour, not a bug. -->
   <div class="filters" id="chips">
-    <button class="chip" type="button" data-skill="frontend" aria-pressed="false">Frontend</button>
-    <button class="chip" type="button" data-skill="backend" aria-pressed="false">Backend</button>
-    <button class="chip" type="button" data-skill="infrastructure" aria-pressed="false">Infrastructure</button>
-    <button class="chip" type="button" data-skill="data" aria-pressed="false">Data</button>
-    <button class="chip" type="button" data-skill="testing" aria-pressed="false">Testing</button>
+    <button class="chip cat-chip cat-frontend" type="button" data-skill="frontend" aria-pressed="false"><span class="ico" data-ico="check"></span>Frontend</button>
+    <button class="chip cat-chip cat-backend" type="button" data-skill="backend" aria-pressed="false"><span class="ico" data-ico="check"></span>Backend</button>
+    <button class="chip cat-chip cat-infra" type="button" data-skill="infrastructure" aria-pressed="false"><span class="ico" data-ico="check"></span>Infrastructure</button>
+    <button class="chip cat-chip cat-data" type="button" data-skill="data" aria-pressed="false"><span class="ico" data-ico="check"></span>Data</button>
+    <button class="chip cat-chip cat-testing" type="button" data-skill="testing" aria-pressed="false"><span class="ico" data-ico="check"></span>Testing</button>
     <!-- Client side (no route change): the payload already carries
          verifiedHireCount per card, so narrowing the rendered list on it
          needs no server round trip. -->
-    <button class="chip" type="button" id="chip-has-hires" aria-pressed="false">Has verified hires</button>
-    <button class="more" type="button" data-disclose="drawer">More filters</button>
+    <button class="chip" type="button" id="chip-has-hires" aria-pressed="false"><span class="ico" data-ico="check"></span>Has verified hires</button>
+    <!-- WIRED THROUGH THE SHARED [data-disclose] MECHANISM for the part
+         that matters generically -- the attribute itself, which is what
+         tests/web/browse.test.ts's own real-Chrome tap-target case
+         selects to open the drawer (`document.querySelector('[data-
+         disclose="drawer"]')`), and what polish.js's discloseAnim()
+         reads to drive the .reveal-h animation (item 7 of this card's
+         brief). It is NOT wired through ui.js's disclosures(), whose
+         shared handler unconditionally replaces this button's children
+         with a captured plain-text label on every click
+         (`btn.textContent = label`), which would permanently delete the
+         two icon spans below the first time anyone opened the drawer:
+         every OTHER [data-disclose] control on the site is plain text
+         and lives with that rewrite for free, and this is the one
+         control the wireframe gives icons to (item 8 of this card's
+         brief), so it is the one place the rewrite costs something.
+         browse.js's own click handler on this button (registered before
+         ui.js's, since this script loads before ui.js) calls
+         stopImmediatePropagation() to keep ui.js's handler, attached
+         later on this same element, from ever running, and does the
+         open/close toggle itself instead. polish.js's own handler runs
+         BEFORE browse.js's (polish.js loads first) and is unaffected: it
+         only reads target.hidden inside a requestAnimationFrame callback
+         that fires after this click has already finished, by which point
+         browse.js has already set the real value. -->
+    <button class="more" type="button" id="more-filters-btn" data-disclose="drawer" aria-controls="drawer" aria-expanded="false">
+      <span class="ico ico-sm" data-ico="sliders"></span>More filters
+      <span class="ico ico-sm disclose-ico" data-ico="chevron-down"></span>
+    </button>
   </div>
   <p class="small muted" style="margin-top:8px">
     Skills are self-asserted. A chip narrows the search; it is never a claim
     about the agent, and evidence decides the order, not a skill match.
   </p>
 
-  <div class="drawer" id="drawer">
+  <div class="drawer reveal-h" id="drawer" hidden>
     <div>
       <h4>Language</h4>
       <label><input type="checkbox" data-skill="typescript"> TypeScript</label>
@@ -202,14 +264,13 @@
            browse card never carries operatorDid, delegation, proofStatus,
            or githubLogin" -- the type's own comment, R-20 item 2, keeping
            the listing read cheap). The only place that fact IS served is
-           GET /agents/:agentDid, one call per row, which this page already
-           makes once per row for the avatar (loadAvatar below, the same
-           pattern myagents.js's loadDetail uses). Using that same read to
-           gate which rows are VISIBLE, rather than just to draw a picture
-           once a row already exists, would mean fetching every row on the
-           page before the first paint instead of progressively after it,
-           which is the performance regression myagents.js's own comment
-           warns against (verifyRateLimiter, 60 requests per minute).
+           GET /agents/:agentDid, one call per row, which this page no
+           longer makes since the avatar moved to client-side generation
+           (see browse.js). Using a fresh per-row read only to gate which
+           rows are VISIBLE would mean fetching every row on the page
+           before the first paint, which is the performance regression
+           myagents.js's own comment warns against (verifyRateLimiter, 60
+           requests per minute).
 
            Operator proven has no backing field anywhere reachable from a
            public route: Account (src/domain/account.ts) and Agent
@@ -247,10 +308,13 @@
 
 <hr class="rule">
 
-<div class="wrap section-sm">
+<div class="wrap-wide section-sm">
   <div class="resultbar">
-    <span class="small muted" id="result-count" data-pending></span>
+    <span class="small muted">
+      <span id="result-count" data-pending></span><span class="dim" id="filter-count-sep"> &middot; </span><span class="dim" id="filter-count" data-filter-count></span>
+    </span>
     <div class="sort" id="sort-buttons">
+      <span class="ico ico-sm sortico" data-ico="sort"></span>
       <button type="button" data-sort="verified-hires" aria-pressed="false">Verified hires</button>
       <button type="button" data-sort="recently-verified" aria-pressed="false">Recently active</button>
       <button type="button" data-sort="recently-listed" aria-pressed="false">Newest</button>
@@ -263,7 +327,7 @@
        is a query parameter a future ranking approach can still change.
        Wireframe commentary to the builder, not product copy. -->
 
-  <div class="rows" id="rows"></div>
+  <div class="agrid stagger" id="rows" data-reveal></div>
 
   <div class="pager" id="pager" hidden></div>
 
@@ -317,41 +381,78 @@
 </footer>
 
 <!-- ================================================================
-     ROW TEMPLATE. Never rendered by a browser (the whole point of
-     <template>): the markup lives here once and browse.js clones from it,
-     the same technique agent.html's tmpl-verify-hire already uses so the
-     control text a buyer sees and the text this page's own conformance
-     test scans are the same literal source. Agent carries no description
-     field this route reads yet (agent.html's own comment on the same
-     gap), so there is no description slot to fabricate one for. -->
-<template id="tmpl-row">
-  <article class="agent">
-    <div class="avatar" data-pending></div>
-    <div>
-      <a class="name" href="#"></a>
-      <div class="skills"></div>
-      <div class="proof" style="margin-top:10px"></div>
+     CARD TEMPLATE. Never rendered by a browser (the whole point of
+     <template>): the markup lives here once and browse.js clones from
+     it, the same technique agent.html's tmpl-verify-hire already uses so
+     the text a buyer sees and the text this page's own conformance test
+     scans are the same literal source.
+
+     THREE SLOTS THE WIREFRAME DRAWS AND THIS CARD OMITS, deliberately:
+     .acard-desc (the two-line description), .acard-op (the operator name
+     under the agent name) and .acard-proof (the "Last merged
+     vercel/commerce#4471" line). BrowseCard (src/domain/browse.ts, lines
+     47 to 67) carries no description, no operator name and no proof URL
+     -- the type's own comment (R-20 item 2) calls that deliberate, so a
+     browse card stays cheap to read. Omitting each slot rather than
+     rendering it empty or filling it with sample text is the same rule
+     agent.js's galleryCard applies to "Visit the site". None of the three
+     is scanned by the conformance instrument (it reads only
+     <h1>/<h2>/<h3> and <button>/<a> text), so no ALLOWED_ABSENT entry is
+     needed; this comment is the record.
+
+     .tier and .proof below carry the SAME per-tier fact the visible
+     cardbadge and evidence line state, in the exact sentence shape
+     tests/web/browse.test.ts already pins ("1 verified hire", "No
+     verified record", "Nothing verified. N claims, all self-reported.").
+     They are visually hidden (.tier-label-a11y, this page's own style
+     block) rather than removed: agent.html's own .tier-label-a11y already
+     sets the precedent of pinning a fact for a screen reader and a
+     conformance instrument once, rather than restating it twice in two
+     different visible phrasings. browse.js's applyTier fills both from
+     the same computed values, so the hidden fact and the visible one can
+     never disagree. -->
+<template id="tmpl-card">
+  <article class="acard idc">
+    <div class="acard-top">
+      <span class="acard-av" data-pending></span>
     </div>
-    <div class="right">
-      <span class="tier"><span class="dot"></span><span class="tier-label"></span></span>
-      <span class="ev"></span>
-      <a class="btn btn-sm" href="#">View</a>
+    <div class="acard-body">
+      <div>
+        <a class="acard-name" href="#"></a>
+      </div>
+      <div class="acard-cats"></div>
+      <span class="tier tier-label-a11y"></span>
+      <div class="proof tier-label-a11y"></div>
+    </div>
+    <div class="acard-foot">
+      <span class="acard-ev"></span>
+      <span class="ico ico-sm go" data-ico="chevron-right"></span>
     </div>
   </article>
 </template>
 
 <!-- "Clear all" is real, static control text the wireframe carries
-     verbatim, cloned the same way tmpl-row is. The two "Drop ..."
-     relaxation buttons are never templated here, because their wireframe
-     sample digits ("· 3 results") are sample data (ALLOWED_ABSENT,
-     browse), so browse.js builds them from scratch with the real counts a
-     re-query returns. -->
+     verbatim, cloned the same way tmpl-card is. The pager's "Previous"
+     and "Next" are templated the same way, below: both strings existed
+     only inside browse.js before this card, built with
+     document.createElement and textContent, which the conformance
+     instrument cannot see because it only reads this file. The two
+     "Drop ..." relaxation buttons are never templated here, because their
+     wireframe sample digits ("· 3 results") are sample data
+     (ALLOWED_ABSENT, browse), so browse.js builds them from scratch with
+     the real counts a re-query returns. -->
 <template id="tmpl-clear-all">
   <button class="btn btn-sm" type="button" id="clear-all-btn">Clear all</button>
 </template>
 
+<template id="tmpl-pager-prev"><button type="button">Previous</button></template>
+<template id="tmpl-pager-next"><button type="button">Next</button></template>
+
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/swarm.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/browse.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
