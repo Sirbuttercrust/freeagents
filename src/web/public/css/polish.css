@@ -551,12 +551,20 @@ kbd {
 
 /* TAP TARGETS. The house floor is 44px and the wireframe was built at 38px
    and 32px, which is comfortable with a mouse and small with a thumb. Raised
-   on touch pointers only, so the desktop proportions are unchanged.
+   on touch pointers and on phone-shaped viewports, so the desktop
+   proportions are unchanged.
 
-   Measured with verify_polish.py under a real touch profile, which is what
-   found each of these: a width-only check at 320px does NOT match
-   (pointer: coarse) and reports everything as passing. */
-@media (pointer: coarse) {
+   THE GATE IS WIDTH, NOT POINTER TYPE ALONE (base.css:520-541,
+   landing.css:462-472 document the same repair for this repo's own files).
+   `@media (pointer: coarse)` alone is correct about real phones and useless
+   as a check: a 320px viewport driven by a headless browser reports a FINE
+   pointer, so the rule never fires and the floor cannot fail. Measured with
+   verify_polish.py under a real touch profile, which is what found each of
+   these: a width-only check at 320px did NOT match (pointer: coarse) and
+   reported everything as passing, which is exactly the trap this shop
+   already hit once on base.css and landing.css and is not allowed to hit
+   again on the files this card ports. */
+@media (max-width: 760px), (pointer: coarse) {
   .btn { height: 44px; padding: 0 18px; }
   .btn-sm { height: 44px; padding: 0 14px; font-size: 14px; }
   .btn-ico, .btn-ico.btn-sm { width: 44px; }
@@ -701,8 +709,10 @@ kbd {
    verify_polish.py rather than assumed.
 
    Outside the :has() block on purpose. A parse failure inside a selector list
-   takes the whole rule with it, so these must not share a block. */
-@media (pointer: coarse) {
+   takes the whole rule with it, so these must not share a block. Same width
+   gate as the block above and for the same reason: pointer type alone is
+   unreachable at a 320px viewport in a headless browser. */
+@media (max-width: 760px), (pointer: coarse) {
   .drawer label,
   .between label.row {
     min-height: 44px;

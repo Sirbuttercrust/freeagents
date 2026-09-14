@@ -574,12 +574,15 @@
 }
 
 /* TAP TARGETS on the new marketplace components. Measured under a real touch
-   profile by verify_polish.py, which is the only way these show up: a narrow
-   desktop window does not match (pointer: coarse).
+   profile by verify_polish.py, which is what finds these: a narrow desktop
+   window does not match (pointer: coarse), and (as base.css:520-541 and
+   landing.css:462-472 already document for this repo's own files) neither
+   does a 320px viewport in a headless browser, which always reports a FINE
+   pointer. The gate is width, not pointer type alone.
 
    A card title and an identity value are standalone controls, not words in a
    sentence, so both take the floor. */
-@media (pointer: coarse) {
+@media (max-width: 760px), (pointer: coarse) {
   .acard-name,
   .pby a,
   .pbox .line a,

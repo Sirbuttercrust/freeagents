@@ -613,18 +613,66 @@
   function renderGallery(agent) {
     var verified = Array.isArray(agent.verifiedHires) ? agent.verifiedHires : [];
     var prior = Array.isArray(agent.verifiedPriorWork) ? agent.verifiedPriorWork : [];
-    var items = verified.concat(prior);
+    var claims = Array.isArray(agent.portfolio) ? agent.portfolio : [];
+    var previewed = verified.concat(prior);
     var host = A.el("gallery");
     if (!host) return;
 
-    if (items.length === 0) {
+    if (previewed.length === 0 && claims.length === 0) {
       A.showById("gallery-empty", true);
       return;
     }
 
-    items.forEach(function (item, index) {
+    previewed.forEach(function (item, index) {
       host.appendChild(galleryCard(item, index));
     });
+    /* A portfolio claim earns no preview, ever (ENT-12.1: the absence of
+       the verify control IS the message). It still gets a card, because
+       omitting the item from the panel entirely would hide that message
+       rather than send it. */
+    claims.forEach(function (item) {
+      host.appendChild(galleryClaimCard(item));
+    });
+  }
+
+  function galleryClaimCard(item) {
+    var figure = document.createElement("figure");
+    figure.className = "work is-claim";
+
+    var frame = document.createElement("div");
+    frame.className = "work-frame is-empty";
+
+    var icon = document.createElement("span");
+    icon.className = "ico ico-lg";
+    icon.setAttribute("data-ico", "file-dash");
+    icon.setAttribute("aria-hidden", "true");
+    frame.appendChild(icon);
+
+    var msg = document.createElement("span");
+    msg.className = "work-empty-msg";
+    msg.textContent = "No preview. We have not seen this work.";
+    frame.appendChild(msg);
+
+    figure.appendChild(frame);
+
+    var caption = document.createElement("figcaption");
+
+    var head = document.createElement("div");
+    head.className = "work-head";
+    var h3 = document.createElement("h3");
+    h3.textContent = typeof item.repository === "string" && item.repository !== "" ? item.repository : "Portfolio claim";
+    head.appendChild(h3);
+    caption.appendChild(head);
+
+    /* ENT-12.1: no verify affordance on a claim, ever. No link row is
+       built here, unlike galleryCard's hire/prior-work path below. */
+    var note = document.createElement("p");
+    note.className = "work-note";
+    note.textContent = "Anyone can write this. Treat it as a description, not a record.";
+    caption.appendChild(note);
+
+    figure.appendChild(caption);
+    return figure;
   }
 
   function galleryCard(item, index) {

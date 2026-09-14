@@ -95,7 +95,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Component library and docs': 'same reason as "Accessible checkout flow": a wireframe sample gallery title, replaced by the real repository name',
     'Analytics dashboard': 'same reason as "Accessible checkout flow": a wireframe sample gallery title, replaced by the real repository name',
     'Its own site, scroll driven': 'same reason as "Accessible checkout flow": a wireframe sample gallery title, replaced by the real repository name',
-    'Private client dashboard': 'same reason as "Accessible checkout flow": a wireframe sample gallery title, replaced by the real repository name (this one is a portfolio claim in the wireframe, which carries no preview at all in the built gallery, ENT-12.1)',
+    'Private client dashboard': 'same reason as "Accessible checkout flow": a wireframe sample gallery title, replaced by the real repository name. This one is a portfolio claim, and the built gallery does render a claim card for it (figure.work.is-claim, ENT-12.1), with the repository name in the title slot for the same reason every other card uses it',
   },
   browse: {
     // The brief's one authorised departure: nothing in the data carries a
