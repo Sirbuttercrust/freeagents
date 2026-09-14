@@ -13,6 +13,8 @@ import { createRequire } from 'node:module';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
+
 import { createApp } from '../../src/api/app.js';
 import {
   MemoryAgentRepository,
@@ -20,6 +22,7 @@ import {
   MemoryJobRepository,
   MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
+import { createRateLimiter } from '../../src/adapters/identity/verify-rate-limit.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 
@@ -32,6 +35,14 @@ const CONTROL_OPERATOR_DID = 'did:abt:zRosterPageControlOperator';
 // card) can be pinned against real HTTP responses rather than asserted
 // against a fixture nobody exercised.
 const TIER_OPERATOR_DID = 'did:abt:zRosterPageTierOperator';
+// W12: an operator running two agents, one with a verified hire (a public
+// repository) and one with a portfolio claim (a private repository, which
+// agentWorkRecord demotes out of the verified-hire tier). This is the
+// fixture the gallery section and its evidence gate are proven against:
+// real HTTP data carrying both tiers the gallery is allowed to render, from
+// two DIFFERENT agents, so span.work-by naming the producing agent has
+// something real to disagree about.
+const GALLERY_OPERATOR_DID = 'did:abt:zRosterPageGalleryOperator';
 
 function delegation(agentDid: string, operatorDid: string): Delegation {
   return {
@@ -166,7 +177,74 @@ beforeAll(async () => {
     githubLogin: null,
   });
 
-  const app = createApp(operatorRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, credentialRepo);
+  // W12: the gallery fixture. Agent one has ONE verified hire (a public
+  // repository, real evidence); agent two has ONE portfolio claim (a
+  // private repository, so agentWorkRecord demotes it out of the
+  // verified-hire tier per invariant 4). Both agents are delegated from
+  // the SAME operator, so GET /accounts/:did/agents returns both rows and
+  // the gallery has to merge work across them.
+  await operatorRepo.register({ did: GALLERY_OPERATOR_DID, githubLogin: 'roster-page-gallery' });
+  const galleryHireAgentDid = 'did:abt:zRosterPageGalleryHireAgent';
+  await agentRepo.create({
+    did: galleryHireAgentDid,
+    operatorDid: GALLERY_OPERATOR_DID,
+    delegation: delegation(galleryHireAgentDid, GALLERY_OPERATOR_DID),
+    name: 'Gallery Hire Agent',
+    skills: ['typescript'],
+    githubLogin: null,
+  });
+  await credentialRepo.save({
+    completedJobId: 'roster-page-gallery-hire-job',
+    subjectDid: galleryHireAgentDid,
+    document: credentialDoc(
+      'https://platform.example/v1/credentials/roster-page-gallery-hire-job',
+      galleryHireAgentDid,
+      'roster-page-gallery-hire-commit',
+      'did:example:buyer-gallery-hire',
+    ),
+    repositoryPublic: true,
+  });
+  const galleryClaimAgentDid = 'did:abt:zRosterPageGalleryClaimAgent';
+  await agentRepo.create({
+    did: galleryClaimAgentDid,
+    operatorDid: GALLERY_OPERATOR_DID,
+    delegation: delegation(galleryClaimAgentDid, GALLERY_OPERATOR_DID),
+    name: 'Gallery Claim Agent',
+    skills: ['python'],
+    githubLogin: null,
+  });
+  await credentialRepo.save({
+    completedJobId: 'roster-page-gallery-claim-job',
+    subjectDid: galleryClaimAgentDid,
+    document: credentialDoc(
+      'https://platform.example/v1/credentials/roster-page-gallery-claim-job',
+      galleryClaimAgentDid,
+      'roster-page-gallery-claim-commit',
+      'did:example:buyer-gallery-claim',
+    ),
+    repositoryPublic: false,
+  });
+
+  const app = createApp(
+    operatorRepo,
+    agentRepo,
+    undefined,
+    undefined,
+    jobRepo,
+    undefined,
+    undefined,
+    credentialRepo,
+    // W12: the roster row and the gallery each make one GET
+    // /agents/:agentDid read per agent (the roster's own avatar paint,
+    // mirroring browse.js's loadAvatar; the gallery's shared per-agent
+    // work read). This file renders several eleven-agent rosters across
+    // many tests in one process, which comfortably clears the default
+    // 60-per-minute anonymous verify limit (#30) well before the file
+    // finishes; nothing here is testing that limiter, so it is raised for
+    // this fixture the same way tests/api/session.test.ts injects its own
+    // limiter to test the OPPOSITE case.
+    createRateLimiter({ limit: 10_000, windowMs: 60_000 }),
+  );
   server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -236,7 +314,13 @@ async function render(path: string): Promise<Rendered> {
     if (dom.window.document.readyState === 'complete') resolve();
     else dom.window.addEventListener('load', () => resolve());
   });
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  // 250ms comfortably covered the original two-fetch chain (the operator
+  // record, then the roster). W12 added a third level after the roster
+  // resolves: the gallery's per-agent reads (Promise.all over the roster,
+  // GET /agents/:agentDid), which only fire once renderRoster has already
+  // run. 400ms gives that extra round trip room under test-suite load
+  // without slowing every other page's tests, which finish well inside it.
+  await new Promise((resolve) => setTimeout(resolve, 400));
 
   if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
 
@@ -459,17 +543,16 @@ describe('the operator page roster (R-19)', () => {
   // only the tier counts) is what the round-2 parity test missed: it never
   // looked at .when.
   //
-  // W3 UPDATE: operator.html/operator.js were rebuilt from the design
-  // seat's wireframe (spec/wireframe/operator.html) in this card, moving
-  // the roster row from the pre-wireframe evidence-row/name-link/when
-  // vocabulary this comment used to describe to the wireframe's own
-  // .agent/.nm/.tier/.ev shape, the same tier-chip vocabulary browse.js's
-  // W2 rebuild already applies to its own card. The wireframe's roster row
-  // carries no explicit skills line (its right column is the tier chip
-  // plus the evidence line only), so the skills comparison this test used
-  // to make is removed rather than compared against an element that no
-  // longer exists; the record facts still compared below (name, hire
-  // count, date) are what D3 exists to protect.
+  // W12 UPDATE: this card rebuilt the roster row a second time, from the
+  // W3 wireframe's retired .agent/.nm/.tier/.ev shape to market.css's own
+  // .acard grid (div.agrid.stagger of article.acard), the SAME card
+  // browse.html's own W10 rebuild already ships, per the brief's own
+  // instruction to read browse.js's card builder and match its class
+  // vocabulary rather than inventing a second one. Selectors below follow
+  // that move: .nm becomes .acard-name, and the tier chip sought no
+  // longer sits under a .right column (the .acard shape has no such
+  // column) but directly in .acard-body, the same place browse.js's own
+  // tmpl-card puts its visually-hidden .tier.
   it("a roster row states the same record facts as the same agent's browse card, including the date (D3)", async () => {
     const rosterPage = await render(`/accounts/${SOLO_OPERATOR_DID}`);
     const browsePage = await render('/browse');
@@ -481,7 +564,7 @@ describe('the operator page roster (R-19)', () => {
       expect(rosterRow).toBeTruthy();
       expect(browseCard).toBeTruthy();
 
-      const rosterName = rosterRow?.querySelector('.nm')?.textContent ?? '';
+      const rosterName = rosterRow?.querySelector('.acard-name')?.textContent ?? '';
       // W10: browse's card was rebuilt on the polished wireframe
       // (market.css .acard), which names its card-link class .acard-name
       // rather than the pre-polish row's .name. Selector updated to match;
@@ -494,7 +577,7 @@ describe('the operator page roster (R-19)', () => {
       // src/domain/browse.ts) for the hire count, through the SAME tier
       // vocabulary (.tier, the label text beside the dot): the underlying
       // number must never drift.
-      const rosterTierText = rosterRow?.querySelector('.right .tier')?.textContent ?? '';
+      const rosterTierText = rosterRow?.querySelector('.tier')?.textContent ?? '';
       // W10: the polished card states its own tier visibly through the
       // cardbadge (market.css .pverified/.punverified) and the evidence
       // line, not through a separate visible .tier-label; .tier itself
@@ -590,6 +673,10 @@ describe('the operator page roster (R-19)', () => {
   // label) beside the evidence line, the same vocabulary browse.html's own
   // wireframe rebuild (W2) uses for its cards, rather than the flat
   // three-count evidence row this page rendered before this card.
+  //
+  // W12 UPDATE: the evidence line sought below is now market.css's own
+  // .acard-ev (the .acard shape's foot row), not the retired .ev the W3
+  // .agent row used.
   it('a verified-hire roster row carries the tier-hire chip and its evidence line', async () => {
     const page = await render(`/accounts/${TIER_OPERATOR_DID}`);
     try {
@@ -598,7 +685,7 @@ describe('the operator page roster (R-19)', () => {
       const tier = row?.querySelector('.tier');
       expect(tier?.className).toContain('tier-hire');
       expect(tier?.textContent).toContain('1 verified hire');
-      const ev = row?.querySelector('.ev');
+      const ev = row?.querySelector('.acard-ev');
       expect(ev).toBeTruthy();
     } finally {
       page.close();
@@ -644,39 +731,276 @@ describe('the operator page roster (R-19)', () => {
   });
 
   // W3 round 2 fix (D2, guard-without-a-test): the tier-prior branch of
-  // agentTierInfo has no HTTP fixture to exercise it, because
-  // agentWorkRecord (src/domain/agent-work-record.ts) hardcodes
+  // the roster row's per-tier table has no HTTP fixture to exercise it,
+  // because agentWorkRecord (src/domain/agent-work-record.ts) hardcodes
   // verifiedPriorWork: [] until ENT-11 lands, the exact gap
   // tests/web/browse.test.ts:338-346 documents for browse's own identical
   // branch. Rather than fabricate a fake HTTP fixture the app can never
-  // actually produce, this calls the pure function directly through the
-  // test-only hook operator.js exposes for it, over an object shaped like
-  // the BrowseCard fields it reads. The function has no DOM dependency and
-  // no side effects, so calling it directly proves the same rule a
-  // rendered row would apply once ENT-11 makes the branch reachable.
-  it('agentTierInfo renders tier-prior for a prior-only agent, the branch no HTTP fixture can reach until ENT-11', async () => {
+  // actually produce, this calls the pure functions directly through the
+  // test-only hook operator.js exposes for them, over counts shaped like
+  // the BrowseCard fields they read. Neither function has a DOM
+  // dependency or a side effect, so calling them directly proves the same
+  // table a rendered row would apply once ENT-11 makes the branch
+  // reachable.
+  //
+  // W12 UPDATE: this card rebuilt the roster row's per-tier table from a
+  // single agentTierInfo function to the SAME cardbadgeFor/
+  // evidenceLineFor pair browse.js's own cardFor uses (per the brief's
+  // instruction to match browse.js's class vocabulary exactly rather than
+  // inventing a second one), so the hook and this test follow that split.
+  it('cardbadgeFor and evidenceLineFor render the tier-prior branch honestly, the branch no HTTP fixture can reach until ENT-11', async () => {
     const page = await render(`/accounts/${SOLO_OPERATOR_DID}`);
     try {
       const win = page.document.defaultView as unknown as {
         __operatorTestHooks?: {
-          agentTierInfo: (agent: {
-            verifiedHireCount: number;
-            verifiedPriorWorkCount: number;
-            portfolioCount: number;
-          }) => { tierClass: string; tierLabel: string; evidence: string };
+          cardbadgeFor: (hire: number, prior: number, claim: number) => Element | null;
+          evidenceLineFor: (hire: number, prior: number, claim: number) => DocumentFragment;
         };
       };
       expect(win.__operatorTestHooks).toBeTruthy();
-      const info = win.__operatorTestHooks!.agentTierInfo({
-        verifiedHireCount: 0,
-        verifiedPriorWorkCount: 3,
-        portfolioCount: 0,
-      });
-      expect(info.tierClass).toBe('tier-prior');
-      expect(info.tierLabel).toBe('3 verified prior work');
-      expect(info.evidence).toBe('no hires yet');
+      const badge = win.__operatorTestHooks!.cardbadgeFor(0, 3, 0);
+      expect(badge?.className).toContain('punverified');
+      expect(badge?.textContent).toContain('No hires yet');
+
+      const evidence = win.__operatorTestHooks!.evidenceLineFor(0, 3, 0);
+      const host = page.document.createElement('div');
+      host.appendChild(evidence);
+      expect(host.textContent).toContain('0 verified');
+      expect(host.textContent).toContain('3 prior');
     } finally {
       page.close();
+    }
+  });
+});
+
+// W12: the operator page rebuilt on the polished wireframe. The roster
+// coverage above is unchanged (D3 of that fix pinned the .agent shape,
+// which this card's brief keeps intact); these describe blocks prove the
+// NEW sections the polished header, identity box, gallery and painters
+// add.
+describe('the operator page header, identity box and painted hosts (W12)', () => {
+  it('the header renders the polished .phero/.pav.is-op/.pname shape, not the retired .ohead/svg.oav', async () => {
+    const page = await render(`/accounts/${SOLO_OPERATOR_DID}`);
+    try {
+      expect(page.document.querySelector('.phero')).toBeTruthy();
+      expect(page.document.querySelector('.ohead')).toBeNull();
+      const avatarHost = page.document.querySelector('.pav.is-op');
+      expect(avatarHost).toBeTruthy();
+      expect(avatarHost?.getAttribute('data-avatar')).toBe(SOLO_OPERATOR_DID);
+    } finally {
+      page.close();
+    }
+  });
+
+  // W11 D2 defect class (script-rendered-icon-never-painted): icons.js and
+  // swarm.js each sweep the DOM once at load, before operator.js's own
+  // fetch resolves, so any [data-ico] or [data-avatar] host this script
+  // builds AFTER that sweep needs an explicit paint call or it ships
+  // empty. Guard without a test is the second most common defect class in
+  // the ledger (22 entries), so this asserts the painted svg child
+  // directly rather than only the host's presence.
+  it('every icon host operator.js builds at render time carries a painted svg child, not an empty span', async () => {
+    const page = await render(`/accounts/${GALLERY_OPERATOR_DID}`);
+    try {
+      const icoHosts = Array.from(page.document.querySelectorAll('[data-ico]'));
+      expect(icoHosts.length).toBeGreaterThan(0);
+      icoHosts.forEach((host) => {
+        expect(host.querySelector('svg')).not.toBeNull();
+      });
+    } finally {
+      page.close();
+    }
+  });
+
+  it('the operator avatar and every roster card avatar carry a painted svg child', async () => {
+    const page = await render(`/accounts/${GALLERY_OPERATOR_DID}`);
+    try {
+      const avatarHosts = Array.from(page.document.querySelectorAll('[data-avatar]'));
+      expect(avatarHosts.length).toBeGreaterThan(0);
+      avatarHosts.forEach((host) => {
+        expect(host.querySelector('svg')).not.toBeNull();
+      });
+    } finally {
+      page.close();
+    }
+  });
+
+  // The .pbox identity box (wireframe line 106): DID, then GitHub. R-19's
+  // existing #ident strip is replaced by this box; the DID row still
+  // carries a copy control, moved into the .v cell as agent.html's .pbox
+  // already does for the same fact.
+  it('the identity box renders a .pbox with the operator DID and a copy control, never "proven both ways"', async () => {
+    const page = await render(`/accounts/${SOLO_OPERATOR_DID}`);
+    try {
+      const box = page.document.querySelector('.pbox');
+      expect(box).toBeTruthy();
+      expect(box?.querySelector('h3')?.textContent).toBe('Identity, checkable without us');
+      const lines = Array.from(box?.querySelectorAll('.line') ?? []);
+      const keys = lines.map((l) => l.querySelector('.k')?.textContent ?? '');
+      expect(keys).toContain('DID');
+      expect(keys).toContain('GitHub');
+      const copyBtn = box?.querySelector('[data-copy]');
+      expect(copyBtn?.getAttribute('data-copy')).toBe(SOLO_OPERATOR_DID);
+      // ENT-8 invariant restated for this box (see brief): accountProjection
+      // carries a GitHub handle and no proof status at all, so this box must
+      // never claim the two-directional check an operator record does not
+      // carry, unlike the identical box on an agent's own profile.
+      expect(box?.textContent ?? '').not.toContain('proven both ways');
+    } finally {
+      page.close();
+    }
+  });
+
+  // The .pstats row (wireframe lines 83-104): four cells, the merge-rate
+  // cell reading the same honest fallback the agent page's identical gap
+  // already ships, never a fraction or a percentage the API cannot back.
+  it('the merge-rate pstat cell reads "not yet observed" and no fraction or percentage appears in the row', async () => {
+    const page = await render(`/accounts/${SOLO_OPERATOR_DID}`);
+    try {
+      const pstats = page.document.querySelector('.pstats');
+      expect(pstats).toBeTruthy();
+      const text = pstats?.textContent ?? '';
+      expect(text).toContain('not yet observed');
+      expect(text).not.toMatch(/\d+\s*\/\s*\d+/);
+      expect(text).not.toMatch(/%/);
+    } finally {
+      page.close();
+    }
+  });
+
+  // MISSION invariant 5, restated for this row: three separately labelled
+  // totals, never combined into one number a buyer could read as a score.
+  it('the three tier totals in .pstats never appear summed into a single combined number', async () => {
+    const page = await render(`/accounts/${TIER_OPERATOR_DID}`);
+    try {
+      const pstats = page.document.querySelector('.pstats');
+      expect(pstats).toBeTruthy();
+      const cells = Array.from(pstats?.querySelectorAll('.pstat') ?? []);
+      const values = cells.map((c) => (c.querySelector('.v')?.textContent ?? '').trim());
+      // The tier fixture has exactly one verified hire and no prior work or
+      // claims on file: a combined-score defect would print a total (e.g.
+      // "1") that reads identically to the honest per-tier "1" here, so this
+      // also checks the agents cell reads the roster's own agent count (2),
+      // never a blend of the tier counts beside it.
+      expect(values).toContain('2');
+      const agentsCell = cells.find((c) => (c.querySelector('.k')?.textContent ?? '').includes('Agents'));
+      expect(agentsCell?.querySelector('.v')?.textContent?.trim()).toBe('2');
+    } finally {
+      page.close();
+    }
+  });
+});
+
+// The "Work from these agents" gallery (wireframe lines 133-216): real
+// work across the whole roster, behind the SAME evidence gate the agent
+// page's own portfolio gallery enforces (ENT-12.1, a claim never gets a
+// preview).
+describe('the operator page gallery, work across the roster behind the evidence gate (W12)', () => {
+  it('renders "Work from these agents" and a "Browse all agents" control pointing at /browse', async () => {
+    const page = await render(`/accounts/${GALLERY_OPERATOR_DID}`);
+    try {
+      const heading = Array.from(page.document.querySelectorAll('h2')).find(
+        (h) => h.textContent === 'Work from these agents',
+      );
+      expect(heading).toBeTruthy();
+      const browseLink = Array.from(page.document.querySelectorAll('a')).find(
+        (a) => (a.textContent ?? '').includes('Browse all agents'),
+      );
+      expect(browseLink).toBeTruthy();
+      expect(browseLink?.getAttribute('href')).toBe('/browse');
+    } finally {
+      page.close();
+    }
+  });
+
+  // The gallery's whole reason to exist over the agent page's own: naming
+  // WHICH agent produced each card (wireframe line 187, span.work-by).
+  it('renders a card for the verified hire, naming the agent that produced it in .work-by', async () => {
+    const page = await render(`/accounts/${GALLERY_OPERATOR_DID}`);
+    try {
+      const cards = Array.from(page.document.querySelectorAll('.work'));
+      expect(cards.length).toBeGreaterThan(0);
+      const hireCard = cards.find((c) => !c.classList.contains('is-claim'));
+      expect(hireCard).toBeTruthy();
+      const workBy = hireCard?.querySelector('.work-by');
+      expect(workBy).toBeTruthy();
+      expect(workBy?.textContent ?? '').toContain('Gallery Hire Agent');
+    } finally {
+      page.close();
+    }
+  });
+
+  // ENT-12.1, the evidence gate: a claim never gets a preview, ever. This
+  // is the assertion a card-count-only test would miss, so it checks the
+  // claim card's own frame carries the dashed empty state and NO verify
+  // affordance, while the hire card beside it does carry one.
+  it('a portfolio-claim card renders the dashed empty frame with no verify link; the verified-hire card does carry one', async () => {
+    const page = await render(`/accounts/${GALLERY_OPERATOR_DID}`);
+    try {
+      const claimCard = page.document.querySelector('.work.is-claim');
+      expect(claimCard).toBeTruthy();
+      expect(claimCard?.querySelector('.work-frame.is-empty')).toBeTruthy();
+      expect(claimCard?.querySelector('a')).toBeNull();
+
+      const hireCard = Array.from(page.document.querySelectorAll('.work')).find(
+        (c) => !c.classList.contains('is-claim'),
+      );
+      expect(hireCard).toBeTruthy();
+      expect(hireCard?.querySelector('.work-frame.is-empty')).toBeNull();
+    } finally {
+      page.close();
+    }
+  });
+
+  // ENT-2.4: an operator with zero work across every agent gets an honest
+  // empty state in the section, never a hidden section.
+  it('an operator with no work across any agent renders an honest empty gallery section, not a hidden one', async () => {
+    const page = await render(`/accounts/${EMPTY_OPERATOR_DID}`);
+    try {
+      const heading = Array.from(page.document.querySelectorAll('h2')).find(
+        (h) => h.textContent === 'Work from these agents',
+      );
+      expect(heading).toBeTruthy();
+      expect(heading?.closest('div')?.hidden).not.toBe(true);
+      const cards = page.document.querySelectorAll('.work');
+      expect(cards.length).toBe(0);
+    } finally {
+      page.close();
+    }
+  });
+
+  // jsdom performs no layout, so it can tell a link exists but never
+  // whether a real 320px screen renders it under the 44px floor
+  // (tap-target-under-44px, 5 strikes in the ledger). Drives real headless
+  // Chrome the same way tests/web/browse.test.ts's own tap-target case
+  // does, over the same GALLERY_OPERATOR_DID fixture that already carries
+  // both a roster .acard-name link and a gallery card, so one page load
+  // proves both new sections at once.
+  it('the roster card name link and the gallery Browse-all-agents control are both at least 44px tall at 320px, real Chrome (tap-target-under-44px)', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: 320, height: 900 });
+    try {
+      await browser.goto(`${baseUrl}/accounts/${GALLERY_OPERATOR_DID}`);
+      // The roster and the gallery both fire async reads after load; give
+      // them the same settle time render() above waits for real script
+      // runs, before measuring anything real Chrome laid out.
+      await new Promise((resolve) => setTimeout(resolve, 600));
+
+      const undersized = await browser.evaluate<Array<[string, number, number]>>(`
+        Array.from(document.querySelectorAll('.acard-name, .btn'))
+          .filter((el) => el.offsetParent !== null)
+          .map((el) => {
+            const r = el.getBoundingClientRect();
+            return [el.tagName + ' ' + (el.textContent || '').trim(), r.width, r.height];
+          })
+          .filter(([, w, h]) => w < 44 || h < 44)
+      `);
+      expect(undersized, `undersized targets: ${JSON.stringify(undersized)}`).toEqual([]);
+    } finally {
+      await browser.close();
     }
   });
 });

@@ -6,81 +6,69 @@
 <title>Operator: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/market.css">
+<link rel="stylesheet" href="/css/gallery.css">
 <style>
-  /* P-4 OPERATOR PROFILE, rebuilt from the design seat's wireframe
-     (spec/wireframe/operator.html, W3). One job: show who is accountable.
+  /* P-4 OPERATOR PROFILE, rebuilt on the polished wireframe
+     (spec/wireframe/operator.html, W12). One job: show who is
+     accountable, and what the agents they run have actually shipped.
 
      An operator page exists because accountability needs a destination
      (ENT-1.2: "an operator is accountable for every agent delegated from
      their DID"). A buyer let down by one agent needs to see what else the
      same party runs, which is only possible if the operator is browsable.
 
-     This style block is the wireframe's own page-local CSS, copied in per
-     the brief: base.css already carries .tier/.tier-hire/.tier-prior/
-     .tier-claim and the dot, so only the layout this page needs on top of
-     that is here. base.css's own bare .steps rule (a horizontal flex
-     tracker used nowhere yet) is a different shape from this page's
-     numbered rail; the compound selector .rows.steps below overrides it
-     for this page without touching base.css, which W4 and later cards
-     still share unmodified. */
+     THE POLISHED STACK. base.css, polish.css, market.css and gallery.css
+     now carry every shared component this page draws: .phero/.pbanner/
+     .phead/.pav/.pname/.pby/.pacts (the profile header, market.css),
+     .pverified/.pverified-sm (market.css, gallery.css), .pstats/.pstat
+     (market.css), .copybtn/.icoslot (polish.css, market.css), .acard/
+     .agrid (market.css, the SAME card browse.html draws), .workstrip/
+     .work/.work-frame/.work-chrome/.work-shot/.work-url (gallery.css).
+     This page is the last profile screen moved off the bare stack; compare
+     agent.html's own head block (tokens, base, polish, market, gallery)
+     and its own script block (swarm.js, icons.js), both matched here.
 
-  .ohead { display: grid; grid-template-columns: 56px 1fr auto; gap: 18px; align-items: start; }
-  .oav { width: 56px; height: 56px; border-radius: 12px; display: block; background: var(--bg-2); }
-  .ident {
-    display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 14px;
-    font-family: var(--mono); font-size: 12px; color: var(--fg-3);
-  }
-  .ident a { color: var(--fg-2); text-decoration: underline; text-underline-offset: 2px; }
+     WHAT STAYS PAGE-LOCAL. Only what agent.html's own page-local block
+     also keeps local: the step rail for "List an agent" (base.css's own
+     bare .steps is a different, unused shape) and the tap-target floor
+     for controls this page's local classes introduce. Everything the
+     retired .ohead/.oav/.agent/.rav shapes used to style is gone with the
+     markup it styled: the roster row is now market.css's own .acard, the
+     header is market.css's own .phero, and neither needs a page-local
+     rule the shared sheets do not already carry. */
 
-  .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
+  /* THE LIST-AN-AGENT STEP RAIL (wireframe .rows.steps .s). A compound
+     selector on purpose: base.css's bare .steps (a horizontal flex tracker
+     used nowhere yet) stays untouched for whatever else may use it. */
+  .rows.steps { display: block; max-width: 60ch; }
+  .rows.steps .s { display: grid; grid-template-columns: 26px 1fr; gap: 14px; align-items: start; }
+  .rows.steps .s .n { font-family: var(--mono); font-size: 13px; color: var(--fg-3); padding-top: 1px; }
 
+  /* THE ROSTER'S SORT/SKILL TOOLBAR. Not in the shared-sheet table above:
+     grep confirms .toolbar exists nowhere under src/web/public/css, so
+     this stays page-local exactly as it was before this card. */
   .toolbar {
     display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 24px;
     margin-top: 8px; padding-bottom: 20px; border-bottom: 1px solid var(--line);
   }
   .toolbar .field { margin-bottom: 0; min-width: 200px; }
   .toolbar label { display: block; font-size: 12px; color: var(--fg-2); margin-bottom: 6px; }
-  .toolbar select, .toolbar input {
-    padding: 0 12px; width: 100%;
-    background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r);
-    color: var(--fg); font-family: var(--font); font-size: 14px;
-  }
 
-  /* THE ROSTER ROW (wireframe .agent): a 40px round avatar, a name link,
-     and a right column carrying the tier chip plus an evidence line. The
-     SAME row shape and evidence wording browse.html's wireframe rebuild
-     (W2) uses for its own cards, both reading the identical BrowseCard
-     (src/domain/browse.ts, toBrowseCard) through operator.js's own
-     agentTierInfo, so a row here and the same agent's browse card can
-     never say a different thing about the same evidence. */
-  .agent { display: grid; grid-template-columns: 40px 1fr auto; gap: 16px; align-items: center; }
-  .rav { width: 40px; height: 40px; border-radius: 50%; display: block; overflow: hidden; background: var(--bg-2); }
-  .rav svg { width: 100%; height: 100%; display: block; }
-  .agent .nm { font-size: 15px; font-weight: 530; }
-  .agent .right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-  .ev { font-size: 12px; color: var(--fg-3); }
-
-  /* THE LIST-AN-AGENT STEP RAIL (wireframe .rows.steps .s). A compound
-     selector on purpose (see the header note above): base.css's bare
-     .steps stays untouched for whatever else may use it. */
-  .rows.steps { display: block; max-width: 60ch; }
-  .rows.steps .s { display: grid; grid-template-columns: 26px 1fr; gap: 14px; align-items: start; }
-  .rows.steps .s .n { font-family: var(--mono); font-size: 13px; color: var(--fg-3); padding-top: 1px; }
-
-  @media (max-width: 760px) {
-    .ohead { grid-template-columns: 48px 1fr; }
-    .ohead .act { grid-column: 2; }
-    .agent { grid-template-columns: 40px 1fr; }
-    .agent .right { grid-column: 2; align-items: flex-start; text-align: left; }
-  }
+  /* THE LOAD-ERROR RULE. .warn exists nowhere under src/web/public/css
+     either (agent.html carries the identical page-local rule for its own
+     #load-error), so this stays page-local too. */
+  .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
 
   /* Tap-target floor for the roster's inline name link, the same
      padding-plus-negative-margin treatment browse.html's own
      @media (max-width: 760px), (pointer: coarse) block uses for .agent
      .name, because it sits inside running text rather than a block a
-     min-height alone could grow. */
+     min-height alone could grow. The roster row itself is now market.css's
+     own .acard, which already carries the floor for .acard-name. */
   @media (max-width: 760px), (pointer: coarse) {
-    .agent .nm { display: inline-block; padding: 13px 0; margin: -13px 0; }
+    .rows.steps .s h3 { min-height: 44px; display: inline-flex; align-items: center; }
   }
 </style>
 </head>
@@ -101,15 +89,42 @@
   </div>
 </nav>
 
-<div class="wrap section-sm" style="padding-top:44px">
-  <header class="ohead">
-    <svg class="oav" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="10" fill="var(--bg-2)"/></svg>
-    <div>
-      <h1 style="margin:0; font-size:28px" id="name" data-pending>Loading this operator</h1>
-      <p class="lede" style="margin:8px 0 0" id="lede" data-pending></p>
-    </div>
-    <button class="btn act" type="button" id="did-copy" data-copy="">Copy identity</button>
-  </header>
+<!-- ============================================================== HEADER
+
+     THE HEADER MATCHES THE AGENT PAGE'S OWN .phero/.pav/.pname/.pby/.pacts
+     shape (market.css), because an operator and an agent are the same
+     kind of object: an accountable identity with a record (wireframe
+     comment, operator.html lines 54-58). The one deliberate difference is
+     the SQUARE-cornered avatar (.pav.is-op, market.css): a person must be
+     able to tell an operator from an agent without reading the label.
+
+     THE AVATAR IS NOT CUSTOMISABLE, same as agent.html's own comment: it
+     is derived from the DID as an anti-impersonation fingerprint
+     (ENT-2.3), painted by swarm.js from operator.js once the record has
+     loaded, never by polish.js's generic [data-avatar] sweep (which runs
+     before the fetch resolves and has nothing to key on yet). The
+     `data-avatar` attribute is therefore set here only once the real DID
+     is known, mirroring agent.html's own ordering for its own host. -->
+<div class="wrap-wide section-sm" style="padding-top:26px">
+
+  <div class="phero idc" id="phero" style="--id-hue: var(--agent-3)">
+    <div class="pbanner" data-pattern="topo"></div>
+    <header class="phead">
+      <span class="pav is-op" id="avatar" data-avatar-size="96" data-pending></span>
+      <div class="pmeta">
+        <h1 class="pname">
+          <span id="name" data-pending>Loading this operator</span>
+        </h1>
+        <p class="pby" id="lede" data-pending></p>
+      </div>
+      <div class="pacts">
+        <button class="btn copybtn" type="button" id="did-copy" data-copy="">
+          <span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span>
+          <span class="lbl">Copy DID</span>
+        </button>
+      </div>
+    </header>
+  </div>
 
   <!-- The wireframe's header summary sentence ("N verified hires across M
        agents. Merged 15 of 17 jobs taken."). Only the first half ships:
@@ -121,12 +136,79 @@
        aggregate the roster summary below reads (GET /accounts/:did/agents),
        so it fills in once that request resolves rather than firing a
        second read for the same numbers. -->
-  <p class="summary" id="op-summary" style="font-size:15px; color:var(--fg-2); margin-top:16px" hidden></p>
+  <p class="sub" id="op-summary" style="margin-top:16px" hidden></p>
 
-  <div class="ident" id="ident" hidden>
-    <span id="did-short"></span>
-    <span id="github"></span>
-    <span id="since"></span>
+  <!-- THREE COUNTS AND THE AGENT TOTAL, NEVER SUMMED (MISSION invariant
+       5): a total across a roster, separately labelled per tier, same as
+       the anchor. The wireframe's fourth cell ("Listed since") is not
+       drawn here; "Agents" is the fourth cell instead, because the roster
+       count is the fact this page's own anchor says matters most and
+       "Listed since" would be a fifth restatement of the identity box's
+       own Registered row a few lines below. Merge rate needs the
+       total-jobs-taken denominator; no route serves it (the same gap
+       agent.html's own #pstat-merge-rate already carries honestly), so it
+       renders the same "not yet observed" fallback rather than a fraction
+       this build cannot source. -->
+  <div class="pstats" style="margin-top:20px">
+    <div class="pstat is-hire">
+      <span class="k"><span class="ico ico-sm" data-ico="shield-check"></span>Verified hires</span>
+      <span class="v" id="pstat-hires">0</span>
+      <span class="sub2" id="pstat-hires-sub"></span>
+    </div>
+    <div class="pstat">
+      <span class="k"><span class="ico ico-sm" data-ico="link-2"></span>Verified prior work</span>
+      <span class="v" id="pstat-prior">0</span>
+      <span class="sub2">across the roster</span>
+    </div>
+    <div class="pstat">
+      <span class="k"><span class="ico ico-sm" data-ico="file-dash"></span>Portfolio claims</span>
+      <span class="v" id="pstat-claims">0</span>
+      <span class="sub2">across the roster</span>
+    </div>
+    <div class="pstat">
+      <span class="k"><span class="ico ico-sm" data-ico="user"></span>Agents</span>
+      <span class="v" id="pstat-agents">0</span>
+      <span class="sub2">all listed below</span>
+    </div>
+    <!-- MERGE RATE. The wireframe draws "15 / 17". Nothing serves it:
+         operatorConductForDid exists (src/api/app.ts) but no route
+         exposes it, and the only conduct route is
+         GET /buyers/:githubLogin/conduct, the BUYER's record, not the
+         operator's. agent.html solves the identical gap by shipping this
+         cell with the honest value "not yet observed"
+         (agent.html:239, id pstat-merge-rate); this ships the same
+         static fallback, in the same words, so the two profile pages
+         answer an absent denominator identically. Never a fraction, never
+         a percentage this build cannot source. -->
+    <div class="pstat">
+      <span class="k"><span class="ico ico-sm" data-ico="git-merge"></span>Merge rate</span>
+      <span class="v" id="pstat-merge-rate">not yet observed</span>
+      <span class="sub2">jobs taken</span>
+    </div>
+  </div>
+
+  <!-- IDENTITY, the wireframe's .pbox (line 106), styled exactly as
+       agent.html's own identical box: h3, then .line rows of .k/.v.
+       Replaces the old .ident flex strip and folds the bottom disclosure's
+       duplicate DID/Registered rows into this one place. -->
+  <div class="pbox" style="margin-top:20px; max-width:560px" id="ident" hidden>
+    <h3>Identity, checkable without us</h3>
+    <div class="line">
+      <span class="k">DID</span>
+      <span class="v"><span id="did-short"></span>
+        <button class="copybtn" type="button" id="did-copy-2" data-copy="" aria-label="Copy the DID">
+          <span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span>
+        </button>
+      </span>
+    </div>
+    <div class="line">
+      <span class="k">GitHub</span>
+      <span class="v" id="github"></span>
+    </div>
+    <div class="line">
+      <span class="k">Registered</span>
+      <span class="v" id="since"></span>
+    </div>
   </div>
 
   <div class="empty warn" id="load-error" hidden style="margin-top:20px">
@@ -137,7 +219,45 @@
 
 <hr class="rule">
 
-<div class="wrap section-sm">
+<!-- ============================================== WORK ACROSS ALL AGENTS
+
+     The operator page answers a different question from an agent page:
+     not "what did this agent do" but "what does this shop produce". A
+     buyer who liked one agent's work wants to see the rest of the house
+     before hiring, and ENT-1.2 makes the operator accountable for all of
+     it.
+
+     SAME EVIDENCE GATE AS THE AGENT GALLERY (ENT-12.1). A claim never
+     gets a preview here either, so an operator cannot launder an
+     unverifiable claim by showing it on a busier page. Built from
+     agent.js's own galleryCard/galleryClaimCard vocabulary
+     (src/web/public/js/pages/agent.js), not a second one, with one
+     addition the agent page's own card does not need: .work-by, naming
+     WHICH of the operator's agents produced the item. -->
+<div class="wrap-wide section-sm" id="gallery-section">
+  <div class="between" style="margin-bottom:16px">
+    <h2 style="margin:0">Work from these agents</h2>
+    <a class="btn btn-sm" href="/browse">Browse all agents<span class="ico ico-sm go" data-ico="chevron-right"></span></a>
+  </div>
+  <p class="sub" style="margin-bottom:20px; max-width:64ch">
+    Everything below has a public repository behind it, on an account one of
+    these agents proved it controls.
+  </p>
+
+  <div class="workstrip stagger" id="gallery" data-reveal></div>
+
+  <div class="empty" id="gallery-empty" hidden>
+    <b>Nothing to show yet.</b>
+    <p class="sub" style="margin-top:8px">
+      A preview is earned by a verified hire or verified prior work, from
+      any agent this operator runs. None is on file yet.
+    </p>
+  </div>
+</div>
+
+<hr class="rule">
+
+<div class="wrap-wide section-sm">
   <h2>Agents</h2>
 
   <!-- R-19 (D4): one layout, no branching. A roster table that gains sort
@@ -161,7 +281,11 @@
     </div>
   </div>
 
-  <div class="rows" id="roster-cards" style="margin-top:8px"></div>
+  <!-- THE ROSTER ROW is market.css's own .acard grid (div.agrid.stagger),
+       the SAME card browse.html ships (W10), so an agent's card reads
+       identically on browse and on its operator's page. Replaces the
+       retired .agent/.rav/.nm/.right/.ev row shape. -->
+  <div class="agrid stagger" id="roster-cards" style="margin-top:12px" data-reveal></div>
 
   <div class="empty" id="roster-empty" hidden style="margin-top:12px">
     <b>This operator runs no agents yet.</b>
@@ -250,23 +374,12 @@
       agent does, and their record follows them across every agent they run.
     </p>
 
-    <div style="margin-top:18px">
-      <button class="disclose" type="button"
-              data-disclose="tech" data-disclose-alt="Hide technical details">Show technical details</button>
-      <div id="tech" class="detail">
-        <div class="kv">
-          <div>
-            <dt>This operator's identity</dt>
-            <dd id="tech-did"></dd>
-          </div>
-          <button class="btn btn-sm" type="button" id="tech-did-copy" data-copy="">Copy DID</button>
-        </div>
-        <div>
-          <dt>Registered</dt>
-          <dd id="tech-created" style="font-family:var(--font); color:var(--fg-2)"></dd>
-        </div>
-      </div>
-    </div>
+    <!-- The DID and registration date now live in the .pbox identity box
+         above, once, rather than twice: this disclosure used to print a
+         second copy of both (tech-did, tech-created), which this page's
+         own W12 rebuild removed as a duplicate. The prose it sits under
+         stays, since the identity box carries no explanation of what an
+         operator is. -->
   </div>
 </div>
 
@@ -280,6 +393,9 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/swarm.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/operator.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
