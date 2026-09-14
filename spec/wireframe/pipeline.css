@@ -1,0 +1,316 @@
+/* FreeAgents wireframe: the dashboard job pipeline.
+
+   RENAMED FROM flow.css, 2026-09-09, during the D1 reconcile. Two files
+   called flow.css existed on two branches and they were never the same
+   component: this one draws the dashboard's job track, and the other draws
+   the hire and payment flow (the stage rail, the money total, the sheet, the
+   picker). They share a name and NOT ONE SELECTOR, which was proven by
+   diffing their selector lists before the merge. Keeping both names would
+   have meant the dashboard silently losing every rule below the moment a
+   page loaded the other file, which is exactly what happened when the merge
+   was first tried.
+
+   The name says what it draws. The payment flow keeps flow.css.
+
+   A hired job is not a status word, it is a thing moving along a track. This
+   layer draws that track, and it is the only place in the product where
+   motion runs on its own without a person doing something first.
+
+   THE STAGES ARE NOT INVENTED. SITEMAP.md P-13 defines the job track as
+   "draft -> criteria -> confirmed -> pull request open -> shipped", and
+   job.html already draws exactly that as a vertical `.track` with dates.
+   This is the same five states drawn horizontally and small enough to sit in
+   a list, so a person reading the dashboard and a person reading the job page
+   are looking at one shape rather than two vocabularies for one thing.
+
+   WHY THE MOVING LIGHT IS NEUTRAL, NEVER THE ACCENT. DESIGN.md 2.2 reserves
+   --accent for "we watched this happen": a verified hire, its count, its pull
+   request, the verify affordance, the focus ring. Work in flight has not
+   happened yet. An accent-coloured light travelling toward an unfinished
+   stage would say "verified" about a thing nobody has verified, which is the
+   one claim this product cannot afford to make loosely. So the light is white
+   at low alpha, and the ONLY node permitted accent is a merge that actually
+   landed, which is the same rule job.html's `.track li.merged` already
+   follows.
+
+   WHY THE REST STATE IS THE DEFAULT AND MOTION IS THE ENHANCEMENT. base.css
+   ends with `* { animation: none !important }` under reduced motion, so any
+   animation whose meaning lives in its keyframes renders as a frozen first
+   frame for the people who asked not to be moved. Every rule below is written
+   the other way round: the plain CSS IS the finished, dignified state, and
+   the animation only exists inside `prefers-reduced-motion: no-preference`.
+   Switching the motion off leaves a light resting against the current node
+   and a standing ring around it, which still says "this is where the work
+   is". Same argument base.css makes for `.reveal`, applied to a loop. */
+
+/* ================================================================ THE RAIL */
+
+.flow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: flex-start;
+}
+
+.flow-step {
+  flex: 1 1 0;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The connector runs from the previous node's centre to this one's. With
+   every step on an equal flex basis, -50% to 50% is exactly that span and it
+   needs no measurement in script. */
+.flow-line {
+  position: absolute;
+  top: 4px;
+  left: -50%;
+  right: 50%;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;              /* clips the travelling light at both ends */
+}
+.flow-step:first-child .flow-line { display: none; }
+
+/* A finished stretch is solid and quiet. It is history, not news. */
+.flow-step.is-done .flow-line { background: rgba(255, 255, 255, 0.24); }
+
+/* ---------------------------------------------------------------- the node */
+
+.flow-dot {
+  position: relative;
+  z-index: 1;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  flex: none;
+}
+.flow-step.is-done .flow-dot { background: var(--fg-2); border-color: var(--fg-2); }
+.flow-step.is-now  .flow-dot { background: var(--fg);   border-color: var(--fg); }
+
+/* The one node allowed the accent, and only when the merge actually landed.
+   DESIGN.md 2.2, and the same treatment as job.html `.track li.merged`. */
+.flow-step.is-merged .flow-dot { background: var(--t-hire); border-color: var(--t-hire); }
+
+/* THE STANDING RING. This is the reduced-motion end state of the pulse, and
+   it is written as the default so it is what remains when animation is off:
+   a ring around the node the work is sitting on. */
+.flow-step.is-now .flow-dot::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+}
+
+/* --------------------------------------------------------------- the label */
+
+.flow-lbl {
+  font-size: 13px;
+  color: var(--fg-3);
+  text-align: center;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.flow-step.is-done .flow-lbl { color: var(--fg-2); }
+.flow-step.is-now  .flow-lbl { color: var(--fg); font-weight: 550; }
+
+/* ================================================== THE TRAVELLING LIGHT
+
+   REST STATE: parked against the leading edge, which reads as light arriving
+   at the node the work is on. No animation needed for that to mean something.
+   The keyframes below only make the arrival repeat. */
+.flow-spark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 42%;
+  border-radius: inherit;
+  background: linear-gradient(90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.42) 62%,
+    rgba(255, 255, 255, 0.78) 100%);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Hand the light over to the animation: it now enters from the left and
+     runs the length of the segment. transform only, on a 2px strip, so the
+     whole loop stays on the compositor and touches no layout property. */
+  .flow-spark {
+    right: auto;
+    left: 0;
+    animation: flow-run 2.6s var(--ease) infinite;
+  }
+
+  /* The node answers the light rather than blinking on its own clock. The
+     delay lands the ring at the moment the light reaches the node, so the
+     two read as one event: something arrived here. */
+  .flow-step.is-now .flow-dot::after {
+    animation: flow-pulse 2.6s var(--ease) 1.75s infinite;
+  }
+}
+
+@keyframes flow-run {
+  0%   { transform: translateX(-100%); opacity: 0; }
+  16%  { opacity: 1; }
+  74%  { opacity: 1; }
+  100% { transform: translateX(240%);  opacity: 0; }
+}
+
+@keyframes flow-pulse {
+  0%   { transform: scale(0.72); opacity: 0.9; }
+  70%  { transform: scale(1.55); opacity: 0; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+
+/* ============================================================== THE JOB ROW
+
+   The rail alone cannot be the whole record: it is `aria-hidden` because a
+   screen reader reading five stage names and a shape gets less than one
+   sentence saying where the work is. `.flow-now` is that sentence, it is real
+   text, and it is present at every width. The rail is the visual form of what
+   it already says. */
+
+.jobstack { display: flex; flex-direction: column; gap: 12px; }
+
+.jobrow {
+  display: block;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-1);
+  color: inherit;
+  text-decoration: none;
+}
+
+.jobrow-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 16px;
+}
+
+.jobav {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex: none;
+  background: var(--bg-2);
+  display: block;
+}
+.jobav svg { width: 100%; height: 100%; display: block; }
+
+.jobrow-id { min-width: 0; flex: 1; }
+.jobrow-id .t {
+  font-size: 14px;
+  font-weight: 550;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.jobrow-id .t .pr { font-family: var(--mono); font-size: 12.5px; color: var(--fg-2); font-weight: 400; }
+.jobrow-id .m { font-size: 12.5px; color: var(--fg-3); margin-top: 2px; }
+
+/* Whose move it is, which is the thing a person scanning actually wants. */
+.jobrow-turn {
+  font-size: 12px;
+  color: var(--fg-2);
+  text-align: right;
+  flex: none;
+  line-height: 1.35;
+}
+
+.flow-now {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--fg-2);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.flow-now b { color: var(--fg); font-weight: 550; }
+.flow-now .when { font-family: var(--mono); font-size: 12px; color: var(--fg-3); }
+
+/* ============================================================ SECTION HEAD
+
+   A count, not an icon. base.css rule 4 bars "an icon that repeats what the
+   adjacent word already said", and a glyph beside "In progress" would do
+   exactly that. How many there are is information the heading does not
+   carry, so that is what earns the space. */
+
+.sechead { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.sectitle { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+.sectitle h2 { margin: 0; }
+
+.secount {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--fg-3);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+  flex: none;
+}
+
+/* ============================================================= DECISION CARD
+
+   The two things waiting on a person. A left edge marks them as blocked on
+   this reader, and it is a neutral: nothing here has been verified, it is
+   simply unanswered. */
+
+.dcards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.dcard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--fg-3);
+  border-radius: 12px;
+  background: var(--bg-1);
+  color: inherit;
+  text-decoration: none;
+}
+.dcard .t { font-size: 14px; font-weight: 550; color: var(--fg); }
+.dcard .m { font-size: 12.5px; color: var(--fg-2); margin-top: 4px; line-height: 1.5; }
+.dcard .foot { margin-top: auto; display: flex; align-items: center; gap: 10px; }
+.dcard .go { font-size: 13px; color: var(--fg-2); }
+
+/* ================================================================== LAYOUT
+
+   Twelve columns so the four sections can have a rhythm instead of four equal
+   boxes. The decision row and the pipeline row run full width because both
+   hold horizontal content; the two reference sections pair off beneath.
+   Still four sections, which is the cap in DESIGN.md 4.1. */
+
+.dgrid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 18px; }
+.dspan-12 { grid-column: span 12; }
+.dspan-6  { grid-column: span 6; }
+
+@media (max-width: 900px) {
+  .dspan-6 { grid-column: span 12; }
+}
+
+/* Below this the five labels stop fitting under the nodes. They go, and
+   `.flow-now` carries the stage in words, which it was doing anyway. */
+@media (max-width: 620px) {
+  .flow-lbl { display: none; }
+  .flow-step { gap: 0; }
+  .dcards { grid-template-columns: 1fr; }
+  .jobrow-turn { display: none; }        /* the same fact is in .flow-now */
+}
+
+@media (max-width: 420px) {
+  .jobrow, .dcard { padding: 14px; }
+}

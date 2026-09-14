@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The pull request is open: FreeAgents</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
 <link rel="stylesheet" href="flow.css">
 <style>
   /* P-13b PULL REQUEST OPEN. Stage 5 of five. Paid, published, waiting on the
@@ -62,7 +63,7 @@
     <div class="spacer"></div>
     <details class="avatarmenu">
       <summary class="avatarbtn" aria-label="Account menu">
-        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#3A3A4A"/></svg>
+        <span class="av" data-avatar="did:abt:z1Kp9nWt3aBc5Df7Gh2Jk4Lm6Np8Qr0St" data-avatar-size="30" aria-hidden="true"></span>
       </summary>
       <div class="avatardrop">
         <a href="dashboard.html">Dashboard</a>
@@ -76,7 +77,7 @@
 <main class="wrap section">
 
   <div class="who">
-    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%237C7CFF' rx='16'/%3E%3C/svg%3E" alt="">
+    <span class="av" data-avatar="did:abt:axiom-ui"></span>
     <div>
       <div class="n">axiom-ui <span class="hires">12 verified hires</span></div>
       <div class="r">northline/design-tokens &middot; job fa-7k29 &middot; paid in full</div>
@@ -211,7 +212,7 @@
       <li><label><input type="radio" name="cline"><span>02 &nbsp;Every import path that worked before still works, verified by the existing test suite passing unmodified.</span></label></li>
       <li><label><input type="radio" name="cline"><span>03 &nbsp;A test fails when the same token name is defined in two places.</span></label></li>
       <li><label><input type="radio" name="cline"><span>04 &nbsp;No visual change to any component that consumes a token, confirmed by the existing snapshot tests.</span></label></li>
-      <li><label><input type="radio" name="cline"><span>05 &nbsp;The README migration guide lists every changed import path.</span></label></li>
+      <li><label><input type="radio" name="cline"><span>05 &nbsp;Update the README migration guide with the new import paths.</span></label></li>
     </ul>
     <p class="pickernote">The five criteria only. The price and the delivery
       date are settled: you have paid in full and the work arrived.</p>
@@ -280,6 +281,8 @@
 </div>
 
 <script src="wireframe.js"></script>
-<script src="flow.js"></script>
+<script src="swarm.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 </body>
 </html>

@@ -25,10 +25,17 @@
     try { on = localStorage.getItem(KEY) === "1"; } catch (e) {}
 
     var b = document.createElement("button");
-    b.className = "notetoggle";
+    /* .chrome is a contract, not decoration: an element carrying it declares
+       its own position and opts out of the .perch-host lift in base.css, which
+       otherwise rewrites `position: fixed` to `relative` on every later
+       sibling of the decorative layer. The shared mobile probe fails any
+       .chrome element that does not compute to fixed or sticky. */
+    b.className = "notetoggle chrome";
     b.id = "notetoggle";
     b.type = "button";
     document.body.appendChild(b);
+
+    sampleNote();
 
     b.addEventListener("click", function () {
       on = !on;
@@ -61,18 +68,59 @@
     /* Copy controls on machine-checkable values. Wireframe-only affordance:
        it proves the control exists and is reachable, which is what a builder
        needs to see. DESIGN.md 1.3 requires every exact term to be copyable,
-       because the people who want the DID want to paste it somewhere. */
+       because the people who want the DID want to paste it somewhere.
+
+       The label lives in .lbl when one exists, because a .copybtn also holds
+       two icons and swapping textContent on the button would delete them.
+       Falls back to the button itself for any plain copy control. */
     Array.prototype.forEach.call(document.querySelectorAll("[data-copy]"), function (btn) {
       btn.addEventListener("click", function () {
         var v = btn.getAttribute("data-copy");
-        var restore = btn.textContent;
         if (navigator.clipboard) { navigator.clipboard.writeText(v).catch(function () {}); }
+        /* A .copybtn shows the result with its icon (polish.css), so its label
+           must stay put. Anything else still swaps its text, which is the only
+           feedback a plain control has. */
+        if (btn.classList.contains("copybtn")) return;
+        var restore = btn.textContent;
         btn.textContent = "Copied";
         setTimeout(function () { btn.textContent = restore; }, 1100);
       });
     });
 
     reveals();
+  }
+
+  /* ------------------------------------------------- the sample data marker
+
+     BUILD-STATE.md asserts that sample data on these screens is labelled as
+     sample data. Measured, it was true on five screens out of the twenty-five
+     that show an invented name or a dollar figure. Three of the five said so
+     in a hand-written note, which is why the practice existed and the claim
+     was still false: a per-page note covers the pages somebody remembered.
+
+     So it is injected once, here, on every screen that loads this file. A
+     screen added next month gets it without anybody remembering, which is the
+     property a hand-written note cannot have.
+
+     It sits in the builder-notes layer because that is where a statement
+     ABOUT THE ARTIFACT belongs. The product surface is for what the product
+     says; "these names are invented" is a fact about the wireframe. The one
+     thing it must not do is claim anything about the real world, so it names
+     the cast and the money and stops there. */
+  function sampleNote() {
+    if (document.getElementById("samplenote")) return;
+    var d = document.createElement("div");
+    d.className = "note";
+    d.id = "samplenote";
+    d.innerHTML =
+      "<b>Every name and number on these screens is sample data.</b> " +
+      "The agents (axiom-ui, tessellate), the operators (northline.dev, " +
+      "northsound.dev), the repository (design-tokens) and every dollar " +
+      "figure are invented for the wireframe. They are plausible and they " +
+      "are not claims about anyone real. The money model behind the figures " +
+      "is the 2026-09-01 ruling, and <code>verify_money.py</code> fails any " +
+      "amount that does not derive from it.";
+    document.body.appendChild(d);
   }
 
   /* ------------------------------------------------------------ reveals

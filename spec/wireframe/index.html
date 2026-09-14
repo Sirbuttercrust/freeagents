@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FreeAgents marketplace wireframe</title>
 <link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="polish.css">
+<link rel="stylesheet" href="market.css">
 <style>
   /* Cap the hero text so the agents have genuine empty space to occupy, and
      so the h1's BOX stops spanning the full width. A block-level heading is
@@ -53,7 +55,13 @@
 </div>
 
 <!-- ==================================================================
-     THE FULL INDEX. 26 screens, grouped the way SITEMAP.md groups them.
+     THE FULL INDEX, grouped the way SITEMAP.md groups them.
+
+     NO COUNT IN THIS COMMENT OR IN THE HEADING BELOW. It said "26 screens"
+     while 33 sat in the directory and 31 were linked from here, because a
+     number written in prose is a claim nothing checks and it goes stale the
+     first time a screen is added. verify_sitemap.py compares the links here
+     against the directory, which is the version that cannot drift.
 
      Rewritten 2026-08-20. This page previously listed four screens, which
      was accurate when four existed. An index that silently omits
@@ -65,8 +73,11 @@
      "what does an operator see", never "what was built in wave 3".
      ================================================================== -->
 
-<div class="wrap section">
-  <h2>Public, no account needed</h2>
+<div class="wrap section spy">
+  <div class="spy-head">
+    <span class="icoplate"><span class="ico" data-ico="eye"></span></span>
+    <h2 style="margin:0">Public, no account needed</h2>
+  </div>
   <p class="sub">
     Anyone can read an entire record and check a receipt before signing up.
     That is invariant 2 expressed as navigation.
@@ -115,8 +126,11 @@
   </div>
 </div>
 
-<div class="wrap section">
-  <h2>Hiring an agent</h2>
+<div class="wrap section spy">
+  <div class="spy-head">
+    <span class="icoplate"><span class="ico" data-ico="briefcase"></span></span>
+    <h2 style="margin:0">Hiring an agent</h2>
+  </div>
   <p class="sub">
     Five stages. One prose box in, one screen to read, one scan.
   </p>
@@ -169,8 +183,11 @@
   </div>
 </div>
 
-<div class="wrap section">
-  <h2>Listing an agent</h2>
+<div class="wrap section spy">
+  <div class="spy-head">
+    <span class="icoplate"><span class="ico" data-ico="plus"></span></span>
+    <h2 style="margin:0">Listing an agent</h2>
+  </div>
   <p class="sub">
     For someone who built an agent and wants its record to be worth something.
   </p>
@@ -218,8 +235,11 @@
   </div>
 </div>
 
-<div class="wrap section">
-  <h2>Account and system</h2>
+<div class="wrap section spy">
+  <div class="spy-head">
+    <span class="icoplate"><span class="ico" data-ico="settings"></span></span>
+    <h2 style="margin:0">Account and system</h2>
+  </div>
   <div class="screens stagger reveal" style="margin-top:20px">
     <a class="screen pane pane-lift" href="settings.html" style="--i:0">
       <h3>Settings</h3>
@@ -249,6 +269,11 @@
   </div>
 </div>
 
+<!-- BUILDER HISTORY, behind the notes toggle. This is a changelog and a
+     rationale log: it belongs to the factory, not to a person meeting the
+     product. It was roughly 2000 visible characters on the busiest screen
+     in the set, measured by measure_prose.py. -->
+<div class="note notewrap">
 <div class="wrap section">
   <h2>What this pass changed</h2>
   <p class="sub" style="margin-bottom:24px">
@@ -313,6 +338,13 @@
 
 <hr class="rule">
 
+</div>
+
+<!-- BUILDER HISTORY, behind the notes toggle. This is a changelog and a
+     rationale log: it belongs to the factory, not to a person meeting the
+     product. It was roughly 2000 visible characters on the busiest screen
+     in the set, measured by measure_prose.py. -->
+<div class="note notewrap">
 <div class="wrap section">
   <h2>Decisions the wireframe locks</h2>
   <div class="rows">
@@ -365,6 +397,8 @@
 
 <hr class="rule">
 
+</div>
+
 <div class="wrap section">
   <h2>Open, and where it bites</h2>
   <div class="rows">
@@ -393,9 +427,12 @@
   </div>
 </div>
 
+<script src="swarm.js"></script>
 <script src="agents.js"></script>
 <script src="perch.js"></script>
 <script src="wireframe.js"></script>
+<script src="icons.js"></script>
+<script src="polish.js"></script>
 <script>
 /* Five here, because this is the cover page and the whole cast belongs on it.
    Sizes and positions differ from browse deliberately: the same characters

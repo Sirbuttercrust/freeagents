@@ -130,7 +130,7 @@ that is not in this table does not exist in the product.
 | `--bg-2` | `#141517` | an inset surface: an input, a code block |
 | `--fg` | `#F7F8F8` | primary text |
 | `--fg-2` | `#9CA1AA` | supporting text, labels, metadata |
-| `--fg-3` | `#666B73` | the quietest legible grey; unverifiable content |
+| `--fg-3` | `#7C828C` | the quietest legible grey; unverifiable content |
 | `--line` | `rgba(255,255,255,0.08)` | a divider that must exist |
 | `--line-2` | `rgba(255,255,255,0.16)` | a border on an interactive element |
 | `--accent` | `#7C7CFF` | **verified only.** See 2.2 |
@@ -141,6 +141,61 @@ that is not in this table does not exist in the product.
 **Dark only.** There is no light theme in v1 and no token reserved for one.
 Adding it later is a token-layer change, not a rewrite, because no screen
 hardcodes a colour.
+
+**What "introduces a colour" means**, because this rule is enforced in four
+media and an unstated definition is one a gate gets to invent. A colour is
+judged by the POSITION it sits in, never by its value, and a position is
+READ rather than guessed at: the value of a declaration or of an attribute,
+with the property name parsed rather than found by looking backwards a fixed
+number of characters.
+
+| position | rule |
+|---|---|
+| a `:root` block | a token definition. It belongs in a table in this section |
+| the value of a paint property or attribute: `fill`, `stroke`, `color`, a `background`, a shadow, a border colour, or a custom property a stylesheet paints from | **forbidden.** This is the rule above. It holds in a stylesheet, in a `style=` attribute, and in a screen's own `<style>` block alike |
+| a colour-shaped run that is not a value | not a colour. `#418` in a paragraph is a pull request, `#4471` in an `href` is a fragment, `white` in `white-space` is half a property name, and `white.png` in a `url()` is a file |
+| a translucent `rgba` | a surface, governed by 2.6. It has no single colour until it is composited, so it is not a palette entry |
+| a colour inside a `mask` declaration | a stencil. Only its alpha channel is used and nothing renders it, at any length of value |
+| `currentColor`, `transparent` | introduces nothing. One takes the ink of the text around it, the other paints no pixels |
+| a literal in `swarm.js`, `agents.js` or `perch.js` | the generative renderer's colour space, governed by 2.4. If it equals a token it must say so with `/* = --token */`, and the value is recomputed against that token on every run |
+
+That last row is the one worth reading twice, and it is read FROM THIS TABLE
+by the gate rather than copied into it. `swarm.js` keeps a hue band empty
+around `--accent` so a generated agent can never come out wearing the colour
+that means verified, and it holds its own copy of the accent to do it. Moving
+`--accent` without moving that copy would silently reserve the wrong band. The
+annotation is what makes the copy checkable. Take a file out of that row and
+its literals stop being exempt the same run; a script this row does not name
+is an ordinary screen script and every colour in it is paint.
+
+**Spelling is not a defence.** `#D8D8D8`, `#D8D8D8FF`, `#D8DF`,
+`rgb(216 216 216)` and `oklch(0.87 0.01 250)` are the same paint, and a rule
+that reads one of them is a rule about one spelling. All of them are read,
+along with the named keywords, which is why position has to be parsed: `red`
+in a `fill` is paint and `red` in a sentence is a word.
+
+`verify_designmd.py` derives this population from every file the browser
+loads. Nothing is exempt by name.
+
+**Three tokens carry the evidence tiers**, so a tier's colour is named by what
+it means rather than picked at each use. Section 2.3 governs the treatment;
+these are the values.
+
+| token | value | tier |
+|---|---|---|
+| `--t-hire` | `#7C7CFF` | verified hire. The same value as `--accent`, and that is the point: a verified hire IS the reserved signal |
+| `--t-prior` | `#F7F8F8` | verified prior work. Full-strength text, no marker |
+| `--t-claim` | `#7C828C` | portfolio claim. The same value as `--fg-3` |
+
+The two duplications are deliberate and neither is a shortcut. A tier token
+that reads `var(--accent)` would let a later accent change silently repaint
+the tier system, and a screen that reaches for `--fg-3` because a claim looks
+quiet would be spending a text token on a meaning. Two names for one value is
+cheaper than one name for two meanings.
+
+**One token is not for a screen at all.** `--eye` is the agent renderer's eye
+colour, read by `agents.js` and by nothing else. It equals `--bg` on purpose,
+so an eye reads as a hole cut in the creature rather than as paint.
 
 ### 2.2 The accent is reserved
 
@@ -174,13 +229,14 @@ is not a thing that becomes verified by waiting (`ENT-12.1`).
 Five hues for the animated agents, and for nothing else. They are identity,
 not decoration, and they never carry meaning about evidence.
 
-| token | value |
-|---|---|
-| `--agent-1` | `#7C7CFF` |
-| `--agent-2` | `#58B0E8` |
-| `--agent-3` | `#46C39A` |
-| `--agent-4` | `#E0A24E` |
-| `--agent-5` | `#E4757F` |
+| token | value | what it is |
+|---|---|---|
+| `--agent-1` | `#7C7CFF` | the lead, which carries the accent |
+| `--agent-2` | `#58B0E8` | |
+| `--agent-3` | `#46C39A` | |
+| `--agent-4` | `#E0A24E` | |
+| `--agent-5` | `#E4757F` | |
+| `--eye` | `#08090A` | not a hue at all. The renderer's eye colour, equal to `--bg` on purpose so an eye reads as a hole cut in the creature rather than as paint. Read by `agents.js` and by no screen |
 
 **Avatars are not from this palette.** An agent's avatar is generated from its
 DID with `blobatar`, server-rendered (`ENT-2.3`). There is no upload path
@@ -191,10 +247,7 @@ anywhere in the product and none may be added.
 Every text and background pair meets **WCAG 2.2 AA**: 4.5:1 for body text,
 3:1 for text at 18px+ and for the boundary of an interactive control.
 
-`--fg-3` on `--bg` measures **3.72:1**, and on `--bg-2` **3.41:1**. Both fail
-AA at 12 and 13px. It follows that on the flow screens `--fg-3` paints no
-characters at all: it is for the dashed unsigned ring, hairlines, hover
-borders, and placeholder text. The rule is one line and admits no exemption:
+The rule is one line and admits no exemption:
 
 > **If it renders characters, it meets AA.**
 
@@ -207,6 +260,33 @@ column headers name whose signature each column carries, and a row number is
 how a person says which line they want changed. Short text you have to read is
 still text you have to read, and length is not a category of meaning.
 
+**Every text token clears AA on every surface**, which is what makes the flat
+rule affordable. Recomputed from the shipped values by `verify_designmd.py` on
+every run, so this table cannot go stale the way the paragraph it replaced
+did:
+
+| ink | on `--bg` | on `--bg-1` | on `--bg-2` |
+|---|---|---|---|
+| `--fg` | 18.73 | 18.02 | 17.17 |
+| `--fg-2` | 7.68 | 7.39 | 7.04 |
+| `--fg-3` | 5.15 | 4.96 | 4.72 |
+
+`--fg-3` is the one that had to move. It was `#666B73` until 2026-08-27, where
+it measured 3.72:1 on `--bg` and 3.41:1 on `--bg-2`, and both fail AA at 12 and
+13px. It was lifted to the smallest value in the same hue that clears 4.5:1 on
+the lightest surface it ever sits on. The lift is why the token can carry text
+at all: it paints 268 character runs across the set, including the party names
+and the row numbers on the agreement.
+
+**This paragraph is the reason `verify_designmd.py` exists.** Until round 6 it
+said the opposite, in the same confident register, because the lift landed in
+`base.css` and never reached this file: it named `#666B73`, quoted 3.72 and
+3.41, and concluded that the token paints no characters on the flow screens.
+Every sentence described a branch that had not existed for two weeks, and five
+gates read past a deliberately absurd value planted in the table above. A
+number in a normative document that nothing recomputes is a number that is
+already wrong.
+
 Measured with a real browser, not eyeballed, and by an instrument that does
 not guess at the background: `verify_ink.py` makes every glyph transparent,
 photographs the page, and reads the pixel where the characters sit. Sampling
@@ -214,6 +294,80 @@ photographs the page, and reads the pixel where the characters sit. Sampling
 uncomposited alpha, and produces confident wrong numbers in both directions.
 Anything reporting `lab()` or `oklch()` must be converted before comparison;
 parsing those as RGB is another known way to get a confident wrong answer.
+
+### 2.6 Panes: the surface recipe
+
+A raised surface is not one colour. It is a fill, a rim, a highlight and a
+shadow tuned as a set, because the rim and the highlight have to agree about
+where the light comes from.
+
+| token | value | what it does |
+|---|---|---|
+| `--pane-fill` | `rgba(255,255,255,0.028)` | the body of the surface, at rest |
+| `--pane-fill-2` | `rgba(255,255,255,0.055)` | the top of the gradient, so the surface has a direction |
+| `--pane-rim` | `rgba(255,255,255,0.11)` | the border |
+| `--pane-rim-hi` | `rgba(255,255,255,0.22)` | the lit edge, top only |
+| `--pane-glow` | `rgba(255,255,255,0.05)` | the inner highlight beneath the rim |
+| `--pane-shadow` | `0 1px 2px rgba(0,0,0,0.35), 0 8px 24px -12px rgba(0,0,0,0.6)` | the cast shadow at rest |
+| `--pane-shadow-hi` | `0 2px 4px rgba(0,0,0,0.4), 0 18px 44px -16px rgba(0,0,0,0.75)` | the same shadow, raised |
+
+Every value is an alpha over whatever sits beneath it, never a hex. A pane over
+`--bg` and the same pane over `--bg-1` are then one recipe rather than two
+hand-matched colours that drift apart the first time a background moves.
+
+**A pane is a surface, not a state.** Raising one on hover uses the `-hi`
+pair. It never takes a colour, because colour on this product means evidence.
+
+### 2.7 Discipline tints
+
+Five hues in `market.css`, one per filter, for the discipline tag on an agent
+card. What an agent does is a fact about the work, not about whether anyone
+checked it, so a discipline can carry colour without colliding with the accent.
+
+| token | value | discipline | on `--bg` |
+|---|---|---|---|
+| `--cat-frontend` | `#6EA8FF` | frontend | 8.26 |
+| `--cat-backend` | `#52C8A0` | backend | 9.61 |
+| `--cat-infra` | `#E0A24E` | infrastructure | 8.97 |
+| `--cat-data` | `#C48BE8` | data | 7.79 |
+| `--cat-testing` | `#E4757F` | testing | 6.78 |
+
+Distinct in hue, matched in chroma and value, so no category shouts louder
+than another. The ratios are recomputed on every run like the ones in 2.5.
+
+**A tint never means verified, featured, promoted or ranked**, and it never
+appears on a count, a sort order or a card border. It is on the tag and
+nowhere else.
+
+**The two inks that sit on a filled chip or a wrong field** are tokens for the
+same reason the tier colours are: they were literals typed into a rule, so a
+change to the tint they resemble would have moved them silently, and no gate
+could see them at all.
+
+| token | value | what it is for |
+|---|---|---|
+| `--unverified-fg` | `#1A1206` | dark ink on the solid amber "not verified" badge. A near black warmed toward the amber under it, so the chip reads as one object rather than a hole |
+| `--bad` | `#E4757F` | a field that fails validation, and a character count that is over |
+
+`--unverified-fg` on `--cat-infra` measures **8.34:1**, and `--bad` on `--bg`
+measures **6.78:1**. Both are recomputed on every run like the tints above,
+which is the only reason they are written here at all.
+
+`--bad` holds the same value as `--cat-testing` and must not read it. A tint is
+a label saying what an agent does; `--bad` is a state saying something is
+wrong. Repainting the testing discipline must not repaint every form error,
+which is what one shared literal would have done.
+
+**The unsigned amber** lives with the agreement matrix rather than with the
+tints, because it is a state and they are labels.
+
+| token | value | what it is for | on `--bg` |
+|---|---|---|---|
+| `--sig-open` | `#E0A24E` | a line signed by one party and waiting on the other | 8.97 |
+| `--sig-open-wash` | `rgba(224, 162, 78, 0.12)` | the row fill behind that state | n/a |
+
+It holds the same value as `--cat-infra` by coincidence, not by relation.
+Neither reads the other, and moving one must not move the other.
 
 ---
 
@@ -281,9 +435,12 @@ is expanded.
 A screen over budget is not fixed by shrinking the type. It is fixed by moving
 something behind a disclosure, or by becoming two screens.
 
-`measure_density.py` in this directory measures a live page against these
-numbers, and `calibrate_density.py` compares against real reference sites so
-the budget stays grounded rather than arbitrary.
+**No instrument on this branch measures the budget.** `measure_density.py` and
+`calibrate_density.py` were written on an unmerged branch, so section 10 lists
+them as absent and `verify_designmd.py` fails if this file ever names a script
+here that is not on disk. Until one lands, the budget is checked by reading
+the screen, and a number nobody can run is a number to be honest about rather
+than to cite.
 
 ### 4.2 Progressive disclosure, mechanically
 
@@ -331,6 +488,8 @@ something new adds it here first.
 | **detail toggle** | the progressive-disclosure control. Label names what is behind it: "Show technical details". Collapsed by default, every session. 13px, `--fg-2`, no border |
 | **detail panel** | what a toggle reveals. Mono for machine-checkable values, each with a copy control. Never contains an action needed to complete the page's primary job |
 | **plain/exact pair** | a fact shown twice: plain language as the heading, the exact value in mono beneath or behind a toggle. "GitHub account confirmed" over `did:abt:z1Mv4…8kQx` |
+| **flow rail** | the five job states drawn horizontally: brief, criteria, confirmed, pull request, merged. The same states `job.html` draws vertically with dates, so the two screens share one vocabulary. Decorative only: it is `aria-hidden` and the stage is always stated in text beside it. Below 620px the labels drop and the sentence carries it alone |
+| **section head** | a section title, a count, and the way out to the full list. The count earns its space because the heading does not carry it; an icon there would only repeat the word |
 
 ### 5.2 The flow vocabulary
 
@@ -436,6 +595,52 @@ the document scrolled sideways, and horizontal overflow is the worse defect.
 The product name moves into the link's accessible name: text may leave the
 pixels, never the accessibility tree.
 
+### 5.4 No horizontal overflow, on either edge
+
+**Nothing renders outside the 320px viewport, left or right, in any reachable
+state.** Closed, with every disclosure and drawer open, and with each dialog
+open on its own.
+
+The law names both edges because only one of them is visible in the obvious
+measurement. `document.documentElement.scrollWidth` **does not grow for an
+element hanging off the LEFT edge** in an LTR document, so a check written as
+`scrollWidth > 320` cannot fail on left-side overflow at any magnitude. It ran
+that way over 25 of the 33 screens for several rounds while two of them
+rendered the builder-notes control at x=-20, cut off at the bottom-left and
+reading `uilder notes`. Every gate was green.
+
+So the assertion is per element and on both sides:
+
+```js
+if (r.right > 320.5 || r.left < -0.5)     // one law, two edges
+```
+
+**Chrome that positions itself carries `.chrome`, and that is a contract.**
+`base.css` lifts every later sibling of a `.perch-host` into its own stacking
+context so the decorative agent layer can never paint over content. Page chrome
+is appended to `<body>`, which makes it one of those siblings, and the lift
+overrode `position: fixed` at equal specificity from further down the file.
+The lift excludes `.chrome`, and in exchange every `.chrome` element must
+compute to `fixed` or `sticky`, checked on all 33 screens **in every state a
+person can reach**, dialogs included. A later rule that captures chrome the way
+that one did fails a gate instead of shipping.
+
+**Both laws are measured by one probe** (`tapfloor.py`), which emits every
+finding tagged with its kind, and each sweeping gate declares in `HANDLED`
+which kinds it consumes. Two instruments enforcing one law with two
+definitions is how the weaker of the two goes unnoticed: see section 10, where
+`verify_mobile_coverage.py` compares those declarations rather than counting
+screen names.
+
+**And both gates read the probe through one state walk** (`tapfloor.sweep`),
+which opens every disclosure and each dialog alone and tags each finding with
+the state it was reachable in. Declaring a kind says nothing about the states
+it is asserted in: `verify_flow.py` declared all three and read two of them
+from the page as it loads, so the `.chrome` contract above was unenforced
+inside every sheet in the payment flow. Planting a static `.chrome` element
+inside `#paybal` on `staged.html` passed; the identical element rendered on
+load failed.
+
 ---
 
 ## 6. Motion
@@ -456,7 +661,48 @@ screen:
   whole pixels freezes slow motion and then pops.
 
 Durations: **120ms** for a state change on a control, **240ms** for something
-entering or leaving, **800ms** for a shape morph. Nothing else.
+entering or leaving. Anything slower is a considered exception and says so
+where it is written: the reveal-on-scroll pair at 450 and 500ms, the tab and
+toast transitions at 300ms, and the ambient loops in 6.1, which are measured
+in seconds because they are not responses to anything.
+
+The three tokens in `polish.css` name the everyday cases so a screen does not
+pick a number: `--dur-1` .14s for a control, `--dur-2` .22s for a small
+reveal, `--dur-3` .38s for a panel. This section previously named three
+durations and finished with "Nothing else" while the tree shipped seventeen,
+which is a rule nobody could follow and nothing could check.
+`verify_designmd.py` now fails on any duration this file names that no
+stylesheet uses.
+
+### 6.1 Ambient motion
+
+Almost all motion in this product is a response: a person did something and the
+interface answered. **Ambient motion is motion that runs with nobody touching
+it**, and there is exactly one instance of it, the travelling light on the
+dashboard flow rail. It is permitted only under these rules.
+
+- **It must mean "this is moving without you."** A hired job progresses while
+  the buyer is asleep. That is the one fact on the dashboard a static layout
+  genuinely cannot say, and it is why the rail earns a loop where nothing else
+  does. Motion that only decorates is barred by rule 4 of `base.css`.
+- **It is confined to the one section where something is actually in flight.**
+  A dashboard where four sections all shimmer says nothing at all.
+- **It is never the accent.** `--accent` means "we watched this happen" (2.2).
+  Work in flight has not happened yet, so the light and the pulse are neutral
+  white and only a landed merge may take accent.
+- **The rest state is the design; the loop is the enhancement.** `base.css`
+  ends with `* { animation: none !important }` under reduced motion, so any
+  animation carrying its meaning in keyframes degrades to a frozen first
+  frame. Write it inverted: the plain CSS is the finished, legible state, and
+  the `@keyframes` live only inside `prefers-reduced-motion: no-preference`.
+  With motion off, the light rests against the current node and a standing
+  ring marks it, which still reads as "the work is here".
+- **Transform and opacity only**, on a promoted layer. An ambient loop runs
+  forever, so anything touching layout is a permanent cost on every frame.
+
+Verified by `verify_flow_motion.py`, which samples the transform twice in each
+motion mode. A bound animation that never moves and a stranded invisible
+element both look identical in a screenshot, so neither is checked by eye.
 
 ---
 
@@ -465,8 +711,11 @@ entering or leaving, **800ms** for a shape morph. Nothing else.
 Covered by the `no-ai-writing` skill, which binds every word in the product.
 The parts that are specifically visual:
 
-- **No em dashes anywhere.** Enforced: `grep -o $'\u2014' *.html *.css *.js`
-  must return zero.
+- **No em dashes anywhere.** Enforced by `verify_housestyle.py`, which reads
+  every file in this directory rather than a list of them, and adds the en
+  dash and the AI writing tells. Do not enforce this with a shell grep: the
+  one this line used to name could not fail on bash 3.2, which does not
+  expand the `\u` escape inside a dollar-quoted string.
 - **No invented facts.** No fabricated testimonial, metric, company name, or
   agent. Wireframe sample data is plausible and clearly sample; it never
   states a claim about the real world.
@@ -574,18 +823,31 @@ python3 verify_all.py http://127.0.0.1:3111
 
 # 3. and prove the gates can FAIL, on the bugs they were written for.
 #    Run separately: these edit files and take several minutes.
-python3 verify_flow_mutation.py   http://127.0.0.1:3111
-python3 verify_round2_mutation.py http://127.0.0.1:3111
+#    A GLOB, not a list of names. This block named the suites individually
+#    and had to be edited every round, which is the same defect the suites
+#    themselves exist to catch: a list cannot fail on the entry it does not
+#    mention. The ones that take no url ignore the argument.
+for m in verify_*mutation*.py; do python3 "$m" http://127.0.0.1:3111; done
 
-# house rule: zero em dashes
-grep -o $'\u2014' *.html *.css *.js *.md | wc -l
+# house rule: zero em dashes, enforced across EVERY file here.
+# Run the gate, not a grep. The grep this line used to name,
+#   grep -o $'\u2014' *.html *.css *.js *.md | wc -l
+# cannot fail on bash 3.2: it does not expand \u inside $'...', so that
+# greps for six literal characters and returns the lines quoting the command
+# itself whether or not a real em dash exists anywhere in the tree.
+python3 verify_housestyle.py
 ```
 
 Exit codes: `0` pass, `1` a real failure, `3` no browser on this machine,
 which is neither. The suite never folds a missing browser into a pass.
 
-`verify_all.py` runs the ten below. Each can also be run alone, and each takes
-the base url except the two that need no browser.
+`verify_all.py` runs the table below, and checks that claim rather than
+asserting it: the runner compares this table against its own list and fails on
+any disagreement in either direction. The count is deliberately not written
+here, because a number in prose goes stale the moment a gate is added and
+nothing checks a number. Run `python3 verify_all.py` to see it. Each gate can
+also be run alone, and each takes the base url except the ones needing no
+browser.
 
 | gate | what it covers |
 |---|---|
@@ -594,11 +856,166 @@ the base url except the two that need no browser.
 | `verify_sitemap.py` | SITEMAP build claims match the directory, and no page is served without a page id |
 | `verify_tokens.py` | WCAG ratios computed by hand, no browser, no server |
 | `verify_ink.py` | every rendered character against AA at both viewports, with ink composited over the pixel measured behind it |
-| `verify_names.py` | no two controls a person can reach at the same time answer to the same accessible name |
+| `verify_names.py` | no two controls a person can reach at the same time answer to the same accessible name, no control is nameless, and no name exists only in a `placeholder` or a `title`. Every name read from `Accessibility.getFullAXTree` rather than computed from the markup |
 | `verify_money.py` | every dollar figure on every screen derives from one model of the deal |
 | `verify_rail.py` | the headline total, the fee and the pay button follow the chosen rail, including inside the scan sheet |
 | `verify_pickers.py` | every picker row traces to a real agreement line with matching text, and every omitted line is explained on screen |
 | `verify_primary.py` | no surface ever shows two accent-filled primaries at once |
+| `verify_polish.py` | the polish layer loads on every screen, every icon paints, every generated avatar is painted BY THE SWARM GENERATOR rather than by the older fallback engine, no button is inert, and 320px holds with 44px targets |
+| `verify_profile_header.py` | the profile header never clips its banner and the verified badge reads as a stamp |
+| `verify_agents_below.py` | the decorative agents never paint over text, asked of the browser at six scroll positions |
+| `verify_reduced_motion.py` | every animation has a dignified static end state under `prefers-reduced-motion` |
+| `verify_flow_motion.py` | the dashboard pipeline actually moves, and stops when reduced motion is asked for |
+| `verify_blast_preview.py` | hovering an edit control previews the exact signatures that edit would clear |
+| `verify_mobile_coverage.py` | every screen in the directory appears in at least one 320px sweep, AND every sweeper consumes every assertion the shared probe makes, AND every sweeper's source reaches for the shared state walk rather than for the raw probe, so no instrument quietly measures fewer states than the other and a state added to the walk reaches both the day it lands. A screen visited by an instrument that drops a law is reported as the hole it is rather than counted as covered. What this gate does NOT read is written beside it below. Both directions of the probe's own declaration are checked too: a kind in `tapfloor.KINDS` its JavaScript never pushes, and a kind pushed but never declared. No browser, no server |
+| `verify_kept.py` | the brand's accessible name survives the wordmark collapse on all 33 screens, read from the accessibility tree rather than from the attribute, and the facts a designed element carried still render somewhere in the set, with disclosures opened |
+| `verify_housestyle.py` | no em dash or en dash in ANY file in this directory, plus the AI writing tells in prose files. No browser, no server |
+| `verify_sampledata.py` | every screen showing an invented name or a dollar figure says on it that the data is sample data |
+| `verify_linknames.py` | a link whose text names its destination names it correctly, checked against what the destination page calls itself |
+| `verify_coverage.py` | no gate names its own screens, in a list OR inline in a goto. Every gate's scope is derived from the directory, so a screen added later cannot sit unmeasured behind a green table. No browser, no server |
+| `verify_designmd.py` | every value THIS FILE states is the value the tree ships: tokens against every `:root` block, contrast ratios and durations recomputed. Both sides derived, so a token added next month is compared the day it exists. Also section 2.1 read in the direction it points, at screens: every colour literal in every html, js and css file, in every spelling a browser renders, classified by the position it is parsed in rather than by a window of characters, including a screen's own `<style>` block and its `style=` attributes. The renderer exemption is read from 2.1's own table, and a renderer's declared copy of a token is recomputed against it. No browser, no server |
+
+**A gate's SCOPE is derived, never written down.** This table used to say
+`verify_ink.py` covered "every rendered character at both viewports" while
+that gate named eight screens, so twenty-five screens on disk had never been
+measured against the rule above at all. Widening the list would have fixed
+that instance and left the shape: a list of names cannot fail on a file it
+does not mention, and the next screen added would have reopened the hole in
+silence.
+
+So `population.py` computes each gate's population from the directory, and
+`verify_coverage.py` fails any gate that goes back to naming its screens. The
+general 320px sweep takes the COMPLEMENT of the payment sweep rather than a
+second list, so a new screen is measured by default instead of forgotten by
+default. A gate that is narrow on purpose stays narrow, but by rule:
+`verify_profile_header.py` measures the screens that HAVE a profile header
+rather than the two that had one the day it was written.
+
+**What the coverage gate reads, and where its reach stops.** It parses each
+sweeper's source and asks what that source reaches for: `tapfloor.sweep`, or
+the raw probe with a walk of its own. That is provenance, read statically, and
+provenance is all of it. Two limits, both established by control rather than
+by reasoning about the code:
+
+- **It does not read what a sweeper does with the records it gets back.** An
+  instrument can drive the shared walk, receive every state, and filter the
+  findings down to the closed read before asserting. Isolated on one variable,
+  with the same plant inside dialog `#paybal` on `staged.html`:
+
+  ```
+  verify_flow.py unmodified               exit 1, names the element
+  the same plant, plus a closed-state     verify_mobile_coverage.py  exit 0
+    filter in that gate's own chrome      verify_flow.py             exit 0
+    comprehension, still calling sweep
+  ```
+
+- **It does not ask whether the call it found can run.** A `tapfloor.sweep`
+  under `if False:` reads identically in an AST to a live one, so a sweeper
+  keeping a dead call while its live code reads the probe by another route
+  passes with `tapfloor.sweep` printed in its row.
+
+The third shape tried against it is **caught**, and by the fallback direction
+rather than by a rule aimed at it: a sweeper reaching `tapfloor` through
+`getattr` touches neither known route, and an instrument that touches neither
+is reported as owning its walk. Unrecognised means failed here, which is the
+disposition that makes the two limits above tolerable.
+
+Reading either limit out would mean a sixth instrument auditing the fifth, and
+this suite already grows a layer a round. So they are written here beside the
+claim, the way 5.4 names the `scrollWidth` trap. The row above promises where
+a sweeper's source points, and nothing further.
+
+**A gate that says it asks the browser can be reading the file, and the cost
+is a name nobody on the screen can see.** Round 11 found one instance of that
+in `verify_kept.py`. Round 12 found the class's other half in
+`verify_names.py`, which computed the accessible name for every control on
+all 33 screens with its own JavaScript ladder, ending in two rungs that name
+a control with something a person cannot reach:
+
+| rung | why it is not a name |
+|---|---|
+| `placeholder` | painted only while the field is EMPTY, so a field shipping with a value never paints it |
+| `title` | needs a hover, and a touch device has none. Every mobile law here is measured under `(pointer: coarse)` |
+
+Measured across all 33 screens in every state, 574 controls: 460 named by
+their own contents, 66 by `aria-label`, 46 by an associated label, one by a
+`title` and one by a `placeholder`. Both of those were real:
+
+```
+browse.html   the search field announced "React components, Postgres
+              migration, flaky tests", an example list rather than a name,
+              on a field carrying value="React, accessibility"
+agent.html    the DID copy button announced "Copy the DID" from a title,
+              unreachable on the profile this set is measured under
+```
+
+The gate reads `Accessibility.getFullAXTree` per scope now, joined to the
+markup by `backendDOMNodeId`, and fails any control whose WINNING source is a
+placeholder or a title. It prints the source census on the face of the report,
+because a gate that went back to guessing would still print a clean table and
+that line is what would change. Both CDP calls cost about 0.02s per scope,
+which is why one tree per scope replaced a call per node.
+
+**The negative half of that rule is what makes it usable.** A rule that fired
+on any placeholder would condemn every well-labelled field in the set, and the
+first person to hit a false failure stops reading the gate. What fails is a
+name that exists ONLY in an invisible source, which is why the assertion is
+written against the winning source rather than against the attribute.
+`verify_round12_mutation.py` plants a placeholder beside a real label, a title
+beside an `aria-label`, and a title on a radio named by its wrapping label
+inside a dialog, and requires silence on all three.
+
+**And a name census is the reason those two were found at all.** A review had
+named one field on one screen. Asking the same question of the population
+found the second on a different screen with a different source, and closed
+both with one rule.
+
+**And a name written inline is the same decision as a name in a list.** The
+round-4 fix above checked assignments whose value is a literal list, and four
+gates then passed it while each measuring one hardcoded page, because they
+never bound a list at all:
+
+```
+b.goto(BASE + "/deposit.html")          verify_rail
+b.goto(BASE + "/agreement.html")        verify_blast_preview
+URL = BASE + "dashboard.html"           verify_flow_motion
+PICKERS = [("staged.html", sel, ...)]   verify_pickers
+```
+
+Every one of them printed "no screen loop" in the coverage table, which reads
+as "nothing to derive" and meant "a population of one that nothing can see".
+Each now derives its screens from the markup its assertion needs: the rail
+radio, the signature chip, the travelling spark, the picker list. A second
+screen that grows one of those components is measured the day it exists.
+`verify_coverage.py` walks the whole syntax tree, so both shapes fail, and
+`verify_round5_mutation.py` restores each of the four to the exact form it
+shipped in and proves the gate names the file and the reason.
+
+**And THIS FILE was the last thing nothing read.** Every gate above measures
+the screens. Round 6 planted `#FF00FF` in the normative token row of section
+2.1 and five gates read past it, because a rendered page cannot tell you that
+the document describing it is wrong. The row really did hold `#666B73` while
+`base.css` shipped `#7C828C`, with section 2.5 reasoning from the stale value
+in prose: it said the token fails AA and paints no characters on the flow
+screens, and the shipped value clears AA on all three surfaces and paints 268
+character runs.
+
+`verify_designmd.py` closes that, and neither side of its comparison is
+written down. `tokens.py` reads the shipped set out of every `:root` block in
+every stylesheet in this directory and the documented set out of this file's
+own table shape, so a token added next month is compared the day it exists.
+Three kinds of claim are checked: a token value, a contrast ratio, a duration.
+A shipped token that is neither documented nor excluded with a written reason
+fails, so the table cannot be silently partial, which is how the pane recipe
+and the tier tokens went five months without a row.
+
+The ratios in 2.5 and 2.7 are **recomputed on every run** rather than typed.
+That is the difference between a document that goes stale and one that cannot:
+a number nothing recalculates is already wrong, it just has not been read yet.
+
+The six polished gates plus the coverage check are run by `verify_all.py` with
+the rest. They drive the same committed `wirebrowse.py` as the others, so the
+whole suite is still one command against a clone with no environment set up.
 
 Supporting files, also committed: `wirebrowse.py` (the driver, standard
 library only) and `devserver.py` (the preview server).

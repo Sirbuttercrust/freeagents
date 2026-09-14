@@ -35,7 +35,15 @@
   --bg-2:      #141517;
   --fg:        #F7F8F8;
   --fg-2:      #9CA1AA;   /* supporting text, lifted for contrast on 13px */
-  --fg-3:      #666B73;   /* the quietest legible grey */
+  /* The quietest legible grey. Was #666B73, which measured 3.72:1 on --bg and
+     failed WCAG AA on every screen that used it: timestamps, diff sizes, meta
+     lines, the "no hires yet" evidence line. Lifted 2026-08-27 to the smallest
+     value in the same hue that clears 4.5:1 on the LIGHTEST surface it ever
+     sits on (--bg-2), measured on rendered pixels rather than computed CSS.
+     Measured against the worst real surface, which is a .pane fill sampled at
+     rgb(21,22,23) rather than a token value:
+       on --bg 5.15,  on --bg-1 4.96,  on a pane over --bg-2 4.68. */
+  --fg-3:      #7C828C;
   --line:      rgba(255,255,255,0.08);
   --line-2:    rgba(255,255,255,0.16);
   --accent:    #7C7CFF;
@@ -47,7 +55,7 @@
      different KINDS of evidence. A claim is unproven, not bad. */
   --t-hire:  #7C7CFF;
   --t-prior: #F7F8F8;
-  --t-claim: #666B73;
+  --t-claim: #7C828C;
 
   /* The perched agents. Five hues at a deliberately restrained chroma, so
      five characters read as one family rather than a toy. The lead carries
@@ -152,7 +160,31 @@ p:last-child { margin-bottom: 0; }
 }
 .avatarbtn::-webkit-details-marker { display: none; }
 .avatarbtn::marker { content: ""; }
-.avatarbtn svg { width: 30px; height: 30px; border-radius: 50%; display: block; }
+
+/* THE AVATAR IN HERE IS THE READER'S OWN IDENTITY, NOT A PLACEHOLDER.
+
+   It used to be an inline `<circle fill="#3A3A4A">`, a hex no token defined,
+   painted directly into eight screens. Two rules were broken by one disc.
+   DESIGN.md 2.1: a colour that is not in the token table does not exist in
+   the product. DESIGN.md 2.4: an avatar is generated from the DID, so an
+   operator cannot choose it, and a flat disc is a chosen one.
+
+   It survived twenty-three gates because every gate read the direction the
+   rule was easy to check in, walking `:root` blocks for token definitions.
+   No gate ever opened an HTML file looking for a colour, so the direction
+   section 2.1 actually points, at screens, was unread.
+
+   The span is sized to 30px in the markup rather than measured from this
+   box, because polish.js falls back to the element's rendered width and the
+   summary is 44px: the tap target stays 44, the face inside it stays 30. */
+.avatarbtn .av {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: block;
+  background: var(--bg-2);
+}
+.avatarbtn .av svg { width: 100%; height: 100%; display: block; }
 .avatarmenu[open] .avatarbtn { box-shadow: 0 0 0 2px var(--line-2); }
 .avatardrop {
   position: absolute; top: 100%; right: 0; margin-top: 8px; z-index: 50;
@@ -269,6 +301,19 @@ body.notes-on .note { display: block; }
 .note b { color: var(--accent-hi); font-weight: 600; }
 .note code { font-family: var(--mono); font-size: 12px; color: var(--fg); }
 
+/* A whole SECTION behind the notes toggle, rather than an inline annotation.
+   The accent left border and tinted background that suit a one paragraph
+   aside become a wall when they wrap several screens' worth of content, so a
+   notewrap keeps the gate and drops the decoration. */
+.notewrap {
+  border-left: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  max-width: none;
+  border-radius: 0;
+}
+
 .notetoggle {
   position: fixed; right: 20px; bottom: 20px; z-index: 60;
   height: 34px; padding: 0 14px;
@@ -299,7 +344,13 @@ body.notes-on .notetoggle { background: var(--accent); color: var(--accent-fg); 
   position: absolute; inset: 0;
   pointer-events: none;
   overflow: visible;
-  z-index: 1;
+  /* BELOW content, not above it. The house visibility law: a decorative layer
+     sits under the text and dimmed, and an effect that competes with content
+     is a defect. This was z-index 1 with no counterweight on the content, so
+     an agent flying across the index cards landed on top of the card titles.
+     Caught in a screenshot on 2026-08-27, not by a rule that was being
+     followed in theory. */
+  z-index: 0;
 }
 .perch-layer svg {
   position: absolute; top: 0; left: 0;
@@ -320,8 +371,41 @@ body.notes-on .notetoggle { background: var(--accent); color: var(--accent-fg); 
 
 /* Content sits ABOVE the agents so text is never obscured. House visibility
    law: decorative layers sit below content, and nothing may cover a heading
-   or a control. */
+   or a control.
+
+   TWO RULES ARE NEEDED, and for a long time only the first existed.
+
+   The host rule protects content INSIDE the header box. It does nothing for
+   the rest of the page, because .perch-layer is overflow: visible and an
+   agent's whole job is to fly out of that box and down the page. On the index
+   an agent landed on a screen card's title, several hundred pixels below the
+   host, where no z-index inside the host could reach it.
+
+   The second rule gives every following section its own stacking context
+   above the layer. Proven by verify_agents_below.py, which walks each screen
+   at six scroll positions, and for every agent-over-text overlap asks
+   elementsFromPoint which one the browser actually paints on top.
+
+   THE LIFT IS FOR FLOW CONTENT, NOT FOR CHROME THAT POSITIONS ITSELF.
+
+   `~ *` reaches every later sibling of the host, and page chrome is appended
+   to <body>, which makes it one. So this rule was silently overriding
+   `position: fixed` on the builder-notes toggle at equal specificity from
+   further down the file: on the two screens that declare a .perch-host, the
+   toggle became `position: relative`, landed at x=-20, and rendered cut off
+   at the bottom-left reading `uilder notes`. Two screens, both of them
+   carrying the decorative layer, neither of them failing a gate.
+
+   Chrome does not need the lift. It declares its own z-index (the toggle sits
+   at 60, far above the layer's 0) and its own position, which is the whole
+   point of it being chrome. So the lift excludes anything marked .chrome, and
+   that is a contract rather than a name: an element carrying .chrome must
+   compute to a fixed or sticky position, checked on all 33 screens by the
+   shared mobile probe in tapfloor.py. A later rule that captures chrome the
+   way this one did fails there instead of shipping. */
 .perch-host > *:not(.perch-layer) { position: relative; z-index: 2; }
+.perch-host ~ *:not(.chrome),
+.perch-host ~ *:not(.chrome) .pane { position: relative; z-index: 2; }
 
 /* The line an agent says when clicked. Reserved height, so the layout does
    not jump when it appears and vanishes. */
@@ -395,13 +479,13 @@ body.notes-on .notetoggle { background: var(--accent); color: var(--accent-fg); 
   max-width: 68ch;
 }
 .detail > * + * { margin-top: 12px; }
-/* --fg-2, not --fg-3. Measured: --fg-3 on the detail panel's inset background
-   is 3.44:1, against the 4.5 AA needs at 12px. DESIGN.md 2.5: --fg-3 is
-   permitted "for portfolio claim text and for nothing that a user must read
-   to act", and "if a measurement says it fails, the fix is to lift the token,
-   never to leave it". A <dt> is the label naming the value beside it, which
-   is read. The <dd> below it stays --fg-2 and the hierarchy still reads,
-   because size and weight carry it. */
+/* --fg-2, not --fg-3. Measured when --fg-3 was #666B73: it was 3.44:1 on the
+   detail panel's inset background, against the 4.5 AA needs at 12px. DESIGN.md
+   2.5: --fg-3 is permitted "for portfolio claim text and for nothing that a
+   user must read to act", and "if a measurement says it fails, the fix is to
+   lift the token, never to leave it". A <dt> is the label naming the value
+   beside it, which is read. The <dd> below it stays --fg-2 and the hierarchy
+   still reads, because size and weight carry it. */
 .detail dt { font-size: 12px; color: var(--fg-2); margin-bottom: 3px; }
 .detail dd { margin: 0; font-family: var(--mono); font-size: 12px; color: var(--fg-2); overflow-wrap: anywhere; }
 

@@ -36,18 +36,15 @@ import json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wirebrowse import Browser, NoBrowser
 
+# The tap-target probe, shared with verify_polish.py and measure_taps.py.
+import tapfloor
+
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:3111"
 
-SCREENS = [
-    "hire.html",
-    "agreement.html",
-    "deposit.html",
-    "staged.html",
-    "pullrequest.html",
-    "outcomes.html",
-    "operatorjob.html",
-    "conduct.html",
-]
+# The payment flow, derived: the screens that load flow.css, plus the two
+# that carry the flow's layout in a page-local block. See population.py.
+import population                                             # noqa: E402
+SCREENS = population.payment_screens()
 
 # DESIGN.md 2.2. The accent is permitted on a verified hire row and its count,
 # the credential verify affordance, the single primary action, and a focus
@@ -65,6 +62,19 @@ SCREENS = [
 # `mark` is NOT on this list: a signature mark painting itself accent is
 # exactly the violation this check exists for.
 ACCENT_OK = frozenset(["btn-primary", "hires", "brand", "railnow"])
+
+# The chosen rail's row. Surfaced once the accent probe stopped skipping
+# elements that wrap children (see ACCENT_JS): the selected radio's label
+# carries an accent border and the --accent-dim wash, which is a SELECTION
+# state on the control a person is actively operating, not a claim about
+# evidence. DESIGN.md 2.2 permits the accent on a focus ring for the same
+# reason, and the rail chooser is the one place on these screens where the
+# buyer picks between two options that change the total.
+#
+# Matched by RELATIONSHIP rather than a class name, because the offending
+# element is a bare <label> with no class of its own, and adding one purely to
+# satisfy an allow list would be the tail wagging the dog.
+ACCENT_OK_WITHIN = ".railopt"
 
 # "Celebrate the rails, never toll them": chain vocabulary is allowed where a
 # person is choosing a rail or reading the technical panel, and nowhere else.
@@ -92,83 +102,62 @@ def narrow(b):
     b.send("Emulation.setTouchEmulationEnabled", enabled=True, maxTouchPoints=5)
 
 
-OVERFLOW_JS = """(() => {
-  const out = {coarse: matchMedia('(pointer: coarse)').matches,
-               doc: document.documentElement.scrollWidth, off: []};
-  document.querySelectorAll('body *').forEach(el => {
-    const r = el.getBoundingClientRect();
-    if (r.width === 0) return;
-    if (r.right > 320.5 || r.left < -0.5) {
-      out.off.push((el.className || el.tagName) + ' @' +
-                   Math.round(r.left) + '..' + Math.round(r.right));
-    }
-  });
-  out.off = out.off.slice(0, 6);
-  return out;
-})()"""
+# HORIZONTAL OVERFLOW AND THE STATE WALK, BOTH READ FROM tapfloor.
+#
+# This file used to carry its own element-level overflow JS, and it was the
+# only instrument that had one: verify_polish.py asserted `scrollWidth > 320`
+# over the other 25 screens, and scrollWidth does not grow for an element
+# hanging off the LEFT edge in an LTR document. So the same law had a strong
+# enforcement on 8 screens and an unfailable one on 25, and two screens shipped
+# a control at x=-20 with every gate green.
+#
+# Round 5 moved the DEFINITION into tapfloor.py. This file then kept its own
+# adapter plus its own hand-rolled state walk, and asserted two of the three
+# kinds from the closed read alone, which is how the .chrome contract came to
+# be unenforced inside every dialog in the flow. The walk is tapfloor.sweep
+# now, the same one verify_polish.py uses, and there is no local reader of
+# PROBE_JS left: a second reader is how a second definition starts.
+
+
+# The kinds this gate handles. Anything else the shared probe returns is
+# reported as unhandled rather than dropped, for the same reason it is in
+# verify_polish.py: an assertion added to tapfloor.py must not be able to land
+# in the tree and do nothing on the screens this gate owns.
+HANDLED = ("tap", "overflow", "chrome")
 
 # WCAG 2.5.8 exempts a link inside a sentence: it has a line-box hit area and
 # padding it to 44px wrecks the paragraph. Without the exemption the report is
 # noise and real findings hide in it.
 #
-# TWO MORE EXEMPTIONS, each measured rather than assumed:
+# THE PROBE ITSELF LIVES IN tapfloor.py, and this file no longer carries a
+# copy. Three copies existed here, in verify_polish.py and in measure_taps.py,
+# and they drifted three different ways: one read only the height, all three
+# read only `a,button`, and none of them opened a disclosure before reading.
+# Round 3 of review found twelve real under-floor controls behind those holes.
+# One probe, one selector list, one set of exemptions, imported by every gate
+# that claims the floor.
 #
-#   a radio or checkbox wrapped in (or pointed at by) a label whose own box
-#   clears the floor. The 18x18 dot is not the tap target; the 244x89 label is,
-#   and clicking anywhere in it activates the control. Padding the dot to 44px
-#   would make a six item picker 260px tall for no gain.
+# The exemptions it applies, all three measured rather than assumed:
+#
+#   a link inside a sentence, where "sentence" means an inline formatting
+#   context bounded by block boxes, not merely an element with an inline
+#   display value.
+#
+#   a radio or checkbox whose label CLEARS the floor on both axes. The 13px
+#   dot is not the tap target; a 244x89 label is, and clicking anywhere in it
+#   activates the control. A 292x29 label is NOT that case, and reading the
+#   exemption as "any checkbox inside any label" is what let eleven facet
+#   checkboxes and a settings toggle stand under the floor.
 #
 #   a field label sitting ABOVE its control, where the control clears the
-#   floor. "What is wrong, in one sentence" measures 244x21 and the input under
-#   it measures 244x44. The label is a caption, and giving a caption a 44px box
-#   puts 23px of dead space between every label and its field.
+#   floor. "What is wrong, in one sentence" measures 244x21 and the input
+#   under it measures 244x44. The label is a caption, and giving a caption a
+#   44px box puts 23px of dead space between every label and its field.
 #
 # HEIGHT-ONLY findings on the shared nav are reported, not exempted. Several
 # nav links are narrower than 44px because they are short words in a horizontal
 # bar, and padding them sideways pushes the document past 320px. That trade is
 # named in base.css rather than hidden here.
-TAP_JS = """(() => {
-  const bad = [];
-  const inline = el => {
-    const p = el.parentElement;
-    if (!p) return false;
-    // a real text node beside the link, which is what "inside a sentence"
-    // actually means. A length comparison misreads a link beside an icon.
-    return [...p.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
-  };
-  const box = el => { const r = el.getBoundingClientRect(); return r; };
-  const clears = r => r && r.height >= 43.5 && r.width >= 43.5;
-
-  document.querySelectorAll('a[href], button, input, select, summary, label').forEach(el => {
-    for (let n = el; n; n = n.parentElement) {
-      if (n.hidden) return;
-      if (n.tagName === 'DIALOG' && !n.open) return;
-    }
-    const r = box(el);
-    if (r.width === 0 || r.height === 0) return;
-    if (clears(r)) return;
-
-    if (el.tagName === 'A' && inline(el)) return;
-
-    if (el.tagName === 'INPUT' && (el.type === 'radio' || el.type === 'checkbox')) {
-      const l = el.closest('label') ||
-                (el.id ? document.querySelector('label[for="' + el.id + '"]') : null);
-      if (l && clears(box(l))) return;
-    }
-
-    if (el.tagName === 'LABEL') {
-      const f = el.getAttribute('for');
-      const c = f ? document.getElementById(f)
-                  : el.querySelector('input, select, textarea');
-      if (c && clears(box(c))) return;
-    }
-
-    bad.push((el.className || el.tagName) + ' ' +
-             Math.round(r.width) + 'x' + Math.round(r.height) +
-             ' "' + (el.textContent || '').trim().slice(0, 24) + '"');
-  });
-  return bad.slice(0, 8);
-})()"""
 
 # An element's own state is not what a person experiences. Assert what is
 # REACHABLE and whether it is backed, not whether some named element is hidden.
@@ -221,19 +210,30 @@ ACCENT_JS = """(() => {
   const ACC = 'rgb(124, 124, 255)';
   document.querySelectorAll('main *, dialog *').forEach(el => {
     const s = getComputedStyle(el);
-    // leaf elements only: a container inherits its child's colour and would
-    // report the same finding twice at two levels
-    if (el.children.length > 0) return;
     const painted = s.backgroundColor === ACC || s.borderTopColor === ACC ||
                     s.borderLeftColor === ACC;
     const inked = s.color === ACC && (el.textContent || '').trim();
     if (!painted && !inked) return;
+    // LEAF ONLY, FOR INK. A container inherits its child's colour and would
+    // report the same finding twice at two levels, so text findings are still
+    // taken at the leaf.
+    //
+    // BUT A FILL IS NOT INHERITED. The signature mark is a .sigdot with an
+    // icon <span> inside it, so it has a child and the old leaf-only rule
+    // skipped it at every level: the dot was excluded for having a child, and
+    // the icon inside it is transparent and carries no fill of its own.
+    // Painting a signature accent therefore passed cleanly, which is the exact
+    // misuse the comment above says is the most tempting one on these screens.
+    // A background or border the element paints ITSELF is its own claim
+    // whether or not it wraps something.
+    if (el.children.length > 0 && !painted) return;
     // the wordmark's dot is the one .mark that may carry the accent, and it
     // is identified by WHERE it is, not by a class-name substring
     if (el.closest('.brand')) return;
     hits.push({cls: (el.className || el.tagName),
                classes: (el.className || '').split(/\\s+/).filter(Boolean),
                how: painted ? 'fill' : 'ink',
+               within: el.closest('.railopt') ? '.railopt' : '',
                txt: (el.textContent || '').trim().slice(0, 30)});
   });
   return hits;
@@ -256,7 +256,14 @@ ACCENT_JS = """(() => {
 # Also checks the outcome cards and the fact list, because they are the other
 # two multi-row components here and they would fail the same way.
 OVERLAP_JS = """(() => {
-  const groups = [['.terms .trow', 'agreement row'],
+  // '.terms .trow' was the September agreement's row. The reconciled agreement
+  // is the polished signature matrix and its rows are the <li> of ul.terms, so
+  // the old selector matched nothing and this check quietly measured no rows
+  // on the one screen it was written for. Both are listed: the old one still
+  // says something true about an older tree, and a selector that matches
+  // nothing is skipped by the rows.length < 2 guard rather than failing.
+  const groups = [['.terms > li', 'agreement row'],
+                  ['.terms .trow', 'agreement row'],
                   ['.facts > li', 'fact'],
                   ['.outcomes > .oc', 'outcome card'],
                   ['.fixed > li', 'fixed term'],
@@ -287,11 +294,6 @@ OVERLAP_JS = """(() => {
   return found.slice(0, 6);
 })()"""
 
-OPEN_ALL_JS = """(() => {
-  const ids = [...document.querySelectorAll('dialog')].map(d => d.id);
-  return ids;
-})()"""
-
 print("=" * 74)
 print("FLOW GATE:", BASE)
 print("=" * 74)
@@ -304,45 +306,70 @@ try:
     print(f"{'screen':<20} {'coarse':>7} {'docW':>6} {'overflow':>9} {'openOverflow':>13} {'tap<44':>7} {'overlap':>8}")
     for s in SCREENS:
         url = f"{BASE}/{s}"
-        r = probe(b, url, OVERFLOW_JS)
-        tap = b.js(TAP_JS)
+        # ONE STATE WALK, SHARED WITH THE OTHER SWEEPER. This was a hand
+        # rolled walk that read the probe in every state, and then asserted
+        # `chrome` and `other` from the CLOSED read alone. So the .chrome
+        # position contract and the unhandled-kind backstop had a real
+        # enforcement on the page as it loads and NO enforcement at all inside
+        # a dialog, on the six screens whose dialogs are where the money
+        # decisions are made.
+        #
+        # That is round 5's shape one layer in. Round 4 asked which SCREENS an
+        # instrument visits. Round 5 asked which KINDS it consumes. Neither
+        # asks in which STATES it consumes them, and a kind asserted closed and
+        # dropped once a sheet opens is a hole HANDLED cannot express.
+        #
+        # tapfloor.sweep is the walk verify_polish.py already used: it opens
+        # every disclosure, then each dialog on its own, dedupes by DOM path
+        # across states, and tags every finding with the state it was first
+        # reachable in. Both instruments now agree on the screens, the kinds
+        # AND the states.
+        #
+        # The settle is tapfloor's default rather than this gate's old 1.42s,
+        # which is a small INCREASE. A shorter wait here would make the two
+        # sweepers disagree again, in the one way that is invisible in a diff:
+        # a gate that passes on an idle machine and fails under load is
+        # reporting how busy the box is, not what the page does.
+        t = tapfloor.sweep(b, url)
+        r = {"coarse": t["coarse"], "doc": t["docW"],
+             "off": [tapfloor.fmt(x)
+                     for x in tapfloor.of_kind(t["bad"], "overflow")],
+             "chrome": [tapfloor.fmt(x)
+                        for x in tapfloor.of_kind(t["bad"], "chrome")],
+             "other": [tapfloor.fmt(x) for x in t["bad"]
+                       if x.get("kind") not in HANDLED],
+             "bad": t["bad"]}
+        # The shared probe returns rich records; flatten to the strings this
+        # gate has always reported so the output shape does not change.
+        tap = [tapfloor.fmt(x) for x in tapfloor.of_kind(t["bad"], "tap")]
         lap = b.js(OVERLAP_JS)
 
         if not r["coarse"]:
             fails.append(f"{s}: (pointer: coarse) did not match, results not trustworthy")
 
-        # Every dialog opened together, then re-measured. A modal that
-        # overflows at 320px is invisible to a plain width sweep.
-        dlgs = b.js(OPEN_ALL_JS)
-        openoff = 0
-        opentap = []
-        for d in dlgs:
-            b.js(f"(() => {{const d=document.getElementById('{d}');"
-                 f"if(d && !d.open) d.showModal(); return 1;}})()")
-            b.send("Runtime.evaluate", expression="new Promise(r=>setTimeout(r,120))",
-                   awaitPromise=True)
-            ro = b.js(OVERFLOW_JS)
-            openoff += len(ro["off"])
-            if ro["off"]:
-                fails.append(f"{s}: dialog #{d} overflows 320px: {ro['off'][:3]}")
-            ot = b.js(TAP_JS)
-            opentap += [f"#{d} {x}" for x in ot]
-            b.js(f"(() => {{const d=document.getElementById('{d}');"
-                 f"if(d && d.open) d.close(); return 1;}})()")
+        # Findings from a state other than the page as it loads, counted for
+        # the report only. Each is already asserted below; the split keeps the
+        # table's distinction between "on load" and "once you open something",
+        # which are different fixes.
+        openoff = len([x for x in tapfloor.of_kind(t["bad"], "overflow")
+                       if x.get("state") != "closed"])
 
-        alltap = tap + opentap
         if r["off"]:
             fails.append(f"{s}: overflow at 320px: {r['off'][:3]}")
+        if r["chrome"]:
+            fails.append(f"{s}: .chrome element not positioning itself: {r['chrome'][:3]}")
+        if r["other"]:
+            fails.append(f"{s}: findings of an unhandled kind: {r['other'][:3]}")
         if r["doc"] > 320.5:
             fails.append(f"{s}: document scrollWidth {r['doc']} > 320")
-        if alltap:
-            fails.append(f"{s}: tap targets under 44px: {alltap[:4]}")
+        if tap:
+            fails.append(f"{s}: tap targets under 44px: {tap[:4]}")
         if lap:
             fails.append(f"{s}: rows overlapping at 320px: {lap[:3]}")
 
         rows.append(s)
         print(f"{s:<20} {str(r['coarse']):>7} {r['doc']:>6} {len(r['off']):>9} "
-              f"{openoff:>13} {len(alltap):>7} {len(lap):>8}")
+              f"{openoff:>13} {len(tap):>7} {len(lap):>8}")
 
     # ---------------------------------------------------------------- pass 2
     b.send("Emulation.clearDeviceMetricsOverride")
@@ -368,7 +395,8 @@ try:
         acc = b.js(ACCENT_JS)
         # whole class names, never substrings: see the ACCENT_OK comment
         stray = [h for h in acc
-                 if not (set(h.get("classes") or []) & ACCENT_OK)]
+                 if not (set(h.get("classes") or []) & ACCENT_OK)
+                 and h.get("within") != ACCENT_OK_WITHIN]
 
         if d["noHref"]:
             fails.append(f"{s}: anchors with no href: {d['noHref'][:3]}")

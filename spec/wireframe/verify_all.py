@@ -21,6 +21,7 @@ The mutation tests are NOT run here: they take several minutes and
 deliberately edit files, so they are run on their own.
 """
 
+import glob
 import os
 import re
 import subprocess
@@ -52,11 +53,72 @@ GATES = [
      "picker rows trace to real agreement lines, omissions explained"),
     ("verify_primary.py", True,
      "no surface shows two accent-filled primaries at once"),
+
+    # The six from the polished pass. They read the base url from WF_BASE
+    # rather than argv, which is why they are marked as not taking a url:
+    # handing them one positionally would be silently ignored and they would
+    # audit whatever happened to be on their default port. WF_BASE is set
+    # below from the same BASE every other gate gets.
+    ("verify_polish.py", False,
+     "the polish layer loads, icons and generated avatars paint, no inert "
+     "buttons, 320px with 44px targets"),
+    ("verify_profile_header.py", False,
+     "the profile header never clips its banner, the verified badge reads as a stamp"),
+    ("verify_agents_below.py", False,
+     "decorative agents never paint over text, asked at six scroll positions"),
+    ("verify_reduced_motion.py", False,
+     "every animation has a static end state under prefers-reduced-motion"),
+    ("verify_flow_motion.py", False,
+     "the dashboard pipeline moves, and stops when reduced motion is asked for"),
+    ("verify_blast_preview.py", False,
+     "hovering an edit control previews the exact signatures it would clear"),
+    ("verify_mobile_coverage.py", False,
+     "every screen on disk is swept at 320px by at least one instrument"),
+    ("verify_kept.py", True,
+     "the brand's accessible name survives the wordmark collapse, and the "
+     "facts a designed element carried still render somewhere in the set"),
+
+    # The two from round 3. Both close a gate that was scoped to a list of
+    # files rather than to the directory, which is how a screen added later
+    # ends up outside a rule nobody knew was narrow.
+    ("verify_housestyle.py", False,
+     "no em dash or en dash in ANY file here, plus the AI writing tells in "
+     "prose files. verify_flow.py's version read ten files out of forty-three"),
+    ("verify_sampledata.py", True,
+     "every screen showing an invented name or a dollar figure says it is "
+     "sample data"),
+    ("verify_linknames.py", True,
+     "a link whose text names its destination names it correctly, checked "
+     "against what the destination page calls itself"),
+
+    # Round 4. The three previous rounds each fixed the instance a reviewer
+    # named while the same defect sat elsewhere in another shape, so this one
+    # is a gate on the gates rather than another gate on the screens.
+    ("verify_coverage.py", False,
+     "no gate names its own screens: every scope is derived from the "
+     "directory, so a screen added later cannot be silently unmeasured"),
+
+    # Round 6. Every previous round gated the SCREENS. This one gates the
+    # normative document, which nothing in this directory was reading: a
+    # planted #FF00FF in DESIGN.md's token row was invisible to five gates,
+    # and a real stale hex sat in that row with a paragraph reasoning from it.
+    ("verify_designmd.py", False,
+     "every value DESIGN.md states is the value the tree ships: tokens, "
+     "contrast ratios and durations, both sides derived rather than listed. "
+     "Round 8: and section 2.1 read at screens, every colour literal in "
+     "every file, in every spelling a browser renders, classified by the "
+     "position it is parsed in"),
 ]
 
 env = dict(os.environ)
+# The polished gates take their url from the environment. Setting it here
+# means one command audits one tree: without it they would default to their
+# own port and could report a clean pass against a server that was not the
+# one under test, or a wall of failures against nothing at all.
+env["WF_BASE"] = BASE if BASE.endswith("/") else BASE + "/"
 
 results = []
+silent = []
 for name, takes_url, covers in GATES:
     path = os.path.join(HERE, name)
     if not os.path.exists(path):
@@ -72,8 +134,19 @@ for name, takes_url, covers in GATES:
         print("NO BROWSER. %s could not start Chrome:" % name)
         print(p.stdout.strip()[:600])
         sys.exit(3)
-    tail = [l for l in p.stdout.splitlines() if l.startswith(("PASS", "FAIL", "REAL FAILURES"))]
-    results.append((name, p.returncode, dt, tail[-1][:52] if tail else "(no verdict line)", covers))
+    # The September gates open with PASS or FAIL; the polished ones end with
+    # "RESULT: PASS" or a "FAILURES (n):" header. Both shapes are read so the
+    # table reports a real verdict for every gate rather than "(no verdict
+    # line)", which hides whether a gate said anything at all.
+    tail = [l for l in p.stdout.splitlines()
+            if l.startswith(("PASS", "FAIL", "REAL FAILURES", "RESULT:", "FAILURES ("))]
+    verdict = tail[-1][:52] if tail else "(no verdict line)"
+    results.append((name, p.returncode, dt, verdict, covers))
+    # A GATE THAT PRINTS NO VERDICT IS NOT GREEN, IT IS SILENT. verify_links
+    # exited 0 for weeks with "(no verdict line)" in this column, which is
+    # indistinguishable from a gate whose assertions have all been removed.
+    if not tail:
+        silent.append(name)
 
 print("=" * 78)
 print("EVERY GATE, %s" % BASE)
@@ -89,6 +162,14 @@ for name, _, _, _, covers in results:
 
 bad = [r for r in results if r[1] != 0]
 
+if silent:
+    print("\n%d gate(s) exited without printing a verdict:" % len(silent))
+    for s in silent:
+        print("  %s" % s)
+    print("An exit code with no stated result cannot be told apart from a")
+    print("gate whose assertions have all been removed. Print PASS or FAIL.")
+    bad.append(("silent gates", 1, 0.0, "no verdict printed", ""))
+
 # The DESIGN.md table and this runner must list the same gates. Written as a
 # check rather than a note, because "keep these in step" is a hope: a gate
 # missing from the runner does not get run, and a gate listed in the doc that
@@ -98,9 +179,14 @@ design = os.path.join(HERE, "DESIGN.md")
 if os.path.exists(design):
     text = open(design, encoding="utf-8").read()
     listed = set(re.findall(r"`(verify_[a-z_0-9]+\.py)`", text))
-    # The mutation tests are deliberately outside verify_all.py.
-    listed.discard("verify_flow_mutation.py")
-    listed.discard("verify_round2_mutation.py")
+    # The mutation tests are deliberately outside verify_all.py. READ THEM
+    # OFF DISK rather than naming them: this block discarded four suites by
+    # name while the closing note twenty lines below already globbed for them,
+    # so adding a fifth suite failed the doc-sync check for no reason. A list
+    # of names cannot stay in step with a directory, which is the whole
+    # subject of verify_coverage.py.
+    for m in glob.glob(os.path.join(HERE, "verify_*mutation*.py")):
+        listed.discard(os.path.basename(m))
     listed.discard("verify_all.py")
     # A gate the doc explicitly declares SUPERSEDED is not a coverage claim,
     # so it is allowed to be named without being run. Only that exact word
@@ -131,9 +217,17 @@ if bad:
     sys.exit(1)
 print("PASS: %d of %d gates green." % (len(results), len(results)))
 print()
-print("NOT COVERED HERE, and judged by a person:  whether the copy is")
+print("\nNOT COVERED HERE, and judged by a person:  whether the copy is")
 print("comprehensible to a first-time buyer, whether the attestation reads as")
 print("neutral rather than as a verdict, and whether the two seven day clocks")
-print("are distinguishable. Run verify_flow_mutation.py and")
-print("verify_round2_mutation.py separately: they edit files and take")
-print("several minutes.")
+print("are distinguishable.")
+# Read the mutation suites off disk rather than naming them. This line said
+# "the three mutation suites" and listed three while a fourth sat beside it,
+# which is the same defect the round-4 gates exist to stop: a count in prose
+# that nothing checks.
+muts = sorted(os.path.basename(p) for p in
+              glob.glob(os.path.join(HERE, "verify_*mutation*.py")))
+print("\nRun the %d mutation suites separately, they edit files and take" % len(muts))
+print("several minutes:")
+for m in muts:
+    print("  python3 %s %s" % (m, BASE))

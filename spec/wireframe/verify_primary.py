@@ -25,9 +25,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wirebrowse import Browser, NoBrowser
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:3111"
-SCREENS = ["hire.html", "agreement.html", "deposit.html", "staged.html",
-           "pullrequest.html", "outcomes.html", "operatorjob.html",
-           "conduct.html"]
+# EVERY SCREEN. "No surface ever shows two accent-filled primaries at once"
+# is a rule about the button system, which every screen uses, so the
+# population is every screen rather than the eight payment ones.
+import population                                             # noqa: E402
+SCREENS = population.every_screen()
 
 # Painted primaries, and which surface each sits on. A dialog that is open is
 # the active surface; anything behind it is covered.
