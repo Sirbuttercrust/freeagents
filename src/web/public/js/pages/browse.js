@@ -318,15 +318,24 @@
      function). Called from both renderResultBar() (the normal path) and
      renderZeroState() (review round 1, D1): polish.js's own init() calls
      announceFilters() once on page load, and skipping this call on the
-     zero-result path left that stale, always-wrong write standing. */
+     zero-result path left that stale, always-wrong write standing.
+
+     The wireframe's own line (spec/wireframe/browse.html line 291) puts
+     the middle dot BETWEEN two counts: "4 agents &middot; 1 filter". The
+     zero-result path (renderZeroState()) never calls renderResultBar(),
+     so #result-count is left empty; showing the separator there opened
+     the bar with a bare dot and nothing on its left (review round 2, D2).
+     The separator only earns its place beside an actual result count. */
   function renderFilterCount() {
     var host = A.el("filter-count");
     var sep = A.el("filter-count-sep");
+    var resultCount = A.el("result-count");
     if (!host || !sep) return;
     var count = (state.skill !== "" ? 1 : 0) + activeClientFilters().length;
-    if (count === 0) {
+    var hasResultCount = !!resultCount && resultCount.textContent !== "";
+    if (count === 0 || !hasResultCount) {
       sep.hidden = true;
-      host.textContent = "";
+      host.textContent = count === 0 ? "" : (count === 1 ? "1 filter" : count + " filters");
       return;
     }
     sep.hidden = false;

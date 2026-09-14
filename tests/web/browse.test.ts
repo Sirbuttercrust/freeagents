@@ -450,9 +450,27 @@ describe('the browse page: zero-state relaxation (DATA-CONTRACT section 3)', () 
       const filterCount = page.document.getElementById('filter-count');
       expect(filterCount?.textContent).toBe('2 filters');
       expect(filterCount?.textContent).not.toContain('No filters');
+    } finally {
+      page.close();
+    }
+  });
+
+  // Review round 2, D2: renderFilterCount() only ever consulted its own
+  // count, never whether #result-count had anything to sit beside. The
+  // zero-result path never calls renderResultBar(), so #result-count
+  // stays empty, and the wireframe's separator (spec/wireframe/browse.html
+  // line 291) exists to sit BETWEEN two counts, not to open a line on its
+  // own. Pin the separator absent here so a future regression that makes
+  // renderFilterCount() show the dot beside nothing fails loudly instead
+  // of shipping a line that reads "\u00b7 2 filters".
+  it('the zero-result bar never opens with a bare separator beside an empty result count', async () => {
+    const page = await render('/browse?skill=typescript&hires=1');
+    try {
+      const resultCount = page.document.getElementById('result-count');
+      expect(resultCount?.textContent).toBe('');
 
       const sep = page.document.getElementById('filter-count-sep');
-      expect(sep?.hidden).toBe(false);
+      expect(sep?.hidden).toBe(true);
     } finally {
       page.close();
     }
