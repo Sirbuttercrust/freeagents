@@ -482,7 +482,11 @@ describe('the operator page roster (R-19)', () => {
       expect(browseCard).toBeTruthy();
 
       const rosterName = rosterRow?.querySelector('.nm')?.textContent ?? '';
-      const browseName = browseCard?.querySelector('.name')?.textContent ?? '';
+      // W10: browse's card was rebuilt on the polished wireframe
+      // (market.css .acard), which names its card-link class .acard-name
+      // rather than the pre-polish row's .name. Selector updated to match;
+      // the fact under test (the same name on both surfaces) is unchanged.
+      const browseName = browseCard?.querySelector('.acard-name')?.textContent ?? '';
       expect(rosterName).not.toBe('');
       expect(rosterName).toBe(browseName);
 
@@ -491,7 +495,13 @@ describe('the operator page roster (R-19)', () => {
       // vocabulary (.tier, the label text beside the dot): the underlying
       // number must never drift.
       const rosterTierText = rosterRow?.querySelector('.right .tier')?.textContent ?? '';
-      const browseTierText = browseCard?.querySelector('.tier-label')?.textContent ?? '';
+      // W10: the polished card states its own tier visibly through the
+      // cardbadge (market.css .pverified/.punverified) and the evidence
+      // line, not through a separate visible .tier-label; .tier itself
+      // now carries the same "N verified hires" sentence directly,
+      // visually hidden for a screen reader and for exactly this kind of
+      // cross-page comparison (browse.html's own .tier-label-a11y).
+      const browseTierText = browseCard?.querySelector('.tier')?.textContent ?? '';
       expect(rosterTierText).toContain('1 verified hire');
       expect(browseTierText).toContain('1 verified hire');
 

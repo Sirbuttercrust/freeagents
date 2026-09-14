@@ -24,6 +24,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+import { clean } from '../helpers/wireframe-conformance-clean.js';
+
 const here = dirname(fileURLToPath(import.meta.url));
 const builtDir = join(here, '../../src/web/pages');
 const wireDir = join(here, '../../spec/wireframe');
@@ -452,10 +454,6 @@ function strip(htmlText: string): string {
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<div class="note"[\s\S]*?<\/div>\s*<\/div>/g, '')
     .replace(/<div class="note"[\s\S]*?<\/div>/g, '');
-}
-
-function clean(s: string): string {
-  return s.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&rarr;|→/g, '').replace(/\s+/g, ' ').trim();
 }
 
 function headings(htmlText: string): string[] {
