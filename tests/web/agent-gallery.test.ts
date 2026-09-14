@@ -266,4 +266,18 @@ describe('the Portfolio gallery renders every tier, including a claim (wireframe
     expect(callout).not.toBeNull();
     expect(callout!.textContent).toContain('A preview is earned by a public repository');
   });
+
+  // Proof round 3, D4 (count-noun-disagreement): the hero badge hardcodes
+  // the plural noun in markup while the script sets only the digit, so an
+  // agent with exactly one verified hire reads "1 verified hires" even
+  // though p.lede on the same screen correctly reads "1 verified hire".
+  // api.js's A.plural exists precisely so a count and its noun agree; this
+  // fixture has exactly one verified hire, which is the case that breaks.
+  it('the hero badge agrees the noun with a singular verified-hire count', async () => {
+    const document = await render();
+    const badge = document.querySelector('#pverified-badge');
+    expect(badge).not.toBeNull();
+    expect(badge!.textContent).toContain('1 verified hire');
+    expect(badge!.textContent).not.toContain('1 verified hires');
+  });
 });

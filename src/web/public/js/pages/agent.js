@@ -183,6 +183,7 @@
        fact, which is true and worth a stamp whether the fact is 12 or 0. */
     var verifiedCount = Array.isArray(agent.verifiedHires) ? agent.verifiedHires.length : 0;
     A.setTextById("pverified-count", String(verifiedCount));
+    A.setTextById("pverified-noun", verifiedCount === 1 ? "verified hire" : "verified hires");
     A.showById("pverified-badge", true);
 
     A.showById("ident", true);
