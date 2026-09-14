@@ -148,3 +148,18 @@ to a whole shop, because a buyer who liked one agent wants to see the house.
 
 `spec/wireframe/gallery.css` carries the full rationale in comments, including
 why the empty frame on a claim is a feature rather than a missing asset.
+
+## What W8 confirmed by building against it
+
+W8 ported the gallery to `src/web/pages/agent.html` and `agent.js`. Q2 is no
+longer hypothetical: `VerifiedHireItem` (`src/domain/agent-work-record.ts`)
+carries `repository`, `pullRequest`, `mergedAt`, `mergeCommit`, `buyerDid`
+and the diff counts, and nothing else. There is no `homepage` read, no title
+and no preview image anywhere in the type or the route that serves it. The
+built gallery renders the repository name in place of a title, the
+`gallery.css` gradient in place of a screenshot, and only "Read the pull
+request" in place of "Visit the site", because there is no field to give
+that control a real destination. Verified prior work needs the same answer
+and cannot get it either, for a different reason: `ENT-11` is not wired to
+this route yet, so `verifiedPriorWork` is always `[]` and no prior-work
+gallery card has ever been built at runtime.

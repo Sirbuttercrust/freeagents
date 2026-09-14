@@ -70,6 +70,11 @@
       }
 
       renderAgent(agent.value);
+      /* The three-cell stats row (DESIGN.md "three numbers, never
+         summed"): reads the same three tier arrays every other count on
+         this page reads, so it can never disagree with the rows below
+         it. */
+      renderStats(agent.value);
       /* The self-hire lookup (R-33) is built from the /hires read, which
          already resolves buyerDid against the operator through didSuffix;
          matched onto a tier row by mergeCommit, the one field both
@@ -93,6 +98,11 @@
       renderTier("history", "tier-hire", "Verified hire", agent.value.verifiedHires, true, selfHireByMergeCommit);
       renderTier("prior-work", "tier-prior", "Verified prior work", agent.value.verifiedPriorWork, true, selfHireByMergeCommit);
       renderTier("portfolio", "tier-claim", "Portfolio claim", agent.value.portfolio, false, selfHireByMergeCommit);
+      /* The Portfolio panel (spec/PORTFOLIO-QUESTIONS.md): earns a preview
+         from verified hires and verified prior work only, never from a
+         claim. Built after the tiers so it can share the same arrays
+         rather than a second read. */
+      renderGallery(agent.value);
       /* The tab bar's live counts and default "All" view (wireframe
          agent.html): built after the three tiers have rendered, so the
          chip labels count the SAME rows a reader sees, never a second
@@ -114,7 +124,9 @@
     A.showById("history-empty", false);
     A.showById("prior-work-empty", false);
     A.showById("portfolio-empty", false);
+    A.showById("gallery-empty", false);
     A.showById("reviews-empty", false);
+    A.showById("pverified-badge", false);
     /* The identity row is filled in by renderAgent and by nothing else, so
        on this path it holds only its own placeholders. Left up, it reads as
        a permanent "operator loading" under a heading that already said the
@@ -136,10 +148,42 @@
     var skills = Array.isArray(agent.skills) ? agent.skills.filter(function (s) { return typeof s === "string" && s !== ""; }) : [];
     A.setTextById("skills", skills.length > 0 ? skills.join("  \u00b7  ") : "");
 
-    /* The avatar is derived from the DID and served by the API (ENT-2.3).
-       If it will not parse, the frame stays empty rather than falling back
-       to a stand-in that could be mistaken for a chosen picture. */
-    A.setAvatar(A.el("avatar"), agent.avatar);
+    /* THE AVATAR IS PAINTED BY THE SWARM GENERATOR, NOT THE SERVER'S
+       agent.avatar FIELD. DESIGN.md 2.4 and ENT-2.3: an agent's creature
+       is derived from its DID and nothing else. swarm.js (window.FASwarm)
+       is the generator the polished pages standardise on; agent.avatar is
+       a separate, older server-rendered engine (src/api/avatar.ts's own
+       header names it a blobatar stand-in) that this page no longer
+       reads. The `data-avatar` attribute is set here, once the real DID
+       is known, so the markup matches the wireframe's own contract
+       (`span.pav[data-avatar][data-avatar-size]`) without racing
+       polish.js's generic sweep, which runs once at load and would find
+       nothing here yet. */
+    var avatarEl = A.el("avatar");
+    if (avatarEl && typeof agent.did === "string" && agent.did !== "" && window.FASwarm) {
+      avatarEl.setAttribute("data-avatar", agent.did);
+      avatarEl.innerHTML = window.FASwarm.avatar(agent.did, 96);
+      avatarEl.removeAttribute("data-pending");
+    }
+
+    /* Identity colour (DESIGN.md 2.4): per agent, derived from the DID,
+       never picked. The same hash swarm.js already uses to seed the
+       creature, read through FACore so this page invents no second hash
+       function. Five bands, matching the five --agent-* tokens. */
+    var phero = A.el("phero");
+    if (phero && window.FACore && typeof agent.did === "string") {
+      var hue = window.FACore.hash(agent.did) % 5;
+      phero.style.setProperty("--id-hue", "var(--agent-" + (hue + 1) + ")");
+    }
+
+    /* The verified-hire badge on the name (DESIGN.md 2.2: the accent is
+       reserved, and a verified hire is one of the few things allowed to
+       carry it). Shown at every count including zero (ENT-2.4, zeros
+       render as zeros in the same layout): the badge states a witnessed
+       fact, which is true and worth a stamp whether the fact is 12 or 0. */
+    var verifiedCount = Array.isArray(agent.verifiedHires) ? agent.verifiedHires.length : 0;
+    A.setTextById("pverified-count", String(verifiedCount));
+    A.showById("pverified-badge", true);
 
     A.showById("ident", true);
     A.setTextById("did-short", A.shortDid(agent.did));
@@ -155,23 +199,46 @@
       hireCta.setAttribute("href", "/hire?agent=" + encodeURIComponent(agent.did));
     }
 
-    var operator = A.el("operator-link");
-    if (operator && typeof agent.operatorDid === "string") {
-      operator.setAttribute("href", "/accounts/" + encodeURIComponent(agent.operatorDid));
-      A.setText(operator, A.shortDid(agent.operatorDid));
-    }
+    /* Two renders of the same fact: the header's "by <operator>" line
+       (.pby, DESIGN.md's profile-header component) and the identity box's
+       "Operator" row (invariant 2). Both read agent.operatorDid and
+       nothing else, so they can never disagree with each other. */
+    [A.el("operator-link"), A.el("operator-link-2")].forEach(function (operator) {
+      if (operator && typeof agent.operatorDid === "string") {
+        operator.setAttribute("href", "/accounts/" + encodeURIComponent(agent.operatorDid));
+        A.setText(operator, A.shortDid(agent.operatorDid));
+      }
+    });
 
     /* The proof status in plain language (DESIGN 7.1: "GitHub account
        confirmed", never "bidirectional account proof verified"). An
        unverified account says so, because the ceiling it implies is the
-       thing an operator needs to see. */
+       thing an operator needs to see. Linked only once confirmed: an
+       unconfirmed handle is the operator's own claim, not yet a checked
+       fact, so it renders as text rather than as a destination (DATA-
+       CONTRACT section 1, the same asymmetry a portfolio claim carries). */
     var github = A.el("github");
     if (github) {
+      github.textContent = "";
       if (typeof agent.githubLogin === "string" && agent.githubLogin !== "") {
-        github.textContent =
-          agent.proofStatus === "verified"
-            ? "github @" + agent.githubLogin + ", account confirmed"
-            : "github @" + agent.githubLogin + ", not confirmed yet";
+        if (agent.proofStatus === "verified") {
+          var ghLink = document.createElement("a");
+          ghLink.setAttribute("href", "https://github.com/" + encodeURIComponent(agent.githubLogin));
+          ghLink.setAttribute("rel", "noreferrer");
+          ghLink.textContent = "@" + agent.githubLogin;
+          github.appendChild(ghLink);
+          github.appendChild(document.createTextNode(" "));
+          var provenBoth = document.createElement("span");
+          provenBoth.className = "dim";
+          provenBoth.textContent = "proven both ways";
+          github.appendChild(provenBoth);
+        } else {
+          github.appendChild(document.createTextNode("@" + agent.githubLogin + " "));
+          var notYet = document.createElement("span");
+          notYet.className = "dim";
+          notYet.textContent = "not confirmed yet";
+          github.appendChild(notYet);
+        }
       } else {
         github.textContent = "no GitHub account linked";
       }
@@ -210,6 +277,27 @@
   function setCopy(id, value) {
     var btn = A.el(id);
     if (btn && typeof value === "string") btn.setAttribute("data-copy", value);
+  }
+
+  /* -------------------------------------------------------------- stats
+
+     DESIGN.md's four-cell pstats row: Verified hires (the only cell
+     carrying the accent, via .is-hire in the markup), Verified prior
+     work, Portfolio claims, Merge rate. Three counts, never summed, plus
+     merge rate as a fraction (never a percentage, DESIGN.md, locked).
+     Reads the SAME three tier arrays every other count on this page
+     reads, so this row can never disagree with the record sentence or
+     the rows below it. Merge rate needs the total-jobs-taken denominator,
+     which no route serves (Handoff gap 1), so it stays "not yet
+     observed" here too rather than a fraction with an invented
+     denominator. */
+  function renderStats(agent) {
+    var hires = Array.isArray(agent.verifiedHires) ? agent.verifiedHires.length : 0;
+    var prior = Array.isArray(agent.verifiedPriorWork) ? agent.verifiedPriorWork.length : 0;
+    var claims = Array.isArray(agent.portfolio) ? agent.portfolio.length : 0;
+    A.setTextById("pstat-hires", String(hires));
+    A.setTextById("pstat-prior", String(prior));
+    A.setTextById("pstat-claims", String(claims));
   }
 
   /* ------------------------------------------------------------ summary */
@@ -500,6 +588,98 @@
     node.appendChild(when);
 
     return node;
+  }
+
+  /* --------------------------------------------------------- gallery
+
+     The Portfolio panel (spec/PORTFOLIO-QUESTIONS.md, spec/wireframe/
+     gallery.css). A preview is earned by evidence, never uploaded: a
+     verified hire or verified prior-work item gets a card with the
+     browser-chrome frame and "Read the pull request"; a portfolio claim
+     gets NONE, ever (MISSION invariant 4, ENT-12.1: "the absence of the
+     control IS the message").
+
+     WHAT THIS RENDERS FROM, HONESTLY. VerifiedHireItem carries no site
+     URL, no screenshot and no title (the same gap named beside the
+     work-history row above), so "Visit the site" cannot ship: there is
+     no field to give it a real href. The frame instead uses the CSS
+     gradient gallery.css already ships for exactly this reason ("THE
+     PREVIEW SURFACES BELOW ARE CSS, NOT IMAGES... inventing screenshots
+     of work that does not exist would be inventing evidence"), keyed by
+     item position so a profile with several cards does not repeat one
+     texture. Handoff gap 3. */
+  var WORK_SHOT_CLASSES = ["work-shot-1", "work-shot-2", "work-shot-3", "work-shot-4"];
+
+  function renderGallery(agent) {
+    var verified = Array.isArray(agent.verifiedHires) ? agent.verifiedHires : [];
+    var prior = Array.isArray(agent.verifiedPriorWork) ? agent.verifiedPriorWork : [];
+    var items = verified.concat(prior);
+    var host = A.el("gallery");
+    if (!host) return;
+
+    if (items.length === 0) {
+      A.showById("gallery-empty", true);
+      return;
+    }
+
+    items.forEach(function (item, index) {
+      host.appendChild(galleryCard(item, index));
+    });
+  }
+
+  function galleryCard(item, index) {
+    var figure = document.createElement("figure");
+    figure.className = "work";
+
+    var frame = document.createElement("div");
+    frame.className = "work-frame";
+
+    var chrome = document.createElement("div");
+    chrome.className = "work-chrome";
+    for (var d = 0; d < 3; d += 1) {
+      var dot = document.createElement("span");
+      dot.className = "dot";
+      chrome.appendChild(dot);
+    }
+    var url = document.createElement("span");
+    url.className = "work-url";
+    url.textContent = typeof item.repository === "string" && item.repository !== "" ? item.repository : "";
+    chrome.appendChild(url);
+    frame.appendChild(chrome);
+
+    var shot = document.createElement("div");
+    shot.className = "work-shot " + WORK_SHOT_CLASSES[index % WORK_SHOT_CLASSES.length];
+    shot.setAttribute("role", "img");
+    shot.setAttribute(
+      "aria-label",
+      "Preview of " + (typeof item.repository === "string" && item.repository !== "" ? item.repository : "this work"),
+    );
+    frame.appendChild(shot);
+    figure.appendChild(frame);
+
+    var caption = document.createElement("figcaption");
+
+    var head = document.createElement("div");
+    head.className = "work-head";
+    var h3 = document.createElement("h3");
+    h3.textContent = typeof item.repository === "string" && item.repository !== "" ? item.repository : "Merged work";
+    head.appendChild(h3);
+    caption.appendChild(head);
+
+    var links = document.createElement("div");
+    links.className = "work-links";
+    if (typeof item.credentialId === "string" && item.credentialId !== "") {
+      var template = document.getElementById("tmpl-gallery-hire-link");
+      if (template) {
+        var linkEl = template.content.firstElementChild.cloneNode(true);
+        linkEl.setAttribute("href", typeof item.pullRequest === "string" && item.pullRequest !== "" ? item.pullRequest : "#");
+        links.appendChild(linkEl);
+      }
+    }
+    caption.appendChild(links);
+
+    figure.appendChild(caption);
+    return figure;
   }
 
   /* -------------------------------------------------- keys and disputes */
