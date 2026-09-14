@@ -366,24 +366,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // name what is behind it, so the label stays honest to its panel.
     'Show the identity document': 'no DID document route exists in src/api/app.ts and none may be added (a document this site served would be a check depending on us); the built disclosure "Show the identity check" names what is actually behind it (DESIGN 4.2), the agent\u2019s identity and the merge-commit signer from the receipt',
   },
-  agreement: {
-    // Group 1 (W7c): the wireframe's h1 names its sample agent, axiom-ui.
-    // The built h1 renders the LIVE agent name fetched from GET
-    // /agents/:agentDid (agreement.js's renderWho), the same call the
-    // agent profile page already makes for its own sample names above.
-    // Pinned by tests/web/agreement.test.ts, "the h1 names the live
-    // agent, never the wireframe's sample name".
-    'What axiom-ui is offering': 'wireframe sample data (axiom-ui is the wireframe\u2019s one example agent); the built h1 renders the live agent name fetched from GET /agents/:agentDid (agreement.js renderWho), pinned by tests/web/agreement.test.ts, "the h1 names the live agent, never the wireframe\u2019s sample name"',
-    // Group 4 (W7c): the wireframe's bulk sign-remaining control. This
-    // build marks one line at a time (agreement.js signLine, one POST per
-    // line, no batch route); the header comment at
-    // src/web/pages/agreement.html:9-15 already records the departure as
-    // a P8h decision, and per-line marking is exactly the design that
-    // makes signing seven terms with one click impossible. The
-    // wireframe's own count ("three") is the sample job's state, not a
-    // shape this page's control would ever hardcode.
-    'Sign the remaining three': 'this build has no bulk sign-remaining: agreement.js\u2019s signLine marks one line at a time via a per-line POST (no batch route exists), the departure already recorded at src/web/pages/agreement.html:9-15 (P8h decision); per-line marking is the design that prevents signing seven terms unread, which a bulk-sign control would defeat',
-  },
+  agreement: {},
   operatorjob: {
     // Group 1 (W7c): the wireframe draws the redo_requested state because
     // that is the state it chose to illustrate; the built page draws

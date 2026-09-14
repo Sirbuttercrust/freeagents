@@ -21,6 +21,7 @@ import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { createJob, type Job, type CompletedJob } from '../../src/domain/job.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSessionToken } from '../helpers/session-fixtures.js';
 import type { Delegation } from '../../src/domain/agent.js';
+import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const AGENT_DID = 'did:abt:agreement-page-agent';
@@ -91,12 +92,25 @@ async function renderAgreement(baseUrl: string, jobId: string, session: { token:
   return { window: dom.window, document: dom.window.document, close: () => dom.window.close() };
 }
 
-async function clickMark(page: Rendered, rowIndexInDom: number, cellClass: string): Promise<void> {
-  const rows = Array.from(page.document.querySelectorAll('.trow'));
+async function clickMark(page: Rendered, rowIndexInDom: number, whichCell: 'm-you' | 'm-them'): Promise<void> {
+  const rows = Array.from(page.document.querySelectorAll('#terms > li'));
   const row = rows[rowIndexInDom];
   if (!row) throw new Error(`no row at DOM index ${rowIndexInDom}`);
-  const btn = row.querySelector(`.${cellClass} button.mark`) as HTMLButtonElement | null;
-  if (!btn) throw new Error(`no mark button in ${cellClass} of row ${rowIndexInDom}`);
+  const sigcells = Array.from(row.querySelectorAll('.sigcell'));
+  const cell = sigcells[whichCell === 'm-you' ? 0 : 1];
+  if (!cell) throw new Error(`no sigcell for ${whichCell} in row ${rowIndexInDom}`);
+  const btn = cell.querySelector('button.sig') as HTMLButtonElement | null;
+  if (!btn) throw new Error(`no mark button in ${whichCell} of row ${rowIndexInDom}`);
+  btn.click();
+  await new Promise((resolve) => setTimeout(resolve, 250));
+}
+
+async function proposeCriterion(page: Rendered, text: string): Promise<void> {
+  const input = page.document.getElementById('newcrit') as HTMLInputElement | null;
+  if (!input) throw new Error('no #newcrit input');
+  input.value = text;
+  const btn = page.document.getElementById('propose-submit') as HTMLButtonElement | null;
+  if (!btn) throw new Error('no #propose-submit button');
   btn.click();
   await new Promise((resolve) => setTimeout(resolve, 250));
 }
@@ -202,6 +216,20 @@ describe('the agreement screen, driven end to end against the real app', () => {
       }),
     );
 
+    // Dedicated fixture for the propose test, kept separate from
+    // job-half-signed so a mutation here never changes what an earlier
+    // or later test in this file reads back for that job.
+    await jobRepo.create(
+      jobFixture({
+        id: 'job-for-propose',
+        status: 'proposed',
+        criteria: [
+          { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true },
+          { text: 'A regression test is added', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: true },
+        ],
+      }),
+    );
+
     sessionAdapterRef = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: 'agreement-page-buyer', id: 9101 }) });
 
     server = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapterRef).listen(0, '127.0.0.1');
@@ -225,7 +253,7 @@ describe('the agreement screen, driven end to end against the real app', () => {
         expect((notice!.textContent ?? '').toLowerCase()).toContain('sign in');
         const body = page.document.getElementById('agreement-body');
         expect(body!.hidden).toBe(true);
-        expect(body!.querySelectorAll('button.mark').length).toBe(0);
+        expect(body!.querySelectorAll('button.sig').length).toBe(0);
       } finally {
         page.close();
       }
@@ -233,11 +261,11 @@ describe('the agreement screen, driven end to end against the real app', () => {
   });
 
   describe('the who strip and the back link', () => {
-    it('the back link reads "Back to the brief" and points at the hire page (wireframe agreement.html:92)', async () => {
+    it('the back link reads "Back to brief" and points at the hire page (wireframe agreement.html:251)', async () => {
       const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
       try {
         const back = page.document.getElementById('back-link');
-        expect(back?.textContent).toBe('Back to the brief');
+        expect(back?.textContent).toBe('Back to brief');
       } finally {
         page.close();
       }
@@ -256,13 +284,23 @@ describe('the agreement screen, driven end to end against the real app', () => {
     });
   });
 
-  describe('the h1 names the live agent, never the wireframe\'s sample name (route 1 on the agreement h1)', () => {
-    it('reads "What <agent name> is offering" once the agent record loads, never a placeholder or empty string first', async () => {
+  describe('the h1 states what the screen is for, and the live agent name renders in the who strip (Group 1 of the wireframe reconcile)', () => {
+    it('the h1 is the wireframe\'s static "Agree the terms", never a placeholder built from the agent name', async () => {
       const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
       try {
-        const h1 = page.document.querySelector('.glow h1');
-        expect(h1?.textContent).toBe('What agreement-page-scout is offering');
-        expect(h1?.hasAttribute('data-pending')).toBe(false);
+        const h1 = page.document.querySelector('.pname');
+        expect(h1?.textContent).toBe('Agree the terms');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('the who strip carries the live agent name once the record loads, never a placeholder or empty string first', async () => {
+      const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
+      try {
+        const name = page.document.getElementById('agent-name');
+        expect(name?.textContent).toBe('agreement-page-scout');
+        expect(name?.hasAttribute('data-pending')).toBe(false);
       } finally {
         page.close();
       }
@@ -286,38 +324,42 @@ describe('the agreement screen, driven end to end against the real app', () => {
     it('renders one row per criterion plus a price row plus a delivery row, numbered contiguously, with the agent\'s marks shown and the buyer\'s outstanding lines offered as controls', async () => {
       const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
       try {
-        const rows = Array.from(page.document.querySelectorAll('.trow'));
+        const rows = Array.from(page.document.querySelectorAll('#terms > li'));
         expect(rows.length).toBe(4);
 
         const numbers = rows.map((row) => row.querySelector('.num')?.textContent ?? '');
         expect(numbers).toEqual(['01', '02', '03', '04']);
 
-        // Row 1: buyer already signed -> a mark-on, no button.
-        expect(rows[0]!.querySelector('.m-you button')).toBeNull();
-        expect(rows[0]!.querySelector('.m-you .mark-on')).not.toBeNull();
+        function sigcells(row: Element): Element[] {
+          return Array.from(row.querySelectorAll('.sigcell'));
+        }
+
+        // Row 1: buyer already signed -> a report, no button.
+        expect(sigcells(rows[0]!)[0]!.querySelector('button')).toBeNull();
+        expect(sigcells(rows[0]!)[0]!.querySelector('.sig.is-signed')).not.toBeNull();
         // Row 2: buyer has not signed -> a real button.
-        expect(rows[1]!.querySelector('.m-you button.mark-off')).not.toBeNull();
+        expect(sigcells(rows[1]!)[0]!.querySelector('button.sig.is-waiting')).not.toBeNull();
         // Every row: the agent's mark is a statement, never a button.
         rows.forEach((row) => {
-          expect(row.querySelector('.m-them button')).toBeNull();
+          expect(sigcells(row)[1]!.querySelector('button')).toBeNull();
         });
         // Row 3 (price) and row 4 (delivery): agent signed, buyer has not.
-        expect(rows[2]!.querySelector('.m-them .mark-on')).not.toBeNull();
-        expect(rows[2]!.querySelector('.m-you button.mark-off')).not.toBeNull();
-        expect(rows[3]!.querySelector('.m-them .mark-on')).not.toBeNull();
-        expect(rows[3]!.querySelector('.m-you button.mark-off')).not.toBeNull();
-        expect(rows[3]!.querySelector('.line')?.textContent ?? '').toContain('6 days');
+        expect(sigcells(rows[2]!)[1]!.querySelector('.sig.is-signed')).not.toBeNull();
+        expect(sigcells(rows[2]!)[0]!.querySelector('button.sig.is-waiting')).not.toBeNull();
+        expect(sigcells(rows[3]!)[1]!.querySelector('.sig.is-signed')).not.toBeNull();
+        expect(sigcells(rows[3]!)[0]!.querySelector('button.sig.is-waiting')).not.toBeNull();
+        expect(rows[3]!.querySelector('.txt')?.textContent ?? '').toContain('6 days');
       } finally {
         page.close();
       }
     });
 
-    it('the outstanding panel decodes state into an actionable sentence naming the buyer\'s waiting lines', async () => {
+    it('the lockbar decodes state into an actionable sentence naming how many signatures wait on the buyer', async () => {
       const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
       try {
-        const outstanding = page.document.getElementById('outstanding')?.textContent ?? '';
-        expect(outstanding).toContain('waiting on your signature');
-        expect(outstanding).toContain('2, 3, 4');
+        const lockbar = page.document.getElementById('lockbar')?.textContent ?? '';
+        expect(lockbar.toLowerCase()).toContain('waiting on you');
+        expect(lockbar.toLowerCase()).toContain('3 signatures');
       } finally {
         page.close();
       }
@@ -326,10 +368,13 @@ describe('the agreement screen, driven end to end against the real app', () => {
     it('when every line is fully agreed, states so and points at the deposit next, never a status word alone', async () => {
       const page = await renderAgreement(baseUrl, 'job-fully-agreed', { token: buyerToken });
       try {
-        const outstanding = page.document.getElementById('outstanding')?.textContent ?? '';
-        expect(outstanding.toLowerCase()).toContain('fully agreed');
-        expect(outstanding.toLowerCase()).toContain('deposit is next');
-        expect(page.document.querySelectorAll('.m-you button').length).toBe(0);
+        const lockbar = page.document.getElementById('lockbar');
+        expect(lockbar?.textContent?.toLowerCase()).toContain('fully agreed');
+        expect(lockbar?.className).toContain('is-locked');
+        const depositRow = page.document.getElementById('deposit-row') as HTMLElement | null;
+        expect(depositRow?.hidden).toBe(false);
+        expect(page.document.getElementById('deposit-link')?.getAttribute('href')).toBe('/deposit?job=job-fully-agreed');
+        expect(page.document.querySelectorAll('#terms button.sig').length).toBe(0);
       } finally {
         page.close();
       }
@@ -343,7 +388,7 @@ describe('the agreement screen, driven end to end against the real app', () => {
         expect(page.document.getElementById('terms-body')).toBeNull();
         const grid = page.document.getElementById('terms');
         expect(grid).not.toBeNull();
-        const rows = Array.from(page.document.querySelectorAll('.trow'));
+        const rows = Array.from(page.document.querySelectorAll('#terms > li'));
         expect(rows.length).toBeGreaterThan(0);
         rows.forEach((row) => {
           expect(row.parentElement).toBe(grid);
@@ -366,10 +411,10 @@ describe('the agreement screen, driven end to end against the real app', () => {
       }
     });
 
-    it('the technical disclosure says the fingerprint is computed after the deposit settles, not when the last mark lands', async () => {
+    it('the raw-list disclosure says the fingerprint is computed after the deposit settles, not when the last mark lands', async () => {
       const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
       try {
-        const disclosure = page.document.getElementById('agtech')?.textContent ?? '';
+        const disclosure = page.document.getElementById('rawlist')?.textContent ?? '';
         expect(disclosure.toLowerCase()).not.toContain('computed once the last mark lands');
         expect(disclosure.toLowerCase()).toContain('deposit settles');
       } finally {
@@ -414,13 +459,13 @@ describe('the agreement screen, driven end to end against the real app', () => {
     it('posts to price/accept, and the delivery row\'s mark reflects the same acceptance (mutation proof 3)', async () => {
       const page = await renderAgreement(baseUrl, 'job-price-only', { token: buyerToken });
       try {
-        const rowsBefore = Array.from(page.document.querySelectorAll('.trow'));
+        const rowsBefore = Array.from(page.document.querySelectorAll('#terms > li'));
         expect(rowsBefore.length).toBe(3); // one criterion, price, delivery
         await clickMark(page, 1, 'm-you'); // row 1 (0-indexed) is the price row
 
-        const rowsAfter = Array.from(page.document.querySelectorAll('.trow'));
-        expect(rowsAfter[1]!.querySelector('.m-you .mark-on')).not.toBeNull();
-        expect(rowsAfter[2]!.querySelector('.m-you .mark-on')).not.toBeNull();
+        const rowsAfter = Array.from(page.document.querySelectorAll('#terms > li'));
+        expect(rowsAfter[1]!.querySelectorAll('.sigcell')[0]!.querySelector('.sig.is-signed')).not.toBeNull();
+        expect(rowsAfter[2]!.querySelectorAll('.sigcell')[0]!.querySelector('.sig.is-signed')).not.toBeNull();
 
         const readBack = await fetch(`${baseUrl}/jobs/job-price-only`, { headers: { Accept: 'application/json' } });
         const body = (await readBack.json()) as { price: { acceptedByBuyer: boolean } };
@@ -431,6 +476,30 @@ describe('the agreement screen, driven end to end against the real app', () => {
     });
   });
 
+  describe('proposing a criterion', () => {
+    it('sends the current criteria unchanged plus the new one, so the new line appears unaccepted by both parties and every pre-existing line keeps its acceptance flags (P1, proposeCriteria diff)', async () => {
+      const page = await renderAgreement(baseUrl, 'job-for-propose', { token: buyerToken });
+      try {
+        await proposeCriterion(page, 'A third criterion, newly proposed');
+
+        const readBack = await fetch(`${baseUrl}/jobs/job-for-propose`, { headers: { Accept: 'application/json' } });
+        const body = (await readBack.json()) as {
+          criteria: Array<{ text: string; acceptedByBuyer: boolean; acceptedByAgent: boolean; proposedBy: string }>;
+        };
+        expect(body.criteria.length).toBe(3);
+        expect(body.criteria[0]).toMatchObject({ text: 'The login bug is fixed', acceptedByBuyer: true, acceptedByAgent: true });
+        expect(body.criteria[1]).toMatchObject({ text: 'A regression test is added', acceptedByBuyer: false, acceptedByAgent: true });
+        expect(body.criteria[2]).toMatchObject({
+          text: 'A third criterion, newly proposed',
+          acceptedByBuyer: false,
+          acceptedByAgent: false,
+          proposedBy: 'buyer',
+        });
+      } finally {
+        page.close();
+      }
+    });
+  });
   describe('the fixed terms', () => {
     it('render with no button, no input, and no mark anywhere inside their container', async () => {
       const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
@@ -439,7 +508,7 @@ describe('the agreement screen, driven end to end against the real app', () => {
         expect(fixed).not.toBeNull();
         expect(fixed!.querySelectorAll('button').length).toBe(0);
         expect(fixed!.querySelectorAll('input').length).toBe(0);
-        expect(fixed!.querySelectorAll('.mark').length).toBe(0);
+        expect(fixed!.querySelectorAll('.sig').length).toBe(0);
         expect(fixed!.textContent ?? '').toContain('300.00 of $1200.00');
       } finally {
         page.close();
@@ -485,7 +554,7 @@ describe('the agreement screen, driven end to end against the real app', () => {
       );
       const page = await renderAgreement(baseUrl, 'job-markup-criterion', { token: buyerToken });
       try {
-        const line = page.document.querySelector('.trow .line');
+        const line = page.document.querySelector('#terms > li .txt');
         expect(line).not.toBeNull();
         expect(line!.textContent ?? '').toContain('Fix <b>the</b> bug, not <img src=x onerror=alert(1)>');
         expect(line!.querySelector('img')).toBeNull();
@@ -545,8 +614,8 @@ describe('the agreement screen, driven end to end against the real app', () => {
         await clickMark(page, 0, 'm-you');
 
         expect(requestedPaths.some((p) => p.includes('/confirm'))).toBe(false);
-        const outstanding = page.document.getElementById('outstanding')?.textContent ?? '';
-        expect(outstanding.toLowerCase()).toContain('fully agreed');
+        const lockbar = page.document.getElementById('lockbar')?.textContent ?? '';
+        expect(lockbar.toLowerCase()).toContain('fully agreed');
       } finally {
         page.close();
       }
@@ -704,6 +773,180 @@ describe('the agreement screen, driven end to end against the real app', () => {
     it('the collected sentences are pairwise distinct (mutation proof 5)', () => {
       expect(sentences.length).toBe(3);
       expect(new Set(sentences).size).toBe(sentences.length);
+    });
+  });
+
+  // QA round 1, D1 unstyled-ported-component: the polished-stack swap
+  // deleted the page-local rules for .who, .steps li/.on/.done and
+  // .draftflag, and nothing in base.css, polish.css or agreement.css
+  // replaced them, so all three rendered with zero matching author rules.
+  // jsdom performs no layout and cannot see this (it never computed a
+  // border width from a stylesheet a browser would apply), so this is
+  // driven through RealBrowser, the same instrument QA used to find it.
+  describe('the who strip, step rail and draft flag carry real styling (D1 unstyled-ported-component)', () => {
+    it('at 1280px, .who is a flex row with its border and the current step is visually distinct from the rest', async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      const browser = await RealBrowser.launch({ width: 1280, height: 900 });
+      try {
+        await browser.goto(`${baseUrl}/agreement?job=job-half-signed`);
+        await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify({ token: buyerToken }))})`);
+        await browser.goto(`${baseUrl}/agreement?job=job-half-signed`);
+
+        const who = await browser.evaluate<{ display: string; borderBottomWidth: string; marginBottom: string; nameWeight: string }>(`
+          (function () {
+            var who = document.getElementById('who');
+            var name = document.getElementById('agent-name');
+            var s = getComputedStyle(who);
+            var ns = getComputedStyle(name);
+            return { display: s.display, borderBottomWidth: s.borderBottomWidth, marginBottom: s.marginBottom, nameWeight: ns.fontWeight };
+          })()
+        `);
+        expect(who.display).toBe('flex');
+        expect(parseFloat(who.borderBottomWidth)).toBeGreaterThan(0);
+        expect(parseFloat(who.marginBottom)).toBeGreaterThan(0);
+        expect(parseFloat(who.nameWeight)).toBeGreaterThanOrEqual(550);
+
+        const rail = await browser.evaluate<{ borderTops: string[]; borderColors: string[] }>(`
+          (function () {
+            var items = Array.from(document.querySelectorAll('.steps li'));
+            return {
+              borderTops: items.map(function (li) { return getComputedStyle(li).borderTopWidth; }),
+              borderColors: items.map(function (li) { return getComputedStyle(li).borderTopColor; }),
+            };
+          })()
+        `);
+        // The current step (#s2, "on") must carry a border WIDTH (the
+        // wireframe's own state carrier: the rule is 2px solid on every
+        // step, and the current one is distinguished by colour, not
+        // width) and a COLOUR distinct from an untouched future step
+        // (#s3); zero width on all five, or an identical colour on every
+        // step, is the exact QA finding: the rail cannot show where you
+        // are.
+        expect(rail.borderTops[1]).not.toBe('0px');
+        expect(rail.borderColors[1]).not.toBe(rail.borderColors[2]);
+
+        const draftflag = await browser.evaluate<{ fontFamily: string; borderLeftWidth: string; paddingLeft: string }>(`
+          (function () {
+            var el = document.querySelector('.draftflag');
+            var s = getComputedStyle(el);
+            return { fontFamily: s.fontFamily, borderLeftWidth: s.borderLeftWidth, paddingLeft: s.paddingLeft };
+          })()
+        `);
+        expect(draftflag.fontFamily.toLowerCase()).not.toContain('geist');
+        expect(parseFloat(draftflag.borderLeftWidth)).toBeGreaterThan(0);
+        expect(parseFloat(draftflag.paddingLeft)).toBeGreaterThan(0);
+      } finally {
+        await browser.close();
+      }
+    });
+
+    it('at 320px the step rail collapses its labels and .railnow carries the current step in words, with no horizontal overflow', async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      const browser = await RealBrowser.launch({ width: 320, height: 900 });
+      try {
+        await browser.goto(`${baseUrl}/agreement?job=job-half-signed`);
+        await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify({ token: buyerToken }))})`);
+        await browser.goto(`${baseUrl}/agreement?job=job-half-signed`);
+
+        const metrics = await browser.evaluate<{ scrollWidth: number; clientWidth: number; stepFontSize: string; railnowDisplay: string; railnowText: string }>(`
+          (function () {
+            var step = document.querySelector('.steps li');
+            var railnow = document.querySelector('.railnow');
+            return {
+              scrollWidth: document.documentElement.scrollWidth,
+              clientWidth: document.documentElement.clientWidth,
+              stepFontSize: getComputedStyle(step).fontSize,
+              railnowDisplay: getComputedStyle(railnow).display,
+              railnowText: railnow.textContent || '',
+            };
+          })()
+        `);
+        expect(metrics.scrollWidth, `scrollWidth ${metrics.scrollWidth} vs clientWidth ${metrics.clientWidth}`).toBe(metrics.clientWidth);
+        expect(metrics.stepFontSize).toBe('0px');
+        expect(metrics.railnowDisplay).toBe('block');
+        expect(metrics.railnowText.toLowerCase()).toContain('step 2 of 5');
+      } finally {
+        await browser.close();
+      }
+    });
+  });
+
+  // QA round 1 note (not a defect, but worth pinning): renderLockbar's
+  // `needed = lines.length * 2` is the only place the "signatures needed"
+  // half of the count comes from, and none of the existing assertions
+  // read the number pair, only the phrase. A mutation to
+  // `lines.length` kept all 27 tests green while the live page rendered
+  // "6 of 3" at 200% meter width on the fully-agreed fixture. This test
+  // reads the actual digits so that mutation goes red.
+  describe('the lockbar count states two signatures needed per line, not one', () => {
+    it('on a fully-agreed job with 3 lines (1 criterion + price + delivery), the count reads 6 of 6, not 6 of 3', async () => {
+      const page = await renderAgreement(baseUrl, 'job-fully-agreed', { token: buyerToken });
+      try {
+        const count = page.document.getElementById('lockcount')?.textContent ?? '';
+        expect(count).toContain('6');
+        expect(count).toMatch(/6\s*(of|\/)\s*6/i);
+        const meter = page.document.getElementById('lockmeter-fill') as HTMLElement | null;
+        expect(meter?.style.width).toBe('100%');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('on a half-signed job with 4 lines, the denominator reads 8, not 4', async () => {
+      const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
+      try {
+        // Fixture: criterion 0 both signed (2), criterion 1 agent-only (1),
+        // price agent-only (1), delivery shares price's pair, agent-only
+        // (1). Collected = 5, needed = 4 lines x 2 = 8. The mutation this
+        // test is written against (needed = lines.length) would read the
+        // denominator as 4, half the true figure.
+        const count = page.document.getElementById('lockcount')?.textContent ?? '';
+        expect(count).toMatch(/5\s*(of|\/)\s*8/i);
+      } finally {
+        page.close();
+      }
+    });
+  });
+
+  // QA round 2, D2 script-rendered-icon-never-painted: every .ico host
+  // agreement.js builds in script (the eight .sigdot marks, the .from
+  // proposer arrow) ships empty. icons.js paints once on DOMContentLoaded
+  // and polish.js paints once in init(), both before the job fetch
+  // resolves, and nothing repaints after. This is DOM shape, not layout,
+  // so jsdom (which builds the SVG element FAIcon.paint appends same as a
+  // real browser) is the right instrument; no RealBrowser needed.
+  describe('the sigdot marks carry a painted icon, not an empty host (D2 script-rendered-icon-never-painted)', () => {
+    it('after the terms render, every .sigdot host has a painted svg child', async () => {
+      const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
+      try {
+        const dots = Array.from(page.document.querySelectorAll('.sigdot .ico'));
+        expect(dots.length).toBeGreaterThan(0);
+        dots.forEach((dot) => {
+          expect(dot.querySelector('svg')).not.toBeNull();
+        });
+      } finally {
+        page.close();
+      }
+    });
+
+    it('after clicking a mark and the row re-renders, the new sigdot host is still painted', async () => {
+      const page = await renderAgreement(baseUrl, 'job-two-unsigned', { token: buyerToken });
+      try {
+        await clickMark(page, 0, 'm-you');
+        const dots = Array.from(page.document.querySelectorAll('.sigdot .ico'));
+        expect(dots.length).toBeGreaterThan(0);
+        dots.forEach((dot) => {
+          expect(dot.querySelector('svg')).not.toBeNull();
+        });
+      } finally {
+        page.close();
+      }
     });
   });
 });
