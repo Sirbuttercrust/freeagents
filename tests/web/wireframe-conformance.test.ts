@@ -68,6 +68,34 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // (handoff gap, this card).
     'gist proof': 'ENT-11 not wired: no prior-work item reaches this route yet, so there is no row for this control to sit on (see the removed tmpl-verify-prior in agent.html)',
     'Check the ownership proof': 'same reason as "gist proof": ENT-11 not wired, no prior-work row exists for this affordance yet',
+    // W8: the Portfolio gallery (spec/PORTFOLIO-QUESTIONS.md). VerifiedHireItem
+    // (agent-work-record.ts) carries repository, pullRequest, mergedAt,
+    // mergeCommit, buyerDid and the diff counts; it carries no site URL, no
+    // screenshot and no commit-count/gist field. Cards render live from
+    // this shape (agent.js's galleryCard), so a control with no field to
+    // give it a real href is dropped rather than shipped inert, the same
+    // rule the row-level "gist proof" entry above already applies.
+    'Visit the site': 'no field on VerifiedHireItem (agent-work-record.ts) carries a deployed site URL; an anchor with no real destination is the inert-declared-control defect this codebase avoids elsewhere (agent.js galleryCard renders only "Read the pull request", which does have a real field)',
+    // Verified prior work is always [] until ENT-11 is wired (the same gap
+    // "gist proof" above documents), so no gallery card for that tier is
+    // ever built at runtime; a <template> carrying these two controls with
+    // nothing that ever clones them is exactly the conformance-satisfied-
+    // by-dead-markup defect Proof round 2 (D1) already found and fixed once
+    // in this file, for the row-level verify affordance.
+    'See the commits': 'ENT-11 not wired (verifiedPriorWork is always [], agent-work-record.ts); no prior-work gallery card is ever built for this control to sit on, and a template nothing clones is the dead-markup defect Proof round 2 (D1) already fixed once in this file',
+    'Read the source': 'same reason as "See the commits": ENT-11 not wired, no prior-work gallery card exists for this affordance yet',
+    // The wireframe's four sample gallery card titles (its one example
+    // agent's specific portfolio items). VerifiedHireItem carries no title
+    // field (the same gap the work-history row's own giant comment
+    // documents for its .title slot): the built gallery renders the real
+    // repository name in this slot instead (agent.js galleryCard), so
+    // these four fictional strings can never appear in the built page,
+    // the same reason browse's "pellucid" entry excuses a sample name.
+    'Accessible checkout flow': "wireframe sample data (one of the wireframe's four example gallery card titles); VerifiedHireItem carries no title field, so the built gallery renders the real repository name in this slot instead (agent.js galleryCard)",
+    'Component library and docs': 'same reason as "Accessible checkout flow": a wireframe sample gallery title, replaced by the real repository name',
+    'Analytics dashboard': 'same reason as "Accessible checkout flow": a wireframe sample gallery title, replaced by the real repository name',
+    'Its own site, scroll driven': 'same reason as "Accessible checkout flow": a wireframe sample gallery title, replaced by the real repository name',
+    'Private client dashboard': 'same reason as "Accessible checkout flow": a wireframe sample gallery title, replaced by the real repository name. This one is a portfolio claim, and the built gallery does render a claim card for it (figure.work.is-claim, ENT-12.1), with the repository name in the title slot for the same reason every other card uses it',
   },
   browse: {
     // The brief's one authorised departure: nothing in the data carries a

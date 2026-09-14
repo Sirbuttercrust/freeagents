@@ -62,4 +62,18 @@
      than three. Durations are fixed by DESIGN 6: 120ms for a control's state
      change, 240ms for something entering or leaving, 800ms for a morph. */
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  /* The pane recipe (DESIGN 2.6): a raised surface is a fill, a rim, a
+     highlight and a shadow tuned as a set, because the rim and the
+     highlight have to agree about where the light comes from. Named here
+     rather than left as literals in base.css's .pane rule, because 2.6
+     lists these as tokens and a value not in this table does not exist in
+     the product (2.1). */
+  --pane-fill:      rgba(255,255,255,0.028);
+  --pane-fill-2:    rgba(255,255,255,0.055);
+  --pane-rim:       rgba(255,255,255,0.11);
+  --pane-rim-hi:    rgba(255,255,255,0.22);
+  --pane-glow:      rgba(255,255,255,0.05);
+  --pane-shadow:    0 1px 2px rgba(0,0,0,0.35), 0 8px 24px -12px rgba(0,0,0,0.6);
+  --pane-shadow-hi: 0 2px 4px rgba(0,0,0,0.4), 0 18px 44px -16px rgba(0,0,0,0.75);
 }

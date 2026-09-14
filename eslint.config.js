@@ -150,6 +150,10 @@ export default tseslint.config(
         FAReveal: 'readonly',
         FASmoothScroll: 'readonly',
         FAApi: 'readonly',
+        // W8: polish.js and icons.js (src/web/public/js/), ported from the
+        // polished wireframe and now shared by every page that loads the
+        // craft layer, not only the landing page.
+        FAIcon: 'readonly',
       },
     },
     rules: {
