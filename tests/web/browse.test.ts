@@ -429,6 +429,35 @@ describe('the browse page: zero-state relaxation (DATA-CONTRACT section 3)', () 
     }
   });
 
+  // Review round 1, D1: the result bar's data-filter-count slot has two
+  // possible writers, this page's own renderFilterCount() and polish.js's
+  // shared announceFilters(). Both select the same [data-filter-count]
+  // element. On a normal, non-zero result renderResultBar() calls this
+  // page's writer and the true count wins; on the zero-result path
+  // renderAll() used to return into renderZeroState() before ever calling
+  // renderFilterCount(), so whichever handler ran last (polish.js, which
+  // counts [data-toggle] chips this page never uses and always finds
+  // zero) was left holding the slot, contradicting the two chips actually
+  // pressed and the zero-state title on the same screen. This URL has
+  // both a server-side skill filter and a client-side hires filter
+  // active, two filters total, so the real count is unambiguous.
+  it('the zero-result bar states the true filter count, not the shared handler\'s wrong one', async () => {
+    const page = await render('/browse?skill=typescript&hires=1');
+    try {
+      const zeroHost = page.document.getElementById('zero-host');
+      expect(zeroHost?.hidden).toBe(false);
+
+      const filterCount = page.document.getElementById('filter-count');
+      expect(filterCount?.textContent).toBe('2 filters');
+      expect(filterCount?.textContent).not.toContain('No filters');
+
+      const sep = page.document.getElementById('filter-count-sep');
+      expect(sep?.hidden).toBe(false);
+    } finally {
+      page.close();
+    }
+  });
+
   // The brief: "If a count cannot be read, render the button without a
   // count rather than with a guess." A proxy in front of the real server
   // fails only the relaxed re-query the skill-drop button depends on

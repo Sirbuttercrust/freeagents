@@ -315,7 +315,10 @@
      (the same reason the drawer disclosure above is wired directly
      instead of through [data-disclose]: a shared handler double-firing
      against a control this page already owns is worse than a second small
-     function). */
+     function). Called from both renderResultBar() (the normal path) and
+     renderZeroState() (review round 1, D1): polish.js's own init() calls
+     announceFilters() once on page load, and skipping this call on the
+     zero-result path left that stale, always-wrong write standing. */
   function renderFilterCount() {
     var host = A.el("filter-count");
     var sep = A.el("filter-count-sep");
@@ -631,6 +634,16 @@
      making. */
   function renderZeroState() {
     A.showById("zero-host", true);
+
+    // D1 (review round 1): this slot is shared with polish.js's
+    // announceFilters(), which counts [data-toggle] chips this page never
+    // uses and always finds zero, so it can leave the slot reading "No
+    // filters" here. renderResultBar() already corrects that write on the
+    // non-zero path; the zero-result path skips renderResultBar()
+    // entirely, so this calls the same page-owned writer directly to
+    // state the true count (or nothing) instead of leaving whatever
+    // polish.js wrote standing.
+    renderFilterCount();
 
     var filters = activeClientFilters();
     var hasSkill = state.skill !== "";
