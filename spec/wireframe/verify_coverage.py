@@ -179,6 +179,18 @@ INLINE_WITH_REASON = {
     # screen with no field, no dialog, or no defect to restore.
     "verify_round12_mutation.py": {"browse.html", "agent.html",
                                    "agentsettings.html", "staged.html"},
+    # Round 13's fixtures are named because each is the only screen that can
+    # prove its control. dashboard.html carries a summary.avatarbtn, which is
+    # the exact control the gate's role filter used to drop, and M1 is the
+    # reviewer's positive control reproduced: remove its aria-label and assert
+    # the gate names THAT file. notfound.html is the negative and aria-hidden
+    # fixture, chosen because it is a general screen with no disclosure of its
+    # own, so a planted <details> meets a role the gate now admits on a page
+    # that had none. Deriving either at run time would mean planting a defect
+    # in a screen chosen by chance and then not knowing which name to expect,
+    # and for M1 it could pick one of the 25 screens with no account menu at
+    # all, where the control would pass while proving nothing.
+    "verify_round13_mutation.py": {"dashboard.html", "notfound.html"},
 }
 
 
