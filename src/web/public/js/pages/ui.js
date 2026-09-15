@@ -49,15 +49,29 @@
      Every exact term is copyable, because the people who want the identifier
      want to paste it somewhere. The value is read at CLICK TIME rather than
      bound at setup, so a control whose value a page script fills in later
-     copies the real value instead of an empty placeholder. */
+     copies the real value instead of an empty placeholder.
+
+     A .copybtn REPORTS THE RESULT WITH ITS ICON, so its text must stay put.
+     The wireframe's own wireframe.js carries this guard (wireframe.js:80-83)
+     and the port of that behaviour into this file dropped it, which is why
+     the guard arrived here with the verify rebuild rather than with the
+     first page to ship a .copybtn. Without it, textContent = "Copied"
+     replaces the button's whole subtree: the .icoslot, both glyphs and the
+     .lbl are destroyed on the first press and the restore puts back a bare
+     word, permanently. Measured on the shipped markup shape: two glyphs and
+     one label at rest, zero of each after one click, zero after the restore
+     timer. It is invisible in a screenshot of a page nobody has clicked,
+     which is how it shipped on the agent and operator profiles; both are
+     repaired by this line as well. */
   function copies() {
     var list = document.querySelectorAll("[data-copy]");
     Array.prototype.forEach.call(list, function (btn) {
       btn.addEventListener("click", function () {
         var v = btn.getAttribute("data-copy");
         if (!v) return;
-        var restore = btn.textContent;
         if (navigator.clipboard) { navigator.clipboard.writeText(v).catch(function () {}); }
+        if (btn.classList.contains("copybtn")) return;
+        var restore = btn.textContent;
         btn.textContent = "Copied";
         setTimeout(function () { btn.textContent = restore; }, 1100);
       });
