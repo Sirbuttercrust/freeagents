@@ -6,40 +6,79 @@
 <title>Dashboard: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/pipeline.css">
 <style>
-  /* P8u DASHBOARD (SITEMAP P-9), from spec/wireframe/dashboard.html. Same
-     structure, copy and class vocabulary as the wireframe; departures are
-     named in the handoff.
+  /* P-9 DASHBOARD, rebuilt on spec/wireframe/dashboard.html (W-dashboard).
+     "Show what needs your attention, and nothing else."
 
-     .dgrid, .rowtext .t/.m and .rowtrail are declared in the wireframe's
-     own <style> block and are absent from base.css, so they ride here, the
-     same way myjobs.html carries its own .rowtext/.rowtrail rules. base.css
-     already has .wrap, .section, .section-sm, .pane, .pane-pad, .glow,
-     .lede, .sub, .rule, .nav, .brand, .links, .spacer, .btn, .btn-sm,
-     .btn-primary, .rows, .between, .row, .empty, .state, .state-live,
-     .state-done, .state-none, .dot, .disclose, .detail, .kv, .small
-     (grep-verified on main): none of those are redeclared.
+     THE STACK. tokens, base, polish, pipeline, and the scripts api, nav,
+     swarm, icons, polish, dashboard, ui. pipeline.css arrives with this
+     rebuild and ships nowhere else yet: it draws the job track, the
+     decision cards, the section heads and the twelve-column layout, and
+     its own header explains why it carries that name rather than
+     flow.css. market.css, gallery.css and agreement.css are page-specific
+     to screens this is not.
 
-     .pane-lift is NOT in the built stylesheet and no built page uses it:
-     skipped, the same stance myjobs.html, myagents.html, incoming.html and
-     conduct.html already take. */
+     WHY THIS IS NO LONGER A 2x2 GRID OF EQUAL BOXES, in the wireframe's
+     own words: "Four identical panels say the four things are equally
+     urgent, which is false." Decisions first at full width, live work
+     second at full width because a pipeline is a horizontal shape, the
+     two reference groups paired underneath. Four sections, which is the
+     cap in DESIGN.md 4.1.
 
-  .dgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-  @media (max-width: 760px) { .dgrid { grid-template-columns: 1fr; } }
+     WHAT THE WIREFRAME'S PAGE-LOCAL BLOCK BECAME. It declares four rules.
+     Three are here because no shipped sheet carries them; the fourth
+     (.dgrid) moved into pipeline.css, which is where the twelve-column
+     layout it belongs to now lives.
+
+     .avatarmenu and .avatarbtn are NOT ported. They are the wireframe's
+     nav account menu, and the menu itself is not built: nav.js renders
+     Dashboard, Settings and Sign out as shared chrome on every page that
+     carries the nav, so a second copy of those three inside a menu on
+     this one page would put two Dashboard links and two Settings links
+     in one bar. Collapsing the shared row into a menu is a change to
+     every page carrying the nav, which nav.js's own comment already
+     records as a nav decision rather than a page decision. The avatars
+     this page does mount are the agent ones, on the rows whose read
+     carries a DID; the handoff names this departure.
+
+     THE 44px FLOOR (DESIGN.md 5.1) is solved by the two sheets rather
+     than here. polish.css:640 carries `.sechead .small[href]`, written
+     for this page's own section heads after verify_polish.py measured
+     all four "See all" links at 21px, so the page-local copy this file
+     used to carry for a `.seeall` class is gone rather than fighting it
+     at equal specificity. The wireframe's own `.dcard .btn` rule below
+     covers the one control the sheets do not reach. */
 
   .rowtext .t { font-size: 14px; font-weight: 500; }
   .rowtext .m { font-size: 12px; color: var(--fg-3); margin-top: 3px; }
   .rowtrail { font-size: 12px; color: var(--fg-2); white-space: nowrap; flex: none; text-align: right; }
 
-  /* THE 44px FLOOR (DESIGN.md 5.1), the section "See all" links.
-     base.css's own floor block (its own comment there explains the
-     mechanism) does not know this page's .seeall class, so this page
-     carries its own copy of the same padding + negative-margin trick:
-     the visible text and spacing are unchanged, the tap box grows
-     around it. Measured 2026-09-08 in real Chrome at 320px before this
-     rule: 21.4px tall, under the floor. */
-  @media (max-width: 760px), (pointer: coarse) {
-    .dgrid .seeall { display: inline-block; padding: 15px 6px; margin: -15px -6px; }
+  /* THE ROW WHOSE AGENT HAS NO DID YET. The wireframe draws every job row
+     with an avatar because it invented its own sample data. Here the DID
+     comes from the read, and GET /accounts/:did/jobs carries agentName
+     with no agentDid today (src/api/app.ts) while /pending and /incoming
+     both carry one. So a real list mixes rows that can mount with rows
+     that cannot, and dropping the mount outright left the repo names on
+     those rows 41px to the left of the others: a ragged left edge down
+     the middle of the page's signature section.
+
+     This keeps the 30px box and takes the disc off it. It is a layout
+     reservation and not a claim: there is no data-avatar attribute, no
+     fill, and nothing for the swarm engine to paint. The alternative,
+     mounting an empty data-avatar, would paint a grey disc standing in
+     for an identity nobody supplied, which is the thing the card
+     forbids. When the jobs row shape gains agentDid the face appears in
+     this exact box with no layout shift. */
+  .jobav.is-unknown { background: none; }
+
+  /* The 44px floor is a touch rule and .btn is 38px by design (DESIGN.md 5).
+     Rather than lean on the inline-in-prose exemption, the standalone actions
+     on this page genuinely clear the floor where a finger is the input.
+     Desktop keeps the design system's height. */
+  @media (max-width: 620px) {
+    .dcard .btn { min-height: 44px; width: 100%; }
   }
 </style>
 </head>
@@ -137,43 +176,64 @@
      technique browse.html's tmpl-row and agent.html's tmpl-verify-hire
      already use, so the heading and "See all" text a person sees and
      the text this page's own conformance test scans are the same
-     literal source. Section 3's See all goes to /myagents, the full
-     list of the thing its heading names (spec/wireframe/dashboard.html
-     line 132), not /incoming: the handoff's item 2. -->
+     literal source.
+
+     The shells differ from each other on purpose, which is the shape
+     change this rebuild is about. Sections 1 and 2 are .dspan-12 and
+     hold horizontal content (decision cards, a stage rail); sections 3
+     and 4 are .dspan-6 panes that pair off underneath. Each carries a
+     .sechead with a .sectitle (the heading plus a .secount) and its own
+     way out to the full list.
+
+     Section 3's See all goes to /myagents, the full list of the thing
+     its heading names, not /incoming.
+     ================================================================ -->
 <template id="tmpl-section-waiting">
-  <section class="pane pane-pad reveal" data-reveal>
-    <div class="between">
-      <h2 style="margin:0">Waiting on you</h2>
-      <a class="small seeall" style="color:var(--fg-2)" href="/myjobs">See all &rarr;</a>
+  <section class="dspan-12 reveal" data-reveal>
+    <div class="sechead">
+      <div class="sectitle">
+        <h2>Waiting on you</h2>
+        <span class="secount"></span>
+      </div>
+      <a class="small" style="color:var(--fg-2)" href="/myjobs" aria-label="See all: Waiting on you">See all &rarr;</a>
     </div>
-    <div class="rows" style="margin-top:14px"></div>
+    <div class="dcards stagger" style="margin-top:14px"></div>
   </section>
 </template>
 <template id="tmpl-section-inprogress">
-  <section class="pane pane-pad reveal" data-reveal>
-    <div class="between">
-      <h2 style="margin:0">In progress</h2>
-      <a class="small seeall" style="color:var(--fg-2)" href="/myjobs">See all &rarr;</a>
+  <section class="dspan-12 reveal" data-reveal>
+    <div class="sechead">
+      <div class="sectitle">
+        <h2>In progress</h2>
+        <span class="secount"></span>
+      </div>
+      <a class="small" style="color:var(--fg-2)" href="/myjobs" aria-label="See all: In progress">See all &rarr;</a>
     </div>
-    <div class="rows" style="margin-top:14px"></div>
+    <div class="jobstack stagger" style="margin-top:14px"></div>
   </section>
 </template>
 <template id="tmpl-section-attention">
-  <section class="pane pane-pad reveal" data-reveal>
-    <div class="between">
-      <h2 style="margin:0">Your agents need attention</h2>
-      <a class="small seeall" style="color:var(--fg-2)" href="/myagents">See all &rarr;</a>
+  <section class="dspan-6 pane pane-pad reveal" data-reveal>
+    <div class="sechead">
+      <div class="sectitle">
+        <h2>Your agents</h2>
+        <span class="secount"></span>
+      </div>
+      <a class="small" style="color:var(--fg-2)" href="/myagents" aria-label="See all: Your agents">See all &rarr;</a>
     </div>
-    <div class="rows" style="margin-top:14px"></div>
+    <div class="rows stagger" style="margin-top:8px"></div>
   </section>
 </template>
 <template id="tmpl-section-completed">
-  <section class="pane pane-pad reveal" data-reveal>
-    <div class="between">
-      <h2 style="margin:0">Recently completed</h2>
-      <a class="small seeall" style="color:var(--fg-2)" href="/myjobs">See all &rarr;</a>
+  <section class="dspan-6 pane pane-pad reveal" data-reveal>
+    <div class="sechead">
+      <div class="sectitle">
+        <h2>Recently completed</h2>
+        <span class="secount"></span>
+      </div>
+      <a class="small" style="color:var(--fg-2)" href="/myjobs" aria-label="See all: Recently completed">See all &rarr;</a>
     </div>
-    <div class="rows" style="margin-top:14px"></div>
+    <div class="rows stagger" style="margin-top:8px"></div>
   </section>
 </template>
 
@@ -185,8 +245,130 @@
   <a class="btn btn-sm btn-primary" href="#">Read and sign</a>
 </template>
 
+<!-- THE DECISION CARD, section 1's shape. Two cards rather than two rows,
+     in the wireframe's own words: each one is a decision with a
+     consequence, and a row treats it as an item in a list.
+
+     Three variants because the destination differs and a card with no
+     destination is not a card. tmpl-dcard is the one that carries the
+     page's single primary button (cloned separately, below) and is
+     therefore a <div>, since a button inside an anchor is not valid
+     markup. The other two are anchors to a route that exists: /jobs/:id
+     for a hire, /agreement for one waiting on a signature.
+
+     The wireframe's second card points at review.html and reads "Write a
+     review". Neither review.html nor /review is built or mounted
+     (src/web/static.ts), so that control is not rendered here: an anchor
+     that 404s is inert-declared-control. It is not excused in
+     ALLOWED_ABSENT either, because the instrument never asks for it (the
+     whole anchor's text runs past the 60-character control ceiling). -->
+<template id="tmpl-dcard">
+  <div class="dcard">
+    <div>
+      <div class="t"></div>
+      <div class="m"></div>
+    </div>
+    <div class="foot"></div>
+  </div>
+</template>
+<template id="tmpl-dcard-job">
+  <a class="dcard pane-lift">
+    <div>
+      <div class="t"></div>
+      <div class="m"></div>
+    </div>
+    <div class="foot"><span class="go">Open the hire &rarr;</span></div>
+  </a>
+</template>
+<template id="tmpl-dcard-agreement">
+  <a class="dcard pane-lift">
+    <div>
+      <div class="t"></div>
+      <div class="m"></div>
+    </div>
+    <div class="foot"><span class="go">Read the agreement &rarr;</span></div>
+  </a>
+</template>
+
+<!-- THE JOB ROW, section 2's shape, and the reason this section is full
+     width: a pipeline is a horizontal thing and squeezing it into half a
+     column is what made it read as text.
+
+     The rail is SITEMAP.md P-13's five states, the same five job.html
+     already draws vertically, so the two screens share one vocabulary
+     rather than each inventing its own. It is aria-hidden on purpose:
+     five stage names and a shape read aloud is less than one sentence,
+     and .flow-now underneath IS that sentence, in real text, present at
+     every width and with CSS off. dashboard.js marks the steps .is-done
+     and .is-now from the state the routes already computed, and drops
+     the whole rail rather than draw a stage for a state nobody
+     established.
+
+     Two variants for the same reason the cards have three: a hire has a
+     record page and gets an anchor, a pending brief is not a hire and
+     carries no control at all (ENT-4.1). -->
+<template id="tmpl-jobrow">
+  <div class="jobrow">
+    <div class="jobrow-head">
+      <span class="jobav"></span>
+      <span class="jobrow-id">
+        <span class="t"></span>
+        <span class="m"></span>
+      </span>
+      <span class="jobrow-turn">Waiting on<br>the agent</span>
+    </div>
+    <ol class="flow" aria-hidden="true">
+      <li class="flow-step"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Brief</span></li>
+      <li class="flow-step"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Criteria</span></li>
+      <li class="flow-step"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Confirmed</span></li>
+      <li class="flow-step"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Pull request</span></li>
+      <li class="flow-step"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Merged</span></li>
+    </ol>
+    <div class="flow-now">
+      <span>Now: <b></b></span>
+      <span class="when"></span>
+    </div>
+  </div>
+</template>
+<template id="tmpl-jobrow-link">
+  <a class="jobrow pane-lift">
+    <div class="jobrow-head">
+      <span class="jobav"></span>
+      <span class="jobrow-id">
+        <span class="t"></span>
+        <span class="m"></span>
+      </span>
+      <span class="jobrow-turn">Waiting on<br>the agent</span>
+    </div>
+    <ol class="flow" aria-hidden="true">
+      <li class="flow-step"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Brief</span></li>
+      <li class="flow-step"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Criteria</span></li>
+      <li class="flow-step"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Confirmed</span></li>
+      <li class="flow-step"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Pull request</span></li>
+      <li class="flow-step"><span class="flow-line"></span><span class="flow-dot"></span><span class="flow-lbl">Merged</span></li>
+    </ol>
+    <div class="flow-now">
+      <span>Now: <b></b></span>
+      <span class="when"></span>
+    </div>
+  </a>
+</template>
+<!-- The travelling light, moved into the one .flow-line whose step is
+     .is-now. Neutral white, never the accent: --accent means "we watched
+     this happen" (DESIGN.md 2.2) and work in flight has not happened, so
+     the only node permitted accent is a merge that actually landed.
+     pipeline.css parks the light against the current node with a standing
+     ring as its REST state and keeps the keyframes inside
+     prefers-reduced-motion: no-preference. -->
+<template id="tmpl-flow-spark">
+  <span class="flow-spark"></span>
+</template>
+
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/swarm.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/dashboard.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>

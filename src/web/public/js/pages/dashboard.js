@@ -1,7 +1,7 @@
-/* P8u dashboard (P-9): a signed-in person's whole situation in one page,
-   from spec/wireframe/dashboard.html. Reads GET /accounts/me (the same
-   departure P8m, P8n and P8q each already named in their own handoffs) to
-   resolve the session to a DID, then GET /accounts/:did/jobs,
+/* P-9 dashboard: a signed-in person's whole situation in one page, rebuilt
+   on spec/wireframe/dashboard.html (W-dashboard). Reads GET /accounts/me
+   (the same departure P8m, P8n and P8q each already named in their own
+   handoffs) to resolve the session to a DID, then GET /accounts/:did/jobs,
    GET /accounts/:did/pending, GET /accounts/:did/incoming and
    GET /accounts/:did/agents fire together (ruling 1, W5 ruling).
 
@@ -29,7 +29,10 @@
    THE SCOPE FENCE (ruling 8): rows render in the order the routes
    returned them, newest first where the section sorts by date, capped at
    five. No rank, no score, no elapsed time, no age, no badge count, no
-   total across sections.
+   total across sections. A section's .secount is the number of rows that
+   section is SHOWING, which can never disagree with what is on screen; a
+   section whose read failed carries no count at all, because a failed
+   read knows nothing to count.
 
    A SECTION WITH ZERO ROWS RENDERS NOTHING (ruling 4): no heading, no See
    all link. A FAILED READ RENDERS ITS OWN SENTENCE IN THE SECTION IT
@@ -39,19 +42,33 @@
    row exactly as the roster rendered it: no attention line, never a
    guessed "confirmed" (the same stance myagents.js:174-179 states).
 
-   EVERY SECTION SHELL IS A <template> IN dashboard.html, cloned here
-   (conformance-satisfied-by-dead-markup, W1 round 2): the heading and
-   "See all" text a person sees and the text the wireframe-conformance
-   instrument scans are the same literal source, never a hand-typed
-   duplicate string living only in this file.
+   EVERY SECTION SHELL AND EVERY ROW SHAPE IS A <template> IN
+   dashboard.html, cloned here (conformance-satisfied-by-dead-markup, W1
+   round 2): the headings, the "See all" links and every control label a
+   person sees are the same literal source the wireframe-conformance
+   instrument scans, never a hand-typed duplicate string living only in
+   this file.
+
+   THE FIVE-STATE RAIL (W-dashboard). Section 2 draws SITEMAP.md P-13's
+   five states, the same five job.html draws vertically, so the two
+   screens share one vocabulary rather than each inventing its own. The
+   stage is LOOKED UP from the status the route already computed, never
+   guessed: a row whose status is not in the table below renders with no
+   rail and no sentence rather than a stage nobody established
+   (unverified-state-claim). The rail is aria-hidden because five stage
+   names and a shape read aloud is less than one sentence; .flow-now
+   underneath is that sentence, in real text, at every width.
 
    EVERYTHING THROUGH textContent: brief, repository and agentName are
    buyer-supplied and operator-supplied strings, content, never markup
-   (api.js's own header rule). */
+   (api.js's own header rule). The one exception is the avatar, an SVG
+   FASwarm generates locally from a DID, the same call agent.js and
+   agreement.js already make for the identical job. */
 (function () {
   "use strict";
   var A = window.FAApi;
   var FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+  var AVATAR_SIZE = 30;
 
   function start() {
     var session = A.getStoredSession();
@@ -100,6 +117,10 @@
 
   function numberOr(value) {
     return typeof value === "number" && !isNaN(value) ? value : 0;
+  }
+
+  function text(value) {
+    return typeof value === "string" ? value : "";
   }
 
   function onCoreLoaded(results) {
@@ -253,14 +274,20 @@
      Each section is built fresh into the DOM only when it has something
      to show (a row, or a failure sentence): ruling 4 means a truly empty,
      non-failed section contributes no node at all, not a hidden one.
-     Every shell below is a <template> in dashboard.html; this file only
-     clones and fills it (conformance-satisfied-by-dead-markup guard). */
 
-  var SECTION_TEMPLATE_IDS = [
-    "tmpl-section-waiting",
-    "tmpl-section-inprogress",
-    "tmpl-section-attention",
-    "tmpl-section-completed",
+     THE FOUR SHELLS ARE NOT INTERCHANGEABLE, which is the shape change
+     this rebuild is about (the wireframe's own words: "Four identical
+     panels say the four things are equally urgent, which is false").
+     Sections 1 and 2 are .dspan-12 and hold horizontal content, so their
+     rows land in a .dcards grid and a .jobstack; sections 3 and 4 are
+     .dspan-6 panes whose rows land in .rows. The container each shell
+     fills is named beside its template id rather than assumed. */
+
+  var SECTIONS = [
+    { template: "tmpl-section-waiting", rows: ".dcards" },
+    { template: "tmpl-section-inprogress", rows: ".jobstack" },
+    { template: "tmpl-section-attention", rows: ".rows" },
+    { template: "tmpl-section-completed", rows: ".rows" },
   ];
 
   function renderGrid(sections) {
@@ -269,24 +296,48 @@
     host.textContent = "";
     sections.forEach(function (section, i) {
       if (!section.failed && section.rows.length === 0) return;
-      host.appendChild(sectionPane(SECTION_TEMPLATE_IDS[i], section, i));
+      host.appendChild(sectionPane(SECTIONS[i], section, i));
     });
+    /* The glyphs section 4's state trails carry. icons.js paints once at
+       load, before any of these rows exist, so this page repaints the
+       subtree it just built, the same call agreement.js:165 and
+       operator.js:82 already make for rows they render late. */
+    if (window.FAIcon) window.FAIcon.paint(host);
   }
 
-  function sectionPane(templateId, section, index) {
+  function clone(templateId) {
     var tmpl = A.el(templateId);
-    var el = tmpl.content.firstElementChild.cloneNode(true);
+    return tmpl.content.firstElementChild.cloneNode(true);
+  }
+
+  function sectionPane(shell, section, index) {
+    var el = clone(shell.template);
     el.setAttribute("data-section", String(index));
 
-    var rows = el.querySelector(".rows");
+    var count = el.querySelector(".secount");
+    var rows = el.querySelector(shell.rows);
+
     if (section.failed) {
+      // No count on a failed section: a read that did not answer knows
+      // nothing to count, and a "0" here would be a claim about data
+      // nobody has (unverified-state-claim).
+      if (count && count.parentNode) count.parentNode.removeChild(count);
       var sentence = document.createElement("p");
       sentence.className = "sub";
       sentence.textContent = "This section could not be loaded just now. Reloading may work.";
       rows.appendChild(sentence);
-    } else {
-      section.rows.forEach(function (entry) { rows.appendChild(rowFor(entry)); });
+      return el;
     }
+
+    if (count) count.textContent = String(section.rows.length);
+    section.rows.forEach(function (entry, i) {
+      var row = rowFor(entry);
+      // The stagger delay base.css reads (--i, capped at 6 there). The
+      // wireframe writes it per card; this writes the same thing from
+      // the row's own position.
+      row.style.setProperty("--i", String(i));
+      rows.appendChild(row);
+    });
     return el;
   }
 
@@ -300,103 +351,268 @@
   /* ------------------------------------------------------------ rows */
 
   function rowText(t, m) {
-    var text = document.createElement("div");
-    text.className = "rowtext";
+    var node = document.createElement("div");
+    node.className = "rowtext";
     var tEl = document.createElement("div");
     tEl.className = "t";
     tEl.textContent = t;
     var mEl = document.createElement("div");
     mEl.className = "m";
     mEl.textContent = m;
-    text.appendChild(tEl);
-    text.appendChild(mEl);
-    return text;
+    node.appendChild(tEl);
+    node.appendChild(mEl);
+    return node;
   }
 
   function agentRepoLine(agentName, repository) {
-    var name = typeof agentName === "string" ? agentName : "";
-    var repo = typeof repository === "string" ? repository : "";
+    var name = text(agentName);
+    var repo = text(repository);
     return name !== "" && repo !== "" ? name + " \u00b7 " + repo : (name || repo);
   }
 
-  // A job row (sections 1, 2 and 4): a real hire, ENT-4.1 already
-  // filtered to. Every job row is a full-row link to /jobs/:id, the
-  // screen that holds the record (the anchor's own words).
+  function joinSentences(parts) {
+    return parts.filter(function (p) { return p !== ""; }).join(". ");
+  }
+
+  function fill(card, title, meta) {
+    card.querySelector(".t").textContent = title;
+    card.querySelector(".m").textContent = meta;
+    return card;
+  }
+
+  /* THE AVATAR MOUNT (W-dashboard). polish.js's generic [data-avatar]
+     sweep runs once at load, before any of these reads resolve, so the
+     face is painted here the moment the DID is known, the same call
+     agent.js:164 and agreement.js:104 already make. It costs no extra
+     read: FASwarm derives the whole creature from the DID string itself.
+
+     THE DID IS NOT ALWAYS THERE, and that is not a bug to paper over.
+     GET /accounts/:did/pending, /incoming and /agents each carry
+     agentDid; GET /accounts/:did/jobs carries agentName and no DID
+     (src/api/app.ts). A row with no DID loses its mount entirely rather
+     than carrying an empty one: an empty .jobav is a 30px grey disc
+     standing in for an identity nobody supplied. Never invent a DID and
+     never derive one from a name. */
+  function mountAvatar(host, did) {
+    if (!host) return;
+    var value = text(did);
+    if (value === "") {
+      // No DID from this read. The box stays for alignment (dashboard.html
+      // explains the measurement) and carries no data-avatar: the engine
+      // has nothing to paint and this page claims nothing.
+      host.classList.add("is-unknown");
+      return;
+    }
+    host.setAttribute("data-avatar", value);
+    if (window.FASwarm) host.innerHTML = window.FASwarm.avatar(value, AVATAR_SIZE);
+  }
+
+  /* ---------------------------------------------------- section 1 rows
+
+     Two cards rather than two rows (the wireframe's own reason: each one
+     is a decision with a consequence, and a row treats it as an item in
+     a list). The one primary action on the page sits on the first card
+     whose source is a pending row waiting on this reader's signature. */
+
+  function jobCard(job) {
+    var card = clone("tmpl-dcard-job");
+    card.setAttribute("href", "/jobs/" + encodeURIComponent(job.id));
+    var title = text(job.brief) !== "" ? job.brief : job.id;
+    return fill(card, title, agentRepoLine(job.agentName, job.repository));
+  }
+
+  function pendingCard(pending, primary) {
+    var title = text(pending.brief) !== "" ? pending.brief : pending.id;
+    var meta = joinSentences([agentRepoLine(pending.agentName, pending.repository), "Waiting on your signature"]);
+    var href = "/agreement?job=" + encodeURIComponent(pending.id);
+
+    if (!primary) {
+      var card = clone("tmpl-dcard-agreement");
+      card.setAttribute("href", href);
+      return fill(card, title, meta);
+    }
+
+    // Ruling 3: the page's one primary, cloned from tmpl-primary-sign in
+    // dashboard.html rather than hand-built, so the button text this file
+    // writes and the text the conformance instrument scans are the same
+    // literal source.
+    var primaryCard = clone("tmpl-dcard");
+    fill(primaryCard, title, meta);
+    var signLink = clone("tmpl-primary-sign");
+    signLink.setAttribute("href", href);
+    primaryCard.querySelector(".foot").appendChild(signLink);
+    return primaryCard;
+  }
+
+  /* ---------------------------------------------------- section 2 rows
+
+     THE FIVE STAGES ARE LOOKED UP, NEVER GUESSED. SITEMAP.md P-13 defines
+     the track as brief, criteria, confirmed, pull request open, shipped,
+     and job.html already draws exactly those five vertically. The table
+     below maps the state the routes already computed onto a stage index
+     into that rail, and nothing else reaches it: no new read, no derived
+     state, no stage inferred from a date.
+
+     Section 2 holds exactly four kinds of row. Two are pending
+     (waitingOnOf, src/domain/incoming.ts: noReply and waitingOnOperator,
+     both of which mean the criteria are not agreed yet) and two are jobs
+     (jobListBucketOf's inProgress: confirmed and redo_requested, both of
+     which mean the next move belongs to the operator, which is exactly
+     what that function's own comment says). A row whose state is not one
+     of these four renders its head with no rail and no sentence: an
+     unmapped state is a state nobody established, and drawing a stage for
+     it would be an unverified-state-claim. */
+
+  var PENDING_STAGE = {
+    noReply: { now: 1, sentence: "Brief sent, no reply yet" },
+    waitingOnOperator: { now: 1, sentence: "Waiting on the agent to sign" },
+  };
+
+  var JOB_STAGE = {
+    confirmed: { now: 2, sentence: "Confirmed, no pull request yet", when: "confirmed " },
+    redo_requested: { now: 2, sentence: "A redo was asked for, back with the agent", when: "asked " },
+  };
+
+  // The rail: every step before the current one is done, the current one
+  // carries the travelling light. The light is neutral white and never
+  // the accent (DESIGN.md 2.2, and pipeline.css's own header): --accent
+  // means "we watched this happen", and work in flight has not happened,
+  // so the only node permitted accent is a merge that actually landed.
+  //
+  // WHOSE MOVE IT IS goes with the rail rather than living in the shell,
+  // because it is the same claim in fewer words. All four states this
+  // section can hold are waiting on the agent: the two pending ones have
+  // criteria the agent has not signed (waitingOnOf, src/domain/incoming.ts)
+  // and the two job ones are jobListBucketOf's inProgress, whose own
+  // comment reads "the next move belongs to the operator". That is true
+  // of the four, not of the section, so it is written beside the lookup
+  // that establishes it and it leaves with the rail when a state is not
+  // in the table. A row nobody can place says nothing about whose turn
+  // it is (unverified-state-claim).
+  function drawFlow(row, stage) {
+    var flow = row.querySelector(".flow");
+    var now = row.querySelector(".flow-now");
+    var turn = row.querySelector(".jobrow-turn");
+    if (!flow || !now) return;
+
+    if (stage === null) {
+      flow.parentNode.removeChild(flow);
+      now.parentNode.removeChild(now);
+      if (turn && turn.parentNode) turn.parentNode.removeChild(turn);
+      return;
+    }
+
+    var steps = flow.querySelectorAll(".flow-step");
+    for (var i = 0; i < steps.length; i += 1) {
+      if (i < stage.now) steps[i].classList.add("is-done");
+      if (i === stage.now) {
+        steps[i].classList.add("is-now");
+        var line = steps[i].querySelector(".flow-line");
+        if (line) line.appendChild(clone("tmpl-flow-spark"));
+      }
+    }
+
+    now.querySelector("b").textContent = stage.sentence;
+    var when = now.querySelector(".when");
+    if (stage.when === "") {
+      when.parentNode.removeChild(when);
+      return;
+    }
+    when.textContent = stage.when;
+  }
+
+  function fillJobHead(row, title, agentName, did) {
+    var id = row.querySelector(".jobrow-id");
+    id.querySelector(".t").textContent = title;
+    id.querySelector(".m").textContent = agentName;
+    mountAvatar(row.querySelector(".jobav"), did);
+    return row;
+  }
+
+  function progressJobRow(job) {
+    var stage = Object.prototype.hasOwnProperty.call(JOB_STAGE, job.status) ? JOB_STAGE[job.status] : null;
+    var row = clone("tmpl-jobrow-link");
+    row.setAttribute("href", "/jobs/" + encodeURIComponent(job.id));
+    var title = text(job.repository) !== "" ? job.repository : (text(job.brief) !== "" ? job.brief : job.id);
+    // GET /accounts/:did/jobs carries no agentDid today, so these rows
+    // render with no mount until it does (the card in flight on
+    // src/api adds it, and this page lights up with no edit here).
+    fillJobHead(row, title, text(job.agentName), job.agentDid);
+    var date = A.readableDate(job.date);
+    drawFlow(row, stage === null ? null : {
+      now: stage.now,
+      sentence: stage.sentence,
+      when: date === null ? "" : stage.when + date,
+    });
+    return row;
+  }
+
+  function progressPendingRow(pending) {
+    var stage = Object.prototype.hasOwnProperty.call(PENDING_STAGE, pending.waitingOn)
+      ? PENDING_STAGE[pending.waitingOn]
+      : null;
+    // Ruling 2: no anchor and no button on a pending row here, the same
+    // inert-declared-control stance incoming.js's own ruling 1 takes.
+    var row = clone("tmpl-jobrow");
+    var title = text(pending.repository) !== "" ? pending.repository : (text(pending.brief) !== "" ? pending.brief : pending.id);
+    fillJobHead(row, title, text(pending.agentName), pending.agentDid);
+    var date = A.readableDate(pending.createdAt);
+    drawFlow(row, stage === null ? null : {
+      now: stage.now,
+      sentence: stage.sentence,
+      when: date === null ? "" : "sent " + date,
+    });
+    return row;
+  }
+
+  /* ------------------------------------------------ sections 1, 2 and 4
+
+     A job row is a real hire, ENT-4.1 already filtered to. In sections 1
+     and 2 it is a card or a track; in section 4 it is a row in a list.
+     Every one of them is a full-element link to /jobs/:id, the screen
+     that holds the record. */
+
   function jobRow(job) {
+    if (job.bucket === "waitingOnYou") return jobCard(job);
+    if (job.bucket === "inProgress") return progressJobRow(job);
+    return completedRow(job);
+  }
+
+  function pendingRow(pending, primary) {
+    if (pending.waitingOn === "waitingOnBuyer") return pendingCard(pending, primary);
+    return progressPendingRow(pending);
+  }
+
+  // Section 4's state trail, in the wireframe's own vocabulary: a glyph
+  // and a word, so the two outcomes are told apart by shape as well as
+  // by colour. The date is an absolute one and it sits in the meta line
+  // beside the agent and repository, never an elapsed "3 days ago"
+  // (the scope fence above, and done-means 15).
+  function completedRow(job) {
+    var shipped = job.bucket === "shipped";
     var a = document.createElement("a");
-    a.className = "row between";
+    a.className = "row between pane-lift";
     a.href = "/jobs/" + encodeURIComponent(job.id);
-    var title = typeof job.brief === "string" && job.brief !== "" ? job.brief : job.id;
-    a.appendChild(rowText(title, agentRepoLine(job.agentName, job.repository)));
+    var title = text(job.brief) !== "" ? job.brief : job.id;
+    var date = A.readableDate(job.date);
+    var meta = agentRepoLine(job.agentName, job.repository);
+    a.appendChild(rowText(title, date === null ? meta : joinSentences([meta, date])));
 
     var trail = document.createElement("span");
     trail.className = "rowtrail";
-    if (job.bucket === "shipped" || job.bucket === "notShipped") {
-      var state = document.createElement("span");
-      state.className = "state " + (job.bucket === "shipped" ? "state-done" : "state-none");
-      var dot = document.createElement("span");
-      dot.className = "dot";
-      state.appendChild(dot);
-      var date = A.readableDate(job.date);
-      state.appendChild(document.createTextNode(
-        job.bucket === "shipped" ? (date ? "Shipped " + date : "Shipped") : (date ? "Closed " + date : "Closed"),
-      ));
-      trail.appendChild(state);
-    } else if (job.bucket === "inProgress") {
-      var progressDate = A.readableDate(job.date);
-      trail.textContent = progressDate ? "In progress since " + progressDate : "In progress";
-    } else {
-      trail.textContent = "Waiting on you";
-    }
+    var state = document.createElement("span");
+    state.className = "state " + (shipped ? "state-done" : "state-none");
+    var ico = document.createElement("span");
+    ico.className = "ico";
+    ico.setAttribute("data-ico", shipped ? "check-circle" : "minus-circle");
+    state.appendChild(ico);
+    state.appendChild(document.createTextNode(shipped ? "Shipped" : "Not shipped"));
+    trail.appendChild(state);
     a.appendChild(trail);
     return a;
   }
 
-  // A pending row (sections 1 and 2, ruling 2): not a hire, never linked
-  // to /jobs/:id. Section 1's first waitingOnBuyer row carries the page's
-  // one primary (ruling 3): tmpl-primary-sign in dashboard.html, cloned
-  // here rather than hand-built, so the button text this file writes and
-  // the text the conformance instrument scans are the same literal
-  // source. Every other pending row here is a plain row, and a section-2
-  // pending row carries no control at all.
-  function pendingRow(pending, primary) {
-    var title = typeof pending.brief === "string" && pending.brief !== "" ? pending.brief : pending.id;
-    var meta = agentRepoLine(pending.agentName, pending.repository);
-
-    if (primary) {
-      var wrap = document.createElement("div");
-      wrap.className = "between";
-      wrap.appendChild(rowText(title, meta));
-      var signTmpl = A.el("tmpl-primary-sign");
-      var signLink = signTmpl.content.firstElementChild.cloneNode(true);
-      signLink.setAttribute("href", "/agreement?job=" + encodeURIComponent(pending.id));
-      wrap.appendChild(signLink);
-      return wrap;
-    }
-
-    if (pending.waitingOn === "waitingOnBuyer") {
-      var link = document.createElement("a");
-      link.className = "row between";
-      link.href = "/agreement?job=" + encodeURIComponent(pending.id);
-      link.appendChild(rowText(title, meta));
-      var linkTrail = document.createElement("span");
-      linkTrail.className = "rowtrail";
-      linkTrail.textContent = "Waiting on your signature";
-      link.appendChild(linkTrail);
-      return link;
-    }
-
-    // Section 2: no anchor, no button (ruling 2, the same
-    // inert-declared-control stance incoming.js's own ruling 1 takes).
-    var plain = document.createElement("div");
-    plain.className = "row between";
-    plain.appendChild(rowText(title, meta));
-    var plainTrail = document.createElement("span");
-    plainTrail.className = "rowtrail";
-    plainTrail.textContent = pending.waitingOn === "noReply" ? "Brief sent, no reply yet" : "Waiting on the agent to sign";
-    plain.appendChild(plainTrail);
-    return plain;
-  }
+  /* ---------------------------------------------------- section 3 rows */
 
   // The unproven-GitHub half of section 3 (W5 ruling, handoff item 1): a
   // full-row link to /agents/:did, the screen that holds this agent's own
@@ -409,9 +625,9 @@
   // the fact this row is about. Named in the PR body as a departure.
   function attentionRow(entry) {
     var a = document.createElement("a");
-    a.className = "row between";
+    a.className = "row between pane-lift";
     a.href = "/agents/" + encodeURIComponent(entry.agent.did);
-    var name = typeof entry.agent.name === "string" && entry.agent.name !== "" ? entry.agent.name : A.shortDid(entry.agent.did);
+    var name = text(entry.agent.name) !== "" ? entry.agent.name : A.shortDid(entry.agent.did);
     var meta = entry.noRecord ? "no verified record yet" : "";
     a.appendChild(rowText(name, meta));
     if (entry.notConfirmed) {
@@ -435,10 +651,10 @@
 
   function offerRow(offer) {
     var a = document.createElement("a");
-    a.className = "row between";
+    a.className = "row between pane-lift";
     a.href = "/operatorjob?job=" + encodeURIComponent(offer.id);
-    var name = typeof offer.agentName === "string" && offer.agentName !== "" ? offer.agentName : A.shortDid(offer.agentDid);
-    a.appendChild(rowText(name, typeof offer.repository === "string" ? offer.repository : ""));
+    var name = text(offer.agentName) !== "" ? offer.agentName : A.shortDid(offer.agentDid);
+    a.appendChild(rowText(name, text(offer.repository)));
     var trail = document.createElement("span");
     trail.className = "rowtrail";
     trail.textContent = OFFER_STATE_TEXT[offer.waitingOn] || OFFER_STATE_TEXT.noReply;
