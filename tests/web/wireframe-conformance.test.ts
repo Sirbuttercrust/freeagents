@@ -504,4 +504,52 @@ describe('every built page carries its wireframe', () => {
     const missing = [...new Set(controls(wire))].filter((c) => !built.includes(c) && !(c in allowed));
     expect(missing, `${name}: wireframe controls absent from the built page`).toEqual([]);
   });
+
+  // Headings and controls are the page's CONTENT. They were the whole of this
+  // gate until 2026-09-15, and that is how twenty pages shipped carrying every
+  // heading the wireframe drew while wearing none of its visual system: no
+  // polish.css, no identity colour, no avatars. Conformance read 68 of 68
+  // green on a site that was a fifth rebuilt. The instrument defined done and
+  // the instrument was narrower than the design.
+  //
+  // A stylesheet is not decoration here. polish.css and market.css ARE the
+  // polished pass; a page that does not load them is on the old visual system
+  // whatever its headings say.
+
+  it.each(builtPages)('%s loads every stylesheet its wireframe loads', (name) => {
+    const wire = readFileSync(join(wireDir, `${WIREFRAME_FOR[name] ?? name}.html`), 'utf8');
+    const built = readFileSync(join(builtDir, `${name}.html`), 'utf8');
+    const allowed = ALLOWED_ABSENT[name] ?? {};
+    const sheets = (src: string) =>
+      [...src.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/g)].map((m) =>
+        ((m[1] ?? '').split('/').pop() ?? '').trim(),
+      );
+    const want = [...new Set(sheets(wire))].filter((s) => s && !(`css:${s}` in allowed));
+    const have = new Set(sheets(built));
+    const missing = want.filter((s) => !have.has(s));
+    expect(
+      missing,
+      `${name}: stylesheets the wireframe loads are absent from the built page. ` +
+        `The wireframe's visual system is not optional; if a sheet genuinely does not ` +
+        `apply here, add "css:<file>" to ALLOWED_ABSENT with a reason.`,
+    ).toEqual([]);
+  });
+
+  // The avatars are the most visible piece of the polished pass and the first
+  // thing review noticed missing. An avatar is a data-avatar element (the
+  // swarm engine mounts on it); the wireframe declares how many a page has.
+  it.each(builtPages)('%s carries the avatars its wireframe draws', (name) => {
+    const wire = readFileSync(join(wireDir, `${WIREFRAME_FOR[name] ?? name}.html`), 'utf8');
+    const built = readFileSync(join(builtDir, `${name}.html`), 'utf8');
+    const allowed = ALLOWED_ABSENT[name] ?? {};
+    if ('avatars' in allowed) return;
+    const wireHas = /data-avatar/.test(wire);
+    const builtHas = /data-avatar/.test(built);
+    expect(
+      !wireHas || builtHas,
+      `${name}: the wireframe mounts agent avatars (data-avatar) and the built page has none. ` +
+        `A page rendered from live data still carries the mount points; the engine fills them. ` +
+        `If this page genuinely has no agent on it, add "avatars" to ALLOWED_ABSENT with a reason.`,
+    ).toBe(true);
+  });
 });
