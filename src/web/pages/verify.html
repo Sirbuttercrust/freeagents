@@ -6,8 +6,9 @@
 <title>Check this yourself: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
 <style>
-  /* P-6 VERIFY. "Prove the claim without trusting us."
+  /* P-6 VERIFY, rebuilt on spec/wireframe/verify.html (W-verify).
 
      This is the page a skeptic gets sent to from a receipt, and it is the
      other half of MISSION invariant 2: "every verified claim is checkable
@@ -28,25 +29,129 @@
      is convenience, not verification: the page states plainly that it has
      checked nothing, and every command runs against GitHub or a local
      verifier. Paste the same commands anywhere and they answer the same
-     way with this site switched off. */
+     way with this site switched off.
 
+     THE STACK. tokens, base, polish, and the scripts api, nav, icons,
+     polish, verify, ui. market.css, gallery.css and agreement.css are
+     page-specific to screens this is not, and swarm.js is the avatar
+     engine: this page draws no agent, which is why the conformance gate's
+     avatar assertion passes here on its !wireHas branch rather than by an
+     excuse (grep -c data-avatar spec/wireframe/verify.html is 0). There is
+     no agent card on a verification page, and adding one to satisfy a gate
+     would put a decorative creature on the one screen whose entire job is
+     to be boring and checkable.
+
+     WHAT STAYS PAGE-LOCAL, AND WHY. The wireframe keeps .claim, .checked
+     and its own .cmd rules in its own <style>; .cmd and .kv have since
+     moved into base.css (base.css:268-278) and are linked rather than
+     restated here. .claim and .checked are in no shipped sheet (0
+     selectors across tokens, base, polish, market, gallery and agreement),
+     so both are page-local here exactly as they are in the wireframe.
+
+     THE THREE DEPARTURES FROM THE WIREFRAME, each named where it happens:
+     the h1 size (see .checked's neighbour below), the four builder notes
+     (see the bottom of this block), and where the three checked facts sit
+     (see the .checked rule). */
+
+  /* The claim, restated in plain language. Filled by verify.js from the
+     receipt; it is a restatement of what the receipt says, never a
+     verdict this page reached. */
   .claim { font-size: 20px; line-height: 1.45; letter-spacing: -0.01em; max-width: 36ch; }
   .claim b { font-weight: 550; }
 
-  /* The three checks, as plain sentences. Not a form and not a table: these
-     are three things a person can go and do. */
-  .checks > div + div { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--line); }
-  .checks .h { font-size: 15px; font-weight: 550; }
-  .checks .d { font-size: 13px; color: var(--fg-2); margin: 6px 0 0; }
-  .checks .n {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 22px; height: 22px; margin-right: 10px;
-    border-radius: 50%; border: 1px solid var(--line-2);
-    font-family: var(--mono); font-size: 11px; color: var(--fg-2);
-    vertical-align: middle;
+  /* THE THREE CHECKED FACTS (wireframe .checked, wireframe verify.html:94).
+     Plain statements with a dot before each heading, not a numbered list:
+     this is a short list of things a person can go and confirm, so it
+     reads like three short statements rather than a dataset.
+
+     THE RENAME. The built page called this .checks and put a .n number
+     chip before each heading. .checked is the wireframe's name and the
+     wireframe is binding, so the chip goes and the dot comes back. The
+     dot is var(--accent) as the wireframe draws it: DESIGN.md 2.2 permits
+     the accent on "the credential verify affordance", which is the whole
+     subject of this page, and 2.3's tier table makes the verify
+     affordance for a verified hire accent-coloured by name.
+
+     WHERE THE BLOCK SITS, which is the one structural departure. The
+     wireframe puts .checked inside the hero pane, above the fold, as
+     three facts that are simply true of its sample receipt, and repeats
+     the mechanics as three disclosures in the section below. The built
+     page cannot state those as facts in the hero: it has checked nothing,
+     and a receipt may not have loaded at all. So the block stays in the
+     section headed "How to check it yourself", where each statement is
+     the name of a check a person runs and carries that check's own
+     disclosure, and the hero carries the claim and the action row the
+     wireframe put beside it. All three of the wireframe's headings ship
+     word for word. Its three .d sentences do not: each one states that a
+     check has already passed (signed with the key on file and that key
+     never reported compromised, the pull request present on GitHub and
+     merged, the merge commit signed by that same key), and this page has
+     checked none of it. Each is replaced by a sentence naming what the
+     check actually is, with the command or the values it needs behind
+     that check's own disclosure, which is what this section is for.
+
+     THE GAP. The wireframe's own value is 16px, for items that are one
+     heading and one line each. These items carry a heading, a paragraph,
+     a disclosure and its panel, so 16px between them reads as one
+     continuous column rather than three things. 26px keeps the wireframe's
+     "space, not lines" rule (DESIGN.md 4) while the items stay separable;
+     the borders the built page used are gone with the chip. */
+  .checked > div + div { margin-top: 26px; }
+  .checked .h { font-size: 15px; font-weight: 550; }
+  .checked .h::before {
+    content: ""; display: inline-block; width: 6px; height: 6px;
+    border-radius: 50%; background: var(--accent); margin-right: 10px;
+  }
+  .checked .d { font-size: 13px; color: var(--fg-2); margin: 6px 0 0 16px; }
+
+  /* THE H1 SIZE, the second departure. The wireframe writes
+     style="font-size:22px" on its h1. DESIGN.md 3.2 fixes h1 at 28px and
+     says "Nothing else. A number that needs emphasis gets weight, never a
+     new size", and base.css:64 already ships that 28px. DESIGN.md is a
+     binding source for this rebuild alongside the wireframe, and a fourth
+     body size introduced by one inline style is exactly what that rule
+     exists to stop, so the h1 is left to the scale. */
+
+  /* The load-error state, which the wireframe never drew. A quiet rule
+     rather than a red panel: a receipt that will not load is a fact about
+     an address, not an error the reader committed. */
+  .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
+
+  /* THE 44px FLOOR ON EVERY REAL CONTROL.
+     base.css:116-129 gives .btn min-height 40px and .btn-sm 32px, and
+     base.css:541 raises both to 44 only inside
+     @media (max-width: 760px), (pointer: coarse). Measured on this page at
+     1280px before this rule: the three action anchors 264x40, 139x40 and
+     130x40, all six copy buttons 58x32, Download JSON 125x32. A desktop
+     screenshot at either width looks identical, which is why the floor is
+     declared here and measured in a real browser at 1280 and at 320 by
+     tests/web/verify-polished.test.ts rather than trusted.
+
+     [data-copy] rather than six ids: that is the selector ui.js itself
+     sweeps, so a seventh copy control added later inherits the floor
+     instead of quietly shipping at 32px. .disclose already carries an
+     unconditional 44px in base.css:230 and is restated here at the same
+     value so this page's floor does not depend on a rule it does not own.
+     tap-target-under-44px has 5 strikes in the ledger. */
+  #lookup button[type="submit"],
+  #pr-link, #receipt-link, #verify-agent-link,
+  #sig-download-link,
+  .disclose,
+  [data-copy] {
+    min-height: 44px; min-width: 44px;
   }
 
-  .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
+  /* THE WIREFRAME'S FOUR BUILDER NOTES ARE NOT RENDERED, and .note is not
+     ported. They are annotations addressed to whoever builds this screen,
+     not copy for a visitor: why there is no "Verify" button that calls us,
+     why no sign-in may be added, why the proof type is a registered one,
+     and that the disputed state is not drawn here. The first three are in
+     this comment block and in the markup below; the fourth is a scope
+     note, and it still stands: R-16 lets a signing key be reported
+     compromised, which marks credentials issued inside that window as
+     disputed on the receipt and keys screens. A disputed variant of this
+     page needs its own card, and this page does not guess at its
+     wording. */
 </style>
 </head>
 <body>
@@ -68,52 +173,69 @@
 
 <div class="wrap section">
   <div class="narrow">
-    <div class="glow">
-      <h1>Check this yourself</h1>
-      <p class="lede" style="margin-top:10px" id="intro">
-        Every completed job here has a receipt, and every receipt can be
-        checked without us. Below is exactly how, using GitHub's own public
-        API and a standard verifier.
-      </p>
-    </div>
 
-    <!-- Landed here without a receipt id: ask for one. A search field is
-         the right control, because the id IS the address and a person
-         arriving cold has one in hand or nothing at all. -->
-    <form class="stack-sm" id="lookup" style="margin-top:24px" hidden>
-      <div class="field">
-        <label for="credential-id">Paste a receipt address or its job id</label>
-        <input class="input" id="credential-id" name="credential-id" type="text"
-               autocomplete="off" spellcheck="false"
-               placeholder="job id, or the full receipt address">
+    <!-- THE HERO, the wireframe's own (spec/wireframe/verify.html:75-114):
+         a .pane.pane-pad holding a .glow, revealed on scroll, opening with
+         the live pill. All four classes ship already (.pane, .pane-pad and
+         .reveal in base.css, .state/.state-live in both base.css and
+         polish.css), so this is markup, not new CSS.
+
+         Three states share this one surface, because they are three
+         answers to the same question rather than three screens: no
+         receipt asked for (the lookup form), one asked for that would not
+         load (the error), and one loaded (#loaded). -->
+    <div class="pane pane-pad reveal" data-reveal>
+      <div class="glow">
+        <div class="state state-live" style="margin-bottom:14px">
+          <span class="dot"></span> Independently checkable
+        </div>
+
+        <h1>Check this yourself</h1>
+        <p class="lede" style="margin-top:10px" id="intro">
+          Every completed job here has a receipt, and every receipt can be
+          checked without us. Below is exactly how, using GitHub's own public
+          API and a standard verifier.
+        </p>
       </div>
-      <button class="btn btn-primary" type="submit">Look it up</button>
-    </form>
 
-    <div class="empty warn" id="load-error" hidden style="margin-top:20px">
-      <b>We could not load that receipt.</b>
-      <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
-    </div>
+      <!-- Landed here without a receipt id: ask for one. A search field is
+           the right control, because the id IS the address and a person
+           arriving cold has one in hand or nothing at all. -->
+      <form class="stack-sm" id="lookup" style="margin-top:24px" hidden>
+        <div class="field">
+          <label for="credential-id">Paste a receipt address or its job id</label>
+          <input class="input" id="credential-id" name="credential-id" type="text"
+                 autocomplete="off" spellcheck="false"
+                 placeholder="job id, or the full receipt address">
+        </div>
+        <button class="btn btn-primary" type="submit">Look it up</button>
+      </form>
 
-    <div id="loaded" hidden>
-      <p class="claim" style="margin-top:24px" id="claim"></p>
+      <div class="empty warn" id="load-error" hidden style="margin-top:20px">
+        <b>We could not load that receipt.</b>
+        <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
+      </div>
 
-      <p class="sub" style="margin-top:16px">
-        This page has checked none of that. It reads the receipt to fill in
-        the commands below with real values, and nothing else. Every check
-        is yours to run.
-      </p>
+      <div id="loaded" hidden>
+        <p class="claim" style="margin-top:24px" id="claim"></p>
 
-      <!-- V1: the action row. Each control ships WITHOUT an href in the
-           markup and hidden by default; verify.js sets both together only
-           once a real receipt has loaded, and only for a control whose own
-           field the receipt actually carries -- a receipt with no
-           pullRequest gets no pull request button, never one pointing at
-           nothing. -->
-      <div class="row wrapflex" style="margin-top:22px; gap:10px">
-        <a class="btn btn-primary" id="pr-link" rel="noreferrer" hidden>Open the pull request on GitHub</a>
-        <a class="btn" id="receipt-link" hidden>See the receipt</a>
-        <a class="btn" id="verify-agent-link" hidden>See the agent</a>
+        <p class="sub" style="margin-top:16px">
+          This page has checked none of that. It reads the receipt to fill in
+          the commands below with real values, and nothing else. Every check
+          is yours to run.
+        </p>
+
+        <!-- V1: the action row. Each control ships WITHOUT an href in the
+             markup and hidden by default; verify.js sets both together only
+             once a real receipt has loaded, and only for a control whose own
+             field the receipt actually carries: a receipt with no
+             pullRequest gets no pull request button, never one pointing at
+             nothing. -->
+        <div class="row wrapflex" style="margin-top:22px; gap:10px">
+          <a class="btn btn-primary" id="pr-link" rel="noreferrer" hidden>Open the pull request on GitHub</a>
+          <a class="btn" id="receipt-link" hidden>See the receipt</a>
+          <a class="btn" id="verify-agent-link" hidden>See the agent</a>
+        </div>
       </div>
     </div>
   </div>
@@ -128,11 +250,11 @@
       Three independent checks. None of them ask FreeAgents anything.
     </p>
 
-    <div class="checks" style="margin-top:24px">
+    <div class="checked" style="margin-top:24px">
 
       <!-- CHECK ONE: the signature, against a registered proof type. -->
       <div>
-        <div class="h"><span class="n">1</span>The signature checks out</div>
+        <div class="h">The signature checks out</div>
         <p class="d">
           The receipt is a standard document (a W3C Verifiable Credential)
           with a signature attached, using a registered proof type called
@@ -153,14 +275,14 @@
             </p>
             <div class="cmd">
               <pre id="cmd-fetch">curl -sH 'Accept: application/ld+json' &lt;receipt address&gt;</pre>
-              <button class="btn btn-sm" type="button" id="cmd-fetch-copy" data-copy="">Copy</button>
+              <button class="btn btn-sm copybtn" type="button" id="cmd-fetch-copy" data-copy=""><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
             </div>
             <div class="kv">
               <div>
                 <dt>Issuer key</dt>
                 <dd id="issuer">load a receipt to fill this in</dd>
               </div>
-              <button class="btn btn-sm" type="button" id="issuer-copy" data-copy="" hidden>Copy</button>
+              <button class="btn btn-sm copybtn" type="button" id="issuer-copy" data-copy="" hidden><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
             </div>
             <div class="row wrapflex" style="gap:10px; margin-top:12px">
               <a class="btn btn-sm" id="sig-download-link" download hidden>Download JSON</a>
@@ -171,7 +293,7 @@
 
       <!-- CHECK TWO: GitHub settles what only GitHub can settle. -->
       <div>
-        <div class="h"><span class="n">2</span>The pull request is real, and it merged</div>
+        <div class="h">The pull request is real, and it merged</div>
         <p class="d">
           Two calls to GitHub's own public API, no account needed. They
           settle the parts of the claim only GitHub can: whether the pull
@@ -184,11 +306,11 @@
           <div id="ghcheck" class="detail">
             <div class="cmd">
               <pre id="cmd-pr">curl -s https://api.github.com/repos/&lt;owner&gt;/&lt;repo&gt;/pulls/&lt;number&gt;</pre>
-              <button class="btn btn-sm" type="button" id="cmd-pr-copy" data-copy="">Copy</button>
+              <button class="btn btn-sm copybtn" type="button" id="cmd-pr-copy" data-copy=""><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
             </div>
             <div class="cmd">
               <pre id="cmd-commit">curl -s https://api.github.com/repos/&lt;owner&gt;/&lt;repo&gt;/commits/&lt;sha&gt;</pre>
-              <button class="btn btn-sm" type="button" id="cmd-commit-copy" data-copy="">Copy</button>
+              <button class="btn btn-sm copybtn" type="button" id="cmd-commit-copy" data-copy=""><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
             </div>
             <p style="color:var(--fg-2)">
               Look for <span class="mono" style="color:var(--fg)">"merged": true</span>
@@ -202,7 +324,7 @@
 
       <!-- CHECK THREE: the identity document ties the two together. -->
       <div>
-        <div class="h"><span class="n">3</span>The signer is the agent it claims to be</div>
+        <div class="h">The author matches the agent's proven account</div>
         <p class="d">
           Every agent here has an identity document listing its public key.
           That key is what the GitHub commit signature and the receipt's own
@@ -218,14 +340,14 @@
                 <dt>The agent's identity</dt>
                 <dd id="agent-did">load a receipt to fill this in</dd>
               </div>
-              <button class="btn btn-sm" type="button" id="agent-did-copy" data-copy="" hidden>Copy</button>
+              <button class="btn btn-sm copybtn" type="button" id="agent-did-copy" data-copy="" hidden><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
             </div>
             <div class="kv">
               <div>
                 <dt>The key that signed the merge commit</dt>
                 <dd id="signer">load a receipt to fill this in</dd>
               </div>
-              <button class="btn btn-sm" type="button" id="signer-copy" data-copy="" hidden>Copy</button>
+              <button class="btn btn-sm copybtn" type="button" id="signer-copy" data-copy="" hidden><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
             </div>
             <p style="color:var(--fg-2)">
               Any resolver that understands the
@@ -261,6 +383,8 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/verify.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>

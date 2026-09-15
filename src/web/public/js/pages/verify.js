@@ -25,6 +25,12 @@
   function start() {
     var id = requested();
 
+    /* Before anything else, and on every path including the error ones:
+       the command lines on this page are complete as they stand, so their
+       copy controls carry them from the first paint rather than only on
+       the success path. */
+    armCommandTemplates();
+
     if (!id) {
       A.showById("lookup", true);
       wireLookup();
@@ -68,6 +74,37 @@
       var value = field && typeof field.value === "string" ? field.value.trim() : "";
       if (value === "") return;
       window.location.search = "?credential=" + encodeURIComponent(A.credentialKey(value));
+    });
+  }
+
+  /* THE THREE COMMAND CONTROLS BEFORE A RECEIPT LOADS.
+
+     Measured on the built page with every disclosure opened and no receipt
+     asked for: cmd-fetch-copy, cmd-pr-copy and cmd-commit-copy are all
+     reachable, all carry data-copy="", and ui.js's handler returns on an
+     empty value. Three controls that paint, focus, clear a 44px target,
+     say "Copy", and do nothing when pressed. Same again on a receipt
+     address that does not resolve. That is inert-declared-control, and it
+     is the defect this page can least afford: a skeptic's first press on
+     the page whose whole argument is that it does what it says.
+
+     HIDING THEM WOULD BE WRONG HERE, and it is the usual fix. Each button
+     sits beside a <pre> that is showing a real, complete command with
+     named placeholders, and this file's own header documents the page as
+     usable exactly that way with no script at all. The control is not
+     empty, it is the copy control for the line next to it. So it gets the
+     value it appears to have, read out of the sibling rather than typed
+     here, which is what stops the button and the line it copies from ever
+     drifting apart. Once a receipt loads, setCommand overwrites both the
+     line and the value together. */
+  function armCommandTemplates() {
+    var blocks = document.querySelectorAll(".cmd");
+    Array.prototype.forEach.call(blocks, function (block) {
+      var pre = block.querySelector("pre");
+      var btn = block.querySelector("[data-copy]");
+      if (!pre || !btn) return;
+      var text = (pre.textContent || "").trim();
+      if (text !== "") btn.setAttribute("data-copy", text);
     });
   }
 

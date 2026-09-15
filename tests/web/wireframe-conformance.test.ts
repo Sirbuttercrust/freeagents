@@ -538,7 +538,6 @@ describe('every built page carries its wireframe', () => {
     'pullrequest',
     'settings',
     'staged',
-    'verify',
   ]);
   const visualPages = builtPages.filter((n) => !NOT_YET_REBUILT.has(n));
 
