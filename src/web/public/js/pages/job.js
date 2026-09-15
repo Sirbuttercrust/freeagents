@@ -1,19 +1,25 @@
 /* P8f job, rebuilt from spec/wireframe/job.html (W4): read one hire and
-   render it.
+   render it. Rebuilt onto the polished visual system by W-job.
 
    ONE PUBLIC ROUTE for the record itself, no session: GET /jobs/:jobId,
    src/api/app.ts's jobProjection. THREE OUTCOMES, as api.js's get()
    distinguishes them: the record, absent (404), unreachable. Never
    rendered as an empty record.
 
-   ONE SECONDARY READ, added by this card: GET /agents/:agentDid, for the
-   identity strip's name, avatar and operator link (agent.js:139 is the
-   working precedent for the same read). It never fires when the job
-   carries no agentDid, and it never blocks or delays the primary render:
-   the primary record renders first, and the identity strip degrades to
-   the shortened DID with no avatar and no operator line if this read is
-   absent or unreachable (a failed secondary read never blanks a primary
-   record).
+   ONE SECONDARY READ: GET /agents/:agentDid, for the identity strip's
+   name and operator link (agent.js:139 is the working precedent for the
+   same read). It never fires when the job carries no agentDid, and it
+   never blocks or delays the primary render: the primary record renders
+   first, and the identity strip degrades to the shortened DID with no
+   avatar and no operator line if this read is absent or unreachable (a
+   failed secondary read never blanks a primary record).
+
+   W-JOB: THE AVATAR IS DERIVED, NOT SERVED. The strip used to paint
+   agent.avatar through A.setAvatar, the server-supplied image engine.
+   The polished system mounts the DID-derived swarm creature instead
+   (renderIdentityStrip below, agreement.js:101-106 is the standard), so
+   an operator cannot choose the face and cannot impersonate another
+   agent by picking its look (DESIGN.md 2.4).
 
    THE SCOPE FENCE (PLAN.md, the operator 2026-09-07): the platform
    confirms facts about staged work and never runs, scores, or reviews an
@@ -101,7 +107,7 @@
     renderIdentityStrip(job);
     renderPrice(job);
     renderHistory(job);
-    renderAccessline(job, repository);
+    renderWhoDid(job, repository);
     renderClose(job);
     renderCredential(job);
     renderPullRequestOpenLink(job);
@@ -121,7 +127,7 @@
     );
   }
 
-  // The identity strip (spec/wireframe/job.html:107-115): the agent's
+  // The identity strip (spec/wireframe/job.html:134-142): the agent's
   // avatar, name, "operated by <operator>", and a Back to profile
   // control. Fires GET /agents/:agentDid only when the job carries an
   // agentDid, and never delays or blocks the primary render above: this
@@ -143,8 +149,28 @@
       var agent = result.value;
       if (typeof agent.name === "string" && agent.name !== "") {
         A.setTextById("who-agent-name", agent.name);
+        // The attributed box keys its first row by the agent, so the
+        // live name lands there too rather than leaving a shortened DID
+        // beside the name the strip is already showing.
+        A.setTextById("whodid-agent", agent.name);
       }
-      A.setAvatar(A.el("who-avatar"), agent.avatar);
+      // W-job: THE POLISHED AVATAR. A.setAvatar painted a server-supplied
+      // image; the polished system derives the face from the DID instead,
+      // so an operator cannot choose it and cannot impersonate another
+      // agent by picking its look (DESIGN.md 2.4, polish.css:521-544).
+      // Mounted here rather than left to polish.js's own [data-avatar]
+      // sweep, which runs at DOMContentLoaded and is long finished by the
+      // time this read answers. Same call and same 32px size as
+      // agreement.js:101-106; 32px is what .who .av is drawn at
+      // (spec/wireframe/job.html:36).
+      if (window.FASwarm) {
+        var avatarEl = A.el("who-avatar");
+        if (avatarEl) {
+          avatarEl.setAttribute("data-avatar", agentDid);
+          avatarEl.innerHTML = window.FASwarm.avatar(agentDid, 32);
+          avatarEl.removeAttribute("data-pending");
+        }
+      }
       if (typeof agent.operatorDid === "string" && agent.operatorDid !== "") {
         var link = A.el("who-operator-link");
         if (link) {
@@ -301,46 +327,95 @@
     return li;
   }
 
-  // THE CRITICAL SENTENCE (spec/wireframe/job.html:154-163). The
-  // wireframe's own copy says the agent forked the buyer's repository
-  // and opened the pull request from its own GitHub account; that was
-  // true when it was drawn and is not true now (B14a). This paragraph
-  // carries the true mechanism instead: FreeAgents never has write
-  // access to the buyer's repository and cannot be given it, the pull
-  // request came from a staging repository the platform controls, and
-  // only the buyer's own click on GitHub merges it. Naming a mechanism
-  // the code does not have would be claim-contradicts-implementation.
-  function renderAccessline(job, repository) {
-    var el = A.el("accessline");
-    if (!el) return;
-    el.textContent = "";
-    var lead = document.createElement("b");
-    lead.textContent = "FreeAgents never had access to " + repository + ".";
-    el.appendChild(lead);
+  // WHO DID WHAT (spec/wireframe/job.html:181-202). The wireframe draws
+  // invariant 1 as three attributed rows rather than as a paragraph,
+  // because a buyer looking at merged work might assume the platform did
+  // more than watch, and rows keyed by actor answer that faster than
+  // prose making the same points. W-job ports that shape and keeps this
+  // build's WORDING.
+  //
+  // NEVER THE WIREFRAME'S FORK STORY. Its own copy says the agent forked
+  // the buyer's repository and opened the pull request from its own
+  // GitHub account; that was true when it was drawn and is not true now
+  // (B14a). The real mechanism, read from the routes rather than
+  // remembered: confirm creates a staging repository the platform owns
+  // and grants the agent push on THAT (app.ts:3560-3575), the agent
+  // pushes its work there and attests a commit that must exist in it
+  // (app.ts:3748-3752), and the platform opens the pull request from the
+  // staging repository. FreeAgents never has write access to the buyer's
+  // repository and cannot be given it; only the buyer's own click on
+  // GitHub merges it. Naming a mechanism the code does not have would be
+  // claim-contradicts-implementation.
+  //
+  // WHICH ROWS SHIP IS A FUNCTION OF THE JOB'S OWN STATE. The refusal row
+  // is the standing truth and ships in every state. The other two make
+  // claims about work and a merge, so each is gated on the field that
+  // would have to exist for it to be true (unverified-state-claim): a
+  // draft has no pull request, so it carries no row describing one.
+  function renderWhoDid(job, repository) {
+    var host = A.el("whodid-rows");
+    if (!host) return;
+    host.textContent = "";
 
-    // The standing-truth mechanism holds in every state and ships
-    // unconditionally. The observation claim ("we watched that happen")
-    // only belongs on a job the platform actually saw merge: gating it
-    // on job.mergedAt, the same field that drives the .merged track row,
-    // keeps this paragraph from asserting a status it has not read
-    // (unverified-state-claim). A draft has no pull request at all, so
-    // it drops the pull-request sentence entirely rather than describing
-    // a pull request that does not exist.
+    var agentDid = typeof job.agentDid === "string" ? job.agentDid : "";
     var hasPullRequest = typeof job.pullRequestUrl === "string" && job.pullRequestUrl !== "";
+    var staged = (typeof job.stagedAt === "string" && job.stagedAt !== "") ||
+                 (typeof job.stagedCommit === "string" && job.stagedCommit !== "");
     var merged = typeof job.mergedAt === "string" && job.mergedAt !== "";
+    var citedClose = job.citedClose && typeof job.citedClose === "object";
+    var closed = !merged && (citedClose === true || job.status === "closed_unmerged");
 
-    var text = "";
+    // The agent, named live once GET /agents/:agentDid answers (the id is
+    // why renderIdentityStrip can reach this cell). Present only once the
+    // agent has actually put work somewhere.
+    if (agentDid !== "" && (staged || hasPullRequest)) {
+      host.appendChild(whoDidRow(
+        A.shortDid(agentDid),
+        "Pushed its work to a staging repository the platform owns, and attested the commit.",
+        false,
+        "whodid-agent"
+      ));
+    }
+
+    // The buyer. Only their own click on GitHub can merge a pull request,
+    // which is the whole point of the row, so it says nothing at all when
+    // there is no pull request to merge.
     if (hasPullRequest) {
-      text += " The pull request came from a staging repository the platform controls, opened at the commit the agent attested.";
+      var yours = "Only your own click on GitHub can merge it.";
+      if (merged) yours = "Merged it yourself, on GitHub.";
+      else if (closed) yours = "Did not merge it.";
+      host.appendChild(whoDidRow("You", yours, false));
     }
-    text += " FreeAgents cannot be given write access to " + repository + ".";
-    if (merged) {
-      text += " Only your own click on GitHub merges it. We watched that happen and recorded it; we did not do it.";
-    } else if (hasPullRequest) {
-      text += " Only your own click on GitHub can merge it.";
+
+    // The quiet row, and the point of the box: what the platform did NOT
+    // do. The refusal is a standing truth and ships in every state.
+    var ours = "";
+    if (merged) ours += "We watched that happen and recorded it; we did not do it. ";
+    if (hasPullRequest) {
+      ours += "The pull request came from a staging repository we control, opened at the commit the agent attested. ";
     }
-    el.appendChild(document.createTextNode(text));
-    el.removeAttribute("data-pending");
+    ours += "We never had access to " + repository + " and cannot be given write access to it.";
+    host.appendChild(whoDidRow("FreeAgents", ours, true));
+  }
+
+  // Everything through textContent: the repository is a buyer-supplied
+  // string and the agent name is operator-supplied, both content, never
+  // markup (api.js's own header rule).
+  function whoDidRow(who, what, isNone, whoId) {
+    var row = document.createElement("div");
+    row.className = isNone ? "whodid-row is-none" : "whodid-row";
+
+    var whoCell = document.createElement("span");
+    whoCell.className = "wd-who";
+    if (whoId) whoCell.id = whoId;
+    whoCell.textContent = who;
+    row.appendChild(whoCell);
+
+    var whatCell = document.createElement("span");
+    whatCell.className = "wd-what";
+    whatCell.textContent = what;
+    row.appendChild(whatCell);
+    return row;
   }
 
   // moneyReturned is already in the projection for exactly this reason;
