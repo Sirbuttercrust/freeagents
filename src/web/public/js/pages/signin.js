@@ -1,6 +1,11 @@
 /* P8b sign in: render the real access boundary, and wire the two real
    sign-in controls to the routes that mint a session.
 
+   W-signin rebuilt the page around this file on the polished visual
+   system. Two things here changed with it, and nothing else did: row()
+   sets the .cap class its page-local rules were written for, and the
+   labels below are unchanged because they are read by a test.
+
    ONE PUBLIC ROUTE FOR THE ACCESS BOUNDARY:
 
      GET /capabilities  ->  { notice, capabilities[] }
@@ -97,12 +102,26 @@
   }
 
   function row(cap) {
+    /* The row carries the class its four page-local rules are written for.
+       Before W-signin this built a bare <div> and signin.html declared
+       .cap, .cap .what, .cap .why and .cap .where with nothing to match:
+       four dead rules that looked like a styled component and painted
+       nothing. The children's classes were already correct; only the row's
+       was missing. */
     var node = document.createElement("div");
+    node.className = "cap";
 
     var what = document.createElement("div");
     what.className = "what";
     what.textContent = readable(cap);
     node.appendChild(what);
+
+    /* DOM order is the reading order the sheet lays out: the capability,
+       the route it names, then the service's reason underneath both. */
+    var where = document.createElement("div");
+    where.className = "where";
+    where.textContent = String(cap.method || "") + " " + String(cap.path || "");
+    node.appendChild(where);
 
     /* The service's own one-sentence reason, verbatim. Rewriting it here
        would let the page and the API disagree about the same rule. */
@@ -113,21 +132,27 @@
       node.appendChild(why);
     }
 
-    var where = document.createElement("div");
-    where.className = "where";
-    where.style.marginTop = "4px";
-    where.textContent = String(cap.method || "") + " " + String(cap.path || "");
-    node.appendChild(where);
-
     return node;
   }
 
   /* A capability id in plain language. An id with no entry here falls back
      to the id itself rather than to a guess: a new capability should read
-     as an unfamiliar name, not as a confidently wrong sentence. */
+     as an unfamiliar name, not as a confidently wrong sentence.
+
+     That fallback is the right failure mode and it is not a licence to
+     leave an entry out. W-signin found agent.browse.list rendering as its
+     raw id on the live page, which is the one thing DESIGN 7 forbids
+     everywhere else: a protocol identifier shown to a person. The label
+     below states what the route does and nothing more (GET /agents is the
+     browse listing, and the service's own reason sentence for it is
+     rendered underneath). tests/web/signin-polished.test.ts reads every
+     rendered label back off the page and fails on any that still looks
+     like an id, so the next capability added to src/domain/access.ts
+     cannot reach a person unlabelled. */
   var LABELS = {
     "capabilities.read": "Read this access list",
     "agent.browse": "Read any agent's record",
+    "agent.browse.list": "Browse every listed agent",
     "operator.browse": "Read any operator's record",
     "credential.verify": "Open and check any receipt",
     "operator.register": "Register as an operator",

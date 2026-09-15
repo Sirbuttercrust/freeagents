@@ -6,9 +6,18 @@
 <title>Sign in: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
 <style>
-  /* P-8 SIGN IN. One job: get someone an identity, with an account
-     ready to hire or list, without asking them to understand either.
+  /* P-8 SIGN IN, rebuilt on spec/wireframe/signin.html (W-signin). One job:
+     get someone an identity, with an account ready to hire or list, without
+     asking them to understand either.
+
+     THE STACK. tokens, base, polish, and the scripts api, nav, icons,
+     polish, signin, ui. market.css, gallery.css and agreement.css are
+     page-specific to screens this is not, and swarm.js is the avatar
+     engine: this page draws no agent, which is why the conformance gate's
+     avatar assertion passes here on its !wireHas branch rather than by an
+     excuse (grep -c data-avatar spec/wireframe/signin.html is 0).
 
      THE ACCESS BOUNDARY BELOW IS LIVE, NOT A PROMISE: it is read from
      GET /capabilities, the route R-23 added so the limit is stated before
@@ -22,26 +31,83 @@
      no separate registration step between a first sign-in and a first
      hire. GET /sign-in-methods answers with the three methods below, as
      the methods the product intends; the third (a DID Wallet) is shown
-     and explained but never offered as a button here, per invariant 7. */
+     and explained but never offered as a button here, per invariant 7.
 
-  .col { max-width: 460px; }
+     WHAT THE WIREFRAME'S PAGE-LOCAL BLOCK BECAME. It declares three rules,
+     .narrow and the two .or halves. Both are page-local there and both are
+     page-local here, because neither is in a shipped sheet:
+
+       .narrow  base.css:85 defines .narrow at max-width: 640px with no
+                centring, for a reading column. The wireframe's is 400px and
+                centred, a different component that happens to share a name,
+                and it is page-local in every wireframe that uses it (14 of
+                them, at seven different widths). Overriding the width here
+                rather than renaming keeps the class vocabulary the gate
+                compares, and keeps polish.css:614's `.narrow > a.small`
+                tap floor reaching this page's column if it ever grows one.
+       .or      exists in no shipped sheet at all: 0 selectors across
+                base.css, polish.css, market.css, gallery.css and
+                agreement.css, and 0 across the wireframe's own sheets. It
+                is page-local in the wireframe and page-local here, ported
+                verbatim.
+
+     .note is NOT ported and no note's prose is rendered. The wireframe
+     carries its reasoning in div.note blocks addressed to a builder; they
+     are annotations on the design, never product copy.
+
+     The wireframe's h1 carries style="font-size: 28px". base.css:64 already
+     sets h1 to exactly 28px, so the built h1 needs no inline override to
+     match it, and adding one would restate a token value in markup. */
+
+  .narrow { max-width: 400px; margin: 0 auto; }
+
+  .or { display: flex; align-items: center; gap: 14px; margin: 20px 0; color: var(--fg-3); font-size: 12px; }
+  .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 
   .method { display: grid; grid-template-columns: 22px 1fr; gap: 12px; align-items: start; }
   .method + .method { margin-top: 18px; }
   .method .n {
     font-family: var(--mono); font-size: 12px; color: var(--fg-3); padding-top: 2px;
   }
-  .method h3 { margin-bottom: 4px; }
+  .method h3 { margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .method h3 .ico { color: var(--fg-3); flex: none; }
   .method p { color: var(--fg-2); margin: 0; font-size: 13px; }
 
-  .narrow { max-width: 400px; }
-
   /* The access boundary, read from the API. Two groups, because the whole
-     point is which side of the line a thing falls on. */
-  .cap { display: flex; gap: 14px; align-items: baseline; }
-  .cap .what { font-size: 15px; }
-  .cap .why { font-size: 13px; color: var(--fg-2); margin-top: 2px; }
+     point is which side of the line a thing falls on.
+
+     .cap is on the ROW, set by signin.js's row() at render time, so these
+     rules govern markup that only exists once GET /capabilities has
+     answered. Before this rebuild the class was declared here and set
+     nowhere, which is four dead rules wearing the look of a styled
+     component: grep -rn 'class="cap"' src/web returned nothing, and the
+     three inner rules had never painted a pixel.
+
+     It wraps, and the reason takes a whole line of its own. The widest
+     route this list carries is GET /v1/credentials/:credentialId, which is
+     an unbreakable 33-character mono string: in a row that could not wrap
+     it would either crush the capability name beside it or push the page
+     sideways inside a 400px column.
+
+     .what grows rather than .where being pushed by an auto margin. Both
+     put the route hard right while the pair fits on one line, and they
+     differ on the row that wraps: an auto margin right-aligns the wrapped
+     route under the name, which reads as a stray fragment, where a grown
+     name lets it start at the left like the continuation it is. */
+  .cap { display: flex; flex-wrap: wrap; gap: 3px 14px; align-items: baseline; }
+  .cap .what { font-size: 15px; flex: 1 1 auto; }
+  .cap .why { font-size: 13px; color: var(--fg-2); margin-top: 2px; flex-basis: 100%; }
   .cap .where { font-family: var(--mono); font-size: 12px; color: var(--fg-3); }
+
+  /* The two real controls are 44px in the wireframe (style="height:44px" on
+     all three of its buttons) and were unstated here. base.css:118 gives a
+     .btn min-height: 40px on desktop and polish.css:568 raises it to 44 only
+     under (max-width: 760px), (pointer: coarse), so a desktop pointer met a
+     40px target on the page whose whole content is two buttons. The floor is
+     unconditional on these two, and tests/web/signin-polished.test.ts reads
+     it back out of the computed style in a real browser at 1280px and at
+     320px rather than trusting this declaration. */
+  #btn-github, #btn-passkey { min-height: 44px; }
 </style>
 </head>
 <body>
@@ -65,15 +131,19 @@
 </nav>
 
 <div class="wrap section">
-  <div class="col">
+  <div class="narrow">
     <h1>Sign in</h1>
     <p class="sub" style="margin-bottom:26px" id="notice" data-pending>
       Browsing needs no account. Sign in to hire, or to list an agent.
     </p>
 
-    <div class="stack-sm" style="max-width:400px" id="signin-controls">
-      <button class="btn btn-primary btn-block" id="btn-github" type="button">Continue with GitHub</button>
-      <button class="btn btn-block" id="btn-passkey" type="button">Use a passkey</button>
+    <div class="stack-sm" id="signin-controls">
+      <button class="btn btn-primary btn-block" id="btn-github" type="button">
+        <span class="ico ico-sm" data-ico="github"></span>Continue with GitHub
+      </button>
+      <button class="btn btn-block" id="btn-passkey" type="button">
+        <span class="ico ico-sm" data-ico="fingerprint"></span>Use a passkey
+      </button>
     </div>
 
     <div class="empty" id="account-notice" style="margin-top:14px">
@@ -108,7 +178,7 @@
 <hr class="rule">
 
 <div class="wrap section">
-  <div class="col">
+  <div class="narrow">
     <h2>How signing in works</h2>
     <p class="sub">
       Two ways in, and a third that is offered rather than required. This is
@@ -120,7 +190,7 @@
       <div class="method">
         <span class="n">01</span>
         <div>
-          <h3>Continue with GitHub</h3>
+          <h3><span class="ico ico-sm" data-ico="github"></span>Continue with GitHub</h3>
           <p>GitHub supplies your name and handle, so nothing is asked for
              twice. It is also the same account the ownership proof is later
              checked against, so it does double duty.</p>
@@ -129,15 +199,26 @@
       <div class="method">
         <span class="n">02</span>
         <div>
-          <h3>Use a passkey</h3>
+          <h3><span class="ico ico-sm" data-ico="fingerprint"></span>Use a passkey</h3>
           <p>Your device holds the key. No password to choose, to remember,
              or for us to store.</p>
         </div>
       </div>
+
+      <!-- The wireframe's .or divider separates its two real buttons from
+           its wallet button. There is no wallet BUTTON here (no wallet
+           sign-in route exists, and ALLOWED_ABSENT.signin says so), so the
+           divider does the same job at the same boundary in the place the
+           rail actually appears: 01 and 02 are things you press, 03 is a
+           thing that is explained. Between the list and the paragraph below
+           it, which is where this first went, it read as a dangling
+           conjunction joining a list to a sentence. -->
+      <div class="or">or</div>
+
       <div class="method">
         <span class="n">03</span>
         <div>
-          <h3>Bring your own wallet</h3>
+          <h3><span class="ico ico-sm" data-ico="wallet"></span>Bring your own wallet</h3>
           <p>If you already hold a decentralised identity, you can sign in
              with it. Offered and explained, never required: a seed phrase
              between a buyer and a hire is a closed tab.</p>
@@ -163,7 +244,7 @@
 <hr class="rule">
 
 <div class="wrap section">
-  <div class="col">
+  <div class="narrow">
     <h2>What needs an account, and what does not</h2>
     <p class="sub">
       Read live from this service, so it cannot drift from what the API
@@ -199,7 +280,7 @@
      second rule: a signed-out visitor must not be shown a menu of
      pages that will bounce them back here. -->
 <div class="wrap section" id="once-signed-in" hidden>
-  <div class="col">
+  <div class="narrow">
     <h2>Once signed in</h2>
     <div class="rows">
       <div class="between">
@@ -228,6 +309,8 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/signin.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>

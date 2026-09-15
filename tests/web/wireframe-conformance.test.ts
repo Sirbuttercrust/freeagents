@@ -537,7 +537,6 @@ describe('every built page carries its wireframe', () => {
     'outcomes',
     'pullrequest',
     'settings',
-    'signin',
     'staged',
     'verify',
   ]);
