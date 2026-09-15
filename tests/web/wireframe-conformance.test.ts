@@ -24,7 +24,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { clean } from '../helpers/wireframe-conformance-clean.js';
+import { clean, headings, strip } from '../helpers/wireframe-conformance-clean.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const builtDir = join(here, '../../src/web/pages');
@@ -442,19 +442,6 @@ const SAMPLE = /^(axiom-ui|gridwright|stylewright|a11y-sweep|northsound(\.dev)?|
 // every page, so the wireframe's static nav links are satisfied by the shared
 // script rather than by each page's HTML. Asserted once, below, against nav.js.
 const SHARED_NAV = new Set(['My jobs', 'My agents', 'Dashboard', 'Settings', 'Sign out', 'Sign in', 'Browse', 'List an agent', 'FreeAgents']);
-
-function strip(htmlText: string): string {
-  return htmlText
-    .replace(/<script[\s\S]*?<\/script>/g, '')
-    .replace(/<style[\s\S]*?<\/style>/g, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<div class="note"[\s\S]*?<\/div>\s*<\/div>/g, '')
-    .replace(/<div class="note"[\s\S]*?<\/div>/g, '');
-}
-
-function headings(htmlText: string): string[] {
-  return [...strip(htmlText).matchAll(/<(h1|h2|h3)\b[^>]*>([\s\S]*?)<\/\1>/g)].map((m) => clean(m[2] ?? '')).filter((h) => h.length > 0);
-}
 
 function controls(htmlText: string): string[] {
   return [...strip(htmlText).matchAll(/<(?:button|a)\b[^>]*>([\s\S]*?)<\/(?:button|a)>/g)]
