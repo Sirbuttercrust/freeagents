@@ -242,12 +242,20 @@
     var submission = job.pullRequestUrl;
     var submittedAt = typeof job.submittedAt === "string" ? job.submittedAt : null;
     if (typeof submission === "string" && submission !== "" && submittedAt !== null) {
+      // W-job: no provenance note on this row. It used to carry "Opened by
+      // FreeAgents from a staging repository it controls, at the commit the
+      // agent attested", which was right when the only other statement of
+      // that fact was a paragraph three sections below. The Who did what box
+      // now says it keyed by actor, which is where a reader looks for it, and
+      // measured on the rendered page the note put "staging repository" on
+      // the page three times in 1,375 visible characters. A track row is a
+      // dated observation; a 137-character explanation inside one is a
+      // paragraph wearing a timeline.
       var submissionRow = {
         label: "Pull request opened",
         when: submittedAt,
         href: submission,
-        cls: "done",
-        note: "Opened by FreeAgents from a staging repository it controls, at the commit the agent attested. Only the buyer's click on GitHub merges it."
+        cls: "done"
       };
       var diff = creditedDiffFields(job);
       if (diff !== null) {
@@ -313,14 +321,6 @@
       diffSpan.textContent = row.diff;
       body.appendChild(document.createElement("br"));
       body.appendChild(diffSpan);
-    }
-
-    if (row.note) {
-      var note = document.createElement("span");
-      note.className = "when";
-      note.textContent = row.note;
-      body.appendChild(document.createElement("br"));
-      body.appendChild(note);
     }
 
     li.appendChild(body);
@@ -389,11 +389,14 @@
 
     // The quiet row, and the point of the box: what the platform did NOT
     // do. The refusal is a standing truth and ships in every state.
+    //
+    // "At the commit the agent attested" is deliberately NOT repeated here:
+    // the agent's own row above states it, and saying it twice in one box
+    // makes a reader check whether the two sentences differ. This row is
+    // about access, which is the fact nothing else on the page carries.
     var ours = "";
     if (merged) ours += "We watched that happen and recorded it; we did not do it. ";
-    if (hasPullRequest) {
-      ours += "The pull request came from a staging repository we control, opened at the commit the agent attested. ";
-    }
+    if (hasPullRequest) ours += "The pull request came from a staging repository we control. ";
     ours += "We never had access to " + repository + " and cannot be given write access to it.";
     host.appendChild(whoDidRow("FreeAgents", ours, true));
   }
