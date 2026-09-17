@@ -5,14 +5,19 @@
    staged.js's own pattern, no side effect). Adds
    POST /jobs/:jobId/cited-close, buyer-only.
 
+   W-pullrequest put this screen on the polished visual system. The one
+   change in this file is the avatar engine: renderWho now mounts the
+   DID-derived swarm creature rather than the server's agent.avatar field,
+   with the reason stated at the call site. No data wiring moved.
+
    Departures from spec/wireframe/pullrequest.html (handoff): provenance
    names a platform-controlled staging repository, never a fork
-   (app.ts:3741, B14a); the write-access sentence stays verbatim
-   (invariant 1). No payment date renders anywhere (no route serves one
-   to a party); the lede states paid in full and submittedAt, and the
-   disclosure's deposit/balance rows keep amounts, lose dates. The clock
-   is submittedAt + DEEM_COMPLETED_AFTER_DAYS, never the projection's own
-   `deadline` (submittedAt + STALE_AFTER_DAYS). The diff line reads only
+   (app.ts:4030-4036 and :4093-4097, B14a); the write-access sentence stays
+   verbatim (invariant 1). No payment date renders anywhere (no route
+   serves one to a party); the lede states paid in full and submittedAt,
+   and the disclosure's deposit/balance rows keep amounts, lose dates. The
+   clock is submittedAt + DEEM_COMPLETED_AFTER_DAYS, never the projection's
+   own `deadline` (submittedAt + STALE_AFTER_DAYS). The diff line reads only
    from the signed attestation; absent on a failed or 404 read, never
    estimated. Serves `submitted` only; every other status renders
    not-ready or a terminal panel naming what happened. No control here
@@ -111,11 +116,38 @@
     if (repoLine) repoLine.textContent = typeof job_.repository === "string" ? job_.repository : "";
     var agentDid = typeof job_.agentDid === "string" ? job_.agentDid : "";
     if (agentDid === "") return;
+
+    /* W-pullrequest: THE AVATAR IS PAINTED BY THE SWARM GENERATOR, NOT THE
+       SERVER'S agent.avatar FIELD. DESIGN.md 2.4 and ENT-2.3: an agent's
+       creature is derived from its DID and nothing else. swarm.js
+       (window.FASwarm) is the generator the polished pages standardise on;
+       agent.avatar is a separate, older server-rendered engine
+       (src/api/avatar.ts's own header names it a blobatar stand-in) that
+       this page no longer reads. A.setAvatar is left alone: it is shared,
+       and operatorjob.js still calls it (the only other call site left in
+       src/web/public/js, counted).
+
+       The attribute is SET AND PAINTED IN THE SAME BREATH, here, on the DID
+       this page already has from the job record rather than on anything the
+       agent read returns. polish.js's generic [data-avatar] sweep
+       (polish.js:468-497) runs once at load, long before this read resolves,
+       so a mount that waits for the sweep stays empty forever; and an
+       attribute written into the markup ahead of the read would be either an
+       empty mount or an agent identity this page has not confirmed. Same
+       mechanism staged.js:429-433, agent.js:163-165, agreement.js:101-105
+       and hire.js:90-92 use, line numbers recounted against this tree rather
+       than carried from the brief. */
+    var avatarEl = A.el("agent-avatar");
+    if (avatarEl && window.FASwarm) {
+      avatarEl.setAttribute("data-avatar", agentDid);
+      avatarEl.innerHTML = window.FASwarm.avatar(agentDid, 32);
+      avatarEl.removeAttribute("data-pending");
+    }
+
     A.get("/agents/" + encodeURIComponent(agentDid)).then(function (result) {
       var name = A.shortDid(agentDid);
       if (result.state === "ok") {
         name = typeof result.value.name === "string" && result.value.name !== "" ? result.value.name : agentDid;
-        A.setAvatar(A.el("agent-avatar"), result.value.avatar);
       }
       A.setTextById("agent-name", name);
     });

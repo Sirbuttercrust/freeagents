@@ -6,53 +6,170 @@
 <title>The pull request is open: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/flow.css">
 <style>
-  /* P8l PULLREQUEST (P-14), from spec/wireframe/pullrequest.html. Nav and
-     footer copied from staged.html unchanged. Departures (handoff): the
-     provenance line names a platform-controlled staging repository, not
-     the agent's own copy of the source repository (app.ts:3741, B14a);
-     the write-access sentence stays verbatim. No payment date renders
-     (no route serves one to a party); the clock is submittedAt plus
-     DEEM_COMPLETED_AFTER_DAYS, never the projection's own deadline. The
-     diff line renders only from a signed attestation. The no-merge
-     sentence says the platform CHECKS GitHub when a party asks (POST
-     /jobs/:jobId/merge, app.ts:4172), not that it watches: no scheduler
-     or webhook receiver exists anywhere in src/, blocklet.yml, .github or
-     prisma (job.ts:595, "no cron, no background process, nothing that
-     wakes up on its own"), so a merge between two reads is observed only
-     when a party or a later read triggers it. The gap itself (no
-     scheduled merge observation) is logged in the launch bug ledger per
-     ruling 7; not fixed here, no route changes. */
-  .who { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px; }
-  .who .avatar { width: 32px; height: 32px; border-radius: 50%; flex: none; overflow: hidden; background: var(--bg-2); }
-  .who .hires { color: var(--accent); font-size: 13px; font-weight: 550; } .who .r { color: var(--fg-2); font-size: 13px; }
-  .rail { display: flex; gap: 0; margin: 0; list-style: none; padding: 0; }
-  .rail li { flex: 1; font-size: 12px; color: var(--fg-2); padding-top: 12px; border-top: 2px solid var(--line); font-family: var(--mono); min-width: 0; }
-  .rail li.on { color: var(--fg); border-top-color: var(--fg); } .rail li.done { color: var(--fg-2); border-top-color: var(--line-2); }
-  .railnow { display: none; font-size: 13px; color: var(--fg-2); margin-top: 12px; }
-  @media (max-width: 640px) { .rail li { font-size: 0; padding-top: 8px; } .railnow { display: block; } }
+  /* W-pullrequest: PULL REQUEST OPEN (SITEMAP P-14), rebuilt on
+     spec/wireframe/pullrequest.html and spec/wireframe/flow.css. Structure,
+     class vocabulary and 320px behaviour come from those two files.
+
+     THE STYLESHEETS. tokens.css, base.css, polish.css, flow.css, in that
+     order. The wireframe loads base, polish and flow
+     (spec/wireframe/pullrequest.html:7-9); tokens.css is this site's own
+     split of the wireframe's variable block and sits under everything. The
+     same four staged.html:7-10 loads, which is the shipped precedent for
+     this flow screen.
+
+     THE SCRIPTS. api, nav, swarm, polish, pullrequest, ui, matching
+     staged.html:375-380.
+       swarm.js  paints the .who avatar, the creature derived from the
+                 agent's DID (DESIGN.md 2.4, ENT-2.3).
+       polish.js sheets() gives the close dialog backdrop-click-to-close,
+                 which this page's own [data-closes] binding does not do;
+                 hits() runs the ripple polish.css draws as .btn::after;
+                 navState() adds .nav.is-stuck, which polish.css styles and
+                 nothing else sets.
+       icons.js  is NOT loaded, the same call staged.html makes. Counted:
+                 spec/wireframe/pullrequest.html declares 0 [data-ico]
+                 hosts, this page declares 0, and pullrequest.js creates 0,
+                 so the sprite would have nothing to paint. polish.js's two
+                 FAIcon calls are guarded (polish.js:66, :571).
+       wireframe.js is NOT loaded: wireframe-only scaffolding that no built
+                 page links.
+
+     THE PAGE-LOCAL BLOCK IS ONE COMPONENT AND ONE PANEL RULE. Every rule
+     flow.css now provides is gone from it: .who, .rail, .railnow, .clock,
+     .acts, .picker, .pickernote, .fixed, .sheet, .shead, .sbody, .sfoot
+     and .sclose are all flow.css's now, at flow.css's own values, and
+     #close-send-btn's 44px floor is reached by `.sheet .sfoot .btn`
+     (flow.css:662) because that button is a .btn inside the dialog's
+     .sfoot. Measured across tokens.css, base.css, polish.css and flow.css
+     with comments stripped and matching at selector position only:
+     .prlink 0, .warn 0. Those two are the survivors and each carries its
+     own reason below.
+
+     DEPARTURES FROM THE WIREFRAME are restated beside the markup each one
+     governs, plus these five, which are about the page as a whole.
+
+     1. The provenance line names a platform-controlled staging repository,
+        not the agent's own copy of the source repository (app.ts:4030-4036
+        and :4093-4097, B14a: the pull request opens from the staging
+        repository at the attested SHA, never from a copy the agent owns).
+        The write-access sentence stays verbatim. The word this paragraph
+        is carefully not using is banned from this screen outright by
+        ruling 3, and tests/web/pullrequest.test.ts asserts its absence
+        from documentElement.outerHTML, which includes these comments: a
+        buyer reading view-source must not find the platform describing
+        this flow the old way.
+     2. No payment date renders anywhere: no route serves one to a party.
+     3. The clock is submittedAt plus DEEM_COMPLETED_AFTER_DAYS, never the
+        projection's own `deadline` field.
+     4. The no-merge sentence says the platform CHECKS GitHub when a party
+        asks (POST /jobs/:jobId/merge, app.ts:4564), not that it watches:
+        no scheduler or webhook receiver exists anywhere in src/,
+        blocklet.yml, .github or prisma (job.ts:593-596, "no timers, no
+        cron, no background process, nothing that wakes up on its own"), so
+        a merge between two reads is observed only when a party or a later
+        read triggers it. The gap itself (no scheduled merge observation)
+        is logged in the launch bug ledger per ruling 7; not fixed here, no
+        route changes.
+     5. NEW HERE. The wireframe's nav account menu
+        (spec/wireframe/pullrequest.html:64-73, a <details class="avatarmenu">
+        whose drop holds Dashboard, Settings and Sign out) carries the
+        second of the wireframe's two data-avatar hosts, and it is not
+        built anywhere on this site. nav.js:85-89 and nav.js:107-110 record
+        that decision: all three destinations are already flat controls in
+        the shared bar, so a menu would put two Dashboard links and two
+        Settings links in one nav. So this page mounts ONE avatar, in the
+        who strip, not two. */
+
+  /* THE PULL REQUEST LINE. Page-local because no sheet this page loads
+     declares .prlink, counted above; the wireframe keeps it local too
+     (spec/wireframe/pullrequest.html:41-50).
+
+     THE DIFF SIZE IS --fg-2, AND THE WIREFRAME'S STATED REASON FOR THAT NO
+     LONGER REPRODUCES. Its comment says --fg-3 "measured at 3.44:1 on the
+     pane, against 4.5 for 13px" (spec/wireframe/pullrequest.html:47-49),
+     which was true of the OLD token, #666B73.
+
+     THE LIFT IS THE WIREFRAME'S HISTORY, NOT THIS TREE'S, AND THE DATE
+     DISAGREEMENT IS THE HEX DISAGREEMENT WEARING A DIFFERENT HAT.
+     `git log -L 28,28:src/web/public/css/tokens.css HEAD` returns exactly
+     one commit, the file's own creation, already carrying #7E838C:
+     tokens.css has never declared the failing value, so no lift ever
+     happened in this file. Three documents date a lift to 2026-08-27 and
+     all three land it on #7C828C, which is NOT the value this page loads:
+     spec/wireframe/base.css (the date at :40, the declaration at :46),
+     spec/wireframe/DESIGN.md (the date at :274, the declaration at :133),
+     and src/web/public/css/flow.css:216, which states both in one clause
+     and is a sheet this page does load. Against that,
+     src/web/public/css/tokens.css:20-28 dates its own lift to 2026-08-30
+     and lands on #7E838C. Every path here is written in full because both
+     trees carry a base.css and a flow.css, and which tree a line came from
+     is the whole content of this paragraph. The two dates belong to the two
+     hexes, so choosing a date silently would be choosing a hex. Neither is
+     chosen. What this rule needs is only the value the page loads today,
+     which is #7E838C, whenever it arrived.
+
+     Measured against the values this page actually loads, compositing
+     .pane's own gradient over --bg the way base.css:316 builds it:
+
+       ink              on --bg   pane top   pane bottom
+       --fg-2 #9CA1AA     7.68      6.92        7.34
+       --fg-3 #7E838C     5.23      4.72        5.00
+       --fg-3 #666B73     3.72      3.35        3.55   (the pre-lift token)
+
+     HOW A LATER READER RE-DERIVES EVERY FIGURE IN THAT TABLE. The two pane
+     columns are the gradient's own end points rather than a sample at one
+     text run, so they hold whatever height a pane happens to be:
+     --pane-fill-2 (tokens.css:73) over --bg at the top, --pane-fill
+     (tokens.css:72) over --bg at the bottom, each channel rounded to 8 bits
+     the way a browser rasterises it, which gives rgb(22,23,23) and
+     rgb(15,16,17). Then WCAG 2.2 on each pair, which is
+     spec/wireframe/tokens.py's own contrast() at :560. Two instruments were
+     run and they agree to the hundredth: that arithmetic, and a photograph
+     of these four stylesheets rendering a .pane pane-pad with every glyph
+     made transparent, verify_ink.py's method, whose lightest interior pixel
+     reads rgb(22,23,23) and whose darkest reads rgb(15,16,17). Compositing
+     in float without the 8-bit round gives 6.95, 7.35 and 3.36 in the pane
+     columns instead. The browser quantises, so the rounded figures are the
+     ones a person sees, and those are the ones above.
+
+     So --fg-3 clears 4.5 here now and the contrast argument is spent. The
+     rule stays for the token's MEANING instead, which is the stronger
+     reason and was always the real one: DESIGN.md:133 and :222 reserve
+     --fg-3 for unverifiable content and portfolio claims, and this figure
+     is read straight off the signed attestation, so it is the opposite of
+     a claim.
+
+     THIS TABLE IS NOT A CROSS-CHECK AGAINST DESIGN.md 2.5, BECAUSE THE TWO
+     DOCUMENTS DO NOT NAME THE SAME COLOUR. --fg-2 agrees: 7.68 on --bg in
+     both places (DESIGN.md:271). --fg-3 does not: this table reads 5.23 and
+     DESIGN.md:272 reads 5.15. Neither figure is an arithmetic error. The
+     divergence is two hex digits between the declarations themselves,
+     DESIGN.md:133's #7C828C against tokens.css:28's #7E838C, and the same
+     arithmetic run on each hex reproduces both numbers exactly: #7E838C
+     gives 5.23 on --bg, #7C828C gives 5.15. Each document is internally
+     consistent, which is why `python3 spec/wireframe/verify_designmd.py`
+     prints PASS on that row. Its population is spec/wireframe/*.css
+     (tokens.py:41 and :54-57), and src/web/public/css sits outside it, so
+     no gate in this tree compares the shipped token against the normative
+     table. That divergence is a finding for the design source, not an edit
+     a page card may make. */
   .prlink { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-family: var(--mono); font-size: 16px; }
   .prlink a { text-decoration: underline; text-underline-offset: 4px; } .prlink a:hover { color: var(--accent-hi); }
   .prlink .diff { color: var(--fg-2); font-size: 13px; }
-  .clock { font-size: 15px; line-height: 1.55; } .clock .days { font-weight: 600; }
-  .clock .then { display: block; font-size: 13px; color: var(--fg-2); margin-top: 8px; max-width: 62ch; }
-  .acts { display: flex; flex-wrap: wrap; gap: 10px; } .acts .btn { min-height: 44px; }
-  .picker { list-style: none; padding: 0; margin: 0; }
-  .picker li { border-bottom: 1px solid var(--line); } .picker li:last-child { border-bottom: 0; }
-  .picker label { display: grid; grid-template-columns: 22px 1fr; gap: 12px; padding: 13px 0; min-height: 44px; align-items: start; cursor: pointer; font-size: 14px; line-height: 1.5; }
-  .picker input { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); } .picker label:hover { color: var(--fg); }
-  .pickernote { font-size: 13px; color: var(--fg-2); line-height: 1.55; margin: 12px 0 0; max-width: 62ch; }
-  .fixed { list-style: none; padding: 0; margin: 0; }
-  .fixed li { display: grid; grid-template-columns: 1fr auto; gap: 12px 16px; padding: 13px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
-  .fixed li:last-child { border-bottom: 0; padding-bottom: 0; } .fixed .k { font-size: 15px; }
-  .fixed .v { font-family: var(--mono); font-size: 13px; color: var(--fg-2); text-align: right; }
-  @media (max-width: 420px) { .fixed li { grid-template-columns: 1fr; } .fixed .v { text-align: left; } }
-  .sheet { width: min(520px, calc(100vw - 24px)); max-height: calc(100vh - 48px); padding: 0; border: 0; border-radius: 14px; overflow: auto; background: var(--bg-1); color: var(--fg); }
-  .sheet::backdrop { background: rgba(4,4,6,0.72); } .sheet .shead { display: flex; gap: 12px; padding: 20px 20px 0; }
-  .sheet .shead h2 { margin: 0; flex: 1; } .sheet .sbody { padding: 14px 20px 20px; }
-  .sheet .sfoot { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 20px 20px; } .sheet .sfoot .btn { min-height: 44px; }
-  .sclose { width: 44px; height: 44px; margin: -10px -8px 0 0; flex: none; border: 0; background: none; color: var(--fg-2); font-size: 22px; cursor: pointer; border-radius: var(--r); }
-  #close-send-btn { min-height: 44px; }
+
+  /* The left rule on this page's seven .empty error panels. Page-local for
+     the same reason as .prlink, and the same rule eight other built pages
+     each declare locally: agent, credential, deposit, job, operator,
+     operatorjob, staged and verify. Counted across the built set with
+     comments stripped and matching at selector position: 18 pages write
+     class="empty warn" and 8 declared the rule, so ten of them wore an
+     inert class and this page was one of the ten. Folding it into a shared
+     sheet is its own card; declaring it here is what the polished flow
+     screen beside this one already does (staged.html). */
+  .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
 </style>
 </head>
 <body>
@@ -81,28 +198,61 @@
     </div>
     <div class="empty warn" id="fault-error" hidden><b>Something is wrong with this hire's record.</b><p class="sub" style="margin-top:8px">The pull request is open but no account of it could be found. This is a fault on our side, not yours.</p></div>
     <div id="pr-body" hidden>
+      <!-- .av, not .avatar: that is the class flow.css:161 sizes and
+           polish.css:536-544 clips and fills, and it is what the wireframe
+           writes (spec/wireframe/pullrequest.html:80). `.who .avatar`, the
+           class this page carried before, is styled by no sheet it loads.
+
+           THE MOUNT SHIPS EMPTY and stays empty until the real agent DID is
+           in hand: pullrequest.js sets data-avatar and paints
+           window.FASwarm.avatar in the same breath (renderWho). polish.js's
+           generic [data-avatar] sweep (polish.js:468-497) runs once at load,
+           long before the agent read resolves, so a mount waiting for the
+           sweep would stay empty forever; and a DID written into this file
+           ahead of the read would be an identity this page has not
+           confirmed. Same mechanism staged.js:429-433, agent.js:163-165,
+           agreement.js:101-105 and hire.js:90-92 use, line numbers recounted
+           against this tree rather than carried from the brief. -->
       <div class="who" id="who">
-        <div class="avatar" id="agent-avatar" data-pending></div>
+        <span class="av" id="agent-avatar" data-pending></span>
         <div>
           <div class="n"><span id="agent-name" data-pending>Loading this agent's record</span> <span class="hires" id="agent-hires"></span></div>
           <div class="r" id="repo-line"></div>
         </div>
       </div>
-      <div class="pane pane-pad" style="margin-bottom:36px">
+      <!-- .reveal ON THE THREE PANES THE WIREFRAME REVEALS
+           (spec/wireframe/pullrequest.html:87, 106, 124). base.css:384-401
+           owns the class and ui.js:99-126 drives it, and THE FINISHED STATE
+           IS THE CSS DEFAULT: the hidden state lives inside a
+           prefers-reduced-motion: no-preference query and only applies once
+           ui.js has added .js-reveal, which it does only after confirming it
+           can take elements back out again. No JS, no IntersectionObserver,
+           or reduced motion all land on fully visible content, and a 3
+           second timer reveals anything the observer never reported. That
+           fallback is what covers these three, which sit inside a #pr-body
+           that is hidden at load. -->
+      <div class="pane pane-pad reveal" style="margin-bottom:36px">
         <ol class="rail">
           <li class="done">1&nbsp;&nbsp;Brief</li><li class="done">2&nbsp;&nbsp;Agreement</li><li class="done">3&nbsp;&nbsp;Deposit</li>
           <li class="done">4&nbsp;&nbsp;The work</li><li class="on">5&nbsp;&nbsp;Pull request</li>
         </ol>
         <p class="railnow">Step 5 of 5: the pull request is open.</p>
       </div>
-      <h1 style="margin:0">Read it on GitHub</h1>
-      <p class="lede" id="lede" style="margin-top:10px"></p>
-      <div class="pane pane-pad" style="margin-top:28px">
+      <!-- .glow around the heading and its lede, the wireframe's own
+           grouping (spec/wireframe/pullrequest.html:98-104). base.css:366-382
+           draws one soft radial behind a hero heading, at most once per
+           page, bounded to its own box, and .glow > * lifts the text above
+           it (base.css:382), so the decoration never sits over the words. -->
+      <div class="glow">
+        <h1 style="margin:0">Read it on GitHub</h1>
+        <p class="lede" id="lede" style="margin-top:10px"></p>
+      </div>
+      <div class="pane pane-pad reveal" style="margin-top:28px">
         <p class="prlink" id="prlink"><span class="diff" id="pr-diff" hidden></span></p>
         <p class="sub" style="margin-top:10px" id="pr-provenance"></p>
       </div>
       <div class="row" style="margin-top:20px" id="pr-open-wrap"></div>
-      <div class="clock pane pane-pad" style="margin-top:30px"><span class="days" id="clock-days"></span><span class="then" id="clock-then"></span></div>
+      <div class="clock pane pane-pad reveal" style="margin-top:30px"><span class="days" id="clock-days"></span><span class="then" id="clock-then"></span></div>
       <h2 style="margin-top:40px; margin-bottom:6px">If it is not right</h2>
       <p class="sub" style="margin-bottom:18px">One control, and it has real consequences. Read them before you use it.</p>
       <div class="acts" id="acts"><button class="btn" type="button" id="close-btn" hidden>Close it with a reason</button></div>
@@ -138,6 +288,34 @@
       <label for="close-why">What is wrong, in one sentence</label>
       <input class="input" id="close-why" placeholder="This is published on your record, in your words">
     </div>
+    <!-- FOUR CONSEQUENCE ROWS, NOT THE WIREFRAME'S FIVE. This is the one
+         place P8l ruling 6 ("the fixed consequence list ships verbatim")
+         does not hold. The wireframe's fifth row, "axiom-ui's record | gains
+         one job that did not ship" (spec/wireframe/pullrequest.html:229),
+         states a fact about the AGENT's record, and nothing in this codebase
+         records it. Read, not assumed:
+
+         cited_closed is counted in exactly one place, buyer-conduct.ts:154,
+         into citedCloses (declared at :50), which is the BUYER's record. It
+         is served by GET /buyers/:githubLogin/conduct (app.ts:2576-2585) and
+         rendered under "When they hire" (src/web/pages/conduct.html:100, the
+         count at :120). The operator half of that same response counts two
+         things and neither is this one: deliveredNeverPaid and redosRefused
+         (operatorConductRecord, buyer-conduct.ts:262-283). The agent's own
+         record is agentWorkRecord (agent-work-record.ts:79-101), three tiers
+         all built from issued credentials, and a credential issues only on a
+         merge (:71-72), so a close that never merges produces no row in any
+         of them. The fact is recorded once, on the job: recordCitedClose
+         writes citedCloseAuthorDid from job.buyerDid (job.ts:785-806, the
+         copy at :803), which is the buyer and never the agent.
+
+         So no agent-side and no operator-side cited-close count exists to
+         read, and rendering the row would state a fact this platform does
+         not keep. P8k ruling 3 reached the same finding for the sibling
+         dialog at src/web/pages/staged.html:351-359; this one was reached by
+         reading the files named above rather than carried across from it.
+         The omission stands, and no count, badge or score is added to make
+         the sentence true. -->
     <ul class="fixed" style="margin-top:18px">
       <li><span class="k">Refunded</span><span class="v">nothing</span></li>
       <li><span class="k">The receipt</span><span class="v">never issues</span></li>
@@ -160,6 +338,8 @@
 </footer>
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/swarm.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/pullrequest.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>

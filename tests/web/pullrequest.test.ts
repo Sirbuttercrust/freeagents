@@ -112,6 +112,41 @@ function renderPr(
 ): Promise<Rendered> {
   return renderPage(baseUrl, `/pullrequest?job=${encodeURIComponent(jobId)}`, session, onFetch);
 }
+// Every CSS rule in force on this page: the page's own <style> block plus
+// each stylesheet it LINKS, fetched over HTTP from the running app.
+//
+// W-pullrequest moved .sheet, .acts, .picker and the send-button floor out
+// of the page-local block and into src/web/public/css/flow.css when this
+// screen joined the polished visual system. The layout assertion below
+// reads declared rule text, because jsdom has no layout engine, and reading
+// only document.querySelector('style') made it assert something narrower
+// than it claims: that a rule is written HERE, rather than that it is in
+// force on this page. It is now satisfied by a rule wherever the page
+// really gets it from. Same helper, same reasoning, as
+// tests/web/staged.test.ts:184.
+//
+// The hrefs are read from the page's own markup rather than named here, so
+// a sheet that stops being linked leaves the corpus rather than silently
+// keeping an assertion green, and the fetch is what proves the file is
+// actually served at that path. An empty population throws: a corpus that
+// quietly became one inline block would turn every match below into a green
+// loop over nothing.
+async function pageCss(page: Rendered, baseUrl: string): Promise<string> {
+  const inline = Array.from(page.document.querySelectorAll('style')).map((s) => s.textContent ?? '');
+  const hrefs = Array.from(page.document.querySelectorAll('link[rel="stylesheet"]')).map((l) =>
+    l.getAttribute('href') ?? '',
+  );
+  if (hrefs.length === 0) throw new Error('no linked stylesheets on the pull-request page: the corpus would be inline CSS only');
+  const linked: string[] = [];
+  for (const href of hrefs) {
+    const res = await fetch(new URL(href, baseUrl));
+    if (!res.ok) throw new Error(`the pull-request page links ${href} and the app answers ${res.status} for it`);
+    const text = await res.text();
+    if (text.trim() === '') throw new Error(`${href} is served empty`);
+    linked.push(text);
+  }
+  return [...inline, ...linked].join('\n');
+}
 describe('the pull-request screen, driven end to end against the real app', () => {
   let agentRepo: MemoryAgentRepository;
   let jobRepo: MemoryJobRepository;
@@ -517,6 +552,46 @@ describe('the pull-request screen, driven end to end against the real app', () =
       }
     });
   });
+  // W-pullrequest. The shared conformance gate
+  // (tests/web/wireframe-conformance.test.ts, "carries the avatars its
+  // wireframe draws") tests /data-avatar/ against RAW file text, so a
+  // COMMENT mentioning data-avatar satisfies it exactly as well as a real
+  // mount does. Proved on this tree: with the setAttribute call in
+  // renderWho replaced by a no-op, that suite stayed 105/105 green, because
+  // this page's own comments name the attribute while explaining the
+  // mechanism. That is the conformance-satisfied-by-dead-markup defect the
+  // conformance file itself already records fixing once (its agent entry,
+  // Proof round 2 D1), in a different shape.
+  //
+  // So the real assertion lives here, against the RENDERED DOM after the
+  // agent read resolves, where a comment cannot reach: the attribute is on
+  // the element, it carries the job's own agentDid, and swarm.js really
+  // painted an <svg> into it. Widening the shared gate to strip comments is
+  // its own card across every page it judges, not a change to make from
+  // inside one page's rebuild.
+  describe('the avatar is a real mount painted by the swarm generator (W-pullrequest)', () => {
+    it('carries data-avatar set to the job\u2019s agent DID with a painted svg inside, not the server avatar field', async () => {
+      const page = await renderPr(baseUrl, 'job-fully-submitted', buyerSession);
+      try {
+        const avatar = page.document.getElementById('agent-avatar');
+        expect(avatar, '#agent-avatar is missing').not.toBeNull();
+        // .av is what flow.css:161 sizes and polish.css:536-544 clips and
+        // fills. .avatar, the class this page carried before the rebuild,
+        // is styled by no sheet it loads.
+        expect(avatar?.classList.contains('av')).toBe(true);
+        expect(avatar?.classList.contains('avatar')).toBe(false);
+        expect(avatar?.getAttribute('data-avatar')).toBe(AGENT_DID);
+        // Painted, not merely marked: an empty mount is what a page that
+        // waits for polish.js's one-shot sweep would ship.
+        expect(avatar?.querySelector('svg'), 'the swarm generator painted nothing into the mount').not.toBeNull();
+        // The pending mark is cleared, so the supporting "still loading"
+        // colour (base.css:89) is not left on a real face.
+        expect(avatar?.hasAttribute('data-pending')).toBe(false);
+      } finally {
+        page.close();
+      }
+    });
+  });
   describe('the verified hire count (scope item 8)', () => {
     it('renders the agent name with no count when the agent has none', async () => {
       const page = await renderPr(baseUrl, 'job-fully-submitted', buyerSession);
@@ -858,7 +933,11 @@ describe('the pull-request screen, driven end to end against the real app', () =
     it('the dialog caps at min(520px, 100vw - 24px), every picker row and the send/close controls are at least 44px', async () => {
       const page = await renderPr(baseUrl, 'job-multi-criteria', buyerSession);
       try {
-        const css = page.document.querySelector('style')?.textContent ?? '';
+        // Read from every sheet the page really loads, not just its inline
+        // block: W-pullrequest moved these rules into flow.css, and an
+        // instrument that only reads <style> asserts where a rule is
+        // WRITTEN rather than whether it is IN FORCE (pageCss's own note).
+        const css = await pageCss(page, baseUrl);
         expect(css).toMatch(/\.sheet\s*\{[^}]*width:\s*min\(520px,\s*calc\(100vw - 24px\)\)/);
         (page.document.getElementById('close-btn') as HTMLButtonElement).click();
         const closeBtn = page.document.querySelector('#close .sclose');
@@ -866,7 +945,17 @@ describe('the pull-request screen, driven end to end against the real app', () =
         const closeBtnStyle = page.window.getComputedStyle(closeBtn as Element);
         expect(parseFloat(closeBtnStyle.width)).toBeGreaterThanOrEqual(44);
         expect(parseFloat(closeBtnStyle.height)).toBeGreaterThanOrEqual(44);
-        expect(css).toMatch(/#close-send-btn\s*\{[^}]*min-height:\s*44px/);
+        // The send button's floor is now `.sheet .sfoot .btn` (flow.css:662),
+        // which reaches it because it is a .btn inside the dialog's .sfoot,
+        // rather than an id rule a second dialog's send button would not
+        // inherit. Asserted as the rule AND as the button really matching
+        // it, so a rule that stopped covering this button could not stay
+        // green: the same pairing tests/web/staged.test.ts:1695-1701 uses.
+        expect(css).toMatch(/\.sheet \.sfoot \.btn\s*\{[^}]*min-height:\s*44px/);
+        const sendBtn = page.document.getElementById('close-send-btn');
+        expect(sendBtn, '#close-send-btn is missing').not.toBeNull();
+        expect(sendBtn?.closest('.sheet .sfoot'), '#close-send-btn is outside the .sheet .sfoot the 44px floor keys on').not.toBeNull();
+        expect(sendBtn?.classList.contains('btn')).toBe(true);
         const pickerLabels = Array.from(page.document.querySelectorAll('#close-picker label'));
         expect(pickerLabels.length).toBe(3);
         pickerLabels.forEach((label) => {
@@ -874,9 +963,11 @@ describe('the pull-request screen, driven end to end against the real app', () =
           expect(parseFloat(style.minHeight)).toBeGreaterThanOrEqual(44);
         });
         const pickerRule = css.match(/\.picker label\s*\{[^}]*\}/)?.[0] ?? '';
+        expect(pickerRule, '.picker label is declared by no stylesheet this page loads').not.toBe('');
         expect(pickerRule).toMatch(/grid-template-columns:\s*22px 1fr/);
         expect(pickerRule).toMatch(/min-height:\s*44px/);
         const actsRule = css.match(/\.acts\s*\{[^}]*\}/)?.[0] ?? '';
+        expect(actsRule, '.acts is declared by no stylesheet this page loads').not.toBe('');
         expect(actsRule).toMatch(/flex-wrap:\s*wrap/);
       } finally {
         page.close();
