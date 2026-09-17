@@ -89,25 +89,73 @@
 
      THE DIFF SIZE IS --fg-2, AND THE WIREFRAME'S STATED REASON FOR THAT NO
      LONGER REPRODUCES. Its comment says --fg-3 "measured at 3.44:1 on the
-     pane, against 4.5 for 13px", which was true of the OLD token: --fg-3
-     was #666B73 until the 2026-08-27 lift (DESIGN.md 2.5, tokens.css:20-27).
-     Recomputed against the values this page actually loads, compositing
+     pane, against 4.5 for 13px" (spec/wireframe/pullrequest.html:47-49),
+     which was true of the OLD token, #666B73.
+
+     THE LIFT IS THE WIREFRAME'S HISTORY, NOT THIS TREE'S, AND THE DATE
+     DISAGREEMENT IS THE HEX DISAGREEMENT WEARING A DIFFERENT HAT.
+     `git log -L 28,28:src/web/public/css/tokens.css HEAD` returns exactly
+     one commit, the file's own creation, already carrying #7E838C:
+     tokens.css has never declared the failing value, so no lift ever
+     happened in this file. Three documents date a lift to 2026-08-27 and
+     all three land it on #7C828C, which is NOT the value this page loads:
+     spec/wireframe/base.css (the date at :40, the declaration at :46),
+     spec/wireframe/DESIGN.md (the date at :274, the declaration at :133),
+     and src/web/public/css/flow.css:216, which states both in one clause
+     and is a sheet this page does load. Against that,
+     src/web/public/css/tokens.css:20-28 dates its own lift to 2026-08-30
+     and lands on #7E838C. Every path here is written in full because both
+     trees carry a base.css and a flow.css, and which tree a line came from
+     is the whole content of this paragraph. The two dates belong to the two
+     hexes, so choosing a date silently would be choosing a hex. Neither is
+     chosen. What this rule needs is only the value the page loads today,
+     which is #7E838C, whenever it arrived.
+
+     Measured against the values this page actually loads, compositing
      .pane's own gradient over --bg the way base.css:316 builds it:
 
        ink              on --bg   pane top   pane bottom
-       --fg-2 #9CA1AA     7.68      6.95        7.35
-       --fg-3 #7E838C     5.23      4.73        5.00
-       --fg-3 #666B73     3.72      3.36        3.55   (the pre-lift token)
+       --fg-2 #9CA1AA     7.68      6.92        7.34
+       --fg-3 #7E838C     5.23      4.72        5.00
+       --fg-3 #666B73     3.72      3.35        3.55   (the pre-lift token)
+
+     HOW A LATER READER RE-DERIVES EVERY FIGURE IN THAT TABLE. The two pane
+     columns are the gradient's own end points rather than a sample at one
+     text run, so they hold whatever height a pane happens to be:
+     --pane-fill-2 (tokens.css:73) over --bg at the top, --pane-fill
+     (tokens.css:72) over --bg at the bottom, each channel rounded to 8 bits
+     the way a browser rasterises it, which gives rgb(22,23,23) and
+     rgb(15,16,17). Then WCAG 2.2 on each pair, which is
+     spec/wireframe/tokens.py's own contrast() at :560. Two instruments were
+     run and they agree to the hundredth: that arithmetic, and a photograph
+     of these four stylesheets rendering a .pane pane-pad with every glyph
+     made transparent, verify_ink.py's method, whose lightest interior pixel
+     reads rgb(22,23,23) and whose darkest reads rgb(15,16,17). Compositing
+     in float without the 8-bit round gives 6.95, 7.35 and 3.36 in the pane
+     columns instead. The browser quantises, so the rounded figures are the
+     ones a person sees, and those are the ones above.
 
      So --fg-3 clears 4.5 here now and the contrast argument is spent. The
      rule stays for the token's MEANING instead, which is the stronger
      reason and was always the real one: DESIGN.md:133 and :222 reserve
      --fg-3 for unverifiable content and portfolio claims, and this figure
      is read straight off the signed attestation, so it is the opposite of
-     a claim. The arithmetic above reproduces DESIGN.md 2.5's own
-     real-browser table (--fg-2 7.68 and --fg-3 5.15 on --bg, DESIGN.md:271-272)
-     to the hundredth, which is what makes it a cross-check rather than a
-     second guess. */
+     a claim.
+
+     THIS TABLE IS NOT A CROSS-CHECK AGAINST DESIGN.md 2.5, BECAUSE THE TWO
+     DOCUMENTS DO NOT NAME THE SAME COLOUR. --fg-2 agrees: 7.68 on --bg in
+     both places (DESIGN.md:271). --fg-3 does not: this table reads 5.23 and
+     DESIGN.md:272 reads 5.15. Neither figure is an arithmetic error. The
+     divergence is two hex digits between the declarations themselves,
+     DESIGN.md:133's #7C828C against tokens.css:28's #7E838C, and the same
+     arithmetic run on each hex reproduces both numbers exactly: #7E838C
+     gives 5.23 on --bg, #7C828C gives 5.15. Each document is internally
+     consistent, which is why `python3 spec/wireframe/verify_designmd.py`
+     prints PASS on that row. Its population is spec/wireframe/*.css
+     (tokens.py:41 and :54-57), and src/web/public/css sits outside it, so
+     no gate in this tree compares the shipped token against the normative
+     table. That divergence is a finding for the design source, not an edit
+     a page card may make. */
   .prlink { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-family: var(--mono); font-size: 16px; }
   .prlink a { text-decoration: underline; text-underline-offset: 4px; } .prlink a:hover { color: var(--accent-hi); }
   .prlink .diff { color: var(--fg-2); font-size: 13px; }
@@ -240,6 +288,34 @@
       <label for="close-why">What is wrong, in one sentence</label>
       <input class="input" id="close-why" placeholder="This is published on your record, in your words">
     </div>
+    <!-- FOUR CONSEQUENCE ROWS, NOT THE WIREFRAME'S FIVE. This is the one
+         place P8l ruling 6 ("the fixed consequence list ships verbatim")
+         does not hold. The wireframe's fifth row, "axiom-ui's record | gains
+         one job that did not ship" (spec/wireframe/pullrequest.html:229),
+         states a fact about the AGENT's record, and nothing in this codebase
+         records it. Read, not assumed:
+
+         cited_closed is counted in exactly one place, buyer-conduct.ts:154,
+         into citedCloses (declared at :50), which is the BUYER's record. It
+         is served by GET /buyers/:githubLogin/conduct (app.ts:2576-2585) and
+         rendered under "When they hire" (src/web/pages/conduct.html:100, the
+         count at :120). The operator half of that same response counts two
+         things and neither is this one: deliveredNeverPaid and redosRefused
+         (operatorConductRecord, buyer-conduct.ts:262-283). The agent's own
+         record is agentWorkRecord (agent-work-record.ts:79-101), three tiers
+         all built from issued credentials, and a credential issues only on a
+         merge (:71-72), so a close that never merges produces no row in any
+         of them. The fact is recorded once, on the job: recordCitedClose
+         writes citedCloseAuthorDid from job.buyerDid (job.ts:785-806, the
+         copy at :803), which is the buyer and never the agent.
+
+         So no agent-side and no operator-side cited-close count exists to
+         read, and rendering the row would state a fact this platform does
+         not keep. P8k ruling 3 reached the same finding for the sibling
+         dialog at src/web/pages/staged.html:351-359; this one was reached by
+         reading the files named above rather than carried across from it.
+         The omission stands, and no count, badge or score is added to make
+         the sentence true. -->
     <ul class="fixed" style="margin-top:18px">
       <li><span class="k">Refunded</span><span class="v">nothing</span></li>
       <li><span class="k">The receipt</span><span class="v">never issues</span></li>
