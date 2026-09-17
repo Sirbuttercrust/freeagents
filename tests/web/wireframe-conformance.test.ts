@@ -596,9 +596,7 @@ describe('every built page carries its wireframe', () => {
   // done only when its name is REMOVED from this set and both assertions
   // pass; a card that leaves its page listed has not finished. Adding a page
   // to this set is never a fix. Empty set means the rebuild is complete.
-  const NOT_YET_REBUILT = new Set([
-    'notfound',
-  ]);
+  const NOT_YET_REBUILT = new Set<string>([]);
   const visualPages = builtPages.filter((n) => !NOT_YET_REBUILT.has(n));
 
   it('the work list names only pages that exist', () => {
