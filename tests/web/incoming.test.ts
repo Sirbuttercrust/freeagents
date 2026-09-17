@@ -504,7 +504,15 @@ describe('the Incoming work screen, driven end to end against the real app', () 
           })()
         `);
         expect(footAction?.found, 'at least one row foot action must render').toBe(true);
-        expect(footAction?.height, 'the foot action must reach the 44px tap floor at 320px').toBeGreaterThanOrEqual(44);
+        // Subpixel slack, for the same reason the desktop guard below
+        // carries it: this is a getBoundingClientRect() height against a
+        // 44px min-height, and across six runs of this file it read 44 on
+        // four and 44.000030517578125 on two, having read
+        // 43.999969482421875 under a whole-suite run. An exact 44 floor
+        // therefore goes red on float noise rather than on a short
+        // control. The 0.05px of slack is 240 times narrower than the 12px
+        // drop to .btn-sm's own 32px, which is the defect being caught.
+        expect(footAction?.height, 'the foot action must reach the 44px tap floor at 320px').toBeGreaterThanOrEqual(43.95);
       } finally {
         await browser.close();
       }
@@ -513,12 +521,10 @@ describe('the Incoming work screen, driven end to end against the real app', () 
     // W-incoming item 4. The height check above cannot see this defect: a
     // button squeezed below its label is still 44px tall.
     //
-    // MEASURED, 320px, Chrome, all three live labels, with each rule
-    // suppressed in turn (the numbers in incoming.html's own comment come
-    // from this test): with both rules the widest button is 152.31px
-    // around 134.31px of label; with either rule alone it is still
-    // 152.31px; with BOTH removed it falls to 128.3px around the same
-    // label and spills 3px past the fill on each side.
+    // MEASURED, 320px, Chrome, with each rule suppressed in turn (the
+    // numbers in incoming.html's own comment come from this test): as
+    // shipped the button is 152.31px around 134.31px of label, and with
+    // either rule suppressed it is still 152.31px.
     //
     // So a gate that only looks at the page as it stands would pass with
     // `flex: none` deleted, which is the vacuous-gate defect. Each rule is
@@ -653,7 +659,16 @@ describe('the Incoming work screen, driven end to end against the real app', () 
         expect(seen.rowFeet.length, 'at least one row must render').toBeGreaterThan(0);
         for (const foot of seen.rowFeet) {
           expect(foot.borderTopWidth, 'a row foot drew the page footer\u2019s hairline').toBe('0px');
-          expect(foot.actionHeight, 'the row action took the page footer\u2019s 44px min-height at desktop').toBe(32);
+          // Tolerance, not exactness, because the number under test is a
+          // getBoundingClientRect() height and the two values it has to
+          // tell apart are 12px apart. Written against a real defect: an
+          // exact `toBe(32)` here read 32.00006103515625 on some runs of
+          // the whole file and 32 on others, so the suite result depended
+          // on how many rows earlier tests had already created. The 0.005
+          // window toBeCloseTo's default precision gives is 2400 times
+          // narrower than that 12px gap, so the page footer's 44px cannot
+          // slip through it.
+          expect(foot.actionHeight, 'the row action took the page footer\u2019s 44px min-height at desktop').toBeCloseTo(32);
         }
 
         // The other side of the same collision: the undo must be page-local

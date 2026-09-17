@@ -77,14 +77,15 @@
      Those are its numbers, on its own sample copy, not a re-measurement
      of this page.
 
-     MEASURED ON THIS PAGE at 320px, all three live labels, Chrome, with
-     each rule suppressed in turn (tests/web/incoming.test.ts, "the row
-     action holds its label"): with both rules the widest button is
-     152.31px around 134.31px of label. With either rule alone it is still
-     152.31px. With BOTH removed it falls to 128.3px around the same
-     134.31px label, spilling 3px past the fill on each side. So the pair
-     is what holds, and each half is pinned on its own by that test rather
-     than by this comment. base.css:269 carries the identical
+     MEASURED ON THIS PAGE at 320px, Chrome, with each rule suppressed in
+     turn (tests/web/incoming.test.ts, "the row action holds its label"):
+     as shipped the button is 152.31px around 134.31px of label, and with
+     either rule suppressed it is still 152.31px. So each rule holds the
+     button on its own, and the page as it stands cannot say whether
+     either one is doing anything. That is why the test suppresses one to
+     leave the other as the only thing holding the button: delete either
+     rule from this block and the arm that suppresses its partner goes
+     red. base.css:269 carries the identical
      `.kv .btn-sm { flex: none; }` against the identical trap one screen
      over, which is the precedent the wireframe's own comment names. */
   .orow .foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
