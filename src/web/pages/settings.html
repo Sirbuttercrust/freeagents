@@ -6,10 +6,26 @@
 <title>Settings: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
 <style>
   /* P8v SETTINGS (SITEMAP P-23), from spec/wireframe/settings.html. Same
      structure, copy and class vocabulary as the wireframe; departures are
      named in the handoff.
+
+     THE STACK. tokens, base, polish, and the scripts api, nav, icons,
+     polish, settings, ui. polish.css is what the wireframe's own head
+     loads (spec/wireframe/settings.html:7-8), and without it the .ico
+     hosts below have no rule at all: base.css declares no .ico, so the
+     glyph boxes size to nothing and the copy button's two-glyph slot has
+     nowhere to stack. swarm.js is the avatar engine and this wireframe
+     mounts no avatar (grep -c data-avatar spec/wireframe/settings.html is
+     0), so loading it would ship a module with nothing to paint.
+
+     ICONS BEFORE POLISH, and both before settings.js. polish.js's init()
+     calls FAIcon.paint() as its first statement (polish.js:570-571), so
+     icons.js has to be parsed first or that sweep finds no painter. Both
+     sweeps run at DOMContentLoaded, which is before the account read
+     resolves, which is why settings.js repaints the rows it builds.
 
      .narrow is in base.css already (grep-verified). .danger is declared in
      the wireframe's own style block and rides here, unchanged. The
@@ -94,7 +110,14 @@
       <button class="btn btn-primary" type="button" id="save-btn" style="margin-top:24px">Save changes</button>
 
       <!-- Ruling 6: the identity disclosure ships close to whole; the
-           signing key row does not (Account has no key column). -->
+           signing key row does not (Account has no key column).
+
+           THE DISCLOSURE STAYS UNANIMATED, AND THAT IS DELIBERATE.
+           polish.js's discloseAnim (polish.js:332-343) returns for any
+           target that is not .reveal-h, and #ident is a .detail panel, so
+           this disclosure keeps ui.js's plain hidden toggle and gains no
+           animation from the polished layer. Not a defect, and not a
+           thing for a later reader to repair. -->
       <div style="margin-top:26px">
         <button class="disclose" type="button"
                 data-disclose="ident" data-disclose-alt="Hide identity details">Show identity details</button>
@@ -108,7 +131,18 @@
               <dt>Your identity (DID)</dt>
               <dd id="did-value"></dd>
             </div>
-            <button class="btn btn-sm" type="button" id="did-copy" data-copy="">Copy</button>
+            <!-- The wireframe's copy control (settings.html:106-107), whose
+                 structure is load-bearing: polish.css:301-310 stacks the two
+                 glyphs in one 13px cell and swaps them on .is-done, so the
+                 row keeps its width while the state changes. polish.js's
+                 copyMorph (polish.js:351-358) adds that class, and ui.js:73
+                 is what stops the older textContent = "Copied" path from
+                 destroying this subtree on the first press.
+
+                 The id stays: settings.js looks the button up by it and
+                 writes the DID to data-copy on the element, never to its
+                 text, so the markup below survives the fill. -->
+            <button class="btn btn-sm copybtn" type="button" id="did-copy" data-copy=""><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
           </div>
         </div>
       </div>
@@ -126,6 +160,8 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/settings.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
