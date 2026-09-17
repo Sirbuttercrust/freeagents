@@ -19,8 +19,9 @@
 
      polish.css is the half of the system this screen was missing. Its
      .state .ico rule and the live-job pulse (polish.css:379-386) act on the
-     glyph myjobs.js now builds in every row trail, and its .chip rules
-     (polish.css:138-157, 573) act on the five filter chips.
+     glyph myjobs.js now builds in every row trail, and its chip transition,
+     press, pop and 44px floor (polish.css:138, 140-148, 573) act on the
+     five filter chips.
 
      WHAT IS STILL DECLARED HERE. Three rules, and each is here because no
      sheet this page loads carries the selector: .rowtext .t, .rowtext .m and
@@ -148,10 +149,15 @@
   </div>
 </footer>
 
-<!-- THE POLISHED STACK. polish.css is not self-executing: its .state .ico
-     rule (polish.css:379-386) and its .chip .ico rule (polish.css:152-157)
-     describe elements icons.js paints and polish.js drives, so both ship
-     here. The order is the one the three avatar-free polished pages already
+<!-- THE POLISHED STACK. polish.css is not self-executing. Its .state .ico
+     rule and live-job pulse (polish.css:379-386) size and animate a glyph
+     icons.js paints, and its chip-pop keyframes (polish.css:140-148) key
+     off .is-hit, which no markup here carries and only polish.js adds
+     (polish.js:94-97), and then only at no-preference (polish.js:20, 93).
+     So both scripts ship. Measured in Chrome at 1280: a chip click lands
+     class "chip is-hit" with animation-name chip-pop at 0.28s, and under
+     reduce the same click lands "chip" with animation-name none.
+     The order is the one the three avatar-free polished pages already
      settled: api, nav, icons, polish, page script, ui
      (verify.html:384-389, signin.html:310-315; how.html:300-304 is the same
      order minus a page script, having none).
