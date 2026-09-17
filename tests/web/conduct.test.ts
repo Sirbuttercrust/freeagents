@@ -89,6 +89,54 @@ function renderConduct(baseUrl: string, account: string | null): Promise<Rendere
   return renderPage(baseUrl, `/conduct${qs}`);
 }
 
+// W-conduct. Every CSS rule in force on this page: its own <style> block
+// plus each stylesheet it LINKS, fetched over HTTP from the running app.
+//
+// The layout assertion below used to read document.querySelector('style')
+// alone, which was correct for as long as .counts lived in this page's own
+// block. W-conduct moved it, .who, .ct and .fixed out to
+// src/web/public/css/flow.css when this screen joined the polished visual
+// system, and that narrowed assertion would have gone red on a page whose
+// behaviour had not changed: its subject was the inline block while its
+// stated claim was about the screen.
+//
+// The hrefs are read from the page's own markup rather than named here, so
+// a sheet that stops being linked leaves the corpus rather than silently
+// keeping an assertion green, and the fetch is what proves the file is
+// really served at that path. An empty population throws: a corpus that
+// quietly became one inline block would turn every match into a green loop
+// over nothing. Same helper and same reasoning as
+// tests/web/pullrequest.test.ts:134.
+async function pageCss(page: Rendered, baseUrl: string): Promise<string> {
+  const inline = Array.from(page.document.querySelectorAll('style')).map((s) => s.textContent ?? '');
+  const hrefs = Array.from(page.document.querySelectorAll('link[rel="stylesheet"]')).map(
+    (l) => l.getAttribute('href') ?? '',
+  );
+  if (hrefs.length === 0) throw new Error('no linked stylesheets on the conduct page: the corpus would be inline CSS only');
+  const linked: string[] = [];
+  for (const href of hrefs) {
+    const res = await fetch(new URL(href, baseUrl));
+    if (!res.ok) throw new Error(`the conduct page links ${href} and the app answers ${res.status} for it`);
+    const text = await res.text();
+    if (text.trim() === '') throw new Error(`${href} is served empty`);
+    linked.push(text);
+  }
+  return [...inline, ...linked].join('\n');
+}
+
+// A selector's DECLARATION, comments blanked out first so a rule named in
+// a comment cannot answer for a rule that ships. Returns every line that
+// carries the selector in selector position, so a caller can assert the
+// rule exists somewhere in the corpus and then assert what it does.
+function declarationsOf(css: string, selector: string): string[] {
+  const clean = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return clean
+    .split('\n')
+    .filter((line) => new RegExp(`(^|[\\s,>+~])${escaped}\\s*[,{]`).test(line))
+    .map((line) => line.trim());
+}
+
 // Round 2 (Proof defect 1, guard-without-a-test): the 404/network branches
 // of onLoaded() are reached only when GET /buyers/:githubLogin/conduct
 // itself answers 404 or the fetch throws, neither of which the real app
@@ -466,18 +514,289 @@ describe('the conduct record page, driven end to end against the real app', () =
     });
   });
 
-  describe('layout: three columns, two under 700px, one under 380px (layout-broken-at-desktop)', () => {
-    it('the .counts grid rules match the wireframe breakpoints', async () => {
+  describe('the polished visual system (W-conduct)', () => {
+    it('every component this page draws is declared by a sheet it actually loads', async () => {
       const page = await renderConduct(baseUrl, 'conduct-page-buyer');
       try {
-        const css = page.document.querySelector('style')?.textContent ?? '';
-        expect(css).toMatch(/\.counts\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*1fr\)/);
+        const css = await pageCss(page, baseUrl);
+        // The five components the wireframe's class vocabulary names.
+        // Each must be declared somewhere in the corpus: not in a named
+        // file, because where a rule lives is this card's business and
+        // the next card's to change, but it must exist where the page
+        // can reach it.
+        for (const selector of ['.who', '.who .av', '.counts', '.ct', '.fixed', '.sidenote']) {
+          expect(
+            declarationsOf(css, selector).length,
+            `${selector} is declared by no stylesheet this page loads and no inline block`,
+          ).toBeGreaterThan(0);
+        }
+      } finally {
+        page.close();
+      }
+    });
+
+    it('the page-local block declares only what no loaded sheet declares', async () => {
+      const page = await renderConduct(baseUrl, 'conduct-page-buyer');
+      try {
+        const inline = Array.from(page.document.querySelectorAll('style'))
+          .map((s) => s.textContent ?? '')
+          .join('\n');
+        // .sidenote is page copy styling and is declared nowhere else, so
+        // it legitimately rides here. Everything else the page draws is
+        // now flow.css's, and a local copy of a shared rule is dead
+        // weight that drifts: assert the duplicates are gone rather than
+        // trusting a reading of the file.
+        expect(declarationsOf(inline, '.sidenote').length, '.sidenote should stay page-local').toBeGreaterThan(0);
+        for (const selector of ['.counts', '.ct', '.fixed', '.who']) {
+          expect(
+            declarationsOf(inline, selector),
+            `${selector} is declared page-locally AND by a loaded sheet; the local copy will drift`,
+          ).toEqual([]);
+        }
+      } finally {
+        page.close();
+      }
+    });
+
+    it('the account strip carries no avatar element, and leads flush with the page', async () => {
+      // The avatar decision, asserted rather than described. There is no
+      // mount point anywhere on the page or in its script, so the swarm
+      // engine has nothing to paint: a data-avatar written into a comment
+      // to satisfy a regex would not move this number.
+      for (const account of ['conduct-page-buyer', 'conduct-page-cold-account']) {
+        const page = await renderConduct(baseUrl, account);
+        try {
+          expect(page.document.querySelectorAll('[data-avatar]').length, `${account}: a mount with no DID behind it`).toBe(0);
+          expect(page.document.querySelectorAll('[data-ico]').length, `${account}: an icon host on a page that loads no icon set`).toBe(0);
+          // No reserved box either: an empty disc on a single strip reads
+          // as a failed image rather than as alignment, and the real
+          // browser assertion below pins the geometry that says so.
+          expect(page.document.querySelectorAll('.who .av').length, `${account}: a reserved avatar box with nothing that can fill it`).toBe(0);
+          expect(page.document.getElementById('who-name'), 'the account name is the strip').not.toBeNull();
+        } finally {
+          page.close();
+        }
+      }
+    });
+
+    // The measurement behind the markup decision above, kept so a later
+    // reader can re-derive it rather than take the comment's word.
+    // Measured: with no avatar element the account name's left edge and
+    // the h1's left edge are both 100 at 1280; inserting a 32px .av moves
+    // the name to 144 and leaves the h1 at 100, a 44px indent with nothing
+    // in it.
+    it('the account name lines up with the heading under it, in a real browser', async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      const browser = await RealBrowser.launch({ width: 1280, height: 900 });
+      try {
+        await browser.goto(`${baseUrl}/conduct?account=conduct-page-buyer`);
+        const edges = await browser.evaluate<{ name: number; h1: number; planted: number }>(`
+          (() => {
+            const left = (s) => Math.round(document.querySelector(s).getBoundingClientRect().left);
+            const before = { name: left('.who .n'), h1: left('h1') };
+            const who = document.querySelector('.who');
+            const av = document.createElement('span');
+            av.className = 'av';
+            who.insertBefore(av, who.firstElementChild);
+            const planted = left('.who .n');
+            av.remove();
+            return { ...before, planted };
+          })()
+        `);
+        expect(edges.name, 'the account name must lead flush with the heading below it').toBe(edges.h1);
+        // The control: a reserved box really does indent the name, so the
+        // assertion above is measuring something rather than restating a
+        // layout that could not differ.
+        expect(edges.planted, 'a reserved avatar box should indent the name; if not, this gate proves nothing').toBeGreaterThan(edges.h1);
+      } finally {
+        await browser.close();
+      }
+    }, 60000);
+
+    it('loads no avatar engine, because it mounts nothing for one to paint', async () => {
+      const page = await renderConduct(baseUrl, 'conduct-page-buyer');
+      try {
+        const scripts = Array.from(page.document.querySelectorAll('script[src]')).map(
+          (s) => s.getAttribute('src') ?? '',
+        );
+        // The card's rule: swarm.js ships here if and only if a mount
+        // ships here. The assertion above pins the mount count at 0, so
+        // this one pins the engine out, and the two can never disagree
+        // without one of them going red.
+        expect(scripts, 'swarm.js on a page with no [data-avatar] is an engine with nothing to paint').not.toContain('/js/swarm.js');
+        expect(scripts, 'icons.js on a page with no [data-ico] is 8.8KB that paints nothing').not.toContain('/js/icons.js');
+        expect(scripts, 'the polished behaviour must load').toContain('/js/polish.js');
+        expect(scripts, 'the reveal observer must load').toContain('/js/pages/ui.js');
+        // ui.js observes .reveal blocks, so it must parse after them, and
+        // polish.js must parse before this page's own script the same way
+        // every other rebuilt page loads it.
+        expect(scripts.indexOf('/js/polish.js')).toBeLessThan(scripts.indexOf('/js/pages/conduct.js'));
+        expect(scripts.indexOf('/js/pages/ui.js')).toBe(scripts.length - 1);
+      } finally {
+        page.close();
+      }
+    });
+
+    // The page is hidden at load and revealed by the read, so this is the
+    // one state question JavaScript decides outright. Recorded as a fact
+    // rather than repaired here: <main hidden> is how all four states stay
+    // mutually exclusive, and changing it is a different card.
+    it('with scripts disabled the page renders its shell and no counts, and says so', async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      const browser = await RealBrowser.launch({ width: 320, height: 800 });
+      try {
+        await browser.send('Emulation.setScriptExecutionDisabled', { value: true });
+        await browser.goto(`${baseUrl}/conduct?account=conduct-page-buyer`);
+        const seen = await browser.evaluate<{ text: string; counts: number; overflow: boolean }>(`
+          ({
+            text: (document.body.innerText || '').replace(/\\s+/g, ' ').trim(),
+            counts: Array.from(document.querySelectorAll('.ct .n')).filter(n => n.textContent.trim() !== '').length,
+            overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
+          })
+        `);
+        // No JS means no read, so no number may appear. What a reader gets
+        // is the nav and the footer: the shell, never a half-filled record.
+        expect(seen.counts, 'a count rendered with no read behind it').toBe(0);
+        expect(seen.overflow, 'the scriptless page must not scroll sideways either').toBe(false);
+        expect(seen.text).toContain('FreeAgents');
+      } finally {
+        await browser.close();
+      }
+      // Every real-browser test in this file carries its own timeout, the
+      // same 60s tests/web/outcomes-polished.test.ts uses. Vitest's 5s
+      // default is shorter than a cold Chrome launch plus four navigations,
+      // and a test that times out mid-run never reaches its finally block:
+      // one such timeout here left 34 headless Chromes alive, and the leak
+      // looks exactly like the page being slow.
+    }, 60000);
+
+    it('reveal lands on visible content in both motion modes', async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      const browser = await RealBrowser.launch({ width: 1280, height: 900 });
+      try {
+        const read = async () =>
+          browser.evaluate<{ jsReveal: boolean; hidden: number; total: number }>(`
+            ({
+              jsReveal: document.documentElement.classList.contains('js-reveal'),
+              hidden: Array.from(document.querySelectorAll('.reveal'))
+                .filter(r => getComputedStyle(r).opacity !== '1').length,
+              total: document.querySelectorAll('.reveal').length
+            })
+          `);
+
+        // Reduced motion: the hidden state sits inside a no-preference
+        // query, so nothing is ever transparent, at any scroll position.
+        await browser.send('Emulation.setEmulatedMedia', {
+          features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+        });
+        await browser.goto(`${baseUrl}/conduct?account=conduct-page-buyer`);
+        const reduced = await read();
+        expect(reduced.total, 'this page should carry three reveal blocks').toBe(3);
+        expect(reduced.jsReveal, 'ui.js must not arm the hidden state under reduced motion').toBe(false);
+        expect(reduced.hidden, 'a reduced-motion reader must see every block at full opacity').toBe(0);
+
+        // Full motion: the hidden state is armed, and everything still
+        // ends visible once scrolled. This is the end-state assertion, not
+        // an absence-of-motion one: a block that never reveals fails here.
+        await browser.send('Emulation.setEmulatedMedia', {
+          features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+        });
+        await browser.goto(`${baseUrl}/conduct?account=conduct-page-buyer`);
+        const armed = await read();
+        expect(armed.jsReveal, 'ui.js should arm the hidden state when motion is allowed').toBe(true);
+        await browser.evaluate('window.scrollTo(0, document.body.scrollHeight)');
+
+        // POLLED, NOT SLEPT. The reveal transition is 500ms (base.css's
+        // named exception) and the observer adds .is-in on a later frame
+        // than the scroll, so a block can sit mid-transition well past a
+        // second: measured at opacity 0.18 1.2s after the scroll and 1
+        // by 2.0s on an idle machine. A fixed sleep tuned to that turns
+        // this into a gate that only passes when nothing else is running.
+        // ui.js reveals everything unconditionally at 3s whatever the
+        // observer did, so 8s is a deadline no correct page can miss and
+        // a broken one cannot sneak through.
+        let settled = await read();
+        const deadline = Date.now() + 8000;
+        while (settled.hidden > 0 && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          settled = await read();
+        }
+        expect(settled.hidden, 'every reveal block must end visible after scrolling').toBe(0);
+      } finally {
+        await browser.close();
+      }
+    }, 60000);
+
+    it('every interactive control clears 44px at 320, in the open nav state', async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      const browser = await RealBrowser.launch({ width: 320, height: 800 });
+      try {
+        await browser.goto(`${baseUrl}/conduct?account=conduct-page-buyer`);
+        const small = await browser.evaluate<Array<{ t: string; h: number }>>(`
+          Array.from(document.querySelectorAll('a[href], button'))
+            .filter(e => e.getBoundingClientRect().height > 0)
+            .map(e => ({ t: (e.textContent || '').trim().slice(0, 30),
+                         h: Math.round(e.getBoundingClientRect().height) }))
+            .filter(e => e.h < 44)
+        `);
+        expect(small, 'controls under the 44px floor at 320px').toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    }, 60000);
+  });
+
+  describe('layout: three columns, two under 700px, one under 380px (layout-broken-at-desktop)', () => {
+    it('the .counts grid rules match the wireframe breakpoints, in whichever sheet the page really gets them from', async () => {
+      const page = await renderConduct(baseUrl, 'conduct-page-buyer');
+      try {
+        const css = await pageCss(page, baseUrl);
+        expect(css).toMatch(/\.counts\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*1fr\)/);
         expect(css).toMatch(/@media \(max-width:\s*700px\)\s*\{\s*\.counts\s*\{\s*grid-template-columns:\s*repeat\(2,\s*1fr\)/);
         expect(css).toMatch(/@media \(max-width:\s*380px\)\s*\{\s*\.counts\s*\{\s*grid-template-columns:\s*1fr/);
       } finally {
         page.close();
       }
     });
+
+    // W-conduct. The assertion above reads DECLARED rule text, which says
+    // a rule is written somewhere in the corpus and not that it decides
+    // anything. This one reads the used value back off the real grid in a
+    // real browser at all three widths, so a rule that is present but
+    // loses the cascade fails here even while the text match passes.
+    it('at real viewports the buyer grid really resolves to three, two and one column', async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      const browser = await RealBrowser.launch({ width: 1280, height: 900 });
+      try {
+        const read = async (width: number, height: number): Promise<number> => {
+          await browser.setViewport(width, height);
+          await browser.goto(`${baseUrl}/conduct?account=conduct-page-buyer`);
+          return browser.evaluate<number>(`
+            getComputedStyle(document.getElementById('buyer-counts')).gridTemplateColumns.split(' ').length
+          `);
+        };
+        expect(await read(1280, 900), 'three columns above 700px').toBe(3);
+        expect(await read(600, 900), 'two columns under 700px').toBe(2);
+        expect(await read(320, 900), 'one column under 380px').toBe(1);
+      } finally {
+        await browser.close();
+      }
+    }, 60000);
 
     // Done-means item 14, standing defect layout-broken-at-desktop: jsdom
     // performs no layout, so real overflow and real tap-target height can

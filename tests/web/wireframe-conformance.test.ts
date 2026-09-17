@@ -225,15 +225,54 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // above under R-18). tests/web/conduct.test.ts's "the cold start"
     // describe block proves the built page renders through the identical
     // selectors with real zeros, not a second section.
-    'A new account': 'the cold-start variant is the same eight rows rendered with zeros through the same selectors, not a second section (tests/web/conduct.test.ts, "the cold start" describe block; setCount coercion at conduct.js:124-127)',
-    // conduct.js:37-40 names this a deliberate departure and app.ts:2576-
-    // 2590 confirms it: GET /buyers/:githubLogin/conduct's two response
-    // shapes (keyed: false and keyed: true) carry githubLogin, counts and
-    // operatorCounts, never a DID. "Their agents" points at operator.html,
-    // addressed by DID, so this route holds nothing to build that href
-    // from. tests/web/conduct.test.ts's inert-declared-control mutation
-    // proof (line 446) asserts no such anchor and no /accounts/ href ships.
-    'Their agents': 'GET /buyers/:githubLogin/conduct (src/api/app.ts:2576-2590) carries githubLogin, counts and operatorCounts, never a DID; the button\u2019s destination (operator.html, addressed by DID) cannot be built from this response, so it is dropped rather than shipped inert (conduct.js:37-40, tests/web/conduct.test.ts:446-463)',
+    'A new account': 'the cold-start variant is the same eight rows rendered with zeros through the same selectors, not a second section (tests/web/conduct.test.ts, "the cold start" describe block; the setCount coercion in src/web/public/js/pages/conduct.js)',
+    // conduct.js's "No \"Their agents\" button" departure names this a
+    // deliberate one and app.ts:2576-2590 confirms it: GET /buyers/
+    // :githubLogin/conduct's two response shapes (keyed: false and
+    // keyed: true) carry githubLogin, counts and operatorCounts, never a
+    // DID. "Their agents" points at operator.html, addressed by DID, so
+    // this route holds nothing to build that href from.
+    // tests/web/conduct.test.ts's inert-declared-control mutation proof
+    // asserts no such anchor and no /accounts/ href ships.
+    'Their agents': 'GET /buyers/:githubLogin/conduct (src/api/app.ts:2576-2590) carries githubLogin, counts and operatorCounts, never a DID; the button\u2019s destination (operator.html, addressed by DID) cannot be built from this response, so it is dropped rather than shipped inert (the "Their agents" departure in src/web/public/js/pages/conduct.js; tests/web/conduct.test.ts, "no anchor on the page points at an unmounted path")',
+    // W-conduct, the avatar decision. The wireframe mounts exactly one
+    // data-avatar (spec/wireframe/conduct.html:62), the face on the
+    // account header, and the built page mounts none. Same root cause as
+    // the "Their agents" entry directly above, on the same route:
+    // GET /buyers/:githubLogin/conduct (src/api/app.ts:2576-2590) answers
+    // { githubLogin, keyed: false } or
+    // { githubLogin, keyed: true, counts, operatorCounts }, and neither
+    // shape carries a DID. Checked against the running app rather than
+    // read off the handler: curl of both branches returns exactly those
+    // fields.
+    //
+    // polish.js paints [data-avatar] by reading the DID off the attribute
+    // (polish.js:490-495), so with no DID on the wire the only two things
+    // this page could ship are a mount with nothing behind it, which
+    // paints an empty box, or a mount carrying a value derived from
+    // something other than an identity, which paints a face for an
+    // account nobody proved. This codebase does not do the second
+    // anywhere: myjobs' own entry above refuses to derive a face from a
+    // name for the same reason.
+    //
+    // NOR IS THE BOX RESERVED, and that half was built and measured
+    // before it was dropped. dashboard.html:60-74 keeps an empty .jobav
+    // for alignment, but its stated reason is a LIST whose rows mix
+    // identities that mount with identities that do not; conduct draws one
+    // strip, so an empty 32px disc there aligns with nothing and puts the
+    // account name 44px right of the h1 under it with an empty gap, which
+    // reads as an image that failed to load. Measured in Chrome at 1280:
+    // name and h1 both at left 100 as shipped, name at 144 with a .av
+    // inserted. Pinned by tests/web/conduct.test.ts, "the account name
+    // lines up with the heading under it, in a real browser".
+    //
+    // NOT architecturally impossible, which is why this entry says which
+    // line would change: buyerConductForLogin (src/api/app.ts:655-663)
+    // already holds account.did before it returns, and the handler does
+    // not serialise it. src/api/ is out of scope on the card that wrote
+    // this entry; a separate card can close it, and then this entry comes
+    // out rather than being edited.
+    'avatars': "GET /buyers/:githubLogin/conduct (src/api/app.ts:2576-2590) answers { githubLogin, keyed: false } or { githubLogin, keyed: true, counts, operatorCounts } and neither shape carries a DID, verified against the running app. polish.js paints [data-avatar] by reading the DID off the attribute (polish.js:490-495), so the only mounts available here are an empty one or one carrying a value not derived from an identity (a face for an account nobody proved, the thing myjobs' own entry above refuses). The box is not reserved either: dashboard.html:60-74 reserves one for a LIST whose rows mix mountable and unmountable identities, while this page draws a single strip where an empty disc aligns with nothing and indents the account name 44px from the h1 below it (measured in Chrome at 1280: 100 and 100 as shipped, 144 with a .av inserted; pinned by tests/web/conduct.test.ts). The DID is unserialised rather than unavailable: buyerConductForLogin (src/api/app.ts:655-663) holds account.did before it returns, so a separate card against src/api/ closes this and removes this entry",
   },
   deposit: {
     // The wireframe's own comment (deposit.html:238-240) says the drawn QR
@@ -558,7 +597,6 @@ describe('every built page carries its wireframe', () => {
   // pass; a card that leaves its page listed has not finished. Adding a page
   // to this set is never a fix. Empty set means the rebuild is complete.
   const NOT_YET_REBUILT = new Set([
-    'conduct',
     'notfound',
   ]);
   const visualPages = builtPages.filter((n) => !NOT_YET_REBUILT.has(n));

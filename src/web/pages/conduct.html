@@ -6,49 +6,81 @@
 <title>Conduct record: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/flow.css">
+<!--
+  W-conduct: THE CONDUCT RECORD (SITEMAP P-28), rebuilt on the polished
+  visual system from spec/wireframe/conduct.html. Same structure, copy and
+  class vocabulary as the wireframe. Departures are named where they happen.
+
+  THE SHEETS, AND WHY EACH ONE IS HERE.
+
+    tokens.css   this repo's token layer. The wireframe has no equivalent
+                 because its own base.css carries the :root block; here the
+                 tokens are their own file and every page loads it first.
+    base.css     the wireframe loads it and so does this page.
+    polish.css   the wireframe loads it. It is the polished pass, not
+                 decoration: it owns .nav.is-stuck (polish.css:490) and the
+                 clip on the identity disc (polish.css:536-544).
+    flow.css     the wireframe loads it, and on this page it is load
+                 bearing rather than incidental. Every component below is
+                 declared in it and in no other sheet this page loads:
+                 .who at flow.css:157-163, .fixed at :495-507, .counts and
+                 .ct at :779-785, and the pane-padding restore at :202-208.
+                 Measured with the sheets fetched from the running app
+                 rather than read off disk, in tests/web/conduct.test.ts
+                 ("every component this page draws is declared by a sheet
+                 it actually loads").
+
+  THE SCRIPTS, AND THE TWO THE WIREFRAME LOADS THAT THIS PAGE DOES NOT.
+
+    api.js, nav.js   existing page wiring, unchanged by this card.
+    polish.js        the polished behaviour. Loaded before conduct.js the
+                     same way every rebuilt page loads it before its own
+                     page script.
+    conduct.js       this page's one read, unchanged by this card.
+    ui.js            the reveal observer. This repo's equivalent of the
+                     spec set's standalone wireframe.js, which does not
+                     ship. Last, so the three .reveal blocks exist before
+                     it observes them.
+
+    NO swarm.js, and it is the same decision as the avatar below, not a
+    second one. swarm.js is the avatar engine; polish.js reaches it only
+    through window.FASwarm inside its [data-avatar] sweep (polish.js:468-497).
+    This page mounts nothing for that sweep to paint, so the engine would
+    load and do nothing. outcomes.html drops it for the same reason.
+
+    NO icons.js. polish.js's init() calls FAIcon.paint() as its first
+    statement (polish.js:570-571) behind a window.FAIcon guard, so on a
+    page with no icon hosts that call is skipped and the file is 8.8KB
+    that paints nothing. The count of icon hosts here is zero, and do NOT
+    check that by grepping this file for the attribute name, because this
+    sentence contains it: the honest check reads the parsed document, and
+    tests/web/conduct.test.ts runs it
+    (document.querySelectorAll('[data-ico]').length is 0). Measured the
+    same way in Chrome on the served page: 0, with window.FAIcon
+    undefined. The wireframe loads icons.js because every page in the spec
+    set loads it, not because this screen draws an icon: the same count on
+    spec/wireframe/conduct.html is also 0.
+
+  WHAT IS LEFT IN THE BLOCK BELOW, AND WHY EACH LINE SURVIVED.
+  flow.css now declares every component this page draws, so the 23 lines
+  that used to sit here are gone rather than shadowing it. Two rules stay,
+  each for its own stated reason.
+-->
 <style>
-  /* P8s CONDUCT RECORD (SITEMAP P-28), from spec/wireframe/conduct.html.
-     Same structure, copy and class vocabulary as the wireframe; departures
-     are named in the handoff.
-
-     .counts, .ct, .ct .n/.l/.d, .fixed, .fixed li/.k/.v/.para and .who are
-     defined in spec/wireframe/flow.css (lines 96-117, 428-441, 712-718) and
-     are absent from base.css, so they ride here, the same way
-     myagents.html carries .arow and agreement.html carries .who.
-     base.css already has .wrap, .section, .pane, .pane-pad, .glow, .lede,
-     .sub, .rule, .nav, .brand, .btn, .btn-sm, .empty, .mono
-     (grep-verified on main): none of those are redeclared.
-
-     .pane-lift is NOT in the built stylesheet and no built page uses it:
-     skipped, the same stance myjobs.html, myagents.html and incoming.html
-     already take. The wireframe's .note blocks are its own commentary to a
-     reader and never ship. .sidenote is declared in the wireframe's own
-     <style> block and DOES ship: its two paragraphs are page copy that
-     explains why there is no percentage. */
-
-  .who { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px; }
-  .who .avatar { width: 32px; height: 32px; border-radius: 50%; flex: none; overflow: hidden; background: var(--bg-2); }
-  .who .avatar svg { width: 100%; height: 100%; display: block; }
-  .who .n { font-weight: 550; }
-  .who .r { color: var(--fg-2); font-size: 13px; }
-
-  .counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px 22px; }
-  @media (max-width: 700px) { .counts { grid-template-columns: repeat(2, 1fr); } }
-  @media (max-width: 380px) { .counts { grid-template-columns: 1fr; } }
-  .ct { padding: 14px 0; }
-  .ct .n { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-  .ct .l { font-size: 13px; color: var(--fg-2); margin-top: 2px; }
-  .ct .d { font-size: 12px; color: var(--fg-2); margin-top: 6px; line-height: 1.5; }
-
-  .fixed { list-style: none; padding: 0; margin: 0; }
-  .fixed li { display: grid; grid-template-columns: 1fr auto; gap: 12px 16px; padding: 13px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
-  .fixed li:last-child { border-bottom: 0; padding-bottom: 0; }
-  .fixed .k { font-size: 15px; }
-  .fixed .v { font-family: var(--mono); font-size: 13px; color: var(--fg-2); text-align: right; }
-  .fixed .para { grid-column: 1 / -1; font-size: 14px; color: var(--fg-2); line-height: 1.6; max-width: 62ch; }
-  @media (max-width: 420px) { .fixed li { grid-template-columns: 1fr; } .fixed .v { text-align: left; } }
-
+  /* .sidenote is declared by no sheet this page loads. Checked by
+     selector position with comments stripped, across all four: tokens,
+     base, polish and flow, zero hits. It is declared in the wireframe's
+     own <style> block (spec/wireframe/conduct.html:42) and it is page
+     copy styling, so it stays page-local rather than being promoted into
+     a shared sheet for one page's two paragraphs. */
   .sidenote { font-size: 14px; color: var(--fg-2); max-width: 62ch; line-height: 1.6; }
+
+  /* NO AVATAR RULE HERE, BECAUSE NO AVATAR ELEMENT SHIPS, and that is the
+     avatar decision rather than a style choice. The reasoning and the
+     response shape that forces it are recorded beside the .who markup
+     below and in conduct.js. */
 </style>
 </head>
 <body>
@@ -81,7 +113,34 @@
 <main class="wrap section" id="conduct-body" hidden>
 
   <div class="who">
-    <div class="avatar" id="who-avatar" data-pending></div>
+    <!-- NO AVATAR ELEMENT AT ALL, which is the closed form of this card's
+         one real question.
+
+         The wireframe draws a generated face here
+         (spec/wireframe/conduct.html:62, a .av carrying
+         data-avatar="did:abt:northline"). This page cannot: both response
+         shapes of GET /buyers/:githubLogin/conduct (src/api/app.ts:2576-2590)
+         carry githubLogin, keyed, counts and operatorCounts and no DID,
+         verified against the running route, and polish.js paints
+         [data-avatar] by reading the DID off the attribute
+         (polish.js:490-495). A mount with nothing behind it paints an
+         empty box; a mount carrying anything not derived from an identity
+         paints a face for an account nobody proved. Neither ships.
+
+         THE EMPTY BOX WAS BUILT AND MEASURED FIRST, AND IT IS WORSE THAN
+         NO BOX. A reserved 32px .av with the fill removed puts the account
+         name 44px right of the h1 directly under it with nothing in the
+         gap, which reads as an image that failed to load rather than as
+         alignment. dashboard.html:60-74 keeps exactly that reservation and
+         its stated reason does not transfer here: that page draws a LIST
+         whose rows mix identities that mount with identities that do not,
+         so dropping the box there ragged the left edge down the middle of
+         the section. This page has one strip and nothing to stay flush
+         with, so the box buys no alignment and costs the reader a
+         question. The name leads instead, flush with the heading below it.
+
+         Nothing is lost when the field arrives: adding the DID to that
+         response and a .av back to this strip is one line in each. -->
     <div>
       <div class="n" id="who-name" data-pending>Loading this account</div>
       <div class="r">GitHub account confirmed</div>
@@ -226,6 +285,7 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/conduct.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>

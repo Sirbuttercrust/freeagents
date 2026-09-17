@@ -20,16 +20,26 @@
    (ruling 4).
 
    DEPARTURES FROM THE WIREFRAME, NAMED HERE PER THE CARD:
-   - No avatar renders. The wireframe's avatar is a static placeholder
-     image; the real product's avatar (A.setAvatar) is SVG markup
-     rendered server-side from a DID (src/api/avatar.ts, agentProjection
-     in src/api/app.ts). This route returns no DID and no avatar field --
-     GET /buyers/:githubLogin/conduct's own two response shapes
-     (src/api/app.ts:2474-2488) carry neither -- so nothing here can
-     produce one without a second read this card forbids (done-means
-     item 2). The static placeholder in conduct.html stays a plain shape,
-     the same "nothing to show" stance operator.html's own header .oav
-     takes before a real avatar exists on that route either.
+   - No avatar renders, and the mount point is absent rather than empty.
+     The wireframe draws a real generated face here
+     (spec/wireframe/conduct.html:62, a .av carrying data-avatar), and
+     polish.js's sweep paints one by reading the DID off that attribute
+     (polish.js:490-495). This route serves no DID: both response shapes
+     of GET /buyers/:githubLogin/conduct (src/api/app.ts:2576-2590) carry
+     githubLogin, keyed, counts and operatorCounts and nothing else, so
+     there is no value to put on the attribute and no second read allowed
+     to go and fetch one. An attribute with nothing behind it paints an
+     empty box, and one carrying a guessed value paints a face for an
+     identity nobody supplied, so neither ships, and the box is not
+     reserved either: conduct.html carries the measurement for that half.
+
+     THE DID IS NOT UNAVAILABLE TO THAT ROUTE, IT IS UNSERIALISED.
+     buyerConductForLogin (src/api/app.ts:655-663) calls
+     accountRepo.findByGithubLogin and holds account.did in hand on the
+     line before it returns; the handler simply never puts it on the wire.
+     Serialising it is a change to src/api/, which this card does not
+     touch. Recorded here so the next reader knows this is one field away
+     rather than architecturally impossible.
    - No "joined <date>" renders. accountProjection (src/api/app.ts:189-198)
      serves createdAt only from GET /accounts/:did, a route this page
      never calls (ruling 6); "GitHub account confirmed" ships alone, with
