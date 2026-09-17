@@ -55,7 +55,15 @@
 
      DEPARTURES FROM THE WIREFRAME are restated beside the markup each one
      governs rather than listed here, so a reader meets the reason where the
-     departure is. -->
+     departure is.
+
+     ROUND 2 FIX: this block was closed with an HTML terminator, which is
+     not a CSS one, so the comment ran on to the next */ and swallowed the
+     .urlcopy note below. Nothing was lost, because everything in the gap
+     was prose either way: the sheet parses 7 rules before and after, and
+     every computed value the page-local rules own is identical. A rule
+     added in that gap would have vanished silently, which is why it is a
+     delimiter now. */
 
   /* The payment address as text with a copy control, which is this build's
      departure from the wireframe's drawn .qr (spec/wireframe/staged.html:274).
@@ -82,22 +90,49 @@
 
   /* THE 44px FLOOR ON THE COPY CONTROLS, UNCONDITIONAL.
      flow.css already floors every other acting control on this screen:
-     `.acts .btn` covers the three choices, `.sheet .sfoot .btn` covers the
-     two send buttons and the two cancels and the pull-request check, and
-     .sclose is declared 44x44 outright. The three [data-copy] buttons are
-     .btn-sm and sit in neither container, so base.css:543 leaves them at
-     32px until (max-width: 760px) or (pointer: coarse) fires. Keyed on
-     [data-copy] rather than on three ids because that is the selector ui.js
-     itself sweeps, so a fourth copy control added later inherits the floor:
-     the same call verify.html:136-142 already makes, for the same reason.
+     `.acts .btn` (flow.css:580) covers the three choices, `.sheet .sfoot
+     .btn` (flow.css:610) covers all six controls in the three sheet
+     footers, and .sclose is declared 44x44 outright (flow.css:611-615).
+     The three [data-copy] buttons are .btn-sm and sit in neither
+     container, so base.css:129 declares them 32px and only base.css:543
+     raises that, under (max-width: 760px) or (pointer: coarse). Keyed on
+     [data-copy] rather than on three ids because that is the selector
+     ui.js:67 itself sweeps, so a fourth copy control added later inherits
+     the floor: the same call verify.html:136-142 already makes, for the
+     same reason.
 
-     Measured in a real headless Chrome at 1280 and at 320, with the
-     technical-details disclosure opened (the three copy buttons have no box
-     until it is) and each dialog opened on its own: 17 controls reached. At
-     320 all 17 clear 44 x 44. At 1280 sixteen do, and the one that does not
-     is #nav-signout at 75.8 x 32, which nav.js renders into every page: the
-     same control measures 75.8 x 32 on /hire too, a page this card did not
-     touch, so it is shared chrome and not this screen's to fix here.
+     THE RULE IS LOAD-BEARING, deleted from the live sheet and the buttons
+     re-measured: with it they are 44 tall at 1280, without it 32. At 320
+     under a coarse pointer they are 44 either way, and what the rule still
+     supplies there is the min-width.
+
+     WHERE EACH COPY BUTTON GETS ITS BOX. The two in #atttech have none
+     until the technical-details disclosure is opened. #scan-url-copy is in
+     the pay sheet and the disclosure never reaches it: it has no box until
+     #scan opens, and it has one then with the disclosure still closed.
+
+     THE SWEEP covered five states: the disclosure closed, the disclosure
+     opened, and each of the three dialogs opened on its own. Run in a real
+     headless Chrome at 1280 with a fine pointer and at 320 with a coarse
+     one. 30 controls reached. At 320, 27 clear 44 x 44. At 1280 eighteen
+     do, and the twelve that do not are these:
+
+       Eight nav controls, 24.8 or 32 tall, which nav.js renders into every
+       page. All eight measure the same text, width and height on /hire, a
+       page this card did not touch.
+
+       #scan-url at 414.2 x 40. It is an <input class="input mono">, floored
+       by base.css:138 at 40px and raised to 44px by base.css:544 under the
+       same touch query. It measures 414.2 x 40 on /deposit as well, which
+       ships the same .urlcopy row and which this card did not touch, so the
+       40px is the shared .input height and not this screen's to change
+       here.
+
+       The redo picker's three radios at 18 x 18. The radio is not the tap
+       target: the .picker label around it measures 480 x 47 at 1280 and
+       244 x 47 at 320, floored at 44px by flow.css:673-677, and a press at
+       the label's far edge, outside the radio's own box, checks the radio
+       and enables Send.
 
      That measurement was a throwaway script run during this card, NOT a
      committed gate, so it does not rerun: this page's committed coverage
@@ -199,12 +234,31 @@
         <h2 style="margin-top:40px; margin-bottom:6px">Your three choices</h2>
         <p class="sub" style="margin-bottom:18px">These are all of them. There is nothing else to do on this page.</p>
         <!-- NO data-opens ON THESE THREE, and that is not an oversight.
-             staged.js binds all three itself, because pay has to POST and
-             open the sheet on the response rather than on the press. Adding
-             polish.js's data-opens beside a script that already calls
-             showModal would call it twice on one press, and showModal on an
-             already-open dialog throws InvalidStateError. The dismissals
-             below do carry data-closes, which is idempotent and correct. -->
+             staged.js binds all three itself (staged.js:510-568), because
+             pay has to POST and open the sheet on the response rather than
+             on the press: openScan writes the address the route returned
+             into #scan-url and into #scan-url-copy's data-copy BEFORE it
+             calls showModal (staged.js:529-542).
+
+             Reproduced in a real headless Chrome, with polish.js's own
+             data-opens listener (polish.js:541-548) attached to #pay-btn:
+             in the same task as the press the sheet is already open, with
+             #scan-url empty and data-copy empty, and the address arrives
+             only when the route answers. What that costs is a sheet
+             showing an empty address. It is not a throw: showModal() on a
+             dialog that is already MODALLY open returns without throwing,
+             measured alongside a positive control that does throw
+             (setAttribute "open", then showModal, gives
+             InvalidStateError). On #redo-btn and #decline-btn, which open
+             directly and issue no request on press, data-opens would be a
+             harmless second listener; they stay unmarked so all three
+             openers are bound in one place rather than two.
+
+             The dismissals below do carry data-closes. polish.js:550 and
+             staged.js:502 both bind them, so one press really does call
+             close() twice, counted in the browser. close() on an already
+             closed dialog returns without throwing and the dialog stays
+             closed, so the second call changes nothing. -->
         <div class="acts" id="acts">
           <button class="btn btn-primary" type="button" id="pay-btn" disabled>Loading</button>
           <button class="btn" type="button" id="redo-btn" hidden>Send it back once, free</button>
