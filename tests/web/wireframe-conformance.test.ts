@@ -156,6 +156,30 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'In progress 2': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
     'Shipped 3': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
     'Didn&#8217;t ship 1': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
+    // W-myjobs. The wireframe holds exactly one data-avatar
+    // (spec/wireframe/myjobs.html:41) and it is not on a row: it is the
+    // face on the nav account menu, a <details class="avatarmenu"> whose
+    // drop holds Dashboard, Settings and Sign out. The six job rows
+    // (spec/wireframe/myjobs.html:71-132) carry .rowtext and .rowtrail and
+    // no avatar at all.
+    //
+    // The menu is not built, and this card does not reopen that: all three
+    // of its destinations already sit in the bar as flat controls, so a
+    // second copy inside a menu would put two Dashboard links and two
+    // Settings links in one nav. nav.js appends Dashboard (nav.js:91-105)
+    // and Settings (nav.js:112-126) into .links on every page that loads
+    // it, and Sign out is each page's own #nav-signout button, which
+    // nav.js shows once a session exists (nav.js:149-150) and wires
+    // (nav.js:153-180). nav.js:85-89 and nav.js:107-110 record the menu as
+    // a nav decision deferred to the polish pass, and dashboard.html:35-43
+    // records the same ruling from the page side.
+    //
+    // Nor do the rows get avatars: GET /accounts/:did/jobs returns id,
+    // brief, agentName, repository, status, bucket and date
+    // (src/api/app.ts:1629-1637) with no DID on the row, so the only way to
+    // draw a face there would be to derive an identity from a name, which
+    // this codebase never does.
+    'avatars': "the wireframe's one data-avatar is the face on its nav account menu (spec/wireframe/myjobs.html:41), never a row: its six rows carry .rowtext and .rowtrail and no avatar. The menu is not built because all three of its destinations are already flat controls in the shared bar (nav.js:91-126 appends Dashboard and Settings; #nav-signout is the page's own button, shown by nav.js:149-150), and GET /accounts/:did/jobs returns no DID on a row (src/api/app.ts:1629-1637), so a row avatar could only come from deriving an identity out of a name",
   },
   job: {
     // The wireframe draws the closed-without-shipping state as a second
@@ -515,7 +539,11 @@ describe('every built page carries its wireframe', () => {
     'deposit',
     'incoming',
     'job',
+<<<<<<< HEAD
     'myjobs',
+=======
+    'myagents',
+>>>>>>> 2b1ebed (W-myjobs: rebuild the my-jobs page on the polished wireframe)
     'notfound',
     'operatorjob',
     'outcomes',

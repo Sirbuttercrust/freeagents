@@ -6,10 +6,36 @@
 <title>My jobs: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
 <style>
-  /* P8m MY JOBS (SITEMAP P-16), from spec/wireframe/myjobs.html. Same
-     structure, copy and class vocabulary as the wireframe; departures are
-     named in the handoff.
+  /* P8m MY JOBS (SITEMAP P-16), from spec/wireframe/myjobs.html, rebuilt on
+     the polished visual system (W-myjobs).
+
+     THE SHEETS. The wireframe loads base.css and polish.css
+     (spec/wireframe/myjobs.html:7-8). tokens.css is this repo's own split of
+     the wireframe's variable block, so it stays first, under both. No other
+     sheet: this page draws no market card, no flow rail and no gallery, and
+     the wireframe links none of those.
+
+     polish.css is the half of the system this screen was missing. Its
+     .state .ico rule and the live-job pulse (polish.css:379-386) act on the
+     glyph myjobs.js now builds in every row trail, and its .chip rules
+     (polish.css:138-157, 573) act on the five filter chips.
+
+     WHAT IS STILL DECLARED HERE. Three rules, and each is here because no
+     sheet this page loads carries the selector: .rowtext .t, .rowtext .m and
+     .rowtrail have zero rules across tokens.css, base.css and polish.css,
+     counted at selector position with comments stripped. The wireframe keeps
+     the same three in its own page-local block, for the same reason
+     (spec/wireframe/myjobs.html:23-25).
+
+     A fourth, .filters .chip { min-height: 44px }, is gone. base.css:178
+     already floors every chip at 44px and polish.css:573 restates it under
+     (max-width: 760px), (pointer: coarse). Measured rather than assumed:
+     re-inserting that exact rule into the shipped page in a real Chrome, at
+     320, 375, 420, 640, 760 and 1280, changed no chip's height, width,
+     min-height or padding at any width. A rule that changes nothing is a
+     claim about the sheets that nothing checks.
 
      ONLY REAL JOBS APPEAR HERE. ENT-4.1: a job does not exist until the
      buyer confirms, so the API route excludes draft and proposed before
@@ -22,7 +48,6 @@
   .rowtext .t { font-size: 15px; font-weight: 500; }
   .rowtext .m { font-size: 12px; color: var(--fg-3); margin-top: 4px; }
   .rowtrail { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex: none; text-align: right; }
-  .filters .chip { min-height: 44px; }
 </style>
 </head>
 <body>
@@ -63,6 +88,12 @@
       <a class="btn btn-primary" href="/browse">Browse agents</a>
     </div>
 
+    <!-- The wireframe hands this bar to polish.js's generic radio-group
+         handler ([data-pick], polish.js:137-159). This page does not: the
+         five chips are wired directly in myjobs.js's wireChips(), because a
+         chip here has to filter the rows as well as move the pressed state,
+         and picks() only moves the state and raises a toast. The reason is
+         stated in full beside that wiring. -->
     <div class="filters" id="filters" style="margin-top:24px">
       <button class="chip" type="button" data-bucket="all" aria-pressed="true">All</button>
       <button class="chip" type="button" data-bucket="waitingOnYou" aria-pressed="false">Waiting on you</button>
@@ -117,8 +148,27 @@
   </div>
 </footer>
 
+<!-- THE POLISHED STACK. polish.css is not self-executing: its .state .ico
+     rule (polish.css:379-386) and its .chip .ico rule (polish.css:152-157)
+     describe elements icons.js paints and polish.js drives, so both ship
+     here. The order is the one the three avatar-free polished pages already
+     settled: api, nav, icons, polish, page script, ui
+     (verify.html:384-389, signin.html:310-315; how.html:300-304 is the same
+     order minus a page script, having none).
+
+     swarm.js is NOT loaded, because this page mounts no [data-avatar]: the
+     wireframe's only one is its nav account menu, which nav.js renders as
+     flat links instead (the reason is in tests/web/wireframe-conformance.
+     test.ts's myjobs ALLOWED_ABSENT entry). polish.js's avatar sweep returns
+     at polish.js:479 when neither FASwarm nor FA.avatar exists, so nothing
+     here waits on a generator that never arrives. verify.html and
+     signin.html also run this stack without swarm.js, each because its own
+     wireframe draws no avatar at all; the reason differs, the consequence
+     for the script list does not. -->
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/myjobs.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
