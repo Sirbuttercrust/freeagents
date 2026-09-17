@@ -42,20 +42,22 @@
    every nesting depth. A top level count sees only the first one, which is
    how an earlier draft of this note came to report a single exception.
 
-     .who .av    :159   also polish.css:536
-     .btn        :795   also base.css:116, :542 and polish.css:85, :568
-     .btn-sm     :795   also base.css:129, :543 and polish.css:569
-     .chip       :796   also base.css:175 and polish.css:138, :573
-     .disclose   :797   also base.css:226 and polish.css:600
+     .who .av    :161   also polish.css:536
+     .btn        :797   also base.css:116, :542 and polish.css:85, :568
+     .btn-sm     :797   also base.css:129, :543 and polish.css:569
+     .chip       :798   also base.css:175 and polish.css:138, :573
+     .disclose   :799   also base.css:226 and polish.css:600
 
-   The last four are the (pointer: coarse) block at :794-799, and each
+   The last four are the (pointer: coarse) block at :796-801, and each
    restates a 44px floor base.css or polish.css already sets in its own
    touch query. None of the five decides anything on the deposit page:
    deleting all five out of the live CSSOM (four rule objects, since .btn
-   and .btn-sm share one) moves 0 of the 14 elements they reach, at 1280
-   with a fine pointer and at 320 with a real coarse pointer. Deleting one
-   flow.css-only rule in the same run moves 2 of those same 14, so the
-   probe does report a change when there is one.
+   and .btn-sm share one) moves 0 of the 11 distinct elements they reach, at
+   1280 with a fine pointer and at 320 with a real coarse pointer. The
+   per-selector match counts sum to 14 rather than 11 because three of those
+   elements carry both .btn and .btn-sm, so each of the three is counted by
+   two selectors. Deleting one flow.css-only rule in the same run moves 2 of
+   those same 11, so the probe does report a change when there is one.
    --------------------------------------------------------------------
    `.who .av` IS THE ONE THAT CARRIES A BOX, AND LOAD ORDER DOES NOT DECIDE
    IT. This file sets width, height, border-radius and flex, and agrees with
