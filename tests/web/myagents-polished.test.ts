@@ -320,13 +320,13 @@ describe('2. the avatar mount is real, not a string that satisfies a regex', () 
     expect(same, 'the painted avatar is not what the swarm generator draws for this DID').toBe(true);
   });
 
-  it('no creature paints outside its 40px disc, so nothing lands on the row beneath', async () => {
+  it('no creature paints outside its 40px mount, so nothing lands on the row beneath', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found; skipping (see CHROME_BIN)');
       return;
     }
     // swarm.js draws a contact shadow below the creature, outside the fitted
-    // viewBox. Without the clip it falls into the next row.
+    // viewBox, so without the clip a mount paints below itself into the row.
     //
     // This hit-tests the CLIP'S EFFECT rather than the svg's box. The box is
     // useless here: swarm.js writes width and height equal to the mounted
@@ -334,65 +334,109 @@ describe('2. the avatar mount is real, not a string that satisfies a regex', () 
     // 40x40 host and `svg.bottom - host.bottom` is structurally 0 whether or
     // not ink escapes. That was the vacuous assertion this replaces.
     //
-    // elementsFromPoint answers the question the sentence above actually
-    // asks: at a point outside the disc, is this avatar's art there? It is
-    // hit testing, so it respects the clip. The control at the bottom of
-    // this test removes the clip and requires the same sweep to redden.
-    const RING = `
-      window.__ringProbe = function (unclip) {
+    // Two rules about how the sweep counts, each of which cost a real defect
+    // to learn:
+    //
+    //   elementsFromPoint returns the SVG ROOT for every point inside its
+    //   border box whether or not anything is painted there, so a hit on the
+    //   root is the box reporting itself. Only a PROPER DESCENDANT is ink.
+    //
+    //   The lattice stays strictly outside that border box. Between the disc
+    //   and the box corners lies the clip's own antialiased edge, which hit
+    //   tests as ink a fraction of a pixel beyond the circle and is not art
+    //   leaving the mount.
+    //
+    // Two controls run in the same page. One removes the clip, so a zero
+    // above means the page is clean rather than the sweep being aimed at
+    // nothing. The other empties every svg of its painted cells and requires
+    // the same sweep to go silent, so the count cannot be reading geometry.
+    const INK = `
+      window.__inkProbe = function (opts) {
         return Array.prototype.map.call(document.querySelectorAll('.arow .rav'), function (rav) {
-          if (unclip) rav.style.overflow = 'visible';
           var svg = rav.querySelector('svg');
-          var r = rav.getBoundingClientRect();
-          var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-          var pts = [];
-          // 36 points on a ring 2px outside the mount, plus a strip running
-          // 14px below it, which is where the contact shadow falls.
-          for (var i = 0; i < 36; i++) {
-            var a = (i / 36) * Math.PI * 2;
-            pts.push([cx + Math.cos(a) * (r.width / 2 + 2), cy + Math.sin(a) * (r.height / 2 + 2)]);
+          var stash = [];
+          if (opts.blank) {
+            while (svg.firstChild) { stash.push(svg.firstChild); svg.removeChild(svg.firstChild); }
           }
-          for (var dy = 1; dy <= 14; dy++) pts.push([cx, r.bottom + dy]);
-          var hits = 0;
-          pts.forEach(function (p) {
-            var stack = document.elementsFromPoint(p[0], p[1]);
-            for (var i = 0; i < stack.length; i++) {
-              if (stack[i] === svg || svg.contains(stack[i])) { hits++; return; }
+          if (opts.unclip) rav.style.overflow = 'visible';
+          // Sampled while the state is in force, so a control that never
+          // applied cannot report a clean page.
+          var overflow = getComputedStyle(rav).overflow;
+
+          var r = rav.getBoundingClientRect();
+          if (Math.round(r.width) !== 40 || Math.round(r.height) !== 40) {
+            throw new Error('the mount is not 40x40, so this lattice measures the wrong region');
+          }
+          var W = 40, PAD = 8, DROP = 24;
+          var sampled = 0, ink = 0, lowest = null;
+          for (var dx = -PAD; dx < W + PAD; dx++) {
+            for (var dy = -PAD; dy < W + DROP; dy++) {
+              if (dx >= 0 && dx < W && dy >= 0 && dy < W) continue;
+              sampled++;
+              var stack = document.elementsFromPoint(r.left + dx + 0.5, r.top + dy + 0.5);
+              for (var i = 0; i < stack.length; i++) {
+                if (stack[i] !== svg && svg.contains(stack[i])) {
+                  ink++;
+                  if (lowest === null || dy > lowest) lowest = dy;
+                  break;
+                }
+              }
             }
-          });
-          if (unclip) rav.style.overflow = '';
-          return { did: rav.getAttribute('data-avatar'), overflow: getComputedStyle(rav).overflow,
-                   sampled: pts.length, outside: hits };
+          }
+
+          if (opts.unclip) rav.style.overflow = '';
+          for (var j = 0; j < stash.length; j++) svg.appendChild(stash[j]);
+          return { did: rav.getAttribute('data-avatar'), overflow: overflow,
+                   sampled: sampled, ink: ink, lowest: lowest };
         });
       };
       true;
     `;
-    const { shipped, unclipped } = await withPage(1280, async (b) => {
-      await b.evaluate(RING);
+    type Row = { did: string; overflow: string; sampled: number; ink: number; lowest: number | null };
+    const { shipped, unclipped, blank } = await withPage(1280, async (b) => {
+      await b.evaluate(INK);
       return {
-        shipped: await b.evaluate<Array<{ did: string; overflow: string; sampled: number; outside: number }>>(
-          'window.__ringProbe(false)',
-        ),
-        unclipped: await b.evaluate<Array<{ did: string; outside: number }>>('window.__ringProbe(true)'),
+        shipped: await b.evaluate<Row[]>('window.__inkProbe({})'),
+        unclipped: await b.evaluate<Row[]>('window.__inkProbe({ unclip: true })'),
+        blank: await b.evaluate<Row[]>('window.__inkProbe({ unclip: true, blank: true })'),
       };
     });
 
+    // 56 columns by 72 rows around the mount, less the 40x40 box itself.
+    const SAMPLED = 56 * 72 - 40 * 40;
     expect(shipped.length).toBe(4);
     for (const row of shipped) {
       expect(row.overflow, `${row.did}: the avatar box does not clip`).toBe('hidden');
-      expect(row.sampled, `${row.did}: the probe sampled nothing, so its zero means nothing`).toBe(50);
-      expect(row.outside, `${row.did}: art is painting outside the 40px disc`).toBe(0);
+      expect(row.sampled, `${row.did}: the sweep sampled nothing, so its zero means nothing`).toBe(SAMPLED);
+      expect(row.ink, `${row.did}: art is painting outside the 40px mount`).toBe(0);
     }
 
-    // The control, in the same run: with the clip removed, every mount must
-    // report art outside the disc. Without this, a zero above could mean the
-    // probe is blind rather than the page is clean.
+    // Control 1: the clip comes off and the same sweep has to find ink. Not
+    // every identity reaches past its mount, so this is asked of the set.
     for (const row of unclipped) {
-      expect(
-        row.outside,
-        `${row.did}: removing the clip changed nothing, so the assertion above cannot fail`,
-      ).toBeGreaterThan(0);
+      expect(row.overflow, `${row.did}: the control never removed the clip`).toBe('visible');
+      expect(row.sampled, `${row.did}: the control sampled nothing`).toBe(SAMPLED);
     }
+    const realInk = unclipped.reduce((n, r) => n + r.ink, 0);
+    expect(
+      realInk,
+      'unclipping every mount changed nothing, so the assertion above cannot fail',
+    ).toBeGreaterThan(0);
+
+    // Control 2: same sweep, clip still off, every svg emptied of painted
+    // cells. An instrument counting boxes rather than ink reads the same
+    // here as it does above.
+    for (const row of blank) {
+      expect(row.sampled, `${row.did}: the blank control sampled nothing`).toBe(SAMPLED);
+      expect(
+        row.ink,
+        `${row.did}: the sweep reports ink on an svg with no painted cells, so it is counting geometry`,
+      ).toBe(0);
+    }
+    expect(
+      blank.reduce((n, r) => n + r.ink, 0),
+      'the sweep cannot tell art from no art',
+    ).toBeLessThan(realInk);
   });
 });
 

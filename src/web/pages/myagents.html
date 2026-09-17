@@ -45,15 +45,16 @@
      WHAT market.css DOES HERE: nothing this page reads, and that is the
      honest answer. The sheet declares 56 class names counting every
      nesting depth (55 at top level, copybtn only inside a media query)
-     and one selector part that is not a class, :root. Intersected against
-     every class this page's markup and script can produce, exactly one
-     name matches, ico, and market.css never selects .ico alone: its .ico
-     rules are all compound (.pverified .ico, .acard-ev .hires .ico and the
-     rest), and this page's markup satisfies none of them. All seven of its
-     :root custom properties (--cat-frontend, --cat-backend, --cat-infra,
-     --cat-data, --cat-testing, --w-wide, --unverified-fg) are read only by
-     rules inside market.css itself, checked against comment-stripped
-     source so the sentence you are reading does not count as a reader.
+     and one comma-separated selector that is not a class, :root.
+     Intersected against every class this page's markup and script can
+     produce, exactly one name matches, ico, and market.css never selects
+     .ico alone: its .ico rules are all compound (.pverified .ico,
+     .acard-ev .hires .ico and the rest), and this page's markup satisfies
+     none of them. All seven of its :root custom properties
+     (--cat-frontend, --cat-backend, --cat-infra, --cat-data,
+     --cat-testing, --w-wide, --unverified-fg) are read only by rules
+     inside market.css itself, checked against comment-stripped source so
+     the sentence you are reading does not count as a reader.
      So the only thing market.css contributes here is those seven values,
      which inherit onto every element and which no rule on this page reads.
      Disabling the sheet in the live CSSOM and re-enabling it moves none of
@@ -77,40 +78,29 @@
   /* overflow:hidden is this page's one addition to the wireframe's own .rav
      rule, and it is a consequence of what now paints into this box.
 
-     swarm.js emits its SVG with style="display:block;overflow:visible" and
-     fits the viewBox to the creature's own cells (svgWrap over stableBox),
-     then draws a contact-shadow ellipse UNDER the creature's feet, outside
-     that fitted box (swarm.js:1971).
+     swarm.js emits its SVG with style="display:block;overflow:visible", so
+     the mount is the only thing that can bound the drawing. The viewBox is
+     fitted to the creature's own cells (svgWrap over stableBox), and the
+     contact-shadow ellipse under its feet is not one of those cells: it is
+     added beside the grid the box was measured from (swarm.js:1971), so
+     nothing in the fit keeps it inside the frame.
 
-     WHAT THE CLIP REMOVES, measured two ways over 28 generated identities
-     spanning all 8 species the generator produced for that sample, at the
-     shipped 40px, in headless Chrome.
+     The clip is a CIRCLE and that fitted box is a SQUARE, so it costs the
+     creature something too. stableBox squares the box around the drawn
+     cells and centres the shorter axis (swarm.js:1817), and the square's
+     corners lie outside the disc inscribed in it, so whatever reaches a
+     corner is trimmed. How often that happens, and how deep, is a fact
+     about which identities the generator is handed rather than about this
+     page, so no count of either is stated here: a census over a sample the
+     next reader cannot reproduce is not evidence.
 
-     Against the fitted viewBox, which is a square: the shadow falls below
-     it on 17 of the 28, worst 10.91px, and the creature's own cells fall
-     outside it on 0 of the 28. Nothing escapes sideways on any sample.
-
-     But the clip is a CIRCLE, not that square, so the viewBox is the wrong
-     boundary to measure against and a cell can sit inside it and still be
-     cut. Rasterising each creature at 400px and masking a copy by the disc,
-     shadow excluded so only anatomy is in frame: the disc trims real cells
-     on 13 of the 28, 10 of them by at least half a square pixel. The worst
-     is a mantis at 18.77 square px, 3.8 percent of that creature's own ink,
-     and the deepest single cut reaches 2.69px past the disc edge. It is
-     always the outer tips of the front and rear limbs, never the head,
-     thorax, abdomen or wings, so each silhouette still reads as its own
-     species. Both instruments carry a control: a square planted in the
-     viewBox corner, inside the square and outside the disc, is reported
-     removed, and a small centred circle is reported untouched.
-
-     So the clip costs the outermost limb pixels on about half the
-     identities, and buys a boundary the row can rely on. The alternative is
-     a drop shadow and a few limb tips landing on the row beneath, and on
-     the last row on the pane's bottom edge. That is the same treatment
-     .acard-av gives the same generator on the browse and operator cards,
-     border-radius 50% with overflow hidden (market.css:145-155). The
-     wireframe already asked for the circle here; this is what makes the
-     circle a boundary rather than a suggestion.
+     The trade is deliberate. A creature still reads as its own species at
+     40px with its outermost pixels gone, and a mount whose bounds do not
+     depend on the identity is worth more to a list of rows than those
+     pixels. It is also what .acard-av already does to this same generator
+     on the browse and operator cards, border-radius 50% with overflow
+     hidden (market.css:145-155). The wireframe asked for the circle; this
+     is what makes the circle a boundary rather than a suggestion.
      tests/web/myagents-polished.test.ts holds the line in a real browser. */
   .arow .rav { width: 40px; height: 40px; border-radius: 50%; display: block; overflow: hidden; }
   .arow .nm { font-size: 15px; font-weight: 550; }
