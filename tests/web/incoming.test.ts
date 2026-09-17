@@ -506,12 +506,10 @@ describe('the Incoming work screen, driven end to end against the real app', () 
         expect(footAction?.found, 'at least one row foot action must render').toBe(true);
         // Subpixel slack, for the same reason the desktop guard below
         // carries it: this is a getBoundingClientRect() height against a
-        // 44px min-height, and across six runs of this file it read 44 on
-        // four and 44.000030517578125 on two, having read
-        // 43.999969482421875 under a whole-suite run. An exact 44 floor
-        // therefore goes red on float noise rather than on a short
-        // control. The 0.05px of slack is 240 times narrower than the 12px
-        // drop to .btn-sm's own 32px, which is the defect being caught.
+        // 44px min-height, so an exact 44 floor goes red on float noise
+        // rather than on a short control. The 0.05px of slack is 240 times
+        // narrower than the 12px drop to .btn-sm's own 32px, which is the
+        // defect being caught.
         expect(footAction?.height, 'the foot action must reach the 44px tap floor at 320px').toBeGreaterThanOrEqual(43.95);
       } finally {
         await browser.close();
