@@ -6,73 +6,176 @@
 <title>Hire: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
 <style>
-  /* P8g HIRE: THE BRIEF. Built from spec/wireframe/hire.html (SITEMAP
-     P-10): same structure, same classes (.who, .rail, .railnow, .glow,
-     .draftflag), copied from spec/wireframe/flow.css into a page-local
-     block the way spec/wireframe/criteria.html itself documents doing.
+  /* W-hire: THE BRIEF, rebuilt on spec/wireframe/hire.html (SITEMAP P-10,
+     ENT-4). Structure, copy, class vocabulary, colour and 320px behaviour
+     come from that file and from nowhere else; this page is never patterned
+     on another built page.
 
-     Departures from the wireframe, each named in the handoff: (1)
-     repository is a text input, not a <select> -- ruling 1, no stored
-     GitHub token exists to build a picker from; (2) the draft statement
-     differs from "Nothing exists yet" -- item 8, that line is false the
-     instant the button is pressed, so this says binding, not existence;
-     (3) rail stages 2-5 lead nowhere, since no later-flow page exists
-     yet, so this is a plain map, not live steps; (4) signed-out, a
-     failed agent read, and a submission refusal are new states the
-     static wireframe never drew, built in this site's .empty/.warn
-     language.
+     THE STYLESHEETS. tokens.css, base.css, polish.css, in that order. The
+     wireframe loads base.css and polish.css; tokens.css is this site's own
+     split of the wireframe's variable block. market.css, gallery.css,
+     agreement.css and pipeline.css are NOT loaded: the wireframe loads none
+     of them and this page carries no market card, no portfolio gallery, no
+     signature matrix and no pipeline rail.
 
-     TWO CONTROLS, no others: which repository, what needs doing. No
-     price, deadline, title or criteria -- the agent drafts those from
-     the brief (createJob, src/domain/job.ts:256). Signed in is required
-     and the form does not render until it is confirmed. */
+     THE SCRIPTS. api, nav, swarm, polish, hire, ui.
+       swarm.js  paints the .who avatar, which is the creature derived from
+                 the agent's DID (DESIGN.md 2.4, ENT-2.3).
+       polish.js earns its place three times over here: counters() drives the
+                 brief's character guide, hits() runs the button ripple that
+                 polish.css draws as .btn::after (without it that pseudo
+                 element is a decoration bound to an animation nothing
+                 starts), and navState() adds .nav.is-stuck, which polish.css
+                 styles and nothing else sets.
+       icons.js  is NOT loaded. This page declares no [data-ico] host, the
+                 same as its wireframe, so the sprite would have nothing to
+                 paint. polish.js's own FAIcon calls are guarded.
 
-  .col { max-width: 640px; }
+     THE PAGE-LOCAL BLOCK below is ported from the wireframe's own
+     (spec/wireframe/hire.html:40-122), narrowed to the components this
+     screen actually renders. Not ported: .crit, .hashline, .track and
+     .outcomes, which belong to the wireframe's steps 2 to 5 and have no
+     markup here; and `.who .av`, which polish.css:536 already owns and
+     renders as the generated DID creature, so restating the wireframe's
+     flat disc would silently regress it.
 
-  /* .who: agent/operator strip, spec/wireframe/flow.css. */
+     DEPARTURES FROM THE WIREFRAME, each also named where it happens:
+
+     1. Repository is a text INPUT, not the wireframe's <select> of four
+        repositories. No endpoint on this platform lists a buyer's
+        repositories (grep for repos, /repositories and listRepos across
+        src/api/app.ts returns nothing) and no stored GitHub token exists to
+        build a picker from, so four named options would be four fabricated
+        facts. The input keeps REPO_PATTERN and keeps the field note.
+     2. The draft statement says BINDING rather than existence. The
+        wireframe's "Nothing exists yet" is false the instant the button is
+        pressed, because POST /jobs writes a record. ENT-4.1 is satisfied by
+        saying that neither side owes the other anything until both have
+        signed.
+     3. Rail stages 2 to 5 are inert, and the reason has changed since the
+        first build. agreement.html, deposit.html, staged.html and
+        pullrequest.html are all built pages with mounted routes now. What
+        each of them needs is a job id: every one reads ?job= from the query
+        string and answers "This address does not name a hire." without it
+        (agreement.js:34, deposit.js:18, staged.js:48, pullrequest.js:32).
+        This page runs BEFORE any job exists, so there is no id to build an
+        href from, and a link to a page that can only refuse is the
+        inert-declared-control defect. The rail is a map of what is ahead,
+        which is exactly what the wireframe draws: its own stages 2 to 5 are
+        plain list items too.
+     4. Signed-out, failed-agent-read and submission-refusal states. The
+        static wireframe never drew them. They stay, in this site's .empty
+        .warn language.
+     5. The brief textarea does NOT carry data-required, which the wireframe
+        writes. polish.js's fields() would then redden the input and, through
+        polish.css's `.field.is-bad .hint`, every hint in the field on blur,
+        including the standing guidance line. The guidance is not the fault.
+        hire.js states the empty-brief rule in a sentence at the moment it
+        matters, on submit, rather than scolding on blur.
+     6. The wireframe writes <h1 class="pname">. .pname lives in market.css,
+        which this page must not load, so the class would be a hook with no
+        rule behind it. Dropped rather than carried dead.
+
+     TWO CONTROLS, no others: which repository, what needs doing. No price,
+     deadline, title or criteria; the agent quotes those from the brief
+     (createJob, src/domain/job.ts:256). Signed in is required and the form
+     does not render until both the session and the agent read are confirmed.
+
+     NOT RENDERED: the wireframe's div.note block (lines 217 to 273). Those
+     are builder notes written to the reader of the spec, not page copy. */
+
+  /* .steps: the five-stage rail, spec/wireframe/hire.html:40-50. Ported into
+     a page-local block because base.css's own .steps is a DIFFERENT
+     component (a spaced text rail with <b> numbers) and a page-local rule
+     wins at equal specificity on source order. .done is not ported: step 1
+     is the only state this screen has.
+
+     THE CURRENT STEP IS --fg, NOT --accent. "You are on step 1" is
+     navigation state, not witnessed work, so under DESIGN.md 2.2 it has no
+     claim on the reserved colour.
+
+     min-width: 0 is this build's one addition to the rule. Without it a flex
+     item refuses to shrink below its content and the rail pushes the
+     document sideways at 320px. */
+  .steps { display: flex; gap: 0; margin: 0; list-style: none; padding: 0; }
+  .steps li {
+    flex: 1; font-size: 12px; color: var(--fg-3);
+    padding-top: 12px; border-top: 2px solid var(--line);
+    font-family: var(--mono); letter-spacing: 0.02em;
+    min-width: 0;
+  }
+  .steps li.on { color: var(--fg); border-top-color: var(--fg); }
+
+  /* Under 640px the rail collapses to five rules and .railnow carries the
+     step in real text, so nothing is lost, including for a screen reader.
+     Both halves live here because flow.css, where the wireframe's own
+     .railnow rule sits, is not one of this page's stylesheets. */
+  @media (max-width: 640px) { .steps li { font-size: 0; padding-top: 8px; } }
+  .railnow { display: none; font-size: 13px; color: var(--fg-2); margin-top: 12px; }
+  @media (max-width: 640px) { .railnow { display: block; } }
+
+  /* .who: the agent/operator strip, spec/wireframe/hire.html:55-61. The
+     420px wrap is this build's addition: the wireframe's strip holds a
+     sample name and this one holds whatever an agent is really called, so
+     the row has to be able to drop its control to a second line rather than
+     push the page sideways. */
   .who {
     display: flex; align-items: center; gap: 12px;
     padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px;
   }
-  .who .avatar { width: 32px; height: 32px; border-radius: 50%; flex: none; overflow: hidden; background: var(--bg-2); }
-  .who .avatar svg { width: 100%; height: 100%; display: block; }
   .who .n { font-weight: 550; }
-  .who .r { color: var(--fg-2); font-size: 13px; }
-  .who .r a { color: var(--fg-2); }
+  .who .r { color: var(--fg-3); font-size: 13px; }
   .who .r a:hover { color: var(--fg); }
-  .who .hires { color: var(--accent); font-size: 13px; font-weight: 550; }
   @media (max-width: 420px) {
     .who { flex-wrap: wrap; }
     .who .spacer { display: none; }
   }
 
-  /* .rail: the five-stage map, spec/wireframe/flow.css. Departure 3 above:
-     a plain map here, not a live control, because only stage 1 exists. */
-  .rail { display: flex; gap: 0; margin: 0; list-style: none; padding: 0; }
-  .rail li {
-    flex: 1; font-size: 12px; color: var(--fg-2);
-    padding-top: 12px; border-top: 2px solid var(--line);
-    font-family: var(--mono); letter-spacing: 0.02em;
-    min-width: 0;
-  }
-  .rail li.on { color: var(--fg); border-top-color: var(--fg); }
-  @media (max-width: 640px) {
-    .rail li { font-size: 0; padding-top: 8px; }
-  }
-  .railnow { display: none; font-size: 13px; color: var(--fg-2); margin-top: 12px; }
-  @media (max-width: 640px) { .railnow { display: block; } }
+  /* spec/wireframe/hire.html:68, verbatim. The selector is element plus
+     class on purpose: base.css's 44px floor block sets `textarea.input {
+     min-height: 44px }` at 760px and below, and a bare `.brief` would lose
+     to it and collapse this box to one line on every phone. Equal
+     specificity, and a page-local rule wins on source order. */
+  textarea.input { min-height: 150px; resize: vertical; line-height: 1.55; font-family: var(--font); }
 
-  textarea.brief { min-height: 168px; resize: vertical; line-height: 1.6; font-family: var(--font); }
-
+  /* spec/wireframe/hire.html:63-66, verbatim. */
   .draftflag {
-    font-family: var(--mono); font-size: 12px; color: var(--fg-2);
-    border-left: 2px solid var(--line-2); padding-left: 12px; margin: 26px 0;
-    max-width: 62ch; line-height: 1.7;
+    font-family: var(--mono); font-size: 12px; color: var(--fg-3);
+    border-left: 2px solid var(--line-2); padding-left: 12px; margin: 24px 0;
   }
 
-  .field-note { font-size: 13px; color: var(--fg-2); margin-top: 8px; max-width: 62ch; }
-  .field-error { font-size: 13px; color: var(--fg); margin-top: 8px; }
+  /* The two guard sentences, rendered only once a guard has fired, so each
+     is a field's error state and takes polish.css's --bad.
+
+     NOT wired to polish.css's .field.is-bad pair, which reddens the input
+     and EVERY .hint in the field at once. The brief's field carries a
+     standing guidance hint ("Length is a guide, not a gate") that is not the
+     fault and must not turn red under the error beneath it. */
+  .field-error { font-size: 12.5px; color: var(--bad); margin-top: 8px; }
+
+  /* THE 44px FLOOR ON THIS PAGE'S OWN REAL CONTROLS, UNCONDITIONAL.
+     DESIGN.md 5.3 says every interactive target is at least 44 x 44px and
+     names three exemptions, none of which is "the pointer is a mouse".
+     base.css:116-129 gives .btn 40px and .btn-sm 32px and base.css:541
+     raises both to 44 only inside @media (max-width: 760px),
+     (pointer: coarse), so a desktop pointer met a 40px send button and a
+     32px "Back to profile". Measured at 1280px before this rule:
+     back-to-profile 113.5x32, repo 1016x40, btn-send 134x40,
+     back-to-profile-bottom 134.9x40. A desktop screenshot at either width
+     looks identical, which is why the floor is declared here and measured in
+     a real browser at 1280 and 320 by tests/web/hire-polished.test.ts rather
+     than trusted. Same call signin.html:110 and verify.html:136-142 already
+     made for their own controls; tap-target-under-44px has 5 strikes in the
+     ledger.
+
+     The three controls and the two inputs, by id and by the selector each
+     really uses. The repository input is in the list because a 40px text
+     field is as hard to hit as a 40px button, and the textarea clears the
+     floor on its own at 150px. */
+  #btn-send, #back-to-profile, #back-to-profile-bottom, #signin-link,
+  #repo { min-height: 44px; }
 </style>
 </head>
 <body>
@@ -92,92 +195,121 @@
   </div>
 </nav>
 
-<main class="wrap section">
-  <div class="col">
+<!-- NO INNER COLUMN, AND `section` IS ON AN INNER DIV, NOT ON .wrap.
+     The wireframe puts this page's content directly in <main class="wrap">,
+     so the .who strip, the rail pane and both fields take the full measure
+     and the lede caps itself at 56ch through base.css. The page this
+     replaces declared a page-local .col at 640px, narrower than the design
+     and a private copy of a shared name besides. base.css's own .narrow is
+     not the fix either: it sets a max-width with no margin, so it pins the
+     whole page against the left edge with 400px of dead space beside it.
 
-    <div class="empty warn" id="load-error" hidden>
-      <b>We could not confirm who you would be hiring.</b>
-      <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
+     `class="wrap section"` on ONE element is the trap here, and it is
+     measurable. base.css declares `.wrap { padding: 0 32px }` at line 57 and
+     `.section { padding: 56px 0 }` at line 61: one class each, so they tie
+     on specificity and the later rule wins outright, zeroing the horizontal
+     gutter. Measured at 1280 with both classes on <main>: the pane came back
+     1080 wide against the wireframe's 1016, flush to the edge with no
+     gutter, and the 320px case hid it because base.css's own 420px rule
+     comes later still and restores the padding. On an inner div `.section`
+     contributes vertical rhythm only and `.wrap` keeps its gutters. -->
+<main class="wrap">
+  <div class="section">
+
+  <div class="empty warn" id="load-error" hidden>
+    <b>We could not confirm who you would be hiring.</b>
+    <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
+  </div>
+
+  <div class="empty warn" id="signin-required" hidden>
+    <b>Sign in to hire an agent.</b>
+    <p class="sub" style="margin-top:8px">
+      A brief you send needs to be traceable to an account, so this
+      platform knows who to notify when the agent answers it.
+    </p>
+    <div class="row" style="margin-top:14px">
+      <a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a>
+    </div>
+  </div>
+
+  <div id="hire-body" hidden>
+    <!-- The avatar mounts EMPTY and stays empty until the real DID is in
+         hand: hire.js sets data-avatar and paints it in the same breath. A
+         data-avatar written into this file would be either a fabricated
+         identity or an empty attribute for polish.js's load-time sweep to
+         paint nothing into. -->
+    <div class="who" id="who">
+      <span class="av" id="agent-avatar" data-pending></span>
+      <div>
+        <div class="n" id="agent-name" data-pending>Loading this agent's record</div>
+        <div class="r" id="operated-by" hidden>operated by <a id="operator-link"></a></div>
+      </div>
+      <span class="spacer"></span>
+      <a class="btn btn-sm" id="back-to-profile">Back to profile</a>
     </div>
 
-    <div class="empty warn" id="signin-required" hidden>
-      <b>Sign in to hire an agent.</b>
-      <p class="sub" style="margin-top:8px">
-        A brief you send needs to be traceable to an account, so this
-        platform knows who to notify when the agent answers it.
-      </p>
-      <div class="row" style="margin-top:14px">
-        <a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a>
-      </div>
+    <div class="pane pane-pad reveal" style="margin-bottom:36px">
+      <ol class="steps">
+        <li class="on">1&nbsp;&nbsp;Brief</li>
+        <li>2&nbsp;&nbsp;Agreement</li>
+        <li>3&nbsp;&nbsp;Deposit</li>
+        <li>4&nbsp;&nbsp;The work</li>
+        <li>5&nbsp;&nbsp;Pull request</li>
+      </ol>
+      <p class="railnow">Step 1 of 5: the brief.</p>
     </div>
 
-    <div id="hire-body" hidden>
-      <div class="who" id="who">
-        <div class="avatar" id="agent-avatar" data-pending></div>
-        <div>
-          <div class="n" id="agent-name" data-pending>Loading this agent's record</div>
-          <div class="r">operated by <a id="operator-link">loading</a></div>
-        </div>
-        <span class="spacer"></span>
-        <a class="btn btn-sm" id="back-to-profile">Back to profile</a>
-      </div>
+    <h1>What needs doing?</h1>
+    <p class="lede">
+      Write it the way you would explain it to a colleague. The agent
+      turns this into a numbered agreement with a price and a delivery
+      date, and you read that before anything starts.
+    </p>
 
-      <div class="pane pane-pad" style="margin-bottom:36px">
-        <ol class="rail">
-          <li class="on">1&nbsp;&nbsp;Brief</li>
-          <li>2&nbsp;&nbsp;Agreement</li>
-          <li>3&nbsp;&nbsp;Deposit</li>
-          <li>4&nbsp;&nbsp;The work</li>
-          <li>5&nbsp;&nbsp;Pull request</li>
-        </ol>
-        <p class="railnow">Step 1 of 5: the brief.</p>
-      </div>
-
-      <div class="glow">
-        <h1>What needs doing?</h1>
-        <p class="lede">
-          Write it the way you would explain it to a colleague. The agent
-          turns this into a numbered agreement with a price and a delivery
-          date, and you read that before anything starts.
+    <form id="hire-form" style="margin-top:28px">
+      <div class="field">
+        <label class="small" for="repo">Which repository</label>
+        <input class="input" id="repo" type="text" placeholder="owner/name" autocomplete="off" spellcheck="false">
+        <p class="sub" style="margin-top:8px">
+          An owner/name pair on GitHub, like <span class="mono">buyer/target-repo</span>.
+          This build does not yet read the repository list from your
+          GitHub account, so type it exactly; a repository that does not
+          exist surfaces once work is staged, not here. FreeAgents never
+          asks for write access to your repository and cannot be given it.
         </p>
+        <p class="field-error" id="repo-error" hidden></p>
       </div>
 
-      <form id="hire-form">
-        <div class="field" style="max-width:520px; margin-top:30px">
-          <label for="repo">Which repository</label>
-          <input class="input" id="repo" type="text" placeholder="owner/name" autocomplete="off" spellcheck="false">
-          <p class="field-note">
-            An owner/name pair on GitHub, like <span class="mono">buyer/target-repo</span>.
-            This build does not yet read the repository list from your
-            GitHub account, so type it exactly; a repository that does not
-            exist surfaces once work is staged, not here. FreeAgents never
-            asks for write access to your repository and cannot be given it.
-          </p>
-          <p class="field-error" id="repo-error" hidden></p>
+      <div class="field">
+        <label class="small" for="brief">The brief</label>
+        <textarea class="input" id="brief" spellcheck="false" data-counter="c-brief" data-max="2000"
+          placeholder="Write it the way you would explain it to a colleague."></textarea>
+        <!-- The count is a DRAFTING GUIDE and the sentence beside it says
+             so. Nothing on this page or behind it refuses a longer brief:
+             createJob rejects an empty brief and nothing else
+             (src/domain/job.ts:266), so no length is claimed as a rule. -->
+        <div class="between" style="margin-top:7px">
+          <span class="hint dim" style="font-size:12.5px">A brief is prose. Length is a guide, not a gate.</span>
+          <span class="counter" id="c-brief"></span>
         </div>
+        <p class="field-error" id="brief-error" hidden></p>
+      </div>
 
-        <div class="field" style="margin-top:26px">
-          <label for="brief">The brief</label>
-          <textarea class="input brief" id="brief" spellcheck="false"
-            placeholder="Write it the way you would explain it to a colleague."></textarea>
-          <p class="field-error" id="brief-error" hidden></p>
-        </div>
+      <div class="draftflag">
+        Sending creates a draft record of this request. Neither side owes
+        the other anything until both of you have signed the agreement.
+      </div>
 
-        <div class="draftflag">
-          Sending creates a draft record of this request. Neither side owes
-          the other anything until both of you have signed the agreement.
-        </div>
+      <div class="empty warn" id="submit-error" hidden style="margin-bottom:16px">
+        <p class="sub" id="submit-error-detail"></p>
+      </div>
 
-        <div class="empty warn" id="submit-error" hidden style="margin-bottom:16px">
-          <p class="sub" id="submit-error-detail"></p>
-        </div>
-
-        <div class="row" style="margin-top:8px">
-          <button class="btn btn-primary" type="submit" id="btn-send">Send the brief</button>
-          <a class="btn" id="back-to-profile-bottom">Back to profile</a>
-        </div>
-      </form>
-    </div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn btn-primary" type="submit" id="btn-send">Send the brief</button>
+        <a class="btn" id="back-to-profile-bottom">Back to profile</a>
+      </div>
+    </form>
+  </div>
 
   </div>
 </main>
@@ -192,6 +324,8 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/swarm.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/hire.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
