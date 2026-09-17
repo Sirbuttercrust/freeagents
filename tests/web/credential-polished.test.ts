@@ -192,9 +192,17 @@ describe('1. the page wears the polished system, and only the sheets it uses', (
     // deliberately: a list compared by equality catches an ordering swap but
     // reports it as a six-line array diff, leaving the reader to work out
     // which of the two orders is correct and why. This assertion fails first
-    // and says it. polish.js's init calls FAIcon.paint() before anything else
-    // (polish.js:570-571) and FAIcon is defined by icons.js, so reversed,
-    // every glyph host on the page stays empty and nothing throws.
+    // and says it. polish.js's init calls FAIcon.paint() (polish.js:570-571)
+    // and icons.js is what defines FAIcon, so the declared order is the one
+    // that states that dependency.
+    //
+    // It pins the dependency, not a failure anyone can see today. icons.js
+    // registers its own DOMContentLoaded paint at load (icons.js:127-131), so
+    // the hosts are already painted when init runs: served with the two tags
+    // reversed, 12 of 12 [data-ico] hosts painted, and with both paint entry
+    // points removed, 0 of 12, which is the control that says the count can
+    // read zero. The self-paint that makes a reversal harmless lives in
+    // icons.js and nothing here owns it.
     const icons = scripts.indexOf('/js/icons.js');
     const polish = scripts.indexOf('/js/polish.js');
     expect(icons, '/js/icons.js is not loaded').toBeGreaterThanOrEqual(0);
@@ -229,12 +237,19 @@ describe('1. the page wears the polished system, and only the sheets it uses', (
 
 describe('2. every copy control carries the wireframe\u2019s glyph structure', () => {
   // The structure is what polish.css styles. Without .copybtn the .icoslot is
-  // not positioned and both glyphs stack in flow; without the .icoslot the
-  // absolute rules have no containing block; without .ico-copy and .ico-done
-  // there is nothing to cross-fade; without the .lbl the label is the
-  // button's own text node, which is exactly what ui.js:73's guard protects.
-  // Any one of the five missing is a control that looks right in a static
-  // screenshot and reports nothing when pressed.
+  // not positioned, so both glyphs fall into the flow side by side with the
+  // tick at full opacity beside the copy glyph instead of stacked under it.
+  // Without the .icoslot the absolute rules still resolve, against the button
+  // itself (.copybtn is position:relative, polish.css:301), but nothing is
+  // left in the flow holding the glyphs' 13x13 cell and the label slides into
+  // it: measured at 320 under touch emulation with the slot removed from one
+  // control, that label sits 15px from the button's left edge instead of
+  // 34px and the button narrows from 83.23px to 64.23px, while the five
+  // untouched controls beside it hold 83.23x44. Without .ico-copy and
+  // .ico-done there is nothing to cross-fade; without the .lbl the label is
+  // the button's own text node, which is exactly what ui.js:73's guard
+  // protects. Any one of the five missing is a control that looks right in a
+  // static screenshot and reports nothing when pressed.
   const wrongStructure = (controls: Element[]): string[] =>
     controls
       .filter((el) => {
@@ -291,11 +306,16 @@ describe('2. every copy control carries the wireframe\u2019s glyph structure', (
   });
 
   // A correct structure still paints nothing if the glyph name does not exist
-  // in the sprite, and nothing throws when it does not: icons.js:119 returns
-  // early for an unknown name, the host collapses, and the neighbouring word
-  // carries on. The failure is invisible in a screenshot. The vocabulary is
-  // read out of the shipped file, so a name removed from icons.js fails this
-  // rather than silently painting nothing.
+  // in the sprite, and nothing throws when it does not: the unknown name
+  // returns null out of svg() (icons.js:102) and paint() then appends nothing
+  // (icons.js:121), so the neighbouring word carries on. Nothing moves
+  // either, which is what makes the failure invisible in a screenshot. The
+  // host keeps its box from .ico-sm (polish.css:56): repainted at 320 with
+  // one host's data-ico set to a name the sprite does not carry, that host
+  // measured 13x13 empty and its button held 83.23x44, unchanged from before
+  // the swap and identical to the five controls beside it. So the vocabulary
+  // is read out of the shipped file, and a name removed from icons.js fails
+  // this rather than silently painting nothing.
   it('every data-ico on the page names a glyph that exists, and every host is painted', async () => {
     const glyphs = new Set(
       [...readFileSync(iconsPath, 'utf8').matchAll(/^\s+"([a-z0-9-]+)":/gm)].map((m) => m[1] ?? ''),
