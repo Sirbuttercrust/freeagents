@@ -278,6 +278,23 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Draft the agreement': 'built by incoming.js\u2019s offerRow at render time, keyed off waitingOn (FOOT_ACTION, incoming.js:69-73); this instrument reads the file on disk and never sees what renderRows appends into #rows',
     'See what you sent': 'same reason as "Draft the agreement": rendered live by offerRow, keyed off waitingOn (FOOT_ACTION, incoming.js:69-73)',
     'Review the change': 'same reason as "Draft the agreement": rendered live by offerRow, keyed off waitingOn (FOOT_ACTION, incoming.js:69-73)',
+    // The wireframe's one data-avatar is the face on its nav account menu
+    // (spec/wireframe/incoming.html:66, the <details class="avatarmenu">
+    // whose drop holds Dashboard, Settings and Sign out), never a row: its
+    // three .orow rows (spec/wireframe/incoming.html:87-145) carry .who,
+    // .repo, .brief and .foot and draw no face at all. The menu is not
+    // built because all three of its destinations are already flat
+    // controls in the shared bar (nav.js:91-126 appends Dashboard and
+    // Settings; #nav-signout is the page's own button, shown by
+    // nav.js:149-150), so a second copy inside a menu would put two
+    // Dashboard links and two Settings links in one bar.
+    //
+    // NOT the myjobs reason. GET /accounts/:did/incoming DOES return
+    // agentDid on every offer (src/api/app.ts:1720-1727) and incoming.js
+    // reads it, so a row face here is available and is still not drawn:
+    // the wireframe's own rows draw none, and adding one would be an
+    // addition to the design rather than conformance to it.
+    'avatars': "the wireframe's one data-avatar is the face on its nav account menu (spec/wireframe/incoming.html:66), never a row: its three .orow rows (spec/wireframe/incoming.html:87-145) carry .who, .repo, .brief and .foot and draw no face at all. The menu is not built because all three of its destinations are already flat controls in the shared bar (nav.js:91-126 appends Dashboard and Settings; #nav-signout is the page's own button, shown by nav.js:149-150). This route does carry a row identity (agentDid on every offer, src/api/app.ts:1720-1727), so the absence is the design's call and not the data's: drawing a face the wireframe's own rows do not draw would be an addition to the design rather than conformance to it",
   },
   myagents: {
     // Two of the wireframe's four example agent names (myagents.html:109,
@@ -535,7 +552,6 @@ describe('every built page carries its wireframe', () => {
   // to this set is never a fix. Empty set means the rebuild is complete.
   const NOT_YET_REBUILT = new Set([
     'conduct',
-    'incoming',
     'notfound',
     'operatorjob',
     'outcomes',
