@@ -34,11 +34,30 @@
   in flow.css. Result: 22 local lines, 22 matches, 0 differences. Nothing
   was chosen between, because there was nothing to choose.
 
-  Two rules arrive that the local block had no equivalent for, and both
-  are real visual changes rather than regressions: flow.css's .pane-pad
-  compound selectors give .pane-pad.outcomes and .pane-pad.fixed a
-  22px/24px pad, so the two clock-and-refusal lists sit off their pane rim
-  instead of flush against it.
+  Three rules arrive whose selectors the deleted local block never
+  declared, and they do different amounts of work here. flow.css carries
+  exactly one rule with a .pane-pad compound selector (:202-208: seven
+  selectors sharing one 22px/24px declaration). Asked of the live document
+  rather than read off the cascade, it reaches the two clock-and-refusal
+  lists through .pane-pad.fixed and reaches nothing through
+  .pane-pad.outcomes. This page's .outcomes is a bare grid container with
+  no pane on it, so that selector matches 0 elements here and the
+  element's own padding is 0px.
+
+  The selector that does land is load-bearing. Deleting the rule out of
+  the live CSSOM puts both lists back to 0px, and the page this one
+  replaced measured that same 0px with its first key flush against the
+  pane rim, against 24px of gap now, at 1280x900 and at 320x800.
+
+  The other two arrivals do less, and one of them does nothing. .mark
+  (:352) moves the brand dot 1px lower, the same 1px at 1280 and at 320;
+  its size and display come from base.css:106 and :476, which are more
+  specific, and the dot has no children for the centring to centre. The
+  coarse-pointer .btn, .btn-sm floor (:796-797) moves none of the 4
+  elements those two selectors reach here (6 matches over 4 elements,
+  since the two nav buttons carry both classes), measured under real touch
+  emulation at 320x800, because base.css:541-543 and polish.css:567-569
+  already set 44px in their own touch queries.
 
   THE SCRIPTS. api, nav, icons, polish, ui.
     icons.js  before polish.js, because polish.js's init() calls
@@ -47,10 +66,19 @@
               data-ico host of its own, so the sweep paints nothing today;
               the order still has to be right, because polish.js's toast()
               builds a data-ico span at runtime and repaints it.
-    polish.js the nav behaviour the polished pages share. Measured on this
-              page in Chrome at 1280x1400: it appends the reading-progress
-              hairline to .nav (this page is long enough to earn it) and
-              toggles .nav.is-stuck once the page is scrolled.
+    polish.js the nav behaviour the polished pages share, and only one
+              half of it is unconditional here. navState() toggles
+              .nav.is-stuck above 8px of scroll: measured in Chrome the
+              class is absent at scrollY 8 and present at 9, at 1280x800,
+              1280x1400 and 320x800 alike. The reading-progress hairline
+              is gated on scrollHeight > innerHeight * 2.2
+              (polish.js:302), so whether it appears depends on the
+              viewport as much as on the page. At width 1280 this page's
+              scrollHeight is 2685, which puts the boundary between
+              1280x1220, where one .nav .prog is appended, and 1280x1221,
+              where none is. A tall desktop window clears that boundary
+              and gets no hairline: 1280x1400 reads none, while 1280x800
+              and 320x800 each read one.
     ui.js     the reveal observer. It is this repo's equivalent of the
               spec set's standalone wireframe.js, which does not ship;
               reveals() carries the same safety argument.
