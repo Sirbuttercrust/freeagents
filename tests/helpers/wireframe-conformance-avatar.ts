@@ -77,8 +77,10 @@ export function avatarMounts(htmlText: string): number {
 // construction rather than stripped. Three shapes count as a mount, which
 // is every shape this tree uses or plausibly would:
 //
-//   el.setAttribute("data-avatar", did)   the shape all 11 mounting page
-//                                         scripts use today
+//   el.setAttribute("data-avatar", did)   the shape every mounting page
+//                                         script in this tree uses today:
+//                                         grep -l 'setAttribute("data-avatar"' \
+//                                           src/web/public/js/pages/*.js
 //   el.dataset.avatar = did               the same write through the
 //                                         dataset API
 //   '<span data-avatar="' + did + '">'    a script that injects its rows as

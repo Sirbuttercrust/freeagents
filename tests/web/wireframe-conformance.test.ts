@@ -609,9 +609,9 @@ describe('every built page carries its wireframe', () => {
     // mount attribute from its own script rather than the static shell, so
     // the page's script counts as the built page here. Reading only the HTML
     // called two rebuilt pages red; the test must not be narrower than the
-    // design it judges. Under the parser that is now eleven of them: only
-    // agent and operator carry a mount host in their own markup, and even
-    // there the attribute itself is set by the script once the DID is known.
+    // design it judges. Under the parser that is most of them: only agent
+    // and operator carry a mount host in their own markup, and even there
+    // the attribute itself is set by the script once the DID is known.
     const script = join(here, '../../src/web/public/js/pages', `${name}.js`);
     const builtHas =
       avatarMounts(built) > 0 || (existsSync(script) && scriptAvatarMounts(readFileSync(script, 'utf8')) > 0);
