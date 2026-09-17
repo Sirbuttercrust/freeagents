@@ -94,17 +94,12 @@
 
      THE CURRENT STEP IS --fg, NOT --accent. "You are on step 1" is
      navigation state, not witnessed work, so under DESIGN.md 2.2 it has no
-     claim on the reserved colour.
-
-     min-width: 0 is this build's one addition to the rule. Without it a flex
-     item refuses to shrink below its content and the rail pushes the
-     document sideways at 320px. */
+     claim on the reserved colour. */
   .steps { display: flex; gap: 0; margin: 0; list-style: none; padding: 0; }
   .steps li {
     flex: 1; font-size: 12px; color: var(--fg-3);
     padding-top: 12px; border-top: 2px solid var(--line);
     font-family: var(--mono); letter-spacing: 0.02em;
-    min-width: 0;
   }
   .steps li.on { color: var(--fg); border-top-color: var(--fg); }
 
@@ -202,7 +197,9 @@
      replaces declared a page-local .col at 640px, narrower than the design
      and a private copy of a shared name besides. base.css's own .narrow is
      not the fix either: it sets a max-width with no margin, so it pins the
-     whole page against the left edge with 400px of dead space beside it.
+     column against the left edge. Measured at 1280 with .narrow on <main>:
+     the column sat at x=0, 640px wide, with the other 640px of the viewport
+     empty beside it.
 
      `class="wrap section"` on ONE element is the trap here, and it is
      measurable. base.css declares `.wrap { padding: 0 32px }` at line 57 and

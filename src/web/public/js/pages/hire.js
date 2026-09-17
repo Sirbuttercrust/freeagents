@@ -189,9 +189,12 @@
         return;
       }
 
-      // P8g scope item 9: every refusal the route can return gets its own
-      // sentence, read off the route rather than restated, so there is
-      // one wording of each rule, not two.
+      // P8g scope item 9: the refusals this route returns in practice get
+      // their own sentence, read off the route rather than restated, so
+      // there is one wording of each rule, not two. The one status not
+      // named is 409, which app.ts:2801-2805 documents as unreachable (it
+      // needs a 64-bit id collision on an id drawn this request); the
+      // fallthrough below covers it, passing the route's own message.
       var serverMessage = typeof body.error === "string" && body.error !== "" ? body.error : "";
       showSubmitError(refusalSentence(status, serverMessage));
     });
