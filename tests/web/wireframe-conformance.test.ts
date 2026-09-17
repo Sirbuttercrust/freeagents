@@ -240,11 +240,11 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // dead control) or invents a live payment request. The built sheet
     // solves the same problem with a mechanism instead of a drawing: a
     // one-time payment URL in a readonly input with a Copy button, headed
-    // "Open this in your DID Wallet" (src/web/pages/deposit.html:158).
+    // "Open this in your DID Wallet" (src/web/pages/deposit.html:246, the h2#scanh).
     // Telling someone to scan when nothing on screen can be scanned is the
     // inert-declared-control defect wearing copy instead of markup; the
     // heading follows the mechanism the page actually ships.
-    'Scan with your DID Wallet': 'the wireframe\u2019s own comment (deposit.html:238-240) says its drawn QR "encodes nothing"; the built sheet ships a real mechanism instead, a one-time payment URL in a readonly input with a Copy button headed "Open this in your DID Wallet" (src/web/pages/deposit.html:158), because a heading promising a scan with nothing to scan is the inert-declared-control defect in copy',
+    'Scan with your DID Wallet': 'the wireframe\u2019s own comment (deposit.html:238-240) says its drawn QR "encodes nothing"; the built sheet ships a real mechanism instead, a one-time payment URL in a readonly input with a Copy button headed "Open this in your DID Wallet" (src/web/pages/deposit.html:246, the h2#scanh), because a heading promising a scan with nothing to scan is the inert-declared-control defect in copy',
   },
   credential: {
     // The wireframe draws the closed-without-shipping state as a second
@@ -535,7 +535,6 @@ describe('every built page carries its wireframe', () => {
   // to this set is never a fix. Empty set means the rebuild is complete.
   const NOT_YET_REBUILT = new Set([
     'conduct',
-    'deposit',
     'incoming',
     'job',
     'notfound',

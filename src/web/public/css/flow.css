@@ -25,15 +25,67 @@
       lists.
 */
 
-/* THIS REPO'S NOTE, below the spec text and not part of it. W-staged ported
-   this file from spec/wireframe/flow.css byte for byte apart from this block,
-   so that `diff spec/wireframe/flow.css src/web/public/css/flow.css` shows any
-   later drift, and it left in place the ten dead selectors RECONCILE-NOTES.md
-   section 4 names (edit, m-them, m-you, mark-off, mark-on, outstanding,
-   th-line, thead, trow, why) along with spec/wireframe/flow.js, both of which
-   a separate card drops once every flow screen is on this sheet rather than
-   just the staged one this card rebuilt. */
+/* ====================================================================
+   REPO NOTE, NOT PART OF THE SPEC TEXT AROUND IT.
+   --------------------------------------------------------------------
+   Everything outside this block is spec/wireframe/flow.css byte for byte,
+   so `diff spec/wireframe/flow.css src/web/public/css/flow.css` prints this
+   block and nothing else. A second hunk in that diff is drift, and catching
+   drift as one diff is the whole reason this file was ported rather than
+   rewritten.
+   --------------------------------------------------------------------
+   PORTED 2026-09-17 by the W-deposit card, from the binding source. The
+   sheet is served at /css/flow.css by the static mount in src/web/static.ts
+   (the `/css` express.static mount). It loads after base.css and polish.css.
+   --------------------------------------------------------------------
+   THE FIVE SELECTORS THIS FILE SHARES WITH THE SHEETS BESIDE IT, counted at
+   every nesting depth. A top level count sees only the first one, which is
+   how an earlier draft of this note came to report a single exception.
 
+     .who .av    :161   also polish.css:536
+     .btn        :797   also base.css:116, :542 and polish.css:85, :568
+     .btn-sm     :797   also base.css:129, :543 and polish.css:569
+     .chip       :798   also base.css:175 and polish.css:138, :573
+     .disclose   :799   also base.css:226 and polish.css:600
+
+   The last four are the (pointer: coarse) block at :796-801, and each
+   restates a 44px floor base.css or polish.css already sets in its own
+   touch query. None of the five decides anything on the deposit page:
+   deleting all five out of the live CSSOM (four rule objects, since .btn
+   and .btn-sm share one) moves 0 of the 11 distinct elements they reach, at
+   1280 with a fine pointer and at 320 with a real coarse pointer. The
+   per-selector match counts sum to 14 rather than 11 because three of those
+   elements carry both .btn and .btn-sm, so each of the three is counted by
+   two selectors. Deleting one flow.css-only rule in the same run moves 2 of
+   those same 11, so the probe does report a change when there is one.
+   --------------------------------------------------------------------
+   `.who .av` IS THE ONE THAT CARRIES A BOX, AND LOAD ORDER DOES NOT DECIDE
+   IT. This file sets width, height, border-radius and flex, and agrees with
+   polish.css:536 on all four values. What clips the generated creature
+   round is declared by polish.css alone: overflow hidden, background
+   var(--bg-2), display block, and the `.who .av svg` fill rule at
+   polish.css:544. A property one sheet declares and the other does not
+   cannot be lost to order. Two documents differing only in link order
+   render the avatar identically in a real browser (overflow, background,
+   display, radius, box and svg box), reversing the two link nodes on the
+   shipped page gives the same answer, and two style nodes that genuinely
+   conflict do resolve by order in the same run, so the probe is not blind.
+   Every screen that loads this sheet links base, polish, flow in that
+   order, which is right for its own reason: the flow components are the
+   last word on the screens that use them.
+   --------------------------------------------------------------------
+   WHAT IS DEAD IN HERE AND IS STAYING. RECONCILE-NOTES.md section 4 names
+   ten class selectors that govern no markup in the set today: edit, m-them,
+   m-you, mark-off, mark-on, outstanding, th-line, thead, trow, why. They
+   stay. Folding them out is its own card and belongs after every flow
+   screen is on this sheet, because a rule deleted while four of the six
+   screens are still unported is a rule deleted without knowing what needed
+   it.
+   --------------------------------------------------------------------
+   Nothing in this block describes the markup of any one page. Which rules a
+   given screen actually exercises is a fact about that screen, so it is
+   recorded in that page beside its own markup.
+   ==================================================================== */
 /* ==================================================================== rail
    The five stages of a hire, as a bar across the top of every flow screen.
 

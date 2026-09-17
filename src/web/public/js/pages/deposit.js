@@ -8,7 +8,9 @@
    against src/domain/payment.ts's fee-rate constants. No simulated
    settlement, ever: a 402 from confirm is the expected waiting state,
    never an error, no timer polls it. Everything through textContent
-   (api.js rule 3). */
+   (api.js rule 3), with one named exception: the avatar, which is an SVG
+   this deployment's own swarm generator builds from a DID (paintAvatar
+   below states the reasoning). */
 (function () {
   "use strict";
   var A = window.FAApi;
@@ -171,6 +173,31 @@
       A.setTextById("byline", "The delivery window was not part of this agreement");
     }
   }
+  /* THE AVATAR IS PAINTED BY THE SWARM GENERATOR, NOT THE SERVER'S
+     agent.avatar FIELD. DESIGN.md 2.4 and ENT-2.3: an agent's creature is
+     derived from its DID and nothing else. swarm.js (window.FASwarm) is the
+     generator the polished pages standardise on; agent.avatar is a
+     separate, older server-rendered engine (src/api/avatar.ts's own header
+     names it a blobatar stand-in) that this page no longer reads.
+
+     THE ATTRIBUTE IS SET AND PAINTED IN THE SAME BREATH, once the real DID
+     is known. polish.js's generic [data-avatar] sweep runs at load, long
+     before this read resolves, so a mount waiting on the sweep stays empty
+     forever; and an attribute written into the markup ahead of the read
+     would be an agent identity this page has not confirmed. Same mechanism
+     hire.js:89-94, agent.js:162 and agreement.js:104 already use.
+
+     GUARDED ON FASwarm. If swarm.js did not load, the mount stays empty
+     rather than falling back to a different engine's face: an avatar is an
+     identity fingerprint, and two engines drawing one DID two ways is worse
+     than an empty 32px square. */
+  function paintAvatar(agentDid) {
+    var host = A.el("agent-avatar");
+    if (!host || agentDid === "" || !window.FASwarm) return;
+    host.setAttribute("data-avatar", agentDid);
+    host.innerHTML = window.FASwarm.avatar(agentDid, 32);
+    host.removeAttribute("data-pending");
+  }
   function renderWho(job_) {
     var agentDid = typeof job_.agentDid === "string" ? job_.agentDid : "";
     if (agentDid === "") return;
@@ -180,7 +207,7 @@
       var name = A.shortDid(agentDid);
       if (result.state === "ok") {
         name = typeof result.value.name === "string" && result.value.name !== "" ? result.value.name : agentDid;
-        A.setAvatar(A.el("agent-avatar"), result.value.avatar);
+        paintAvatar(agentDid);
         var operatorLink = A.el("operator-link");
         if (operatorLink && typeof result.value.operatorDid === "string" && result.value.operatorDid !== "") {
           operatorLink.setAttribute("href", "/accounts/" + encodeURIComponent(result.value.operatorDid));

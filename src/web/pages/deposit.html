@@ -6,54 +6,95 @@
 <title>Pay the deposit: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/flow.css">
 <style>
-  /* P8i DEPOSIT (P-12), built from spec/wireframe/deposit.html. Nav/footer
-     copied from agreement.html unchanged. Departures (handoff): no drawn
-     QR, text + copy control (no QR dep in package.json); USDC renders,
-     does not pay; dates relative to settlement, never a calendar date. */
-  .who { display: flex; align-items: center; gap: 12px; padding: 18px 22px; }
-  .who .avatar { width: 32px; height: 32px; border-radius: 50%; flex: none; overflow: hidden; background: var(--bg-2); }
-  .who .hires { color: var(--accent); font-size: 13px; font-weight: 550; }
-  .who .r { color: var(--fg-2); font-size: 13px; }
-  .who .r a { color: var(--fg-2); }
-  .rail { display: flex; gap: 0; margin: 0; list-style: none; padding: 0; }
-  .rail li { flex: 1; font-size: 12px; color: var(--fg-2); padding-top: 12px; border-top: 2px solid var(--line); font-family: var(--mono); min-width: 0; }
-  .rail li.on { color: var(--fg); border-top-color: var(--fg); }
-  .rail li.done { color: var(--fg-2); border-top-color: var(--line-2); }
-  .railnow { display: none; font-size: 13px; color: var(--fg-2); margin-top: 12px; }
-  @media (max-width: 640px) { .rail li { font-size: 0; padding-top: 8px; } .railnow { display: block; } }
+  /* P8i DEPOSIT (P-12), rebuilt on spec/wireframe/deposit.html (W-deposit).
+     Structure, copy, class vocabulary, colour and 320px behaviour come from
+     that file and from nowhere else; this page is never patterned on
+     another built page.
+
+     THE SHEETS ARE THE REBUILD. The wireframe head loads base.css,
+     polish.css and flow.css (spec/wireframe/deposit.html:7-9) and this page
+     used to load neither of the last two, which is why sixty lines of the
+     flow layer lived in this block as a private copy. flow.css is now
+     ported to src/web/public/css/flow.css from the binding source, and the
+     copies below it are deleted rather than left to drift. The ORDER is
+     tokens, base, polish, flow, the same relative order the wireframe
+     head uses. It is not what decides the avatar: polish.css and flow.css
+     both define `.who .av` and agree on every property they share, and
+     what clips the generated creature round (overflow hidden, display
+     block, the background, and the `.who .av svg` fill rule) is declared
+     by polish.css alone, where no order can lose it. Measured both ways
+     in a real browser, the avatar comes out identical.
+
+     WHAT THIS PAGE ACTUALLY USES OUT OF flow.css, checked against the
+     markup below rather than remembered: .rail and .railnow (the stage
+     bar), .who with .av, .n, .r and .hires (the identity strip), the
+     .pane-pad.getlist padding restore, .total with .big, .when, .parts,
+     .parts .amt and .parts li.sum, .rails and .railopt, .sheet with
+     .shead, .sbody, .sfoot and .sclose, and .waiting.
+
+     FOUR MORE OF ITS SELECTORS REACH THIS MARKUP, in three rules, none of
+     them a flow component. flow.css `.mark` matches the nav brand dot, the
+     span.mark at line 104, and wins four properties on it: align-items,
+     justify-content, flex-shrink, and a 2px margin-top that sits the dot
+     1px lower than it would sit without this sheet, measured at 1280 and
+     at 320. The binding wireframe loads the same sheet and measures the
+     same, so that is this page being faithful rather than something to fix
+     here. Under a coarse pointer `.btn` reaches 9 elements, `.btn-sm` 3
+     and `.disclose` 1, each restating a 44px floor base.css and polish.css
+     already set; deleting those rules out of the live CSSOM moves none of
+     them. The rest of the sheet draws the other five flow screens.
+
+     ONE flow.css RULE PAIR DELIBERATELY MATCHES NOTHING HERE: the
+     .amt-abt / .amt-usdc swap. The wireframe puts both totals in the
+     markup and lets CSS choose. This page computes one total in the
+     script from the job's real price and the chosen rail, so there is no
+     second amount to hide and no element carrying either class.
+
+     THE THREE h3 BLOCKS IN THE WIREFRAME (What this screen is deciding,
+     What is deliberately absent, Open) are the design seat's annotations,
+     not page copy, and they stay out. Their div.note wrapper has no rule
+     in tokens.css, base.css, polish.css or flow.css, so carrying one
+     across would render a design note as visible body copy.
+
+     WHAT SURVIVES IN THIS BLOCK, and why each one is not in a sheet this
+     page loads. Every rule below was grepped against tokens.css, base.css,
+     polish.css and flow.css before it was kept. */
+
+  /* .warn is this page's own: every refusal state (no such hire, signed
+     out, not a party, not ready, a failed payment start) is an .empty from
+     base.css with a rule down its left edge. base.css owns .empty and
+     nothing owns .warn. Seven elements below carry it. */
   .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
-  .total .big { font-size: 44px; line-height: 1.05; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-  .total .parts { list-style: none; margin: 18px 0 0; padding: 0; font-size: 14px; color: var(--fg-2); }
-  .total .parts li { display: flex; justify-content: space-between; gap: 16px; padding: 6px 0; }
-  .total .parts .amt { font-family: var(--mono); font-size: 13px; color: var(--fg); flex: none; }
-  .total .parts li.sum { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 12px; color: var(--fg); }
-  @media (max-width: 420px) { .total .big { font-size: 34px; } }
-  .rails { display: grid; gap: 10px; margin: 0; }
-  .railopt { position: relative; }
-  .railopt input { position: absolute; top: 18px; left: 16px; width: 20px; height: 20px; accent-color: var(--accent); margin: 0; }
-  .railopt label { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; padding: 16px 18px 16px 48px; min-height: 44px; border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer; }
-  .railopt input:checked + label { border-color: var(--accent); background: var(--accent-dim); }
-  .railopt .rname { font-size: 15px; font-weight: 550; }
-  .railopt .ramt { font-family: var(--mono); font-size: 14px; text-align: right; }
-  .railopt .rwhy { grid-column: 1 / -1; font-size: 13px; color: var(--fg-2); }
-  @media (max-width: 420px) { .railopt label { grid-template-columns: 1fr; padding-left: 44px; } .railopt .ramt { text-align: left; } }
+
+  /* .getlist is page-local IN THE WIREFRAME TOO (deposit.html:48-55), so
+     this is the port of that block, not a survivor by accident. flow.css
+     carries only the `.pane-pad.getlist` padding restore, which is the
+     compound selector that beats this rule's `padding: 0` and gives the
+     pane its rim back. */
   .getlist { list-style: none; padding: 0; margin: 0; }
-  .getlist li { display: grid; grid-template-columns: 26px 1fr; gap: 12px; padding: 10px 0; font-size: 14px; line-height: 1.5; color: var(--fg-2); }
+  .getlist li {
+    display: grid; grid-template-columns: 26px 1fr; gap: 12px;
+    padding: 10px 0; font-size: 14px; line-height: 1.5; color: var(--fg-2);
+  }
+  /* --fg-2, not --fg-3. Same reason as the agreement's row numbers: this is
+     how a person names the line they are asking about. */
   .getlist .num { font-family: var(--mono); font-size: 12px; color: var(--fg-2); }
+
+  /* .oneline and .byline are page-local in the wireframe as well
+     (deposit.html:57-60). The wireframe's `.oneline b` rule is NOT carried:
+     both sentences here are written by deposit.js through textContent
+     (api.js rule 3) because they state this job's real redo allowance and
+     its real deposit figure, so neither paragraph contains a <b> for that
+     rule to select. */
   .oneline { font-size: 15px; line-height: 1.6; max-width: 62ch; }
   .byline { font-size: 22px; font-weight: 550; letter-spacing: -0.02em; }
-  .sheet { width: min(520px, calc(100vw - 24px)); max-height: calc(100vh - 48px); padding: 0; border: 0; border-radius: 14px; overflow: auto; background: var(--bg-1); color: var(--fg); }
-  .sheet::backdrop { background: rgba(4,4,6,0.72); }
-  .sheet .shead { display: flex; gap: 12px; padding: 20px 20px 0; }
-  .sheet .shead h2 { margin: 0; flex: 1; }
-  .sheet .sbody { padding: 14px 20px 20px; }
-  .sheet .sfoot { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 20px 20px; }
-  .sheet .sfoot .btn { min-height: 44px; }
-  .sclose { width: 44px; height: 44px; margin: -10px -8px 0 0; flex: none; border: 0; background: none; color: var(--fg-2); font-size: 22px; cursor: pointer; border-radius: var(--r); }
-  .waiting { display: flex; align-items: center; gap: 9px; font-size: 14px; color: var(--fg-2); }
-  .waiting .d { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-2); flex: none; }
-  @media (prefers-reduced-motion: no-preference) { .waiting .d { animation: breathe 1.8s ease-in-out infinite; } @keyframes breathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } } }
+
+  /* .urlcopy belongs to this page's one visual departure from the
+     wireframe, the scan sheet below, and exists in no sheet because no
+     other screen draws it. */
   .urlcopy { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
   .urlcopy input { flex: 1; min-width: 0; }</style>
 </head>
@@ -82,7 +123,19 @@
       <div class="row" style="margin-top:14px"><a class="btn" id="not-ready-link">Back to the agreement</a></div>
     </div>
     <div id="deposit-body" hidden>
-      <div class="pane pane-pad" style="margin-bottom:36px">
+      <!-- .reveal ON THE FIVE BLOCKS THE WIREFRAME REVEALS
+           (spec/wireframe/deposit.html:89, 101, 130, 154, 171). base.css
+           owns the class and ui.js drives it, and the FINISHED STATE IS THE
+           CSS DEFAULT: the hidden state lives inside a
+           prefers-reduced-motion: no-preference query and only applies once
+           ui.js has added .js-reveal, which it does only after confirming
+           it can take elements back out again. No JS, no
+           IntersectionObserver, or reduced motion all land on fully visible
+           content, and a 3 second timer reveals anything the observer never
+           reported. That fallback is what covers the two blocks below that
+           are empty at load (#getlist and the totals), and the same shape
+           already ships inside hire.html's hidden #hire-body. -->
+      <div class="pane pane-pad reveal" style="margin-bottom:36px">
         <ol class="rail">
           <li class="done">1&nbsp;&nbsp;Brief</li><li class="done">2&nbsp;&nbsp;Agreement</li><li class="on">3&nbsp;&nbsp;Deposit</li>
           <li>4&nbsp;&nbsp;The work</li><li>5&nbsp;&nbsp;Pull request</li>
@@ -90,7 +143,7 @@
         <p class="railnow">Step 3 of 5: the deposit.</p>
       </div>
       <!-- 1. THE ONE NUMBER -->
-      <div class="total pane pane-pad">
+      <div class="total pane pane-pad reveal">
         <p class="small muted" style="margin:0 0 6px">Leaving your wallet today</p>
         <div class="big" id="total-amount" data-pending>Loading</div>
         <p class="when">One payment, right now. Nothing else is charged today.</p>
@@ -104,7 +157,7 @@
       <!-- 2. WHICH RAIL -->
       <h2 style="margin-top:34px; margin-bottom:6px">How you are paying</h2>
       <p class="sub" style="margin-bottom:16px">Both go straight from your wallet to the hired agent's operator. FreeAgents never holds the money.</p>
-      <div class="rails">
+      <div class="rails reveal">
         <div class="railopt">
           <input type="radio" name="rail" id="rail-abt" checked>
           <label for="rail-abt"><span class="rname">ABT</span><span class="ramt" id="rail-abt-amt"></span><span class="rwhy">3 percent fee. Your wallet asks you to approve once.</span></label>
@@ -117,15 +170,30 @@
       <!-- 3. WHAT YOU GET -->
       <h2 style="margin-top:34px; margin-bottom:6px">What you get</h2>
       <p class="sub" style="margin-bottom:14px">The lines you both signed.</p>
-      <ol class="getlist pane pane-pad" id="getlist"></ol>
+      <ol class="getlist pane pane-pad reveal" id="getlist"></ol>
       <!-- 4. BY WHEN -->
       <h2 style="margin-top:34px; margin-bottom:6px">By when</h2>
       <p class="byline" id="byline" data-pending>Loading</p>
       <p class="sub" style="margin-top:6px" id="byline-sub"></p>
-      <!-- 5. WHO -->
+      <!-- 5. WHO
+
+           THE AVATAR THE WIREFRAME MOUNTS (spec/wireframe/deposit.html:172)
+           is this one, and it is real data: this screen already knows which
+           agent is being hired. It was a hand-rolled <div class="avatar">
+           with a page-local disc rule, which is a substitute for the
+           engine's mount point rather than the mount point. It is now the
+           wireframe's own `span.av`, painted by the swarm generator.
+
+           THE MOUNT SHIPS EMPTY AND UNNAMED. deposit.js sets data-avatar
+           and paints it in the same breath once the agent read resolves.
+           polish.js's generic [data-avatar] sweep runs once at load, long
+           before that read returns, so a mount waiting on the sweep stays
+           empty forever; and a data-avatar written into this file would be
+           an agent identity the page has not confirmed. Same mechanism
+           hire.js:89-94, agent.js and agreement.js already use. -->
       <h2 style="margin-top:34px; margin-bottom:14px">Who you are hiring</h2>
-      <div class="who pane pane-pad" id="who">
-        <div class="avatar" id="agent-avatar" data-pending></div>
+      <div class="who pane pane-pad reveal" id="who" style="border-bottom:0; margin-bottom:0; padding:18px 22px">
+        <span class="av" id="agent-avatar" data-pending></span>
         <div>
           <div class="n"><span id="agent-name" data-pending>Loading this agent's record</span> <span class="hires" id="agent-hires"></span></div>
           <div class="r">operated by <a id="operator-link">loading</a></div>
@@ -154,6 +222,26 @@
     </div>
   </div>
 </main>
+<!-- THE SCAN SHEET, and the one heading that departs from the wireframe.
+
+     Wireframe: <h2 id="scanh">Scan with your DID Wallet</h2>, over a QR code
+     drawn in CSS. Its own comment (spec/wireframe/deposit.html:239-242) says
+     that code "encodes nothing", because a wireframe QR either encodes
+     nothing, which is a dead control, or encodes something, which invents a
+     live payment request.
+
+     THIS PAGE DRAWS NO CODE OF ANY KIND. There is no QR dependency in
+     package.json and this card adds none. What it ships instead is the real
+     mechanism: the one-time payment URL the ABT start route returned, in a
+     readonly input with a Copy button (the .urlcopy row below), byte
+     identical to that route's own `url`. So the heading names what the
+     screen actually does. Telling someone to scan with nothing on screen to
+     scan is the inert-declared-control defect wearing copy instead of
+     markup.
+
+     Checked against the shipped markup: this dialog holds one readonly
+     input, four buttons (Copy, the close cross, Cancel, and "I approved in
+     my wallet"), four paragraphs, and no element with class "qr". -->
 <dialog class="sheet" id="scan" aria-labelledby="scanh">
   <div class="shead"><h2 id="scanh">Open this in your DID Wallet</h2><button class="sclose" type="button" data-closes aria-label="Close">&times;</button></div>
   <div class="sbody">
@@ -176,8 +264,24 @@
     <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
   </div>
 </footer>
+<!-- SCRIPT ORDER, the settled one from verify.html:384-389 and
+     hire.html:322-327, not an order invented here.
+
+     api.js first (every later file calls FAApi), nav.js next, then
+     swarm.js because it defines window.FASwarm and deposit.js paints the
+     avatar out of it, then polish.js which reads FASwarm on its own load
+     sweep, then the page script, then ui.js last.
+
+     ui.js LAST IS LOAD BEARING, not tidiness. It binds the disclosure and
+     the copy control by walking the DOM once at DOMContentLoaded, and its
+     copy handler reads data-copy AT CLICK TIME, which is what lets
+     deposit.js fill the scan URL in later and still have the right value
+     copied. icons.js is not loaded: this page draws no [data-ico] host, so
+     it would paint nothing. -->
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/swarm.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/deposit.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
