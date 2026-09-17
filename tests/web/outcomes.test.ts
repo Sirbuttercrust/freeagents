@@ -8,6 +8,9 @@
 // product's public promise (brief, "Binding design source").
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -16,6 +19,8 @@ import { createApp } from '../../src/api/app.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+
+const publicJsPages = join(dirname(fileURLToPath(import.meta.url)), '../../src/web/public/js/pages');
 
 let server: Server;
 let baseUrl: string;
@@ -492,11 +497,56 @@ describe('the way in, from the page a person actually lands on (done-means 8, mu
 });
 
 describe('no JavaScript of its own (done-means 10)', () => {
-  it('loads only api.js and nav.js', async () => {
+  // W-outcomes: the list grew from two to five when this page moved onto the
+  // polished visual system, and the describe's title is still exactly right:
+  // this page has no script OF ITS OWN. There is no
+  // src/web/public/js/pages/outcomes.js and this card did not create one. The
+  // three added files are the shared polish layer every rebuilt page loads,
+  // and every one of them is asserted below rather than merely allowed, so
+  // the list stays a pin and not a wildcard.
+  //
+  // The ORDER is load-bearing and is asserted, not just the membership:
+  // polish.js's init() calls FAIcon.paint() as its first statement
+  // (src/web/public/js/polish.js:570-571), so icons.js has to be parsed
+  // first. Measured in Chrome against the served page: window.FAIcon is an
+  // object with a paint function by the time the page settles.
+  //
+  // What is NOT here matters as much. swarm.js is the avatar engine and
+  // paints [data-avatar] hosts; this page declares none (measured: 0 in
+  // spec/wireframe/outcomes.html and 0 in the built page, and 0 mounted in a
+  // real browser), so it is absent by design rather than by omission.
+  it('loads the shared polish layer and no page script of its own', async () => {
     const res = await getHtml('/outcomes');
     const html = await res.text();
     const scriptSrcs = Array.from(html.matchAll(/<script src="([^"]+)"/g)).map((m) => m[1]);
-    expect(scriptSrcs).toEqual(['/js/pages/api.js', '/js/pages/nav.js']);
+    expect(scriptSrcs).toEqual([
+      '/js/pages/api.js',
+      '/js/pages/nav.js',
+      '/js/icons.js',
+      '/js/polish.js',
+      '/js/pages/ui.js',
+    ]);
+    // The page's own script would be /js/pages/outcomes.js. It does not
+    // exist and nothing references it.
+    expect(scriptSrcs).not.toContain('/js/pages/outcomes.js');
+    expect(existsSync(join(publicJsPages, 'outcomes.js'))).toBe(false);
+    // The avatar engine has nothing to paint here, so it does not ship here.
+    expect(scriptSrcs).not.toContain('/js/swarm.js');
+  });
+
+  // The absence of an avatar is asserted against the PARSED DOM, not against
+  // the markup string. The head comment explains why swarm.js is absent and
+  // therefore contains the literal text "data-avatar"; a string search would
+  // redden on the explanation rather than on a mounted avatar, which would
+  // make the gate a comment-formatting rule instead of a page fact. What
+  // matters is that no ELEMENT mounts one, and only a parse can see that.
+  it('mounts no avatar: the wireframe declares none and neither does this page', async () => {
+    const page = await renderOutcomes();
+    try {
+      expect(page.document.querySelectorAll('[data-avatar]').length).toBe(0);
+    } finally {
+      page.close();
+    }
   });
 });
 
