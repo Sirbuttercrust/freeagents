@@ -9,10 +9,10 @@
 // taken by driving that one against this server instead. Same app, same
 // fixtures, same URLs the tests use.
 //
-// Not committed to the repo: this is session scaffolding for a broken
-// environment, and the assertions it substitutes for already live in
-// tests/web/job-wireframe.test.ts, which is the thing that must pass on a
-// machine with a working browser.
+// Committed support tooling, not a second judge: it only boots the real app
+// with the same fixtures that test file builds, and asserts nothing itself.
+// The three real-browser layout tests in tests/web/job-wireframe.test.ts
+// remain the thing that must pass on a machine with a working browser.
 import { createApp } from '../../src/api/app.js';
 import {
   MemoryAgentRepository,
