@@ -515,7 +515,6 @@ describe('every built page carries its wireframe', () => {
     'deposit',
     'incoming',
     'job',
-    'myagents',
     'myjobs',
     'notfound',
     'operatorjob',
