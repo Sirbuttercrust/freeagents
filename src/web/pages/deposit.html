@@ -20,18 +20,32 @@
      flow layer lived in this block as a private copy. flow.css is now
      ported to src/web/public/css/flow.css from the binding source, and the
      copies below it are deleted rather than left to drift. The ORDER is
-     tokens, base, polish, flow: polish.css and flow.css both define
-     `.who .av` and only polish.css clips the generated creature round
-     (overflow hidden, plus a `.who .av svg` fill rule), so polish has to
-     come first and be overridden on the properties the two agree about.
+     tokens, base, polish, flow, the same relative order the wireframe
+     head uses. It is not what decides the avatar: polish.css and flow.css
+     both define `.who .av` and agree on every property they share, and
+     what clips the generated creature round (overflow hidden, display
+     block, the background, and the `.who .av svg` fill rule) is declared
+     by polish.css alone, where no order can lose it. Measured both ways
+     in a real browser, the avatar comes out identical.
 
      WHAT THIS PAGE ACTUALLY USES OUT OF flow.css, checked against the
      markup below rather than remembered: .rail and .railnow (the stage
      bar), .who with .av, .n, .r and .hires (the identity strip), the
      .pane-pad.getlist padding restore, .total with .big, .when, .parts,
      .parts .amt and .parts li.sum, .rails and .railopt, .sheet with
-     .shead, .sbody, .sfoot and .sclose, and .waiting. The rest of that
-     sheet draws the other five flow screens and matches nothing here.
+     .shead, .sbody, .sfoot and .sclose, and .waiting.
+
+     FOUR MORE OF ITS SELECTORS REACH THIS MARKUP, in three rules, none of
+     them a flow component. flow.css `.mark` matches the nav brand dot, the
+     span.mark at line 104, and wins four properties on it: align-items,
+     justify-content, flex-shrink, and a 2px margin-top that sits the dot
+     1px lower than it would sit without this sheet, measured at 1280 and
+     at 320. The binding wireframe loads the same sheet and measures the
+     same, so that is this page being faithful rather than something to fix
+     here. Under a coarse pointer `.btn` reaches 9 elements, `.btn-sm` 3
+     and `.disclose` 1, each restating a 44px floor base.css and polish.css
+     already set; deleting those rules out of the live CSSOM moves none of
+     them. The rest of the sheet draws the other five flow screens.
 
      ONE flow.css RULE PAIR DELIBERATELY MATCHES NOTHING HERE: the
      .amt-abt / .amt-usdc swap. The wireframe puts both totals in the
