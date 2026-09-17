@@ -6,20 +6,34 @@
 <title>Incoming work: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
 <style>
   /* P8q INCOMING WORK (SITEMAP P-24), from spec/wireframe/incoming.html.
      Same structure, copy and class vocabulary as the wireframe; departures
      are named in the handoff.
+
+     W-incoming puts the page on the polished stack. The wireframe loads
+     base.css and polish.css (spec/wireframe/incoming.html:7-8); tokens.css
+     is this site's own split of the wireframe's variable block, so the
+     three sheets above are that pair, in the order dashboard.html:7-10 and
+     myagents.html:7-10 already ship. market.css, gallery.css,
+     agreement.css and pipeline.css are not loaded: the wireframe loads
+     none of them, and this page carries no market card, no gallery, no
+     signature matrix and no pipeline rail.
 
      .orow's row internals (.who, .repo, .brief, .foot) are the wireframe's
      own row internals, defined in its own <style> block, carried into this
      page's own style block the way P8n carried .arow rather than into
      base.css: they are this screen's internals, not shared vocabulary.
      base.css already has .rows, .between, .empty, .state, .state-none,
-     .state-done, .glow, .lede, .mono, .btn-sm, .pane-pad (grep-verified on
-     main), so only the row internals ride here. .pane-lift and .note are
-     NOT in the built stylesheet and no built page uses them: skipped, the
-     same stance myjobs.html and myagents.html already take. */
+     .state-done, .glow, .lede, .mono, .btn-sm, .pane-pad and .pane-lift
+     (grep-verified on main; .pane-lift is base.css:339-364 and this page's
+     own script sets it, incoming.js's offerRow). polish.css adds the
+     .state .ico sizing this page's pills need. .note is in no built sheet
+     (grep -rn "\.note" src/web/public/css/ returns only .notetoggle in
+     polish.css): the wireframe's four div.note blocks are its reasoning
+     about the design and never render as page content, so nothing here
+     needs the class. */
 
   .orow { padding: 18px 20px; }
   .orow .who { font-size: 15px; font-weight: 550; }
@@ -28,7 +42,29 @@
     font-size: 14px; color: var(--fg-2); line-height: 1.6;
     max-width: 56ch; margin: 12px 0 0;
   }
+  /* THE BUTTON MUST NOT SHRINK BELOW ITS LABEL, the wireframe's own rule
+     (spec/wireframe/incoming.html:33-50) carried across as a pair.
+
+     A flex item shrinks by default, and this row is a caption plus a
+     button with no wrap. The wireframe records its own measurement of the
+     unguarded row: the button squeezed to 90px while its label stayed
+     134px wide, spilling 22px past the accent fill on both sides and
+     putting dark button ink on the panel at 1.08 against a 4.5 floor.
+     Those are its numbers, on its own sample copy, not a re-measurement
+     of this page.
+
+     MEASURED ON THIS PAGE at 320px, all three live labels, Chrome, with
+     each rule suppressed in turn (tests/web/incoming.test.ts, "the row
+     action holds its label"): with both rules the widest button is
+     152.31px around 134.31px of label. With either rule alone it is still
+     152.31px. With BOTH removed it falls to 128.3px around the same
+     134.31px label, spilling 3px past the fill on each side. So the pair
+     is what holds, and each half is pinned on its own by that test rather
+     than by this comment. base.css:269 carries the identical
+     `.kv .btn-sm { flex: none; }` against the identical trap one screen
+     over, which is the precedent the wireframe's own comment names. */
   .orow .foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+  .orow .foot .btn { flex: none; }
 </style>
 </head>
 <body>
@@ -92,8 +128,47 @@
   </div>
 </footer>
 
+<!-- W-incoming: the polished script stack, the sibling order
+     (dashboard.html:367-373) with swarm.js omitted.
+
+     ATTRIBUTE NAMES ARE CITED BY LINE, NEVER SPELLED HERE. Two
+     instruments read this file as raw text and match on the attribute
+     strings themselves (the conformance gate's avatar assertion,
+     tests/web/wireframe-conformance.test.ts:577-585, and this page's own
+     icon-paint test). A comment that spells one out would answer an
+     instrument that is asking about markup, so the names below stay in
+     the files that define them.
+
+     icons.js paints every icon host on the page (FAIcon.paint,
+     icons.js:116-123, which skips an already-painted host at line 119).
+     This page gains those hosts on its state pills, which take the
+     wireframe's own minus-circle and check-circle glyphs
+     (spec/wireframe/incoming.html:93,114,135) instead of a bare dot.
+
+     polish.js sweeps once at load (init(), polish.js:570-589). Two of its
+     passes have something to act on here: navState() (polish.js:297) adds
+     .nav.is-stuck, which polish.css:490 styles and nothing else sets, and
+     hits() (polish.js:82) starts the ripple polish.css draws as
+     .btn::after (polish.css:85-97), which without it is a decoration
+     bound to an animation nothing runs. counters() (polish.js:365) and
+     avatars() (polish.js:468) find nothing on this page: it carries no
+     character-counted textarea and no avatar mount.
+
+     swarm.js is NOT loaded. It is the avatar engine, and this page mounts
+     no avatar, for the reason the incoming "avatars" entry in
+     tests/web/wireframe-conformance.test.ts states.
+
+     LOAD ORDER, AND WHY THE PILL ICONS ARE PAINTED BY THE SCRIPT.
+     FAIcon.paint() and polish.js's init() both run once, at load. Every
+     row here is built by renderRows after a fetch resolves, long after
+     both sweeps, so incoming.js paints each pill icon in the same breath
+     it creates it (offerRow), the way hire.js:89-94 sets and paints its
+     avatar in one place. A host left for the load sweep stays empty
+     forever. -->
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/incoming.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>

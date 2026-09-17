@@ -509,6 +509,236 @@ describe('the Incoming work screen, driven end to end against the real app', () 
         await browser.close();
       }
     });
+
+    // W-incoming item 4. The height check above cannot see this defect: a
+    // button squeezed below its label is still 44px tall.
+    //
+    // MEASURED, 320px, Chrome, all three live labels, with each rule
+    // suppressed in turn (the numbers in incoming.html's own comment come
+    // from this test): with both rules the widest button is 152.31px
+    // around 134.31px of label; with either rule alone it is still
+    // 152.31px; with BOTH removed it falls to 128.3px around the same
+    // label and spills 3px past the fill on each side.
+    //
+    // So a gate that only looks at the page as it stands would pass with
+    // `flex: none` deleted, which is the vacuous-gate defect. Each rule is
+    // therefore pinned by suppressing its partner: with wrap off, only
+    // `flex: none` is holding the button, and with `flex: none` off, only
+    // wrap is. Delete either rule from the page and one arm goes red.
+    it('at 320px the row action holds its label, and each of the two rules that hold it is pinned on its own (W-incoming item 4)', async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      await jobRepo.create(jobFixture({ id: 'incoming-shrink-row', buyerDid: 'did:abt:incoming-shrink-buyer', agentDid, status: 'draft', criteria: [] }, new Date('2026-08-13T00:00:00Z')));
+
+      const browser = await RealBrowser.launch({ width: 320, height: 900 });
+      try {
+        await browser.goto(`${baseUrl}/incoming`);
+        await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(operatorSession))})`);
+        await browser.goto(`${baseUrl}/incoming`);
+
+        // Each button's own label width comes from a Range over its text,
+        // which reports the rendered ink rather than the padding box, so
+        // the comparison is "does the button hold its text" and never "is
+        // some CSS property set to some value".
+        //
+        // `suppress` removes one rule at a time through an inline style,
+        // and every arm is restored before the next is measured.
+        const measure = (suppress: 'nothing' | 'wrap' | 'flex-none') => browser.evaluate<{ label: string; boxWidth: number; textWidth: number }[]>(`
+          (function () {
+            var suppress = ${JSON.stringify(suppress)};
+            var out = [];
+            Array.prototype.forEach.call(document.querySelectorAll('.orow .foot'), function (foot) {
+              foot.style.flexWrap = suppress === 'wrap' ? 'nowrap' : '';
+              var btn = foot.querySelector('a.btn');
+              if (!btn) return;
+              btn.style.flex = suppress === 'flex-none' ? '0 1 auto' : '';
+              var range = document.createRange();
+              range.selectNodeContents(btn);
+              out.push({
+                label: btn.textContent,
+                boxWidth: btn.getBoundingClientRect().width,
+                textWidth: range.getBoundingClientRect().width,
+              });
+            });
+            return out;
+          })()
+        `);
+
+        for (const suppressed of ['nothing', 'wrap', 'flex-none'] as const) {
+          const actions = await measure(suppressed);
+          const held = suppressed === 'nothing' ? 'as shipped' : `with ${suppressed} suppressed`;
+          expect(actions.length, `at least one row action must render at 320px (${held})`).toBeGreaterThan(0);
+          for (const action of actions) {
+            expect(action.textWidth, `"${action.label}" must measure as real rendered text`).toBeGreaterThan(0);
+            expect(
+              action.boxWidth,
+              `${held}: "${action.label}" is ${action.boxWidth}px wide around ${action.textWidth}px of label, so the button shrank below its own text`,
+            ).toBeGreaterThanOrEqual(action.textWidth);
+          }
+        }
+
+        // And the document never scrolls sideways under any of the three,
+        // because keeping the button wide is only a fix if it does not
+        // push the page past 320px.
+        const overflow = await browser.evaluate<number>(
+          `document.documentElement.scrollWidth - document.documentElement.clientWidth`,
+        );
+        expect(overflow, 'the 320px page must not scroll sideways').toBe(0);
+      } finally {
+        await browser.close();
+      }
+    });
+  });
+
+  // W-incoming item 1, the W11 D2 defect class
+  // (script-rendered-icon-never-painted). icons.js paints every [data-ico]
+  // host ONCE at load (icons.js:116-123) and every row on this page is
+  // built by renderRows after a fetch resolves, long after that sweep. A
+  // host offerRow creates and hands to the sweep stays an empty box
+  // forever, which no screenshot of a static shell can show. This asserts
+  // the painter ran over a SCRIPT-BUILT host: every pill icon inside
+  // #rows carries a real <svg> child with real path geometry.
+  it('every state-pill icon offerRow builds is painted, not left for the load sweep (W11 D2, script-rendered-icon-never-painted)', async () => {
+    const noReplyCriteria: Criterion[] = [];
+    const waitingOnBuyerCriteria: Criterion[] = [{ text: 'agent proposed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: true }];
+    const waitingOnOperatorCriteria: Criterion[] = [{ text: 'buyer edit', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: false }];
+
+    await jobRepo.create(jobFixture({ id: 'paint-row-none', buyerDid: 'did:abt:paint-buyer-1', agentDid, status: 'draft', criteria: noReplyCriteria }, new Date('2026-08-24T00:00:00Z')));
+    await jobRepo.create(jobFixture({ id: 'paint-row-buyer', buyerDid: 'did:abt:paint-buyer-2', agentDid, status: 'proposed', criteria: waitingOnBuyerCriteria }, new Date('2026-08-25T00:00:00Z')));
+    await jobRepo.create(jobFixture({ id: 'paint-row-operator', buyerDid: 'did:abt:paint-buyer-3', agentDid, status: 'proposed', criteria: waitingOnOperatorCriteria }, new Date('2026-08-26T00:00:00Z')));
+
+    const page = await renderIncoming(baseUrl, operatorSession);
+    try {
+      // The hosts must exist at all, and they must be inside #rows, which
+      // is the part the static shell cannot supply.
+      const hosts = Array.from(page.document.querySelectorAll('#rows .state .ico[data-ico]'));
+      expect(hosts.length, 'every rendered row must mount a state-pill icon host').toBeGreaterThanOrEqual(3);
+
+      for (const host of hosts) {
+        const name = host.getAttribute('data-ico');
+        const svg = host.firstElementChild;
+        expect(svg, `the ${String(name)} host inside #rows is empty: the load sweep ran before this row existed`).not.toBeNull();
+        expect(svg?.tagName.toLowerCase()).toBe('svg');
+        // Real geometry, not an empty <svg> shell: icons.js fills the
+        // glyph from its own path table (icons.js:52,56 carry both names
+        // this page uses).
+        expect(svg?.innerHTML ?? '', `the ${String(name)} glyph painted no geometry`).toContain('<path');
+      }
+
+      // And the page's static shell mounts none of them, which is why the
+      // load sweep could never have covered these: this is the assertion
+      // that makes the one above about renderRows rather than markup.
+      const shell = readFileSync(new URL('../../src/web/pages/incoming.html', import.meta.url), 'utf8');
+      expect(shell, 'the static page must not pre-mount pill icon hosts; these come from offerRow').not.toContain('data-ico');
+    } finally {
+      page.close();
+    }
+  });
+
+  // W-incoming item 3. The pill is a three-way mapping and each arm has
+  // its own class, its own glyph NAME (not merely some glyph) and its own
+  // sentence. A single STATE_INFO table drives all three, so a mapping
+  // that drifts on any one axis fails here.
+  it('each waitingOn value renders its own pill class, glyph name and sentence, and the primary button appears on noReply alone (W-incoming item 3)', async () => {
+    const noReplyCriteria: Criterion[] = [];
+    const waitingOnBuyerCriteria: Criterion[] = [{ text: 'agent proposed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: true }];
+    const waitingOnOperatorCriteria: Criterion[] = [{ text: 'buyer edit', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: false }];
+
+    await jobRepo.create(jobFixture({ id: 'pill-row-none', buyerDid: 'did:abt:pill-buyer-1', agentDid, status: 'draft', criteria: noReplyCriteria }, new Date('2026-08-27T00:00:00Z')));
+    await jobRepo.create(jobFixture({ id: 'pill-row-buyer', buyerDid: 'did:abt:pill-buyer-2', agentDid, status: 'proposed', criteria: waitingOnBuyerCriteria }, new Date('2026-08-28T00:00:00Z')));
+    await jobRepo.create(jobFixture({ id: 'pill-row-operator', buyerDid: 'did:abt:pill-buyer-3', agentDid, status: 'proposed', criteria: waitingOnOperatorCriteria }, new Date('2026-08-29T00:00:00Z')));
+
+    const page = await renderIncoming(baseUrl, operatorSession);
+    try {
+      function rowFor(jobId: string) {
+        const link = Array.from(page.document.querySelectorAll('#rows a')).find(
+          (a) => a.getAttribute('href') === `/operatorjob?job=${jobId}`,
+        );
+        const row = link?.closest('.orow');
+        if (!row) throw new Error(`no row rendered for ${jobId}`);
+        const pill = row.querySelector('.state');
+        return {
+          cls: pill?.className ?? '',
+          ico: pill?.querySelector('.ico')?.getAttribute('data-ico') ?? '',
+          text: (pill?.textContent ?? '').trim(),
+          primary: link?.classList.contains('btn-primary') ?? false,
+        };
+      }
+
+      // The wireframe's own three pills (spec/wireframe/incoming.html:93,
+      // 114, 135), read off the built page.
+      const noReply = rowFor('pill-row-none');
+      expect(noReply.cls).toContain('state-none');
+      expect(noReply.ico).toBe('minus-circle');
+      expect(noReply.text).toBe('New, nothing sent back yet');
+      expect(noReply.primary, 'the unanswered row carries the page\u2019s one primary action').toBe(true);
+
+      const waitingOnBuyer = rowFor('pill-row-buyer');
+      expect(waitingOnBuyer.cls).toContain('state-done');
+      expect(waitingOnBuyer.ico).toBe('check-circle');
+      expect(waitingOnBuyer.text).toBe('Sent, waiting on the buyer');
+      expect(waitingOnBuyer.primary, 'nothing is due from the operator on this row').toBe(false);
+
+      const waitingOnOperator = rowFor('pill-row-operator');
+      expect(waitingOnOperator.cls).toContain('state-none');
+      expect(waitingOnOperator.ico).toBe('minus-circle');
+      expect(waitingOnOperator.text).toBe('Buyer proposed a change, waiting on you');
+      expect(waitingOnOperator.primary, 'only the unanswered row is emphasised').toBe(false);
+
+      // The three arms are genuinely distinct on the two axes that can
+      // silently collapse into one: the glyph and the sentence.
+      const glyphs = [noReply.ico, waitingOnBuyer.ico, waitingOnOperator.ico];
+      expect(new Set(glyphs).size, 'check-circle must not be the glyph on every state').toBe(2);
+      const sentences = [noReply.text, waitingOnBuyer.text, waitingOnOperator.text];
+      expect(new Set(sentences).size, 'each state says its own sentence').toBe(3);
+
+      // The .dot this pill used to carry is gone: the wireframe draws a
+      // glyph, and a page carrying both would draw two markers.
+      expect(page.document.querySelectorAll('#rows .state .dot').length).toBe(0);
+    } finally {
+      page.close();
+    }
+  });
+
+  // W-incoming item 2. The wireframe's one data-avatar is the face on its
+  // nav account menu (spec/wireframe/incoming.html:66), never a row: its
+  // three .orow rows draw none. The conformance gate's own 'avatars'
+  // entry states that reason; this pins the behaviour it excuses, so the
+  // entry is not a claim with nothing behind it (guard-without-a-test).
+  //
+  // The route DOES carry agentDid on every offer (src/api/app.ts:1720-
+  // 1727), so the absence is a design call rather than a data limit, and
+  // that makes the second half of this test the one that matters: no
+  // identity is ever derived from an agent NAME anywhere in this file.
+  it('no row carries an avatar, and no identity is ever derived from an agent name (W-incoming item 2)', async () => {
+    await jobRepo.create(jobFixture({ id: 'avatar-absence-row', buyerDid: 'did:abt:avatar-absence-buyer', agentDid, status: 'draft', criteria: [] }, new Date('2026-08-30T00:00:00Z')));
+
+    const page = await renderIncoming(baseUrl, operatorSession);
+    try {
+      expect(page.document.querySelectorAll('#rows > .orow').length).toBeGreaterThan(0);
+      expect(page.document.querySelectorAll('#rows [data-avatar]').length, 'the wireframe\u2019s rows draw no face; neither do these').toBe(0);
+      expect(page.document.querySelectorAll('[data-avatar]').length, 'the nav account menu is not built (nav.js:91-126), so no avatar mounts anywhere').toBe(0);
+      expect(page.document.querySelectorAll('#rows img, #rows svg.av, #rows .av, #rows .rav').length).toBe(0);
+    } finally {
+      page.close();
+    }
+
+    // swarm.js is the engine that fills a [data-avatar]; loading it on a
+    // page with no mount would be a script with nothing to paint.
+    const shell = readFileSync(new URL('../../src/web/pages/incoming.html', import.meta.url), 'utf8');
+    expect(shell).not.toContain('data-avatar');
+    expect(shell, 'swarm.js has nothing to paint on this page').not.toContain('/js/swarm.js');
+
+    // No identity is derived from a NAME. The script reads agentDid for
+    // the fallback label only (A.shortDid), and FASwarm.avatar, FA.avatar
+    // and every hash-a-string-into-a-face shape are absent outright.
+    const script = readFileSync(new URL('../../src/web/public/js/pages/incoming.js', import.meta.url), 'utf8');
+    expect(script).not.toContain('FASwarm');
+    expect(script).not.toContain('FA.avatar');
+    expect(script).not.toContain('data-avatar');
+    expect(script, 'agentName is a label, never an identity to draw from').not.toMatch(/avatar\s*\(\s*[^)]*agentName/);
   });
 });
 

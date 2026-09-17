@@ -3,7 +3,7 @@
    and P8n already named in their own handoffs) to resolve the session to a
    DID, then GET /accounts/:did/incoming for the offers (src/api/app.ts).
    Two reads, no per-row read: the route already resolves each offer's
-   agent name (agentName, src/api/app.ts:1665), which is exactly the
+   agent name (agentName, src/api/app.ts:1712-1718), which is exactly the
    per-row lookup P8n had to make itself for myagents.
 
    RULING 1 (row control, superseded by P8v, then W7b): P8q's own original
@@ -32,14 +32,14 @@
    handoff.
 
    RULING 4 (state mapping): waitingOnOf's three values map to the
-   wireframe's three row states exactly:
-     noReply           -> state-none, "New, nothing sent back yet"
-     waitingOnBuyer    -> state-done, "Sent, waiting on the buyer"
-     waitingOnOperator -> state-none, "Buyer proposed a change, waiting on you"
+   wireframe's three row states exactly, glyph included (W-incoming):
+     noReply           -> state-none, minus-circle, "New, nothing sent back yet"
+     waitingOnBuyer    -> state-done, check-circle, "Sent, waiting on the buyer"
+     waitingOnOperator -> state-none, minus-circle, "Buyer proposed a change, waiting on you"
 
    THE SCOPE FENCE: nothing here ranks, scores, prioritises or totals the
    rows. Rows render in the exact order the route returns them (already
-   newest first, src/api/app.ts:1656); this script never re-sorts.
+   newest first, src/api/app.ts:1704); this script never re-sorts.
 
    EVERY REFUSAL RENDERS ITS OWN SENTENCE: a 403, a 503 and a network
    failure each render different, honest copy, and none of them renders
@@ -54,13 +54,13 @@
   var A = window.FAApi;
 
   var STATE_INFO = {
-    noReply: { cls: "state-none", text: "New, nothing sent back yet" },
-    waitingOnBuyer: { cls: "state-done", text: "Sent, waiting on the buyer" },
-    waitingOnOperator: { cls: "state-none", text: "Buyer proposed a change, waiting on you" },
+    noReply: { cls: "state-none", ico: "minus-circle", text: "New, nothing sent back yet" },
+    waitingOnBuyer: { cls: "state-done", ico: "check-circle", text: "Sent, waiting on the buyer" },
+    waitingOnOperator: { cls: "state-none", ico: "minus-circle", text: "Buyer proposed a change, waiting on you" },
   };
 
   /* W7b: the wireframe's own .foot control per waitingOn state
-     (spec/wireframe/incoming.html:83,104,125), a one-to-one match with
+     (spec/wireframe/incoming.html:101,122,143), a one-to-one match with
      STATE_INFO above. P8q's own ruling 1 said this button had no
      destination because /operatorjob was not built yet; P8v built and
      mounted it, so the button ships now, keyed the same way the row's
@@ -137,7 +137,7 @@
     if (!host) return;
     host.textContent = "";
     // The route's own order is kept as-is (already newest first,
-    // src/api/app.ts:1656): this script never re-sorts by state or by
+    // src/api/app.ts:1704): this script never re-sorts by state or by
     // anything else (the scope fence).
     offers.forEach(function (offer, i) {
       var row = offerRow(offer);
@@ -168,9 +168,23 @@
     var info = STATE_INFO[offer.waitingOn] || STATE_INFO.noReply;
     var state = document.createElement("span");
     state.className = "state " + info.cls;
-    var dot = document.createElement("span");
-    dot.className = "dot";
-    state.appendChild(dot);
+    /* The wireframe's own pill shape (spec/wireframe/incoming.html:93,
+       114, 135): a glyph, then the sentence. polish.css:379 sizes
+       `.state .ico` at 13px, written for exactly this pill, and the glyph
+       carries the state without relying on colour alone.
+
+       PAINTED HERE, NOT LEFT FOR THE SWEEP. icons.js paints every icon
+       host on the page once at load (icons.js:116-123) and this row is
+       built after a fetch resolves, so a host handed to the load sweep
+       stays an empty box forever. FAIcon.paint(state) fills this one now
+       and skips anything already painted (icons.js:119). The call takes
+       the pill rather than the host because paint() queries for hosts
+       inside the root it is given (icons.js:117). */
+    var icon = document.createElement("span");
+    icon.className = "ico";
+    icon.setAttribute("data-ico", info.ico);
+    state.appendChild(icon);
+    if (window.FAIcon) window.FAIcon.paint(state);
     state.appendChild(document.createTextNode(info.text));
     between.appendChild(state);
 
