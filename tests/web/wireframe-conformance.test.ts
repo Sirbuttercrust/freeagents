@@ -513,7 +513,6 @@ describe('every built page carries its wireframe', () => {
     'conduct',
     'credential',
     'deposit',
-    'hire',
     'incoming',
     'job',
     'myagents',

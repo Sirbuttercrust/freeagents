@@ -1,4 +1,4 @@
-/* P8g hire: a signed-in buyer describes work and a job exists.
+/* W-hire: a signed-in buyer describes work and a job exists.
 
    ANCHOR: a signed-in person clicks "Hire for a job" on an agent's
    profile, writes one box of prose, sends it, and lands on the page of
@@ -26,7 +26,7 @@
   }
 
   // owner/name, the identical pattern POST /jobs applies server-side
-  // (src/api/app.ts:2343). Checked here so a malformed repository never
+  // (src/api/app.ts:2714). Checked here so a malformed repository never
   // reaches the network (mutation proof 5); the route's own check stands
   // unchanged behind it.
   var REPO_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -67,14 +67,42 @@
   function renderWho(agentDid, agent) {
     var name = typeof agent.name === "string" && agent.name !== "" ? agent.name : agent.did;
     A.setTextById("agent-name", name);
+    var nameEl = A.el("agent-name");
+    if (nameEl) nameEl.removeAttribute("data-pending");
     document.title = "Hire " + name + ": FreeAgents";
 
-    A.setAvatar(A.el("agent-avatar"), agent.avatar);
+    /* THE AVATAR IS PAINTED BY THE SWARM GENERATOR, NOT THE SERVER'S
+       agent.avatar FIELD. DESIGN.md 2.4 and ENT-2.3: an agent's creature
+       is derived from its DID and nothing else. swarm.js (window.FASwarm)
+       is the generator the polished pages standardise on; agent.avatar is
+       a separate, older server-rendered engine (src/api/avatar.ts's own
+       header names it a blobatar stand-in) that this page no longer
+       reads.
 
+       The attribute is SET AND PAINTED IN THE SAME BREATH, here, once the
+       real DID is known. polish.js's generic [data-avatar] sweep runs once
+       at load, long before this read resolves, so a mount that waits for
+       the sweep stays empty forever; and an attribute written into the
+       markup ahead of the read would be either an empty mount or an agent
+       identity this page has not confirmed. Same mechanism agent.js:162
+       and agreement.js:104 already use. */
+    var avatarEl = A.el("agent-avatar");
+    if (avatarEl && agentDid !== "" && window.FASwarm) {
+      avatarEl.setAttribute("data-avatar", agentDid);
+      avatarEl.innerHTML = window.FASwarm.avatar(agentDid, 32);
+      avatarEl.removeAttribute("data-pending");
+    }
+
+    /* The operator line is REVEALED BY ITS VALUE, never shipped visible
+       and filled in later: an agent whose record carries no operatorDid
+       would otherwise leave "operated by" standing over an anchor with no
+       destination and no text. */
+    var operatorRow = A.el("operated-by");
     var operatorLink = A.el("operator-link");
-    if (operatorLink && typeof agent.operatorDid === "string" && agent.operatorDid !== "") {
+    if (operatorRow && operatorLink && typeof agent.operatorDid === "string" && agent.operatorDid !== "") {
       operatorLink.setAttribute("href", "/accounts/" + encodeURIComponent(agent.operatorDid));
       A.setText(operatorLink, A.shortDid(agent.operatorDid));
+      A.show(operatorRow, true);
     }
 
     var profileHref = "/agents/" + encodeURIComponent(agentDid);
@@ -161,9 +189,12 @@
         return;
       }
 
-      // P8g scope item 9: every refusal the route can return gets its own
-      // sentence, read off the route rather than restated, so there is
-      // one wording of each rule, not two.
+      // P8g scope item 9: the refusals this route returns in practice get
+      // their own sentence, read off the route rather than restated, so
+      // there is one wording of each rule, not two. The one status not
+      // named is 409, which app.ts:2801-2805 documents as unreachable (it
+      // needs a 64-bit id collision on an id drawn this request); the
+      // fallthrough below covers it, passing the route's own message.
       var serverMessage = typeof body.error === "string" && body.error !== "" ? body.error : "";
       showSubmitError(refusalSentence(status, serverMessage));
     });
