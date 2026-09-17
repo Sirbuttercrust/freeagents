@@ -6,52 +6,110 @@
 <title>How a hire ends: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
-<style>
-  /* P8o HOW A HIRE ENDS (SITEMAP.md P-31, spec/wireframe/index.html P-27 --
-     the wireframe's own id disagreement, named rather than resolved: this
-     comment uses SITEMAP.md's P-31 per the brief). Built from
-     spec/wireframe/outcomes.html, same structure, copy and class
-     vocabulary; departures are named in the handoff.
+<link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/flow.css">
+<!--
+  W-outcomes: HOW A HIRE ENDS (SITEMAP.md P-31, spec/wireframe/index.html
+  P-27; the wireframe's own id disagreement, named rather than resolved).
+  Rebuilt on spec/wireframe/outcomes.html. Structure, copy, class
+  vocabulary, stylesheets and 320px behaviour come from that file; it is
+  not patterned on another built page.
 
-     .outcomes, .oc and .fixed are the wireframe's own flow.css rules
-     (spec/wireframe/flow.css:694-701 and :428-441), carried into this
-     page's own style block the way P8n carried .arow here rather than
-     into base.css: they are this screen's internals, not shared
-     vocabulary. base.css already has .glow, .lede, .sub, .rule, .pane,
-     .pane-pad, .btn, .btn-primary, .wrapflex, .wrap, .section and
-     .section-sm (grep-verified on main), so only these two classes ride
-     here. */
+  THE STYLESHEETS. tokens, base, polish, flow, in that order. The
+  wireframe links base, polish and flow; tokens.css is this repo's own
+  split of the wireframe's variable block and sits under everything.
 
-  .outcomes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-  @media (max-width: 760px) { .outcomes { grid-template-columns: 1fr; } }
-  .oc { padding: 20px 22px; }
-  .oc h3 { margin-bottom: 10px; }
-  .oc dl { margin: 0; }
-  .oc dt { font-size: 12px; color: var(--fg-2); margin-top: 12px; }
-  .oc dd { margin: 3px 0 0; font-size: 14px; color: var(--fg-2); line-height: 1.55; }
-  .oc dd b { color: var(--fg); font-weight: 550; }
+  THIS PAGE'S OWN <style> BLOCK IS GONE, and that is the point of linking
+  flow.css rather than a cosmetic tidy. The block held 22 declaration
+  lines covering .outcomes, .oc with its five descendants, and .fixed with
+  its seven, copied out of the wireframe's flow.css by the pre-polish
+  build. flow.css now ships the same rules to every screen, so keeping the
+  local copy would mean two sources for one look and no way to tell which
+  one a reader's browser used.
 
-  .fixed { list-style: none; padding: 0; margin: 0; }
-  .fixed li {
-    display: grid; grid-template-columns: 1fr auto; gap: 12px 16px;
-    padding: 13px 0; border-bottom: 1px solid var(--line);
-    align-items: baseline;
-  }
-  .fixed li:last-child { border-bottom: 0; padding-bottom: 0; }
-  .fixed .k { font-size: 15px; }
-  .fixed .v { font-family: var(--mono); font-size: 13px; color: var(--fg-2); text-align: right; }
-  .fixed .para { grid-column: 1 / -1; font-size: 14px; color: var(--fg-2); line-height: 1.6; max-width: 62ch; }
-  @media (max-width: 420px) {
-    .fixed li { grid-template-columns: 1fr; }
-    .fixed .v { text-align: left; }
-  }
-</style>
+  Measured before deleting, not assumed. Procedure, rerunnable from the
+  commit before this one: strip /* */ comments from the <style> block and
+  from src/web/public/css/flow.css, collapse each remaining line's runs of
+  whitespace to one space, trim, and ask whether an identical line exists
+  in flow.css. Result: 22 local lines, 22 matches, 0 differences. Nothing
+  was chosen between, because there was nothing to choose.
+
+  Three rules arrive whose selectors the deleted local block never
+  declared, and they do different amounts of work here. flow.css carries
+  exactly one rule with a .pane-pad compound selector (:202-208: seven
+  selectors sharing one 22px/24px declaration). Asked of the live document
+  rather than read off the cascade, it reaches the two clock-and-refusal
+  lists through .pane-pad.fixed and reaches nothing through
+  .pane-pad.outcomes. This page's .outcomes is a bare grid container with
+  no pane on it, so that selector matches 0 elements here and the
+  element's own padding is 0px.
+
+  The selector that does land is load-bearing. Deleting the rule out of
+  the live CSSOM puts both lists back to 0px, and the page this one
+  replaced measured that same 0px with its first key flush against the
+  pane rim, against 24px of gap now, at 1280x900 and at 320x800.
+
+  The other two arrivals do less, and one of them does nothing. .mark
+  (:352) moves the brand dot 1px lower, the same 1px at 1280 and at 320;
+  its size and display come from base.css:106 and :476, which are more
+  specific, and the dot has no children for the centring to centre. The
+  coarse-pointer .btn, .btn-sm floor (:796-797) moves none of the 4
+  elements those two selectors reach here (6 matches over 4 elements,
+  since the two nav buttons carry both classes), measured under real touch
+  emulation at 320x800, because base.css:541-543 and polish.css:567-569
+  already set 44px in their own touch queries.
+
+  THE SCRIPTS. api, nav, icons, polish, ui.
+    icons.js  before polish.js, because polish.js's init() calls
+              FAIcon.paint() as its first statement (polish.js:570-571).
+              Reversed, that sweep finds no painter. This page declares no
+              data-ico host of its own, so the sweep paints nothing today;
+              the order still has to be right, because polish.js's toast()
+              builds a data-ico span at runtime and repaints it.
+    polish.js the nav behaviour the polished pages share, and only one
+              half of it is unconditional here. navState() toggles
+              .nav.is-stuck above 8px of scroll: measured in Chrome the
+              class is absent at scrollY 8 and present at 9, at 1280x800,
+              1280x1400 and 320x800 alike. The reading-progress hairline
+              is gated on scrollHeight > innerHeight * 2.2
+              (polish.js:302), so whether it appears depends on the
+              viewport as much as on the page. At width 1280 this page's
+              scrollHeight is 2685, which puts the boundary between
+              1280x1220, where one .nav .prog is appended, and 1280x1221,
+              where none is. A tall desktop window clears that boundary
+              and gets no hairline: 1280x1400 reads none, while 1280x800
+              and 320x800 each read one.
+    ui.js     the reveal observer. It is this repo's equivalent of the
+              spec set's standalone wireframe.js, which does not ship;
+              reveals() carries the same safety argument.
+  There is no /js/pages/outcomes.js and this page does not want one: it
+  reads nothing, renders no fetched value, and its own test pins that.
+
+  NO swarm.js. swarm.js is the avatar engine and it mounts on elements
+  carrying the data-avatar attribute. The wireframe declares none, which is
+  checkable as written: `grep -c data-avatar spec/wireframe/outcomes.html`
+  returns 0. This page mounts none either, but do NOT check that with the
+  same grep, because these two sentences name the attribute and the grep
+  counts them: it returns a non-zero number on a page with no avatar at
+  all. The honest check has to read the parsed document rather than the
+  text, and tests/web/outcomes.test.ts runs it:
+  document.querySelectorAll('[data-avatar]').length is 0. Measured in
+  Chrome on the served page, the same count is 0 and window.FASwarm is
+  undefined. The neighbour flow pages carry the engine because they show an
+  agent; this page is about the shape of a deal, not about any one agent.
+
+  NO OUTCOME IS COLOURED, which is the whole reason this screen can be
+  trusted. Not green for completed, not red for declined. Four of the five
+  are normal endings rather than failures, and grading them by colour
+  would be the platform forming an opinion about a hire, which it refuses
+  to do everywhere else. Completed and declined get the same card.
+-->
 </head>
 <body>
 
 <nav class="nav">
   <div class="wrap inner">
-    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <a class="brand" href="/" aria-label="FreeAgents home"><span class="mark"></span>FreeAgents</a>
     <div class="links">
       <a href="/browse">Browse</a>
       <a href="/how">How it works</a>
@@ -75,7 +133,56 @@
     </p>
   </div>
 
-  <div class="outcomes" style="margin-top:32px">
+  <!-- W-outcomes, THE ONE DEPARTURE FROM THE WIREFRAME, and the reason.
+
+       spec/wireframe/outcomes.html:62 is `<div class="outcomes stagger
+       reveal">` and its five cards carry style="--i:0" through "--i:4"
+       (wireframe :65, :83, :101, :119, :137). The container classes ship
+       here. The five per-card --i values do not.
+
+       WHAT IS LOST, stated plainly: with --i the cards arrive in sequence,
+       45ms apart (base.css:407, transition-delay: calc(min(var(--i, 0), 6)
+       * 45ms)). Without it they arrive together. Procedure, rerunnable:
+       install a requestAnimationFrame sampler through
+       Page.addScriptToEvaluateOnNewDocument so it runs before any page
+       script, load /outcomes in Chrome at 1280x1400, and record every
+       frame's five card opacities for 2.5 seconds. With --i present, a
+       large fraction of the frames during the entrance have the five cards
+       at different opacities (one run here: about a third of them, first
+       divergence around a quarter second in, reading roughly 0.54 / 0.33 /
+       0.06 / 0 / 0). Without --i, the count of divergent frames is exactly
+       zero. The exact frame totals vary with machine speed and are not the
+       finding; zero versus non-zero is, and that is what the committed gate
+       in tests/web/outcomes-polished.test.ts asserts.
+
+       WHY IT DOES NOT SHIP. The divergence is not confined to the
+       transition. Five seconds after load, with all five cards settled at
+       opacity 1, the same whole-computed-style comparison that
+       tests/web/outcomes.test.ts runs in "the five cards are identical in
+       computed style, in a real browser" still reports 8 differences:
+       transition-delay 0s / 0.045s / 0.09s / 0.135s / 0.18s, and --i 0 / 1
+       / 2 / 3 / 4. So that test and its descendant-walking sibling, "every
+       descendant of each card matches the first card's same-position
+       descendant in computed style", go permanently red, not
+       intermittently. (Named rather than cited by line on purpose: both
+       tests moved by five lines while this card was being written, and a
+       line number in a comment is stale the moment anyone edits above it.)
+       Those two are the only instrument on this page that can see "one
+       card styled unlike the others", and each was written to close a
+       vacuous-gate defect that a narrower check had already let through
+       twice. Trading a staggered entrance for the guard that keeps this
+       page's central promise honest is the wrong trade on the one screen
+       that says "no outcome is scored".
+
+       WHAT STILL RUNS. `stagger` on the container is not dead markup
+       without --i. Measured in a real browser by forcing the hidden state
+       (.js-reveal on <html>, .is-in removed): with the class, every card
+       reads opacity 0, translateY(8px), delay 0s; with the class removed,
+       the cards read opacity 1 and none, and only the container moves. So
+       the class still decides that the five cards carry the motion
+       individually rather than the box carrying it for them. They simply
+       carry it together. -->
+  <div class="outcomes stagger reveal" style="margin-top:32px">
 
     <div class="oc pane">
       <h3>Completed</h3>
@@ -169,7 +276,7 @@
     on purpose.
   </p>
 
-  <ul class="fixed pane pane-pad">
+  <ul class="fixed pane pane-pad reveal">
     <li>
       <span class="k">Seven days after the work is ready</span>
       <span class="v">silence ends it</span>
@@ -196,7 +303,7 @@
     These are refusals, not omissions.
   </p>
 
-  <ul class="fixed pane pane-pad">
+  <ul class="fixed pane pane-pad reveal">
     <li>
       <span class="k">FreeAgents never decides who was right</span>
       <span class="v">no arbitration</span>
@@ -249,5 +356,8 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/polish.js"></script>
+<script src="/js/pages/ui.js"></script>
 </body>
 </html>
