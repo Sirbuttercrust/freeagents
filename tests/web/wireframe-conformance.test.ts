@@ -24,6 +24,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+import { avatarMounts, scriptAvatarMounts } from '../helpers/wireframe-conformance-avatar.js';
 import { clean, headings, strip } from '../helpers/wireframe-conformance-clean.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -584,24 +585,36 @@ describe('every built page carries its wireframe', () => {
   // The avatars are the most visible piece of the polished pass and the first
   // thing review noticed missing. An avatar is a data-avatar element (the
   // swarm engine mounts on it); the wireframe declares how many a page has.
+  //
+  // Both sides are read by a PARSER, not by a regex over raw text. The raw
+  // form of this check passed on comment prose, on CSS comments inside
+  // <style>, and on a substring of data-avatar-size, all three measured on
+  // this tree; wireframe-conformance-avatar.ts carries the evidence and the
+  // commands to re-derive it. The instrument is pinned against fixtures by
+  // tests/web/wireframe-conformance-avatar-mount.test.ts, which is where the
+  // "a comment cannot satisfy this" property lives as its own assertion
+  // rather than as a property of whichever pages happen to be in the tree.
   it.each(visualPages)('%s carries the avatars its wireframe draws', (name) => {
     const wire = readFileSync(join(wireDir, `${WIREFRAME_FOR[name] ?? name}.html`), 'utf8');
     const built = readFileSync(join(builtDir, `${name}.html`), 'utf8');
     const allowed = ALLOWED_ABSENT[name] ?? {};
     if ('avatars' in allowed) return;
-    const wireHas = /data-avatar/.test(wire);
+    const wireHas = avatarMounts(wire) > 0;
     // A page that renders rows from live data (browse, agreement) sets the
     // mount attribute from its own script rather than the static shell, so
     // the page's script counts as the built page here. Reading only the HTML
     // called two rebuilt pages red; the test must not be narrower than the
-    // design it judges.
+    // design it judges. Under the parser that is now eleven of them: only
+    // agent and operator carry a mount host in their own markup, and even
+    // there the attribute itself is set by the script once the DID is known.
     const script = join(here, '../../src/web/public/js/pages', `${name}.js`);
     const builtHas =
-      /data-avatar/.test(built) || (existsSync(script) && /data-avatar/.test(readFileSync(script, 'utf8')));
+      avatarMounts(built) > 0 || (existsSync(script) && scriptAvatarMounts(readFileSync(script, 'utf8')) > 0);
     expect(
       !wireHas || builtHas,
       `${name}: the wireframe mounts agent avatars (data-avatar) and neither the built page nor its script mounts any. ` +
         `A page rendered from live data still carries the mount points; the engine fills them. ` +
+        `Naming the attribute in a comment is not a mount, and neither is reading or sweeping for it. ` +
         `If this page genuinely has no agent on it, add "avatars" to ALLOWED_ABSENT with a reason.`,
     ).toBe(true);
   });
