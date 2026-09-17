@@ -230,8 +230,18 @@
        is the generator the polished pages standardise on; agent.avatar is
        a separate, older server-rendered engine (src/api/avatar.ts's own
        header names it a blobatar stand-in) that this page no longer
-       reads. A.setAvatar is left alone: it is shared, and job.js,
-       deposit.js, pullrequest.js and myagents.js still call it.
+       reads. A.setAvatar is left alone rather than deleted because it
+       still has a caller: `grep -rn "A\.setAvatar(" src/web/public/js/`
+       returns pullrequest.js and nothing else.
+
+       That sentence used to name four callers, inherited from the same
+       comment in staged.js, where it names five and is equally wrong.
+       The extra names are all pages that paint with FASwarm exactly as
+       this one does: job.js's two hits are both comments, one of them
+       the note sitting directly above its own FASwarm painter, and
+       `grep -c setAvatar` on deposit.js and myagents.js returns 0 for
+       each. Re-run the grep rather than trusting a count written in
+       prose, this one included.
 
        The attribute is SET AND PAINTED IN THE SAME BREATH, here, on the
        DID this page already holds from the job record rather than on
