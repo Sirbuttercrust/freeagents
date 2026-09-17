@@ -140,6 +140,18 @@ describe('the My jobs screen, driven end to end against the real app', () => {
     else process.env.FREEAGENTS_PLATFORM_SEED = originalSeed;
   });
 
+  // The wireframe's div.note blocks are builder-facing and the shipped
+  // base.css has no rule hiding .note, so any survivor is visible body copy
+  // with spec codes in it. Same pin browse.test.ts carries.
+  it('carries none of the wireframe\'s builder-facing div.note blocks in the shipped markup', async () => {
+    const page = await renderMyJobs(baseUrl, buyerSession);
+    try {
+      expect(page.document.querySelectorAll('.note').length).toBe(0);
+    } finally {
+      page.close();
+    }
+  });
+
   it('a signed-out visitor is sent to sign in and no row is ever rendered (done-means 8)', async () => {
     const page = await renderMyJobs(baseUrl, null);
     try {
