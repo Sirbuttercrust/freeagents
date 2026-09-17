@@ -58,7 +58,17 @@ const scriptPath = join(here, '../../src/web/public/js/pages/operatorjob.js');
 // /jobs/:jobId runs the live lapse clocks on every read, so a hardcoded
 // fixture would expire out from under this suite (the RECENT pattern
 // tests/web/operatorjob.test.ts already uses, and its reasoning).
-const HOURS_AGO = (n: number): Date => new Date(Date.now() - n * 60 * 60 * 1000);
+//
+// ONE BASE INSTANT for the whole suite, and this is a repair rather than a
+// flourish. The first version called Date.now() afresh at each use, so a
+// fixture's createdAt and its confirmedAt, both written as "six hours ago",
+// were computed from two different milliseconds: whichever statement ran
+// second was newer. Section 4 sorts the timeline by its own timestamps, so
+// that inversion reordered two rows and failed the suite roughly one run in
+// three. Reading every offset off one captured instant makes the fixture's
+// event order the order the fixture says it is.
+const BASE = Date.now();
+const HOURS_AGO = (n: number): Date => new Date(BASE - n * 60 * 60 * 1000);
 
 let server: Server;
 let baseUrl: string;
@@ -146,7 +156,7 @@ beforeAll(async () => {
     redoAllowance: 1,
     priceAcceptedByBuyer: true,
     priceAcceptedByAgent: true,
-    confirmedAt: HOURS_AGO(6),
+    confirmedAt: HOURS_AGO(5),
   };
 
   // The state the wireframe draws: a redo waiting on an answer.
@@ -649,9 +659,12 @@ describe('4. the timeline is ordered by when things happened', () => {
       expect(rows.length, 'no rows to order').toBeGreaterThan(3);
       const labels = rows.map((li) => li.querySelector('.lbl')?.textContent ?? '');
       // The projection's own order for this fixture, which is also the true
-      // order of events. Stated as the expected sequence rather than as a
-      // monotonicity check on the dates, because every fixture date formats
-      // to the same day and a same-day check would pass on any permutation.
+      // order of events: brief 6 hours ago, confirmed 5, staged 4, submitted
+      // 3, merged 2, each read off the one BASE instant at the head of this
+      // file so the fixture's own order cannot invert between statements.
+      // Stated as the expected sequence rather than as a monotonicity check
+      // on the dates, because every fixture date formats to the same day and
+      // a same-day check would pass on any permutation.
       expect(labels).toEqual([
         'Brief arrived',
         'Agreement confirmed, both sides signed',
