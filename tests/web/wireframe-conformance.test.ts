@@ -554,7 +554,6 @@ describe('every built page carries its wireframe', () => {
     'conduct',
     'notfound',
     'operatorjob',
-    'pullrequest',
   ]);
   const visualPages = builtPages.filter((n) => !NOT_YET_REBUILT.has(n));
 
