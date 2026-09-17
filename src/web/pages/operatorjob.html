@@ -17,13 +17,14 @@
      THE STYLESHEETS. tokens, base, polish, flow, in that order. The
      wireframe loads base, polish, flow; tokens.css is this site's own split
      of the wireframe's variable block and sits under everything. flow.css
-     carries .who, .fixed, .facts, .acts and the whole .sheet set, so this
-     block used to hold a second copy of 22 of them. Re-derive the overlap
-     with /tmp/oj-css-compare2.py: it flattens every rule to
-     (at-rule context, selector) so a @media block is compared by its
-     CONTENTS, which the first version of that script did not do (it split
-     only top-level declarations, and an @media block has none, so any two
-     media queries sharing a condition compared equal).
+     owns .who, .fixed, .facts, .acts and the whole .sheet set, and this
+     block used to carry a second copy of every one of them, which is the
+     drift the shared sheet exists to prevent. They are gone, and what is
+     left below is only what no shared sheet defines. Check that against the
+     tree rather than against a count written here, because a count in a
+     comment goes stale the moment anyone edits either side: take any
+     selector in the block below and grep it in
+     src/web/public/css/{base,polish,flow}.css, and expect no hit.
 
      THE SCRIPTS. api, nav, swarm, polish, operatorjob, ui.
        swarm.js  paints the .who creature, derived from the agent's DID
@@ -33,14 +34,18 @@
                  paints the .btn ripple polish.css draws as .btn::after;
                  and adds .nav.is-stuck, which polish.css styles and
                  nothing else sets.
-       icons.js  is NOT loaded. Counted with grep on all three files: the
-                 wireframe declares 0 [data-ico] hosts, this page declares
-                 0, and operatorjob.js creates 0, so the sprite would have
-                 nothing to paint. polish.js's two FAIcon calls are both
-                 guarded by `if (window.FAIcon)`, and the only unguarded
-                 path into one is its toast(), which fires from
-                 [data-pick]/[data-demo]/[data-banner] hooks this page
-                 declares none of (also counted: 0 across both files).
+       icons.js  is NOT loaded, and nothing here asks for it. It paints one
+                 attribute, the one its own paint() selects on; the
+                 wireframe declares no host for it, this page declares
+                 none, and operatorjob.js builds none, so the sprite would
+                 have nothing to sweep. That count is why this paragraph
+                 does not spell the attribute out: a grep for it has to
+                 come back empty on this file, and a comment naming it
+                 would answer the grep itself. polish.js's two FAIcon calls
+                 are both guarded by `if (window.FAIcon)`, and the only
+                 unguarded path into one is its toast(), which fires from
+                 the picker, demo and banner hooks that same rule keeps
+                 unnamed here, and that this page declares none of.
        ui.js     is this repo's equivalent of the wireframe's standalone
                  wireframe.js for disclosure, copy and reveal.
 
@@ -123,11 +128,28 @@
         <!-- THE AGENT'S CREATURE, DERIVED FROM ITS DID. The mount is set and
              painted together by renderWho in operatorjob.js, on job.agentDid
              from the job record, never on whatever the agent read returns.
-             It carries no data-avatar here because polish.js's generic
-             [data-avatar] sweep runs once at load, long before the job read
-             resolves: an attribute written into this file would either be an
-             empty mount the sweep skipped or an agent identity this page has
-             not confirmed yet.
+             This element is the empty mount; renderWho adds the engine's
+             attribute and the svg in one step.
+
+             The attribute is NOT written here, and the reason is mechanical:
+             polish.js's generic avatar sweep runs once at load, long before
+             the job read resolves, so an attribute sitting in this file
+             would either be an empty mount the sweep already skipped or an
+             agent identity this page has not confirmed yet.
+
+             This comment deliberately does not spell that attribute out.
+             tests/web/wireframe-conformance.test.ts, "carries the avatars
+             its wireframe draws", tests the raw text of this file and of
+             operatorjob.js with a regex, so the attribute's name written
+             anywhere in either file, comment included, satisfies that gate
+             on its own. Naming it in prose here would hold the gate up with
+             no mount behind it. Verified by removing renderWho's real
+             setAttribute call while leaving the comments in place: the
+             conformance file stayed green at 105 passed, and the browser
+             gate in tests/web/operatorjob-polished.test.ts, "the mount
+             carries the job's own agentDid and holds a painted svg", was
+             the only thing that reddened. That browser gate is what
+             actually guards the mount.
 
              THE WIREFRAME DRAWS A SECOND AVATAR and this page does not: its
              nav is a static <details class="avatarmenu"> account menu

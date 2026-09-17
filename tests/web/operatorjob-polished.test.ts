@@ -3,13 +3,15 @@
 //
 // The conformance gate (tests/web/wireframe-conformance.test.ts) measures one
 // thing about this page's clothes: that every stylesheet the wireframe loads
-// is linked, and that a data-avatar mount exists somewhere. Two link tags and
-// one string satisfy it. So it is equally satisfied by a page that links
-// flow.css and keeps a page-local copy of every rule in it, mounts an avatar
-// attribute the engine never paints, ships a timeline whose three drawn states
-// are one state drawn three times, or orders its history by the order the
-// renderer happened to push rows. This file is the distance between passing
-// that gate and wearing the design.
+// is linked, and that an avatar mount exists somewhere. Two link tags and one
+// string satisfy it, and the string test is a regex over raw file text, so a
+// comment mentioning the attribute passes it with no mount behind it. So that
+// gate is equally satisfied by a page that links flow.css and keeps a
+// page-local copy of every rule in it, mounts an avatar attribute the engine
+// never paints, ships a timeline whose three drawn states are one state drawn
+// three times, or orders its history by the order the renderer happened to
+// push rows. This file is the distance between passing that gate and wearing
+// the design.
 //
 // tests/web/operatorjob.test.ts owns the live wiring: the party gate, the
 // stage and redo routes driven for real, the state sentences, and the 320px
