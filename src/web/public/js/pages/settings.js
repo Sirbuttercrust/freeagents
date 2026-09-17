@@ -24,7 +24,8 @@
 
    EVERYTHING THROUGH textContent or as an input value: githubLogin, did
    and both addresses are content, never markup (api.js's own header
-   rule). */
+   rule). The stagger index below is the one thing written as a property
+   rather than as text, which is a style write and not markup either. */
 (function () {
   "use strict";
   var A = window.FAApi;
@@ -94,24 +95,54 @@
     var githubLogin = typeof me.githubLogin === "string" ? me.githubLogin : null;
     var passkeySubject = typeof me.passkeySubject === "string" ? me.passkeySubject : null;
 
+    var rows = [];
     if (githubLogin !== null) {
-      host.appendChild(factRow("GitHub account", githubStateSpan(githubLogin)));
+      rows.push(factRow("GitHub account", githubStateSpan(githubLogin)));
     }
 
     var methods = [];
     if (githubLogin !== null) methods.push("GitHub");
     if (passkeySubject !== null) methods.push("a passkey on this device");
     if (methods.length > 0) {
-      host.appendChild(factRow("Sign-in method", methods.join(", plus ")));
+      rows.push(factRow("Sign-in method", methods.join(", plus ")));
     }
+
+    rows.forEach(function (row, i) {
+      // The stagger delay base.css's .js-reveal .stagger.is-in > * rule
+      // reads (base.css:407), which the container above already opts into
+      // with .stagger.reveal. The wireframe writes the index by hand on
+      // each of its rows (spec/wireframe/settings.html:61, 70, 77); these
+      // rows are built at run time, so the index comes from position.
+      // Without it every row falls back to 0 and they all arrive at once.
+      row.style.setProperty("--i", String(i));
+      host.appendChild(row);
+    });
+
+    // The GitHub row's state glyph. icons.js paints every [data-ico] host
+    // at DOMContentLoaded and polish.js's init() calls FAIcon.paint()
+    // again, both before the /accounts/me read above resolves, so a host
+    // built here is never visited by either sweep. Same guarded repaint
+    // myagents.js:139, dashboard.js:305, operator.js:82 and
+    // agreement.js:165 already make for rows they render late; paint()
+    // skips a host that already has a first element child (icons.js:119).
+    // If it never runs the span collapses and the login beside it still
+    // states the fact.
+    if (window.FAIcon) window.FAIcon.paint(host);
   }
 
+  // The wireframe's marker for this row is a glyph, not a dot
+  // (spec/wireframe/settings.html:68). The distinction carries a rule:
+  // polish.css sizes .state .ico (polish.css:379) and has no .dot rule at
+  // all, so a dot here would wear none of the polished layer even with
+  // the sheet loaded. check-circle is the name icons.js registers
+  // (icons.js:52).
   function githubStateSpan(login) {
     var span = document.createElement("span");
     span.className = "state state-done";
-    var dot = document.createElement("span");
-    dot.className = "dot";
-    span.appendChild(dot);
+    var ico = document.createElement("span");
+    ico.className = "ico";
+    ico.setAttribute("data-ico", "check-circle");
+    span.appendChild(ico);
     span.appendChild(document.createTextNode("@" + login));
     return span;
   }
