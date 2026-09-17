@@ -6,77 +6,133 @@
 <title>The work is ready: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/flow.css">
 <style>
-  /* P8k STAGED (SITEMAP P-13), from spec/wireframe/staged.html. Nav and
-     footer copied from deposit.html unchanged. P8j shipped the pay
-     control alone; this card adds the redo and decline controls and
-     their dialogs (rulings 1-6). Departures (handoff): no drawn QR,
-     text + copy; outOfCriteriaPathCount omitted (ruling 2); no buyer
-     test command row (ruling 3); the redo dialog's free-text field does
-     not ship (ruling 1, no route reads it); the decline dialog renders
-     four consequence rows, not five (ruling 3, no agent-side declined
-     count exists); the picker's pickernote and numbering are adapted to
-     agreement.js's own numbering, not the wireframe's fixture (ruling 2). */
-  .picker { list-style: none; padding: 0; margin: 0; }
-  .picker li { border-bottom: 1px solid var(--line); }
-  .picker li:last-child { border-bottom: 0; }
-  .picker label { display: grid; grid-template-columns: 22px 1fr; gap: 12px; padding: 13px 0; min-height: 44px; align-items: start; cursor: pointer; font-size: 14px; line-height: 1.5; }
-  .picker input { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
-  .picker label:hover { color: var(--fg); }
-  .pickernote { font-size: 13px; color: var(--fg-2); line-height: 1.55; margin: 12px 0 0; max-width: 62ch; }
-  .who { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px; }
-  .who .avatar { width: 32px; height: 32px; border-radius: 50%; flex: none; overflow: hidden; background: var(--bg-2); }
-  .who .hires { color: var(--accent); font-size: 13px; font-weight: 550; }
-  .who .r { color: var(--fg-2); font-size: 13px; }
-  .who .r a { color: var(--fg-2); }
-  .rail { display: flex; gap: 0; margin: 0; list-style: none; padding: 0; }
-  .rail li { flex: 1; font-size: 12px; color: var(--fg-2); padding-top: 12px; border-top: 2px solid var(--line); font-family: var(--mono); min-width: 0; }
-  .rail li.on { color: var(--fg); border-top-color: var(--fg); }
-  .rail li.done { color: var(--fg-2); border-top-color: var(--line-2); }
-  .railnow { display: none; font-size: 13px; color: var(--fg-2); margin-top: 12px; }
-  @media (max-width: 640px) { .rail li { font-size: 0; padding-top: 8px; } .railnow { display: block; } }
-  .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
-  .clock { font-size: 15px; line-height: 1.55; }
-  .clock .days { font-weight: 600; }
-  .clock .then { display: block; font-size: 13px; color: var(--fg-2); margin-top: 8px; max-width: 62ch; }
-  .facts { list-style: none; padding: 0; margin: 0; }
-  .facts li { display: grid; grid-template-columns: 1fr auto; gap: 4px 20px; padding: 13px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
-  .facts li:last-child { border-bottom: 0; padding-bottom: 0; }
-  .facts .f { font-size: 14px; color: var(--fg-2); }
-  .facts .v { font-family: var(--mono); font-size: 13px; color: var(--fg); text-align: right; overflow-wrap: anywhere; }
-  .facts .paths { grid-column: 1 / -1; margin: 6px 0 0; padding: 0; list-style: none; font-family: var(--mono); font-size: 12px; color: var(--fg-2); line-height: 1.9; overflow-wrap: anywhere; }
-  .facts .paths li { padding: 0; border: 0; min-height: 0; }
-  @media (max-width: 520px) { .facts li { grid-template-columns: 1fr; } .facts .v { text-align: left; } }
+  /* W-staged: STAGED (SITEMAP P-13), rebuilt on spec/wireframe/staged.html
+     and spec/wireframe/flow.css. Structure, class vocabulary and 320px
+     behaviour come from those two files; this page is not patterned on
+     another built page.
+
+     THE STYLESHEETS. tokens.css, base.css, polish.css, flow.css, in that
+     order. The wireframe loads base, polish and flow; tokens.css is this
+     site's own split of the wireframe's variable block and sits under
+     everything. flow.css is ported byte for byte from
+     spec/wireframe/flow.css apart from one note block in its header, so
+     `diff spec/wireframe/flow.css src/web/public/css/flow.css` shows any
+     later drift the way it already does for gallery.css, agreement.css and
+     pipeline.css. This is the first built page to link it.
+
+     THE SCRIPTS. api, nav, swarm, polish, staged, ui.
+       swarm.js  paints the .who avatar, the creature derived from the
+                 agent's DID (DESIGN.md 2.4, ENT-2.3).
+       polish.js sheets() gives every <dialog> here backdrop-click-to-close,
+                 which staged.js's own [data-closes] binding does not do;
+                 hits() runs the ripple polish.css draws as .btn::after; and
+                 navState() adds .nav.is-stuck, which polish.css styles and
+                 nothing else sets.
+       icons.js  is NOT loaded. Counted: spec/wireframe/staged.html declares
+                 0 [data-ico] hosts, this page declares 0, and staged.js
+                 creates 0, so the sprite would have nothing to paint.
+                 polish.js's two FAIcon calls are guarded (polish.js:66,571).
+
+     THE PAGE-LOCAL BLOCK IS THREE COMPONENTS AND ONE FLOOR, and every rule
+     the ported sheets own is gone from it: .rail, .railnow, .who, .acts,
+     .facts, .picker, .pickernote, .total, .fixed, .sheet, .sclose and .clock
+     are all flow.css's now, at flow.css's own values. That is not a
+     like-for-like swap everywhere and it is not meant to be: the balance
+     figure in the pay sheet goes from this page's old 34px to the
+     wireframe's 44px on desktop, dropping back to 34px under 420px through
+     flow.css's own rule.
+
+     Each survivor is here because NO sheet this page loads declares it.
+     Measured across tokens.css, base.css, polish.css and flow.css with
+     comments stripped and matching at selector position only: .urlcopy 0,
+     .diffline 0, .warn 0. The brief for this card named the first two; .warn
+     is the third and it dresses nine panels on this screen, so deleting it
+     on the brief's count would have stripped the left rule off every error
+     state the page has.
+
+     DEPARTURES FROM THE WIREFRAME are restated beside the markup each one
+     governs rather than listed here, so a reader meets the reason where the
+     departure is. */
+
+  /* The payment address as text with a copy control, which is this build's
+     departure from the wireframe's drawn .qr (spec/wireframe/staged.html:274).
+     The address comes back from POST .../payments/remainder/abt/start at
+     press time and nothing on this page draws a code, so there is no shared
+     component for the row; the .qr rules stay in the ported sheet and this
+     page never emits the class. */
+  .urlcopy { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+  .urlcopy input { flex: 1; min-width: 0; }
+
+  /* The +/- pair in the Lines fact. Page-local because no sheet this page
+     loads carries a .diffline selector; staged.js builds the two spans
+     (renderFacts). Neutral on both halves: an added line and a removed line
+     are the same kind of fact and neither is a verdict. */
   .diffline { font-family: var(--mono); font-size: 13px; }
   .diffline .add { color: var(--fg); }
   .diffline .del { color: var(--fg-2); }
-  .fixed { list-style: none; padding: 0; margin: 0; }
-  .fixed li { display: grid; grid-template-columns: 1fr auto; gap: 12px 16px; padding: 13px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
-  .fixed li:last-child { border-bottom: 0; padding-bottom: 0; }
-  .fixed .k { font-size: 15px; }
-  .fixed .v { font-family: var(--mono); font-size: 13px; color: var(--fg-2); text-align: right; }
-  .fixed .para { grid-column: 1 / -1; font-size: 14px; color: var(--fg-2); line-height: 1.6; max-width: 62ch; }
-  @media (max-width: 420px) { .fixed li { grid-template-columns: 1fr; } .fixed .v { text-align: left; } }
-  .acts { display: flex; flex-wrap: wrap; gap: 10px; }
-  .acts .btn { min-height: 44px; }
-  #pay-btn { min-height: 44px; }
-  #redo-send-btn { min-height: 44px; }
-  #decline-send-btn { min-height: 44px; }
-  .total .big { font-size: 34px; line-height: 1.05; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-  .total .parts { list-style: none; margin: 18px 0 0; padding: 0; font-size: 14px; color: var(--fg-2); }
-  .total .parts li { display: flex; justify-content: space-between; gap: 16px; padding: 6px 0; }
-  .total .parts .amt { font-family: var(--mono); font-size: 13px; color: var(--fg); flex: none; }
-  .total .parts li.sum { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 12px; color: var(--fg); }
-  .sheet { width: min(520px, calc(100vw - 24px)); max-height: calc(100vh - 48px); padding: 0; border: 0; border-radius: 14px; overflow: auto; background: var(--bg-1); color: var(--fg); }
-  .sheet::backdrop { background: rgba(4,4,6,0.72); }
-  .sheet .shead { display: flex; gap: 12px; padding: 20px 20px 0; }
-  .sheet .shead h2 { margin: 0; flex: 1; }
-  .sheet .sbody { padding: 14px 20px 20px; }
-  .sheet .sfoot { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 20px 20px; }
-  .sheet .sfoot .btn { min-height: 44px; }
-  .sclose { width: 44px; height: 44px; margin: -10px -8px 0 0; flex: none; border: 0; background: none; color: var(--fg-2); font-size: 22px; cursor: pointer; border-radius: var(--r); }
-  .urlcopy { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
-  .urlcopy input { flex: 1; min-width: 0; }
+
+  /* The left rule on this page's nine .empty error panels. Page-local for
+     the same reason as the two above, and the same rule agent.html,
+     credential.html, deposit.html, job.html, operator.html, operatorjob.html
+     and verify.html each declare locally: seven other built pages, counted. */
+  .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
+
+  /* THE 44px FLOOR ON THE COPY CONTROLS, UNCONDITIONAL.
+     flow.css already floors every other acting control on this screen:
+     `.acts .btn` (flow.css:580) covers the three choices, `.sheet .sfoot
+     .btn` (flow.css:610) covers all six controls in the three sheet
+     footers, and .sclose is declared 44x44 outright (flow.css:611-615).
+     The three [data-copy] buttons are .btn-sm and sit in neither
+     container, so base.css:129 declares them 32px and only base.css:543
+     raises that, under (max-width: 760px) or (pointer: coarse). Keyed on
+     [data-copy] rather than on three ids because that is the selector
+     ui.js:67 itself sweeps, so a fourth copy control added later inherits
+     the floor: the same call verify.html:136-142 already makes, for the
+     same reason.
+
+     THE RULE IS LOAD-BEARING, deleted from the live sheet and the buttons
+     re-measured: with it they are 44 tall at 1280, without it 32. At 320
+     under a coarse pointer they are 44 either way, and what the rule still
+     supplies there is the min-width.
+
+     WHERE EACH COPY BUTTON GETS ITS BOX. The two in #atttech have none
+     until the technical-details disclosure is opened. #scan-url-copy is in
+     the pay sheet and the disclosure never reaches it: it has no box until
+     #scan opens, and it has one then with the disclosure still closed.
+
+     THE SWEEP covered five states: the disclosure closed, the disclosure
+     opened, and each of the three dialogs opened on its own. Run in a real
+     headless Chrome at 1280 with a fine pointer and at 320 with a coarse
+     one. 30 controls reached. At 320, 27 clear 44 x 44. At 1280 eighteen
+     do, and the twelve that do not are these:
+
+       Eight nav controls, 24.8 or 32 tall, which nav.js renders into every
+       page. All eight measure the same text, width and height on /hire, a
+       page this card did not touch.
+
+       #scan-url at 414.2 x 40. It is an <input class="input mono">, floored
+       by base.css:138 at 40px and raised to 44px by base.css:544 under the
+       same touch query. It measures 414.2 x 40 on /deposit as well, which
+       ships the same .urlcopy row and which this card did not touch, so the
+       40px is the shared .input height and not this screen's to change
+       here.
+
+       The redo picker's three radios at 18 x 18. The radio is not the tap
+       target: the .picker label around it measures 480 x 47 at 1280 and
+       244 x 47 at 320, floored at 44px by flow.css:673-677, and a press at
+       the label's far edge, outside the radio's own box, checks the radio
+       and enables Send.
+
+     That measurement was a throwaway script run during this card, NOT a
+     committed gate, so it does not rerun: this page's committed coverage
+     (tests/web/staged.test.ts) reads declared rule text, because jsdom has
+     no layout engine. A rerunnable real-browser gate for this screen is a
+     gap, and this card's file list does not include a new test file to
+     close it in. */
+  [data-copy] { min-height: 44px; min-width: 44px; }
 </style>
 </head>
 <body>
@@ -110,38 +166,97 @@
       <div class="row" style="margin-top:14px"><a class="btn" id="declined-link">Back to this hire</a></div>
     </div>
     <div id="staged-body" hidden>
+      <!-- .av, not .avatar: that is the class flow.css:109 sizes and
+           polish.css:536 clips and fills, and it is what the wireframe
+           writes (spec/wireframe/staged.html:83).
+
+           THE MOUNT SHIPS EMPTY and stays empty until the real agent DID is
+           in hand: staged.js sets data-avatar and paints
+           window.FASwarm.avatar in the same breath. polish.js's generic
+           [data-avatar] sweep runs once at load, long before the agent read
+           resolves, so a mount waiting for the sweep would stay empty
+           forever; and a DID written into this file ahead of the read would
+           be an identity this page has not confirmed. Same mechanism
+           agent.js:164, agreement.js:104 and hire.js:91 use, line numbers
+           recounted against the tree rather than carried from the brief. -->
       <div class="who" id="who">
-        <div class="avatar" id="agent-avatar" data-pending></div>
+        <span class="av" id="agent-avatar" data-pending></span>
         <div>
           <div class="n"><span id="agent-name" data-pending>Loading this agent's record</span> <span class="hires" id="agent-hires"></span></div>
           <div class="r" id="repo-line"></div>
         </div>
       </div>
-      <div class="pane pane-pad" style="margin-bottom:36px">
+      <div class="pane pane-pad reveal" style="margin-bottom:36px">
         <ol class="rail">
           <li class="done">1&nbsp;&nbsp;Brief</li><li class="done">2&nbsp;&nbsp;Agreement</li><li class="done">3&nbsp;&nbsp;Deposit</li>
           <li class="on">4&nbsp;&nbsp;The work</li><li>5&nbsp;&nbsp;Pull request</li>
         </ol>
         <p class="railnow">Step 4 of 5: the work is ready.</p>
       </div>
-      <h1 style="margin:0">The work is ready</h1>
-      <p class="lede" id="lede" style="margin-top:10px"></p>
-      <div class="clock pane pane-pad" style="margin-top:28px">
+      <div class="glow">
+        <h1 style="margin:0">The work is ready</h1>
+        <p class="lede" id="lede" style="margin-top:10px"></p>
+      </div>
+      <!-- THE CLOCK, named before the facts because it is the thing that
+           changes what happens if the buyer does nothing. A date and a
+           consequence, never a draining bar: staged.js renders both halves
+           from LAPSE_AT_STAGED_AFTER_DAYS and the job's own stagedAt. -->
+      <div class="clock pane pane-pad reveal" style="margin-top:28px">
         <span class="days" id="clock-days"></span>
         <span class="then" id="clock-then"></span>
       </div>
       <h2 style="margin-top:40px; margin-bottom:6px">What is in the work</h2>
       <p class="sub" style="margin-bottom:18px">Measured from the staged commit by FreeAgents. These are facts about the change. We do not judge whether the work is good, and nothing below is a rating.</p>
-      <ul class="facts pane pane-pad" id="facts"></ul>
+      <!-- EVERY WIREFRAME DIGIT IN THIS LIST RENDERS LIVE. The wireframe's
+           9 paths, +186 / -94, 4 of 4 and its nine sample path names are one
+           example hire; renderFacts (staged.js) builds every row from the
+           signed attestation instead, so no fabricated fact about a real
+           agent's work can reach this markup.
+
+           SIX ROWS, NOT THE WIREFRAME'S SEVEN. "Files outside the paths you
+           agreed" is omitted: buildAttestation is called with
+           criteriaPaths: [] (app.ts:3787), and github.ts:89-90 computes
+           outOfCriteriaPathCount as the paths NOT in that set, so the field
+           structurally equals filesChanged on every hire this platform can
+           produce. Rendering it would put a second copy of the first row
+           under a label claiming it measures something else. P8k ruling 2;
+           the omission stands. -->
+      <ul class="facts pane pane-pad reveal" id="facts"></ul>
       <div id="choices-section">
         <h2 style="margin-top:40px; margin-bottom:6px">Your three choices</h2>
         <p class="sub" style="margin-bottom:18px">These are all of them. There is nothing else to do on this page.</p>
+        <!-- NO data-opens ON THESE THREE, and that is not an oversight.
+             staged.js binds all three itself (staged.js:510-568), because
+             pay has to POST and open the sheet on the response rather than
+             on the press: openScan writes the address the route returned
+             into #scan-url and into #scan-url-copy's data-copy BEFORE it
+             calls showModal (staged.js:529-542).
+
+             Reproduced in a real headless Chrome, with polish.js's own
+             data-opens listener (polish.js:541-548) attached to #pay-btn:
+             in the same task as the press the sheet is already open, with
+             #scan-url empty and data-copy empty, and the address arrives
+             only when the route answers. What that costs is a sheet
+             showing an empty address. It is not a throw: showModal() on a
+             dialog that is already MODALLY open returns without throwing,
+             measured alongside a positive control that does throw
+             (setAttribute "open", then showModal, gives
+             InvalidStateError). On #redo-btn and #decline-btn, which open
+             directly and issue no request on press, data-opens would be a
+             harmless second listener; they stay unmarked so all three
+             openers are bound in one place rather than two.
+
+             The dismissals below do carry data-closes. polish.js:550 and
+             staged.js:502 both bind them, so one press really does call
+             close() twice, counted in the browser. close() on an already
+             closed dialog returns without throwing and the dialog stays
+             closed, so the second call changes nothing. -->
         <div class="acts" id="acts">
           <button class="btn btn-primary" type="button" id="pay-btn" disabled>Loading</button>
           <button class="btn" type="button" id="redo-btn" hidden>Send it back once, free</button>
           <button class="btn" type="button" id="decline-btn" hidden>Decline the work</button>
         </div>
-        <ul class="fixed pane pane-pad" style="margin-top:22px" id="choices"></ul>
+        <ul class="fixed pane pane-pad reveal" style="margin-top:22px" id="choices"></ul>
         <div class="empty warn" id="pay-error" hidden style="margin-top:16px"><p class="sub" id="pay-error-detail"></p></div>
         <div class="empty warn" id="redo-error" hidden style="margin-top:16px"><p class="sub" id="redo-error-detail"></p></div>
         <div class="empty warn" id="decline-error" hidden style="margin-top:16px"><p class="sub" id="decline-error-detail"></p></div>
@@ -178,6 +293,14 @@
         <li class="sum"><span>Total</span><span class="amt" id="scan-total-2"></span></li>
       </ul>
     </div>
+    <!-- NO DRAWN QR (spec/wireframe/staged.html:274, .qr with three <i>).
+         The wireframe's own flow.css comment says a wireframe code either
+         encodes nothing, which is a dead control, or encodes something,
+         which invents a live payment request. This build has the real
+         thing: the one-time wallet address the route returns at press time,
+         in a readonly field with a copy control. The .qr rules stay in the
+         ported sheet for the screens that still draw one; this page never
+         emits the class. Same call deposit.html already made. -->
     <div class="urlcopy">
       <input class="input mono" id="scan-url" type="text" readonly aria-label="Wallet payment address">
       <button class="btn btn-sm" type="button" id="scan-url-copy" data-copy="">Copy</button>
@@ -185,6 +308,12 @@
     <p class="sub" style="margin-top:16px; max-width:none" id="scan-status">Scan with your DID Wallet and approve once. The payment is with your wallet and the chain: FreeAgents records it when it clears, and the pull request opens when the operator submits the work.</p>
     <div class="row" style="margin-top:14px" id="scan-pr-wrap" hidden><a class="btn btn-primary" id="scan-pr-link">See the pull request</a></div>
   </div>
+  <!-- NOT PORTED: the wireframe's <a class="btn" href="pullrequest.html">
+       Simulate: payment cleared</a> (spec/wireframe/staged.html:285). A
+       wireframe demo affordance that fakes a server response, and it must
+       never ship. "Check for the pull request" below is the real thing: it
+       re-reads GET /jobs/:jobId on a press and reveals the link only when
+       the job's own pullRequestUrl is present. -->
   <div class="sfoot">
     <button class="btn" type="button" data-closes>Close</button>
     <button class="btn" type="button" id="check-pr-btn">Check for the pull request</button>
@@ -194,6 +323,18 @@
   <div class="shead"><h2 id="redoh">Send it back once</h2><button class="sclose" type="button" data-closes aria-label="Close">&times;</button></div>
   <div class="sbody">
     <p class="sub" style="max-width:none">Which of the lines you both signed did the work miss?</p>
+    <!-- The rows are job.criteria in stored order, numbered the way
+         agreement.js numbers the same lines, not the wireframe's 01-07
+         fixture (P8k ruling 2). The pickernote is written to match, because
+         a note naming line 06 on an agreement with four lines is a note
+         about a different hire.
+
+         NOT PORTED: the wireframe's free-text field (#rwhy, lines 314-317).
+         POST /jobs/:jobId/redo reads { criterionIndex: number } and refuses
+         anything else (app.ts:4004-4009), and requestRedo stores the index
+         alone (job.ts:540-552). A field whose contents nothing reads and
+         nothing keeps is a control that lies about what it does. P8k
+         ruling 1; the omission stands. -->
     <ul class="picker" id="redo-picker"></ul>
     <p class="pickernote" id="redo-pickernote"></p>
     <p class="sub" style="margin-top:16px; max-width:none" id="redo-cost-note"></p>
@@ -207,6 +348,15 @@
   <div class="shead"><h2 id="dech">Decline the work</h2><button class="sclose" type="button" data-closes aria-label="Close">&times;</button></div>
   <div class="sbody">
     <p style="margin:0 0 14px">This ends the hire. It cannot be undone.</p>
+    <!-- FOUR CONSEQUENCE ROWS, NOT THE WIREFRAME'S FIVE. Its fifth,
+         "axiom-ui's record gains one declined hire" (line 344), has no
+         backing: BuyerConduct (src/domain/buyer-conduct.ts:39-58) counts
+         stagedDeclined on the BUYER's record and no agent-side or
+         operator-side declined count exists anywhere in this codebase.
+         Rendering it would state a fact about the agent's record that
+         nothing records. P8k ruling 3; the omission stands. The deposit
+         figure in row two is computed from the job's own priceUsd and
+         depositPercent, never the wireframe's literal $300. -->
     <ul class="fixed" id="decline-consequences"></ul>
     <p class="sub" style="margin-top:16px; max-width:none">No reason is asked for and none is recorded. FreeAgents does not decide whether the work was good.</p>
   </div>
@@ -224,6 +374,8 @@
 </footer>
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/swarm.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/staged.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
