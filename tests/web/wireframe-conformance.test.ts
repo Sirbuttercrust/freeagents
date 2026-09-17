@@ -535,7 +535,6 @@ describe('every built page carries its wireframe', () => {
   // to this set is never a fix. Empty set means the rebuild is complete.
   const NOT_YET_REBUILT = new Set([
     'conduct',
-    'deposit',
     'incoming',
     'job',
     'notfound',
