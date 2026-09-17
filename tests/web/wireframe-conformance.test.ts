@@ -426,13 +426,19 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // Group 1 (W7c): the wireframe draws the redo_requested state because
     // that is the state it chose to illustrate; the built page draws
     // whichever state the job is actually in
-    // (STATE_HEADINGS.redo_requested, operatorjob.js:76, written into
+    // (STATE_HEADINGS.redo_requested in operatorjob.js, written into
     // #state-heading, static text "Reading this job" in the file on
     // disk). Baking "A buyer sent it back" into static markup would show
     // that sentence on a job nobody sent back. Pinned by
     // tests/web/operatorjob.test.ts, "renders the state heading as
     // exactly \"A buyer sent it back\"".
-    'A buyer sent it back': 'STATE_HEADINGS.redo_requested (operatorjob.js:76) writes this into #state-heading only when the job\u2019s real status is redo_requested; the file on disk carries the static placeholder "Reading this job" because the heading must track whichever state the job is actually in, pinned by tests/web/operatorjob.test.ts, test "renders the state heading as exactly A buyer sent it back"',
+    //
+    // W-operatorjob: this entry used to cite operatorjob.js:76 for that
+    // constant. That card's edits to the file's header comment moved the
+    // line, so the citation is by identifier now, which does not go stale
+    // when anything above it moves. The reason string is data this file
+    // never reads (only the key is matched), so nothing here is relaxed.
+    'A buyer sent it back': 'STATE_HEADINGS.redo_requested (operatorjob.js) writes this into #state-heading only when the job\u2019s real status is redo_requested; the file on disk carries the static placeholder "Reading this job" because the heading must track whichever state the job is actually in, pinned by tests/web/operatorjob.test.ts, test "renders the state heading as exactly A buyer sent it back"',
     // Group 1 (W7c): the "Earlier:" prefix is only true once the job has
     // moved past draft/proposed (renderDrafting, operatorjob.js), so the
     // heading's tense is computed from the job's own status at render
@@ -554,7 +560,6 @@ describe('every built page carries its wireframe', () => {
   const NOT_YET_REBUILT = new Set([
     'conduct',
     'notfound',
-    'operatorjob',
   ]);
   const visualPages = builtPages.filter((n) => !NOT_YET_REBUILT.has(n));
 

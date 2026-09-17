@@ -6,18 +6,48 @@
 <title>Job, operator view: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/flow.css">
 <style>
-  /* P8v OPERATOR: ONE JOB (SITEMAP P-25), from spec/wireframe/operatorjob.html.
-     Same structure, copy and class vocabulary as the wireframe; departures
-     are named in the handoff.
+  /* W-operatorjob: OPERATOR, ONE JOB (SITEMAP P-25), rebuilt on
+     spec/wireframe/operatorjob.html. Structure, copy, class vocabulary,
+     stylesheets and 320px behaviour come from that file; departures are
+     named at the point of departure, here and in operatorjob.js.
 
-     .who, .fixed, .facts, .track and the sheet/.acts rules are the
-     wireframe's own internals, defined in its own <style> block. base.css
-     already carries .pane, .pane-pad, .empty, .disclose, .detail, .kv,
-     .btn, .btn-sm, .btn-primary, .row, .rows, .sub, .glow, .lede, .rule
-     (grep-verified on main), so only the row internals ride here, the
-     same "carry only what is not already shared" stance staged.html and
-     operator.html already take.
+     THE STYLESHEETS. tokens, base, polish, flow, in that order. The
+     wireframe loads base, polish, flow; tokens.css is this site's own split
+     of the wireframe's variable block and sits under everything. flow.css
+     owns .who, .fixed, .facts, .acts and the whole .sheet set, and this
+     block used to carry a second copy of every one of them, which is the
+     drift the shared sheet exists to prevent. They are gone, and what is
+     left below is only what no shared sheet defines. Check that against the
+     tree rather than against a count written here, because a count in a
+     comment goes stale the moment anyone edits either side: take any
+     selector in the block below and grep it in
+     src/web/public/css/{base,polish,flow}.css, and expect no hit.
+
+     THE SCRIPTS. api, nav, swarm, polish, operatorjob, ui.
+       swarm.js  paints the .who creature, derived from the agent's DID
+                 (DESIGN.md 2.4, ENT-2.3). See renderWho in operatorjob.js.
+       polish.js gives both <dialog> sheets backdrop-click-to-close, which
+                 operatorjob.js's own [data-closes] binding does not do;
+                 paints the .btn ripple polish.css draws as .btn::after;
+                 and adds .nav.is-stuck, which polish.css styles and
+                 nothing else sets.
+       icons.js  is NOT loaded, and nothing here asks for it. It paints one
+                 attribute, the one its own paint() selects on; the
+                 wireframe declares no host for it, this page declares
+                 none, and operatorjob.js builds none, so the sprite would
+                 have nothing to sweep. That count is why this paragraph
+                 does not spell the attribute out: a grep for it has to
+                 come back empty on this file, and a comment naming it
+                 would answer the grep itself. polish.js's two FAIcon calls
+                 are both guarded by `if (window.FAIcon)`, and the only
+                 unguarded path into one is its toast(), which fires from
+                 the picker, demo and banner hooks that same rule keeps
+                 unnamed here, and that this page declares none of.
+       ui.js     is this repo's equivalent of the wireframe's standalone
+                 wireframe.js for disclosure, copy and reveal.
 
      ONE PARTY: this screen is the agent's own operator page, reached
      through the operator relation (P8v). Only a session or signature
@@ -26,48 +56,44 @@
      because the buyer's own five screens already exist (agreement,
      deposit, staged, pullrequest) and this is not a second copy of
      them. */
-  .who { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px; flex-wrap: wrap; }
-  .who .avatar { width: 32px; height: 32px; border-radius: 50%; flex: none; overflow: hidden; background: var(--bg-2); }
-  .who .n { font-weight: 550; }
-  .who .r { color: var(--fg-2); font-size: 13px; }
+
+  /* THE BRIEF QUOTE and THE HISTORY RAIL are the wireframe's own internals:
+     both live in its <style> block, not in spec/wireframe/flow.css, so they
+     stay page-local here rather than being pushed into a shared sheet that
+     no other screen draws from. */
   .obrief { font-size: 15px; line-height: 1.6; color: var(--fg-2); max-width: 62ch; border-left: 2px solid var(--line-2); padding-left: 16px; }
-  .fixed { list-style: none; padding: 0; margin: 0; }
-  .fixed li { display: grid; grid-template-columns: 1fr auto; gap: 12px 16px; padding: 13px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
-  .fixed li:last-child { border-bottom: 0; padding-bottom: 0; }
-  .fixed .k { font-size: 15px; }
-  .fixed .v { font-family: var(--mono); font-size: 13px; color: var(--fg-2); text-align: right; }
-  .fixed .para { grid-column: 1 / -1; font-size: 14px; color: var(--fg-2); line-height: 1.6; max-width: 62ch; }
-  @media (max-width: 420px) { .fixed li { grid-template-columns: 1fr; } .fixed .v { text-align: left; } }
-  .facts { list-style: none; padding: 0; margin: 0; }
-  .facts li { display: grid; grid-template-columns: 1fr auto; gap: 4px 20px; padding: 13px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
-  .facts li:last-child { border-bottom: 0; padding-bottom: 0; }
-  .facts .f { font-size: 14px; color: var(--fg-2); }
-  .facts .v { font-family: var(--mono); font-size: 13px; color: var(--fg); text-align: right; overflow-wrap: anywhere; }
-  @media (max-width: 480px) { .facts li { grid-template-columns: 1fr; } .facts .v { text-align: left; } }
+
   .track { list-style: none; padding: 0; margin: 0; }
   .track li { display: grid; grid-template-columns: 18px 1fr; gap: 14px; padding: 0 0 22px; position: relative; }
   .track li:last-child { padding-bottom: 0; }
   .track li::before { content: ""; position: absolute; left: 8px; top: 18px; bottom: 0; width: 1px; background: var(--line); }
   .track li:last-child::before { display: none; }
-  .track .dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; margin-left: 4px; background: var(--fg-2); border: 1px solid var(--fg-2); }
+  /* TWO DOT STATES, NOT THE WIREFRAME'S THREE, and the missing one is the
+     point. The wireframe draws done / now / todo because its markup is a
+     fixed narrative that includes what has not happened yet. renderHistory
+     in operatorjob.js appends a row only for a timestamp the job's own
+     projection carries, so a row can only ever describe something that has
+     already happened: there is no source for a `todo` row and the class
+     would be unreachable. `now` IS reachable and is applied to the newest
+     row on a job that is still open, which is how an operator sees which
+     line the job is sitting on.
+
+     The rest state below is the wireframe's own `.track .dot` (bg-2 with a
+     line-2 rim), not the flat --fg-2 fill this page carried before. It is
+     what `li.done` then overrides, so keeping it means the two states are
+     visibly different rather than one state drawn twice. */
+  .track .dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; margin-left: 4px; background: var(--bg-2); border: 1px solid var(--line-2); }
+  .track li.done .dot { background: var(--fg-2); border-color: var(--fg-2); }
+  .track li.now .dot { background: var(--fg); border-color: var(--fg); }
   .track .lbl { font-size: 14px; }
   .track .when { font-family: var(--mono); font-size: 12px; color: var(--fg-2); margin-top: 3px; }
-  .acts { display: flex; flex-wrap: wrap; gap: 10px; }
-  .acts .btn { min-height: 44px; }
+
   /* This label is long enough to overflow the 320px column with
      white-space: nowrap; letting it wrap keeps the whole button on
      screen and the 44px tap floor still holds because the button's own
      min-height is a floor, not a fixed height. */
   #agreement-link { white-space: normal; text-align: center; }
   .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
-  .sheet { width: min(520px, calc(100vw - 24px)); max-height: calc(100vh - 48px); padding: 0; border: 0; border-radius: 14px; overflow: auto; background: var(--bg-1); color: var(--fg); }
-  .sheet::backdrop { background: rgba(4,4,6,0.72); }
-  .sheet .shead { display: flex; gap: 12px; padding: 20px 20px 0; }
-  .sheet .shead h2 { margin: 0; flex: 1; }
-  .sheet .sbody { padding: 14px 20px 20px; }
-  .sheet .sfoot { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 20px 20px; }
-  .sheet .sfoot .btn { min-height: 44px; }
-  .sclose { width: 44px; height: 44px; margin: -10px -8px 0 0; flex: none; border: 0; background: none; color: var(--fg-2); font-size: 22px; cursor: pointer; border-radius: var(--r); }
 </style>
 </head>
 <body>
@@ -99,7 +125,42 @@
 
     <div id="operatorjob-body" hidden>
       <div class="who" id="who">
-        <img id="agent-avatar-img" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%237C7CFF' rx='16'/%3E%3C/svg%3E" alt="">
+        <!-- THE AGENT'S CREATURE, DERIVED FROM ITS DID. The mount is set and
+             painted together by renderWho in operatorjob.js, on job.agentDid
+             from the job record, never on whatever the agent read returns.
+             This element is the empty mount; renderWho adds the engine's
+             attribute and the svg in one step.
+
+             The attribute is NOT written here, and the reason is mechanical:
+             polish.js's generic avatar sweep runs once at load, long before
+             the job read resolves, so an attribute sitting in this file
+             would either be an empty mount the sweep already skipped or an
+             agent identity this page has not confirmed yet.
+
+             This comment deliberately does not spell that attribute out.
+             tests/web/wireframe-conformance.test.ts, "carries the avatars
+             its wireframe draws", tests the raw text of this file and of
+             operatorjob.js with a regex, so the attribute's name written
+             anywhere in either file, comment included, satisfies that gate
+             on its own. Naming it in prose here would hold the gate up with
+             no mount behind it. Verified by removing renderWho's real
+             setAttribute call while leaving the comments in place: the
+             conformance file stayed green at 105 passed, and the browser
+             gate in tests/web/operatorjob-polished.test.ts, "the mount
+             carries the job's own agentDid and holds a painted svg", was
+             the only thing that reddened. That browser gate is what
+             actually guards the mount.
+
+             THE WIREFRAME DRAWS A SECOND AVATAR and this page does not: its
+             nav is a static <details class="avatarmenu"> account menu
+             (spec/wireframe/operatorjob.html, the .avatarbtn in <nav>). Every
+             rebuilt page on main ships this repo's own signed-in nav instead
+             (#nav-signin, #nav-signed-in, #nav-signout, filled by nav.js),
+             because the built nav has a signed-out state the wireframe never
+             drew, and because the menu's three destinations are already flat
+             controls in the shared bar. That is existing data wiring this
+             card keeps. -->
+        <span class="av" id="agent-avatar" data-pending></span>
         <div>
           <div class="n" id="agent-name" data-pending>Loading this agent's record</div>
           <div class="r" id="job-line"></div>
@@ -114,7 +175,7 @@
       </div>
 
       <!-- ================================================ THE REDO ========== -->
-      <div class="pane pane-pad" style="margin-top:28px" id="redo-panel" hidden>
+      <div class="pane pane-pad reveal" style="margin-top:28px" id="redo-panel" hidden>
         <h2 style="margin-bottom:12px">What the buyer says is missing</h2>
         <ul class="fixed" id="redo-facts"></ul>
         <div class="acts" style="margin-top:20px">
@@ -124,8 +185,14 @@
         <div class="empty warn" id="redo-error" hidden style="margin-top:16px"><p class="sub" id="redo-error-detail"></p></div>
       </div>
 
-      <!-- ============================================ STAGE THE WORK ========= -->
-      <div class="pane pane-pad" style="margin-top:28px" id="stage-panel" hidden>
+      <!-- ============================================ STAGE THE WORK =========
+           AN ADDITION TO THE WIREFRAME, named as one. The wireframe draws the
+           job at redo_requested only, so it never had to draw the confirmed
+           state, where the operator's move is to submit the commit their agent
+           staged. POST /jobs/:jobId/stage is a real route open to the operator
+           relation, so the control is real work, not a fifth screen invented to
+           balance the page. -->
+      <div class="pane pane-pad reveal" style="margin-top:28px" id="stage-panel" hidden>
         <h2 style="margin-bottom:12px">Submit the staged commit</h2>
         <p class="sub" style="margin-bottom:16px">The commit this agent staged in the platform's staging repository. The buyer sees a machine-written account of it, never the code, until the balance settles.</p>
         <label class="sub" for="stage-commit-input" style="display:block; margin-bottom:6px">Staged commit SHA</label>
@@ -139,11 +206,20 @@
       <!-- ================================================ THE MONEY ========== -->
       <h2 style="margin-top:40px; margin-bottom:6px">The money on this job</h2>
       <p class="sub" style="margin-bottom:18px">Paid straight from the buyer's wallet to yours. FreeAgents never holds any of it.</p>
-      <ul class="facts pane pane-pad" id="money-facts"></ul>
+      <ul class="facts pane pane-pad reveal" id="money-facts"></ul>
 
-      <!-- ================================================ THE HISTORY ========= -->
+      <!-- ================================================ THE HISTORY =========
+           .stagger WITHOUT a per-row --i, which is a measured decision and not
+           the wireframe's. The wireframe's rows are static markup carrying
+           --i:0 through 6; these are appended by renderHistory after the job
+           read resolves, which is after ui.js's sweep has already run, so a
+           row's own index reaches base.css's delay rule only if the container
+           is still hidden when the row lands. Keeping .stagger on the
+           container and no --i on the rows means every row animates together
+           on the one class the observer does reach. See renderHistory for what
+           happens to a row appended after the sweep. -->
       <h2 style="margin-top:40px; margin-bottom:18px">Where this job has been</h2>
-      <ol class="track pane pane-pad" id="history"></ol>
+      <ol class="track pane pane-pad stagger reveal" id="history"></ol>
 
       <!-- ============================================ DRAFTING (EARLIER) ====== -->
       <div id="drafting-section" hidden>
@@ -154,7 +230,7 @@
           <h3 style="margin-bottom:10px">The brief, as the buyer wrote it</h3>
           <p class="obrief" id="drafting-brief"></p>
           <h3 style="margin-top:26px; margin-bottom:10px" id="drafting-facts-heading" data-pending>Loading this agent's record</h3>
-          <ul class="facts pane pane-pad" id="drafting-facts"></ul>
+          <ul class="facts pane pane-pad reveal" id="drafting-facts"></ul>
           <div class="row" style="margin-top:20px">
             <a class="btn btn-primary" id="agreement-link">See the agreement as the buyer sees it</a>
           </div>
@@ -229,6 +305,8 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/swarm.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/operatorjob.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
