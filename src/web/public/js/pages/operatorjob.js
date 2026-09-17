@@ -22,9 +22,10 @@
    returned a plain boolean, collapsing "confirmed not the buyer" and
    "GET /accounts/:did did not answer ok" into the same false value --
    and false was the ADMIT branch for this screen's controls, so a
-   storage failure or an unregistered buyer DID (app.ts:1403-1415
-   answers 503 and 404 respectively, both ordinary) opened the agent's
-   controls to an unconfirmed caller. resolveIsBuyerParty now returns
+   storage failure or an unregistered buyer DID (the GET /accounts/:did
+   route in src/api/app.ts answers 503 and 404 respectively, both
+   ordinary) opened the agent's controls to an unconfirmed caller.
+   resolveIsBuyerParty now returns
    "buyer" / "not-buyer" / "unresolved"; onLoaded routes anything other
    than "not-buyer" to party-error, so an unresolved read is refused
    exactly like a confirmed buyer, never treated as cleared.
@@ -52,12 +53,20 @@
    projection does not carry a settlement timestamp for; see
    MONEY FACTS below); both redo dialogs render the consequence rows
    from the job's own real numbers (redoAllowance, redo.usedCount, the
-   price line) rather than the wireframe's fixed prose figures --
+   price line) rather than the wireframe's fixed prose figures,
    renderRedoConsequences below, joined to both dialogs, not just one.
+
+   W-operatorjob (the polish rebuild) adds two more, both in this file:
+   renderWho paints the .who creature from swarm.js on job.agentDid
+   instead of the server's agent.avatar field, and renderHistory sorts
+   its rows by their own timestamps and marks them done/now. Each is
+   argued where it is written.
 
    EVERYTHING THROUGH textContent: the brief, the repository and every
    criterion's text are buyer/agent-supplied strings, content, never
-   markup (api.js's own header rule). */
+   markup (api.js's own header rule). The one innerHTML in this file is
+   the swarm avatar, whose input is a DID and whose output is generated
+   svg, not a stored string. */
 (function () {
   "use strict";
   var A = window.FAApi;
@@ -131,17 +140,17 @@
   function hideAllPanels() { PANEL_IDS.forEach(function (id) { A.showById(id, false); }); }
 
   // Round 3 fix (qa D1, gate-fails-open): resolveIsBuyerParty used to
-  // collapse two different outcomes into one boolean. GET /accounts/:did
-  // (app.ts:1403-1415) genuinely answers 503 on any storage failure and
-  // 404 when the DID names no registered Account, so "the read did not
-  // confirm buyer" and "the read confirmed NOT buyer" are both reachable
-  // in production, not just in a test. On this screen the buyer is the
-  // party being EXCLUDED, so folding "could not confirm" into "not
-  // buyer" opened the agent/operator controls to a caller this page
-  // never actually cleared. resolveIsBuyerParty now returns one of three
-  // strings so the caller can tell "confirmed not the buyer" apart from
-  // "could not confirm" and route the second to party-error, same as a
-  // 403 from the server itself.
+  // collapse two different outcomes into one boolean. The
+  // GET /accounts/:did route (src/api/app.ts) genuinely answers 503 on
+  // any storage failure and 404 when the DID names no registered Account,
+  // so "the read did not confirm buyer" and "the read confirmed NOT
+  // buyer" are both reachable in production, not just in a test. On this
+  // screen the buyer is the party being EXCLUDED, so folding "could not
+  // confirm" into "not buyer" opened the agent/operator controls to a
+  // caller this page never actually cleared. resolveIsBuyerParty now
+  // returns one of three strings so the caller can tell "confirmed not
+  // the buyer" apart from "could not confirm" and route the second to
+  // party-error, same as a 403 from the server itself.
   function resolveIsBuyerParty(job_) {
     if (session === null || typeof job_.buyerDid !== "string" || job_.buyerDid === "") return Promise.resolve("not-buyer");
     return A.get("/accounts/" + encodeURIComponent(job_.buyerDid)).then(function (result) {
@@ -214,11 +223,77 @@
     A.setTextById("job-line", "job " + job_.id + " \u00b7 " + (typeof job_.repository === "string" ? job_.repository : ""));
     var agentDid = typeof job_.agentDid === "string" ? job_.agentDid : "";
     if (agentDid === "") return;
+
+    /* THE AVATAR IS PAINTED BY THE SWARM GENERATOR, NOT THE SERVER'S
+       agent.avatar FIELD. DESIGN.md 2.4 and ENT-2.3: an agent's creature
+       is derived from its DID and nothing else. swarm.js (window.FASwarm)
+       is the generator the polished pages standardise on; agent.avatar is
+       a separate, older server-rendered engine (src/api/avatar.ts's own
+       header names it a blobatar stand-in) that this page no longer
+       reads. A.setAvatar is left alone rather than deleted because it
+       still has a caller: `grep -rn "A\.setAvatar(" src/web/public/js/`
+       returns pullrequest.js and nothing else.
+
+       That sentence used to name four callers, inherited from the same
+       comment in staged.js, where it names five and is equally wrong.
+       The extra names are all pages that paint with FASwarm exactly as
+       this one does: job.js's two hits are both comments, one of them
+       the note sitting directly above its own FASwarm painter, and
+       `grep -c setAvatar` on deposit.js and myagents.js returns 0 for
+       each. Re-run the grep rather than trusting a count written in
+       prose, this one included.
+
+       The attribute is SET AND PAINTED IN THE SAME BREATH, here, on the
+       DID this page already holds from the job record rather than on
+       anything the agent read returns. polish.js's generic avatar sweep
+       runs once at load, long before this render, so a mount that waits
+       for the sweep stays empty forever; and an attribute written into
+       the markup ahead of the job read would be an agent identity this
+       page has not confirmed. Same mechanism staged.js's own renderWho
+       uses.
+
+       The setAttribute call below is the ONLY place that attribute's name
+       appears in this file, and the markup comment in operatorjob.html
+       explains at length why it stays that way: the conformance suite's
+       avatar check regexes the raw text of the page and this script, so
+       the name in a comment satisfies it with no mount behind it. Keep
+       prose references to it indirect, and let the browser gate in
+       tests/web/operatorjob-polished.test.ts do the guarding.
+
+       WHAT THIS ALSO FIXES. Before the rebuild the .who avatar was
+       `<img id="agent-avatar-img">` with no class attribute, while the
+       page-local rule meant to size it keyed off `.who .avatar`. Nothing
+       on the page carried that class, and neither api.js's setAvatar nor
+       this file ever added it, so the rule matched no element and the img
+       was left unsized: it took the width of the .who column instead of a
+       32px square. Re-derive the selector mismatch at the branch point
+       with `git show e597033:src/web/pages/operatorjob.html` and grep it
+       for `.who .avatar` against `class="avatar"`, which returns the rule
+       and no element.
+
+       Deliberately no pixel figure here. The measurement was real but its
+       inputs are deleted markup, so a reader cannot reproduce a number
+       from this tree, and a figure nobody can re-derive is worse than no
+       figure. What IS reproducible is pinned as a gate instead: the test
+       "the creature is a 32px square, not a column-width circle" in
+       tests/web/operatorjob-polished.test.ts asserts the mount measures
+       32px square in a real browser, asserts it is under a quarter of the
+       .who row's width so the full-column shape cannot come back, and
+       asserts `.who .avatar` still matches zero elements. The size comes
+       from flow.css's `.who .av` and polish.css's own copy of it, which
+       that test's disable-the-sheets control proves by making the same
+       mount change. */
+    var avatarEl = A.el("agent-avatar");
+    if (avatarEl && window.FASwarm) {
+      avatarEl.setAttribute("data-avatar", agentDid);
+      avatarEl.innerHTML = window.FASwarm.avatar(agentDid, 32);
+      avatarEl.removeAttribute("data-pending");
+    }
+
     A.get("/agents/" + encodeURIComponent(agentDid)).then(function (result) {
       var name = A.shortDid(agentDid);
       if (result.state === "ok") {
         name = typeof result.value.name === "string" && result.value.name !== "" ? result.value.name : agentDid;
-        A.setAvatar(A.el("agent-avatar-img"), result.value.avatar);
       }
       A.setTextById("agent-name", name);
     });
@@ -251,11 +326,17 @@
     host.textContent = "";
     host.appendChild(fixedRow("The line they cited", citedIndex === null ? "not recorded" : "criterion " + (citedIndex + 1), citedText));
     A.showById("redo-panel", true);
-    // Wireframe operatorjob.html:157: "Accept, and take N more days" states
-    // the real cost of accepting before the click, from
-    // REDO_LAPSE_EXTENSION_DAYS so the label can never drift from the
-    // behaviour requestRedo actually applies. Both the row button and the
-    // confirm-sheet button carry this exact label (wireframe:157,323).
+    // THE LABEL NAMES WHAT THE OPERATOR GETS BACK, which is the
+    // wireframe's own wording for this button ("Accept, and take 6 more
+    // days" on its .acts row and again in its accept sheet's footer).
+    // The built page keeps that wording and reads the number from
+    // REDO_LAPSE_EXTENSION_DAYS, so the label can never drift from the
+    // extension requestRedo actually applies; the wireframe's literal 6
+    // is its sample job's figure. The other candidate wording, "Accept,
+    // and restage", names what the operator must then DO rather than
+    // what accepting costs, and it survives where that instruction
+    // belongs: on the confirm sheet's heading, beside the commit field
+    // the restage actually needs. Both buttons carry this one label.
     var acceptLabel = "Accept, and take " + REDO_LAPSE_EXTENSION_DAYS + " more " + (REDO_LAPSE_EXTENSION_DAYS === 1 ? "day" : "days");
     A.setTextById("redo-accept-btn", acceptLabel);
     A.setTextById("accept-confirm-btn", acceptLabel);
@@ -366,6 +447,21 @@
   // THE HISTORY: every dated row this job's own projection carries.
   // Absent groups are absent from this list entirely, never a pending
   // row with an empty date (job.js's own rule, carried here).
+  //
+  // ROWS ARE SORTED BY THEIR OWN TIMESTAMP, which the fixed push order
+  // below cannot do on its own. A job whose redo was accepted stages
+  // AGAIN, so stagedAt is then newer than redo.requestedAt, and the push
+  // order rendered "Work staged" above "The buyer sent it back" on a job
+  // where the restage came second. Measured in a real browser on the
+  // polish-restaged fixture in tests/web/operatorjob-polished.test.ts,
+  // whose stagedAt is HOURS_AGO(0.2) and whose redo.requestedAt is
+  // HOURS_AGO(2): the two rows came out in push order, not in the order
+  // they happened. Read the offsets off that fixture rather than trusting
+  // a figure restated here, which is what this comment used to do and got
+  // wrong (it said ten minutes; HOURS_AGO(0.2) is twelve).
+  // The sort also decides which row is the newest, which is what the
+  // `now` class below is applied to, so getting it wrong would put the
+  // marker on the wrong line.
   function renderHistory(job_) {
     var rows = [];
     if (typeof job_.createdAt === "string" && job_.createdAt !== "") rows.push({ label: "Brief arrived", when: job_.createdAt });
@@ -381,10 +477,58 @@
     var mergedAt = typeof job_.mergedAt === "string" ? job_.mergedAt : null;
     if (mergedAt !== null) rows.push({ label: "Merged", when: mergedAt });
 
+    rows.forEach(function (row, i) { row.at = Date.parse(row.when); row.seq = i; });
+    rows.sort(function (a, b) {
+      // An unparseable timestamp keeps its pushed position rather than
+      // sorting to one end: Array.prototype.sort is stable, and NaN
+      // comparisons are all false, so falling back to the push order on
+      // either side keeps a row with a bad date where it was.
+      if (isNaN(a.at) || isNaN(b.at) || a.at === b.at) return a.seq - b.seq;
+      return a.at - b.at;
+    });
+
+    // THE STATE CLASSES. `done` on every row, because a row only exists
+    // for something that already happened; `now` on the newest row when
+    // the job is still open, which is the wireframe's own marker for the
+    // line a job is sitting on. A job at a terminal status gets no `now`:
+    // nothing is waiting, so nothing is current. `todo` is never applied
+    // and its rule is not shipped, because there is no source in the
+    // projection for a row about something that has not happened.
+    var open = !isTerminalStatus(typeof job_.status === "string" ? job_.status : "");
     var host = A.el("history");
     host.textContent = "";
-    rows.forEach(function (row) { host.appendChild(historyRow(row)); });
+    rows.forEach(function (row, i) {
+      var li = historyRow(row);
+      li.className = open && i === rows.length - 1 ? "now" : "done";
+      host.appendChild(li);
+    });
+
+    /* REVEAL, FOR ROWS THAT ARRIVE AFTER THE SWEEP. ui.js's reveals()
+       runs at DOMContentLoaded and observes the CONTAINER, which is in
+       the markup from the start, so the observer is already watching
+       #history before any of these rows exist. What the rows inherit is
+       the container's own `.is-in`, since base.css styles
+       `.js-reveal .stagger > *` off the parent's class rather than off
+       the children. Two orders are possible and both land on visible
+       content: if the container is revealed before this render, the rows
+       are appended into an already-`.is-in` container and are at their
+       finished state immediately; if it is revealed after, they fade in
+       with it. The per-row `--i` the wireframe's static rows carry is
+       not set here for the same reason: its delay only applies while the
+       container is still animating, so it would stagger some loads and
+       not others. */
   }
+
+  // Pinned to src/domain/job.ts's own TERMINAL_STATUSES (the same stance
+  // REDO_LAPSE_EXTENSION_DAYS above takes: a browser constant a test pins
+  // against the domain's own value, rather than this page inventing a
+  // second definition of what "finished" means).
+  var TERMINAL_STATUSES = [
+    "completed", "declined", "closed_unmerged", "withdrawn",
+    "staged_declined", "closed_unpaid", "expired_unstaged",
+    "deemed_completed", "cited_closed"
+  ];
+  function isTerminalStatus(status) { return TERMINAL_STATUSES.indexOf(status) !== -1; }
 
   function historyRow(row) {
     var li = document.createElement("li");
@@ -403,12 +547,20 @@
   }
 
   // DRAFTING (EARLIER): the brief and the drafted facts, side by side, the
-  // same "earlier state on the same page" shape the wireframe draws
-  // (operatorjob.html:261-296). Renders for every status, since the brief
-  // and the draft are facts about the job that stay true once it has moved
-  // on; only the heading's tense changes, because draft/proposed's OWN
-  // present is the draft the wireframe illustrates. The link to /agreement
-  // goes there rather than duplicating that screen (wireframe:298).
+  // same "earlier state on the same page" shape the wireframe draws under
+  // its own "Earlier: drafting the agreement" heading. Renders for every
+  // status, since the brief and the draft are facts about the job that stay
+  // true once it has moved on.
+  //
+  // THE WORD "Earlier" IS COMPUTED, NOT BAKED IN, and that is the decision
+  // this section makes against the wireframe. The wireframe draws one job at
+  // one state (redo_requested), where the drafting is genuinely history, so
+  // its heading can say so in static markup. This page draws whichever state
+  // the job is in, and on a draft or proposed job the drafting is the
+  // present: it is the thing the operator is being asked to do. So the word
+  // that tells an operator "this is history" is applied exactly when it is
+  // true, and withheld when it would be wrong. The link goes to /agreement
+  // rather than duplicating that screen.
   function renderDrafting(job_) {
     var stillDrafting = job_.status === "draft" || job_.status === "proposed";
     var confirmedAt = typeof job_.confirmedAt === "string" ? job_.confirmedAt : null;
@@ -429,9 +581,10 @@
     A.showById("drafting-section", true);
   }
 
-  // The wireframe's five rows (operatorjob.html:284-288), each read from
-  // the job's own projection or the agent's own record, never a fixture
-  // figure. floorPriceUsd is nullable (P1, scope item 5: no floor set means
+  // The wireframe's five .facts rows (Criteria, Price, Delivery, the price
+  // floor, and whether the quote cleared it), each read from the job's own
+  // projection or the agent's own record, never a fixture figure.
+  // floorPriceUsd is nullable (P1, scope item 5: no floor set means
   // no filter at all), so an operator who never set one gets no floor row
   // and no "above your floor" row rather than a fabricated zero.
   function renderDraftingFacts(job_) {
