@@ -539,11 +539,6 @@ describe('every built page carries its wireframe', () => {
     'deposit',
     'incoming',
     'job',
-<<<<<<< HEAD
-    'myjobs',
-=======
-    'myagents',
->>>>>>> 2b1ebed (W-myjobs: rebuild the my-jobs page on the polished wireframe)
     'notfound',
     'operatorjob',
     'outcomes',
