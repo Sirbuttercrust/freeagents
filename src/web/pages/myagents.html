@@ -18,9 +18,15 @@
      tokens.css is this repo's split of the wireframe's token block and
      stays first.
 
-     WHAT polish.css ACTUALLY DOES HERE, measured rather than assumed: of
-     its 125 top-level rules, 15 can select something on this page. Two of
-     them are why the sheet is load-bearing rather than decorative:
+     WHAT polish.css ACTUALLY DOES HERE, measured rather than assumed. The
+     sheet holds 83 style rules at top level and 19 top-level at-rules,
+     with 42 more style rules nested inside those at-rules, so 125 style
+     rules counting every depth. Of those 125, 17 match something this page
+     renders, counting a ::after rule as matching when the element it hangs
+     off exists. That 17 is the same at 1280, 1080, 760, 700, 420 and 320,
+     under touch emulation at 1280, 760 and 320, under reduced motion, and
+     with the counts disclosure open. Two of the 17 are why the sheet is
+     load-bearing rather than decorative:
 
        polish.css:621  .arow .nm, .agent .nm { min-height: 44px; ... }
                        written FOR this page's row-name link, under the same
@@ -36,18 +42,27 @@
                        painted glyph at 13px in a real browser, so dropping
                        this sheet reddens a test rather than passing quietly.
 
-     WHAT market.css DOES HERE: nothing, and that is the honest answer. The
-     sheet declares 56 class names and one non-class selector, :root.
-     Intersected against every class this page's markup and script can
-     produce, exactly one name matches, ico, and market.css never selects
-     .ico alone: its .ico rules are all compound (.pverified .ico,
-     .acard-ev .hires .ico and the rest), and this page's markup satisfies
-     none of them. All seven of its :root custom properties
-     (--cat-frontend, --cat-backend, --cat-infra, --cat-data, --cat-testing,
-     --w-wide, --unverified-fg) are read only by rules inside market.css
-     itself. So market.css contributes no computed value to any element on
-     this screen. It ships because the binding wireframe loads it and
-     because signin.html and verify.html set the precedent of carrying the
+     WHAT market.css DOES HERE: nothing this page reads, and that is the
+     honest answer. The sheet declares 56 class names counting every
+     nesting depth (55 at top level, copybtn only inside a media query)
+     and one selector part that is not a class, :root. Intersected against
+     every class this page's markup and script can produce, exactly one
+     name matches, ico, and market.css never selects .ico alone: its .ico
+     rules are all compound (.pverified .ico, .acard-ev .hires .ico and the
+     rest), and this page's markup satisfies none of them. All seven of its
+     :root custom properties (--cat-frontend, --cat-backend, --cat-infra,
+     --cat-data, --cat-testing, --w-wide, --unverified-fg) are read only by
+     rules inside market.css itself, checked against comment-stripped
+     source so the sentence you are reading does not count as a reader.
+     So the only thing market.css contributes here is those seven values,
+     which inherit onto every element and which no rule on this page reads.
+     Disabling the sheet in the live CSSOM and re-enabling it moves none of
+     the 475 standard computed properties Chrome reports, on any element,
+     in both directions, at 1280 and at 320 under touch. The same probe
+     reports every element changed when base.css is disabled instead, so
+     the zero is a fact about market.css rather than a dead instrument.
+     It ships because the binding wireframe loads it and because
+     signin.html and verify.html set the precedent of carrying the
      wireframe's full sheet list rather than a hand-pruned one.
 
      .arow, .rav, .nm, .ds, .attn and .right/.ev are the wireframe's own row
@@ -65,20 +80,37 @@
      swarm.js emits its SVG with style="display:block;overflow:visible" and
      fits the viewBox to the creature's own cells (svgWrap over stableBox),
      then draws a contact-shadow ellipse UNDER the creature's feet, outside
-     that fitted box (swarm.js:1971). Measured over 24 generated identities
-     in headless Chrome, attributing the escaping ink to a specific element:
-     the shadow lands below the viewBox on 10 of the 24, worst 10.91px,
-     while the creature's own cells land outside it on 0 of the 24. Nothing
-     escapes sideways at all, so none of this ever reaches the name column;
-     what it reaches is the row beneath, and on the last row the pane's
-     bottom edge.
+     that fitted box (swarm.js:1971).
 
-     So the clip costs no anatomy, only a drop shadow that has nothing to
-     sit on once the creature is inside a 40px disc. That is the same
-     treatment .acard-av gives the same generator on the browse and
-     operator cards, border-radius 50% with overflow hidden
-     (market.css:145-155). The wireframe already asked for the circle here;
-     this is what makes the circle a boundary rather than a suggestion.
+     WHAT THE CLIP REMOVES, measured two ways over 28 generated identities
+     spanning all 8 species the generator produced for that sample, at the
+     shipped 40px, in headless Chrome.
+
+     Against the fitted viewBox, which is a square: the shadow falls below
+     it on 17 of the 28, worst 10.91px, and the creature's own cells fall
+     outside it on 0 of the 28. Nothing escapes sideways on any sample.
+
+     But the clip is a CIRCLE, not that square, so the viewBox is the wrong
+     boundary to measure against and a cell can sit inside it and still be
+     cut. Rasterising each creature at 400px and masking a copy by the disc,
+     shadow excluded so only anatomy is in frame: the disc trims real cells
+     on 13 of the 28, 10 of them by at least half a square pixel. The worst
+     is a mantis at 18.77 square px, 3.8 percent of that creature's own ink,
+     and the deepest single cut reaches 2.69px past the disc edge. It is
+     always the outer tips of the front and rear limbs, never the head,
+     thorax, abdomen or wings, so each silhouette still reads as its own
+     species. Both instruments carry a control: a square planted in the
+     viewBox corner, inside the square and outside the disc, is reported
+     removed, and a small centred circle is reported untouched.
+
+     So the clip costs the outermost limb pixels on about half the
+     identities, and buys a boundary the row can rely on. The alternative is
+     a drop shadow and a few limb tips landing on the row beneath, and on
+     the last row on the pane's bottom edge. That is the same treatment
+     .acard-av gives the same generator on the browse and operator cards,
+     border-radius 50% with overflow hidden (market.css:145-155). The
+     wireframe already asked for the circle here; this is what makes the
+     circle a boundary rather than a suggestion.
      tests/web/myagents-polished.test.ts holds the line in a real browser. */
   .arow .rav { width: 40px; height: 40px; border-radius: 50%; display: block; overflow: hidden; }
   .arow .nm { font-size: 15px; font-weight: 550; }

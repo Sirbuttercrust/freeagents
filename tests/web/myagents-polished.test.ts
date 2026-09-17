@@ -327,22 +327,71 @@ describe('2. the avatar mount is real, not a string that satisfies a regex', () 
     }
     // swarm.js draws a contact shadow below the creature, outside the fitted
     // viewBox. Without the clip it falls into the next row.
-    const boxes = await withPage(1280, (b) => b.evaluate<Array<{ did: string; overflow: string; svgBottomOutside: number }>>(`
-      Array.prototype.map.call(document.querySelectorAll('.arow .rav'), function (rav) {
-        var svg = rav.querySelector('svg');
-        var hb = rav.getBoundingClientRect();
-        var sb = svg.getBoundingClientRect();
-        return {
-          did: rav.getAttribute('data-avatar'),
-          overflow: getComputedStyle(rav).overflow,
-          svgBottomOutside: +(sb.bottom - hb.bottom).toFixed(2)
-        };
-      })
-    `));
-    expect(boxes.length).toBe(4);
-    for (const box of boxes) {
-      expect(box.overflow, `${box.did}: the avatar box does not clip`).toBe('hidden');
-      expect(box.svgBottomOutside, `${box.did}: art extends below the avatar box`).toBeLessThanOrEqual(0);
+    //
+    // This hit-tests the CLIP'S EFFECT rather than the svg's box. The box is
+    // useless here: swarm.js writes width and height equal to the mounted
+    // size and display:block, so the svg border box is always exactly the
+    // 40x40 host and `svg.bottom - host.bottom` is structurally 0 whether or
+    // not ink escapes. That was the vacuous assertion this replaces.
+    //
+    // elementsFromPoint answers the question the sentence above actually
+    // asks: at a point outside the disc, is this avatar's art there? It is
+    // hit testing, so it respects the clip. The control at the bottom of
+    // this test removes the clip and requires the same sweep to redden.
+    const RING = `
+      window.__ringProbe = function (unclip) {
+        return Array.prototype.map.call(document.querySelectorAll('.arow .rav'), function (rav) {
+          if (unclip) rav.style.overflow = 'visible';
+          var svg = rav.querySelector('svg');
+          var r = rav.getBoundingClientRect();
+          var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+          var pts = [];
+          // 36 points on a ring 2px outside the mount, plus a strip running
+          // 14px below it, which is where the contact shadow falls.
+          for (var i = 0; i < 36; i++) {
+            var a = (i / 36) * Math.PI * 2;
+            pts.push([cx + Math.cos(a) * (r.width / 2 + 2), cy + Math.sin(a) * (r.height / 2 + 2)]);
+          }
+          for (var dy = 1; dy <= 14; dy++) pts.push([cx, r.bottom + dy]);
+          var hits = 0;
+          pts.forEach(function (p) {
+            var stack = document.elementsFromPoint(p[0], p[1]);
+            for (var i = 0; i < stack.length; i++) {
+              if (stack[i] === svg || svg.contains(stack[i])) { hits++; return; }
+            }
+          });
+          if (unclip) rav.style.overflow = '';
+          return { did: rav.getAttribute('data-avatar'), overflow: getComputedStyle(rav).overflow,
+                   sampled: pts.length, outside: hits };
+        });
+      };
+      true;
+    `;
+    const { shipped, unclipped } = await withPage(1280, async (b) => {
+      await b.evaluate(RING);
+      return {
+        shipped: await b.evaluate<Array<{ did: string; overflow: string; sampled: number; outside: number }>>(
+          'window.__ringProbe(false)',
+        ),
+        unclipped: await b.evaluate<Array<{ did: string; outside: number }>>('window.__ringProbe(true)'),
+      };
+    });
+
+    expect(shipped.length).toBe(4);
+    for (const row of shipped) {
+      expect(row.overflow, `${row.did}: the avatar box does not clip`).toBe('hidden');
+      expect(row.sampled, `${row.did}: the probe sampled nothing, so its zero means nothing`).toBe(50);
+      expect(row.outside, `${row.did}: art is painting outside the 40px disc`).toBe(0);
+    }
+
+    // The control, in the same run: with the clip removed, every mount must
+    // report art outside the disc. Without this, a zero above could mean the
+    // probe is blind rather than the page is clean.
+    for (const row of unclipped) {
+      expect(
+        row.outside,
+        `${row.did}: removing the clip changed nothing, so the assertion above cannot fail`,
+      ).toBeGreaterThan(0);
     }
   });
 });
