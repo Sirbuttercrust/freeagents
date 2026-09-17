@@ -536,7 +536,6 @@ describe('every built page carries its wireframe', () => {
   const NOT_YET_REBUILT = new Set([
     'conduct',
     'incoming',
-    'job',
     'notfound',
     'operatorjob',
     'outcomes',

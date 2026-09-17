@@ -6,14 +6,26 @@
 <title>Job: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
 <style>
-  /* P8f JOB, rebuilt from spec/wireframe/job.html (W4). One hire, read top
-     to bottom (DESIGN.md 1.2 rule 3): who, the job named by its own id, a
-     dated track of what the platform observed, the two controls a person
-     actually wants (the receipt, the pull request), and one plain
-     paragraph saying whose hands did what. Everything a skeptic wants
-     sits behind the technical disclosure, credential.html's own pattern
+  /* P8f JOB, rebuilt from spec/wireframe/job.html (W4), then rebuilt onto
+     the polished visual system (W-job). One hire, read top to bottom
+     (DESIGN.md 1.2 rule 3): who, the job named by its own id, a dated
+     track of what the platform observed, the two controls a person
+     actually wants (the receipt, the pull request), and an attributed
+     record of whose hands did what. Everything a skeptic wants sits
+     behind the technical disclosure, credential.html's own pattern
      (DESIGN.md 1.2 rule 2).
+
+     THE POLISHED STACK (W-job). The wireframe loads base.css and
+     polish.css; this page loaded neither polish.css nor the three
+     scripts the wireframe runs, so it carried every heading the design
+     drew while wearing none of its visual system. polish.css is not
+     decoration here: .whodid's own glyph (.ico, polish.css:46), the
+     .copybtn tick morph (:301) and .who .av, the generated DID creature
+     that replaces the old server-supplied image (:536), all live in that
+     sheet and render as empty boxes without it. It is loaded, never
+     ported: the file already shipped at src/web/public/css/polish.css.
 
      PUBLIC, NO SESSION: GET /jobs/:jobId carries no party check, and
      neither does this page. Same URL serves both a browser (this page)
@@ -24,11 +36,12 @@
     display: flex; align-items: center; gap: 12px;
     padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 28px;
   }
-  .who .avatarbox {
-    width: 32px; height: 32px; border-radius: 50%; flex: none;
-    display: block; overflow: hidden; background: var(--bg-2);
-  }
-  .who .avatarbox svg { width: 100%; height: 100%; display: block; }
+  /* .who .av is left to polish.css (:536), which sizes the 32px disc AND
+     renders it as the generated DID creature. The page-local .avatarbox
+     rules this replaced restated the size and the clip and nothing else,
+     so keeping them would have pinned the flat server-supplied image the
+     polished pass exists to retire. Same call agreement.html:35-38
+     already recorded for the same strip. */
   /* D1 mobile-horizontal-overflow (qa round 1): the middle flex child
      (name + operator line) has a default min-width:auto, so a nowrap
      operator DID floors it wider than the strip has room for at 320px
@@ -68,15 +81,34 @@
 
   .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
 
-  /* The no-write-access statement (spec/wireframe/job.html:72). Its own
-     visually distinct block rather than a paragraph among others, because
-     this is the single fact a buyer evaluating whether to trust the
-     product most needs to notice, not skim past. */
-  .accessline { font-size: 14px; line-height: 1.55; color: var(--fg-2); }
-  .accessline b { color: var(--fg); }
+  /* WHO DID WHAT (spec/wireframe/job.html:83-100, 185-202). Invariant 1
+     stated as attribution rather than as a paragraph: a buyer looking at
+     merged work might assume the platform did more than watch, and rows
+     keyed by actor answer that faster than a block of sentences making
+     the same points. Ported from the wireframe verbatim except for the
+     copy, which is this build's true mechanism and not the wireframe's
+     fork story (see the comment on the box in the markup below). */
+  .whodid { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; max-width: 60ch; }
+  .whodid-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 16px; border-bottom: 1px solid var(--line);
+    font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--fg-3); background: var(--bg-1);
+  }
+  .whodid-row { display: grid; grid-template-columns: 120px 1fr; gap: 16px; padding: 12px 16px; align-items: start; }
+  .whodid-row + .whodid-row { border-top: 1px solid var(--line); }
+  .wd-who { font-size: 14px; font-weight: 550; color: var(--fg); overflow-wrap: anywhere; }
+  .wd-what { font-size: 14px; color: var(--fg-2); line-height: 1.55; }
+  /* The row that says what we did NOT do is the point of the box, so it
+     is the quiet one: no emphasis, which is itself the message. */
+  .whodid-row.is-none .wd-who { color: var(--fg-2); }
 
   @media (max-width: 640px) {
     .claim { font-size: 18px; }
+  }
+
+  @media (max-width: 620px) {
+    .whodid-row { grid-template-columns: 1fr; gap: 3px; }
   }
 
   @media (max-width: 480px) {
@@ -128,7 +160,7 @@
          blanks the primary record (falls back to the shortened DID, no
          avatar, no operator line). -->
     <div class="who" id="who" hidden>
-      <div class="avatarbox" id="who-avatar" aria-hidden="true"></div>
+      <span class="av" id="who-avatar" data-pending></span>
       <div class="mid">
         <div class="n" id="who-agent-name" data-pending></div>
         <div class="r" id="who-operator-line" hidden>operated by <a id="who-operator-link"></a></div>
@@ -202,14 +234,32 @@
 
 <hr class="rule">
 
-<!-- THE CRITICAL SENTENCE (spec/wireframe/job.html:154). Never the
-     wireframe's fork story: B14a made the platform create a staging
-     repository it owns and open the pull request itself, at the commit
-     the agent attested. FreeAgents never has write access to the buyer's
-     repository and cannot be given it; only the buyer's own click on
-     GitHub merges it. -->
+<!-- THE CRITICAL SENTENCE (spec/wireframe/job.html:181-202), as the
+     wireframe draws it: attribution, not a paragraph. A buyer looking at
+     merged work might assume the platform did more than watch, and rows
+     keyed by actor answer that faster than a block of prose making the
+     same points. W-job ports the SHAPE and keeps this build's WORDING.
+
+     NEVER THE WIREFRAME'S FORK STORY. Its rows say the agent forked the
+     buyer's repository and opened the pull request from its own GitHub
+     account. That was true when it was drawn and is not true now: B14a
+     made the platform create a staging repository it owns, grant the
+     agent push THERE, and open the pull request itself at the commit
+     the agent attested (src/api/app.ts:3560-3575). FreeAgents never has
+     write access to the buyer's repository and cannot be given it; only
+     the buyer's own click on GitHub merges it.
+
+     Rows are built by job.js, because which of them is TRUE depends on
+     the job's own state: a draft has no pull request and no merge, so a
+     row asserting either would be a fact the page never read. -->
 <div class="wrap section-sm">
-  <p class="accessline" id="accessline" data-pending></p>
+  <div class="whodid">
+    <div class="whodid-head">
+      <span class="ico ico-sm" data-ico="lock"></span>
+      Who did what
+    </div>
+    <div id="whodid-rows"></div>
+  </div>
 </div>
 
 <hr class="rule">
@@ -255,12 +305,12 @@
       <div id="tech" class="detail">
         <div class="kv">
           <div><dt>Job id</dt><dd id="tech-id"></dd></div>
-          <button class="btn btn-sm" type="button" id="tech-id-copy" data-copy="">Copy</button>
+          <button class="btn btn-sm copybtn" type="button" id="tech-id-copy" data-copy=""><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
         </div>
         <div><dt>Fingerprint of the brief</dt><dd id="tech-brief-hash"></dd></div>
         <div class="kv" id="tech-spec-hash-wrap" hidden>
           <div><dt>Fingerprint of the confirmed agreement</dt><dd id="tech-spec-hash"></dd></div>
-          <button class="btn btn-sm" type="button" id="tech-spec-hash-copy" data-copy="">Copy</button>
+          <button class="btn btn-sm copybtn" type="button" id="tech-spec-hash-copy" data-copy=""><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
         </div>
         <div id="tech-criteria-wrap" hidden>
           <dt>Criteria as confirmed</dt>
@@ -288,6 +338,9 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/swarm.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/job.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
