@@ -6,9 +6,12 @@
 <title>Page not found: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
 <style>
-  /* P-25 NOT FOUND. What was not found, and the two most useful ways on:
-     browse, or how it works.
+  /* P-29 NOT FOUND. What was not found, and the two most useful ways on:
+     browse, or how it works. (SITEMAP.md section 7. The wireframe's own
+     comment reads P-25, which is the operator job page since the renumber
+     SITEMAP.md records at its section 1.)
 
      Short page, calm, no jokes. A person who followed a broken link is
      mildly annoyed, not in the mood for whimsy, and a marketplace selling
@@ -17,7 +20,24 @@
      tier and no verify affordance: it is the one screen in the product that
      is genuinely just a system state. */
 
-  .card { max-width: 480px; margin: 0 auto; text-align: center; }
+  /* .narrow is the wireframe's own name for this column, and it comes back
+     here after shipping as .card. polish.css declares .card as a real
+     component, so once that sheet loads two component definitions land on
+     one element. Measured on this markup with polish.css loading: .card
+     gave the pane a flat rgb(14, 15, 17) fill in place of its gradient, a
+     1px border, a 12px radius and 18/20 padding, against the pane's own 0
+     border, 14px radius and 22/24. Not an accent on a pane, a replacement
+     of one.
+
+     The 480 below is load-bearing and the wireframe's, not a restatement of
+     a shipped rule: deleting this rule from document.styleSheets in the
+     running page took the pane to 640, which is base.css:85's .narrow. This
+     block loads after base.css, so the narrower value wins where it is
+     written rather than by an !important. */
+  .narrow { max-width: 480px; margin: 0 auto; text-align: center; }
+
+  /* Page-local because no shipped sheet owns it. Enumerated from the CSSOM
+     across every sheet this page loads: .code is declared once, here. */
   .code { font-family: var(--mono); font-size: 13px; color: var(--fg-3); letter-spacing: 0.02em; }
 </style>
 </head>
@@ -25,13 +45,17 @@
 
 <nav class="nav">
   <div class="wrap inner">
-    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <a class="brand" href="/" aria-label="FreeAgents home"><span class="mark"></span>FreeAgents</a>
     <div class="links">
       <a href="/browse">Browse</a>
       <a href="/how">How it works</a>
     </div>
     <div class="spacer"></div>
     <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
+    <!-- The wireframe's bar is signed-out only. This block is the signed-in
+         half nav.js fills, and it is on every page carrying the nav, so it
+         stays. Both states were measured at 320: no horizontal overflow and
+         nothing under the 44px floor in either. -->
     <div class="row" id="nav-signed-in" hidden>
       <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
     </div>
@@ -39,10 +63,20 @@
 </nav>
 
 <div class="wrap section" style="padding-top:90px; padding-bottom:100px">
-  <div class="pane pane-pad reveal card">
+  <!-- data-reveal is the wireframe's marker and no shipped script reads it:
+       ui.js:100 selects ".reveal, .stagger", so the CLASS drives the motion.
+       Measured by removing the attribute and re-running ui.js, after which
+       the pane still took .is-in. It is carried anyway because the wireframe
+       writes it and a gate can key on it (tests/web/verify-polished.test.ts
+       asserts it on that page's hero), not because it animates anything. -->
+  <div class="pane pane-pad reveal narrow" data-reveal>
     <p class="code" style="margin-bottom:16px">404</p>
 
-    <div class="empty center">
+    <!-- The wireframe puts style="text-align:center" here. It is a
+         restatement: the centring comes from .narrow on the pane and
+         inherits. Measured by setting the pane to text-align:left, which
+         took this block to left, and restoring it, which took it back. -->
+    <div class="empty">
       <b>We could not find that page.</b>
       <p class="sub" style="margin:10px auto 0; max-width:40ch">
         The link may be old, or the address may be mistyped. Nothing was
@@ -57,6 +91,14 @@
   </div>
 </div>
 
+<!-- The wireframe writes this footer as an inline style over four static
+     anchors. .foot states the same rules from base.css: border, margin,
+     display, wrap, gap, padding, font size, colour and column width all
+     measured identical between the two. What the class adds is base.css:433's
+     44px floor on every footer link, where the wireframe's own footer
+     measured 21px tall. The last two links arrive at serve time from
+     sourceLinks() in src/web/static.ts, so a deployment with no source URL
+     configured renders two links rather than two dead ones. -->
 <footer class="foot">
   <div class="wrap inner">
     <a href="/how">How it works</a>
@@ -65,8 +107,25 @@
   </div>
 </footer>
 
+<!-- The wireframe loads wireframe.js, icons.js and polish.js. wireframe.js is
+     the spec set's standalone script; ui.js is this repo's home for the
+     reveal behaviour. api.js and nav.js are page wiring the wireframe has no
+     equivalent for.
+
+     icons.js does NOT ship here, and that is measured rather than assumed.
+     [data-ico] hosts on the rendered page: 0 signed out, 0 signed in through
+     FANav.refresh, 0 after signing back out. Nothing can create one at
+     runtime either, since polish.js's toast() is the only code that sets the
+     attribute and no script on this page calls FAToast. Loading the page
+     without icons.js raised nothing on the console, with a deliberate throw
+     as the control to prove the listener could see one. If this page ever
+     draws an icon, icons.js comes back AND is parsed before polish.js, whose
+     init() calls FAIcon.paint() behind an `if (window.FAIcon)` guard: that
+     guard is what makes the omission safe, and it is also what would make a
+     late icons.js silently paint nothing. -->
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
 </html>
