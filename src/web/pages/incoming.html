@@ -42,6 +42,30 @@
     font-size: 14px; color: var(--fg-2); line-height: 1.6;
     max-width: 56ch; margin: 12px 0 0;
   }
+  /* THE ROW'S .foot IS NOT THE PAGE FOOTER, AND base.css CANNOT TELL THEM
+     APART. The wireframe names its row's bottom strip `.foot`
+     (spec/wireframe/incoming.html:46) and the built site uses the same
+     word for the page footer element (base.css:427-434). Nothing in the
+     wireframe's own sheets carries a bare `.foot` rule, so the collision
+     exists only here, and it lands on every row.
+
+     MEASURED with the CSSOM on the served page, three rows, Chrome:
+     `base.css .foot` matches all three `.orow .foot` elements and gives
+     each one `border-top: 1px solid var(--line)`, a hairline between the
+     brief and the date that the wireframe does not draw. The same rule's
+     `.foot a { min-height: 44px }` (base.css:433) outranks `.btn-sm`
+     (a 0-1-1 selector against a 0-1-0 one) and made the row action 44px
+     tall at desktop where the wireframe's own is 32px.
+
+     Both are undone here rather than in base.css, which is shared with
+     every page's real footer and is not this card's to touch. The touch
+     floor is unaffected: polish.css:569 sets `.btn-sm { height: 44px }`
+     under `(max-width: 760px), (pointer: coarse)`, which is what actually
+     carries the 44px rule on a phone, and it is pinned at 320px by
+     tests/web/incoming.test.ts. */
+  .orow .foot { border-top: 0; }
+  .orow .foot .btn { min-height: 32px; }
+
   /* THE BUTTON MUST NOT SHRINK BELOW ITS LABEL, the wireframe's own rule
      (spec/wireframe/incoming.html:33-50) carried across as a pair.
 

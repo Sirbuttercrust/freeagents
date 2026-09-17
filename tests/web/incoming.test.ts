@@ -590,6 +590,83 @@ describe('the Incoming work screen, driven end to end against the real app', () 
         await browser.close();
       }
     });
+
+    // W-incoming, the class collision this rebuild surfaced. The
+    // wireframe names the row's bottom strip `.foot`
+    // (spec/wireframe/incoming.html:46) and this site uses the same word
+    // for the page footer element (base.css:427-434). Nothing in the
+    // wireframe's own sheets carries a bare `.foot` rule, so the clash
+    // exists only on the built page, and it landed on every row.
+    //
+    // MEASURED before the page-local undo, served page, three rows: each
+    // `.orow .foot` took `border-top: 1px solid var(--line)` from
+    // base.css, drawing a hairline between the brief and the date that
+    // the wireframe does not draw, and `.foot a { min-height: 44px }`
+    // (base.css:433, a 0-1-1 selector) outranked `.btn-sm` (0-1-0) and
+    // made the row action 44px tall at desktop where the wireframe's own
+    // measures 32px.
+    //
+    // Both halves are asserted here, on both sides of the collision: the
+    // row must be free of the footer's rules AND the page footer must
+    // still have them, because an undo written too broadly would strip
+    // the real footer instead.
+    it('the row .foot does not inherit the page footer rules, and the page footer keeps them (W-incoming, .foot class collision)', async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      await jobRepo.create(jobFixture({ id: 'incoming-footclash-row', buyerDid: 'did:abt:incoming-footclash-buyer', agentDid, status: 'draft', criteria: [] }, new Date('2026-08-14T00:00:00Z')));
+
+      // Desktop, because the 44px floor legitimately applies under
+      // `(max-width: 760px), (pointer: coarse)` (polish.css:566-570) and
+      // would mask the min-height half of this defect at phone width.
+      const browser = await RealBrowser.launch({ width: 1280, height: 900 });
+      try {
+        await browser.goto(`${baseUrl}/incoming`);
+        await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(operatorSession))})`);
+        await browser.goto(`${baseUrl}/incoming`);
+
+        const seen = await browser.evaluate<{
+          rowFeet: { borderTopWidth: string; actionHeight: number }[];
+          pageFooterBorderTop: string;
+          pageFooterLinkHeights: number[];
+        }>(`
+          (function () {
+            var rowFeet = Array.prototype.map.call(document.querySelectorAll('.orow .foot'), function (f) {
+              var a = f.querySelector('a.btn');
+              return {
+                borderTopWidth: getComputedStyle(f).borderTopWidth,
+                actionHeight: a ? a.getBoundingClientRect().height : -1,
+              };
+            });
+            var pf = document.querySelector('footer.foot');
+            return {
+              rowFeet: rowFeet,
+              pageFooterBorderTop: getComputedStyle(pf).borderTopWidth,
+              pageFooterLinkHeights: Array.prototype.map.call(pf.querySelectorAll('a'), function (a) {
+                return a.getBoundingClientRect().height;
+              }),
+            };
+          })()
+        `);
+
+        expect(seen.rowFeet.length, 'at least one row must render').toBeGreaterThan(0);
+        for (const foot of seen.rowFeet) {
+          expect(foot.borderTopWidth, 'a row foot drew the page footer\u2019s hairline').toBe('0px');
+          expect(foot.actionHeight, 'the row action took the page footer\u2019s 44px min-height at desktop').toBe(32);
+        }
+
+        // The other side of the same collision: the undo must be page-local
+        // and must not reach the real footer.
+        expect(seen.pageFooterBorderTop, 'the page footer lost its own top rule').not.toBe('0px');
+        expect(seen.pageFooterLinkHeights.length).toBeGreaterThan(0);
+        for (const height of seen.pageFooterLinkHeights) {
+          expect(height, 'a page footer link fell under the 44px floor').toBeGreaterThanOrEqual(44);
+        }
+      } finally {
+        await browser.close();
+      }
+    });
   });
 
   // W-incoming item 1, the W11 D2 defect class
