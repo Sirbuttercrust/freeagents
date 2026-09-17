@@ -163,6 +163,41 @@ function renderStaged(
   return renderPage(baseUrl, `/staged?job=${encodeURIComponent(jobId)}`, session, onFetch, poll);
 }
 
+// Every CSS rule in force on this page: the page's own <style> block plus
+// each stylesheet it LINKS, fetched over HTTP from the running app.
+//
+// W-staged moved .sheet, .acts, .picker, .facts and the send-button floors
+// out of the page-local block and into src/web/public/css/flow.css, the
+// sheet this page is the first built screen to load. The two layout
+// assertions below read declared rule text, because jsdom has no layout
+// engine, and reading only document.querySelector('style') made them assert
+// something narrower than they claim: that a rule is written HERE, rather
+// than that it is in force on this page. Both are now satisfied by a rule
+// wherever the page really gets it from.
+//
+// The hrefs are read from the page's own markup rather than named here, so
+// a sheet that stops being linked leaves the corpus rather than silently
+// keeping an assertion green, and the fetch is what proves the file is
+// actually served at that path. An empty population throws: a corpus that
+// quietly became one inline block would turn every match below into a green
+// loop over nothing.
+async function pageCss(page: Rendered, baseUrl: string): Promise<string> {
+  const inline = Array.from(page.document.querySelectorAll('style')).map((s) => s.textContent ?? '');
+  const hrefs = Array.from(page.document.querySelectorAll('link[rel="stylesheet"]')).map((l) =>
+    l.getAttribute('href') ?? '',
+  );
+  if (hrefs.length === 0) throw new Error('no linked stylesheets on the staged page: the corpus would be inline CSS only');
+  const linked: string[] = [];
+  for (const href of hrefs) {
+    const res = await fetch(new URL(href, baseUrl));
+    if (!res.ok) throw new Error(`the staged page links ${href} and the app answers ${res.status} for it`);
+    const text = await res.text();
+    if (text.trim() === '') throw new Error(`${href} is served empty`);
+    linked.push(text);
+  }
+  return [...inline, ...linked].join('\n');
+}
+
 describe('the staged screen, driven end to end against the real app', () => {
   let agentRepo: MemoryAgentRepository;
   let jobRepo: MemoryJobRepository;
@@ -1628,12 +1663,14 @@ describe('the staged screen, driven end to end against the real app', () => {
     it('both new dialogs cap at min(520px, 100vw - 24px) with no fixed width, every picker row and both send/decline/close controls are at least 44px, and the acts row wraps rather than overflowing', async () => {
       const page = await renderStaged(baseUrl, 'job-multi-criteria', buyerSession);
       try {
-        const css = page.document.querySelector('style')?.textContent ?? '';
+        const css = await pageCss(page, baseUrl);
 
         // The dialog shell is shared furniture from P8j (ruling: take
         // dialog classes from what P8j shipped); both new dialogs use
         // the same .sheet rule, so this pins that neither one overrides
-        // it with a fixed width.
+        // it with a fixed width. W-staged moved that rule into flow.css
+        // (flow.css:591-598), where every flow screen now reads it from
+        // one place instead of six page-local copies.
         expect(css).toMatch(/\.sheet\s*\{[^}]*width:\s*min\(520px,\s*calc\(100vw - 24px\)\)/);
 
         (page.document.getElementById('redo-btn') as HTMLButtonElement).click();
@@ -1648,8 +1685,20 @@ describe('the staged screen, driven end to end against the real app', () => {
         // so the send buttons' 44px floor is pinned by reading the
         // declared rule text, the same technique the existing facts/
         // choices layout test below already uses for the paths rule.
-        expect(css).toMatch(/#redo-send-btn\s*\{[^}]*min-height:\s*44px/);
-        expect(css).toMatch(/#decline-send-btn\s*\{[^}]*min-height:\s*44px/);
+        //
+        // The floor is now `.sheet .sfoot .btn { min-height: 44px }`
+        // (flow.css:610), which reaches both send buttons because each is
+        // a .btn inside its dialog's .sfoot, rather than two id rules that
+        // a third dialog's send button would not inherit. Asserted as the
+        // rule AND as the two buttons really matching it, so a rule that
+        // stopped covering them could not stay green.
+        expect(css).toMatch(/\.sheet \.sfoot \.btn\s*\{[^}]*min-height:\s*44px/);
+        (['redo-send-btn', 'decline-send-btn'] as const).forEach((id) => {
+          const btn = page.document.getElementById(id);
+          expect(btn, `${id} is missing`).not.toBeNull();
+          expect(btn?.closest('.sheet .sfoot'), `${id} is outside the .sheet .sfoot the 44px floor keys on`).not.toBeNull();
+          expect(btn?.classList.contains('btn')).toBe(true);
+        });
 
         const pickerLabels = Array.from(page.document.querySelectorAll('#redo-picker label'));
         expect(pickerLabels.length).toBe(3);
@@ -1738,11 +1787,17 @@ describe('the staged screen, driven end to end against the real app', () => {
         expect(paraStyle.gridColumn).toBe('1 / -1');
         expect(factsGrid?.tagName).toBe('UL');
         expect(choicesGrid?.tagName).toBe('UL');
-        const css = page.document.querySelector('style')?.textContent ?? '';
-        const pathsRule = css.match(/\.facts \.paths\s*\{[^}]*\}/)?.[0] ?? '';
+        const css = await pageCss(page, baseUrl);
+        // flow.css:544 now, where every flow screen reads it from one
+        // place. The multi-line form is why \s and [\s\S] replace the old
+        // single-line match: the ported sheet wraps this rule across five
+        // lines, and a regex written for a one-line page-local copy would
+        // report a missing rule on a sheet that carries it.
+        const pathsRule = css.match(/\.facts \.paths\s*\{[\s\S]*?\}/)?.[0] ?? '';
+        expect(pathsRule, '.facts .paths is declared by no stylesheet this page loads').not.toBe('');
         expect(pathsRule).toMatch(/overflow-wrap:\s*anywhere/);
         expect(pathsRule).not.toMatch(/[^-]width:\s*\d/);
-        expect(css).toContain('@media (max-width: 520px) { .facts li { grid-template-columns: 1fr; }');
+        expect(css).toMatch(/@media \(max-width: 520px\) \{\s*\.facts li \{ grid-template-columns: 1fr; \}/);
       } finally {
         page.close();
       }
