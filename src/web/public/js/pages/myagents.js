@@ -3,8 +3,8 @@
    My jobs) to resolve the session to a DID, then GET /accounts/:did/agents
    for the roster (BrowseCard rows, already carrying the three tier counts
    this page never sums), then GET /agents/:agentDid once per row for
-   proofStatus and the avatar -- the one fact and the one image BrowseCard
-   does not carry (src/domain/browse.ts).
+   proofStatus -- the one fact BrowseCard does not carry
+   (src/domain/browse.ts).
 
    THE PER-AGENT READ IS THE CARD'S ONE PERFORMANCE DEPARTURE, named in the
    handoff: /agents/:agentDid sits behind verifyRateLimiter at 60 requests
@@ -37,8 +37,10 @@
 
    EVERYTHING THROUGH textContent: the agent's name and skills are
    operator-supplied and agent-supplied strings, content, never markup
-   (api.js's own header rule). The avatar is the one exception, and it goes
-   through A.setAvatar, the sanitiser that keeps only shape elements. */
+   (api.js's own header rule). The avatar is the one exception, and it is
+   not operator input at all: the creature is generated client-side by
+   swarm.js from the DID alone, which reaches the generator as a number
+   (FACore.hash) and never as a string in the emitted SVG. */
 (function () {
   "use strict";
   var A = window.FAApi;
@@ -127,6 +129,14 @@
          up the counts the roster call already answered. */
       loadDetail(agent, row);
     });
+    /* The tier glyphs. icons.js paints every [data-ico] host once on
+       DOMContentLoaded and polish.js calls FAIcon.paint() again inside
+       init(), both long before this roster read resolves, so the spans
+       built above would stay empty forever without this repaint. Same
+       guarded call agreement.js:165, operator.js:82 and dashboard.js:305
+       already make for rows they render late. If it never runs, the span
+       collapses and the pill's text still states the fact. */
+    if (window.FAIcon) window.FAIcon.paint(host);
   }
 
   function agentRow(agent) {
@@ -134,8 +144,34 @@
     row.className = "arow pane-lift";
     row.setAttribute("data-agent-row", agent.did);
 
+    /* THE AVATAR MOUNT. data-avatar names the identity this box stands
+       for, and it is set HERE, at row-build time, once the DID from the
+       roster read is known. It is never written into the static shell:
+       there is no DID to name before the read resolves, and an invented
+       one would be a fabricated identity.
+
+       The attribute has exactly one consumer in the whole app, polish.js's
+       [data-avatar] sweep (polish.js:490), which runs once inside init()
+       on DOMContentLoaded. That is before this fetch resolves, so the
+       sweep is not what paints these rows and the attribute alone would
+       leave the box empty forever. The creature is painted below, in
+       loadDetail, the same set-then-paint pair agent.js:163-168,
+       hire.js:89-93 and dashboard.js:396-408 already use.
+
+       It still carries the attribute rather than skipping it, because it
+       is the mount contract the rest of the system reads: a re-entrant
+       sweep, a later repaint, or anything else looking for "which identity
+       is this box" finds the answer on the element instead of nowhere. */
     var avatar = document.createElement("div");
     avatar.className = "rav";
+    /* Guarded for the same reason dashboard.js:396-404 guards its own
+       mount: an EMPTY data-avatar is not a neutral placeholder, it is a
+       creature generated from the empty string, a face standing in for an
+       identity nobody supplied. A row whose roster entry carries no DID
+       keeps the 40px box for alignment and claims nothing. */
+    if (typeof agent.did === "string" && agent.did !== "") {
+      avatar.setAttribute("data-avatar", agent.did);
+    }
     avatar.setAttribute("data-pending", "");
     row.appendChild(avatar);
 
@@ -188,9 +224,20 @@
 
     var tier = document.createElement("span");
     tier.className = "tier " + tierClassFor(hireCount, priorCount);
-    var dot = document.createElement("span");
-    dot.className = "dot";
-    tier.appendChild(dot);
+    /* The wireframe's tier pill carries a GLYPH, not base.css's pre-polish
+       .dot (base.css:161). myagents.html:88, 102, 115 and 128 draw
+       file-dash, shield-check, shield-check and link-2 respectively, which
+       is the same tier-to-icon map agent.js:672-695 and browse.js:514-545
+       already use, so one tier means one glyph everywhere on the site.
+       polish.css:46 gives .ico its box and :74 sizes it to 13px inside a
+       .tier; the glyph inherits the tier's colour through currentColor, so
+       the accent stays welded to its one meaning. aria-hidden because the
+       pill's own text already states the fact. */
+    var icon = document.createElement("span");
+    icon.className = "ico";
+    icon.setAttribute("data-ico", tierIconFor(hireCount, priorCount));
+    icon.setAttribute("aria-hidden", "true");
+    tier.appendChild(icon);
     tier.appendChild(document.createTextNode(headlineFor(hireCount, priorCount)));
     right.appendChild(tier);
 
@@ -221,6 +268,17 @@
     return "tier-claim";
   }
 
+  /* The glyph that goes with each tier, keyed off the same two counts as
+     tierClassFor so the icon and the colour can never disagree. The three
+     names are icons.js's own evidence-tier set: shield-check (we watched
+     the whole thing), link-2 (mutual link, nobody here watched it) and
+     file-dash (a dashed page, unproven). */
+  function tierIconFor(hireCount, priorCount) {
+    if (hireCount > 0) return "shield-check";
+    if (priorCount > 0) return "link-2";
+    return "file-dash";
+  }
+
   function headlineFor(hireCount, priorCount) {
     if (hireCount > 0) return A.plural(hireCount, "verified hire", "verified hires");
     if (priorCount > 0) return A.plural(priorCount, "verified prior work", "verified prior work");
@@ -231,16 +289,48 @@
      proofStatus rides on agentProjection, read here, once per row. A
      failed read leaves the row exactly as the roster call rendered it --
      no attention line, never a guessed "confirmed" (claim-contradicts-
-     implementation is the defect class this guards). The avatar rides the
-     same read: BrowseCard carries no avatar field at all. */
+     implementation is the defect class this guards).
+
+     THE AVATAR IS PAINTED BY THE SWARM GENERATOR, NOT THE SERVER'S
+     agent.avatar FIELD. This is the one behavioural change the polished
+     pass makes to this read. DESIGN.md 2.4 and ENT-2.3: an agent's
+     creature is derived from its DID and nothing else. window.FASwarm is
+     the generator the polished pages standardise on, and browse.js:405-418
+     made exactly this swap for exactly this reason, naming this file's
+     loadDetail as the shape it shares; agent.avatar is a separate, older
+     server-rendered engine (src/api/avatar.ts's own header calls it a
+     blobatar stand-in) that renders a different face for the same
+     identity. Two engines meant an agent wore one face on its profile and
+     a different one on its operator's roster.
+
+     The DID is known before the fetch is even fired, so nothing about the
+     face depends on the response. The read is still what gates the paint,
+     because a row for an agent whose record cannot be read should not
+     assert an identity this page could not confirm: a failed read leaves
+     the box exactly as it started, data-pending and empty, never a partial
+     or guessed creature. That is the same fail-honest rule every other
+     read in this file follows. */
   function loadDetail(agent, row) {
     A.get("/agents/" + encodeURIComponent(agent.did)).then(function (result) {
       if (result.state !== "ok") return;
       var detail = result.value;
-      var avatar = row.querySelector(".rav");
-      if (avatar && typeof detail.avatar === "string") A.setAvatar(avatar, detail.avatar);
+      paintAvatar(row, agent.did);
       if (detail.proofStatus !== "verified") renderAttention(row);
     });
+  }
+
+  /* 40px, the width .arow .rav reserves for the box in this page's own
+     style block. Passed explicitly rather than measured, because the
+     generator emits a fixed width and height on its SVG and a box that
+     has not been laid out yet measures zero. */
+  var AVATAR_SIZE = 40;
+
+  function paintAvatar(row, did) {
+    var host = row.querySelector(".rav");
+    if (!host || !window.FASwarm) return;
+    if (typeof did !== "string" || did === "") return;
+    host.innerHTML = window.FASwarm.avatar(did, AVATAR_SIZE);
+    host.removeAttribute("data-pending");
   }
 
   function renderAttention(row) {

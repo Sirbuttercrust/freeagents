@@ -6,22 +6,103 @@
 <title>My agents: FreeAgents</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/market.css">
 <style>
   /* P8n MY AGENTS (SITEMAP P-18), from spec/wireframe/myagents.html. Same
      structure, copy and class vocabulary as the wireframe; departures are
-     named in the handoff.
+     named below and in the handoff.
 
-     .arow, .ds, .attn and .right/.ev are the wireframe's own row internals,
-     defined in its own <style> block. base.css already carries .tier,
-     .tier-hire, .tier-prior, .tier-claim, .rows, .between, .empty,
-     .disclose, .detail and .kv (grep-verified on main), so only the row
-     internals ride here rather than a second copy of the shared classes. */
+     THE SHEET LIST IS THE WIREFRAME'S OWN, base.css then polish.css then
+     market.css, which is also the order market.css:3 states it depends on.
+     tokens.css is this repo's split of the wireframe's token block and
+     stays first.
+
+     WHAT polish.css ACTUALLY DOES HERE, measured rather than assumed. The
+     sheet holds 83 style rules at top level and 19 top-level at-rules,
+     with 42 more style rules nested inside those at-rules, so 125 style
+     rules counting every depth. Of those 125, 17 match something this page
+     renders, counting a ::after rule as matching when the element it hangs
+     off exists. That 17 is the same at 1280, 1080, 760, 700, 420 and 320,
+     under touch emulation at 1280, 760 and 320, under reduced motion, and
+     with the counts disclosure open. Two of the 17 are why the sheet is
+     load-bearing rather than decorative:
+
+       polish.css:621  .arow .nm, .agent .nm { min-height: 44px; ... }
+                       written FOR this page's row-name link, under the same
+                       max-width:760px or pointer:coarse gate base.css:589
+                       already pads it with.
+       polish.css:46   .ico { display:inline-flex; width:16px; height:16px }
+       polish.css:74   .tier .ico { width: 13px; height: 13px }
+       polish.css:75   .tier-claim .ico { opacity: .85 }
+                       the box and the size for the tier glyph the wireframe
+                       draws at myagents.html:88,102,115,128. Without this
+                       sheet the icon this page now renders has no box.
+                       tests/web/myagents-polished.test.ts measures the
+                       painted glyph at 13px in a real browser, so dropping
+                       this sheet reddens a test rather than passing quietly.
+
+     WHAT market.css DOES HERE: nothing this page reads, and that is the
+     honest answer. The sheet declares 56 class names counting every
+     nesting depth (55 at top level, copybtn only inside a media query)
+     and one comma-separated selector that is not a class, :root.
+     Intersected against every class this page's markup and script can
+     produce, exactly one name matches, ico, and market.css never selects
+     .ico alone: its .ico rules are all compound (.pverified .ico,
+     .acard-ev .hires .ico and the rest), and this page's markup satisfies
+     none of them. All seven of its :root custom properties
+     (--cat-frontend, --cat-backend, --cat-infra, --cat-data,
+     --cat-testing, --w-wide, --unverified-fg) are read only by rules
+     inside market.css itself, checked against comment-stripped source so
+     the sentence you are reading does not count as a reader.
+     So the only thing market.css contributes here is those seven values,
+     which inherit onto every element and which no rule on this page reads.
+     Disabling the sheet in the live CSSOM and re-enabling it moves none of
+     the 475 standard computed properties Chrome reports, on any element,
+     in both directions, at 1280 and at 320 under touch. The same probe
+     reports every element changed when base.css is disabled instead, so
+     the zero is a fact about market.css rather than a dead instrument.
+     It ships because the binding wireframe loads it and because
+     signin.html and verify.html set the precedent of carrying the
+     wireframe's full sheet list rather than a hand-pruned one.
+
+     .arow, .rav, .nm, .ds, .attn and .right/.ev are the wireframe's own row
+     internals, defined in its own style block. base.css already carries
+     .tier, .tier-hire, .tier-prior, .tier-claim, .rows, .between, .empty,
+     .disclose, .detail and .kv, so only the row internals ride here. */
 
   .arow {
     display: grid; grid-template-columns: 40px 1fr auto;
     gap: 16px; align-items: center; padding: 16px;
   }
-  .arow .rav { width: 40px; height: 40px; border-radius: 50%; display: block; }
+  /* overflow:hidden is this page's one addition to the wireframe's own .rav
+     rule, and it is a consequence of what now paints into this box.
+
+     swarm.js emits its SVG with style="display:block;overflow:visible", so
+     the mount is the only thing that can bound the drawing. The viewBox is
+     fitted to the creature's own cells (svgWrap over stableBox), and the
+     contact-shadow ellipse under its feet is not one of those cells: it is
+     added beside the grid the box was measured from (swarm.js:1971), so
+     nothing in the fit keeps it inside the frame.
+
+     The clip is a CIRCLE and that fitted box is a SQUARE, so it costs the
+     creature something too. stableBox squares the box around the drawn
+     cells and centres the shorter axis (swarm.js:1817), and the square's
+     corners lie outside the disc inscribed in it, so whatever reaches a
+     corner is trimmed. How often that happens, and how deep, is a fact
+     about which identities the generator is handed rather than about this
+     page, so no count of either is stated here: a census over a sample the
+     next reader cannot reproduce is not evidence.
+
+     The trade is deliberate. A creature still reads as its own species at
+     40px with its outermost pixels gone, and a mount whose bounds do not
+     depend on the identity is worth more to a list of rows than those
+     pixels. It is also what .acard-av already does to this same generator
+     on the browse and operator cards, border-radius 50% with overflow
+     hidden (market.css:145-155). The wireframe asked for the circle; this
+     is what makes the circle a boundary rather than a suggestion.
+     tests/web/myagents-polished.test.ts holds the line in a real browser. */
+  .arow .rav { width: 40px; height: 40px; border-radius: 50%; display: block; overflow: hidden; }
   .arow .nm { font-size: 15px; font-weight: 550; }
   .arow .ds { font-size: 13px; color: var(--fg-2); margin-top: 3px; }
   .arow .attn { font-size: 12px; color: var(--fg-2); margin-top: 6px; }
@@ -36,7 +117,7 @@
 
   /* W7b: the work-offered attention anchor sits inside a 12px metadata
      strip, the same shape base.css's own inline-link padding block
-     (base.css:527-559) already closes for .arow .nm, .ident a and the
+     (base.css:580-593) already closes for .arow .nm, .ident a and the
      rest of that list. base.css is shared across the whole site and this
      card does not touch it, so the same treatment lands here instead:
      padding widens the touch area, a matching negative margin keeps the
@@ -53,6 +134,42 @@
 </head>
 <body>
 
+<!-- DEPARTURE, the nav account menu. The wireframe wraps a fifth avatar in
+     <details class="avatarmenu"> at myagents.html:52-61, holding Dashboard,
+     Settings and Sign out. This page does not build it, the same ruling
+     myjobs.html reached for the same element: nav.js already renders all
+     three destinations as flat controls (nav.js:91-126 appends Dashboard
+     and Settings when signed in, #nav-signed-in below carries Sign out),
+     and nav.js:86-89 records the reason the menu stays unbuilt, that
+     collapsing four existing links into a menu is a visual change to every
+     page carrying the nav rather than a change to this one. The menu's
+     look lives only in the wireframe's own base.css (.avatarmenu at
+     base.css:155, .avatarbtn at :156, .avatardrop at :189): of that whole
+     family, the only rule in any sheet this page loads is polish.css:603,
+     .avatardrop a { min-height: 44px }, a tap-target floor for items that
+     would not exist here. So the element would ship essentially unstyled.
+     The roster's own row avatars carry the wireframe's avatar contract on
+     this page instead.
+
+     DEPARTURE, the two listagent.html controls and the per-row
+     agentsettings.html link. Neither page is built and neither route is
+     mounted, so both would be anchors with no destination
+     (inert-declared-control). myagents.js's existing rulings already drop
+     them and this shell keeps them dropped.
+
+     The wireframe's three div.note blocks (myagents.html:155, 169, 177) are
+     builder annotation and are NOT carried. .note has no rule at selector
+     position in any sheet this page loads, so it would ship as visible
+     primary-colour body copy with spec codes in it, in front of a buyer.
+     Their reasoning, kept as reasoning: zeros render as literal zeros in
+     the same layout every other row uses (ENT-2.4); an agent needing
+     nothing at all is the common case and renders calmly, with no
+     attention line; and the counts never sum, structurally, because the
+     row has exactly one number in the tier colour and a second line with
+     the other two, with no third position where a total could be added
+     later without a visible redesign (MISSION invariant 5). The visible
+     copy that states the last of those to a reader is the disclosure
+     panel's own closing sentence below, which the wireframe also ships. -->
 <nav class="nav">
   <div class="wrap inner">
     <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
@@ -133,8 +250,25 @@
   </div>
 </footer>
 
+<!-- The wireframe's script list, in the order the avatar-carrying pages
+     settled (browse.html:451-457, operator.html:413-419): api, nav, swarm,
+     icons, polish, page script, ui.
+
+     swarm.js is here because this page mounts an avatar on every roster
+     row it renders. It is the generator for the creature; polish.js's
+     [data-avatar] sweep and myagents.js both reach window.FASwarm and
+     neither can paint without it. myjobs.html deliberately omits it
+     because that page mounts none.
+
+     icons.js is here because the tier pill now carries a glyph rather than
+     base.css's pre-polish dot. It paints every [data-ico] host once on
+     DOMContentLoaded; myagents.js repaints the subtree it builds later,
+     because these rows do not exist yet when that first pass runs. -->
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/swarm.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/polish.js"></script>
 <script src="/js/pages/myagents.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
