@@ -544,6 +544,39 @@ a:focus-visible, button:focus-visible, .chip:focus-visible, .disclose:focus-visi
   .input { min-height: 44px; }
   textarea.input { min-height: 44px; }
 
+  /* THE 16px FLOOR ON ANYTHING YOU CAN TYPE INTO.
+     Mobile Safari zooms the whole page in when a text field under 16px
+     takes focus, and it does not zoom back out. The person is left on a
+     page they have to pinch to read, having done nothing but tap a search
+     box. Android Chrome does not do this, so it goes unseen on a desktop
+     and on half the phones.
+
+     BOTH LINES ARE LOAD BEARING, and the reason is specificity.
+     `.input` above (line 142) sets 15px at 0,1,0. A bare `input` selector
+     is 0,0,1 and loses to it, so the element line alone fixed nothing on
+     any of the thirteen fields that carry the class. The class line is
+     what actually moves them; the element line catches anything that
+     never got the class.
+
+     Thirteen fields across nine pages, not the two a page sweep found.
+     `.input.mono` is 15px too (`.input` is written after `.mono` at equal
+     specificity), so every readonly wallet address and commit-sha box had
+     it as well. Those pages only render their fields for a real job,
+     which is why driving the site page by page found two and measuring
+     every page with real data behind it found the rest. Named by
+     tests/web/mobile-layout.test.ts, which fails with the list.
+
+     Still defeatable by a page-local compound selector: browse.html's
+     `.searchrow .input` is 0,2,0, beats this, and carries its own copy of
+     the floor with a comment saying why. That is the same cascade trap
+     spec/wireframe/browse.html's own pager notes describe.
+
+     A checkbox and a radio render a 13x13 box at any font size (measured
+     in Chrome at 320: 13x13 at both 13.3333px and 16px), so the blanket
+     element line moves nothing on screen. */
+  input, select, textarea { font-size: 16px; }
+  .input { font-size: 16px; }
+
   /* An inline link that is its own tap target. `padding` widens the touch
      area, and the reduced `gap` on the parent keeps the layout looking the
      same as it did. */

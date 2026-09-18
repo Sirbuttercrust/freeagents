@@ -589,14 +589,62 @@
     return frag;
   }
 
+  /* The three page numbers a phone shows: the current page and its two
+     neighbours, clamped so the window is always three wide while there are
+     three pages to fill it (page 1 of 10 shows 1 2 3, page 10 shows 8 9 10).
+     Every OTHER number still renders and still works; it carries
+     data-collapsed, and browse.html's own (max-width: 760px) block is what
+     takes it out of the row. Desktop is untouched by design: the decision
+     about which numbers a narrow screen has room for is a layout fact, so
+     it is spent in CSS at the width where it becomes true, and rotating a
+     phone to landscape brings the full row back without this function
+     running again.
+
+     Three is the wireframe's own count (spec/wireframe/browse.html:398-404
+     draws Previous, 1, 2, 3, Next), so the phone pager matches the drawn
+     one; it is the ten-wide row that was the built page's extension. */
+  function pageWindow(totalPages, current) {
+    var start = Math.min(Math.max(1, current - 1), Math.max(1, totalPages - 2));
+    return { start: start, end: Math.min(totalPages, start + 2) };
+  }
+
+  /* The position line a phone reads instead of the numbers it has no room
+     for. Collapsing eight numbers to three loses one real fact: how many
+     pages there are. On page 1 the visible window (1 2 3) implies nothing
+     about the total, and in the middle (4 5 6) neither end is on screen.
+     This states it, from the same totalPages the row itself is built from,
+     so the two can never disagree.
+
+     A DEPARTURE, named: spec/wireframe/browse.html's pager draws five
+     controls and no position line. It is added because the collapse this
+     card introduces is what removed the fact, and "Page" is the
+     wireframe's own noun for it (its pager carries
+     data-pick-msg="Page %s", polish.js's picks()). Never rendered above
+     760px, where the full row is on screen and the line would restate
+     what the numbers already say. */
+  function renderPagerPosition(totalPages) {
+    var line = A.el("pager-position");
+    if (!line) return;
+    if (totalPages <= 1) {
+      line.textContent = "";
+      line.hidden = true;
+      return;
+    }
+    line.textContent = "Page " + state.page + " of " + totalPages;
+    line.hidden = false;
+  }
+
   function renderPager(totalPages) {
     var host = A.el("pager");
     host.textContent = "";
     if (totalPages <= 1) {
       A.showById("pager", false);
+      renderPagerPosition(totalPages);
       return;
     }
     A.showById("pager", true);
+    renderPagerPosition(totalPages);
+    var visible = pageWindow(totalPages, state.page);
 
     /* "Previous" and "Next" are cloned from <template> rather than built
        with textContent, so the literal string a buyer sees and the
@@ -619,6 +667,13 @@
         btn.type = "button";
         btn.textContent = String(pageNumber);
         if (pageNumber === state.page) btn.setAttribute("aria-current", "page");
+        // Outside the window a phone has room for. The attribute is the
+        // only thing set here: the button is a real, working control at
+        // every width, and only the narrow-width rule in browse.html hides
+        // it.
+        if (pageNumber < visible.start || pageNumber > visible.end) {
+          btn.setAttribute("data-collapsed", "");
+        }
         btn.addEventListener("click", function () {
           navigate({ page: pageNumber });
         });
