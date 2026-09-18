@@ -143,6 +143,53 @@
 
   @media (max-width: 760px) {
     .drawer { grid-template-columns: 1fr; gap: 20px; }
+
+    /* THE PAGER, ON A PHONE.
+       Ten pages of results render twelve controls. At the 44px floor
+       above that is 12 x 44 plus 11 x 6 gaps = 594px inside a 292px
+       content box, so the browser widened the layout viewport to 608px
+       and scaled the whole page down to fit it: every word on /browse
+       rendered at about half size because of one row of buttons.
+       Measured in Chrome at 320 with mobile metrics, 100 agents:
+       innerWidth 608 against clientWidth 320, and "Previous" clipped
+       inside a 44px box it needs 67.9px for.
+
+       So the numbered row narrows to the three the wireframe itself
+       draws (spec/wireframe/browse.html:398-404 is Previous, 1, 2, 3,
+       Next): the current page and its neighbours. browse.js marks every
+       other number [data-collapsed] and this rule is what takes them out
+       of the row, so the buttons stay real, wired controls at every
+       width and a rotation to landscape brings the full row back with no
+       script re-run.
+
+       Previous, Next and the three numbers are five 44px targets plus
+       four 6px gaps = 244px, inside 292px. `flex-wrap: wrap` is kept as
+       well: it is what holds the 320 measurement when a total runs to
+       three digits and the row grows past the box anyway.
+
+       Nothing here is in the wireframe's own pager block, because the
+       wireframe never drew more than three numbers. */
+    .pager { flex-wrap: wrap; row-gap: 8px; }
+    .pager button[data-collapsed] { display: none; }
+
+    /* The count the collapse takes off screen. Hidden above this width,
+       where all ten numbers are visible and the line would only repeat
+       them. */
+    .pagerpos { margin: 12px 0 0; }
+
+    /* 16px or the page zooms on focus and never zooms back (base.css's
+       own 16px floor block says the rest). That shared rule is
+       `input, select, textarea`, specificity 0,0,1; this is
+       `.searchrow .input` at 0,2,0 and beats it, so the floor has to be
+       repeated here or this one field keeps the defect while every other
+       field on the site is fixed. The 48px height is the wireframe's and
+       is unchanged. */
+    .searchrow .input { font-size: 16px; }
+  }
+
+  /* Above 760px the full numbered row fits and says the position itself. */
+  @media (min-width: 761px) {
+    .pagerpos { display: none; }
   }
 </style>
 </head>
@@ -330,6 +377,12 @@
   <div class="agrid stagger" id="rows" data-reveal></div>
 
   <div class="pager" id="pager" hidden></div>
+  <!-- Filled and unhidden by browse.js only when there is more than one
+       page, and shown by CSS only below 760px, where the numbered row is
+       collapsed to three. See renderPagerPosition() in browse.js for why
+       the line exists and why it is a named departure from the drawn
+       pager. -->
+  <p class="small muted pagerpos" id="pager-position" hidden></p>
 
   <div class="empty warn" id="load-error" hidden style="margin-top:24px">
     <b>We could not load the listing.</b>
