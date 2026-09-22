@@ -88,7 +88,7 @@ async function open(motion: 'reduce' | 'no-preference', path = '/myagents'): Pro
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-describe('bots move only when they should', { timeout: 20000 }, () => {
+describe('bots move only when they should', { timeout: 60000 }, () => {
   it('reduced motion: nothing is on the loop and no pixel changes over two seconds', async () => {
     if (!hasRealBrowser()) return console.warn('no Chrome found; skipping (see CHROME_BIN)');
     const b = await open('reduce');

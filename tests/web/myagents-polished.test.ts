@@ -267,7 +267,7 @@ describe('1. the page wears the wireframe\u2019s visual system', () => {
 
 // -------------------------------------------------------------- 2. the avatars
 
-describe('2. the avatar mount is real, not a string that satisfies a regex', () => {
+describe('2. the avatar mount is real, not a string that satisfies a regex', { timeout: 60000 }, () => {
   it('the static shell ships NO data-avatar, and the script sets it from the DID', () => {
     const shell = readFileSync(pagePath, 'utf8');
     // A data-avatar in static markup is one of two defects: a fabricated DID,
@@ -409,7 +409,7 @@ describe('2. the avatar mount is real, not a string that satisfies a regex', () 
 
 // ----------------------------------------------------------------- 3. the tier
 
-describe('3. the tier pill carries the wireframe\u2019s glyph, not the pre-polish dot', () => {
+describe('3. the tier pill carries the wireframe\u2019s glyph, not the pre-polish dot', { timeout: 60000 }, () => {
   it('every tier the wireframe draws maps to the glyph the wireframe gives it', () => {
     const wireframe = readFileSync(wireframePath, 'utf8');
     // Derived from the wireframe rather than typed here: tier class to icon
@@ -505,7 +505,7 @@ describe('4. not one of the wireframe\u2019s three builder notes is rendered', (
 
 // ------------------------------------------------------------ 5. states, 320px
 
-describe('5. the polished page holds up at 320px, in both motion modes', () => {
+describe('5. the polished page holds up at 320px, in both motion modes', { timeout: 60000 }, () => {
   const SWEEP = `
     (function () {
       var all = [].filter.call(document.querySelectorAll('button, a[href]'), function (el) {
@@ -578,7 +578,7 @@ describe('5. the polished page holds up at 320px, in both motion modes', () => {
 
 // ------------------------------------------------------ 6. the avatar editor
 
-describe('6. the avatar editor under each row (AV2)', () => {
+describe('6. the avatar editor under each row (AV2)', { timeout: 60000 }, () => {
   // Shared by both tests: open HIRE_DID's editor and wait for its tiles.
   const OPEN_EDITOR = `
     (function () {

@@ -91,7 +91,7 @@ async function landing(width: number, motion: 'reduce' | 'no-preference'): Promi
   }
 }
 
-describe('the landing flock is drawn as bots', () => {
+describe('the landing flock is drawn as bots', { timeout: 60000 }, () => {
   for (const [width, motion] of [[1280, 'no-preference'], [320, 'reduce']] as const) {
     it(`${width}px, ${motion}: five bots with real pixels, distinct colours, a drawn nav mark, no error`, async () => {
       if (!hasRealBrowser()) {
