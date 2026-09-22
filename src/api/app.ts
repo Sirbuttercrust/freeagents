@@ -1727,10 +1727,18 @@ export function createApp(
       // race each other into two lookups of the same DID.
       const distinctAgentDids = [...new Set(sorted.map((job) => job.agentDid))];
       const agentNameByDid = new Map<string, string>();
+      // AV1 (ENT-2.3 ruling, Proof r2 defect: unverified-state-claim): the
+      // r2 audit table claimed this route already carried avatarSpec; it
+      // did not. resolveAvatar is total -- an unregistered agent still
+      // renders its DID-derived default -- so every row gets the field,
+      // the same "no state to wait on" stance the pending mirror route
+      // and agentProjection/toBrowseCard already take.
+      const avatarSpecByDid = new Map<string, ReturnType<typeof resolveAvatar>>();
       await Promise.all(
         distinctAgentDids.map(async (agentDid) => {
           const agentRow = await agentRepo.findByDid(agentDid);
           agentNameByDid.set(agentDid, agentRow?.name ?? agentDid);
+          avatarSpecByDid.set(agentDid, resolveAvatar(agentRow?.avatarSpec ?? null, agentDid));
         }),
       );
       const offers = sorted.map((job) => ({
@@ -1739,6 +1747,7 @@ export function createApp(
         repository: job.repository,
         agentDid: job.agentDid,
         agentName: agentNameByDid.get(job.agentDid) ?? job.agentDid,
+        avatarSpec: avatarSpecByDid.get(job.agentDid) ?? resolveAvatar(null, job.agentDid),
         waitingOn: waitingOnOf(job.criteria),
         createdAt: job.createdAt.toISOString(),
       }));
