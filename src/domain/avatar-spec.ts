@@ -26,12 +26,28 @@ export const AVATAR_FACES = ['eyes', 'mouth'] as const;
 
 export type AvatarFace = (typeof AVATAR_FACES)[number];
 
-// TODO(AV2): the design card fills these hex values. This card owns the
-// keys only -- validation accepts a key (below), never a raw hex, so a
-// caller can never smuggle an arbitrary colour value through this field.
-export const AVATAR_COLOURS: Readonly<Record<string, string | null>> = {
-  c1: null, c2: null, c3: null, c4: null, c5: null, c6: null,
-  c7: null, c8: null, c9: null, c10: null, c11: null, c12: null,
+// AV2 filled the values (spec/wireframe/DESIGN.md 2.4). Validation still
+// accepts a KEY (below), never a raw hex, so a caller can never smuggle an
+// arbitrary colour value through this field; the hex lives here and in the
+// browser renderer's copy (src/web/public/js/bots.js), and
+// tests/web/bots-client.test.ts fails if the two tables drift.
+//
+// Every value clears 3:1 (WCAG 1.4.11, graphics) against --bg, --bg-1,
+// --bg-2 and the lightest pane surface; the lowest is c11 cobalt at 4.8:1.
+// c1 to c4 are --agent-2 to --agent-5. --agent-1 is not here because it is
+// the accent, and an avatar must never wear the colour that means verified
+// (DESIGN.md 2.2). No colour falls in the hue band 228 to 258 degrees that
+// swarm.js kept clear around the accent: the two nearest are c11 cobalt at
+// 216 and c9 violet at 268.
+export const AVATAR_COLOURS: Readonly<Record<string, string>> = {
+  c1: '#58B0E8', c2: '#46C39A', c3: '#E0A24E', c4: '#E4757F', c5: '#FF6A3D', c6: '#FFD32B',
+  c7: '#9BE85A', c8: '#1ED3C6', c9: '#B06BFF', c10: '#F25CD4', c11: '#3D8BFF', c12: '#FF62B0',
+};
+
+// The name a person hears for each colour, used by the picker's swatches.
+export const AVATAR_COLOUR_NAMES: Readonly<Record<string, string>> = {
+  c1: 'Sky', c2: 'Jade', c3: 'Amber', c4: 'Rose', c5: 'Vermilion', c6: 'Yellow',
+  c7: 'Lime', c8: 'Teal', c9: 'Violet', c10: 'Orchid', c11: 'Cobalt', c12: 'Pink',
 };
 
 export type AvatarColourKey = keyof typeof AVATAR_COLOURS;
@@ -69,8 +85,8 @@ export function isValidAvatarSpec(value: unknown): value is AvatarSpec {
 }
 
 // Deterministic from the DID alone: hash of the input only, no clock, no
-// random source, no environment (the same closed determinism surface
-// src/api/avatar.ts's renderAvatar documents for the sibling SVG renderer).
+// random source, no environment. src/web/public/js/bots.js carries the same
+// derivation for a response with no spec, pinned to the vectors below.
 // Total: any string in, including the empty string, renders a spec.
 //
 // Byte 0 selects the shape, byte 1 the face, byte 2 the colour key, each

@@ -177,7 +177,6 @@ import { SIGN_IN_METHODS, type SignInMethod } from '../domain/sign-in-methods.js
 import { type SessionAdapter, type SignInMethod as SessionSignInMethod } from '../adapters/identity/session.js';
 import { sessionAdapterFromEnv } from '../adapters/identity/session-github-passkey.js';
 import { createWebSurface, prefersHtml, type WebSurface } from '../web/static.js';
-import { renderAvatar } from './avatar.js';
 
 // The hire-loop's last stub (R-12 reviews) stays honest about being unbuilt:
 // it returns 501 until its issue lands. Merge (R-11) now has a real handler
@@ -238,14 +237,14 @@ function signInMethodProjection(method: SignInMethod): Record<string, unknown> {
   };
 }
 
-// The Agent record projection is the whole response. Exactly these ten
-// fields, nothing more: tests/api/agent-invariant2.test.ts asserts the key
-// set, and an eleventh field here would be a contract change. avatar (R-21)
-// and keyRotations (R-30) ride the base key set unconditionally - every agent
-// has a DID and a (possibly empty) rotation history, so there is no state to
-// wait on; conditional-spread style stays reserved for fields a row may lack
-// (jobProjection's confirmation pair). They can never be client-supplied:
-// nothing reads body.avatar or a rotation from any request body anywhere.
+// The Agent record projection is the whole response: tests/api/
+// agent-invariant2.test.ts asserts the key set, and a new field here is a
+// contract change. avatarSpec and keyRotations (R-30) ride the base key set
+// unconditionally - every agent has a resolved avatar and a (possibly empty)
+// rotation history, so there is no state to wait on; conditional-spread
+// style stays reserved for fields a row may lack (jobProjection's
+// confirmation pair). Neither is read from a request body here: the avatar
+// override is written only by PUT /agents/:agentDid/avatar, from fixed sets.
 function agentProjection(row: Agent): Record<string, unknown> {
   return {
     did: row.did,
@@ -256,15 +255,12 @@ function agentProjection(row: Agent): Record<string, unknown> {
     githubLogin: row.githubLogin,
     proofStatus: row.proofStatus,
     createdAt: row.createdAt.toISOString(),
-    avatar: renderAvatar(row.did),
-    // AV1 (ENT-2.3 ruling): the resolved spec avatar -- the operator's
-    // stored override if present, else the DID-derived default. Rides
-    // alongside the legacy renderAvatar SVG field above (untouched, per
-    // the card's own scope: the design card removes it once nothing
-    // reads it) rather than replacing it.
+    // ENT-2.3 as amended (AV1): the operator's stored override if present,
+    // else the DID-derived default. AV2 removed the legacy server-rendered
+    // SVG `avatar` field that rode beside it, once no page read it.
     avatarSpec: resolveAvatar(row.avatarSpec, row.did),
     // R-30: the rotation history rides the base key set unconditionally,
-    // the same way the avatar does (R-21): every agent has a history, an
+    // the same way the avatar does: every agent has a history, an
     // empty one before the first rotation, so the key set never changes
     // shape with state. ENT-8.4's third party resolves the superseded key
     // from it, and the profile shows the rotation with dates (R-6).

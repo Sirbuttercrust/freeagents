@@ -17,12 +17,12 @@
      loads (spec/wireframe/settings.html:7-8), and without it the .ico
      hosts below have no rule at all: base.css declares no .ico, so the
      glyph boxes size to nothing and the copy button's two-glyph slot has
-     nowhere to stack. swarm.js is the avatar engine and this wireframe
+     nowhere to stack. bots.js is the avatar engine and this wireframe
      mounts no avatar (grep -c data-avatar spec/wireframe/settings.html is
      0), so loading it would ship a module with nothing to paint.
 
      ICONS BEFORE POLISH, and both before settings.js. polish.js's init()
-     calls FAIcon.paint() as its first statement (polish.js:570-571), so
+     calls FAIcon.paint() as its first statement (polish.js:554-555), so
      icons.js has to be parsed first or that sweep finds no painter. Both
      sweeps run at DOMContentLoaded, which is before the account read
      resolves, which is why settings.js repaints the rows it builds.

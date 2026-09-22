@@ -160,13 +160,13 @@
      (verify.html:384-389, signin.html:310-315; how.html:300-304 is the same
      order minus a page script, having none).
 
-     swarm.js is NOT loaded, because this page mounts no [data-avatar]: the
+     bots.js is NOT loaded, because this page mounts no [data-avatar]: the
      wireframe's only one is its nav account menu, which nav.js renders as
      flat links instead (the reason is in tests/web/wireframe-conformance.
      test.ts's myjobs ALLOWED_ABSENT entry). polish.js's avatar sweep returns
-     at polish.js:479 when neither FASwarm nor FA.avatar exists, so nothing
+     when window.FABots does not exist, so nothing
      here waits on a generator that never arrives. verify.html and
-     signin.html also run this stack without swarm.js, each because its own
+     signin.html also run this stack without bots.js, each because its own
      wireframe draws no avatar at all; the reason differs, the consequence
      for the script list does not. -->
 <script src="/js/pages/api.js"></script>

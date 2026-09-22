@@ -113,7 +113,7 @@ describe('scriptAvatarMounts(): the script side counts mount expressions', () =>
     expect(scriptAvatarMounts('function renderRow() {\n  // no data-avatar on this row\n  return 1;\n}')).toBe(0);
   });
 
-  // Reading and sweeping consume a mount somebody else made. polish.js:490
+  // Reading and sweeping consume a mount somebody else made. polish.js:472
   // sweeps every [data-avatar] host on the page; a page whose script only
   // swept would draw nothing, and the raw-text form counted both as mounts.
   it('does not count reading the attribute back off an element', () => {

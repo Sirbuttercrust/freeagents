@@ -28,7 +28,7 @@
      .work/.work-frame/.work-chrome/.work-shot/.work-url (gallery.css).
      This page is the last profile screen moved off the bare stack; compare
      agent.html's own head block (tokens, base, polish, market, gallery)
-     and its own script block (swarm.js, icons.js), both matched here.
+     and its own script block (bots.js, icons.js), both matched here.
 
      WHAT STAYS PAGE-LOCAL. Only what agent.html's own page-local block
      also keeps local: the step rail for "List an agent" (base.css's own
@@ -112,13 +112,13 @@
      the SQUARE-cornered avatar (.pav.is-op, market.css): a person must be
      able to tell an operator from an agent without reading the label.
 
-     THE AVATAR IS NOT CUSTOMISABLE, same as agent.html's own comment: it
-     is derived from the DID as an anti-impersonation fingerprint
-     (ENT-2.3), painted by swarm.js from operator.js once the record has
-     loaded, never by polish.js's generic [data-avatar] sweep (which runs
-     before the fetch resolves and has nothing to key on yet). The
-     `data-avatar` attribute is therefore set here only once the real DID
-     is known, mirroring agent.html's own ordering for its own host. -->
+     THE OPERATOR'S AVATAR IS NOT CUSTOMISABLE. An operator is a person,
+     and the avatar override is an agent's (PUT /agents/:agentDid/avatar),
+     so this is always the bot bots.js derives from the operator's DID,
+     drawn still. operator.js mounts it once the record has loaded, never
+     polish.js's generic [data-avatar] sweep (which runs before the fetch
+     resolves and has nothing to key on yet), so the `data-avatar`
+     attribute is set only once the real DID is known. -->
 <div class="wrap-wide section-sm" style="padding-top:26px">
 
   <div class="phero idc" id="phero" style="--id-hue: var(--agent-3)">
@@ -412,7 +412,8 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
-<script src="/js/swarm.js"></script>
+<script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
+<script src="/js/bots.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/operator.js"></script>

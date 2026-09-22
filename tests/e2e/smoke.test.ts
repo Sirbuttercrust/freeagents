@@ -107,6 +107,7 @@ import type { DidDocument, IdentityAdapter, SignedPayload } from '../../src/adap
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import { MemoryAgentRepository, MemoryCredentialRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
+import { defaultAvatar } from '../../src/domain/avatar-spec.js';
 import { signRequest, signingIdentityFromSeed, signingIdentityFromWallet, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
@@ -372,8 +373,8 @@ const getPullRequestCalls: PullRequestRef[] = [];
 const E2E_MERGE_COMMIT_SHA = 'e2e-merge-sha';
 const E2E_MERGED_AT = new Date('2026-08-20T12:00:00Z');
 
-// R-21: avatars served for agents delegated along the way. The first lets a
-// later flow prove a different DID renders differently over the wire.
+// The DIDs of agents delegated along the way. The first lets a
+// later flow prove a second agent gets its own resolved avatar.
 const delegatedAvatars: string[] = [];
 // B14a: confirm grants push to the agent's VERIFIED GitHub login, so this
 // module-scoped repo (instead of a fresh one per describe) lets every flow
@@ -633,16 +634,14 @@ describe('the API starts and answers', () => {
       recordLastChangedAt: createdBody.createdAt,
     });
 
-    // 3b. R-21: the avatar rides the base projection, derived at serve time
-    // from the agent DID. Shape-checked on the wire and identical between
-    // create and read-back - determinism over HTTP - then remembered so the
-    // file's NEXT delegated agent can be proven to render differently.
-    const createdAvatar = String(createdBody.avatar);
-    expect(createdAvatar.startsWith('<svg')).toBe(true);
-    expect(createdAvatar).toContain('viewBox');
-    expect(createdAvatar.endsWith('</svg>')).toBe(true);
-    expect(readBack.avatar).toBe(createdAvatar);
-    delegatedAvatars.push(createdAvatar);
+    // 3b. The avatar rides the base projection, resolved at serve time: with
+    // no override stored, exactly the default derived from this agent's DID,
+    // identical between create and read-back (determinism over HTTP). AV2
+    // removed the legacy R-21 SVG string; no image rides the wire at all.
+    expect(createdBody.avatarSpec).toEqual(defaultAvatar(String(createdBody.did)));
+    expect(readBack.avatarSpec).toEqual(createdBody.avatarSpec);
+    expect('avatar' in createdBody).toBe(false);
+    delegatedAvatars.push(String(createdBody.did));
 
     // 4. The same agent DID twice is a conflict, not a silent overwrite.
     const dup = await postAsWallet('/agents', {
@@ -780,17 +779,15 @@ describe('the API starts and answers', () => {
       skills: ['triage'],
     }, operatorWallet);
     expect(delegated.status).toBe(201);
-    // R-21, wire-level distinctness: this is the file's second delegated
-    // agent, so its served avatar must differ from the first one's - a
-    // different DID cannot render the same avatar.
+    // Wire-level: this is the file's second delegated agent, a different
+    // DID, and its served spec is its own DID's default rather than a copy
+    // of the first agent's record. Two DIDs MAY share a default (432
+    // combinations); what may never happen is one agent's spec being served
+    // for another, which is what resolving against the row's own DID pins.
     const delegatedBody = (await delegated.json()) as Record<string, unknown>;
-    const draftAgentAvatar = String(delegatedBody.avatar);
-    expect(draftAgentAvatar.startsWith('<svg')).toBe(true);
-    expect(delegatedAvatars, 'two distinct agents rendered the same avatar').not.toContain(
-      draftAgentAvatar,
-    );
-    delegatedAvatars.push(draftAgentAvatar);
-
+    expect(delegatedAvatars, 'the second agent reused the first agent DID').not.toContain(String(delegatedBody.did));
+    expect(delegatedBody.avatarSpec).toEqual(defaultAvatar(String(delegatedBody.did)));
+    delegatedAvatars.push(String(delegatedBody.did));
     // 3. Open the draft. brief rides beside briefHash precisely so a third
     // party holding the response can recompute the hash alone (invariant 2).
     const draft = await postAsWallet('/jobs', {

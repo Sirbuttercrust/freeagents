@@ -61,8 +61,8 @@
 
    EVERYTHING THROUGH textContent: brief, repository and agentName are
    buyer-supplied and operator-supplied strings, content, never markup
-   (api.js's own header rule). The one exception is the avatar, an SVG
-   FASwarm generates locally from a DID, the same call agent.js and
+   (api.js's own header rule). The one exception is the avatar, a canvas
+   bots.js draws locally from a spec and a DID, the same call agent.js and
    agreement.js already make for the identical job. */
 (function () {
   "use strict";
@@ -380,11 +380,13 @@
     return card;
   }
 
-  /* THE AVATAR MOUNT (W-dashboard). polish.js's generic [data-avatar]
-     sweep runs once at load, before any of these reads resolve, so the
-     face is painted here the moment the DID is known, the same call
-     agent.js:164 and agreement.js:104 already make. It costs no extra
-     read: FASwarm derives the whole creature from the DID string itself.
+  /* THE AVATAR MOUNT. polish.js's generic [data-avatar] sweep runs once at
+     load, before any of these reads resolve, so the bot is mounted here the
+     moment the DID is known. bots.js (window.FABots) draws the bot the
+     row's avatarSpec names (AV2: /pending and /incoming rows carry one),
+     or the DID default when the row carries none. A job row works while
+     its job is in progress, the one place this page knows that; a pending
+     row does not, because nothing has been agreed yet.
 
      THE DID IS NOT ALWAYS THERE, and that is not a bug to paper over.
      GET /accounts/:did/pending, /incoming and /agents each carry
@@ -393,7 +395,7 @@
      than carrying an empty one: an empty .jobav is a 30px grey disc
      standing in for an identity nobody supplied. Never invent a DID and
      never derive one from a name. */
-  function mountAvatar(host, did) {
+  function mountAvatar(host, did, spec, state) {
     if (!host) return;
     var value = text(did);
     if (value === "") {
@@ -404,7 +406,7 @@
       return;
     }
     host.setAttribute("data-avatar", value);
-    if (window.FASwarm) host.innerHTML = window.FASwarm.avatar(value, AVATAR_SIZE);
+    if (window.FABots) window.FABots.mount(host, value, { spec: spec, size: AVATAR_SIZE, state: state });
   }
 
   /* ---------------------------------------------------- section 1 rows
@@ -521,11 +523,11 @@
     when.textContent = stage.when;
   }
 
-  function fillJobHead(row, title, agentName, did) {
+  function fillJobHead(row, title, agentName, did, spec, state) {
     var id = row.querySelector(".jobrow-id");
     id.querySelector(".t").textContent = title;
     id.querySelector(".m").textContent = agentName;
-    mountAvatar(row.querySelector(".jobav"), did);
+    mountAvatar(row.querySelector(".jobav"), did, spec, state);
     return row;
   }
 
@@ -537,7 +539,8 @@
     // GET /accounts/:did/jobs carries no agentDid today, so these rows
     // render with no mount until it does (the card in flight on
     // src/api adds it, and this page lights up with no edit here).
-    fillJobHead(row, title, text(job.agentName), job.agentDid);
+    fillJobHead(row, title, text(job.agentName), job.agentDid, job.avatarSpec,
+      window.FABots ? window.FABots.stateForJob(job.status) : "default");
     var date = A.readableDate(job.date);
     drawFlow(row, stage === null ? null : {
       now: stage.now,
@@ -555,7 +558,7 @@
     // inert-declared-control stance incoming.js's own ruling 1 takes.
     var row = clone("tmpl-jobrow");
     var title = text(pending.repository) !== "" ? pending.repository : (text(pending.brief) !== "" ? pending.brief : pending.id);
-    fillJobHead(row, title, text(pending.agentName), pending.agentDid);
+    fillJobHead(row, title, text(pending.agentName), pending.agentDid, pending.avatarSpec, "default");
     var date = A.readableDate(pending.createdAt);
     drawFlow(row, stage === null ? null : {
       now: stage.now,

@@ -247,7 +247,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // fields.
     //
     // polish.js paints [data-avatar] by reading the DID off the attribute
-    // (polish.js:490-495), so with no DID on the wire the only two things
+    // (polish.js:472-478), so with no DID on the wire the only two things
     // this page could ship are a mount with nothing behind it, which
     // paints an empty box, or a mount carrying a value derived from
     // something other than an identity, which paints a face for an
@@ -272,7 +272,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // not serialise it. src/api/ is out of scope on the card that wrote
     // this entry; a separate card can close it, and then this entry comes
     // out rather than being edited.
-    'avatars': "GET /buyers/:githubLogin/conduct (src/api/app.ts:2576-2590) answers { githubLogin, keyed: false } or { githubLogin, keyed: true, counts, operatorCounts } and neither shape carries a DID, verified against the running app. polish.js paints [data-avatar] by reading the DID off the attribute (polish.js:490-495), so the only mounts available here are an empty one or one carrying a value not derived from an identity (a face for an account nobody proved, the thing myjobs' own entry above refuses). The box is not reserved either: dashboard.html:60-74 reserves one for a LIST whose rows mix mountable and unmountable identities, while this page draws a single strip where an empty disc aligns with nothing and indents the account name 44px from the h1 below it (measured in Chrome at 1280: 100 and 100 as shipped, 144 with a .av inserted; pinned by tests/web/conduct.test.ts). The DID is unserialised rather than unavailable: buyerConductForLogin (src/api/app.ts:655-663) holds account.did before it returns, so a separate card against src/api/ closes this and removes this entry",
+    'avatars': "GET /buyers/:githubLogin/conduct (src/api/app.ts:2576-2590) answers { githubLogin, keyed: false } or { githubLogin, keyed: true, counts, operatorCounts } and neither shape carries a DID, verified against the running app. polish.js paints [data-avatar] by reading the DID off the attribute (polish.js:472-478), so the only mounts available here are an empty one or one carrying a value not derived from an identity (a face for an account nobody proved, the thing myjobs' own entry above refuses). The box is not reserved either: dashboard.html:60-74 reserves one for a LIST whose rows mix mountable and unmountable identities, while this page draws a single strip where an empty disc aligns with nothing and indents the account name 44px from the h1 below it (measured in Chrome at 1280: 100 and 100 as shipped, 144 with a .av inserted; pinned by tests/web/conduct.test.ts). The DID is unserialised rather than unavailable: buyerConductForLogin (src/api/app.ts:655-663) holds account.did before it returns, so a separate card against src/api/ closes this and removes this entry",
   },
   deposit: {
     // The wireframe's own comment (deposit.html:238-240) says the drawn QR

@@ -37,10 +37,9 @@
 
    EVERYTHING THROUGH textContent: the agent's name and skills are
    operator-supplied and agent-supplied strings, content, never markup
-   (api.js's own header rule). The avatar is the one exception, and it is
-   not operator input at all: the creature is generated client-side by
-   swarm.js from the DID alone, which reaches the generator as a number
-   (FACore.hash) and never as a string in the emitted SVG. */
+   (api.js's own header rule). The avatar is drawn on a canvas by bots.js
+   from a spec of three keys chosen from fixed sets, never from a string
+   the operator typed. */
 (function () {
   "use strict";
   var A = window.FAApi;
@@ -63,6 +62,7 @@
         failLoad("Your account could not be read just now. Reloading may work.");
         return;
       }
+      myDid = did;
       var rosterPromise = A.getAuthed("/accounts/" + encodeURIComponent(did) + "/agents", session.token);
       /* Fired once for the page, in parallel with the roster read, never
          once per row: a failed or non-200 read here leaves
@@ -151,12 +151,12 @@
        one would be a fabricated identity.
 
        The attribute has exactly one consumer in the whole app, polish.js's
-       [data-avatar] sweep (polish.js:490), which runs once inside init()
+       [data-avatar] sweep (polish.js:472), which runs once inside init()
        on DOMContentLoaded. That is before this fetch resolves, so the
        sweep is not what paints these rows and the attribute alone would
-       leave the box empty forever. The creature is painted below, in
-       loadDetail, the same set-then-paint pair agent.js:163-168,
-       hire.js:89-93 and dashboard.js:396-408 already use.
+       leave the box empty forever. The bot is mounted below, in
+       loadDetail, the same set-then-paint pair agent.js, hire.js and
+       dashboard.js use (each through FABots.mount).
 
        It still carries the attribute rather than skipping it, because it
        is the mount contract the rest of the system reads: a re-entrant
@@ -164,9 +164,9 @@
        is this box" finds the answer on the element instead of nowhere. */
     var avatar = document.createElement("div");
     avatar.className = "rav";
-    /* Guarded for the same reason dashboard.js:396-404 guards its own
+    /* Guarded for the same reason dashboard.js's mountAvatar guards its own
        mount: an EMPTY data-avatar is not a neutral placeholder, it is a
-       creature generated from the empty string, a face standing in for an
+       bot derived from the empty string, a face standing in for an
        identity nobody supplied. A row whose roster entry carries no DID
        keeps the 40px box for alignment and claims nothing. */
     if (typeof agent.did === "string" && agent.did !== "") {
@@ -291,48 +291,277 @@
      no attention line, never a guessed "confirmed" (claim-contradicts-
      implementation is the defect class this guards).
 
-     THE AVATAR IS PAINTED BY THE SWARM GENERATOR, NOT THE SERVER'S
-     agent.avatar FIELD. This is the one behavioural change the polished
-     pass makes to this read. DESIGN.md 2.4 and ENT-2.3: an agent's
-     creature is derived from its DID and nothing else. window.FASwarm is
-     the generator the polished pages standardise on, and browse.js:405-418
-     made exactly this swap for exactly this reason, naming this file's
-     loadDetail as the shape it shares; agent.avatar is a separate, older
-     server-rendered engine (src/api/avatar.ts's own header calls it a
-     blobatar stand-in) that renders a different face for the same
-     identity. Two engines meant an agent wore one face on its profile and
-     a different one on its operator's roster.
-
-     The DID is known before the fetch is even fired, so nothing about the
-     face depends on the response. The read is still what gates the paint,
-     because a row for an agent whose record cannot be read should not
-     assert an identity this page could not confirm: a failed read leaves
-     the box exactly as it started, data-pending and empty, never a partial
-     or guessed creature. That is the same fail-honest rule every other
-     read in this file follows. */
+     THE AVATAR (AV2). bots.js (window.FABots) mounts the bot this read's
+     avatarSpec names: the operator's own choice, or the DID default. The
+     read gates the paint, because a row for an agent whose record cannot
+     be read should not assert an identity this page could not confirm: a
+     failed read leaves the box exactly as it started, data-pending and
+     empty, and offers no editor either. The roster row does not know
+     whether the agent has a job in progress, so the bot never works here. */
   function loadDetail(agent, row) {
     A.get("/agents/" + encodeURIComponent(agent.did)).then(function (result) {
       if (result.state !== "ok") return;
       var detail = result.value;
-      paintAvatar(row, agent.did);
+      paintAvatar(row, agent.did, detail.avatarSpec);
       if (detail.proofStatus !== "verified") renderAttention(row);
+      renderAvatarEditor(row, agent, detail);
     });
   }
 
   /* 40px, the width .arow .rav reserves for the box in this page's own
-     style block. Passed explicitly rather than measured, because the
-     generator emits a fixed width and height on its SVG and a box that
-     has not been laid out yet measures zero. */
+     style block. Passed as the size to draw at until the box has been laid
+     out, because a box that has not been measured yet measures zero. */
   var AVATAR_SIZE = 40;
 
-  function paintAvatar(row, did) {
+  function paintAvatar(row, did, spec) {
     var host = row.querySelector(".rav");
-    if (!host || !window.FASwarm) return;
+    if (!host || !window.FABots) return;
     if (typeof did !== "string" || did === "") return;
-    host.innerHTML = window.FASwarm.avatar(did, AVATAR_SIZE);
-    host.removeAttribute("data-pending");
+    window.FABots.mount(host, did, { spec: spec, size: AVATAR_SIZE });
   }
 
+  /* ------------------------------------------------------ the avatar editor
+
+     WHERE IT LIVES. On this page, under the agent's own row, rather than on
+     a settings page for the agent: agentsettings.html is not built and has
+     no route (this file's header, the four wireframe rulings), and this
+     roster is the one built screen that is already only ever the
+     operator's own. A disclosure under the row, not a modal, because a
+     person tuning a look wants the rest of their roster in view and wants
+     the row's own avatar to change when they save.
+
+     WHO SEES IT. Only the agent's operator. The roster read is already the
+     signed-in account's own (GET /accounts/:did/agents), and the editor is
+     built only when the per-agent read's operatorDid equals the signed-in
+     DID as well, so a row that somehow is not theirs gets no editor. The
+     routes enforce it again (PUT and DELETE /agents/:agentDid/avatar answer
+     403 to anyone but the operator); the page never relies on hiding.
+
+     WHAT IT OFFERS. The fixed sets and nothing else: 18 shapes, 2 faces, 12
+     colours, a live preview, Save, and Reset to default. Radio groups, so
+     arrow keys move within a set and Tab moves between sets, and every
+     option is named by its label. Save and Reset stay disabled until they
+     would change something. */
+  var myDid = "";
+  var editorSeq = 0;
+
+  function renderAvatarEditor(row, agent, detail) {
+    if (!window.FABots || myDid === "") return;
+    if (typeof detail.operatorDid !== "string" || detail.operatorDid !== myDid) return;
+    var body = row.children[1];
+    if (!body) return;
+    var B = window.FABots;
+    var did = agent.did;
+    var name = typeof agent.name === "string" && agent.name !== "" ? agent.name : A.shortDid(did);
+    var saved = B.resolve(detail.avatarSpec, did);
+    var fallback = B.defaultAvatar(did);
+    var draft = { shape: saved.shape, face: saved.face, colour: saved.colour };
+    var id = "avedit-" + (++editorSeq);
+
+    var toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "disclose avedit-toggle";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-controls", id);
+    toggle.textContent = "Change avatar";
+    body.appendChild(toggle);
+
+    var panel = document.createElement("div");
+    panel.className = "avedit";
+    panel.id = id;
+    panel.hidden = true;
+    row.appendChild(panel);
+
+    var head = document.createElement("div");
+    head.className = "avedit-head";
+    var preview = document.createElement("span");
+    preview.className = "avedit-preview";
+    head.appendChild(preview);
+    var who = document.createElement("div");
+    var whoName = document.createElement("div");
+    whoName.className = "nm";
+    whoName.textContent = name;
+    who.appendChild(whoName);
+    var whoDid = document.createElement("div");
+    whoDid.className = "avedit-did";
+    whoDid.textContent = A.shortDid(did);
+    who.appendChild(whoDid);
+    var status = document.createElement("p");
+    status.className = "avedit-status";
+    status.setAttribute("role", "status");
+    who.appendChild(status);
+    head.appendChild(who);
+    panel.appendChild(head);
+
+    var shapeGroup = optionGroup(id, "shape", "Shape", B.SHAPES.map(function (s) {
+      return { value: s, label: B.shapeName(s), draw: function (c) { B.still(c, { shape: s, face: "eyes", colour: draft.colour }, 36); } };
+    }));
+    var faceGroup = optionGroup(id, "face", "Face", B.FACES.map(function (f) {
+      return { value: f, label: B.FACE_NAMES[f], draw: function (c) { B.still(c, { shape: draft.shape, face: f, colour: draft.colour }, 36); } };
+    }));
+    var colourGroup = optionGroup(id, "colour", "Colour", B.COLOUR_KEYS.map(function (k) {
+      return { value: k, label: B.COLOUR_NAMES[k], draw: function (c) { B.swatch(c, k, 24); } };
+    }));
+    panel.appendChild(shapeGroup.el);
+    panel.appendChild(faceGroup.el);
+    panel.appendChild(colourGroup.el);
+
+    var acts = document.createElement("div");
+    acts.className = "acts avedit-acts";
+    var save = document.createElement("button");
+    save.type = "button";
+    save.className = "btn btn-primary";
+    save.textContent = "Save";
+    var reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "btn";
+    reset.textContent = "Reset to default";
+    acts.appendChild(save);
+    acts.appendChild(reset);
+    panel.appendChild(acts);
+
+    var note = document.createElement("p");
+    note.className = "avedit-note";
+    note.textContent = "The default comes from this agent's identity. Your agent's name always shows beside its avatar, wherever it appears.";
+    panel.appendChild(note);
+
+    function same(a, b) { return a.shape === b.shape && a.face === b.face && a.colour === b.colour; }
+
+    function sync(repaintTiles) {
+      shapeGroup.select(draft.shape);
+      faceGroup.select(draft.face);
+      colourGroup.select(draft.colour);
+      if (repaintTiles) {
+        shapeGroup.redraw();
+        faceGroup.redraw();
+      }
+      B.mount(preview, did, { spec: draft, size: 64, flips: true });
+      save.disabled = same(draft, saved);
+      reset.disabled = same(draft, fallback) && same(saved, fallback);
+    }
+
+    function choose(key, value) {
+      if (draft[key] === value) return;
+      draft[key] = value;
+      status.textContent = "";
+      sync(key === "colour" || key === "shape");
+      B.poke(preview);
+    }
+    shapeGroup.onPick(function (v) { choose("shape", v); });
+    faceGroup.onPick(function (v) { choose("face", v); });
+    colourGroup.onPick(function (v) { choose("colour", v); });
+
+    function landed(result, verb) {
+      var session = A.getStoredSession();
+      if (result.state === "ok" && result.value.status === 200) {
+        var next = B.resolve(result.value.body && result.value.body.avatarSpec, did);
+        saved = next;
+        draft = { shape: next.shape, face: next.face, colour: next.colour };
+        paintAvatar(row, did, next);
+        sync(true);
+        status.textContent = verb === "reset" ? "Back to the default. It shows everywhere now." : "Saved. It shows everywhere now.";
+        return;
+      }
+      var code = result.state === "ok" ? result.value.status : 0;
+      status.textContent =
+        code === 401 || session === null ? "Your session has expired. Sign in again to change this avatar." :
+        code === 403 ? "Only this agent's operator can change its avatar." :
+        code === 0 ? "That did not reach the server. Check your connection and try again." :
+        "That did not save. Try again in a moment.";
+      sync(false);
+    }
+
+    save.addEventListener("click", function () {
+      var session = A.getStoredSession();
+      if (session === null) { landed({ state: "ok", value: { status: 401 } }, "save"); return; }
+      save.disabled = true;
+      save.setAttribute("data-busy", "true");
+      A.putAuthed("/agents/" + encodeURIComponent(did) + "/avatar", session.token, draft).then(function (r) {
+        save.removeAttribute("data-busy");
+        landed(r, "save");
+      });
+    });
+
+    reset.addEventListener("click", function () {
+      var session = A.getStoredSession();
+      if (session === null) { landed({ state: "ok", value: { status: 401 } }, "reset"); return; }
+      reset.disabled = true;
+      reset.setAttribute("data-busy", "true");
+      A.deleteAuthed("/agents/" + encodeURIComponent(did) + "/avatar", session.token).then(function (r) {
+        reset.removeAttribute("data-busy");
+        landed(r, "reset");
+      });
+    });
+
+    var drawn = false;
+    toggle.addEventListener("click", function () {
+      var open = toggle.getAttribute("aria-expanded") !== "true";
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      toggle.textContent = open ? "Close the avatar editor" : "Change avatar";
+      panel.hidden = !open;
+      row.classList.toggle("is-editing", open);
+      if (open) {
+        /* Drawn on first open, not at row build: 32 small canvases per
+           agent is work nobody asked for until they open the editor. */
+        if (!drawn) { shapeGroup.redraw(); faceGroup.redraw(); colourGroup.redraw(); drawn = true; }
+        sync(false);
+      } else {
+        /* Closing keeps nothing unsaved: the next open starts from what is
+           stored, so the row and the editor never disagree. */
+        draft = { shape: saved.shape, face: saved.face, colour: saved.colour };
+        status.textContent = "";
+      }
+    });
+    sync(false);
+  }
+
+  /* One named radio group: a caption, then a tile per option. Native radio
+     inputs, so the browser supplies the keyboard model (arrows within the
+     group, Tab between groups) and a screen reader announces "Shape, Cat,
+     radio button, 14 of 18". The input is visually hidden inside its label;
+     the label is the 44px tile. */
+  function optionGroup(prefix, key, caption, options) {
+    var set = document.createElement("fieldset");
+    set.className = "avedit-set avedit-" + key;
+    var legend = document.createElement("legend");
+    legend.textContent = caption;
+    set.appendChild(legend);
+    var grid = document.createElement("div");
+    grid.className = "avedit-grid";
+    set.appendChild(grid);
+    var inputs = [];
+    var picked = null;
+    options.forEach(function (opt) {
+      var label = document.createElement("label");
+      label.className = "avedit-opt";
+      if (key !== "face") label.title = opt.label;
+      var input = document.createElement("input");
+      input.type = "radio";
+      input.name = prefix + "-" + key;
+      input.value = opt.value;
+      input.addEventListener("change", function () { if (input.checked && picked) picked(opt.value); });
+      label.appendChild(input);
+      var canvas = document.createElement("canvas");
+      canvas.setAttribute("aria-hidden", "true");
+      label.appendChild(canvas);
+      var text = document.createElement("span");
+      text.className = "avedit-lbl";
+      text.textContent = opt.label;
+      label.appendChild(text);
+      grid.appendChild(label);
+      inputs.push({ input: input, canvas: canvas, opt: opt });
+    });
+    return {
+      el: set,
+      onPick: function (fn) { picked = fn; },
+      select: function (value) {
+        inputs.forEach(function (it) { it.input.checked = it.opt.value === value; });
+      },
+      redraw: function () {
+        inputs.forEach(function (it) { it.opt.draw(it.canvas); });
+      },
+    };
+  }
   function renderAttention(row) {
     var body = row.children[1];
     if (!body) return;

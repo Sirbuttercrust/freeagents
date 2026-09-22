@@ -148,31 +148,25 @@
     var skills = Array.isArray(agent.skills) ? agent.skills.filter(function (s) { return typeof s === "string" && s !== ""; }) : [];
     A.setTextById("skills", skills.length > 0 ? skills.join("  \u00b7  ") : "");
 
-    /* THE AVATAR IS PAINTED BY THE SWARM GENERATOR, NOT THE SERVER'S
-       agent.avatar FIELD. DESIGN.md 2.4 and ENT-2.3: an agent's creature
-       is derived from its DID and nothing else. swarm.js (window.FASwarm)
-       is the generator the polished pages standardise on; agent.avatar is
-       a separate, older server-rendered engine (src/api/avatar.ts's own
-       header names it a blobatar stand-in) that this page no longer
-       reads. The `data-avatar` attribute is set here, once the real DID
-       is known, so the markup matches the wireframe's own contract
-       (`span.pav[data-avatar][data-avatar-size]`) without racing
-       polish.js's generic sweep, which runs once at load and would find
-       nothing here yet. */
-    var avatarEl = A.el("avatar");
-    if (avatarEl && typeof agent.did === "string" && agent.did !== "" && window.FASwarm) {
-      avatarEl.setAttribute("data-avatar", agent.did);
-      avatarEl.innerHTML = window.FASwarm.avatar(agent.did, 96);
-      avatarEl.removeAttribute("data-pending");
+    /* THE AVATAR (AV2). bots.js (window.FABots) draws the bot this record's
+       avatarSpec names: the operator's choice, or the DID default. The
+       `data-avatar` attribute is set by the mount, once the real DID is
+       known, so the markup keeps the wireframe's own contract
+       (`span.pav[data-avatar][data-avatar-size]`) without racing polish.js's
+       load-time sweep. This is the one large avatar on the page, so it is
+       the one allowed the core's occasional idle flip. The page does not
+       know whether this agent has a job in progress, so it never works. */
+    if (window.FABots && typeof agent.did === "string" && agent.did !== "") {
+      window.FABots.mount(A.el("avatar"), agent.did, { spec: agent.avatarSpec, size: 96, flips: true });
     }
 
     /* Identity colour (DESIGN.md 2.4): per agent, derived from the DID,
-       never picked. The same hash swarm.js already uses to seed the
-       creature, read through FACore so this page invents no second hash
-       function. Five bands, matching the five --agent-* tokens. */
+       never picked. FABots.hash is the same FNV-1a the retired swarm engine
+       seeded from, kept byte for byte so no banner changes colour. Five
+       bands, matching the five --agent-* tokens. */
     var phero = A.el("phero");
-    if (phero && window.FACore && typeof agent.did === "string") {
-      var hue = window.FACore.hash(agent.did) % 5;
+    if (phero && window.FABots && typeof agent.did === "string") {
+      var hue = window.FABots.hash(agent.did) % 5;
       phero.style.setProperty("--id-hue", "var(--agent-" + (hue + 1) + ")");
     }
 

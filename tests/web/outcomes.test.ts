@@ -507,7 +507,7 @@ describe('no JavaScript of its own (done-means 10)', () => {
   //
   // The ORDER is load-bearing and is asserted, not just the membership:
   // polish.js's init() calls FAIcon.paint() as its first statement
-  // (src/web/public/js/polish.js:570-571), so icons.js has to be parsed
+  // (src/web/public/js/polish.js:554-555), so icons.js has to be parsed
   // first. Measured in Chrome against the served page: window.FAIcon is an
   // object with a paint function by the time the page settles.
   //

@@ -24,7 +24,7 @@
      The wireframe draws a real generated face here
      (spec/wireframe/conduct.html:62, a .av carrying data-avatar), and
      polish.js's sweep paints one by reading the DID off that attribute
-     (polish.js:490-495). This route serves no DID: both response shapes
+     (polish.js:472-478). This route serves no DID: both response shapes
      of GET /buyers/:githubLogin/conduct (src/api/app.ts:2576-2590) carry
      githubLogin, keyed, counts and operatorCounts and nothing else, so
      there is no value to put on the attribute and no second read allowed

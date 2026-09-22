@@ -132,14 +132,15 @@
      agentsettings.html (the banner picker) is not a card this branch
      builds -- Handoff gap, listed at the end of this file.
 
-     THE AVATAR IS NOT CUSTOMISABLE. It is derived from the DID as an
-     anti-impersonation fingerprint (ENT-2.3), painted by swarm.js from
-     agent.js once the record has loaded (never by polish.js's generic
-     [data-avatar] sweep, which runs before the fetch resolves and has
-     nothing to key on yet): the `data-avatar` attribute is set here only
-     once the real DID is known, so the polish.js sweep at load time finds
-     nothing to paint and the page never shows a throwaway placeholder
-     creature keyed on an empty string. -->
+     THE AVATAR IS THE OPERATOR'S TO CHOOSE, within fixed sets (AV2, the
+     amended ENT-2.3): one of 18 shapes, 2 faces and 12 colours, set on
+     the operator's own My agents page, else a default derived from the
+     DID. Never an upload. The name beside it is what says who this is.
+     bots.js paints it from agent.js once the record has loaded (never by
+     polish.js's generic [data-avatar] sweep, which runs before the fetch
+     resolves and has nothing to key on yet): the `data-avatar` attribute
+     is set only once the real DID is known, so the page never shows a
+     placeholder keyed on an empty string. -->
 <div class="wrap-wide section-sm" style="padding-top:26px">
 
   <div class="phero idc" id="phero" style="--id-hue: var(--agent-1)">
@@ -629,7 +630,8 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
-<script src="/js/swarm.js"></script>
+<script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
+<script src="/js/bots.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/agent.js"></script>

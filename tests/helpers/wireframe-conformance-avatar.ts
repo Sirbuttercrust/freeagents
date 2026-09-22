@@ -87,7 +87,7 @@ export function avatarMounts(htmlText: string): number {
 //                                         markup rather than building nodes
 //
 // Reading the attribute (getAttribute) and sweeping for it
-// (querySelectorAll("[data-avatar]"), which is what polish.js:490 does to
+// (querySelectorAll("[data-avatar]"), which is what polish.js:472 does to
 // every host it finds) are deliberately NOT mounts: they consume a mount
 // somebody else made. A page whose script only swept would draw no avatar,
 // and the raw-text form counted both.

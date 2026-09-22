@@ -20,9 +20,9 @@
      of them and this page carries no market card, no portfolio gallery, no
      signature matrix and no pipeline rail.
 
-     THE SCRIPTS. api, nav, swarm, polish, hire, ui.
-       swarm.js  paints the .who avatar, which is the creature derived from
-                 the agent's DID (DESIGN.md 2.4, ENT-2.3).
+     THE SCRIPTS. api, nav, bots, polish, hire, ui.
+       bots.js  paints the .who avatar, the bot the agent read's avatarSpec
+                 names, or its DID default (DESIGN.md 2.4, ENT-2.3).
        polish.js earns its place three times over here: counters() drives the
                  brief's character guide, hits() runs the button ripple that
                  polish.css draws as .btn::after (without it that pseudo
@@ -321,7 +321,8 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
-<script src="/js/swarm.js"></script>
+<script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
+<script src="/js/bots.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/hire.js"></script>
 <script src="/js/pages/ui.js"></script>

@@ -9,7 +9,7 @@ import type { Express } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
-import { renderAvatar } from '../../src/api/avatar.js';
+import { defaultAvatar } from '../../src/domain/avatar-spec.js';
 import { MemoryAgentRepository, MemoryCredentialRepository } from '../../src/adapters/storage/memory.js';
 import type { Agent, Delegation } from '../../src/domain/agent.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
@@ -129,7 +129,7 @@ describe('GET /agents/:agentDid, three-tier work record (R-17)', () => {
   it('the base agent fields are unchanged (avatar, key rotations, etc.)', async () => {
     const res = await fetch(`${baseUrl}/agents/${agentDid}`);
     const body = (await res.json()) as Record<string, unknown>;
-    expect(body.avatar).toBe(renderAvatar(agentDid));
+    expect(body.avatarSpec).toEqual(defaultAvatar(agentDid));
     expect(body.did).toBe(agentDid);
   });
 

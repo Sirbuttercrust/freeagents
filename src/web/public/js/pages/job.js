@@ -154,22 +154,16 @@
         // beside the name the strip is already showing.
         A.setTextById("whodid-agent", agent.name);
       }
-      // W-job: THE POLISHED AVATAR. A.setAvatar painted a server-supplied
-      // image; the polished system derives the face from the DID instead,
-      // so an operator cannot choose it and cannot impersonate another
-      // agent by picking its look (DESIGN.md 2.4, polish.css:521-544).
-      // Mounted here rather than left to polish.js's own [data-avatar]
-      // sweep, which runs at DOMContentLoaded and is long finished by the
-      // time this read answers. Same call and same 32px size as
-      // agreement.js:101-106; 32px is what .who .av is drawn at
-      // (spec/wireframe/job.html:36).
-      if (window.FASwarm) {
-        var avatarEl = A.el("who-avatar");
-        if (avatarEl) {
-          avatarEl.setAttribute("data-avatar", agentDid);
-          avatarEl.innerHTML = window.FASwarm.avatar(agentDid, 32);
-          avatarEl.removeAttribute("data-pending");
-        }
+      // THE AVATAR (AV2): the bot from the spec this read carries, or the
+      // DID default when it carries none. Mounted here rather than left to
+      // polish.js's load-time sweep, which is long finished by the time
+      // this read answers. 32px is what .who .av is drawn at
+      // (spec/wireframe/job.html:36). It works while the job is in
+      // progress, and only then.
+      if (window.FABots) {
+        window.FABots.mount(A.el("who-avatar"), agentDid, {
+          spec: agent.avatarSpec, size: 32, state: window.FABots.stateForJob(job.status),
+        });
       }
       if (typeof agent.operatorDid === "string" && agent.operatorDid !== "") {
         var link = A.el("who-operator-link");
