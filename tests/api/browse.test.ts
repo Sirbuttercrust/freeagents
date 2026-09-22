@@ -146,6 +146,35 @@ describe('GET /agents (R-20 browse)', () => {
     });
   });
 
+  // Proof r1, defect 1 (claim-contradicts-implementation): the resolved
+  // avatar spec must ride under the SAME key on every agent-bearing
+  // response. DATA-CONTRACT.md section 2 names `avatarSpec` for the search
+  // response; before this fix the browse card carried it as `avatar`
+  // instead, and `avatar` on this response is not the legacy SVG string
+  // either (browse cards never carry that field at all -- only the single-
+  // agent profile projection does). A card here must carry avatarSpec as
+  // an object and must carry no `avatar` key of any kind.
+  it('a browse card carries the resolved spec under avatarSpec, and no avatar key at all (wire-key parity with the profile route)', async () => {
+    const { app, agentRepo } = buildApp();
+    await registerAgent(agentRepo, 'did:abt:zAvatarKeyParity', 'avatar-key-parity', []);
+
+    await withApp(app, async (url) => {
+      const res = await fetch(`${url}/agents`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { agents: Array<Record<string, unknown>> };
+      const card = body.agents[0];
+      expect(card).toBeDefined();
+      expect(card).not.toHaveProperty('avatar');
+      expect(card?.avatarSpec).toEqual(
+        expect.objectContaining({
+          shape: expect.any(String),
+          face: expect.any(String),
+          colour: expect.any(String),
+        }),
+      );
+    });
+  });
+
   it('default order is verified hires, descending (D1), with no sort parameter supplied', async () => {
     const { app, agentRepo, credentialRepo } = buildApp();
     await registerAgent(agentRepo, 'did:abt:zLow', 'low', ['triage']);

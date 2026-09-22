@@ -74,8 +74,15 @@ export interface BrowseCard {
   // stored override if present, else the DID-derived default -- so every
   // page that draws a browse card (browse, myagents, the operator roster,
   // dashboard's roster reads) carries a spec without a second per-row
-  // fetch.
-  readonly avatar: AvatarSpec;
+  // fetch. Named avatarSpec, not avatar: the single-agent profile
+  // projection (agentProjection, src/api/app.ts) carries the SAME resolved
+  // spec under avatarSpec too, alongside its own legacy avatar SVG field,
+  // and DATA-CONTRACT.md section 2 names avatarSpec for this response. A
+  // browse card never carries an `avatar` key of any kind (Proof r1,
+  // defect 1: two different keys for the same resolved spec on two routes
+  // is a wire-contract split a client cannot paper over without branching
+  // on the route).
+  readonly avatarSpec: AvatarSpec;
 }
 
 // Distinct buyers, counted over the verified-hire tier ONLY. This is the
@@ -123,7 +130,7 @@ export function toBrowseCard(agent: BrowseAgentFacts, record: AgentWorkRecord): 
     verifiedPriorWorkCount: record.verifiedPriorWork.length,
     portfolioCount: record.portfolio.length,
     buyerCount: verifiedHireBuyerCount(record),
-    avatar: resolveAvatar(agent.avatarSpec ?? null, agent.did),
+    avatarSpec: resolveAvatar(agent.avatarSpec ?? null, agent.did),
   };
 }
 

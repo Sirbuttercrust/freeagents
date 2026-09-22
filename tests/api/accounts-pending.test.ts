@@ -273,6 +273,50 @@ describe('GET /accounts/:did/pending: only draft and proposed rows for this buye
     }
   });
 
+  // Proof r1, defect 2 (unverified-state-claim): dashboard.js's
+  // progressPendingRow mounts an avatar from this row's own agentDid
+  // (fillJobHead -> mountAvatar, dashboard.js:558), the one dashboard
+  // section that reads a DID from a response carrying no resolved spec.
+  // The card's own rule (item 3) is that a page drawing an avatar from a
+  // response it already reads must get the spec from that same response.
+  // resolveAvatar is total (defaultAvatar covers every DID, including one
+  // with no agent row at all), so this row carries avatarSpec unconditionally,
+  // the same "every row has the field" stance agentName already takes above.
+  it('a row carries the resolved avatarSpec for its agent, matching the operator override when one is set (done-means 3 audit gap fix)', async () => {
+    const { built, owner, agentDid } = await seededBuyer();
+    try {
+      await built.agentRepo.setAvatarSpec(agentDid, { shape: 'triangle', face: 'mouth', colour: 'c7' });
+      await built.jobRepo.create(jobFixture({ id: 'job-with-override', buyerDid: owner.did, agentDid, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
+
+      const res = await getSigned(built.baseUrl, `/accounts/${owner.did}/pending`, owner);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { pending: Array<{ avatarSpec: unknown }> };
+      expect(body.pending[0]!.avatarSpec).toEqual({ shape: 'triangle', face: 'mouth', colour: 'c7' });
+    } finally {
+      built.server.close();
+    }
+  });
+
+  it('a row still carries a resolved (default) avatarSpec when no agent row resolves, never omitting the field', async () => {
+    const built = await buildApp();
+    try {
+      const owner = await signingIdentityFromSeed(new Uint8Array(32).fill(92));
+      const unknownAgentDid = 'did:abt:zUnknownAgentForAvatarDefault';
+      await built.accountRepo.register({ did: owner.did, githubLogin: 'pending-unknown-avatar-buyer' });
+      await built.jobRepo.create(jobFixture({ id: 'job-unknown-avatar', buyerDid: owner.did, agentDid: unknownAgentDid, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
+
+      const res = await getSigned(built.baseUrl, `/accounts/${owner.did}/pending`, owner);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { pending: Array<{ avatarSpec: { shape: string; face: string; colour: string } }> };
+      const spec = body.pending[0]!.avatarSpec;
+      expect(typeof spec.shape).toBe('string');
+      expect(typeof spec.face).toBe('string');
+      expect(typeof spec.colour).toBe('string');
+    } finally {
+      built.server.close();
+    }
+  });
+
   it('an account with no unconfirmed hires gets a 200 with an empty pending array, not a 404 (done-means 11, mutation proof 9)', async () => {
     const { built, owner } = await seededBuyer();
     try {

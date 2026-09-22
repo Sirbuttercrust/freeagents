@@ -1809,10 +1809,20 @@ export function createApp(
       // other into two lookups of the same DID.
       const distinctAgentDids = [...new Set(sorted.map((job) => job.agentDid))];
       const agentNameByDid = new Map<string, string>();
+      // AV1 (ENT-2.3 ruling, Proof r1 defect 2): dashboard.js's
+      // progressPendingRow mounts an avatar straight off this row's own
+      // agentDid (mountAvatar, dashboard.js), so this route resolves the
+      // spec here rather than leaving that page to guess one from a bare
+      // DID. resolveAvatar is total -- an unregistered agent still
+      // renders its DID-derived default -- so every row gets the field,
+      // the same "no state to wait on" stance avatarSpec already takes on
+      // agentProjection and toBrowseCard.
+      const avatarSpecByDid = new Map<string, ReturnType<typeof resolveAvatar>>();
       await Promise.all(
         distinctAgentDids.map(async (agentDid) => {
           const agentRow = await agentRepo.findByDid(agentDid);
           agentNameByDid.set(agentDid, agentRow?.name ?? agentDid);
+          avatarSpecByDid.set(agentDid, resolveAvatar(agentRow?.avatarSpec ?? null, agentDid));
         }),
       );
       const pending = sorted.map((job) => ({
@@ -1821,6 +1831,7 @@ export function createApp(
         repository: job.repository,
         agentDid: job.agentDid,
         agentName: agentNameByDid.get(job.agentDid) ?? job.agentDid,
+        avatarSpec: avatarSpecByDid.get(job.agentDid) ?? resolveAvatar(null, job.agentDid),
         status: job.status,
         waitingOn: waitingOnOf(job.criteria),
         createdAt: job.createdAt.toISOString(),
