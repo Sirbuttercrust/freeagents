@@ -1,4 +1,4 @@
-// The landing flock, drawn as bots (AV2). flight.js is unchanged; this pins
+// The landing flock, drawn as bots (AV2). flight.js keeps its choreography; this pins
 // what bot-flight.js and cast.js put on the page, in real Chrome, because a
 // canvas's pixels are exactly what jsdom cannot see.
 //
@@ -116,4 +116,64 @@ describe('the landing flock is drawn as bots', { timeout: 60000 }, () => {
       expect(r.overflow, 'the landing page scrolls sideways').toBe(0);
     });
   }
+
+  // Review round 1: bot-flight.js read the setting once at load, so a switch while
+  // the page was open left all five bots flying. Here the switch happens
+  // after load, with no reload. The frame counter wraps requestAnimationFrame
+  // from the first script, so it sees the smooth-scroll loop the flock rides.
+  it('switching to reduced motion while the landing page is open parks the flock, and switching back frees it', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found; skipping (see CHROME_BIN)');
+      return;
+    }
+    const b = await RealBrowser.launch({ width: 1280, height: 900 });
+    const SUMS = `[].map.call(document.querySelectorAll('.agent-layer > div[aria-hidden]'), function (h) {
+      var c = h.querySelector('canvas'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, s = 0;
+      for (var i = 0; i < d.length; i += 7) s = (s * 31 + d[i]) >>> 0;
+      return s + ':' + h.style.transform;
+    })`;
+    try {
+      await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+      await b.send('Page.addScriptToEvaluateOnNewDocument', {
+        source: `window.__errs = []; addEventListener('error', function (e) { window.__errs.push(String(e.message)); });
+          window.__frames = 0;
+          (function (raf) {
+            window.requestAnimationFrame = function (cb) {
+              return raf.call(window, function (t) { window.__frames += 1; cb(t); });
+            };
+          })(window.requestAnimationFrame);`,
+      });
+      await b.goto(`${baseUrl}/`, 1500);
+
+      const m0 = await b.evaluate<string[]>(SUMS);
+      await new Promise((r) => setTimeout(r, 800));
+      const m1 = await b.evaluate<string[]>(SUMS);
+      expect(m0.length, 'the cast is five agents').toBe(5);
+      expect(m1, 'the flock was not moving before the switch, so this proves nothing').not.toEqual(m0);
+
+      await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+      await new Promise((r) => setTimeout(r, 300));
+      const a = await b.evaluate<string[]>(SUMS);
+      const fa = await b.evaluate<number>('window.__frames');
+      await new Promise((r) => setTimeout(r, 2000));
+      const z = await b.evaluate<string[]>(SUMS);
+      const fz = await b.evaluate<number>('window.__frames');
+      expect(z, 'a flock bot kept moving or repainting after the switch').toEqual(a);
+      expect(fz - fa, 'the landing page still asks for animation frames after the switch').toBe(0);
+      const dust = await b.evaluate<number>(
+        `[].filter.call(document.querySelectorAll('.agent-layer .dust circle'), function (c) { return c.getAttribute('opacity') !== '0'; }).length`,
+      );
+      expect(dust, 'dust left hanging in the air after the switch').toBe(0);
+
+      await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+      await new Promise((r) => setTimeout(r, 300));
+      const back0 = await b.evaluate<string[]>(SUMS);
+      await new Promise((r) => setTimeout(r, 800));
+      const back1 = await b.evaluate<string[]>(SUMS);
+      expect(back1, 'the flock never came back to life after motion was allowed again').not.toEqual(back0);
+      expect(await b.evaluate<string[]>('window.__errs'), 'the landing page threw').toEqual([]);
+    } finally {
+      await b.close();
+    }
+  });
 });

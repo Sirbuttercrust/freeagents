@@ -77,6 +77,19 @@ const SNAP = `
 `;
 type Snap = Array<{ live: boolean; visible: boolean; sum: number }>;
 
+// The same, for every mounted bot on any page.
+const ANY_SNAP = SNAP.replace(".arow .rav", "[data-avatar]:has(> canvas.bot)");
+
+// Counts animation-frame callbacks that actually run, from the first script.
+const FRAME_COUNTER = `
+  window.__frames = 0;
+  (function (raf) {
+    window.requestAnimationFrame = function (cb) {
+      return raf.call(window, function (t) { window.__frames += 1; cb(t); });
+    };
+  })(window.requestAnimationFrame);
+`;
+
 async function open(motion: 'reduce' | 'no-preference', path = '/myagents'): Promise<RealBrowser> {
   const b = await RealBrowser.launch({ width: 1280, height: 420 });
   await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: motion }] });
@@ -133,6 +146,52 @@ describe('bots move only when they should', { timeout: 60000 }, () => {
       await b.close();
     }
   });
+
+  // Review round 1: the page claimed to follow the setting while open, and did not.
+  // The bots stayed on the loop with their pixels changing nine seconds after
+  // the switch. Every assertion here is taken AFTER the emulated media
+  // changes, with no reload in between, and the frame counter is the check
+  // that trusts neither the flag nor the pixels: if nothing asks for a frame,
+  // nothing can repaint.
+  for (const path of ['/myagents', () => `/agents/${encodeURIComponent(DIDS[0]!)}`] as const) {
+    const label = typeof path === 'string' ? path : '/agents/:did';
+    it(`${label}: switching to reduced motion while open takes every bot off the loop and back`, async () => {
+      if (!hasRealBrowser()) return console.warn('no Chrome found; skipping (see CHROME_BIN)');
+      const b = await RealBrowser.launch({ width: 1280, height: 900 });
+      try {
+        await b.send('Page.addScriptToEvaluateOnNewDocument', { source: FRAME_COUNTER });
+        await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+        const url = `${baseUrl}${typeof path === 'string' ? path : path()}`;
+        await b.goto(url, 100);
+        await b.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(session))})`);
+        await b.goto(url, 1500);
+
+        const before = await b.evaluate<Snap>(ANY_SNAP);
+        expect(before.filter((x) => x.live).length, 'no bot was on the loop before the switch, so this proves nothing').toBeGreaterThan(0);
+
+        await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+        await sleep(300);
+        expect(await b.evaluate<boolean>('FABots.reduced()'), 'the emulated switch did not reach the page').toBe(true);
+        const a = await b.evaluate<Snap>(ANY_SNAP);
+        const framesA = await b.evaluate<number>('window.__frames');
+        await sleep(2000);
+        const z = await b.evaluate<Snap>(ANY_SNAP);
+        const framesZ = await b.evaluate<number>('window.__frames');
+        expect(a.filter((x) => x.live).length, 'a bot stayed on the frame loop after the switch').toBe(0);
+        expect(z.map((x) => x.sum), 'a bot kept repainting after the switch').toEqual(a.map((x) => x.sum));
+        expect(framesZ - framesA, 'something still asks for animation frames after the switch').toBe(0);
+
+        // And back: an on-screen bot resumes its idle life.
+        await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+        await sleep(300);
+        const back = await b.evaluate<Snap>(ANY_SNAP);
+        expect(back.filter((x) => x.live).length, 'no bot came back to life after motion was allowed again')
+          .toBe(before.filter((x) => x.live).length);
+      } finally {
+        await b.close();
+      }
+    });
+  }
 
   it('the operator\u2019s own mark is drawn still even with motion allowed', async () => {
     if (!hasRealBrowser()) return console.warn('no Chrome found; skipping (see CHROME_BIN)');

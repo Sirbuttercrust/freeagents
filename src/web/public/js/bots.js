@@ -22,8 +22,11 @@
    MOTION. `working` only where a page knows the agent has a job in progress,
    `default` everywhere else, and never `sleeping`: this product does not say
    an agent is asleep. Under prefers-reduced-motion every bot is drawn once in
-   the still pose of its state and nothing loops, and the page follows the
-   setting if it changes while open. A bot off screen, or inside a closed
+   the still pose of its state and nothing loops. The page follows the
+   setting if it changes while open: tick() checks it every frame, so the
+   switch to reduce lands on the next frame, and a media listener brings the
+   bots back when it is turned off (tests/web/bots-motion.test.ts switches
+   it both ways after load). A bot off screen, or inside a closed
    disclosure, stops its loop; the shared frame loop in the vendored core
    also stops while the tab is hidden. */
 (function (global) {
@@ -272,9 +275,13 @@
     return bot.lastSize || bot.size || 32;
   }
 
+  /* A bot that is not moving is drawn in the rest pose of its state, never
+     in whatever pose its sim was caught in: a switch to reduced motion must
+     not freeze a bot mid-blink or mid-hop. */
   function paintBot(bot) {
-    var pose = bot.sim ? bot.sim.pose : BA.restPose(bot.state);
-    bot.cfg.still = !animating(bot);
+    var moving = animating(bot);
+    var pose = moving && bot.sim ? bot.sim.pose : BA.restPose(bot.state);
+    bot.cfg.still = !moving;
     paintInto(bot.canvas, sizeOf(bot), pose, bot.cfg, bot.state === "working");
   }
 
@@ -285,6 +292,16 @@
   function tick(bot, dt) {
     if (!bot.canvas.isConnected) {
       forget(bot);
+      return;
+    }
+    /* The frame path reads the setting itself rather than trusting the
+       change event to arrive. In Chrome that event did not fire at all while
+       bots held the frame loop (review round 1, emulated media switched after
+       load), so every bot kept animating. Checking here costs one property
+       read per bot per frame, and the first frame after the switch takes
+       the bot off the loop and repaints it at rest. */
+    if (reduced()) {
+      sync(bot);
       return;
     }
     var s = bot.sim;
@@ -333,6 +350,11 @@
     if (i !== -1) live.splice(i, 1);
   }
 
+  /* The way back. Once reduced motion has taken every bot off the loop, no
+     frame runs, so tick() cannot notice the setting being turned off again.
+     This listener does: with the loop idle the change event is delivered.
+     It also covers the forward switch on any browser that does deliver the
+     event while frames are running. */
   if (reduceQuery) {
     var onMotionChange = function () { live.slice().forEach(sync); };
     if (reduceQuery.addEventListener) reduceQuery.addEventListener("change", onMotionChange);

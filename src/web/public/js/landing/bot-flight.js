@@ -5,7 +5,8 @@
    sub-pixel placement on a compositor layer). None of that is about what an
    agent LOOKS like; it is about where an agent IS. So this file keeps the
    entire FA surface flight.js and cast.js call and swaps only the drawing.
-   flight.js is unchanged.
+   flight.js kept its choreography; its one AV2 change is that it now reads
+   reduced motion live instead of once at load (see settle() below).
 
    It replaced swarm-flight.js, which drew the retired insect swarm. The bots
    are the same ones every other page draws (bots.js over the vendored
@@ -28,8 +29,12 @@
    the previous file, because they belong to the flight rather than to the
    drawing.
 
-   REDUCED MOTION. flight.js already draws every agent parked at its perch
-   with no loop. Here that means the still pose, drawn once per layout. */
+   REDUCED MOTION. flight.js draws every agent parked at its perch with no
+   loop. Here that means the still pose, drawn once per layout. The setting
+   is followed live: when it switches on, flight.js calls settle() on each
+   agent and stops the loop; when it switches off, sample() hands the bot a
+   fresh sim and it picks up its idle life. REDUCED below is only the value
+   at load. */
 
 (function (global) {
   "use strict";
@@ -117,6 +122,7 @@
     var s = {
       uid: uid,
       spec: spec,
+      seed01: seed01,
       sim: REDUCED ? null : B.sim(seed01),
       canvas: canvas,
       size: opts.size || 96,
@@ -161,7 +167,12 @@
     var step = dt > 0 ? (dt > 0.05 ? 0.05 : dt) : 0;
 
     /* The bot itself: head, eyes, blinks, the hop. The pointer pull comes
-       from the aim flight.js already computes. */
+       from the aim flight.js already computes. A settled bot gets its sim
+       back only when motion is allowed and time is actually moving. */
+    if (!s.sim && step > 0 && !B.reduced()) {
+      s.sim = B.sim(s.seed01);
+      s.sim.setJump({ every: 0 });
+    }
     if (s.sim) {
       if (aim && aim.engage > 0.01) {
         s.sim.setPointer(clamp((aim.yaw || 0) / 42, -1, 1), clamp(-(aim.pitch || 0) / 30, -1, 1),
@@ -233,6 +244,22 @@
     if (EXPRESSIONS[id].hop && s.sim) s.sim.poke();
   }
 
+  /* Motion switched off while the page is open (flight.js parks the flock).
+     The bot drops its sim, so the next paint is the rest pose rather than
+     whatever blink or hop it was caught in, and any hop or nudge in flight
+     is let go. sample() gives it a fresh sim if motion comes back. */
+  function settle(s) {
+    s.sim = null;
+    s.expr = "rest";
+    s.exprPrev = "rest";
+    s.nudgeX = 0; s.nudgeY = 0;
+    s.nudgeVX = 0; s.nudgeVY = 0;
+    s.bank = 0;
+    s.svx = 0; s.svy = 0;
+    s.world.vx = 0; s.world.vy = 0;
+    B.paintPose(s.canvas, BUILD_PX, s.spec, null);
+  }
+
   /* Inert on purpose: a bot's shape is its look, and a perch never changes
      it. Accepted so cast.js's perch table keeps working unedited. */
   function setShape() {}
@@ -270,6 +297,7 @@
     sample: sample,
     setShape: setShape,
     setExpression: setExpression,
+    settle: settle,
     setFill: setFill,
     setEye: setEye,
     setGlow: setGlow,
