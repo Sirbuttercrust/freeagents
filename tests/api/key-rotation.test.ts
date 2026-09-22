@@ -515,6 +515,7 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       findByDid: (did) => (did === agentDid ? Promise.reject(new Error('db down')) : base.findByDid(did)),
       updateGithubBinding: (did, input) => base.updateGithubBinding(did, input),
       recordKeyRotation: (did, input) => base.recordKeyRotation(did, input),
+      setAvatarSpec: (did, avatarSpec) => base.setAvatarSpec(did, avatarSpec),
     };
     const app = createApp(accountRepo, repo);
     await withApp(app, async (url) => {
@@ -547,6 +548,7 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       findByDid: (did) => base.findByDid(did),
       updateGithubBinding: (did, input) => base.updateGithubBinding(did, input),
       recordKeyRotation: () => Promise.reject(new Error('db down')),
+      setAvatarSpec: (did, avatarSpec) => base.setAvatarSpec(did, avatarSpec),
     };
     const app = createApp(accountRepo, repo);
     await withApp(app, async (url) => {
@@ -585,6 +587,7 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       findByDid: () => Promise.resolve(stored),
       updateGithubBinding: (did, input) => base.updateGithubBinding(did, input),
       recordKeyRotation: () => Promise.resolve(null),
+      setAvatarSpec: (did, avatarSpec) => base.setAvatarSpec(did, avatarSpec),
     };
     const app = createApp(accountRepo, repo);
     await withApp(app, async (url) => {

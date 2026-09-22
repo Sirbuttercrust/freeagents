@@ -265,6 +265,7 @@ describe('GET /agents/:agentDid/hires (R-33)', () => {
       findByDid: () => Promise.reject(new Error('db down')),
       updateGithubBinding: () => Promise.reject(new Error('unused')),
       recordKeyRotation: () => Promise.reject(new Error('unused')),
+      setAvatarSpec: () => Promise.reject(new Error('unused')),
     };
     const app = createApp(new MemoryAccountRepository(), failing, undefined, undefined, new MemoryJobRepository());
     await withApp(app, async (url) => {

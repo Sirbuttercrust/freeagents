@@ -13,6 +13,7 @@ import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { renderAvatar } from '../../src/api/avatar.js';
+import { resolveAvatar } from '../../src/domain/avatar-spec.js';
 import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
@@ -300,6 +301,11 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       // updated as part of the contract change, not a test bent to pass -
       // the new key is asserted against the same derivation the route uses.
       avatar: renderAvatar(String(stored?.did)),
+      // AV1: the resolved avatar spec joined the contract at the same
+      // time, unconditionally -- an agent with no override still renders
+      // the DID-derived default (ENT-2.3), so there is no state to wait
+      // on and no key that ever goes missing.
+      avatarSpec: resolveAvatar(stored?.avatarSpec ?? null, String(stored?.did)),
       // R-30: the rotation history joined the contract unconditionally,
       // empty until a rotation is recorded. Same documented contract
       // update as the avatar line above.

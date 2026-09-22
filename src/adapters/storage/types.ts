@@ -3,6 +3,7 @@
 // (prisma) sits beside it without touching callers. Adapters may import
 // domain; never the reverse (CLAUDE.md).
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
+import type { AvatarSpec } from '../../domain/avatar-spec.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
 import type { Attestation } from '../../domain/attestation.js';
@@ -122,6 +123,13 @@ export interface AgentRepository {
   // the browse route treats an omitting driver as storage-unavailable, the
   // same 503 an actual outage produces.
   listAll?(): Promise<readonly Agent[]>;
+  // AV1: overwrites the operator's stored avatar override, or clears it
+  // back to the DID-derived default when passed null (the same
+  // overwrite-or-clear shape AccountRepository.setOperatorAddressEvm
+  // already takes -- an operator changing their choice sets a fresh one,
+  // there is no history to preserve). Null when the DID is not stored, so
+  // the route maps it to 404 without a second lookup.
+  setAvatarSpec(did: string, avatarSpec: AvatarSpec | null): Promise<Agent | null>;
 }
 
 // One compromise report in the shape the API accepts (R-16). The operator

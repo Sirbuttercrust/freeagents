@@ -2,6 +2,7 @@
 // only file in the repository that knows Postgres exists.
 import { Prisma, PrismaClient } from '../../generated/prisma/index.js';
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
+import { isValidAvatarSpec, type AvatarSpec } from '../../domain/avatar-spec.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
 import type { IssuedCredentialDocument } from '../credentials/types.js';
 import type { CompletedJob, Criterion, Job, JobStatus } from '../../domain/job.js';
@@ -288,6 +289,25 @@ export class PrismaAgentRepository implements AgentRepository {
       throw err;
     }
   }
+
+  // AV1: overwrites the stored override, or clears it (avatarSpec: null)
+  // back to the DID-derived default. The same P2025-to-null mapping
+  // updateGithubBinding uses above, since an unknown DID is the same
+  // failure either write can hit.
+  async setAvatarSpec(did: string, avatarSpec: AvatarSpec | null): Promise<Agent | null> {
+    try {
+      await db().agent.update({
+        where: { did },
+        data: { avatarSpec: avatarSpec as unknown as Prisma.InputJsonValue } as unknown as Prisma.AgentUpdateInput,
+      });
+      return agentWithRotations(did);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        return null;
+      }
+      throw err;
+    }
+  }
 }
 
 // R-16 (ENT-8.4): a compromise report, addressed structurally for the same
@@ -356,6 +376,12 @@ function toAgent(
     // already carries.
     minBuyerMerges?: number | null;
     maxWalkedAfterConfirm?: number | null;
+    // AV1: same reasoning as floorPriceUsd above -- a worktree generated
+    // before this column exists types the Agent row without it, and an
+    // absent column means "no override stored", the same meaning a stored
+    // null already carries. Json column: arrives as whatever the database
+    // round-tripped, so it is validated structurally rather than trusted.
+    avatarSpec?: unknown;
   },
   keyRotations: readonly KeyRotation[],
 ): Agent {
@@ -372,6 +398,12 @@ function toAgent(
     floorPriceUsd: row.floorPriceUsd ?? null,
     minBuyerMerges: row.minBuyerMerges ?? null,
     maxWalkedAfterConfirm: row.maxWalkedAfterConfirm ?? null,
+    // AV1: the Json column round-trips whatever was stored; a value that
+    // does not validate against the fixed sets (a pre-migration row, a
+    // corrupted read) reads back as null rather than surfacing a bad
+    // shape/face/colour key -- isValidAvatarSpec is the same guard
+    // resolveAvatar itself applies at the wire boundary.
+    avatarSpec: isValidAvatarSpec(row.avatarSpec) ? row.avatarSpec : null,
   };
 }
 

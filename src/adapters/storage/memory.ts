@@ -2,6 +2,7 @@
 // mode when DATABASE_URL is unset (see storage.ts). A Map keyed by DID gives the
 // same duplicate-key semantics the database gives through its primary key.
 import type { Agent, ProofStatus } from '../../domain/agent.js';
+import type { AvatarSpec } from '../../domain/avatar-spec.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
 import type { Account } from '../../domain/account.js';
@@ -151,6 +152,7 @@ export class MemoryAgentRepository implements AgentRepository {
       floorPriceUsd: input.floorPriceUsd ?? null,
       minBuyerMerges: input.minBuyerMerges ?? null,
       maxWalkedAfterConfirm: input.maxWalkedAfterConfirm ?? null,
+      avatarSpec: null,
     };
     this.rows.set(input.did, row);
     return row;
@@ -197,6 +199,19 @@ export class MemoryAgentRepository implements AgentRepository {
     // so this is already oldest-first with no extra sort, the same
     // convention MemoryCredentialRepository.listBySubjectDid relies on.
     return [...this.rows.values()];
+  }
+
+  // AV1: overwrites the stored override, or clears it (avatarSpec: null)
+  // back to the DID-derived default, mirroring
+  // MemoryAccountRepository.setOperatorAddressEvm's own overwrite shape.
+  // Null for an unregistered DID, so the route maps it to 404 without a
+  // second lookup.
+  async setAvatarSpec(did: string, avatarSpec: AvatarSpec | null): Promise<Agent | null> {
+    const row = this.rows.get(did);
+    if (row === undefined) return null;
+    const updated: Agent = { ...row, avatarSpec };
+    this.rows.set(did, updated);
+    return updated;
   }
 }
 

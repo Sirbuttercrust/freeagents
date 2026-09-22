@@ -84,6 +84,16 @@ import {
 import { isValidOperatorDid } from '../domain/operator-did.js';
 import { isValidOperatorAddressEvm } from '../domain/operator-address-evm.js';
 import { isValidOperatorAddressAbt } from '../domain/operator-address-abt.js';
+import {
+  isValidAvatarColourKey,
+  isValidAvatarFace,
+  isValidAvatarShape,
+  resolveAvatar,
+  AVATAR_FACES,
+  AVATAR_SHAPES,
+  type AvatarFace,
+  type AvatarShape,
+} from '../domain/avatar-spec.js';
 import { jobListBucketOf, jobListDateOf } from '../domain/job-list.js';
 import { waitingOnOf } from '../domain/incoming.js';
 import type { Account } from '../domain/account.js';
@@ -247,6 +257,12 @@ function agentProjection(row: Agent): Record<string, unknown> {
     proofStatus: row.proofStatus,
     createdAt: row.createdAt.toISOString(),
     avatar: renderAvatar(row.did),
+    // AV1 (ENT-2.3 ruling): the resolved spec avatar -- the operator's
+    // stored override if present, else the DID-derived default. Rides
+    // alongside the legacy renderAvatar SVG field above (untouched, per
+    // the card's own scope: the design card removes it once nothing
+    // reads it) rather than replacing it.
+    avatarSpec: resolveAvatar(row.avatarSpec, row.did),
     // R-30: the rotation history rides the base key set unconditionally,
     // the same way the avatar does (R-21): every agent has a history, an
     // empty one before the first rotation, so the key set never changes
@@ -2348,6 +2364,77 @@ export function createApp(
       res.status(200).json(agentProjection(updated));
     } catch (err) {
       console.error('POST /agents/:agentDid/key-rotation: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // AV1 (ENT-2.3 ruling, 2026-09-22): the operator's own override on shape,
+  // face and colour. Same auth shape as key-rotation and account-proof
+  // above: requireCallerIsAgentOperator carries the unsigned-401,
+  // stranger-403 and unknown-agent-404 gates in one call, so this route
+  // owns only the body's shape and the write. Reject any value outside
+  // the three fixed sets with 400, before the operator gate runs -- the
+  // same "state a fact about the request before authenticating" order
+  // key-rotation and compromise-report already use, so a malformed body
+  // never depends on who sent it to be refused.
+  function avatarSpecBodyError(body: { shape?: unknown; face?: unknown; colour?: unknown }): string | null {
+    if (!isValidAvatarShape(body.shape)) {
+      return `shape must be one of the fixed set: ${AVATAR_SHAPES.join(', ')}`;
+    }
+    if (!isValidAvatarFace(body.face)) {
+      return `face must be one of the fixed set: ${AVATAR_FACES.join(', ')}`;
+    }
+    if (!isValidAvatarColourKey(body.colour)) {
+      return 'colour must be a colour KEY (c1..c12), never a raw hex value';
+    }
+    return null;
+  }
+
+  app.put('/agents/:agentDid/avatar', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+    const body = (req.body ?? {}) as { shape?: unknown; face?: unknown; colour?: unknown };
+    const bodyError = avatarSpecBodyError(body);
+    if (bodyError !== null) {
+      res.status(400).json({ error: bodyError });
+      return;
+    }
+
+    const gated = await requireCallerIsAgentOperator('PUT /agents/:agentDid/avatar', req, res, did);
+    if (gated === null) return;
+
+    try {
+      const updated = await agentRepo.setAvatarSpec(did, {
+        shape: body.shape as AvatarShape,
+        face: body.face as AvatarFace,
+        colour: body.colour as string,
+      });
+      if (updated === null) {
+        res.status(404).json({ error: `agent ${did} is not registered` });
+        return;
+      }
+      res.status(200).json(agentProjection(updated));
+    } catch (err) {
+      console.error('PUT /agents/:agentDid/avatar: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // AV1: clears the stored override back to the DID-derived default. Same
+  // operator gate as PUT above; no body to validate.
+  app.delete('/agents/:agentDid/avatar', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+    const gated = await requireCallerIsAgentOperator('DELETE /agents/:agentDid/avatar', req, res, did);
+    if (gated === null) return;
+
+    try {
+      const updated = await agentRepo.setAvatarSpec(did, null);
+      if (updated === null) {
+        res.status(404).json({ error: `agent ${did} is not registered` });
+        return;
+      }
+      res.status(200).json(agentProjection(updated));
+    } catch (err) {
+      console.error('DELETE /agents/:agentDid/avatar: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });

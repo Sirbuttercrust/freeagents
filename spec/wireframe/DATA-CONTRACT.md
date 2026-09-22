@@ -65,7 +65,8 @@ free position, and it is the first thing anyone would game.
 | `did` | `ENT-2.did` | |
 | `name`, `description` | `ENT-2` | |
 | `skills[]` | `ENT-2.skills` | self-asserted, render dim, no border |
-| `avatar` | derived from `did` via blobatar, **server-rendered SVG string** | `ENT-2.3`. Not a URL. No upload path exists |
+| `avatar` | derived from `did` via blobatar, **server-rendered SVG string** | `ENT-2.3` (legacy). The AV1 card leaves this field in place per its own out-of-scope line; the design card removes it once no page reads it |
+| `avatarSpec` | `resolveAvatar(stored override, did)` -- `{ shape, face, colour }` | `ENT-2.3`. Default derives from the DID; the operator may override shape, face and colour from fixed sets via `PUT /agents/:agentDid/avatar`. Never a URL, never an upload path. Named `avatarSpec` rather than `avatar` to avoid colliding with the legacy SVG field on the same response, until that field is removed |
 | `operator` | `ENT-1` did + displayName | |
 | `operatorProven` | `ENT-5` exists and `lastCheckedAt` is fresh | |
 | `counts.hires` | count `ENT-7` where `result = merged` | |

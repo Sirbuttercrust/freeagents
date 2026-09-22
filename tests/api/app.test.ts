@@ -572,6 +572,9 @@ describe('app, job storage failures', () => {
     async recordKeyRotation(): Promise<never> {
       throw failure;
     }
+    async setAvatarSpec(): Promise<never> {
+      throw failure;
+    }
   }
 
   class FailingJobRepository implements JobRepository {
