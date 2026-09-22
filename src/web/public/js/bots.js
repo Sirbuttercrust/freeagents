@@ -318,10 +318,16 @@
       if (bot.unsub) { bot.unsub(); bot.unsub = null; }
       paintBot(bot);
     }
+    /* Whether this bot is on the frame loop right now. Read by the tests
+       that prove an off-screen, reduced-motion or still bot costs nothing,
+       and harmless to anything else. */
+    if (bot.unsub) bot.host.setAttribute("data-avatar-live", "true");
+    else bot.host.removeAttribute("data-avatar-live");
   }
 
   function forget(bot) {
     if (bot.unsub) { bot.unsub(); bot.unsub = null; }
+    if (bot.host) bot.host.removeAttribute("data-avatar-live");
     if (observer) observer.unobserve(bot.canvas);
     var i = live.indexOf(bot);
     if (i !== -1) live.splice(i, 1);

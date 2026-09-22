@@ -13,7 +13,7 @@
 ## Why one bundled script
 
 The pages load classic `<script>` tags with no module loader and no bundler,
-and the upstream core is TypeScript split across seven ES modules. The sources
+and the upstream core is TypeScript split across eight ES modules. The sources
 cannot live under `src/` either: `tsc` would compile them under this repo's
 strict settings, which they are not written to. So the build does not touch
 this directory at all. `scripts/copy-web-assets.mjs` copies it into `dist`
