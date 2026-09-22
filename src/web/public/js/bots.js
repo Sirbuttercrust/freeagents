@@ -42,11 +42,11 @@
      and DESIGN.md 2.4 is where each value is justified. */
   var COLOURS = {
     c1: "#58B0E8", c2: "#46C39A", c3: "#E0A24E", c4: "#E4757F", c5: "#FF6A3D", c6: "#FFD32B",
-    c7: "#9BE85A", c8: "#1ED3C6", c9: "#B06BFF", c10: "#F25CD4", c11: "#3D8BFF", c12: "#FF62B0"
+    c7: "#9BE85A", c8: "#1CC4DA", c9: "#B06BFF", c10: "#F25CD4", c11: "#3D8BFF", c12: "#34C759"
   };
   var COLOUR_NAMES = {
     c1: "Sky", c2: "Jade", c3: "Amber", c4: "Rose", c5: "Vermilion", c6: "Yellow",
-    c7: "Lime", c8: "Teal", c9: "Violet", c10: "Orchid", c11: "Cobalt", c12: "Pink"
+    c7: "Lime", c8: "Cyan", c9: "Violet", c10: "Orchid", c11: "Cobalt", c12: "Green"
   };
   var COLOUR_KEYS = ["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12"];
   var FACE_NAMES = { eyes: "Eyes", mouth: "Eyes and mouth" };
@@ -167,6 +167,15 @@
 
   var BA = global.BotAvatars || null;
 
+  /* A DOM with no 2D canvas (jsdom in the web tests, a stripped embed) still
+     gets the named host and its empty canvas. Calling getContext there logs
+     a "not implemented" error on every mount, so ask once whether a 2D
+     context can exist at all and skip the drawing when it cannot. */
+  var CAN_DRAW = typeof global.CanvasRenderingContext2D === "function";
+  function ctx2d(canvas) {
+    return CAN_DRAW && canvas.getContext ? canvas.getContext("2d") : null;
+  }
+
   /* How much of the host the body fills. The core draws on a canvas 1.5x
      the body with the body low in it, so a hop has room above. Here the
      canvas IS the host (every host is a fixed, clipped square or circle),
@@ -229,7 +238,7 @@
       canvas.width = px;
       canvas.height = px;
     }
-    var ctx = canvas.getContext ? canvas.getContext("2d") : null;
+    var ctx = ctx2d(canvas);
     if (!ctx || !ctx.setTransform) return;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, px, px);
@@ -381,6 +390,8 @@
     if (bot.sim && bot.state !== nextState) bot.sim.setState(nextState);
     bot.state = nextState;
     host.setAttribute("data-avatar-state", nextState);
+    if (bot.still) host.setAttribute("data-avatar-still", "true");
+    else host.removeAttribute("data-avatar-still");
 
     if (!BA) return spec;
     bot.cfg = cfgFor(spec);
@@ -412,7 +423,7 @@
     var px = Math.max(1, Math.round(size * dpr));
     canvas.width = px;
     canvas.height = px;
-    var ctx = canvas.getContext ? canvas.getContext("2d") : null;
+    var ctx = ctx2d(canvas);
     if (!ctx || !ctx.arc) return;
     ctx.clearRect(0, 0, px, px);
     ctx.beginPath();

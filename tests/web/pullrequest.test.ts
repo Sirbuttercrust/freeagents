@@ -21,6 +21,8 @@ import { fakeGitHubConfig, fakeGitHubFetch, mintSession, mintSessionToken } from
 import { createPasskeyFixture } from '../helpers/webauthn-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import type { Delegation } from '../../src/domain/agent.js';
+import { botMount, expectedMount } from '../helpers/bot-mount.js';
+import { defaultAvatar } from '../../src/domain/avatar-spec.js';
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const AGENT_DID = 'did:abt:pr-page-agent';
 const HIRED_AGENT_DID = 'did:abt:pr-page-hired-agent';
@@ -569,8 +571,8 @@ describe('the pull-request screen, driven end to end against the real app', () =
   // painted an <svg> into it. Widening the shared gate to strip comments is
   // its own card across every page it judges, not a change to make from
   // inside one page's rebuild.
-  describe('the avatar is a real mount painted by the swarm generator (W-pullrequest)', () => {
-    it('carries data-avatar set to the job\u2019s agent DID with a painted svg inside, not the server avatar field', async () => {
+  describe('the avatar is a real mount drawn by bots.js (W-pullrequest)', () => {
+    it('carries data-avatar set to the job\u2019s agent DID and the bot the agent read served', async () => {
       const page = await renderPr(baseUrl, 'job-fully-submitted', buyerSession);
       try {
         const avatar = page.document.getElementById('agent-avatar');
@@ -580,13 +582,13 @@ describe('the pull-request screen, driven end to end against the real app', () =
         // is styled by no sheet it loads.
         expect(avatar?.classList.contains('av')).toBe(true);
         expect(avatar?.classList.contains('avatar')).toBe(false);
-        expect(avatar?.getAttribute('data-avatar')).toBe(AGENT_DID);
-        // Painted, not merely marked: an empty mount is what a page that
-        // waits for polish.js's one-shot sweep would ship.
-        expect(avatar?.querySelector('svg'), 'the swarm generator painted nothing into the mount').not.toBeNull();
-        // The pending mark is cleared, so the supporting "still loading"
-        // colour (base.css:89) is not left on a real face.
-        expect(avatar?.hasAttribute('data-pending')).toBe(false);
+        // Mounted, not merely marked: an empty host is what a page that
+        // waits for polish.js's one-shot sweep would ship. One canvas, the
+        // served spec (the DID default, since no override is stored), and
+        // the pending mark cleared so the supporting "still loading" colour
+        // (base.css:89) is not left on a real face. The pixels are asserted
+        // in real Chrome by pullrequest-polished.test.ts.
+        expect(botMount(avatar)).toEqual(expectedMount(AGENT_DID, defaultAvatar(AGENT_DID)));
       } finally {
         page.close();
       }

@@ -74,13 +74,17 @@ export function avatarMounts(htmlText: string): number {
 // Mount expressions in a browser script.
 //
 // Comments are not AST nodes, so the prose hazard above is absent here by
-// construction rather than stripped. Three shapes count as a mount, which
+// construction rather than stripped. Four shapes count as a mount, which
 // is every shape this tree uses or plausibly would:
 //
-//   el.setAttribute("data-avatar", did)   the shape every mounting page
-//                                         script in this tree uses today:
-//                                         grep -l 'setAttribute("data-avatar"' \
+//   FABots.mount(host, did, opts)         the shape every mounting page
+//                                         script uses since AV2; bots.js
+//                                         sets the attribute on the host:
+//                                         grep -l 'FABots.mount(' \
 //                                           src/web/public/js/pages/*.js
+//   el.setAttribute("data-avatar", did)   the pre-AV2 shape, still used by
+//                                         myagents.js and dashboard.js to
+//                                         name the host before the read
 //   el.dataset.avatar = did               the same write through the
 //                                         dataset API
 //   '<span data-avatar="' + did + '">'    a script that injects its rows as
@@ -142,7 +146,22 @@ export function scriptAvatarMounts(source: string): number {
       ts.isPropertyAccessExpression(node.left.expression) &&
       node.left.expression.name.text === 'dataset';
 
-    if (isSetAttribute || isDatasetWrite || injectsMountMarkup(node)) mounts += 1;
+    // AV2: FABots.mount(host, did, ...) is the one call every page script
+    // now makes, and it is bots.js that sets the attribute. The call counts
+    // as a mount when it is a real call on FABots (window.FABots.mount or a
+    // bare FABots.mount) with a host and a DID argument. A reference to the
+    // function without calling it, or a call with no DID, is not a mount.
+    const callee = ts.isCallExpression(node) ? node.expression : null;
+    const isBotsMount =
+      callee !== null &&
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(callee) &&
+      callee.name.text === 'mount' &&
+      ((ts.isIdentifier(callee.expression) && callee.expression.text === 'FABots') ||
+        (ts.isPropertyAccessExpression(callee.expression) && callee.expression.name.text === 'FABots')) &&
+      node.arguments.length >= 2;
+
+    if (isSetAttribute || isDatasetWrite || isBotsMount || injectsMountMarkup(node)) mounts += 1;
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);

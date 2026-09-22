@@ -30,24 +30,30 @@ export type AvatarFace = (typeof AVATAR_FACES)[number];
 // accepts a KEY (below), never a raw hex, so a caller can never smuggle an
 // arbitrary colour value through this field; the hex lives here and in the
 // browser renderer's copy (src/web/public/js/bots.js), and
-// tests/web/bots-client.test.ts fails if the two tables drift.
+// tests/web/bots-contract.test.ts fails if the two tables drift.
 //
 // Every value clears 3:1 (WCAG 1.4.11, graphics) against --bg, --bg-1,
-// --bg-2 and the lightest pane surface; the lowest is c11 cobalt at 4.8:1.
+// --bg-2 and the lightest pane surface; tests/domain/avatar-spec.test.ts
+// recomputes every ratio on each run.
 // c1 to c4 are --agent-2 to --agent-5. --agent-1 is not here because it is
 // the accent, and an avatar must never wear the colour that means verified
 // (DESIGN.md 2.2). No colour falls in the hue band 228 to 258 degrees that
 // swarm.js kept clear around the accent: the two nearest are c11 cobalt at
 // 216 and c9 violet at 268.
+//
+// Twelve colours a person can tell apart at 24px: no two sit closer than
+// CIELAB delta-E 25 (c7 lime and c12 green are the nearest pair). c8 and c12
+// were moved to reach that; an earlier pink c12 sat 23 from c10 orchid, and a
+// teal c8 sat 17 from c2 jade, which is a fixed token and could not move.
 export const AVATAR_COLOURS: Readonly<Record<string, string>> = {
   c1: '#58B0E8', c2: '#46C39A', c3: '#E0A24E', c4: '#E4757F', c5: '#FF6A3D', c6: '#FFD32B',
-  c7: '#9BE85A', c8: '#1ED3C6', c9: '#B06BFF', c10: '#F25CD4', c11: '#3D8BFF', c12: '#FF62B0',
+  c7: '#9BE85A', c8: '#1CC4DA', c9: '#B06BFF', c10: '#F25CD4', c11: '#3D8BFF', c12: '#34C759',
 };
 
 // The name a person hears for each colour, used by the picker's swatches.
 export const AVATAR_COLOUR_NAMES: Readonly<Record<string, string>> = {
   c1: 'Sky', c2: 'Jade', c3: 'Amber', c4: 'Rose', c5: 'Vermilion', c6: 'Yellow',
-  c7: 'Lime', c8: 'Teal', c9: 'Violet', c10: 'Orchid', c11: 'Cobalt', c12: 'Pink',
+  c7: 'Lime', c8: 'Cyan', c9: 'Violet', c10: 'Orchid', c11: 'Cobalt', c12: 'Green',
 };
 
 export type AvatarColourKey = keyof typeof AVATAR_COLOURS;

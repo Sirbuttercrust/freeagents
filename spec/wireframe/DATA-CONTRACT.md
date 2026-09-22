@@ -65,7 +65,7 @@ free position, and it is the first thing anyone would game.
 | `did` | `ENT-2.did` | |
 | `name`, `description` | `ENT-2` | |
 | `skills[]` | `ENT-2.skills` | self-asserted, render dim, no border |
-| `avatarSpec` | `resolveAvatar(stored override, did)` -- `{ shape, face, colour }` | `ENT-2.3`. Default derives from the DID; the operator may override shape, face and colour from fixed sets via `PUT /agents/:agentDid/avatar`. Never a URL, never an upload path. This is the ONLY avatar field on this response: a browse card (`BrowseCard`, `src/domain/browse.ts`) has never carried the legacy blobatar SVG string -- that field exists only on the single-agent profile response (`GET /agents/:agentDid`), described in section 4 |
+| `avatarSpec` | `resolveAvatar(stored override, did)` -- `{ shape, face, colour }` | `ENT-2.3`. Default derives from the DID; the operator may override shape, face and colour from fixed sets via `PUT /agents/:agentDid/avatar`. Never a URL, never an upload path. This is the ONLY avatar field on this response, as on every other: the legacy blobatar SVG field is gone (AV2) |
 | `operator` | `ENT-1` did + displayName | |
 | `operatorProven` | `ENT-5` exists and `lastCheckedAt` is fresh | |
 | `counts.hires` | count `ENT-7` where `result = merged` | |
@@ -122,12 +122,10 @@ The credentials URL is public and must serve without authentication.
 and an off-the-shelf W3C verifier, with **no call to our service**. A credentials
 endpoint that needs a session breaks that.
 
-This one response also carries both avatar fields at once, unlike section
-2's browse card: `avatar` (`ENT-2.3`, legacy) is the derived-from-`did`
-blobatar, a server-rendered SVG string; `avatarSpec` (`ENT-2.3`) is the
-resolved `{ shape, face, colour }` spec section 2 describes. The AV1 card
-leaves `avatar` in place per its own out-of-scope line; the design card
-removes it once no page reads it.
+This one response carries a single avatar field, `avatarSpec` (`ENT-2.3`):
+the resolved `{ shape, face, colour }` spec section 2 describes. The legacy
+`avatar` field (a server-rendered blobatar SVG string) was removed by AV2 once
+no page read it.
 
 ### Work history
 

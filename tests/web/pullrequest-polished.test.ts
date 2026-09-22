@@ -35,6 +35,7 @@ import { fakeGitHubConfig, fakeGitHubFetch, mintSession } from '../helpers/sessi
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
+import { PAINTED_PIXELS_FN } from '../helpers/bot-mount.js';
 
 const AGENT_DID = 'did:abt:pr320-agent';
 const BUYER_DID = 'did:abt:pr320-buyer';
@@ -146,7 +147,7 @@ describe('the pull-request page at 320px, in a real browser (W-pullrequest)', ()
         picker: Array<{ label: [number, number]; radio: [number, number] }>;
         railCollapsed: { liFontSize: string; railnowDisplay: string };
         fixedRows: string;
-        avatar: { tag: string; cls: string; did: string | null; svg: boolean; w: number; h: number };
+        avatar: { tag: string; cls: string; did: string | null; painted: number; canvases: number; w: number; h: number };
         glow: { textZ: string; glowZ: string };
       }>(`(() => {
         function overflow() {
@@ -165,7 +166,7 @@ describe('the pull-request page at 320px, in a real browser (W-pullrequest)', ()
 
         const avatarEl = document.getElementById('agent-avatar');
         const ar = avatarEl.getBoundingClientRect();
-        const avatar = { tag: avatarEl.tagName.toLowerCase(), cls: avatarEl.className, did: avatarEl.getAttribute('data-avatar'), svg: !!avatarEl.querySelector('svg'), w: +ar.width.toFixed(1), h: +ar.height.toFixed(1) };
+        const avatar = { tag: avatarEl.tagName.toLowerCase(), cls: avatarEl.className, did: avatarEl.getAttribute('data-avatar'), painted: (${PAINTED_PIXELS_FN})(avatarEl), canvases: avatarEl.querySelectorAll('canvas').length, w: +ar.width.toFixed(1), h: +ar.height.toFixed(1) };
 
         const railCollapsed = {
           liFontSize: getComputedStyle(document.querySelector('.rail li')).fontSize,
@@ -206,10 +207,11 @@ describe('the pull-request page at 320px, in a real browser (W-pullrequest)', ()
       })()`);
 
       // The avatar is a real painted mount, measured rather than asserted off
-      // an attribute: 32px round, with the swarm's svg inside it.
+      // an attribute: 32px round, with the bot's pixels actually on its canvas.
       expect(report.avatar.tag, 'the who-strip avatar is not the wireframe\u2019s <span class="av">').toBe('span');
       expect(report.avatar.cls.split(/\s+/), 'the avatar lost the .av class flow.css:161 and polish.css:536 key on').toContain('av');
-      expect(report.avatar.svg, 'the swarm generator painted nothing into the avatar mount').toBe(true);
+      expect(report.avatar.canvases, 'the avatar mount holds other than one canvas').toBe(1);
+      expect(report.avatar.painted, 'bots.js drew nothing onto the avatar canvas').toBeGreaterThan(100);
       expect(report.avatar.did, 'the avatar mount carries no DID').toBe(AGENT_DID);
       expect(report.avatar.w).toBe(32);
       expect(report.avatar.h).toBe(32);

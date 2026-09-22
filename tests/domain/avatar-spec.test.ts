@@ -77,6 +77,34 @@ describe('AVATAR_COLOURS', () => {
     expect(Object.keys(AVATAR_COLOUR_NAMES)).toEqual(Object.keys(AVATAR_COLOURS));
     expect(new Set(Object.values(AVATAR_COLOUR_NAMES)).size).toBe(12);
   });
+
+  // Twelve colours only help if a person can tell them apart on a 24px
+  // swatch. CIELAB delta-E (CIE76) between every pair, with D65 white; 25 is
+  // well past "clearly different" for flat fills at that size.
+  it('no two colours sit closer than delta-E 25', () => {
+    const lab = (hex: string): [number, number, number] => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+        .map((x) => (x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4)) as [number, number, number];
+      const X = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047;
+      const Y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const Z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883;
+      const f = (v: number): number => (v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116);
+      return [116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))];
+    };
+    const entries = Object.entries(AVATAR_COLOURS);
+    let nearest = { d: Infinity, pair: '' };
+    for (let i = 0; i < entries.length; i += 1) {
+      for (let j = i + 1; j < entries.length; j += 1) {
+        const [ka, va] = entries[i]!;
+        const [kb, vb] = entries[j]!;
+        const [la, aa, ba] = lab(va);
+        const [lb, ab, bb] = lab(vb);
+        const d = Math.hypot(la - lb, aa - ab, ba - bb);
+        if (d < nearest.d) nearest = { d, pair: `${ka}/${kb}` };
+      }
+    }
+    expect(nearest.d, `nearest pair ${nearest.pair}`).toBeGreaterThanOrEqual(25);
+  });
 });
 
 describe('defaultAvatar', () => {

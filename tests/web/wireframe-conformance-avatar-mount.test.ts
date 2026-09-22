@@ -99,6 +99,19 @@ describe('scriptAvatarMounts(): the script side counts mount expressions', () =>
     expect(scriptAvatarMounts('row.innerHTML = `<span class="av" data-avatar="${did}"></span>`;')).toBe(1);
   });
 
+  // AV2: the call every page now makes. bots.js sets the attribute.
+  it('counts a FABots.mount call with a host and a DID, however FABots is reached', () => {
+    expect(scriptAvatarMounts('window.FABots.mount(host, did, { size: 32 });')).toBe(1);
+    expect(scriptAvatarMounts('FABots.mount(A.el("avatar"), agent.did);')).toBe(1);
+  });
+
+  it('does not count a FABots.mount that is not a call, or a call with no DID', () => {
+    expect(scriptAvatarMounts('var m = window.FABots.mount;')).toBe(0);
+    expect(scriptAvatarMounts('window.FABots.mount(host);')).toBe(0);
+    expect(scriptAvatarMounts('// window.FABots.mount(host, did)\nvar x = 1;')).toBe(0);
+    expect(scriptAvatarMounts('other.mount(host, did);')).toBe(0);
+  });
+
   // The defect, on the script side. Comments are not AST nodes, so this is
   // structural rather than a filter that could miss a comment style.
   it('does not count the attribute named in a line comment', () => {

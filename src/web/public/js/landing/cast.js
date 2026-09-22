@@ -65,7 +65,7 @@
     },
     {
       name: "drift",
-      /* teal cloud. Five soft puffs, the slow drifter. */
+      /* cyan cloud. Five soft puffs, the slow drifter. */
       opts: { temperament: "dozy", size: 108, spec: { shape: "cloud", face: "eyes", colour: "c8" } },
       tune: { depart: 0.26, arrive: 0.94, arc: -70, flutter: 1.5 },
       route: [
@@ -94,8 +94,8 @@
     },
     {
       name: "tag",
-      /* pink cat. The smallest and busiest. */
-      opts: { temperament: "calm", size: 70, spec: { shape: "cat", face: "eyes", colour: "c12" } },
+      /* orchid cat. The smallest and busiest. */
+      opts: { temperament: "calm", size: 70, spec: { shape: "cat", face: "eyes", colour: "c10" } },
       tune: { depart: 0.44, arrive: 1.00, arc: -190, flutter: 2.8 },
       route: [
         { anchor: "#cluster",    ax: 0.94, ay: 0.52, layer: "back",  size: 70 },

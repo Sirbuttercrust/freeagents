@@ -25,6 +25,8 @@ import {
 import { createRateLimiter } from '../../src/adapters/identity/verify-rate-limit.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
+import { botMount, expectedMount } from '../helpers/bot-mount.js';
+import { defaultAvatar } from '../../src/domain/avatar-spec.js';
 
 const SOLO_OPERATOR_DID = 'did:abt:zRosterPageSoloOperator';
 const MANY_OPERATOR_DID = 'did:abt:zRosterPageManyOperator';
@@ -812,14 +814,22 @@ describe('the operator page header, identity box and painted hosts (W12)', () =>
     }
   });
 
-  it('the operator avatar and every roster card avatar carry a painted svg child', async () => {
+  it('the operator avatar and every roster card avatar hold one bot canvas, wearing the spec the read served', async () => {
     const page = await render(`/accounts/${GALLERY_OPERATOR_DID}`);
     try {
       const avatarHosts = Array.from(page.document.querySelectorAll('[data-avatar]'));
-      expect(avatarHosts.length).toBeGreaterThan(0);
+      expect(avatarHosts.length).toBeGreaterThan(1);
       avatarHosts.forEach((host) => {
-        expect(host.querySelector('svg')).not.toBeNull();
+        const did = host.getAttribute('data-avatar')!;
+        // No override is stored for any agent here, and an operator (a
+        // person) never has one, so every host wears its DID's default.
+        expect(botMount(host), `host for ${did}`).toEqual(expectedMount(did, defaultAvatar(did)));
       });
+      // The operator's own avatar never animates: a person is not working
+      // on a job.
+      const head = page.document.querySelector(`[data-avatar="${GALLERY_OPERATOR_DID}"]`);
+      expect(head, 'the operator head avatar is missing').not.toBeNull();
+      expect(head?.getAttribute('data-avatar-still')).toBe('true');
     } finally {
       page.close();
     }

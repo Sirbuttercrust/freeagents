@@ -34,6 +34,8 @@ import { MemoryAgentRepository, MemoryAccountRepository, MemoryJobRepository } f
 import type { Delegation } from '../../src/domain/agent.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSessionToken } from '../helpers/session-fixtures.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
+import { botMount, expectedMount } from '../helpers/bot-mount.js';
+import { defaultAvatar, type AvatarSpec } from '../../src/domain/avatar-spec.js';
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 
@@ -42,6 +44,10 @@ const wireframePath = join(here, '../../spec/wireframe/hire.html');
 const scriptPath = join(here, '../../src/web/public/js/pages/hire.js');
 
 const AGENT_DID = 'did:abt:zWHirePolishedAgent';
+const OVERRIDE: AvatarSpec = (() => {
+  const d = defaultAvatar(AGENT_DID);
+  return { shape: d.shape === 'mech' ? 'cat' : 'mech', face: d.face === 'eyes' ? 'mouth' : 'eyes', colour: d.colour === 'c9' ? 'c3' : 'c9' };
+})();
 const OPERATOR_DID = 'did:abt:zWHirePolishedOperator';
 
 function delegationFixture(did: string, operatorDid: string): Delegation {
@@ -76,6 +82,10 @@ beforeAll(async () => {
     skills: ['triage'],
     githubLogin: null,
   });
+  // AV2: an operator override, deliberately different from this DID's
+  // default, so the mount assertion below can only pass if hire.js drew the
+  // spec the agent read served rather than re-deriving one from the DID.
+  await agentRepo.setAvatarSpec(AGENT_DID, OVERRIDE);
   const sessionAdapter = createSessionAdapter({
     github: fakeGitHubConfig(),
     fetchImpl: fakeGitHubFetch({ login: 'hire-polished-buyer', id: 9201 }),
@@ -195,23 +205,25 @@ describe('1. the page wears the polished system, and only the sheets it uses', (
     expect(overLoaded, 'stylesheets loaded by a page that uses none of their components').toEqual([]);
   });
 
-  it('loads swarm.js before the page script, and does not load the icon sprite', async () => {
+  it('loads the bot core, then bots.js, before the page script, and does not load the icon sprite', async () => {
     const markup = await servedMarkup();
     const scripts = loadedScripts(markup);
 
     expect(scripts).toEqual([
       '/js/pages/api.js',
       '/js/pages/nav.js',
-      '/js/swarm.js',
+      '/js/vendor/bot-avatars/bot-avatars.js',
+      '/js/bots.js',
       '/js/polish.js',
       '/js/pages/hire.js',
       '/js/pages/ui.js',
     ]);
 
-    // Order is the assertion, not mere presence: window.FASwarm has to exist
-    // by the time hire.js runs its agent read, and a swarm.js loaded after it
-    // would leave the avatar unpainted with every other check still green.
-    expect(scripts.indexOf('/js/swarm.js')).toBeLessThan(scripts.indexOf('/js/pages/hire.js'));
+    // Order is the assertion, not mere presence: window.FABots has to exist
+    // by the time hire.js runs its agent read, and bots.js reads
+    // window.BotAvatars once when it loads, so the core must come first.
+    expect(scripts.indexOf('/js/vendor/bot-avatars/bot-avatars.js')).toBeLessThan(scripts.indexOf('/js/bots.js'));
+    expect(scripts.indexOf('/js/bots.js')).toBeLessThan(scripts.indexOf('/js/pages/hire.js'));
 
     // icons.js paints [data-ico] hosts. This page declares none, the same as
     // its wireframe, so loading the sprite would ship a module with nothing
@@ -233,11 +245,12 @@ describe('1. the page wears the polished system, and only the sheets it uses', (
 
 // --------------------------------------------------------------- 2. the avatar
 
-describe('2. the avatar is the DID creature, mounted only once the DID is known', () => {
-  it('hire.js no longer calls the older server-rendered engine', () => {
+describe('2. the avatar is the agent\u2019s bot, mounted only once the DID is known', () => {
+  it('hire.js mounts through bots.js and no longer calls the older server-rendered engine', () => {
     const script = readFileSync(scriptPath, 'utf8');
     expect(script.includes('setAvatar'), 'A.setAvatar is the blobatar stand-in this page must not use').toBe(false);
-    expect(script, 'the swarm generator is what paints this page now').toContain('FASwarm.avatar');
+    expect(script.includes('FASwarm'), 'the retired insect engine is gone from this page').toBe(false);
+    expect(script, 'bots.js is what paints this page now').toContain('FABots.mount');
   });
 
   it('the shell ships an EMPTY mount, never a data-avatar attribute', async () => {
@@ -259,13 +272,15 @@ describe('2. the avatar is the DID creature, mounted only once the DID is known'
     }
   });
 
-  it('after the agent read the mount carries the real DID and a painted creature', async () => {
+  it('after the agent read the mount carries the real DID and the bot the read served', async () => {
     const page = await renderHire(hirePath(), { token });
     try {
       const host = page.document.getElementById('agent-avatar')!;
-      expect(host.getAttribute('data-avatar'), 'the mount was never given the real DID').toBe(AGENT_DID);
-      expect(host.querySelector('svg'), 'the swarm engine painted nothing into the mount').not.toBeNull();
-      expect(host.hasAttribute('data-pending'), 'the pending colour survived the paint').toBe(false);
+      // The stored override, not the DID default: hire.js drew the spec it
+      // was served.
+      expect(botMount(host), 'the mount does not wear the spec the agent read served').toEqual(
+        expectedMount(AGENT_DID, OVERRIDE),
+      );
 
       // The identity strip states who, from the record, not from the markup.
       expect(page.document.getElementById('agent-name')!.textContent).toContain('hire-polished-scout');
@@ -290,7 +305,7 @@ describe('2. the avatar is the DID creature, mounted only once the DID is known'
     try {
       const host = page.document.getElementById('agent-avatar')!;
       expect(host.getAttribute('data-avatar'), 'a DID was mounted for an agent this page never confirmed').toBeNull();
-      expect(host.querySelector('svg'), 'a creature was painted for an agent this page never confirmed').toBeNull();
+      expect(host.querySelector('canvas'), 'a bot was drawn for an agent this page never confirmed').toBeNull();
       expect(page.document.getElementById('hire-body')!.hidden, 'the form rendered without a confirmed agent').toBe(
         true,
       );
