@@ -212,7 +212,9 @@
     A.showById("price-section", true);
 
     var amount = typeof price.priceUsd === "string" ? "$" + price.priceUsd : "not recorded";
-    var rail = typeof price.rail === "string" ? " (" + price.rail + ")" : "";
+    // S1: the rail was shown raw ("(abt)"), a machine value on the surface.
+    // Named the way the deposit page names it: "paid in ABT" / "paid in USDC".
+    var rail = price.rail === "abt" ? ", paid in ABT" : price.rail === "usdc" ? ", paid in USDC" : "";
     A.setTextById("fact-price", amount + rail);
     A.setTextById("fact-deposit", typeof price.depositPercent === "number" ? price.depositPercent + "%" : "not recorded");
     A.setTextById("fact-window", typeof price.deliveryWindowDays === "number" ? A.plural(price.deliveryWindowDays, "day", "days") : "not recorded");

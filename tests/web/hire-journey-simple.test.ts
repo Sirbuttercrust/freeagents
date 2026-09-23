@@ -525,6 +525,15 @@ describe('every amount is what payment.ts computes for the same price', () => {
     }
   });
 
+  it('job: the price names how it was paid in words, never the raw rail value', async () => {
+    const page = await render('/jobs/s1-staged');
+    try {
+      expect(page.document.getElementById('fact-price')?.textContent).toBe(`$${PRICE}, paid in ABT`);
+    } finally {
+      page.close();
+    }
+  });
+
   it('pull request: both legs, each with its fee, paid buyer to operator', async () => {
     const page = await render('/pullrequest?job=s1-submitted');
     try {
@@ -603,6 +612,11 @@ const captureDir = process.env.S1_CAPTURE_DIR ?? '';
 async function capture(browser: RealBrowser, name: string): Promise<void> {
   if (captureDir === '') return;
   mkdirSync(captureDir, { recursive: true });
+  // base.css:406 holds every .reveal at opacity 0 until it intersects. A
+  // full-page capture does not scroll, so scroll through first or the shot
+  // shows empty bands a person never sees.
+  await browser.evaluate(`(async function () { for (var y = 0; y < document.documentElement.scrollHeight; y += 300) { scrollTo(0, y); await new Promise(function (r) { setTimeout(r, 60); }); } scrollTo(0, 0); })()`);
+  await new Promise((r) => setTimeout(r, 900));
   const metrics = (await browser.send('Page.getLayoutMetrics')) as { result?: { cssContentSize?: { height: number } } };
   const height = Math.ceil(metrics.result?.cssContentSize?.height ?? 900);
   const shot = (await browser.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: 0, y: 0, width: await browser.evaluate<number>('document.documentElement.clientWidth'), height, scale: 1 } })) as { result?: { data?: string } };
