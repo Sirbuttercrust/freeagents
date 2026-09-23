@@ -166,12 +166,14 @@
 
     var back = A.el("who-back");
     if (back) back.setAttribute("href", "/agents/" + encodeURIComponent(agentDid));
-    A.setTextById("who-agent-name", A.shortDid(agentDid));
+    A.setTextById("who-agent-name", A.UNNAMED_AGENT);
+    A.techIdentity("tech-agent-did-wrap", "tech-agent-did", agentDid);
     A.showById("who", true);
 
     A.get("/agents/" + encodeURIComponent(agentDid)).then(function (result) {
       // Absent or unreachable: the strip stays exactly as it already is,
-      // the shortened DID with no avatar and no operator line. A failed
+      // the agent named in plain words with no avatar and no operator
+      // line (S1: never the DID on the surface, DESIGN.md 1.3). A failed
       // secondary read never blanks a primary record.
       if (result.state !== "ok") return;
       var agent = result.value;
@@ -194,12 +196,8 @@
         });
       }
       if (typeof agent.operatorDid === "string" && agent.operatorDid !== "") {
-        var link = A.el("who-operator-link");
-        if (link) {
-          link.setAttribute("href", "/accounts/" + encodeURIComponent(agent.operatorDid));
-          link.textContent = A.shortDid(agent.operatorDid);
-        }
-        A.showById("who-operator-line", true);
+        A.nameOperator("who-operator-line", "who-operator-link", agent.operatorDid);
+        A.techIdentity("tech-operator-did-wrap", "tech-operator-did", agent.operatorDid);
       }
     });
   }
@@ -394,7 +392,7 @@
     // agent has actually put work somewhere.
     if (agentDid !== "" && (staged || hasPullRequest)) {
       host.appendChild(whoDidRow(
-        A.shortDid(agentDid),
+        A.UNNAMED_AGENT,
         "Pushed its work to a staging repository the platform owns.",
         false,
         "whodid-agent"

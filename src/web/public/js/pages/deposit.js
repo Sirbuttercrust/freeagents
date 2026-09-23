@@ -189,18 +189,16 @@
     var profileLink = A.el("agent-profile-link");
     if (profileLink) profileLink.setAttribute("href", "/agents/" + encodeURIComponent(agentDid));
     A.get("/agents/" + encodeURIComponent(agentDid)).then(function (result) {
-      var name = A.shortDid(agentDid);
+      // S1: a name in words, never the DID (DESIGN.md 1.3); the exact
+      // identities go to the technical details.
+      var name = A.agentName(result.state === "ok" ? result.value : null);
+      A.techIdentity("tech-agent-did-wrap", "tech-agent-did", agentDid);
       if (result.state === "ok") {
-        name = typeof result.value.name === "string" && result.value.name !== "" ? result.value.name : agentDid;
         paintAvatar(agentDid, result.value.avatarSpec);
-        var operatorLink = A.el("operator-link");
-        if (operatorLink && typeof result.value.operatorDid === "string" && result.value.operatorDid !== "") {
-          operatorLink.setAttribute("href", "/accounts/" + encodeURIComponent(result.value.operatorDid));
-          A.setText(operatorLink, A.shortDid(result.value.operatorDid));
-          // Revealed by its value (hire.js's own rule): "operated by" over
-          // an empty link would be a line with nothing on it.
-          A.showById("operated-by", true);
-        }
+        // Revealed by its value (hire.js's own rule): "operated by" over
+        // an empty link would be a line with nothing on it.
+        A.nameOperator("operated-by", "operator-link", result.value.operatorDid);
+        A.techIdentity("tech-operator-did-wrap", "tech-operator-did", result.value.operatorDid);
       }
       A.setTextById("agent-name", name);
     });

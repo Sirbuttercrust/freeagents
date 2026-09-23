@@ -149,6 +149,8 @@ describe('the five steps are one list, and it is the landing page\u2019s', () =>
 const AGENT_DID = 'did:abt:zS1JourneyAgent';
 const OPERATOR_DID = 'did:abt:zS1JourneyOperator';
 const BUYER_DID = 'did:abt:s1-journey-buyer';
+const QUIET_AGENT_DID = 'did:abt:zS1QuietAgent';
+const QUIET_OPERATOR_DID = 'did:abt:zS1QuietOperator';
 const RECENT = new Date(Date.now() - 60 * 60 * 1000);
 const PRICE = '1200.00';
 
@@ -248,6 +250,17 @@ beforeAll(async () => {
   const accountRepo = new MemoryAccountRepository();
   await accountRepo.register({ did: BUYER_DID, githubLogin: 's1-journey-buyer' });
   await accountRepo.register({ did: OPERATOR_DID, githubLogin: 's1-journey-operator' });
+  // The fallback: an agent with no name, run by an operator whose account
+  // carries no GitHub login. The page must still say who, in words.
+  await agentRepo.create({
+    did: QUIET_AGENT_DID,
+    operatorDid: QUIET_OPERATOR_DID,
+    delegation: delegation(QUIET_AGENT_DID),
+    name: '',
+    skills: ['frontend'],
+    githubLogin: null,
+  });
+  await accountRepo.register({ did: QUIET_OPERATOR_DID });
 
   const jobRepo = new MemoryJobRepository();
   const attestationRepo = new MemoryAttestationRepository();
@@ -420,24 +433,114 @@ describe('at most one primary button is reachable in any state', () => {
 // technical details": the page, every state panel the fixture renders, and
 // every sheet (dialogs are copy too). Case-insensitive except DID, which
 // must stay case-sensitive or the English word "did" counts as jargon.
+//
+// A DID written out is jargon too, and the one the first version of this
+// gate missed: "operated by did:abt:zS1..." has no word "DID" in it, only
+// the lowercase scheme. DID_STRING catches any did:<method>:<id> string,
+// shortened or whole (A.shortDid keeps the "did:abt:" head), and the
+// fixture's own identities are checked by value as well, so the gate fails
+// on the exact strings the pages were printing.
 const JARGON = ['credential', 'credentials', 'attestation', 'attested', 'hash', 'hashes', 'Ed25519', 'settlement', 'settle', 'settles', 'settled', 'rail', 'rails', 'specHash', 'diffHash'];
 const JARGON_EXACT = ['DID', 'DIDs'];
+const DID_STRING = /\bdid:[a-z0-9]+:/i;
+
+function machineWords(text: string, identities: ReadonlyArray<string>): string[] {
+  const found = [
+    ...JARGON.filter((w) => new RegExp(`\\b${w}\\b`, 'i').test(text)),
+    ...JARGON_EXACT.filter((w) => new RegExp(`\\b${w}\\b`).test(text)),
+  ];
+  const did = DID_STRING.exec(text);
+  if (did) found.push(`a DID string at "${text.slice(Math.max(0, did.index - 20), did.index + 30).replace(/\s+/g, ' ')}"`);
+  for (const id of identities) {
+    // The whole string, or the key-hash form wallets use (didSuffix in
+    // api.js), which carries no "did:" head for the regex to catch.
+    const suffix = id.replace(/^did:[a-z0-9]+:/i, '');
+    if (text.includes(id) || text.includes(suffix)) found.push(`the identity ${id}`);
+  }
+  return found;
+}
+
+describe('the jargon gate itself fails on a planted DID', () => {
+  // The gate's own control: it has to say no to the exact string it
+  // shipped past once, and yes to the same line in words.
+  it.each([
+    ['operated by did:abt:zS1JourneyOperator', true],
+    ['operated by did:abt:zS1Journe\u2026erator', true],
+    ['operated by zS1JourneyOperator', true],
+    ['Scan with your DID Wallet', true],
+    ['operated by @s1-journey-operator', false],
+    ['See who runs this agent', false],
+    ['The agent did the work.', false],
+  ] as const)('%s', (text, caught) => {
+    expect(machineWords(text, [OPERATOR_DID, AGENT_DID]).length > 0).toBe(caught);
+  });
+});
 
 describe('no machine words on the surface', () => {
   it.each(JOURNEY.map((j) => [j.label, j] as const))('%s', async (_label, j) => {
     const page = await render(j.path);
     try {
       const doc = page.document;
+      // Proof the page did fill its identity strip before the check, so an
+      // unfilled strip cannot pass by being empty.
+      const named = doc.getElementById('agent-name') ?? doc.getElementById('who-agent-name');
+      if (named) expect((named.textContent ?? '').trim(), 'the agent strip never filled').not.toBe('Loading');
       doc.querySelectorAll('.detail, script, style, nav, footer').forEach((el) => el.remove());
       doc.querySelectorAll('dialog').forEach((d) => d.setAttribute('open', ''));
       const main = doc.querySelector('main');
       expect(main).not.toBeNull();
       const text = [main!, ...Array.from(doc.querySelectorAll('dialog'))].map((el) => el.textContent ?? '').join(' ');
-      const found = [
-        ...JARGON.filter((w) => new RegExp(`\\b${w}\\b`, 'i').test(text)),
-        ...JARGON_EXACT.filter((w) => new RegExp(`\\b${w}\\b`).test(text)),
-      ];
-      expect(found, `on the surface of ${j.path}`).toEqual([]);
+      // The buyer's DID is left to DID_STRING: its method-specific part is
+      // also the buyer's GitHub login in this fixture, a name that may
+      // rightly appear.
+      expect(machineWords(text, [OPERATOR_DID, AGENT_DID]), `on the surface of ${j.path}`).toEqual([]);
+    } finally {
+      page.close();
+    }
+  });
+});
+
+// Where the identities went: named in words on the surface, exact in the
+// technical details (DESIGN.md 1.3), and the operator link still goes to
+// the operator's page.
+describe('the agent and operator are named in words, and their DIDs sit in the details', () => {
+  it.each([
+    ['hire', `/hire?agent=${encodeURIComponent(AGENT_DID)}`, 'operated-by', 'operator-link', 'agent-name'],
+    ['deposit', '/deposit?job=s1-proposed', 'operated-by', 'operator-link', 'agent-name'],
+    ['job', '/jobs/s1-staged', 'who-operator-line', 'who-operator-link', 'who-agent-name'],
+  ] as const)('%s', async (_label, path, rowId, linkId, nameId) => {
+    const page = await render(path);
+    try {
+      const d = page.document;
+      expect(d.getElementById(nameId)?.textContent).toBe('s1-journey-scout');
+      const row = d.getElementById(rowId) as HTMLElement;
+      expect(row.hidden, 'the operator line stayed hidden').toBe(false);
+      expect((row.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe('operated by @s1-journey-operator');
+      expect(d.getElementById(linkId)?.getAttribute('href')).toBe(`/accounts/${encodeURIComponent(OPERATOR_DID)}`);
+      const agentWrap = d.getElementById('tech-agent-did-wrap') as HTMLElement;
+      const operatorWrap = d.getElementById('tech-operator-did-wrap') as HTMLElement;
+      expect(agentWrap.closest('.detail'), 'the exact identity is not inside a details panel').not.toBeNull();
+      expect(agentWrap.hidden).toBe(false);
+      expect(operatorWrap.hidden).toBe(false);
+      expect(d.getElementById('tech-agent-did')?.textContent).toBe(AGENT_DID);
+      expect(d.getElementById('tech-operator-did')?.textContent).toBe(OPERATOR_DID);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('an agent with no name and an operator with no GitHub login are still named in words', async () => {
+    const page = await render(`/hire?agent=${encodeURIComponent(QUIET_AGENT_DID)}`);
+    try {
+      const d = page.document;
+      expect(d.getElementById('agent-name')?.textContent).toBe('This agent');
+      const row = d.getElementById('operated-by') as HTMLElement;
+      expect(row.hidden).toBe(false);
+      expect((row.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe('See who runs this agent');
+      expect(d.getElementById('operator-link')?.getAttribute('href')).toBe(`/accounts/${encodeURIComponent(QUIET_OPERATOR_DID)}`);
+      expect(d.getElementById('tech-operator-did')?.textContent).toBe(QUIET_OPERATOR_DID);
+      d.querySelectorAll('.detail, script, style, nav, footer').forEach((el) => el.remove());
+      expect(machineWords(d.querySelector('main')?.textContent ?? '', [QUIET_AGENT_DID, QUIET_OPERATOR_DID])).toEqual([]);
     } finally {
       page.close();
     }
@@ -600,7 +703,7 @@ interface Sweep {
 // The states to open on each page before measuring, beyond the page as it
 // loads: every disclosure, then each sheet on its own.
 const OPENERS: Record<string, ReadonlyArray<string>> = {
-  hire: [],
+  hire: ['disclose'],
   deposit: ['disclose'],
   job: ['disclose'],
   staged: ['disclose', 'dialog#redo', 'dialog#decline', 'dialog#scan'],

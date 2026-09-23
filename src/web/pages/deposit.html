@@ -233,9 +233,14 @@
       <div>
         <button class="disclose" type="button" data-disclose="paytech" data-disclose-alt="Hide technical details">Show technical details</button>
         <div id="paytech" class="detail">
-          <div><dt>ABT</dt><dd>one payment, split between the operator and FreeAgents.</dd></div>
+          <div><dt>ABT</dt><dd>one payment, split between operator and FreeAgents.</dd></div>
           <div><dt>USDC</dt><dd>one transfer to each.</dd></div>
           <div><dt>specHash</dt><dd id="tech-spec-hash">computed once the deposit clears</dd></div>
+          <!-- The exact identities the surface names in words (DESIGN.md
+               1.3: a did:abt string reads as a name on the surface and lives
+               here, labelled). Filled by deposit.js; hidden until known. -->
+          <div id="tech-agent-did-wrap" hidden><dt>agentDid</dt><dd id="tech-agent-did"></dd></div>
+          <div id="tech-operator-did-wrap" hidden><dt>operatorDid</dt><dd id="tech-operator-did"></dd></div>
         </div>
       </div>
     </div>

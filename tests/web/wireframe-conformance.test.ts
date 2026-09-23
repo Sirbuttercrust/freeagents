@@ -195,9 +195,9 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Job ac-3m81': "wireframe sample data (the second example's job id); this page shows one hire, so this id never ships",
     // Both sample labels belong to the wireframe's second example job,
     // which does not ship as its own section (see the entry above). The
-    // real page's identity strip renders the operator's own shortened DID,
-    // and its one back control is "Back to profile", which does ship.
-    'a different operator': 'wireframe sample data from the second example job, which does not ship as its own section; the real identity strip renders the operator\u2019s own shortened DID',
+    // real page's identity strip names the operator in words (their GitHub
+    // handle), and its one back control is "Back to profile", which does ship.
+    'a different operator': 'wireframe sample data from the second example job, which does not ship as its own section; the real identity strip names the operator by their GitHub handle',
     "See tessellate's profile": 'wireframe sample data from the second example job, which does not ship as its own section',
   },
   dashboard: {},

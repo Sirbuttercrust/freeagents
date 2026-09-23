@@ -429,10 +429,8 @@
        load-time sweep has long finished by then, so it is not what paints
        this mount. */
     A.get("/agents/" + encodeURIComponent(agentDid)).then(function (result) {
-      var name = A.shortDid(agentDid);
-      if (result.state === "ok") {
-        name = typeof result.value.name === "string" && result.value.name !== "" ? result.value.name : agentDid;
-      }
+      // S1: a name in words, never the DID (DESIGN.md 1.3).
+      var name = A.agentName(result.state === "ok" ? result.value : null);
       A.setTextById("agent-name", name);
       var nameEl = A.el("agent-name");
       if (nameEl) nameEl.removeAttribute("data-pending");
