@@ -137,9 +137,6 @@
     if (s.wantsGlow) FA.setGlow(s, cssVar("--accent"));
   });
 
-  var mark = document.getElementById("navmark");
-  if (mark) mark.innerHTML = FA.avatar("did:abt:freeagents", 22);
-
   flock.start();
   FAReveal.init();
 

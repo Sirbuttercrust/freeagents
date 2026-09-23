@@ -653,18 +653,25 @@ describe('the conduct record page, driven end to end against the real app', () =
       try {
         await browser.send('Emulation.setScriptExecutionDisabled', { value: true });
         await browser.goto(`${baseUrl}/conduct?account=conduct-page-buyer`);
-        const seen = await browser.evaluate<{ text: string; counts: number; overflow: boolean }>(`
+        const seen = await browser.evaluate<{ text: string; counts: number; overflow: boolean; brand: string; logo: boolean }>(`
           ({
             text: (document.body.innerText || '').replace(/\\s+/g, ' ').trim(),
             counts: Array.from(document.querySelectorAll('.ct .n')).filter(n => n.textContent.trim() !== '').length,
-            overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
+            overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+            brand: (document.querySelector('a.brand') || { getAttribute: () => '' }).getAttribute('aria-label') || '',
+            logo: Array.from(document.querySelectorAll('a.brand img')).some(i => i.complete && i.naturalWidth > 0 && i.getBoundingClientRect().width > 0)
           })
         `);
         // No JS means no read, so no number may appear. What a reader gets
         // is the nav and the footer: the shell, never a half-filled record.
         expect(seen.counts, 'a count rendered with no read behind it').toBe(0);
         expect(seen.overflow, 'the scriptless page must not scroll sideways either').toBe(false);
-        expect(seen.text).toContain('FreeAgents');
+        // The product name is the logo now (DESIGN.md section 8): an image
+        // inside a labelled link, not a text node, so it is asserted as a
+        // painted logo and a named link rather than read out of innerText.
+        expect(seen.brand).toBe('FreeAgents home');
+        expect(seen.logo, 'the logo did not paint with scripts off').toBe(true);
+        expect(seen.text).toContain('How it works');
       } finally {
         await browser.close();
       }
