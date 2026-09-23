@@ -297,8 +297,8 @@ function captureNavigations(): { calls: string[]; restore: () => void } {
 
 // D-CI3: whether the gallery's own async chain (below) has a signal to
 // wait on at all. /browse (rendered once in this file, line ~568) has no
-// #gallery/#gallery-empty pair, so it falls back to the old fixed wait
-// rather than polling for something that will never appear.
+// #gallery/#gallery-empty pair, so this page type falls to
+// hasBrowseSignal/browseSettled below instead.
 function hasGallerySignal(doc: Document): boolean {
   return doc.getElementById('gallery-empty') !== null && doc.getElementById('gallery') !== null;
 }
@@ -316,6 +316,48 @@ function gallerySettled(doc: Document): boolean {
   const gallery = doc.getElementById('gallery');
   if (!galleryEmpty || !gallery) return true;
   return !galleryEmpty.hidden || gallery.children.length > 0;
+}
+
+// D-CI3 round 2 (Proof r1, comment 549): render()'s /browse branch used to
+// fall back to a fixed 400ms sleep, the SAME teardown race the gallery fix
+// above closes, just on browse.js's own chain instead of operator.js's.
+// cardFor (browse.js:359-403) puts a card in the DOM and calls loadAvatar
+// (browse.js:415-421) for it; loadAvatar's own GET /agents/:did read calls
+// window.FABots.mount in its .then, AFTER the card already has a DOM
+// parent. render() used to return, the test asserted and closed the
+// window, and a per-card avatar read that settled only after that landed
+// in bots.js's mount() (src/web/public/js/bots.js:398,
+// document.createElement("canvas")) with a torn-down document: the same
+// "Cannot read properties of undefined (reading 'createElement')" shape
+// QA's mutation reproduced at bots.js:398 <- browse.js:419.
+function hasBrowseSignal(doc: Document): boolean {
+  return doc.getElementById('zero-host') !== null && doc.getElementById('rows') !== null;
+}
+
+// #zero-host starts `hidden` in the served markup (browse.html:435) and
+// #rows starts with no children (browse.html:404), so neither reads
+// "settled" before the initial GET /agents listing read has resolved and
+// renderAll has run. Once #rows holds cards, EVERY card's avatar host is
+// checked for the one DOM fact only a completed mount() call produces: a
+// <canvas> child (bots.js:398-405, appended inside mount() after a
+// successful read). A host with no canvas yet is still awaiting its read,
+// so this can only read true once every per-card GET /agents/:did loadAvatar
+// fired has actually settled and mounted, closing the same window the
+// gallery signal above closes. The genuine zero-results state (#zero-host
+// unhidden) is settled on its own: it carries no cards and so no avatar
+// read was ever fired for it.
+function browseSettled(doc: Document): boolean {
+  const zeroHost = doc.getElementById('zero-host') as HTMLElement | null;
+  const rows = doc.getElementById('rows');
+  if (!zeroHost || !rows) return true;
+  if (!zeroHost.hidden) return true;
+  if (rows.children.length === 0) return false;
+  const cards = Array.from(rows.querySelectorAll('[data-agent-card]'));
+  return cards.every((card) => {
+    const avatarHost = card.querySelector('.acard-av');
+    if (!avatarHost) return true;
+    return avatarHost.querySelector('canvas') !== null;
+  });
 }
 
 async function render(path: string): Promise<Rendered> {
@@ -359,6 +401,11 @@ async function render(path: string): Promise<Rendered> {
   // (reading 'querySelector')" at operator.js:588, exactly the run's
   // unhandled rejection. Polling for the real signal above closes that
   // window instead of widening it.
+  //
+  // D-CI3 round 2 (Proof r1, comment 549): /browse carried the identical
+  // race on its own async chain (browse.js's loadAvatar into bots.js's
+  // mount()), still behind the fixed 400ms wait this replaces below with
+  // browseSettled, the same closed-window shape as the gallery branch.
   if (hasGallerySignal(dom.window.document)) {
     const deadline = Date.now() + 4000;
     while (!gallerySettled(dom.window.document) && Date.now() < deadline) {
@@ -367,11 +414,16 @@ async function render(path: string): Promise<Rendered> {
     if (!gallerySettled(dom.window.document)) {
       throw new Error(`page at ${path} never reached its settled gallery signal within 4000ms`);
     }
+  } else if (hasBrowseSignal(dom.window.document)) {
+    const deadline = Date.now() + 4000;
+    while (!browseSettled(dom.window.document) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    if (!browseSettled(dom.window.document)) {
+      throw new Error(`page at ${path} never reached its settled browse signal within 4000ms`);
+    }
   } else {
-    // /browse carries no gallery section; keep its original settle wait,
-    // sized for the same two-fetch chain (operator record, then roster)
-    // this file has always covered for a page like it.
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    throw new Error(`page at ${path} carries neither a gallery nor a browse settle signal`);
   }
 
   if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
