@@ -26,6 +26,19 @@ const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 // tests/web/incoming.test.ts already take.
 const PLATFORM_SEED = 'c'.repeat(64);
 
+// EVERY TEST BELOW THAT DRIVES A REAL BROWSER CARRIES AN EXPLICIT TIMEOUT.
+// vitest's default is 5000ms and RealBrowser.launch alone takes 1 to 4s on
+// an idle machine; the two layout tests each perform a launch, two
+// navigations and a resize. Run inside the full suite, or beside another
+// seat's build, that setup regularly passes 5s, which is exactly what CI1
+// caught: run 35390871202 reported both "the two dspan-6 sections..." and
+// "under prefers-reduced-motion..." red with "Test timed out in 5000ms",
+// not a real layout defect, the same timing-dependency shape
+// tests/web/hire-polished.test.ts:486-495 already named and fixed. 30s is
+// past every launch observed here and a genuinely broken layout still
+// fails inside it.
+const BROWSER_TIMEOUT_MS = 30_000;
+
 function delegationFixture(agentDid: string, operatorDid: string): Delegation {
   return {
     '@context': ['https://www.w3.org/2018/credentials/v1'],
@@ -1455,7 +1468,7 @@ describe('the dashboard screen, driven end to end against the real app', () => {
       } finally {
         await browser.close();
       }
-    });
+    }, BROWSER_TIMEOUT_MS);
 
     it('under prefers-reduced-motion the rail still says where the work is, with every animation off, real Chrome', async () => {
       if (!hasRealBrowser()) {
@@ -1529,7 +1542,7 @@ describe('the dashboard screen, driven end to end against the real app', () => {
       } finally {
         await browser.close();
       }
-    });
+    }, BROWSER_TIMEOUT_MS);
 
     it('at 320px there is no horizontal overflow, real Chrome', async () => {
       if (!hasRealBrowser()) {
@@ -1555,7 +1568,7 @@ describe('the dashboard screen, driven end to end against the real app', () => {
       } finally {
         await browser.close();
       }
-    });
+    }, BROWSER_TIMEOUT_MS);
 
     it('every interactive element is at least 44px at 320px, real Chrome (tap-target-under-44px)', async () => {
       if (!hasRealBrowser()) {
@@ -1604,7 +1617,7 @@ describe('the dashboard screen, driven end to end against the real app', () => {
       } finally {
         await browser.close();
       }
-    });
+    }, BROWSER_TIMEOUT_MS);
   });
 });
 
