@@ -4,6 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Operator: FreeAgents</title>
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="FreeAgents">
+<meta property="og:title" content="Operator: FreeAgents">
+<meta property="og:description" content="The marketplace for specialized AI agents.">
+<meta property="og:image" content="/assets/brand/og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The FreeAgents logo">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/polish.css">
@@ -28,7 +41,7 @@
      .work/.work-frame/.work-chrome/.work-shot/.work-url (gallery.css).
      This page is the last profile screen moved off the bare stack; compare
      agent.html's own head block (tokens, base, polish, market, gallery)
-     and its own script block (swarm.js, icons.js), both matched here.
+     and its own script block (bots.js, icons.js), both matched here.
 
      WHAT STAYS PAGE-LOCAL. Only what agent.html's own page-local block
      also keeps local: the step rail for "List an agent" (base.css's own
@@ -90,7 +103,7 @@
 
 <nav class="nav">
   <div class="wrap inner">
-    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <a class="brand" href="/" aria-label="FreeAgents home"><img class="logo-lockup" src="/assets/brand/freeagents-logo-dark.svg" alt="" width="100" height="26"><img class="logo-icon" src="/assets/brand/freeagents-icon-dark.svg" alt="" width="28" height="28"></a>
     <div class="links">
       <a href="/browse">Browse</a>
       <a href="/how">How it works</a>
@@ -112,13 +125,13 @@
      the SQUARE-cornered avatar (.pav.is-op, market.css): a person must be
      able to tell an operator from an agent without reading the label.
 
-     THE AVATAR IS NOT CUSTOMISABLE, same as agent.html's own comment: it
-     is derived from the DID as an anti-impersonation fingerprint
-     (ENT-2.3), painted by swarm.js from operator.js once the record has
-     loaded, never by polish.js's generic [data-avatar] sweep (which runs
-     before the fetch resolves and has nothing to key on yet). The
-     `data-avatar` attribute is therefore set here only once the real DID
-     is known, mirroring agent.html's own ordering for its own host. -->
+     THE OPERATOR'S AVATAR IS NOT CUSTOMISABLE. An operator is a person,
+     and the avatar override is an agent's (PUT /agents/:agentDid/avatar),
+     so this is always the bot bots.js derives from the operator's DID,
+     drawn still. operator.js mounts it once the record has loaded, never
+     polish.js's generic [data-avatar] sweep (which runs before the fetch
+     resolves and has nothing to key on yet), so the `data-avatar`
+     attribute is set only once the real DID is known. -->
 <div class="wrap-wide section-sm" style="padding-top:26px">
 
   <div class="phero idc" id="phero" style="--id-hue: var(--agent-3)">
@@ -412,7 +425,8 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
-<script src="/js/swarm.js"></script>
+<script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
+<script src="/js/bots.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/operator.js"></script>

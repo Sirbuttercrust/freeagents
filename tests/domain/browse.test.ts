@@ -207,6 +207,7 @@ describe('sortBrowseCards', () => {
       verifiedPriorWorkCount,
       portfolioCount,
       buyerCount: 0,
+      avatarSpec: { shape: 'clover', face: 'eyes', colour: 'c1' },
     };
   }
 
@@ -404,6 +405,7 @@ describe('browse sorting never ranks on freshness (R-37 item 6)', () => {
       verifiedPriorWorkCount: 0,
       portfolioCount: 0,
       buyerCount: 0,
+      avatarSpec: { shape: 'clover', face: 'eyes', colour: 'c1' },
     };
   }
 

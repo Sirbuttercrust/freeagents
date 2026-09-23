@@ -4,6 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The pull request is open: FreeAgents</title>
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="FreeAgents">
+<meta property="og:title" content="The pull request is open: FreeAgents">
+<meta property="og:description" content="The marketplace for specialized AI agents.">
+<meta property="og:image" content="/assets/brand/og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The FreeAgents logo">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/polish.css">
@@ -20,10 +33,10 @@
      same four staged.html:7-10 loads, which is the shipped precedent for
      this flow screen.
 
-     THE SCRIPTS. api, nav, swarm, polish, pullrequest, ui, matching
+     THE SCRIPTS. api, nav, bots, polish, pullrequest, ui, matching
      staged.html:375-380.
-       swarm.js  paints the .who avatar, the creature derived from the
-                 agent's DID (DESIGN.md 2.4, ENT-2.3).
+       bots.js  paints the .who avatar, the bot the agent read's avatarSpec
+                 names, or its DID default (DESIGN.md 2.4, ENT-2.3).
        polish.js sheets() gives the close dialog backdrop-click-to-close,
                  which this page's own [data-closes] binding does not do;
                  hits() runs the ripple polish.css draws as .btn::after;
@@ -175,7 +188,7 @@
 <body>
 <nav class="nav">
   <div class="wrap inner">
-    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <a class="brand" href="/" aria-label="FreeAgents home"><img class="logo-lockup" src="/assets/brand/freeagents-logo-dark.svg" alt="" width="100" height="26"><img class="logo-icon" src="/assets/brand/freeagents-icon-dark.svg" alt="" width="28" height="28"></a>
     <div class="links"><a href="/browse">Browse</a><a href="/how">How it works</a></div>
     <div class="spacer"></div>
     <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
@@ -205,8 +218,8 @@
 
            THE MOUNT SHIPS EMPTY and stays empty until the real agent DID is
            in hand: pullrequest.js sets data-avatar and paints
-           window.FASwarm.avatar in the same breath (renderWho). polish.js's
-           generic [data-avatar] sweep (polish.js:468-497) runs once at load,
+           window.FABots.avatar in the same breath (renderWho). polish.js's
+           generic [data-avatar] sweep (polish.js:470-480) runs once at load,
            long before the agent read resolves, so a mount waiting for the
            sweep would stay empty forever; and a DID written into this file
            ahead of the read would be an identity this page has not
@@ -338,7 +351,8 @@
 </footer>
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
-<script src="/js/swarm.js"></script>
+<script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
+<script src="/js/bots.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/pullrequest.js"></script>
 <script src="/js/pages/ui.js"></script>

@@ -380,6 +380,77 @@ describe('GET /accounts/:did/incoming: only draft and proposed offers to this op
   });
 });
 
+describe('GET /accounts/:did/incoming: avatarSpec (Proof r2, unverified-state-claim)', () => {
+  // Proof r2 defect (unverified-state-claim): the r2 audit table claimed
+  // this route already carried avatarSpec via "toBrowseCard-independent
+  // per-row resolution already in place". A live probe showed offers[0]
+  // .avatarSpec undefined even with an override set -- the route never
+  // resolved one. resolveAvatar is total, the same "every row has the
+  // field" stance GET /accounts/:did/pending already takes (mirror route,
+  // same fix shape) so this route carries avatarSpec unconditionally too.
+  it('a row carries the resolved avatarSpec for its agent, matching the operator override when one is set', async () => {
+    const built = await buildApp();
+    try {
+      const owner = await signingIdentityFromSeed(new Uint8Array(32).fill(91));
+      const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(92));
+      const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(93));
+      await built.accountRepo.register({ did: owner.did, githubLogin: 'incoming-avatar-override-owner' });
+      await built.accountRepo.register({ did: buyer.did, githubLogin: 'incoming-avatar-override-buyer' });
+      await built.agentRepo.create({
+        did: agent.did,
+        operatorDid: owner.did,
+        delegation: delegationFixture(agent.did, owner.did) as never,
+        name: 'incoming-avatar-override-scout',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+      await built.agentRepo.setAvatarSpec(agent.did, { shape: 'triangle', face: 'mouth', colour: 'c7' });
+      await built.jobRepo.create(jobFixture({ id: 'job-with-override', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
+
+      const res = await getSigned(built.baseUrl, `/accounts/${owner.did}/incoming`, owner);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { offers: Array<{ avatarSpec: unknown }> };
+      expect(body.offers[0]!.avatarSpec).toEqual({ shape: 'triangle', face: 'mouth', colour: 'c7' });
+    } finally {
+      built.server.close();
+    }
+  });
+
+  it('a row still carries a resolved (default) avatarSpec for an agent with no stored override, never omitting the field', async () => {
+    const built = await buildApp();
+    try {
+      const owner = await signingIdentityFromSeed(new Uint8Array(32).fill(95));
+      const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(96));
+      const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(97));
+      await built.accountRepo.register({ did: owner.did, githubLogin: 'incoming-default-avatar-owner' });
+      await built.accountRepo.register({ did: buyer.did, githubLogin: 'incoming-default-avatar-buyer' });
+      // No setAvatarSpec call: the agent row exists (it must, for the
+      // route's own roster filter to surface the offer at all) but carries
+      // no override, so resolveAvatar must fall through to the
+      // DID-derived default rather than the row simply omitting the field.
+      await built.agentRepo.create({
+        did: agent.did,
+        operatorDid: owner.did,
+        delegation: delegationFixture(agent.did, owner.did) as never,
+        name: 'incoming-default-avatar-scout',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+      await built.jobRepo.create(jobFixture({ id: 'job-default-avatar', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
+
+      const res = await getSigned(built.baseUrl, `/accounts/${owner.did}/incoming`, owner);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { offers: Array<{ avatarSpec: { shape: string; face: string; colour: string } }> };
+      const spec = body.offers[0]!.avatarSpec;
+      expect(typeof spec.shape).toBe('string');
+      expect(typeof spec.face).toBe('string');
+      expect(typeof spec.colour).toBe('string');
+    } finally {
+      built.server.close();
+    }
+  });
+});
+
 describe('GET /accounts/:did/incoming: waitingOn reflects the criteria, not the proposer (done-means 2)', () => {
   it('a buyer-authored unsigned criterion still reads waitingOnOperator', async () => {
     const built = await buildApp();

@@ -456,51 +456,35 @@
 
   /* ----------------------------------------------------- 12b. avatars
 
-     Any element with [data-avatar] gets the DID avatar painted into it. One
-     hook, so a card, a profile header and a roster row all render the same
-     face for the same identity with no per-page code.
+     Any element with [data-avatar] and nothing in it yet gets the agent's
+     bot mounted into it (bots.js, window.FABots). One hook, so a card, a
+     profile header and a roster row all render the same bot for the same
+     agent with no per-page code.
 
-     The palette passed in is the agent palette, which is identity and never
-     evidence (DESIGN.md 2.4). The face itself is derived from the DID, so an
-     operator cannot choose it and cannot impersonate another agent by
-     picking its look. */
+     Static markup carries no spec, so what the sweep can draw is the
+     default derived from the DID. Every page that renders from a response
+     mounts through FABots.mount itself, with the response's avatarSpec, and
+     leaves this sweep nothing to do: the sweep is the fallback for a host
+     whose DID is in the markup, the way the wireframes draw them. */
 
   function avatars() {
-    /* Prefer the swarm generator. FA.avatar is the older engine and stays as
-       a fallback so a page that has not yet loaded swarm.js still renders a
-       face rather than an empty box.
-
-       No palette is passed. DESIGN.md 2.4 says avatars are not from the agent
-       palette, and the swarm derives colour from the DID like everything else
-       about the creature, so the rule now holds by construction. The old call
-       passed the five agent hues in and picked one by hash, which meant an
-       avatar's colour came from a decoration list rather than from identity. */
-    var swarm = window.FASwarm && FASwarm.avatar;
-    if (!swarm && !(window.FA && FA.avatar)) return;
-
-    var pal = null;
-    if (!swarm) {
-      var css = getComputedStyle(document.documentElement);
-      pal = ["--agent-1", "--agent-2", "--agent-3", "--agent-4", "--agent-5"]
-        .map(function (v) { return css.getPropertyValue(v).trim(); })
-        .filter(Boolean);
-      if (!pal.length) return;
-    }
-
+    if (!window.FABots) return;
     each($$("[data-avatar]"), function (el) {
       if (el.firstElementChild) return;
+      var did = el.getAttribute("data-avatar");
+      if (!did) return;
       var size = parseInt(el.getAttribute("data-avatar-size") || "0", 10) ||
                  Math.round(el.getBoundingClientRect().width) || 48;
-      var did = el.getAttribute("data-avatar");
-      el.innerHTML = swarm ? FASwarm.avatar(did, size) : FA.avatar(did, size, pal);
+      window.FABots.mount(el, did, { size: size });
     });
   }
 
   /* ------------------------------------------------- 12c. banner picker
 
-     An operator chooses a banner TREATMENT, never an avatar. The avatar is
-     the identity fingerprint and is not theirs to pick; the banner carries no
-     identity claim, so it is safe to make it theirs.
+     An operator chooses a banner TREATMENT here. The banner carries no
+     identity claim. The avatar is chosen elsewhere, on My agents, from
+     fixed sets (AV2); neither picker can make one agent look like a copy
+     of another, because the name always renders beside the avatar.
 
      The preview updates live, because a picker whose result you have to
      imagine is a worse picker. */

@@ -216,6 +216,7 @@ describe('GET /agents/:agentDid/credentials, storage branches', () => {
       findByDid: overrides.findByDid ?? ((did) => baseAgents.findByDid(did)),
       updateGithubBinding: (did, input) => baseAgents.updateGithubBinding(did, input),
       recordKeyRotation: (did, input) => baseAgents.recordKeyRotation(did, input),
+      setAvatarSpec: (did, avatarSpec) => baseAgents.setAvatarSpec(did, avatarSpec),
     };
     return createApp(
       new MemoryAccountRepository(),

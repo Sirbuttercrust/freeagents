@@ -137,7 +137,20 @@ p:last-child { margin-bottom: 0; }
   display: flex; align-items: center; gap: 9px;
   font-weight: 560; font-size: 15px; letter-spacing: -0.02em;
 }
-.brand .mark { width: 17px; height: 17px; border-radius: 50%; background: var(--accent); display: block; }
+/* The logo (DESIGN.md section 8, BRAND.md). Two files, one shown at a time:
+   the lockup at desktop and the character alone once the bar collapses
+   below 420px. Both are <img alt=""> inside the link, so the link's own
+   aria-label is its whole accessible name.
+
+   26px tall puts the lockup at 100px wide, above its 80px minimum. The box
+   is centred by flex, but the character peeking over the name makes the box
+   taller than the letters: in the kit's geometry the cap top sits at 0.355
+   of the height and the baseline at 0.867, so the letters' midline is 0.111
+   of the height below the box centre. The lift puts the letters, not the
+   box, on the bar's centre line beside the nav links. */
+.brand img { display: block; height: 26px; width: auto; }
+.brand .logo-lockup { transform: translateY(-11.1%); }
+.brand .logo-icon { display: none; height: 28px; }
 .nav .links { display: flex; gap: 22px; font-size: 15px; color: var(--fg-2); }
 .nav .links a:hover { color: var(--fg); }
 .nav .links a.on { color: var(--fg); }
@@ -804,15 +817,16 @@ a:focus-visible, button:focus-visible, .chip:focus-visible, .disclose:focus-visi
    the document scrolls horizontally trades an accessibility floor for a worse
    defect on every page.
 
-   What gives is the WORD, not the link. Below 420px the wordmark collapses to
-   its mark, which is the ordinary responsive pattern and is permitted by
-   DESIGN.md section 8: the current lockup is a placeholder that reads as
-   intentional, and the mark is the half of it that survives at any size. It
-   frees 61px, which is more than the 24px the links need.
+   What gives is the WORD, not the link. Below 420px the lockup collapses to
+   the character alone, which is the ordinary responsive pattern and the rule
+   DESIGN.md section 8 states: the character is the icon at every size. The
+   lockup is 100px and the collapsed link 44px, which frees 56px, more than
+   the 24px the links need.
 
    Home stays reachable, the label moves into the accessible name so a screen
    reader still hears the product name rather than a bare link. */
 @media (max-width: 420px) {
   .brand { font-size: 0; gap: 0; width: 44px; flex: none; justify-content: center; }
-  .brand .mark { width: 20px; height: 20px; }
+  .brand .logo-lockup { display: none; }
+  .brand .logo-icon { display: block; }
 }

@@ -4,6 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pay the deposit: FreeAgents</title>
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="FreeAgents">
+<meta property="og:title" content="Pay the deposit: FreeAgents">
+<meta property="og:description" content="The marketplace for specialized AI agents.">
+<meta property="og:image" content="/assets/brand/og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The FreeAgents logo">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/polish.css">
@@ -101,7 +114,7 @@
 <body>
 <nav class="nav">
   <div class="wrap inner">
-    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <a class="brand" href="/" aria-label="FreeAgents home"><img class="logo-lockup" src="/assets/brand/freeagents-logo-dark.svg" alt="" width="100" height="26"><img class="logo-icon" src="/assets/brand/freeagents-icon-dark.svg" alt="" width="28" height="28"></a>
     <div class="links"><a href="/browse">Browse</a><a href="/how">How it works</a></div>
     <div class="spacer"></div>
     <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
@@ -182,7 +195,7 @@
            agent is being hired. It was a hand-rolled <div class="avatar">
            with a page-local disc rule, which is a substitute for the
            engine's mount point rather than the mount point. It is now the
-           wireframe's own `span.av`, painted by the swarm generator.
+           wireframe's own `span.av`, painted by the bot renderer.
 
            THE MOUNT SHIPS EMPTY AND UNNAMED. deposit.js sets data-avatar
            and paints it in the same breath once the agent read resolves.
@@ -268,8 +281,8 @@
      hire.html:322-327, not an order invented here.
 
      api.js first (every later file calls FAApi), nav.js next, then
-     swarm.js because it defines window.FASwarm and deposit.js paints the
-     avatar out of it, then polish.js which reads FASwarm on its own load
+     bots.js because it defines window.FABots and deposit.js paints the
+     avatar out of it, then polish.js which reads FABots on its own load
      sweep, then the page script, then ui.js last.
 
      ui.js LAST IS LOAD BEARING, not tidiness. It binds the disclosure and
@@ -280,7 +293,8 @@
      it would paint nothing. -->
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
-<script src="/js/swarm.js"></script>
+<script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
+<script src="/js/bots.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/deposit.js"></script>
 <script src="/js/pages/ui.js"></script>

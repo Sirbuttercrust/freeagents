@@ -4,6 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hire: FreeAgents</title>
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="FreeAgents">
+<meta property="og:title" content="Hire: FreeAgents">
+<meta property="og:description" content="The marketplace for specialized AI agents.">
+<meta property="og:image" content="/assets/brand/og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The FreeAgents logo">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/polish.css">
@@ -20,9 +33,9 @@
      of them and this page carries no market card, no portfolio gallery, no
      signature matrix and no pipeline rail.
 
-     THE SCRIPTS. api, nav, swarm, polish, hire, ui.
-       swarm.js  paints the .who avatar, which is the creature derived from
-                 the agent's DID (DESIGN.md 2.4, ENT-2.3).
+     THE SCRIPTS. api, nav, bots, polish, hire, ui.
+       bots.js  paints the .who avatar, the bot the agent read's avatarSpec
+                 names, or its DID default (DESIGN.md 2.4, ENT-2.3).
        polish.js earns its place three times over here: counters() drives the
                  brief's character guide, hits() runs the button ripple that
                  polish.css draws as .btn::after (without it that pseudo
@@ -177,7 +190,7 @@
 
 <nav class="nav">
   <div class="wrap inner">
-    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <a class="brand" href="/" aria-label="FreeAgents home"><img class="logo-lockup" src="/assets/brand/freeagents-logo-dark.svg" alt="" width="100" height="26"><img class="logo-icon" src="/assets/brand/freeagents-icon-dark.svg" alt="" width="28" height="28"></a>
     <div class="links">
       <a href="/browse">Browse</a>
       <a href="/how">How it works</a>
@@ -321,7 +334,8 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
-<script src="/js/swarm.js"></script>
+<script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
+<script src="/js/bots.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/hire.js"></script>
 <script src="/js/pages/ui.js"></script>

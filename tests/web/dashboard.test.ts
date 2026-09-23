@@ -19,6 +19,8 @@ import type { Session } from '../../src/adapters/identity/session.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
+import { botMount, expectedMount } from '../helpers/bot-mount.js';
+import { defaultAvatar } from '../../src/domain/avatar-spec.js';
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 // P8d: resolving a session to an account when none exists yet needs
@@ -1323,11 +1325,12 @@ describe('the dashboard screen, driven end to end against the real app', () => {
 
         const mount = pendingRow?.querySelector('[data-avatar]');
         expect(mount, 'a row whose read carries a DID mounts an avatar').not.toBeNull();
-        expect(mount?.getAttribute('data-avatar')).toBe(agentDid);
         expect(mount?.classList.contains('jobav')).toBe(true);
         expect(mount?.classList.contains('is-unknown')).toBe(false);
-        // The engine actually filled it: FASwarm draws an SVG from the DID.
-        expect(mount?.querySelector('svg'), 'swarm.js must fill the mount').not.toBeNull();
+        // bots.js mounted the bot the /pending row's avatarSpec names (no
+        // override here, so the DID default) into one canvas.
+        expect(botMount(mount)).toEqual(expectedMount(agentDid, defaultAvatar(agentDid)));
+        expect(mount?.getAttribute('data-avatar-state'), 'a pending row has nothing agreed to work on').toBe('default');
 
         // A row with no DID keeps the 30px box so the repo names down the
         // section share one left edge, and carries NO data-avatar: there

@@ -192,7 +192,7 @@ describe('1. the page wears the polished system, and only the sheets it uses', (
     // deliberately: a list compared by equality catches an ordering swap but
     // reports it as a six-line array diff, leaving the reader to work out
     // which of the two orders is correct and why. This assertion fails first
-    // and says it. polish.js's init calls FAIcon.paint() (polish.js:570-571)
+    // and says it. polish.js's init calls FAIcon.paint() (polish.js:554-555)
     // and icons.js is what defines FAIcon, so the declared order is the one
     // that states that dependency.
     //

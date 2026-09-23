@@ -4,6 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Conduct record: FreeAgents</title>
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="FreeAgents">
+<meta property="og:title" content="Conduct record: FreeAgents">
+<meta property="og:description" content="The marketplace for specialized AI agents.">
+<meta property="og:image" content="/assets/brand/og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The FreeAgents logo">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/polish.css">
@@ -44,14 +57,14 @@
                      ship. Last, so the three .reveal blocks exist before
                      it observes them.
 
-    NO swarm.js, and it is the same decision as the avatar below, not a
-    second one. swarm.js is the avatar engine; polish.js reaches it only
-    through window.FASwarm inside its [data-avatar] sweep (polish.js:468-497).
+    NO bots.js, and it is the same decision as the avatar below, not a
+    second one. bots.js is the avatar engine; polish.js reaches it only
+    through window.FABots inside its [data-avatar] sweep (polish.js:470-480).
     This page mounts nothing for that sweep to paint, so the engine would
     load and do nothing. outcomes.html drops it for the same reason.
 
     NO icons.js. polish.js's init() calls FAIcon.paint() as its first
-    statement (polish.js:570-571) behind a window.FAIcon guard, so on a
+    statement (polish.js:554-555) behind a window.FAIcon guard, so on a
     page with no icon hosts that call is skipped and the file is 8.8KB
     that paints nothing. The count of icon hosts here is zero, and do NOT
     check that by grepping this file for the attribute name, because this
@@ -87,7 +100,7 @@
 
 <nav class="nav">
   <div class="wrap inner">
-    <a class="brand" href="/"><span class="mark"></span>FreeAgents</a>
+    <a class="brand" href="/" aria-label="FreeAgents home"><img class="logo-lockup" src="/assets/brand/freeagents-logo-dark.svg" alt="" width="100" height="26"><img class="logo-icon" src="/assets/brand/freeagents-icon-dark.svg" alt="" width="28" height="28"></a>
     <div class="links">
       <a href="/browse">Browse</a>
       <a href="/how">How it works</a>
@@ -123,7 +136,7 @@
          carry githubLogin, keyed, counts and operatorCounts and no DID,
          verified against the running route, and polish.js paints
          [data-avatar] by reading the DID off the attribute
-         (polish.js:490-495). A mount with nothing behind it paints an
+         (polish.js:472-478). A mount with nothing behind it paints an
          empty box; a mount carrying anything not derived from an identity
          paints a face for an account nobody proved. Neither ships.
 

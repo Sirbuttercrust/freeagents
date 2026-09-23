@@ -138,14 +138,16 @@ export default tseslint.config(
         SVGElement: 'readonly',
         Element: 'readonly',
         Node: 'readonly',
+        // Canvas drawing, for the avatar renderer (bots.js) and the core it
+        // draws with.
+        Path2D: 'readonly',
+        ImageData: 'readonly',
+        OffscreenCanvas: 'readonly',
+        TextEncoder: 'readonly',
+        devicePixelRatio: 'readonly',
         // The landing page's own globals, each defined by one script in
         // src/web/public/js/landing and read by the others.
         FA: 'readonly',
-        FACore: 'readonly',
-        FAInsects: 'readonly',
-        FAFamilies: 'writable',
-        FAFamilyIds: 'writable',
-        FASwarm: 'readonly',
         FAFlock: 'readonly',
         FAReveal: 'readonly',
         FASmoothScroll: 'readonly',
@@ -161,6 +163,19 @@ export default tseslint.config(
       // would only produce noise about types that are not written down.
       '@typescript-eslint/no-unused-vars': 'off',
       'no-unused-vars': ['error', { args: 'none', caughtErrors: 'none' }],
+    },
+  },
+  {
+    // The vendored bot-avatars bundle is third-party code copied unmodified
+    // (src/web/public/js/vendor/bot-avatars/VENDORED.md). Its top-level
+    // `var BotAvatars` IS the export a classic script makes, and upstream
+    // declares a palette it exports but this build does not re-export.
+    // Editing vendored code to satisfy a lint rule would break the
+    // byte-for-byte rebuild check, so the one rule that misreads it is off
+    // here and every other rule still runs.
+    files: ['src/web/public/js/vendor/**/*.js'],
+    rules: {
+      'no-unused-vars': 'off',
     },
   },
 
