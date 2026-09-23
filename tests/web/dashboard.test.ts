@@ -40,17 +40,28 @@ const PLATFORM_SEED = 'c'.repeat(64);
 // 35901282897 (identical code to main's own green push run 35900696646)
 // reproduced "the two dspan-6 sections..." as "Test timed out in 30000ms"
 // on node 22, while the SAME test in the SAME run passed on node 24 at
-// 2661ms. That is not a real layout defect either: it is this test's own
-// 30_000ms ceiling colliding with tests/helpers/real-browser.ts's launch()
-// having an internal 30000ms deadline of its own (waiting for Chrome's
-// debug port), so a launch that legitimately needs close to its own
-// ceiling under a loaded shared runner leaves this test's timer with
-// nothing left for the two navigations, two evaluates, the resize and the
-// close that still have to run afterward. Local timing (see the scratch
-// harness this card's handoff cites) put that non-launch overhead at
-// 1.5-2s warm; 60s gives it real headroom above launch()'s own worst case
-// rather than colliding with it, and a genuinely broken layout still
-// fails in milliseconds once the page is up, well inside either ceiling.
+// 2661ms. That is not a real layout defect: it is a real-Chrome test
+// competing for a spawn on a shared runner where several other test
+// files launch their own headless Chrome around the same moment.
+//
+// Measured on the runner itself (run 35913237139: node22 launch 1142ms,
+// full test 2792ms; node24 launch 7865ms, full test 10103ms) and again
+// on a second push (run 35914021202: node22 launch 9477ms, full test
+// 11795ms; node24 launch 9584ms, full test 11486ms), with per-step
+// console.log marks around RealBrowser.launch (spawn-to-port-open plus
+// the websocket handshake), both navigations, both measurements, the
+// resize and the close. All four samples finished the whole test in
+// under 12s; the RealBrowser.launch() call itself accounted for nearly
+// all of that, and every other step (navigations, evaluates, resize,
+// close) stayed under 1s each. Nothing about tests/helpers/real-browser
+// .ts's own 30s port-wait deadline was close to firing in any of the
+// four runs; the timeout that actually mattered was this test's own,
+// against a launch stretched by contention for Chrome's process spawn
+// and debug port on a shared runner. 60_000ms gives roughly 5x headroom
+// over the slowest of the four measured runs (11795ms) rather than
+// guessing from a local machine that never reproduced runner-level
+// contention; a genuinely broken layout still fails in milliseconds once
+// the page is up, well inside either ceiling.
 const BROWSER_TIMEOUT_MS = 60_000;
 
 function delegationFixture(agentDid: string, operatorDid: string): Delegation {
@@ -1403,25 +1414,10 @@ describe('the dashboard screen, driven end to end against the real app', () => {
         console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
         return;
       }
-      // CI2 D1 rework: per-step timing on the actual runner, since local
-      // timing does not reproduce the 30s+ duration CI showed. Each line
-      // is prefixed so it survives vitest's output and can be grepped
-      // straight out of the Actions log. TEMPORARY: always on for this
-      // diagnostic push; gated back to opt-in once the runner numbers are
-      // in and the timeout is sized (or the cause fixed) from them.
-      const stepStart = Date.now();
-      let lastMark = stepStart;
-      const mark = (label: string): void => {
-        const t = Date.now();
-        console.log(`[CI2-TIMING] ${label}: ${t - lastMark}ms (total ${t - stepStart}ms)`);
-        lastMark = t;
-      };
-
       const meRes = await fetch(`${baseUrl}/accounts/me`, {
         headers: { Accept: 'application/json', Authorization: `Bearer ${buyerSession.token}` },
       });
       const me = (await meRes.json()) as { did: string };
-      mark('seed:accounts-me');
       const now = new Date();
       // One row in section 3 and one in section 4, so both half-width
       // sections actually render and their geometry can be measured. A
@@ -1437,7 +1433,6 @@ describe('the dashboard screen, driven end to end against the real app', () => {
         githubLogin: null,
       });
       await jobRepo.create(jobFixture({ id: 'd14-pair-shipped', buyerDid: me.did, agentDid, status: 'completed', mergedAt: now }, now));
-      mark('seed:agent+job');
 
       const measure = `
         (() => {
@@ -1468,17 +1463,12 @@ describe('the dashboard screen, driven end to end against the real app', () => {
       // is false at the width where the collapse actually happens.
       type Measured = { grid: number; boxes: Array<[number, number, number]> };
       const browser = await RealBrowser.launch({ width: 1280, height: 900 });
-      mark('browser:launch');
       try {
         await browser.goto(`${baseUrl}/dashboard`);
-        mark('browser:goto1');
         await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(buyerSession))})`);
-        mark('browser:evaluate-set-session');
         await browser.goto(`${baseUrl}/dashboard`);
-        mark('browser:goto2');
 
         const wide = await browser.evaluate<Measured>(measure);
-        mark('browser:measure-wide');
         expect(wide.boxes.length, 'both half-width sections must render for this measurement').toBe(2);
         const [wideFirst, wideSecond] = wide.boxes as [[number, number, number], [number, number, number]];
         // Side by side: same row, different columns.
@@ -1489,10 +1479,8 @@ describe('the dashboard screen, driven end to end against the real app', () => {
         expect(wideFirst[2]).toBeLessThan(wide.grid * 0.55);
 
         await browser.setViewport(320, 900);
-        mark('browser:set-viewport-320');
         await new Promise((resolve) => setTimeout(resolve, 200));
         const narrow = await browser.evaluate<Measured>(measure);
-        mark('browser:measure-narrow');
         expect(narrow.boxes.length).toBe(2);
         const [narrowFirst, narrowSecond] = narrow.boxes as [[number, number, number], [number, number, number]];
         // Stacked: same column, one below the other.
@@ -1504,7 +1492,6 @@ describe('the dashboard screen, driven end to end against the real app', () => {
         expect(narrowSecond[2]).toBe(narrow.grid);
       } finally {
         await browser.close();
-        mark('browser:close');
       }
     }, BROWSER_TIMEOUT_MS);
 

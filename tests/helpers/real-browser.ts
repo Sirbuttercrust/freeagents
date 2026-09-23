@@ -154,16 +154,6 @@ export class RealBrowser {
       `--window-size=${width},${height}`,
       'about:blank',
     ];
-    // CI2 D1 rework: this file's own 30s port-wait deadline was the named
-    // suspect for why tests/web/dashboard.test.ts's real-Chrome case ran
-    // long on the GitHub runner. Timing the spawn-to-port-open wait
-    // separately from the websocket handshake settles which one it is,
-    // instead of guessing from local numbers that never reproduced the
-    // runner duration. TEMPORARY: always on for this diagnostic push;
-    // gated back to opt-in once the runner numbers are in and the timeout
-    // is sized (or the cause fixed) from them.
-    const spawnedAt = Date.now();
-
     browser.proc = spawn(chrome, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const proc = browser.proc;
 
@@ -188,20 +178,16 @@ export class RealBrowser {
         // debug port not up yet
       }
     }
-    console.log(`[CI2-TIMING] launch:spawn-to-port-open: ${Date.now() - spawnedAt}ms`);
     if (!wsUrl) {
       await browser.close();
       throw new Error('chrome debug port never came up');
     }
 
-    const wsConnectStart = Date.now();
     browser.ws = new WebSocket(wsUrl);
     await new Promise<void>((resolve, reject) => {
       browser.ws!.addEventListener('open', () => resolve(), { once: true });
       browser.ws!.addEventListener('error', () => reject(new Error('CDP websocket failed to open')), { once: true });
     });
-    console.log(`[CI2-TIMING] launch:websocket-connect: ${Date.now() - wsConnectStart}ms`);
-
     browser.ws.addEventListener('message', (ev: MessageEvent) => {
       const msg = JSON.parse(String(ev.data)) as CdpMessage;
       if (msg.id !== undefined) {
