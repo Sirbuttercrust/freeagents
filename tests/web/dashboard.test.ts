@@ -40,28 +40,36 @@ const PLATFORM_SEED = 'c'.repeat(64);
 // 35901282897 (identical code to main's own green push run 35900696646)
 // reproduced "the two dspan-6 sections..." as "Test timed out in 30000ms"
 // on node 22, while the SAME test in the SAME run passed on node 24 at
-// 2661ms. That is not a real layout defect: it is a real-Chrome test
-// competing for a spawn on a shared runner where several other test
-// files launch their own headless Chrome around the same moment.
+// 2661ms. That is not a real layout defect: it is RealBrowser.launch()
+// paying for a cold Chrome start once per CI job.
 //
-// Measured on the runner itself (run 35913237139: node22 launch 1142ms,
-// full test 2792ms; node24 launch 7865ms, full test 10103ms) and again
-// on a second push (run 35914021202: node22 launch 9477ms, full test
-// 11795ms; node24 launch 9584ms, full test 11486ms), with per-step
-// console.log marks around RealBrowser.launch (spawn-to-port-open plus
-// the websocket handshake), both navigations, both measurements, the
-// resize and the close. All four samples finished the whole test in
-// under 12s; the RealBrowser.launch() call itself accounted for nearly
-// all of that, and every other step (navigations, evaluates, resize,
-// close) stayed under 1s each. Nothing about tests/helpers/real-browser
-// .ts's own 30s port-wait deadline was close to firing in any of the
-// four runs; the timeout that actually mattered was this test's own,
-// against a launch stretched by contention for Chrome's process spawn
-// and debug port on a shared runner. 60_000ms gives roughly 5x headroom
-// over the slowest of the four measured runs (11795ms) rather than
-// guessing from a local machine that never reproduced runner-level
-// contention; a genuinely broken layout still fails in milliseconds once
-// the page is up, well inside either ceiling.
+// Runner-measured cause (run 35913237139 and run 35914021202, per-step
+// console.log marks around launch's spawn-to-port-open wait, the
+// websocket handshake, both navigations, both measurements, resize and
+// close): in all four instrumented jobs (node 22 and node 24, each run
+// twice), this test's launch() call is the FIRST Chrome launch of the
+// job. Its spawn-to-port-open wait took 973ms, 7166ms, 8795ms and
+// 8973ms across the four jobs, and zero other launches overlapped that
+// window in any of them. The other 147 launches each of those jobs made
+// later all stayed under 831ms, so the cost is a cold first start, not
+// contention for a shared runner's Chrome spawn or debug port as an
+// earlier version of this comment claimed. Every other step (both
+// navigations, both measurements, the resize, the close) stayed under
+// 1s each in all four samples; the four full-test durations were
+// 2792ms, 10103ms, 11795ms and 11486ms.
+//
+// The 60_000ms ceiling has to cover a worse cold start than those four
+// samples, because this branch's own CI already produced one: run
+// 35908468398 passed this same test on node 22 in 37529ms with no
+// diagnostic marks running, the slowest full-test duration on record.
+// 60s is roughly 1.6x that sample, not the 5x an earlier version of
+// this comment claimed against the smaller instrumented set. The other
+// limit on a cold launch is tests/helpers/real-browser.ts's own
+// 30000ms port-wait deadline (real-browser.ts:161): launch() cannot
+// legally cost this test more than that deadline plus the sub-1s cost
+// of every step around it, so 60_000ms clears both the worst sample
+// actually seen (37529ms) and the worst a cold launch can cost before
+// real-browser.ts gives up on it first.
 const BROWSER_TIMEOUT_MS = 60_000;
 
 function delegationFixture(agentDid: string, operatorDid: string): Delegation {
