@@ -110,13 +110,24 @@ interface Rendered {
 // page makes (method and raw input) BEFORE it is dispatched, installed
 // before any page script runs, so an on-load call is captured and not
 // only whatever fires later (mutation proofs 11 and D3's own requirement).
-// poll, given, runs every 50ms during the wait so a flash is caught (D6).
+// poll, given, runs on every wait tick so a flash is caught (D6).
+//
+// settled, given, replaces the fixed 350ms wait with a real condition on
+// the document: the loop polls every 20ms until settled(doc) is true, up
+// to a 4000ms bound, and throws a named error if that bound is hit rather
+// than silently reading a half-rendered page. This is what CI2 found: the
+// old fixed 350ms wait raced the party probe's own network round trip
+// (staged.js's resolveIsBuyerParty), and under runner load the wait ended
+// before that promise's .then() callback ran, so a test read the DOM
+// before staged.js had removed the controls it means to remove. Callers
+// that render a page with no such async gate keep the fixed wait.
 async function renderPage(
   baseUrl: string,
   path: string,
   session: { token: string; subject?: string; method?: string } | null,
   onFetch?: (input: string, init?: RequestInit) => void,
   poll?: (doc: Document) => void,
+  settled?: (doc: Document) => boolean,
 ): Promise<Rendered> {
   const virtualConsole = new VirtualConsole();
   const failures: string[] = [];
@@ -148,7 +159,19 @@ async function renderPage(
     if (dom.window.document.readyState === 'complete') resolve();
     else dom.window.addEventListener('load', () => resolve());
   });
-  for (let waited = 0; waited < 350; waited += 50) { await new Promise((resolve) => setTimeout(resolve, 50)); if (poll) poll(dom.window.document); }
+  if (settled) {
+    const deadline = Date.now() + 4000;
+    while (!settled(dom.window.document)) {
+      if (poll) poll(dom.window.document);
+      if (Date.now() >= deadline) {
+        throw new Error(`page at ${path} never reached its settled signal within 4000ms`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    if (poll) poll(dom.window.document);
+  } else {
+    for (let waited = 0; waited < 350; waited += 50) { await new Promise((resolve) => setTimeout(resolve, 50)); if (poll) poll(dom.window.document); }
+  }
   if (failures.length > 0) throw new Error(`page script failed on ${path}: ${failures.join('; ')}`);
   return { window: dom.window, document: dom.window.document, close: () => dom.window.close() };
 }
@@ -159,8 +182,9 @@ function renderStaged(
   session: { token: string; subject?: string; method?: string } | null,
   onFetch?: (input: string, init?: RequestInit) => void,
   poll?: (doc: Document) => void,
+  settled?: (doc: Document) => boolean,
 ): Promise<Rendered> {
-  return renderPage(baseUrl, `/staged?job=${encodeURIComponent(jobId)}`, session, onFetch, poll);
+  return renderPage(baseUrl, `/staged?job=${encodeURIComponent(jobId)}`, session, onFetch, poll, settled);
 }
 
 // Every CSS rule in force on this page: the page's own <style> block plus
@@ -1406,11 +1430,22 @@ describe('the staged screen, driven end to end against the real app', () => {
         // D6 (qa round 4): decline-btn shipped visible (redo-btn shipped
         // hidden); polling catches the flash before the party probe ends.
         const everVisible: boolean[] = [];
+        // CI2 fix: the fixed 350ms wait raced this test's own 300ms
+        // /accounts/ delay (renderPage's poll branch above) against
+        // staged.js's resolveIsBuyerParty round trip; under runner load
+        // the margin closed and redo-btn/decline-btn were read mid-removal.
+        // #choices is populated by renderChoices, called synchronously in
+        // the SAME resolveIsBuyerParty(...).then callback that calls
+        // renderActs (the function that removes the two controls), so
+        // #choices gaining its rows is a real signal that the callback,
+        // and therefore the removal, already ran; this job's status is
+        // 'staged' (not redo_requested), so #choices is always populated
+        // once that callback fires.
         const page = await renderStaged(agentBaseUrl, 'job-agent-view', agentSession, undefined, (doc) => {
           const decline = doc.getElementById('decline-btn') as HTMLButtonElement | null;
           const redo = doc.getElementById('redo-btn') as HTMLButtonElement | null;
           everVisible.push((decline !== null && !decline.hidden) || (redo !== null && !redo.hidden));
-        });
+        }, (doc) => (doc.getElementById('choices')?.children.length ?? 0) > 0);
         try {
           expect(everVisible.some((v) => v)).toBe(false);
           expect(page.document.getElementById('party-error')?.hidden).toBe(true);
