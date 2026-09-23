@@ -107,8 +107,9 @@ a:focus-visible, button:focus-visible {
 .nav .inner { display: flex; align-items: center; gap: 26px; height: 100%; }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 560; font-size: 15px; letter-spacing: -0.02em; }
 /* The logo, same two files and same rule as base.css (DESIGN.md section 8). */
-.brand img { display: block; height: 28px; width: auto; }
-.brand .logo-icon { display: none; }
+.brand img { display: block; height: 26px; width: auto; }
+.brand .logo-lockup { transform: translateY(-11.1%); }
+.brand .logo-icon { display: none; height: 28px; }
 .nav .links { display: flex; gap: 20px; font-size: 15px; color: var(--fg-2); }
 .nav .links a { transition: color .12s var(--ease); }
 .nav .links a:hover { color: var(--fg); }

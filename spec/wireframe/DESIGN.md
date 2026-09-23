@@ -779,14 +779,16 @@ set, the app icons and `site.webmanifest` from the site root.
 **In the nav.** The `.brand` link holds both images with `alt=""` and shows one
 at a time. The link's `aria-label="FreeAgents home"` is its whole accessible
 name, so the collapse changes what is seen and never what is announced. The
-lockup is 28px tall, which makes it 108px wide. Below 420px the link becomes a
-44px square holding the 28px character, which frees the width the nav links
-need for their own 44px targets (section 5.3).
+lockup is 26px tall, which makes it 100px wide, and it is lifted by 11.1% of
+its height so the letters rather than the box sit on the bar's centre line:
+the character above the name makes the box taller than the letters. Below
+420px the link becomes a 44px square holding the 28px character, which frees
+the width the nav links need for their own 44px targets (section 5.3).
 
 **Clear space.** The unit is E, the height of the character's eye: 0.27 of the
 cap height. Keep 2E clear on every side of the lockup and 1E around the icon,
-measured from the outermost ink. In the nav, 2E is under 8px and the lockup has
-16px above and below it inside the 60px bar.
+measured from the outermost ink. In the nav, 2E is about 7px, and the lockup's
+ink has 14px of bar above it and 20px below.
 
 **Minimum sizes**, measured by rendering each file on a ladder of widths:
 

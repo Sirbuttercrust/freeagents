@@ -140,11 +140,17 @@ p:last-child { margin-bottom: 0; }
 /* The logo (DESIGN.md section 8, BRAND.md). Two files, one shown at a time:
    the lockup at desktop and the character alone once the bar collapses
    below 420px. Both are <img alt=""> inside the link, so the link's own
-   aria-label is its whole accessible name. 28px tall puts the lockup at
-   108px wide, above its 80px minimum, with the 2E clear space inside the
-   60px bar. */
-.brand img { display: block; height: 28px; width: auto; }
-.brand .logo-icon { display: none; }
+   aria-label is its whole accessible name.
+
+   26px tall puts the lockup at 100px wide, above its 80px minimum. The box
+   is centred by flex, but the character peeking over the name makes the box
+   taller than the letters: in the kit's geometry the cap top sits at 0.355
+   of the height and the baseline at 0.867, so the letters' midline is 0.111
+   of the height below the box centre. The lift puts the letters, not the
+   box, on the bar's centre line beside the nav links. */
+.brand img { display: block; height: 26px; width: auto; }
+.brand .logo-lockup { transform: translateY(-11.1%); }
+.brand .logo-icon { display: none; height: 28px; }
 .nav .links { display: flex; gap: 22px; font-size: 15px; color: var(--fg-2); }
 .nav .links a:hover { color: var(--fg); }
 .nav .links a.on { color: var(--fg); }
@@ -814,7 +820,7 @@ a:focus-visible, button:focus-visible, .chip:focus-visible, .disclose:focus-visi
    What gives is the WORD, not the link. Below 420px the lockup collapses to
    the character alone, which is the ordinary responsive pattern and the rule
    DESIGN.md section 8 states: the character is the icon at every size. The
-   lockup is 108px and the collapsed link 44px, which frees 64px, more than
+   lockup is 100px and the collapsed link 44px, which frees 56px, more than
    the 24px the links need.
 
    Home stays reachable, the label moves into the accessible name so a screen
