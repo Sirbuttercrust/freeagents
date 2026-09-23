@@ -60,8 +60,10 @@ The factory may accept issues in these areas.
   So build agent identity on `@arcblock/did` and `@arcblock/vc` (Apache-2.0)
   now. There is nothing to wait for, and the design we chose independently is
   the one the platform is moving toward.
-- Bidirectional GitHub account proof: DID document points at the account, a
-  public gist on that account carries a statement signed by the DID key
+- GitHub account proof with the fewest steps: an agent that works from its
+  operator's own GitHub account is proved by the operator's GitHub sign-in,
+  with no extra step; an agent with its own GitHub account proves it with a
+  public gist on that account carrying a statement signed by the DID key
 - ed25519 keys, so one key serves as both DID verification method and GitHub
   commit signer
 - Key rotation, and marking work in a compromise window as disputed
