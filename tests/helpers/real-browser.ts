@@ -11,8 +11,8 @@
 // test dependency is added for it. It cannot be wedged by, and cannot wedge,
 // anything else running on the machine: a fresh remote-debugging port and a
 // fresh throwaway profile directory per instance.
-import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import net from 'node:net';
@@ -110,55 +110,153 @@ interface CdpMessage {
   error?: { message?: string };
 }
 
-// CI4: bounds how many Chrome processes spawn at once. Two independent
-// runner samples (312 launches each, both node 22 and node 24) put the
-// worst single-launch spawn-to-port-open at 11780ms with never more than
-// 18 Chrome-related processes alive at once, none of it from this test
-// suite launching more than one browser concurrently per worker: vitest's
-// own worker pool is what stacks several files' launches into the same
-// window. A gate that only lets a bounded number of launches spawn at
-// once turns that pile-up into a queue instead of every held-back launch
-// re-polling the same 300ms loop against a runner that is still booting
-// several Chromes at once.
-export class LaunchGate {
-  private readonly limit: number;
-  private active = 0;
-  private readonly waiters: Array<() => void> = [];
-
-  constructor(limit: number) {
-    this.limit = limit;
-  }
-
-  acquire(): Promise<() => void> {
-    return new Promise((resolve) => {
-      const tryAcquire = (): void => {
-        if (this.active < this.limit) {
-          this.active += 1;
-          resolve(() => this.release());
-        } else {
-          this.waiters.push(tryAcquire);
-        }
-      };
-      tryAcquire();
-    });
-  }
-
-  private release(): void {
-    this.active -= 1;
-    const next = this.waiters.shift();
-    if (next) next();
+// CI4 round 2: temporary per-launch timing for this measurement push, the
+// same pattern the CI4 round 1 diagnostic used. Prints gate-wait duration,
+// spawn-to-port-open (or give-up) duration, and how many Chrome processes
+// were alive on the runner immediately after, so the two pushes below can
+// answer whether PORT_WAIT_MS=12000 has headroom under the new
+// cross-process gate before it lands as the final number. Folded out (see
+// the handoff for which) once the numbers are in.
+function countChromeProcesses(): number {
+  try {
+    const out = execFileSync('pgrep', ['-f', 'remote-debugging-port'], { encoding: 'utf8' });
+    return out.split('\n').filter((line) => line.trim().length > 0).length;
+  } catch {
+    return -1;
   }
 }
 
-// CI4: the runner samples above never reproduced the >30s "chrome debug
-// port never came up" failure from run 35921744859, so nothing measured
-// justifies raising launch()'s own 30s deadline past what four earlier
-// samples (CI2 D1, max 11795ms) and these two (max 11780ms) already show
-// as headroom. What a longer deadline cannot fix is a launch that loses
-// the race entirely on a contended runner; a bounded retry does, at the
-// cost of one more spawn attempt, and only for the specific failure this
-// card is about, never for an unrelated error (a missing Chrome binary,
-// for instance, retrying that just wastes the same 30s deadline twice).
+// CI4 round 2 (Proof FAIL r1, defect 1): vitest's own pool runs each test
+// file as a separate OS process (node_modules/vitest/dist/config.js:99,
+// `pool: "forks"`). A module-level counter, however carefully queued, only
+// ever counts launches inside the ONE process it lives in; every other
+// file's worker starts its own counter at zero. Proof's repro nailed this:
+// two files at a limit of 1 both acquired the "gate" 1ms apart, with 20
+// Chrome processes alive, because there were two separate counters, not
+// one shared one.
+//
+// The fence has to live somewhere every worker process can see: the
+// filesystem. Each slot is a file, `slot-<n>.lock`, claimed with node:fs's
+// `wx` flag (open with O_EXCL), which is atomic on the local disk this
+// runs on (POSIX open(2) with O_CREAT|O_EXCL): whichever process's write
+// call lands first gets the file, every other gets EEXIST. That is real
+// mutual exclusion between processes, not a shared-memory count that only
+// one process can see.
+//
+// A slot left behind by a worker that vitest killed (a timed-out test, a
+// crashed runner) would otherwise wedge every later launch behind a lock
+// nobody will ever release, so each slot file's own content is the owning
+// pid, and a waiter that finds a slot held by a pid that is not running
+// reclaims it immediately rather than treating "the file exists" as proof
+// the launch is still live.
+const DEFAULT_GATE_DIR = join(tmpdir(), 'fa-real-browser-launch-gate');
+const GATE_POLL_MS = 100;
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // ESRCH: no such process, the recorded holder is gone. Any other
+    // error (EPERM, most commonly) means the process exists but this one
+    // cannot signal it, which is still "alive" for this check.
+    return (err as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+export class CrossProcessLaunchGate {
+  private readonly limit: number;
+  private readonly dir: string;
+
+  constructor(limit: number, dir: string = DEFAULT_GATE_DIR) {
+    this.limit = limit;
+    this.dir = dir;
+    mkdirSync(this.dir, { recursive: true });
+  }
+
+  async acquire(): Promise<() => void> {
+    for (;;) {
+      for (let i = 0; i < this.limit; i += 1) {
+        const slotPath = join(this.dir, `slot-${i}.lock`);
+        if (this.tryClaim(slotPath)) {
+          return () => this.release(slotPath);
+        }
+      }
+      await new Promise((r) => setTimeout(r, GATE_POLL_MS));
+    }
+  }
+
+  private tryClaim(slotPath: string): boolean {
+    if (this.writeIfAbsent(slotPath)) return true;
+    if (!this.isStale(slotPath)) return false;
+    // The holder is dead. Take the slot over: removing a lock nobody will
+    // ever release and immediately re-claiming it is safe even if another
+    // waiter races the same reclamation, since only one of the two
+    // `writeIfAbsent` calls that follow can win the O_EXCL write.
+    try {
+      rmSync(slotPath, { force: true });
+    } catch {
+      // another waiter already removed it; fall through to the retry
+    }
+    return this.writeIfAbsent(slotPath);
+  }
+
+  private writeIfAbsent(slotPath: string): boolean {
+    try {
+      writeFileSync(slotPath, String(process.pid), { flag: 'wx' });
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
+      throw err;
+    }
+  }
+
+  private isStale(slotPath: string): boolean {
+    let owner: string;
+    try {
+      owner = readFileSync(slotPath, 'utf8');
+    } catch {
+      // The slot vanished between the failed write and this read (the
+      // holder released it): claimable, not stale, but the caller's next
+      // writeIfAbsent will settle which of the racing waiters actually
+      // gets it.
+      return true;
+    }
+    const pid = Number(owner);
+    return !Number.isInteger(pid) || !isPidAlive(pid);
+  }
+
+  private release(slotPath: string): void {
+    try {
+      rmSync(slotPath, { force: true });
+    } catch {
+      // already gone
+    }
+  }
+}
+
+// CI4 round 2 (Proof FAIL r1, defect 2): 17 of the 25 files calling
+// RealBrowser.launch set BROWSER_TIMEOUT_MS = 30_000, including the three
+// that failed together in run 35921744859. A retry whose own port-wait
+// deadline is still 30s cannot complete two attempts before vitest kills
+// the test at 30s: Proof's stub reproduced exactly that, one spawn and
+// "Test timed out" at a 30s test timeout, reaching attempt 2 only with a
+// 120s test timeout. The card rules out raising the per-test timeout, so
+// the port-wait budget itself has to shrink until two attempts fit inside
+// the timeout every affected caller actually uses.
+//
+// 12s per attempt: two attempts plus their `close()` calls total at most
+// about 24.6s (see tests/helpers/real-browser.test.ts, the never-opens-port
+// stub case), leaving over 5s of the 30s budget for whatever a test does
+// before it calls launch(). The cross-process gate above is what makes a
+// shorter deadline safe rather than merely convenient: the measured worst
+// case this card is sized from (11780ms, CI4 round 1) happened while up to
+// 18 Chrome processes were alive at once because the old gate could not
+// see across files; with concurrent spawns actually bounded process-wide,
+// a legitimate launch has far less contention left to lose time to. If a
+// future runner sample shows launches still running past 12s under the
+// new gate, this number needs to move, and the retry budget with it.
+const PORT_WAIT_MS = 12_000;
 const GIVEUP_MESSAGE = 'chrome debug port never came up';
 
 export async function withLaunchRetry<T>(attempt: () => Promise<T>, maxAttempts: number): Promise<T> {
@@ -176,14 +274,15 @@ export async function withLaunchRetry<T>(attempt: () => Promise<T>, maxAttempts:
 }
 
 // A launch that spawns Chrome is the expensive, contended step the runner
-// numbers point at; two files landing in the same vitest worker window
-// both spawning at once is what stacks up. 4 keeps a modest queue depth
-// (roughly matching the highest concurrent chrome-procs-after seen, 18,
-// divided by the 4-5 CDP-relevant processes a single headless launch
-// spawns) without serialising the whole suite down to one launch at a
-// time, which would multiply total suite time by the number of
-// real-Chrome test files instead of just smoothing the spawn contention.
-const launchGate = new LaunchGate(4);
+// numbers point at. 4 keeps a modest queue depth (roughly matching the
+// highest concurrent chrome-procs-after seen, 18, divided by the 4-5
+// CDP-relevant processes a single headless launch spawns) without
+// serialising the whole suite down to one launch at a time, which would
+// multiply total suite time by the number of real-Chrome test files
+// instead of just smoothing the spawn contention. Unlike CI4 round 1's
+// LaunchGate, this bound now actually holds across the separate OS
+// processes vitest runs each test file in.
+const launchGate = new CrossProcessLaunchGate(4);
 
 // One throwaway headless Chrome tab, driven over CDP. Deliberately small:
 // goto + evaluate + close. A test that needs more speaks CDP directly via
@@ -207,23 +306,30 @@ export class RealBrowser {
         `no Chrome found for real-browser layout tests. Set ${CHROME_ENV} to a Chrome/Chromium binary.`,
       );
     }
-    // CI4: the gate bounds how many launches spawn Chrome at once (see
-    // LaunchGate's own comment for the runner numbers behind the limit).
-    // The retry covers the one failure mode those numbers cannot rule
-    // out: a specific launch losing the spawn/port race outright under
-    // contention, which a longer deadline does not fix since nothing
-    // measured shows the deadline itself was close to firing.
+    // CI4 round 2: the gate bounds how many launches spawn Chrome at once
+    // across every worker process, not just this one (see
+    // CrossProcessLaunchGate's own comment for why that distinction
+    // matters). The retry covers a launch that loses the spawn/port race
+    // outright under contention, and PORT_WAIT_MS is sized so two attempts
+    // both fit inside the 30s test timeout every real caller uses (see
+    // PORT_WAIT_MS's own comment).
     return withLaunchRetry(async () => {
+      const gateWaitStart = Date.now();
       const release = await launchGate.acquire();
+      const gateWaitMs = Date.now() - gateWaitStart;
       try {
-        return await RealBrowser.attemptLaunch(chrome, opts);
+        return await RealBrowser.attemptLaunch(chrome, opts, gateWaitMs);
       } finally {
         release();
       }
     }, 2);
   }
 
-  private static async attemptLaunch(chrome: string, opts: { width?: number; height?: number }): Promise<RealBrowser> {
+  private static async attemptLaunch(
+    chrome: string,
+    opts: { width?: number; height?: number },
+    gateWaitMs: number,
+  ): Promise<RealBrowser> {
     const width = opts.width ?? 1280;
     const height = opts.height ?? 900;
     const overlay = isPhoneWidth(width);
@@ -248,9 +354,10 @@ export class RealBrowser {
     ];
     browser.proc = spawn(chrome, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const proc = browser.proc;
+    const spawnedAt = Date.now();
 
     let wsUrl: string | null = null;
-    const deadline = Date.now() + 30000;
+    const deadline = Date.now() + PORT_WAIT_MS;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 300));
       if (proc.exitCode !== null) {
@@ -269,6 +376,12 @@ export class RealBrowser {
       } catch {
         // debug port not up yet
       }
+    }
+    {
+      const elapsed = Date.now() - spawnedAt;
+      console.log(
+        `[CI4-TIMING] launch:gate-wait=${gateWaitMs}ms spawn-to-port-${wsUrl ? 'open' : 'giveup'}=${elapsed}ms chrome-procs-after=${countChromeProcesses()}`,
+      );
     }
     if (!wsUrl) {
       await browser.close();

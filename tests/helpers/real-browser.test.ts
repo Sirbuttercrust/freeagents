@@ -11,8 +11,16 @@
 // room for one), so forcing the overlay behaviour at phone widths is
 // correct, not a workaround: it makes the measurement match what a phone
 // user actually sees, on every platform the suite runs on.
+import { spawn } from 'node:child_process';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { RealBrowser, hasRealBrowser, LaunchGate, withLaunchRetry } from './real-browser.js';
+import { RealBrowser, hasRealBrowser, CrossProcessLaunchGate, withLaunchRetry } from './real-browser.js';
+
+const realBrowserModulePath = fileURLToPath(new URL('./real-browser.ts', import.meta.url));
+const realBrowserModuleUrl = pathToFileURL(realBrowserModulePath).href;
 
 // A page whose body is taller than the viewport on every launch below, so a
 // platform that draws a space-consuming scrollbar has one to draw. Without
@@ -64,39 +72,50 @@ describe('RealBrowser: phone-width launches read the same clientWidth on every p
 // processes spawn at once (spawning is the expensive, contended step
 // measured on the runner), and a retry around a launch that does give up,
 // since a launch failing once under contention is not evidence the whole
-// test should fail. Both are plain, dependency-free logic, tested here
-// without spawning real Chrome so the suite proves their behaviour in
-// milliseconds.
-describe('LaunchGate: bounds how many launches run at once', () => {
+// test should fail. This block proves CrossProcessLaunchGate's queueing
+// contract in-process, in milliseconds; the CrossProcessLaunchGate
+// describe block further down proves the part that actually matters for
+// CI4, that the same fence also holds ACROSS separate OS processes.
+describe('CrossProcessLaunchGate: bounds how many launches run at once, in a single process', () => {
   it('lets launches under the limit run immediately', async () => {
-    const gate = new LaunchGate(2);
-    const order: string[] = [];
-    const release1 = await gate.acquire();
-    order.push('acquired-1');
-    const release2 = await gate.acquire();
-    order.push('acquired-2');
-    expect(order).toEqual(['acquired-1', 'acquired-2']);
-    release1();
-    release2();
+    const dir = mkdtempSync(join(tmpdir(), 'fa-launch-gate-inproc-'));
+    try {
+      const gate = new CrossProcessLaunchGate(2, dir);
+      const order: string[] = [];
+      const release1 = await gate.acquire();
+      order.push('acquired-1');
+      const release2 = await gate.acquire();
+      order.push('acquired-2');
+      expect(order).toEqual(['acquired-1', 'acquired-2']);
+      release1();
+      release2();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('holds a launch past the limit until an earlier one releases', async () => {
-    const gate = new LaunchGate(1);
-    const order: string[] = [];
-    const release1 = await gate.acquire();
-    order.push('acquired-1');
-    let acquired2 = false;
-    const second = gate.acquire().then((release2) => {
-      acquired2 = true;
-      order.push('acquired-2');
-      release2();
-    });
-    // The second acquire must still be waiting: nothing has released yet.
-    await new Promise((r) => setTimeout(r, 10));
-    expect(acquired2).toBe(false);
-    release1();
-    await second;
-    expect(order).toEqual(['acquired-1', 'acquired-2']);
+    const dir = mkdtempSync(join(tmpdir(), 'fa-launch-gate-inproc-'));
+    try {
+      const gate = new CrossProcessLaunchGate(1, dir);
+      const order: string[] = [];
+      const release1 = await gate.acquire();
+      order.push('acquired-1');
+      let acquired2 = false;
+      const second = gate.acquire().then((release2: () => void) => {
+        acquired2 = true;
+        order.push('acquired-2');
+        release2();
+      });
+      // The second acquire must still be waiting: nothing has released yet.
+      await new Promise((r) => setTimeout(r, 10));
+      expect(acquired2).toBe(false);
+      release1();
+      await second;
+      expect(order).toEqual(['acquired-1', 'acquired-2']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -143,4 +162,125 @@ describe('withLaunchRetry: retries a launch that gives up once', () => {
     ).rejects.toThrow('chrome debug port never came up');
     expect(calls).toBe(2);
   });
+});
+
+// CI4 round 2 (Proof FAIL r1): vitest's default pool is "forks", a separate
+// child process per test file (node_modules/vitest/dist/config.js:99), so a
+// module-level counter like the LaunchGate above only bounds launches
+// inside ONE file. Proof's own repro showed two files' launches acquiring
+// an in-process limit-1 gate 1ms apart, 20 Chrome processes alive, because
+// each file's counter starts at zero. The fence has to live somewhere every
+// worker process can see it: a directory of numbered slot files under
+// os.tmpdir(), claimed with the O_EXCL exclusivity node:fs already gives
+// mkdirSync (EEXIST when another process holds the slot), which is real
+// cross-process mutual exclusion, not an in-memory count.
+describe('CrossProcessLaunchGate: bounds concurrent launches across separate OS processes, not just one', () => {
+  it('makes two launches in two separate child processes wait for each other when the limit is 1', async () => {
+    const gateDir = mkdtempSync(join(tmpdir(), 'fa-launch-gate-probe-'));
+    const resultsPath = join(gateDir, 'results.jsonl');
+    writeFileSync(resultsPath, '');
+    const childScript = join(gateDir, 'probe-child.mjs');
+    writeFileSync(
+      childScript,
+      [
+        "import { appendFileSync } from 'node:fs';",
+        `const mod = await import(${JSON.stringify(realBrowserModuleUrl)});`,
+        `const gate = new mod.CrossProcessLaunchGate(1, ${JSON.stringify(gateDir)});`,
+        'const release = await gate.acquire();',
+        `appendFileSync(${JSON.stringify(resultsPath)}, JSON.stringify({ pid: process.pid, event: 'start', t: Date.now() }) + '\\n');`,
+        'await new Promise((r) => setTimeout(r, 400));',
+        `appendFileSync(${JSON.stringify(resultsPath)}, JSON.stringify({ pid: process.pid, event: 'end', t: Date.now() }) + '\\n');`,
+        'release();',
+      ].join('\n'),
+    );
+    const runChild = (): Promise<void> =>
+      new Promise((resolve, reject) => {
+        const proc = spawn(process.execPath, ['--import', 'tsx', childScript]);
+        let stderr = '';
+        proc.stderr.on('data', (chunk) => {
+          stderr += String(chunk);
+        });
+        proc.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`probe child exited ${code}: ${stderr}`))));
+      });
+    try {
+      await Promise.all([runChild(), runChild()]);
+      const lines = readFileSync(resultsPath, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { pid: number; event: 'start' | 'end'; t: number });
+      const byPid = new Map<number, { start: number; end: number }>();
+      for (const line of lines) {
+        const entry = byPid.get(line.pid) ?? { start: 0, end: 0 };
+        entry[line.event] = line.t;
+        byPid.set(line.pid, entry);
+      }
+      const windows = [...byPid.values()];
+      expect(windows.length, 'both child processes must have run').toBe(2);
+      const [first, second] = windows.sort((a, b) => a.start - b.start) as [
+        { start: number; end: number },
+        { start: number; end: number },
+      ];
+      expect(
+        second.start,
+        'with a limit of 1, the second process must not hold the slot before the first releases it',
+      ).toBeGreaterThanOrEqual(first.end);
+    } finally {
+      rmSync(gateDir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  it('reclaims a slot left behind by a process that is no longer running', async () => {
+    const gateDir = mkdtempSync(join(tmpdir(), 'fa-launch-gate-stale-'));
+    try {
+      const mod = (await import(realBrowserModuleUrl)) as {
+        CrossProcessLaunchGate: new (limit: number, dir: string) => { acquire(): Promise<() => void> };
+      };
+      // A pid this large is not a running process on any machine this
+      // suite runs on; process.kill(pid, 0) on it throws ESRCH, which is
+      // exactly the signal a stale slot from a crashed or killed worker
+      // leaves behind.
+      const deadPid = 2_147_483_000;
+      writeFileSync(join(gateDir, 'slot-0.lock'), String(deadPid));
+      const gate = new mod.CrossProcessLaunchGate(1, gateDir);
+      const started = Date.now();
+      const release = await gate.acquire();
+      expect(Date.now() - started, 'a stale slot must be reclaimed on sight, not polled until some timeout').toBeLessThan(2_000);
+      release();
+    } finally {
+      rmSync(gateDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// CI4 round 2 (Proof FAIL r1, defect 2): every real launch site sets
+// BROWSER_TIMEOUT_MS = 30_000 (17 of the 25 files that call
+// RealBrowser.launch, including the three that failed together in run
+// 35921744859). A retry whose own per-attempt deadline is 30s cannot
+// complete two attempts before vitest kills the test at 30s: Proof's stub
+// showed 1 spawn and "Test timed out" at a 30s test timeout, needing a
+// 120s test timeout to ever reach attempt 2. The port-wait budget has to
+// shrink so the whole retried launch, gate wait included, still finishes
+// inside the timeout every caller actually uses.
+describe('RealBrowser.launch: a launch that never opens its port gives up within a 30s test timeout', () => {
+  it('rejects with the give-up message well inside 30s, leaving room for a caller to still use the result', async () => {
+    const stubDir = mkdtempSync(join(tmpdir(), 'fa-stub-chrome-'));
+    const stubPath = join(stubDir, 'stub-chrome.sh');
+    writeFileSync(stubPath, '#!/bin/sh\nsleep 200\n');
+    chmodSync(stubPath, 0o755);
+    const previousChromeBin = process.env.CHROME_BIN;
+    process.env.CHROME_BIN = stubPath;
+    const started = Date.now();
+    try {
+      await expect(RealBrowser.launch({ width: 1280, height: 900 })).rejects.toThrow('chrome debug port never came up');
+      const elapsed = Date.now() - started;
+      expect(
+        elapsed,
+        'the retried launch (gate wait plus every attempt) must finish well inside the 30s timeout every real caller sets',
+      ).toBeLessThan(25_000);
+    } finally {
+      if (previousChromeBin === undefined) delete process.env.CHROME_BIN;
+      else process.env.CHROME_BIN = previousChromeBin;
+      rmSync(stubDir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
