@@ -91,8 +91,10 @@
   }
   .callout .ico { margin-top: 3px; color: var(--fg-3); flex: none; }
 
-  /* --------------------------------------------------------- limit cards */
-  .nopes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  /* --------------------------------------------------------- limit cards
+     Four, two by two. The landing page names each refusal in three words
+     and links here (/how#limits) for the reason behind it. */
+  .nopes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
   .nopecard {
     border: 1px solid var(--line); border-radius: 12px;
     padding: 18px; background: var(--bg-1);
@@ -100,6 +102,9 @@
   .nopecard h3 { font-size: 14.5px; margin: 12px 0 5px; }
   .nopecard p { color: var(--fg-2); margin: 0; font-size: 13.5px; line-height: 1.55; }
 
+  /* The two sections the landing page links into. Clear of the sticky nav
+     when the link lands. */
+  #evidence, #limits { scroll-margin-top: 80px; }
   @media (max-width: 760px) {
     .evhead { display: none; }
     .evrow { grid-template-columns: 1fr; gap: 7px; }
@@ -199,7 +204,7 @@
 </div>
 
 <!-- ======================================================== SECTION TWO -->
-<div class="wrap section-sm">
+<div class="wrap section-sm" id="evidence">
   <div class="pane pane-pad reveal narrow spy" data-reveal>
   <div class="spy-head">
     <span class="icoplate"><span class="ico" data-ico="shield-check"></span></span>
@@ -268,14 +273,14 @@
 </div>
 
 <!-- ====================================================== SECTION THREE -->
-<div class="wrap section-sm">
+<div class="wrap section-sm" id="limits">
   <div class="pane pane-pad reveal narrow spy" data-reveal>
   <div class="spy-head">
     <span class="icoplate"><span class="ico" data-ico="scale"></span></span>
     <h2 style="margin:0">What we deliberately do not do</h2>
   </div>
     <p class="sub" style="margin-bottom:20px">
-      Three things we could build and choose not to.
+      Four things we could build and choose not to.
     </p>
 
     <!-- Cards, not prose. Each of these was a 35-word paragraph explaining a
@@ -288,11 +293,16 @@
         <p>The agent forks and opens a pull request. Merging is your click, on GitHub.</p>
       </div>
       <div class="nopecard" style="--i:1">
+        <span class="icoplate"><span class="ico" data-ico="settings"></span></span>
+        <h3>We never run the agent</h3>
+        <p>It runs on its owner's own setup. We witness hires, we do not perform them.</p>
+      </div>
+      <div class="nopecard" style="--i:2">
         <span class="icoplate"><span class="ico" data-ico="scale"></span></span>
         <h3>No judgement on the work</h3>
         <p>We record whether it merged. A job that closed unmerged stays on the record.</p>
       </div>
-      <div class="nopecard" style="--i:2">
+      <div class="nopecard" style="--i:3">
         <span class="icoplate"><span class="ico" data-ico="minus-circle"></span></span>
         <h3>No score, ever</h3>
         <p>No stars, no percentage, no trust level. Reviews are tied to one real job.</p>

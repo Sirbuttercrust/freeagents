@@ -1,0 +1,174 @@
+/* FreeAgents: the step flow. The stylesheet half of js/stepflow.js.
+
+   Consumes tokens.css and defines no colour of its own. Loads on any page,
+   the marketing page or a marketplace page, because every selector is under
+   .stepflow and nothing here styles a bare element.
+
+   THE PLAIN RULES ARE THE FINISHED DIAGRAM. Every step lit, every line
+   drawn. The hidden starting state exists only under .sf-armed, which the
+   script adds when it is about to play, so no script, no observer and
+   reduced motion all land here.
+
+   NO ACCENT. The accent means "we watched this happen" (DESIGN.md 2.2), and
+   a diagram of how a hire goes is a description, not a witnessed event.
+   Lit is full-strength text; unlit is the quietest grey.
+
+   Spacing is on the DESIGN.md 4 steps: 4, 8, 12, 16, 22, 34, 56. */
+
+/* --sf-lead is empty room above every step. A page that perches something
+   on a step (the landing flock perches just above each one) sets it, and
+   the line between steps moves down with the plates. */
+.stepflow {
+  --sf-node: 56px;
+  --sf-lead: 0px;
+  --sf-beat: 620ms;
+  --sf-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 0;
+  counter-reset: sf;
+}
+
+.sf-step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+  padding: var(--sf-lead) 8px 0;
+}
+
+/* The picture. A rounded plate with one icon, the same shape as the pane
+   recipe so it reads as part of the site rather than a clip-art sticker. */
+.sf-node {
+  position: relative;
+  z-index: 1;
+  width: var(--sf-node);
+  height: var(--sf-node);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg);
+  background: linear-gradient(180deg, var(--pane-fill-2), var(--pane-fill)), var(--bg-1);
+  border: 1px solid var(--pane-rim);
+  box-shadow: inset 0 1px 0 var(--pane-glow), var(--pane-shadow);
+}
+.sf-node svg { width: 24px; height: 24px; display: block; }
+
+.sf-label {
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  max-width: 22ch;
+}
+
+/* The line into each step from the one before. It runs node centre to node
+   centre behind the plates, so five steps read as one process. */
+.sf-step + .sf-step::before {
+  content: "";
+  position: absolute;
+  top: calc(var(--sf-lead) + var(--sf-node) / 2);
+  right: 50%;
+  width: 100%;
+  height: 1px;
+  background: var(--line-2);
+  transform-origin: left center;
+}
+
+/* ------------------------------------------------------------- playing
+   Armed: nothing is lit yet. The steps are dimmed rather than hidden, so
+   the reader sees the shape of the whole process the moment it arrives. */
+
+.stepflow.sf-armed .sf-node {
+  opacity: 0.35;
+  transform: scale(0.9);
+}
+.stepflow.sf-armed .sf-label { opacity: 0; transform: translateY(8px); }
+.stepflow.sf-armed .sf-step + .sf-step::before { transform: scaleX(0); }
+
+/* Play: step i lights at i beats; the line into it starts half a beat
+   earlier, so the line arrives and the step answers. */
+.stepflow.sf-play .sf-node,
+.stepflow.sf-play .sf-label {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 480ms var(--sf-ease),
+    transform 480ms var(--sf-ease);
+  transition-delay: calc(var(--sf-i, 0) * var(--sf-beat));
+}
+.stepflow.sf-play .sf-label { transition-delay: calc(var(--sf-i, 0) * var(--sf-beat) + 80ms); }
+.stepflow.sf-play .sf-step + .sf-step::before {
+  transform: none;
+  transition: transform calc(var(--sf-beat) * 0.6) var(--sf-ease);
+  transition-delay: calc((var(--sf-i, 0) - 0.6) * var(--sf-beat));
+}
+
+/* The moment a step lights, its plate gives one soft ring. Neutral, never
+   the accent. Lives only in the playing state, so the finished diagram and
+   the reduced-motion diagram carry no leftover glow. */
+.stepflow.sf-play .sf-node::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid var(--fg-2);
+  opacity: 0;
+  animation: sf-ring 900ms var(--sf-ease) both;
+  animation-delay: calc(var(--sf-i, 0) * var(--sf-beat));
+  pointer-events: none;
+}
+@keyframes sf-ring {
+  0%   { opacity: 0; transform: scale(1); }
+  30%  { opacity: 0.8; }
+  100% { opacity: 0; transform: scale(1.22); }
+}
+
+/* ------------------------------------------------------- narrow screens
+   Below 640px five steps across would be 56px columns with the labels
+   wrapped to single words. The flow turns to run top to bottom instead:
+   plate on the left, words beside it, the line running down between
+   plates. Same order, same motion, same end state. */
+@media (max-width: 640px) {
+  .stepflow { grid-auto-flow: row; grid-auto-columns: auto; gap: 22px; }
+  .sf-step {
+    flex-direction: row;
+    text-align: left;
+    gap: 16px;
+    padding: var(--sf-lead) 0 0;
+  }
+  .sf-label { max-width: none; }
+  .sf-step + .sf-step::before {
+    top: auto;
+    bottom: calc(100% - var(--sf-lead));
+    right: auto;
+    left: calc(var(--sf-node) / 2);
+    width: 1px;
+    height: calc(22px + var(--sf-lead));
+    transform-origin: center top;
+  }
+  .stepflow.sf-armed .sf-label { transform: translateX(-8px); }
+  .stepflow.sf-armed .sf-step + .sf-step::before { transform: scaleY(0); }
+}
+
+/* REDUCED MOTION: the finished diagram, still and complete. The script
+   never arms under reduced motion; this is the second lock, for a switch
+   made while the page is open and for any state the script left behind. */
+@media (prefers-reduced-motion: reduce) {
+  .stepflow .sf-node,
+  .stepflow .sf-label,
+  .stepflow .sf-step + .sf-step::before {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .stepflow .sf-node::after { content: none; animation: none; }
+}
