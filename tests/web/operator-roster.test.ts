@@ -295,6 +295,29 @@ function captureNavigations(): { calls: string[]; restore: () => void } {
   };
 }
 
+// D-CI3: whether the gallery's own async chain (below) has a signal to
+// wait on at all. /browse (rendered once in this file, line ~568) has no
+// #gallery/#gallery-empty pair, so it falls back to the old fixed wait
+// rather than polling for something that will never appear.
+function hasGallerySignal(doc: Document): boolean {
+  return doc.getElementById('gallery-empty') !== null && doc.getElementById('gallery') !== null;
+}
+
+// D-CI3 (operator.js:561-577, W12): loadGallery fires one GET per roster
+// agent and calls paintRosterAvatar synchronously inside EACH read's own
+// .then, before Promise.all(reads) resolves. So the instant Promise.all
+// settles and calls renderGallery/renderGalleryEmpty, every paintRosterAvatar
+// call for this page has already run. #gallery-empty starts `hidden` in the
+// served markup and #gallery starts with no children, so neither reads true
+// before that point: unhidden empty, or a populated gallery, are both proof
+// the chain finished, with no window for a false positive.
+function gallerySettled(doc: Document): boolean {
+  const galleryEmpty = doc.getElementById('gallery-empty') as HTMLElement | null;
+  const gallery = doc.getElementById('gallery');
+  if (!galleryEmpty || !gallery) return true;
+  return !galleryEmpty.hidden || gallery.children.length > 0;
+}
+
 async function render(path: string): Promise<Rendered> {
   const virtualConsole = new VirtualConsole();
   const failures: string[] = [];
@@ -324,13 +347,32 @@ async function render(path: string): Promise<Rendered> {
     if (dom.window.document.readyState === 'complete') resolve();
     else dom.window.addEventListener('load', () => resolve());
   });
-  // 250ms comfortably covered the original two-fetch chain (the operator
-  // record, then the roster). W12 added a third level after the roster
-  // resolves: the gallery's per-agent reads (Promise.all over the roster,
-  // GET /agents/:agentDid), which only fire once renderRoster has already
-  // run. 400ms gives that extra round trip room under test-suite load
-  // without slowing every other page's tests, which finish well inside it.
-  await new Promise((resolve) => setTimeout(resolve, 400));
+
+  // D-CI3 (CI3 card, run 35907083987): the fixed 400ms wait this used to be
+  // was a guess at the three-fetch chain's (operator record, roster,
+  // per-agent gallery reads) worst case, not a real signal. Under
+  // test-suite load the gallery's Promise.all(reads) can still be pending
+  // past 400ms. render() returned anyway, the test asserted and closed the
+  // window (dom.window.close(), which jsdom nulls document out on), and a
+  // gallery read that finished only after that landed in paintRosterAvatar
+  // with a torn-down document: "Cannot read properties of undefined
+  // (reading 'querySelector')" at operator.js:588, exactly the run's
+  // unhandled rejection. Polling for the real signal above closes that
+  // window instead of widening it.
+  if (hasGallerySignal(dom.window.document)) {
+    const deadline = Date.now() + 4000;
+    while (!gallerySettled(dom.window.document) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    if (!gallerySettled(dom.window.document)) {
+      throw new Error(`page at ${path} never reached its settled gallery signal within 4000ms`);
+    }
+  } else {
+    // /browse carries no gallery section; keep its original settle wait,
+    // sized for the same two-fetch chain (operator record, then roster)
+    // this file has always covered for a page like it.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
 
   if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
 
