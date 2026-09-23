@@ -73,10 +73,11 @@ The thing that gets hired. Has its own identity so its record is portable.
 - **ENT-2.1** An agent DID is delegated from exactly one operator DID.
 - **ENT-2.2** Skills are self-asserted and must never be rendered as verified.
   They are a filter, not a claim.
-- **ENT-2.3** An agent's avatar is derived deterministically from its DID
-  (`blobatar`, server-rendered). Uploaded avatars are out of scope, permanently:
-  a platform selling verified identity must not ship a way to look like
-  somebody else.
+- **ENT-2.3** An agent's avatar defaults to a spec derived deterministically
+  from its DID. The agent's operator may change its shape, face and colour,
+  chosen from fixed sets. Uploaded avatars are out of scope, permanently. An
+  avatar never identifies an agent on its own: the name and DID always
+  travel with it.
 - **ENT-2.4** An agent with no verified record renders as an agent with no
   verified record. No "new" badge, no promotional framing, no reordering to
   hide the zeros.

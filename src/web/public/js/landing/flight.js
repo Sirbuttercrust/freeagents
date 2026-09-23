@@ -44,7 +44,12 @@
 
   var FA = global.FA;
   var clamp = FA.clamp, ease = FA.ease;
-  var REDUCED = global.matchMedia && global.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  /* Read live, never cached. The setting can change while the page is open,
+     and the flock has to follow it both ways (see flock.start). REDUCED is
+     only the value at load, kept for cast.js's one-off video decision. */
+  var reduceQuery = global.matchMedia ? global.matchMedia("(prefers-reduced-motion: reduce)") : null;
+  function reducedNow() { return !!(reduceQuery && reduceQuery.matches); }
+  var REDUCED = reducedNow();
 
   /* --------------------------------------------------------------- dust
      Sparkle trail. A fixed pool per flock, so a long scroll can never grow
@@ -97,6 +102,13 @@
           node.setAttribute("r", Math.round(p.r * (1 - age * 0.55) * 100) / 100);
           node.setAttribute("fill", p.fill);
           node.setAttribute("opacity", Math.round((1 - age) * (1 - age) * 0.85 * 100) / 100);
+        }
+      },
+      /* Motion switched off mid-flight: nothing is left hanging in the air. */
+      clear: function () {
+        for (var k = 0; k < pool.length; k++) {
+          pool[k].alive = false;
+          nodes[k].setAttribute("opacity", "0");
         }
       }
     };
@@ -188,16 +200,66 @@
          every two seconds, not per frame. */
       setInterval(invalidateAnchors, 2000);
 
-      if (REDUCED) {
-        // Static end state: everything drawn at its perch, no loop.
-        var draw = function () {
-          layout(flock, 0, 0, global.scrollY || 0);
-        };
-        draw();
-        global.addEventListener("scroll", draw, { passive: true });
-        global.addEventListener("resize", function () { invalidateAnchors(); draw(); });
-        return;
+      /* REDUCED MOTION, LIVE. The setting is read on every frame, not once
+         at load, because it can change while the page is open. Switching it
+         on parks the flock on the very next frame: the loop is dropped,
+         every agent is drawn once at its perch in the rest pose, dust is
+         cleared, and after that only a scroll or a resize redraws it.
+         Switching it off again starts the loop from where they sit. The
+         media listener carries the way back, since no frame is running to
+         notice it; the frame check carries the way in, since Chrome was
+         measured (review round 1) not delivering the change event while the loop
+         held the frame. */
+      var stopLoop = null;
+
+      function drawStill() {
+        layout(flock, flock.t, 0, global.scrollY || 0);
       }
+
+      function park() {
+        if (stopLoop) { stopLoop(); stopLoop = null; }
+        flock.dust.back.clear();
+        flock.dust.front.clear();
+        for (var i = 0; i < flock.agents.length; i++) FA.settle(flock.agents[i]);
+        drawStill();
+      }
+
+      function run() {
+        if (stopLoop) return;
+        /* ONE FRAME LOOP FOR THE PAGE.
+           Subscribing to the scroll module rather than starting a second
+           requestAnimationFrame is what guarantees this runs AFTER the scroll
+           position is updated, every frame. Two independent loops have no
+           defined order, and the resulting one-frame lag flickering on and
+           off was a measured source of jitter. */
+        var scroller = global.FASmoothScroll;
+        if (scroller && scroller.onFrame) {
+          stopLoop = scroller.onFrame(function (smoothY, dt) {
+            if (reducedNow()) { park(); return; }
+            flock.t += dt;
+            layout(flock, flock.t, dt, smoothY);
+          });
+        } else {
+          /* Fallback for the passthrough case (touch, reduced motion off but
+             no smoothing). Still one loop. */
+          var live = true;
+          stopLoop = function () { live = false; cancelAnimationFrame(flock.raf); flock.raf = 0; };
+          flock.last = performance.now();
+          (function step(now) {
+            if (!live) return;
+            if (reducedNow()) { park(); return; }
+            var dt = Math.min((now - flock.last) / 1000, 0.05);
+            flock.last = now;
+            flock.t += dt;
+            layout(flock, flock.t, dt, global.scrollY || 0);
+            flock.raf = requestAnimationFrame(step);
+          })(performance.now());
+        }
+      }
+
+      /* A parked flock still follows the page it is perched on. */
+      global.addEventListener("scroll", function () { if (!stopLoop) drawStill(); }, { passive: true });
+      global.addEventListener("resize", function () { if (!stopLoop) { invalidateAnchors(); drawStill(); } });
 
       global.addEventListener("pointermove", function (e) {
         flock.pointer.x = e.clientX;
@@ -221,30 +283,17 @@
         flock.pointer.inside = false;
       });
 
-      /* ONE FRAME LOOP FOR THE PAGE.
-         Subscribing to the scroll module rather than starting a second
-         requestAnimationFrame is what guarantees this runs AFTER the scroll
-         position is updated, every frame. Two independent loops have no
-         defined order, and the resulting one-frame lag flickering on and off
-         was a measured source of jitter. */
-      var scroller = global.FASmoothScroll;
-      if (scroller && scroller.onFrame) {
-        scroller.onFrame(function (smoothY, dt) {
-          flock.t += dt;
-          layout(flock, flock.t, dt, smoothY);
-        });
-      } else {
-        /* Fallback for the passthrough case (touch, reduced motion off but
-           no smoothing). Still one loop. */
-        flock.last = performance.now();
-        (function step(now) {
-          var dt = Math.min((now - flock.last) / 1000, 0.05);
-          flock.last = now;
-          flock.t += dt;
-          layout(flock, flock.t, dt, global.scrollY || 0);
-          flock.raf = requestAnimationFrame(step);
-        })(performance.now());
+      if (reduceQuery) {
+        var onMotionChange = function () {
+          if (reducedNow()) park();
+          else run();
+        };
+        if (reduceQuery.addEventListener) reduceQuery.addEventListener("change", onMotionChange);
+        else if (reduceQuery.addListener) reduceQuery.addListener(onMotionChange);
       }
+
+      if (reducedNow()) park();
+      else run();
     };
 
     return flock;
@@ -303,6 +352,13 @@
     return r < 22 ? 22 : r;
   }
 
+  /* A sparkle is the bot's own body colour, lightened so it reads as light.
+     Never the glow: a glow is set from outside (cast.js) and once held the
+     page accent, which turned an amber bot's sparkles violet. */
+  function sparkleOf(s, lift) {
+    return FA.mixHex(s.fill, "#FFFFFF", lift);
+  }
+
   function enterAgent(flock, s, px, py) {
     if (s.hover) return;
     s.hover = true;
@@ -325,7 +381,7 @@
     for (var i = 0; i < 7; i++) {
       var a = Math.random() * Math.PI * 2, sp = 30 + Math.random() * 60;
       dust.emit(cx, cy, Math.cos(a) * sp, Math.sin(a) * sp - 20, flock.t,
-                s.glow || FA.mixHex(s.fill, "#FFFFFF", 0.6), 1 + Math.random() * 1.6, 0.7);
+                sparkleOf(s, 0.6), 1 + Math.random() * 1.6, 0.7);
     }
 
     clearTimeout(s.hoverSeq);
@@ -349,7 +405,7 @@
     for (var i = 0; i < 12; i++) {
       var a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 90;
       dust.emit(cx, cy, Math.cos(a) * sp, Math.sin(a) * sp - 30, flock.t,
-                s.glow || FA.mixHex(s.fill, "#FFFFFF", 0.7), 1.2 + Math.random() * 1.8, 0.85);
+                sparkleOf(s, 0.7), 1.2 + Math.random() * 1.8, 0.85);
     }
     s.nudgeVY += 90;
     clearTimeout(s.hoverSeq);
@@ -380,6 +436,8 @@
      back-layer agent never receives its own pointerdown. */
   function attachPoke(flock) {
     document.addEventListener("pointerdown", function (e) {
+      /* A parked flock does not hop. */
+      if (reducedNow()) return;
       var best = null, bestD = Infinity;
       for (var i = 0; i < flock.agents.length; i++) {
         var s = flock.agents[i];
@@ -698,7 +756,7 @@
 
       /* Dust and pointer aim both work in VIEWPORT space, because dust
          particles live on screen and the pointer is a screen position. */
-      if (!REDUCED && speed > 70) {
+      if (!reducedNow() && speed > 70) {
         s.dustAcc += (speed / 900) * dt * 60;
         var dust = s.layer === "back" ? flock.dust.back : flock.dust.front;
         while (s.dustAcc >= 1) {
@@ -710,7 +768,7 @@
             -vx * 0.06 + (Math.random() - 0.5) * 22,
             -vy * 0.06 + (Math.random() - 0.5) * 18 + 8,
             t,
-            s.glow || FA.mixHex(s.fill, "#FFFFFF", 0.55),
+            sparkleOf(s, 0.55),
             0.9 + Math.random() * 1.5,
             0.55 + Math.random() * 0.35
           );
@@ -776,9 +834,9 @@
        test uses the position the user is actually looking at rather than the
        previous frame's. Runs every frame, which is also what makes hover
        correct while the page scrolls under a stationary cursor. */
-    if (!REDUCED) updateHover(flock);
+    if (!reducedNow()) updateHover(flock);
 
-    if (!REDUCED) {
+    if (!reducedNow()) {
       flock.dust.back.step(t, dt);
       flock.dust.front.step(t, dt);
     }

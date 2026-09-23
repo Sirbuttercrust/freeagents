@@ -47,6 +47,8 @@ import { createStagingLifecycleGithubFake, PLATFORM_LOGIN } from '../helpers/git
 import type { Delegation } from '../../src/domain/agent.js';
 import type { Session } from '../../src/adapters/identity/session.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
+import { botMount, expectedMount } from '../helpers/bot-mount.js';
+import { defaultAvatar } from '../../src/domain/avatar-spec.js';
 
 // Real-browser layout tests launch Chrome, navigate at least once and
 // evaluate in the page; vitest's 5000ms default times out under full-suite
@@ -338,28 +340,31 @@ describe('1. the page wears the polished system, and only the sheets it uses', (
     expect(overLoaded, 'stylesheets loaded by a page that uses none of their components').toEqual([]);
   });
 
-  it('loads swarm before polish, both before the page script, and no icon sprite', async () => {
+  it('loads the bot core and bots.js before polish, all before the page script, and no icon sprite', async () => {
     const scripts = loadedScripts(await servedMarkup());
 
     expect(scripts).toEqual([
       '/js/pages/api.js',
       '/js/pages/nav.js',
-      '/js/swarm.js',
+      '/js/vendor/bot-avatars/bot-avatars.js',
+      '/js/bots.js',
       '/js/polish.js',
       '/js/pages/operatorjob.js',
       '/js/pages/ui.js',
     ]);
 
     // Stated as an ordering as well as a list, because the list is the thing
-    // a later edit reshuffles. operatorjob.js's renderWho calls FASwarm at
-    // render time, so swarm.js must have defined it; ui.js's reveal sweep
-    // runs last so the page's own classes are already on the tree.
-    const swarm = scripts.indexOf('/js/swarm.js');
+    // a later edit reshuffles. operatorjob.js's renderWho calls FABots at
+    // render time, so bots.js must have defined it (and bots.js reads the
+    // core once when it loads); ui.js's reveal sweep runs last so the page's
+    // own classes are already on the tree.
+    const core = scripts.indexOf('/js/vendor/bot-avatars/bot-avatars.js');
+    const bots = scripts.indexOf('/js/bots.js');
     const polish = scripts.indexOf('/js/polish.js');
     const page = scripts.indexOf('/js/pages/operatorjob.js');
     const ui = scripts.indexOf('/js/pages/ui.js');
-    expect(swarm, '/js/swarm.js is not loaded').toBeGreaterThan(-1);
-    expect(page - swarm, 'the page script runs after the avatar engine it calls').toBeGreaterThan(0);
+    expect(bots - core, 'bots.js runs after the core it reads').toBeGreaterThan(0);
+    expect(page - bots, 'the page script runs after the avatar renderer it calls').toBeGreaterThan(0);
     expect(page - polish, 'the page script runs after the sweeps it repaints over').toBeGreaterThan(0);
     expect(ui - page, 'the reveal sweep runs after the page script declares its targets').toBeGreaterThan(0);
 
@@ -418,8 +423,8 @@ describe('1. the page wears the polished system, and only the sheets it uses', (
 
 // ------------------------------------------------------ 2. the .who creature
 
-describe('2. the .who avatar is the DID-derived creature, at the size the sheets set', () => {
-  it('the mount carries the job\u2019s own agentDid and holds a painted svg', async () => {
+describe('2. the .who avatar is the agent\u2019s bot, at the size the sheets set', () => {
+  it('the mount carries the job\u2019s own agentDid and the bot the agent read served', async () => {
     const page = await render();
     try {
       const mount = page.document.getElementById('agent-avatar');
@@ -429,17 +434,15 @@ describe('2. the .who avatar is the DID-derived creature, at the size the sheets
       // the read has to have produced the row first.
       expect(page.document.getElementById('agent-name')?.textContent).toBe('operatorjob-polish-scout');
 
-      expect(
-        mount?.getAttribute('data-avatar'),
-        'the mount does not carry the DID from the job record',
-      ).toBe(AGENT_DID);
-      expect(mount?.hasAttribute('data-pending'), 'the pending mark survived the paint').toBe(false);
-      expect(mount?.querySelector('svg'), 'the mount holds no painted creature').not.toBeNull();
+      // No override stored, so the served spec is the DID default.
+      expect(botMount(mount), 'the mount does not wear the spec the agent read served').toEqual(
+        expectedMount(AGENT_DID, defaultAvatar(AGENT_DID)),
+      );
 
-      // The engine this page no longer uses. agent.avatar is the older
-      // server-rendered blobatar stand-in (src/api/avatar.ts); a page on the
-      // polished system derives the creature from the DID and nothing else
-      // (DESIGN.md 2.4, ENT-2.3), so no <img> may come back.
+      // The engine this page no longer uses. agent.avatar was the older
+      // server-rendered blobatar stand-in, removed in AV2; a page on the
+      // polished system draws the bot on a canvas (DESIGN.md 2.4, ENT-2.3),
+      // so no <img> may come back.
       expect(
         page.document.querySelector('.who img'),
         'the server-rendered avatar engine is back in the .who row',
@@ -449,21 +452,25 @@ describe('2. the .who avatar is the DID-derived creature, at the size the sheets
     }
   });
 
-  it('two different DIDs paint two different creatures', async () => {
-    // What "derived from the DID" has to mean to be worth anything. Reads the
-    // generator the page loads, through the page's own window, so this cannot
-    // pass against a generator that returns one fixed shape.
-    const page = await render();
-    try {
-      const swarm = (page.window as unknown as { FASwarm?: { avatar(did: string, size: number): string } }).FASwarm;
-      expect(swarm, 'swarm.js did not define window.FASwarm on this page').toBeTruthy();
-      const a = swarm!.avatar(AGENT_DID, 32);
-      const b = swarm!.avatar('did:abt:some-entirely-other-agent', 32);
-      expect(a.length, 'the generator returned nothing').toBeGreaterThan(50);
-      expect(a === b, 'two DIDs produced the same creature, so the face is not identity').toBe(false);
-      expect(swarm!.avatar(AGENT_DID, 32), 'the same DID produced two different creatures').toBe(a);
-    } finally {
-      page.close();
+  it('the bot works while the job is in progress and rests once it is not', async () => {
+    // What "working" has to mean to be worth anything: the same page and the
+    // same agent, and the state follows the job's status alone. polish-redo
+    // is redo_requested (inProgress in src/domain/job-list.ts); the other
+    // two are staged and completed, neither of which the agent is working on.
+    const cases: Array<[string, string]> = [
+      ['polish-redo', 'working'],
+      ['polish-restaged', 'default'],
+      ['polish-completed', 'default'],
+    ];
+    for (const [job, state] of cases) {
+      const page = await render(job);
+      try {
+        const mount = page.document.getElementById('agent-avatar');
+        expect(mount?.getAttribute('data-avatar'), `${job}: nothing was mounted`).toBe(AGENT_DID);
+        expect(mount?.getAttribute('data-avatar-state'), `${job}: wrong motion state`).toBe(state);
+      } finally {
+        page.close();
+      }
     }
   });
 
@@ -781,14 +788,19 @@ describe('5. the reveal engages, finishes, and stands down for reduced motion', 
     try {
       await browser.send('Emulation.setScriptExecutionDisabled', { value: true });
       await browser.goto(`${baseUrl}/operatorjob?job=polish-redo`, 600);
-      const out = await browser.evaluate<{ htmlClass: string; text: string; faded: number }>(`
+      const out = await browser.evaluate<{ htmlClass: string; text: string; faded: number; brand: string; logo: boolean }>(`
         (function () {
           var faded = 0;
           Array.prototype.forEach.call(document.querySelectorAll('.reveal, .stagger'), function (el) {
             if (parseFloat(getComputedStyle(el).opacity) < 0.99) faded += 1;
           });
+          var a = document.querySelector('a.brand');
+          var logo = Array.prototype.some.call(document.querySelectorAll('a.brand img'), function (i) {
+            return i.complete && i.naturalWidth > 0 && i.getBoundingClientRect().width > 0;
+          });
           return { htmlClass: document.documentElement.className,
-                   text: (document.body.innerText || '').trim(), faded: faded };
+                   text: (document.body.innerText || '').trim(), faded: faded,
+                   brand: a ? (a.getAttribute('aria-label') || '') : '', logo: logo };
         })()
       `);
       // The hidden state only exists under .js-reveal, which only JavaScript
@@ -799,8 +811,11 @@ describe('5. the reveal engages, finishes, and stands down for reduced motion', 
       // This page's body is data-driven and stays hidden with no script, the
       // same shape staged.html, deposit.html and agreement.html already ship.
       // What must never happen is a blank document: the nav, the footer and
-      // their real destinations are server-rendered and readable.
-      expect(out.text, 'the page is genuinely blank with JavaScript off').toContain('FreeAgents');
+      // their real destinations are server-rendered and readable. The product
+      // name is the logo (DESIGN.md section 8), an image inside a labelled
+      // link, so it is checked as painted and named rather than as text.
+      expect(out.brand, 'the page is genuinely blank with JavaScript off').toBe('FreeAgents home');
+      expect(out.logo, 'the logo did not paint with JavaScript off').toBe(true);
       expect(out.text).toContain('How it works');
       expect(out.text).toContain('Verify a credential');
     } finally {

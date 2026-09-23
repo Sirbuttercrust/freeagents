@@ -1,13 +1,13 @@
 /* P-4 operator profile, rebuilt on the polished wireframe (W12,
    spec/wireframe/operator.html): read the record and render it.
 
-   THE POLISHED STACK. This page now loads swarm.js and icons.js (compare
-   agent.html), which each sweep the DOM ONCE at load, before this file's
-   own fetches resolve. Anything built here AFTER that sweep (the roster
-   cards, the gallery cards, the header avatar) needs an explicit paint
-   call: window.FAIcon.paint(host) for every [data-ico] span this file
-   builds, and a direct window.FASwarm.avatar(...) call for every
-   [data-avatar] host, the same pattern agent.js and browse.js already use
+   THE POLISHED STACK. This page loads bots.js and icons.js (compare
+   agent.html). icons.js sweeps the DOM ONCE at load, before this file's
+   own fetches resolve, and so does polish.js's avatar sweep. Anything built
+   here AFTER that sweep (the roster cards, the gallery cards, the header
+   avatar) needs an explicit paint call: window.FAIcon.paint(host) for every
+   [data-ico] span this file builds, and window.FABots.mount(...) for every
+   avatar host, the same pattern agent.js and browse.js already use
    for their own script-built hosts. This is the W11 D2 defect class
    (script-rendered-icon-never-painted); it is fixed here by construction
    rather than left to be re-earned.
@@ -128,17 +128,16 @@
       "Accountable for every agent listed under this identity."
     );
 
-    /* THE AVATAR: painted directly from the DID through the swarm
-       generator, the same call agent.js's renderAgent makes for its own
-       #avatar host (never the generic polish.js [data-avatar] sweep,
-       which runs at load and has nothing to key on yet). The square
-       corner (.pav.is-op, market.css) is the one deliberate difference
-       from an agent's own round avatar. */
-    var avatarEl = A.el("avatar");
-    if (avatarEl && typeof operator.did === "string" && operator.did !== "" && window.FASwarm) {
-      avatarEl.setAttribute("data-avatar", operator.did);
-      avatarEl.innerHTML = window.FASwarm.avatar(operator.did, 96);
-      avatarEl.removeAttribute("data-pending");
+    /* THE AVATAR (AV2): the bot bots.js derives from this operator's DID,
+       drawn still. An operator is a person, and there is no operator avatar
+       override (PUT /agents/:agentDid/avatar is for an agent), so it is
+       always the DID default and never animates: motion on this site says
+       something about an agent's work. The square corner (.pav.is-op,
+       market.css) is what tells an operator from an agent at a glance.
+       Mounted here, never by polish.js's load-time sweep, which runs before
+       this read has anything to key on. */
+    if (window.FABots && typeof operator.did === "string" && operator.did !== "") {
+      window.FABots.mount(A.el("avatar"), operator.did, { size: 96, still: true });
     }
 
     A.showById("ident", true);
@@ -376,15 +375,15 @@
      .acard-body holds the name link, the discipline chips and the
      visually-hidden tier sentence, .acard-foot holds the evidence line
      and the go icon. Keeps --id-hue, the identity colour, the same way
-     browse.js derives it from the DID (window.FACore.hash), never picked
+     browse.js derives it from the DID (FABots.hash), never picked
      and never cycled by position. */
   function rosterRow(agent) {
     var article = document.createElement("article");
     article.className = "acard idc";
     article.setAttribute("data-agent-row", agent.did);
 
-    if (window.FACore && typeof agent.did === "string") {
-      var hue = window.FACore.hash(agent.did) % 5;
+    if (window.FABots && typeof agent.did === "string") {
+      var hue = window.FABots.hash(agent.did) % 5;
       article.style.setProperty("--id-hue", "var(--agent-" + (hue + 1) + ")");
     }
 
@@ -576,20 +575,17 @@
     });
   }
 
-  /* The roster avatar, painted directly from the DID through the swarm
-     generator once the per-agent read has settled, the same call
-     browse.js's own loadAvatar makes for its card (window.FASwarm.avatar
-     keyed on the DID, never the server's older avatar field, DESIGN.md
-     2.4). Painted here rather than through the generic [data-avatar]
-     sweep because that sweep already ran at load, before this fetch had
-     anything to key on. */
+  /* The roster avatar (AV2): bots.js (window.FABots) mounts the bot the
+     per-agent read's avatarSpec names, the operator's choice or the DID
+     default, once that read has settled, the same call browse.js's own
+     loadAvatar makes for its card. Painted here rather than through the
+     generic [data-avatar] sweep because that sweep already ran at load,
+     before this fetch had anything to key on. */
   function paintRosterAvatar(did, result) {
     if (result.state !== "ok") return;
     var host = document.querySelector('[data-agent-row="' + cssEscape(did) + '"] .acard-av');
-    if (!host || !window.FASwarm) return;
-    host.setAttribute("data-avatar", did);
-    host.innerHTML = window.FASwarm.avatar(did, AVATAR_SIZE);
-    host.removeAttribute("data-pending");
+    if (!host || !window.FABots) return;
+    window.FABots.mount(host, did, { spec: result.value.avatarSpec, size: AVATAR_SIZE });
   }
 
   function cssEscape(value) {

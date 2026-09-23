@@ -10,7 +10,7 @@ import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import type { IdentityAdapter } from '../../src/adapters/identity/types.js';
 import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { DELEGATION_TYPE, type Delegation } from '../../src/domain/agent.js';
-import { renderAvatar } from '../../src/api/avatar.js';
+import { defaultAvatar } from '../../src/domain/avatar-spec.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 /**
@@ -18,17 +18,20 @@ import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixture
  *
  * MISSION.md forbids user-uploaded imagery outright - an uploaded image is a
  * storage cost, a moderation duty, and an impersonation surface. So the
- * avatar must be derivable and ONLY derivable. Two independent proofs:
+ * avatar is a spec of three keys from fixed sets (ENT-2.3 as amended, AV1),
+ * written only by the operator-gated PUT /agents/:agentDid/avatar, and
+ * otherwise derived from the DID. Two independent proofs that nothing else
+ * gets in:
  *
  *   (a) BEHAVIOURAL - the only upload vector a JSON API has is a request
- *       body, so a client posts an extra `avatar` field and the record must
- *       come back carrying the DID-derived string instead, unchanged on
- *       read-back.
+ *       body, so a client posts extra `avatar` and `avatarSpec` fields at
+ *       registration and the record must come back carrying the DID default
+ *       instead, unchanged on read-back, with no image-carrying field.
  *
- *   (b) STRUCTURAL - neither file involved may contain upload machinery
- *       (multipart parsers, raw-body handlers, binary content types), and
- *       app.ts must pin the literal derivation `renderAvatar(row.did)`, not
- *       merely emit a key named avatar from somewhere else.
+ *   (b) STRUCTURAL - app.ts may contain no upload machinery (multipart
+ *       parsers, raw-body handlers, binary content types), and must pin the
+ *       literal resolution, not merely emit a key named avatarSpec from
+ *       somewhere else.
  *
  * The identity adapter is wrapped to accept every delegation because
  * delegation VALIDITY has its own invariant-2 suites; what this file proves
@@ -40,6 +43,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const OPERATOR_DID = 'did:abt:op-avatar';
 const AGENT_DID = 'did:abt:agent-avatar';
 const FORGED_AVATAR = '<svg>forged</svg>';
+const FORGED_SPEC = { shape: 'ghost', face: 'mouth', colour: 'c1' };
 
 function delegationFixture(): Delegation {
   return {
@@ -114,7 +118,7 @@ describe('avatars are derived, never uploaded (R-21)', () => {
     server.close();
   });
 
-  it('an avatar field in the POST /agents body is ignored, and the derived avatar is served instead', async () => {
+  it('an avatar field in the POST /agents body is ignored, and the DID default is served instead', async () => {
     const reg = await postJson(baseUrl, '/accounts', { did: OPERATOR_DID, githubLogin: 'test-session-user' }, authHeader);
     expect(reg.status).toBe(201);
 
@@ -124,36 +128,37 @@ describe('avatars are derived, never uploaded (R-21)', () => {
       name: 'scout',
       skills: ['triage'],
       avatar: FORGED_AVATAR,
+      avatarSpec: FORGED_SPEC,
     }, authHeader);
     expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
 
-    // The wire carries exactly the derivation of the posted DID...
-    expect(body.avatar).toBe(renderAvatar(AGENT_DID));
-    // ...which is by construction not what the client sent.
-    expect(body.avatar).not.toBe(FORGED_AVATAR);
+    // The wire carries exactly the derivation of the posted DID, and no
+    // field that could carry an image at all. AV2 removed the legacy SVG
+    // `avatar` field; the only avatar on the wire is a spec of three keys.
+    expect(body.avatarSpec).toEqual(defaultAvatar(AGENT_DID));
+    expect(body.avatarSpec).not.toEqual(FORGED_SPEC);
+    expect('avatar' in body).toBe(false);
 
-    // And the stored record agrees: read-back serves the same derived
-    // string, so nothing user-chosen slipped into storage either.
+    // And the stored record agrees: registration is not a way in. The only
+    // write path is PUT /agents/:agentDid/avatar, operator-gated and
+    // validated against the fixed sets (tests/api/avatar-override.test.ts).
     const read = await fetch(`${baseUrl}/agents/${AGENT_DID}`);
     expect(read.status).toBe(200);
     const readBack = (await read.json()) as Record<string, unknown>;
-    expect(readBack.avatar).toBe(renderAvatar(AGENT_DID));
-    expect(readBack.avatar).not.toBe(FORGED_AVATAR);
+    expect(readBack.avatarSpec).toEqual(defaultAvatar(AGENT_DID));
+    expect('avatar' in readBack).toBe(false);
   });
 
-  it('no upload machinery exists in either file involved', () => {
-    // Narrow token list over two named files: multipart parsers, raw-body
-    // handlers, binary content types. A grep-style check is deliberately
-    // scoped this tightly so it cannot cry wolf on unrelated prose.
+  it('no upload machinery exists in the app', () => {
+    // Narrow token list: multipart parsers, raw-body handlers, binary
+    // content types. Scoped this tightly so it cannot cry wolf on prose.
     const UPLOAD_IDIOM = /multer|busboy|formidable|express\.raw|octet-stream/i;
     const appSrc = readFileSync(join(here, '../../src/api/app.ts'), 'utf8');
-    const avatarSrc = readFileSync(join(here, '../../src/api/avatar.ts'), 'utf8');
     expect(UPLOAD_IDIOM.test(appSrc), 'app.ts mentions an upload idiom').toBe(false);
-    expect(UPLOAD_IDIOM.test(avatarSrc), 'avatar.ts mentions an upload idiom').toBe(false);
 
-    // Pin the DERIVATION, not just a key: the projection must compute the
-    // avatar from the row's own DID at serve time.
-    expect(appSrc).toContain('renderAvatar(row.did)');
+    // Pin the RESOLUTION, not just a key: the projection computes the avatar
+    // from the stored override and the row's own DID at serve time.
+    expect(appSrc).toContain('avatarSpec: resolveAvatar(row.avatarSpec, row.did)');
   });
 });

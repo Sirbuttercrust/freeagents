@@ -170,6 +170,33 @@
       .catch(function () { return failed("network"); });
   }
 
+  /* An authenticated PUT or DELETE, same contract as patchAuthed: ok() with
+     the route's status and body on any response, failed() only when the
+     request never reached the server. AV2: the avatar editor's Save and
+     Reset to default. */
+  function sendAuthed(method, path, token, body) {
+    var init = {
+      method: method,
+      headers: { Accept: "application/json", Authorization: "Bearer " + token },
+      credentials: "omit",
+    };
+    if (body !== undefined) {
+      init.headers["content-type"] = "application/json";
+      init.body = JSON.stringify(body);
+    }
+    return fetch(path, init)
+      .then(function (res) {
+        return res.json().then(
+          function (parsed) { return ok({ status: res.status, body: parsed }); },
+          function () { return ok({ status: res.status, body: null }); },
+        );
+      })
+      .catch(function () { return failed("network"); });
+  }
+
+  function putAuthed(path, token, body) { return sendAuthed("PUT", path, token, body); }
+  function deleteAuthed(path, token) { return sendAuthed("DELETE", path, token); }
+
   /* ------------------------------------------------------------- DOM */
 
   function el(id) { return document.getElementById(id); }
@@ -327,6 +354,8 @@
     getAuthed: getAuthed,
     postAuthed: postAuthed,
     patchAuthed: patchAuthed,
+    putAuthed: putAuthed,
+    deleteAuthed: deleteAuthed,
     getStoredSession: getStoredSession,
     el: el,
     setText: setText,

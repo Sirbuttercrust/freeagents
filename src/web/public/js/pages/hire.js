@@ -71,26 +71,13 @@
     if (nameEl) nameEl.removeAttribute("data-pending");
     document.title = "Hire " + name + ": FreeAgents";
 
-    /* THE AVATAR IS PAINTED BY THE SWARM GENERATOR, NOT THE SERVER'S
-       agent.avatar FIELD. DESIGN.md 2.4 and ENT-2.3: an agent's creature
-       is derived from its DID and nothing else. swarm.js (window.FASwarm)
-       is the generator the polished pages standardise on; agent.avatar is
-       a separate, older server-rendered engine (src/api/avatar.ts's own
-       header names it a blobatar stand-in) that this page no longer
-       reads.
-
-       The attribute is SET AND PAINTED IN THE SAME BREATH, here, once the
-       real DID is known. polish.js's generic [data-avatar] sweep runs once
-       at load, long before this read resolves, so a mount that waits for
-       the sweep stays empty forever; and an attribute written into the
-       markup ahead of the read would be either an empty mount or an agent
-       identity this page has not confirmed. Same mechanism agent.js:162
-       and agreement.js:104 already use. */
-    var avatarEl = A.el("agent-avatar");
-    if (avatarEl && agentDid !== "" && window.FASwarm) {
-      avatarEl.setAttribute("data-avatar", agentDid);
-      avatarEl.innerHTML = window.FASwarm.avatar(agentDid, 32);
-      avatarEl.removeAttribute("data-pending");
+    /* THE AVATAR (AV2). bots.js (window.FABots) draws the bot this read's
+       avatarSpec names, the operator's choice or the DID default. Mounted
+       here, once the real DID is known: polish.js's load-time sweep has
+       long finished, and an attribute written into the markup ahead of the
+       read would be an agent identity this page has not confirmed. */
+    if (window.FABots && agentDid !== "") {
+      window.FABots.mount(A.el("agent-avatar"), agentDid, { spec: agent.avatarSpec, size: 32 });
     }
 
     /* The operator line is REVEALED BY ITS VALUE, never shipped visible

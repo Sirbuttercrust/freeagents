@@ -106,7 +106,10 @@ a:focus-visible, button:focus-visible {
 }
 .nav .inner { display: flex; align-items: center; gap: 26px; height: 100%; }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 560; font-size: 15px; letter-spacing: -0.02em; }
-.brand .mark { width: 19px; height: 19px; display: block; }
+/* The logo, same two files and same rule as base.css (DESIGN.md section 8). */
+.brand img { display: block; height: 26px; width: auto; }
+.brand .logo-lockup { transform: translateY(-11.1%); }
+.brand .logo-icon { display: none; height: 28px; }
 .nav .links { display: flex; gap: 20px; font-size: 15px; color: var(--fg-2); }
 .nav .links a { transition: color .12s var(--ease); }
 .nav .links a:hover { color: var(--fg); }
@@ -451,6 +454,11 @@ section { padding: 88px 0; }
 
 @media (max-width: 420px) {
   .wrap { padding: 0 14px; }
+  /* The same collapse as base.css: below 420px the character alone, in a
+     44px link, so the logo follows one rule on every page of the site. */
+  .brand { width: 44px; flex: none; justify-content: center; }
+  .brand .logo-lockup { display: none; }
+  .brand .logo-icon { display: block; }
   .hero { padding: 56px 0 64px; }
   .blobfield { height: 170px; }
   .tier { padding: 16px 14px; }

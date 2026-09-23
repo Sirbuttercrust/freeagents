@@ -224,78 +224,29 @@
     var agentDid = typeof job_.agentDid === "string" ? job_.agentDid : "";
     if (agentDid === "") return;
 
-    /* THE AVATAR IS PAINTED BY THE SWARM GENERATOR, NOT THE SERVER'S
-       agent.avatar FIELD. DESIGN.md 2.4 and ENT-2.3: an agent's creature
-       is derived from its DID and nothing else. swarm.js (window.FASwarm)
-       is the generator the polished pages standardise on; agent.avatar is
-       a separate, older server-rendered engine (src/api/avatar.ts's own
-       header names it a blobatar stand-in) that this page no longer
-       reads. A.setAvatar is left alone rather than deleted because it
-       still has a caller: `grep -rn "A\.setAvatar(" src/web/public/js/`
-       returns pullrequest.js and nothing else.
+    /* THE AVATAR (AV2). The bot is drawn by bots.js (window.FABots) from the
+       avatarSpec the agent read carries: the operator's choice, or the DID
+       default when they made none or the read fails. The server's legacy
+       SVG field is gone. Mounted once the agent read settles, because
+       polish.js's load-time sweep has long finished by then.
 
-       That sentence used to name four callers, inherited from the same
-       comment in staged.js, where it names five and is equally wrong.
-       The extra names are all pages that paint with FASwarm exactly as
-       this one does: job.js's two hits are both comments, one of them
-       the note sitting directly above its own FASwarm painter, and
-       `grep -c setAvatar` on deposit.js and myagents.js returns 0 for
-       each. Re-run the grep rather than trusting a count written in
-       prose, this one included.
-
-       The attribute is SET AND PAINTED IN THE SAME BREATH, here, on the
-       DID this page already holds from the job record rather than on
-       anything the agent read returns. polish.js's generic avatar sweep
-       runs once at load, long before this render, so a mount that waits
-       for the sweep stays empty forever; and an attribute written into
-       the markup ahead of the job read would be an agent identity this
-       page has not confirmed. Same mechanism staged.js's own renderWho
-       uses.
-
-       The setAttribute call below is the ONLY place that attribute's name
-       appears in this file, and the markup comment in operatorjob.html
-       explains at length why it stays that way: the conformance suite's
-       avatar check regexes the raw text of the page and this script, so
-       the name in a comment satisfies it with no mount behind it. Keep
-       prose references to it indirect, and let the browser gate in
-       tests/web/operatorjob-polished.test.ts do the guarding.
-
-       WHAT THIS ALSO FIXES. Before the rebuild the .who avatar was
-       `<img id="agent-avatar-img">` with no class attribute, while the
-       page-local rule meant to size it keyed off `.who .avatar`. Nothing
-       on the page carried that class, and neither api.js's setAvatar nor
-       this file ever added it, so the rule matched no element and the img
-       was left unsized: it took the width of the .who column instead of a
-       32px square. Re-derive the selector mismatch at the branch point
-       with `git show e597033:src/web/pages/operatorjob.html` and grep it
-       for `.who .avatar` against `class="avatar"`, which returns the rule
-       and no element.
-
-       Deliberately no pixel figure here. The measurement was real but its
-       inputs are deleted markup, so a reader cannot reproduce a number
-       from this tree, and a figure nobody can re-derive is worse than no
-       figure. What IS reproducible is pinned as a gate instead: the test
-       "the creature is a 32px square, not a column-width circle" in
-       tests/web/operatorjob-polished.test.ts asserts the mount measures
-       32px square in a real browser, asserts it is under a quarter of the
-       .who row's width so the full-column shape cannot come back, and
-       asserts `.who .avatar` still matches zero elements. The size comes
-       from flow.css's `.who .av` and polish.css's own copy of it, which
-       that test's disable-the-sheets control proves by making the same
-       mount change. */
-    var avatarEl = A.el("agent-avatar");
-    if (avatarEl && window.FASwarm) {
-      avatarEl.setAttribute("data-avatar", agentDid);
-      avatarEl.innerHTML = window.FASwarm.avatar(agentDid, 32);
-      avatarEl.removeAttribute("data-pending");
-    }
-
+       The mount sits in .who .av, a 32px clipped circle (flow.css and
+       polish.css). tests/web/operatorjob-polished.test.ts pins that size in
+       a real browser, and pins that `.who .avatar`, a selector an older
+       build keyed on with no element carrying it, still matches nothing. */
     A.get("/agents/" + encodeURIComponent(agentDid)).then(function (result) {
       var name = A.shortDid(agentDid);
       if (result.state === "ok") {
         name = typeof result.value.name === "string" && result.value.name !== "" ? result.value.name : agentDid;
       }
       A.setTextById("agent-name", name);
+      if (window.FABots) {
+        window.FABots.mount(A.el("agent-avatar"), agentDid, {
+          spec: result.state === "ok" ? result.value.avatarSpec : null,
+          size: 32,
+          state: window.FABots.stateForJob(job_.status),
+        });
+      }
     });
   }
 

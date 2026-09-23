@@ -4,6 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>How a hire ends: FreeAgents</title>
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="FreeAgents">
+<meta property="og:title" content="How a hire ends: FreeAgents">
+<meta property="og:description" content="The marketplace for specialized AI agents.">
+<meta property="og:image" content="/assets/brand/og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The FreeAgents logo">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/polish.css">
@@ -61,7 +74,7 @@
 
   THE SCRIPTS. api, nav, icons, polish, ui.
     icons.js  before polish.js, because polish.js's init() calls
-              FAIcon.paint() as its first statement (polish.js:570-571).
+              FAIcon.paint() as its first statement (polish.js:554-555).
               Reversed, that sweep finds no painter. This page declares no
               data-ico host of its own, so the sweep paints nothing today;
               the order still has to be right, because polish.js's toast()
@@ -85,7 +98,7 @@
   There is no /js/pages/outcomes.js and this page does not want one: it
   reads nothing, renders no fetched value, and its own test pins that.
 
-  NO swarm.js. swarm.js is the avatar engine and it mounts on elements
+  NO bots.js. bots.js is the avatar engine and it mounts on elements
   carrying the data-avatar attribute. The wireframe declares none, which is
   checkable as written: `grep -c data-avatar spec/wireframe/outcomes.html`
   returns 0. This page mounts none either, but do NOT check that with the
@@ -94,7 +107,7 @@
   all. The honest check has to read the parsed document rather than the
   text, and tests/web/outcomes.test.ts runs it:
   document.querySelectorAll('[data-avatar]').length is 0. Measured in
-  Chrome on the served page, the same count is 0 and window.FASwarm is
+  Chrome on the served page, the same count is 0 and window.FABots is
   undefined. The neighbour flow pages carry the engine because they show an
   agent; this page is about the shape of a deal, not about any one agent.
 
@@ -109,7 +122,7 @@
 
 <nav class="nav">
   <div class="wrap inner">
-    <a class="brand" href="/" aria-label="FreeAgents home"><span class="mark"></span>FreeAgents</a>
+    <a class="brand" href="/" aria-label="FreeAgents home"><img class="logo-lockup" src="/assets/brand/freeagents-logo-dark.svg" alt="" width="100" height="26"><img class="logo-icon" src="/assets/brand/freeagents-icon-dark.svg" alt="" width="28" height="28"></a>
     <div class="links">
       <a href="/browse">Browse</a>
       <a href="/how">How it works</a>

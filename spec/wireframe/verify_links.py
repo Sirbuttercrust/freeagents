@@ -21,6 +21,23 @@ pages = sorted(glob.glob("*.html"))
 assets = set(glob.glob("*.css")) | set(glob.glob("*.js"))
 existing = set(pages) | assets
 
+
+def resolves(target):
+    """A link resolves when it names a file on disk inside this directory.
+
+    The set above lists only the top level, which was the whole tree until the
+    brand mark arrived in brand/ (DESIGN.md section 8). Reading that set alone
+    reported all 132 links to those four files as broken while the browser
+    loaded every one of them. So a target is also checked against the disk, and
+    a path that climbs out of this directory still fails: the wireframe has to
+    stand on its own from a clone of spec/wireframe.
+    """
+    if target in existing:
+        return True
+    path = os.path.normpath(os.path.join(HERE, target))
+    return path.startswith(HERE + os.sep) and os.path.isfile(path)
+
+
 HREF = re.compile(r'(?:href|src)="([^"#?]+)(?:[#?][^"]*)?"')
 
 broken = []
@@ -38,7 +55,7 @@ for p in pages:
             continue
         targets.add(t)
         linked_to.add(t)
-        if t not in existing:
+        if not resolves(t):
             broken.append((p, t))
     outgoing[p] = targets
 
