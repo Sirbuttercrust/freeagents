@@ -11,7 +11,7 @@
 // test dependency is added for it. It cannot be wedged by, and cannot wedge,
 // anything else running on the machine: a fresh remote-debugging port and a
 // fresh throwaway profile directory per instance.
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -85,27 +85,6 @@ export function findChromeBinary(): string | null {
   return null;
 }
 
-// CI4: temporary per-launch timing, unconditional for this measurement
-// push (same pattern the CI2 D1 diagnostic used, folded back out once the
-// runner numbers are in). Prints spawn-to-port-open duration (or give-up
-// duration on failure) and how many Chrome processes were alive on the
-// runner at that moment, so a CI push can answer "is this launch racing
-// other launches for the same spawn/port window" straight from the
-// Actions log instead of guessing. The CI workflow file itself is not
-// touched, since the factory token pushing this branch lacks the
-// `workflow` scope GitHub requires to modify .github/workflows/*.
-function countChromeProcesses(): number {
-  try {
-    const out = execFileSync('pgrep', ['-f', 'remote-debugging-port'], { encoding: 'utf8' });
-    return out.split('\n').filter((line) => line.trim().length > 0).length;
-  } catch {
-    // pgrep exits 1 with empty output when nothing matches; any other
-    // failure (missing pgrep, sandboxed shell) just reports "unknown"
-    // rather than breaking the timed launch it is only observing.
-    return -1;
-  }
-}
-
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = net.createServer();
@@ -131,6 +110,81 @@ interface CdpMessage {
   error?: { message?: string };
 }
 
+// CI4: bounds how many Chrome processes spawn at once. Two independent
+// runner samples (312 launches each, both node 22 and node 24) put the
+// worst single-launch spawn-to-port-open at 11780ms with never more than
+// 18 Chrome-related processes alive at once, none of it from this test
+// suite launching more than one browser concurrently per worker: vitest's
+// own worker pool is what stacks several files' launches into the same
+// window. A gate that only lets a bounded number of launches spawn at
+// once turns that pile-up into a queue instead of every held-back launch
+// re-polling the same 300ms loop against a runner that is still booting
+// several Chromes at once.
+export class LaunchGate {
+  private readonly limit: number;
+  private active = 0;
+  private readonly waiters: Array<() => void> = [];
+
+  constructor(limit: number) {
+    this.limit = limit;
+  }
+
+  acquire(): Promise<() => void> {
+    return new Promise((resolve) => {
+      const tryAcquire = (): void => {
+        if (this.active < this.limit) {
+          this.active += 1;
+          resolve(() => this.release());
+        } else {
+          this.waiters.push(tryAcquire);
+        }
+      };
+      tryAcquire();
+    });
+  }
+
+  private release(): void {
+    this.active -= 1;
+    const next = this.waiters.shift();
+    if (next) next();
+  }
+}
+
+// CI4: the runner samples above never reproduced the >30s "chrome debug
+// port never came up" failure from run 35921744859, so nothing measured
+// justifies raising launch()'s own 30s deadline past what four earlier
+// samples (CI2 D1, max 11795ms) and these two (max 11780ms) already show
+// as headroom. What a longer deadline cannot fix is a launch that loses
+// the race entirely on a contended runner; a bounded retry does, at the
+// cost of one more spawn attempt, and only for the specific failure this
+// card is about, never for an unrelated error (a missing Chrome binary,
+// for instance, retrying that just wastes the same 30s deadline twice).
+const GIVEUP_MESSAGE = 'chrome debug port never came up';
+
+export async function withLaunchRetry<T>(attempt: () => Promise<T>, maxAttempts: number): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i < maxAttempts; i += 1) {
+    try {
+      return await attempt();
+    } catch (err) {
+      lastError = err;
+      const isGiveup = err instanceof Error && err.message === GIVEUP_MESSAGE;
+      if (!isGiveup) throw err;
+    }
+  }
+  throw lastError;
+}
+
+// A launch that spawns Chrome is the expensive, contended step the runner
+// numbers point at; two files landing in the same vitest worker window
+// both spawning at once is what stacks up. 4 keeps a modest queue depth
+// (roughly matching the highest concurrent chrome-procs-after seen, 18,
+// divided by the 4-5 CDP-relevant processes a single headless launch
+// spawns) without serialising the whole suite down to one launch at a
+// time, which would multiply total suite time by the number of
+// real-Chrome test files instead of just smoothing the spawn contention.
+const launchGate = new LaunchGate(4);
+
 // One throwaway headless Chrome tab, driven over CDP. Deliberately small:
 // goto + evaluate + close. A test that needs more speaks CDP directly via
 // `send`, which keeps this file from growing a second test framework.
@@ -153,6 +207,23 @@ export class RealBrowser {
         `no Chrome found for real-browser layout tests. Set ${CHROME_ENV} to a Chrome/Chromium binary.`,
       );
     }
+    // CI4: the gate bounds how many launches spawn Chrome at once (see
+    // LaunchGate's own comment for the runner numbers behind the limit).
+    // The retry covers the one failure mode those numbers cannot rule
+    // out: a specific launch losing the spawn/port race outright under
+    // contention, which a longer deadline does not fix since nothing
+    // measured shows the deadline itself was close to firing.
+    return withLaunchRetry(async () => {
+      const release = await launchGate.acquire();
+      try {
+        return await RealBrowser.attemptLaunch(chrome, opts);
+      } finally {
+        release();
+      }
+    }, 2);
+  }
+
+  private static async attemptLaunch(chrome: string, opts: { width?: number; height?: number }): Promise<RealBrowser> {
     const width = opts.width ?? 1280;
     const height = opts.height ?? 900;
     const overlay = isPhoneWidth(width);
@@ -175,17 +246,13 @@ export class RealBrowser {
       `--window-size=${width},${height}`,
       'about:blank',
     ];
-    const spawnedAt = Date.now();
-    console.log(`[CI4-TIMING] launch:spawn-start chrome-procs-before=${countChromeProcesses()}`);
     browser.proc = spawn(chrome, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const proc = browser.proc;
 
     let wsUrl: string | null = null;
-    let attempts = 0;
     const deadline = Date.now() + 30000;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 300));
-      attempts += 1;
       if (proc.exitCode !== null) {
         throw new Error(`chrome exited immediately (code ${proc.exitCode})`);
       }
@@ -202,12 +269,6 @@ export class RealBrowser {
       } catch {
         // debug port not up yet
       }
-    }
-    {
-      const elapsed = Date.now() - spawnedAt;
-      console.log(
-        `[CI4-TIMING] launch:spawn-to-port-${wsUrl ? 'open' : 'giveup'} ${elapsed}ms attempts=${attempts} chrome-procs-after=${countChromeProcesses()}`,
-      );
     }
     if (!wsUrl) {
       await browser.close();
