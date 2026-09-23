@@ -41,7 +41,7 @@
     draft: "This hire is a draft. The buyer has written a brief and nothing has been agreed yet.",
     proposed: "The agent has proposed acceptance criteria and a price. Both sides are still agreeing terms.",
     confirmed: "Both sides have agreed the criteria and the price. The agreement is final and work has not yet been staged.",
-    staged: "The agent has staged its work. It is unpaid and unseen by the public until the buyer settles the balance.",
+    staged: "The agent has staged its work. Nobody else can see it until the buyer pays the balance.",
     redo_requested: "The buyer has asked for a redo on the staged work. The operator has not yet answered.",
     submitted: "A pull request is open. The platform is watching for it to merge or close.",
     completed: "The work merged. This hire is complete.",
@@ -104,6 +104,7 @@
     document.title = "Hire against " + repository + ": FreeAgents";
 
     renderHeading(job, repository);
+    renderWhere(job);
     renderIdentityStrip(job);
     renderPrice(job);
     renderHistory(job);
@@ -121,10 +122,36 @@
   // one line (spec/wireframe/job.html's h1 and .lede, ENT-7.1).
   function renderHeading(job, repository) {
     A.setTextById("job-heading-id", typeof job.id === "string" ? job.id : "");
-    A.setTextById(
-      "job-lede",
-      "Against " + repository + ". This page reflects what GitHub shows, not what either side told us."
-    );
+    A.setTextById("job-lede", "Against " + repository + ". Status comes from GitHub, not from either side.");
+  }
+
+  // S1: which of the landing page's five hire steps this job is on
+  // (FAStepflow.HIRE_STEPS: 1 find an agent, 2 agree the job and pay 25%,
+  // 3 the agent works on a copy, 4 you review, 5 pay the rest). "done"
+  // once the balance is paid, whatever happened to the pull request after,
+  // because every one of the five steps is then behind the buyer. A hire
+  // that ended before the balance was paid (declined, withdrawn, lapsed,
+  // never staged) maps to null and draws no map: lighting a step on it
+  // would say the hire is still moving. Every JobStatus is named here so a
+  // new one is a decision rather than a silent null; the test that pins
+  // STATE_SENTENCES against prisma/schema.prisma pins this map too.
+  var STEP_FOR_STATUS = {
+    draft: 2, proposed: 2,
+    confirmed: 3, redo_requested: 3,
+    staged: 4,
+    submitted: "done", completed: "done", deemed_completed: "done",
+    stale: "done", closed_unmerged: "done", cited_closed: "done",
+    declined: null, withdrawn: null, expired_unstaged: null,
+    staged_declined: null, closed_unpaid: null
+  };
+  function stepForStatus(status) {
+    return Object.prototype.hasOwnProperty.call(STEP_FOR_STATUS, status) ? STEP_FOR_STATUS[status] : null;
+  }
+  function renderWhere(job) {
+    var host = A.el("job-where");
+    var step = stepForStatus(job.status);
+    if (!host || !window.FAStepflow || step === null) return;
+    window.FAStepflow.where(host, step);
   }
 
   // The identity strip (spec/wireframe/job.html:134-142): the agent's
@@ -365,7 +392,7 @@
     if (agentDid !== "" && (staged || hasPullRequest)) {
       host.appendChild(whoDidRow(
         A.shortDid(agentDid),
-        "Pushed its work to a staging repository the platform owns, and attested the commit.",
+        "Pushed its work to a staging repository the platform owns.",
         false,
         "whodid-agent"
       ));

@@ -126,6 +126,7 @@
     var attestation = subject.attestation && typeof subject.attestation === "object" ? subject.attestation : null;
     if (attestation === null) { A.showById("fault-error", true); return; }
     A.showById("staged-body", true);
+    renderWhere(job);
     renderLede(job);
     renderClock(job);
     renderFacts(attestation);
@@ -149,17 +150,31 @@
     A.showById("declined-panel", true);
   }
 
+  // The raw status used to be quoted here ("status is \"confirmed\""), a
+  // machine value on the surface; the hire's own page says where it is
+  // in words, one click away.
   function showNotReady(status) {
-    A.setTextById("not-ready-detail", "This hire's status is \"" + status + "\", not staged. Reload this page or return to the hire to see its current state.");
+    void status;
+    A.setTextById("not-ready-detail", "This hire is at a different step. Open it to see where it is.");
     var link = A.el("not-ready-link");
     if (link) link.setAttribute("href", "/jobs/" + encodeURIComponent(job.id));
     A.showById("not-ready-error", true);
   }
 
+  // S1: the landing page's five steps, small. "You review the work" (4)
+  // while the work is staged; "Agent works on a copy" (3) while a redo is
+  // back with the agent. job.js's STEP_FOR_STATUS maps the same two
+  // statuses the same way.
+  function renderWhere(job_) {
+    var host = A.el("staged-where");
+    if (!host || !window.FAStepflow) return;
+    window.FAStepflow.where(host, job_.status === "redo_requested" ? 3 : 4);
+  }
+
   function renderLede(job_) {
     var stagedDate = A.readableDate(job_.stagedAt);
-    A.setTextById("lede", (stagedDate ? "The agent staged its work on " + stagedDate + ". " : "The agent has staged its work. ") +
-      "Here is what is in it. Pay the balance and the pull request opens on your repository, where you read the code and decide whether to merge.");
+    A.setTextById("lede", (stagedDate ? "Staged on " + stagedDate + ". " : "") +
+      "Pay the balance and the pull request opens on your repository.");
   }
 
   // Ruling 4 (P8j): a date and a consequence, never a countdown.
@@ -176,7 +191,7 @@
       var depositPercent = typeof price.depositPercent === "number" ? price.depositPercent : 25;
       depositLine = ", and the " + money(roundHalfUpCents((parseFloat(price.priceUsd) * depositPercent) / 100)) + " deposit stays with the operator";
     }
-    A.setTextById("clock-then", "If you have not decided by then the job closes, the code stays in staging and never reaches your repository" + depositLine + ". Nothing further is charged.");
+    A.setTextById("clock-then", "If you have not decided by then, the job closes and the code never reaches your repository" + depositLine + ". Nothing further is charged.");
   }
 
   function factRow(label, valueText, listItems) {
@@ -265,16 +280,16 @@
     host.textContent = "";
     if (figures !== null) {
       host.appendChild(choiceRow("Pay the balance", money(figures.total),
-        money(figures.remainder) + " of the " + money(priceUsd) + " price, plus the " + ABT_FEE_RATE_PERCENT + " percent fee. When it clears, the pull request opens on your repository and you read the code there. Merging is yours, on GitHub."));
+        money(figures.remainder) + " of the " + money(priceUsd) + " price, plus the " + ABT_FEE_RATE_PERCENT + " percent fee. Then the pull request opens on your repository, and merging is up to you."));
     }
     host.appendChild(choiceRow(
       exhausted ? "Send it back" : (redoAllowance === 1 ? "Send it back once" : "Send it back"),
       exhausted ? "spent" : (redoAllowance === 1 ? "free, once per hire" : "free, " + redoAllowance + " times per hire"),
       exhausted
-        ? "You have used this hire's redo already. Pay or decline are the two choices left."
-        : "Pick which of the lines you agreed it missed. Nothing is charged and the deadline above moves " + A.plural(REDO_LAPSE_EXTENSION_DAYS, "day", "days") + ". The operator can refuse, and if it does you are back on this screen with the same three choices."));
+        ? "Already used on this hire. Pay or decline."
+        : "Pick the line it missed. The deadline moves " + A.plural(REDO_LAPSE_EXTENSION_DAYS, "day", "days") + ". The operator can say no, and then you are back here."));
     host.appendChild(choiceRow("Decline", "free and final",
-      "You owe nothing more, the code never leaves staging, and the deposit stays with the operator. It is recorded on your own record that this happened, with no reason attached and no judgement about the work."));
+      "You owe nothing more, the code stays in staging, and the deposit stays with the operator. Your record shows one declined hire, with no reason."));
     currentFigures = figures;
     var payBtn = A.el("pay-btn");
     if (payBtn) {
@@ -338,8 +353,8 @@
       li.appendChild(label);
       host.appendChild(li);
     });
-    A.setTextById("redo-pickernote", "The price and the delivery date are lines in the agreement, but they are not something the work can miss, so they are not here.");
-    A.setTextById("redo-cost-note", "This costs nothing and moves the delivery date forward " + A.plural(REDO_LAPSE_EXTENSION_DAYS, "day", "days") + ". You get " + A.plural(redoAllowanceOf(job_), "redo", "redos") + " per hire and this uses it. The operator can refuse, and if it does you are back on the same three choices with nothing charged.");
+    A.setTextById("redo-pickernote", "Price and delivery date are not listed: the work cannot miss them.");
+    A.setTextById("redo-cost-note", "Free. The deadline moves " + A.plural(REDO_LAPSE_EXTENSION_DAYS, "day", "days") + ". You get " + A.plural(redoAllowanceOf(job_), "redo", "redos") + " per hire. The operator can say no, and nothing is charged either way.");
   }
 
   // Ruling 3: four consequence rows, never the wireframe's fifth (no

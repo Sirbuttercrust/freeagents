@@ -20,6 +20,7 @@
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/stepflow.css">
 <style>
   /* P8f JOB, rebuilt from spec/wireframe/job.html (W4), then rebuilt onto
      the polished visual system (W-job). One hire, read top to bottom
@@ -165,6 +166,11 @@
   </div>
 </nav>
 
+<!-- S1: THE PAGE HAS A MAIN ELEMENT NOW. It was the one page in the hire journey
+     without the landmark, so a screen reader had no way to skip the nav,
+     and the word count every other journey page is measured by (the copy
+     inside the main element) fell back to the whole file here. -->
+<main>
 <div class="wrap section">
   <div class="narrow">
     <!-- Who: the agent, with a way back to its profile. The one secondary
@@ -182,6 +188,14 @@
       <a class="btn btn-sm" id="who-back">Back to profile</a>
     </div>
 
+    <!-- WHERE THIS HIRE IS: the landing page's five steps, small, with the
+         hire's own step lit. Empty in the markup because the step is a fact
+         about the job: job.js reads the status and calls FAStepflow.where
+         (stepForStatus in job.js). A hire that ended before it finished
+         draws no map at all, because lighting a step on it would say the
+         hire is still moving. -->
+    <div class="sf-where" id="job-where" data-stepflow-hire="" hidden></div>
+
     <div class="glow">
       <!-- The job named by its own identifier, and the page's whole
            stance in one line (ENT-7.1): state comes from watching
@@ -190,27 +204,24 @@
       <p class="lede" id="job-lede" data-pending></p>
 
       <div class="state" style="margin-top:16px">
-        <span class="dot"></span> <span id="state-label" data-pending>Reading this hire.</span>
+        <span class="dot"></span> <span id="state-label" data-pending>Loading</span>
       </div>
       <!-- Outcome first, mechanism second, identifier last (DESIGN.md 7.1). -->
       <p class="claim" id="claim" data-pending style="margin-top:12px"></p>
-      <!-- P8h: a proposed job's control (inert-declared-control, eighth
-           occurrence). job.js sets the href from the id it already holds. -->
+      <!-- ONE NEXT STEP. At most one of these three shows, picked by the
+           job's status in job.js (renderAgreementCta, renderStagedCta,
+           renderPullRequestCta); each is the one thing to do next. -->
       <div class="row" id="agreement-cta" hidden style="margin-top:16px">
-        <a class="btn btn-primary" id="agreement-link">Read and sign the agreement</a>
+        <a class="btn btn-primary" id="agreement-link">Sign the agreement</a>
       </div>
-      <!-- P8j: a staged job's control (inert-declared-control, ninth
-           occurrence). job.js sets the href from the id it already holds. -->
       <div class="row" id="staged-cta" hidden style="margin-top:16px">
-        <a class="btn btn-primary" id="staged-link">Read the account of the work</a>
+        <a class="btn btn-primary" id="staged-link">Review the work</a>
       </div>
-      <!-- P8l: a submitted job's control (inert-declared-control, tenth
-           occurrence). job.js sets the href from the id it already holds. -->
       <div class="row" id="pullrequest-cta" hidden style="margin-top:16px">
-        <a class="btn btn-primary" id="pullrequest-link">See where the pull request is</a>
+        <a class="btn btn-primary" id="pullrequest-link">See the pull request</a>
       </div>
       <div class="empty warn" id="load-error" hidden style="margin-top:20px">
-        <b>We could not load this hire.</b>
+        <b>Could not load this hire.</b>
         <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
       </div>
     </div>
@@ -219,16 +230,17 @@
 
 <hr class="rule">
 
-<!-- Never a suggested price or a range (SITEMAP P-10: "a venue taking a
-     percentage of the deal may not shape the number"). -->
+<!-- The agreed terms, once the agent has proposed them. Never a suggested
+     price or a range (SITEMAP P-10: "a venue taking a percentage of the
+     deal may not shape the number"). No heading: five labelled rows say
+     what they are. -->
 <div class="wrap section-sm" id="price-section" hidden>
-  <h2>The price</h2>
-  <dl class="facts pane pane-pad" style="margin-top:14px">
-    <div><dt>Agreed price</dt><dd id="fact-price"></dd></div>
+  <dl class="facts pane pane-pad">
+    <div><dt>Price</dt><dd id="fact-price"></dd></div>
     <div><dt>Deposit</dt><dd id="fact-deposit"></dd></div>
-    <div><dt>Delivery window</dt><dd id="fact-window"></dd></div>
-    <div><dt>Redo allowance</dt><dd id="fact-redo"></dd></div>
-    <div><dt>Accepted by</dt><dd id="fact-accepted"></dd></div>
+    <div><dt>Delivery</dt><dd id="fact-window"></dd></div>
+    <div><dt>Redos</dt><dd id="fact-redo"></dd></div>
+    <div><dt>Agreed by</dt><dd id="fact-accepted"></dd></div>
   </dl>
 </div>
 
@@ -241,7 +253,7 @@
      verified evidence (a checked merge), .stopped on a close, .done on
      everything else (spec/wireframe/job.html:44). -->
 <div class="wrap section-sm" id="history-section" hidden>
-  <h2>What has been observed</h2>
+  <h2>Timeline</h2>
   <ol class="track pane pane-pad reveal" id="history" style="margin-top:16px"></ol>
 </div>
 
@@ -277,10 +289,11 @@
 
 <hr class="rule">
 
-<!-- No refund vocabulary anywhere on this page (invariant 12). -->
+<!-- No refund vocabulary anywhere on this page (invariant 12). The status
+     line above already says the hire closed; this is the buyer's reason,
+     so it needs no heading of its own. -->
 <div class="wrap section-sm" id="close-section" hidden>
-  <h2>This hire was closed</h2>
-  <p class="sub" id="close-detail" style="margin-top:10px; max-width:62ch"></p>
+  <p class="sub" id="close-detail" style="max-width:62ch"></p>
 </div>
 
 <hr class="rule">
@@ -297,10 +310,10 @@
 
 <hr class="rule">
 
+<!-- The receipt, as one button. What a receipt is and who can check it is
+     the receipt page's own first line, one click away. -->
 <div class="wrap section-sm" id="credential-section" hidden>
-  <h2>The receipt</h2>
-  <p class="sub" style="margin-top:10px">A credential was issued for this hire. Anyone can check it without an account.</p>
-  <div class="row wrapflex" style="margin-top:16px; gap:10px">
+  <div class="row wrapflex" style="gap:10px">
     <a class="btn btn-primary" id="credential-link">See the receipt</a>
   </div>
 </div>
@@ -308,38 +321,38 @@
 <hr class="rule">
 
 <!-- Everything a skeptic wants, one click away and zero clicks in the
-     way of everyone else (DESIGN.md 1.2 rule 2). -->
+     way of everyone else (DESIGN.md 1.2 rule 2). The labels are the exact
+     field names, which is where DESIGN.md 1.3 puts them ("specHash: job
+     detail, technical section"): a person who opens this panel is looking
+     for the value to check, and the exact name is what they check it by. -->
 <div class="wrap section-sm">
   <div class="narrow">
-    <h2>The details</h2>
-    <p class="sub">Everything below is what makes the record above checkable. You do not need any of it to use this site.</p>
-    <div style="margin-top:18px">
-      <button class="disclose" type="button" data-disclose="tech" data-disclose-alt="Hide technical details">Show technical details</button>
-      <div id="tech" class="detail">
-        <div class="kv">
-          <div><dt>Job id</dt><dd id="tech-id"></dd></div>
-          <button class="btn btn-sm copybtn" type="button" id="tech-id-copy" data-copy=""><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
-        </div>
-        <div><dt>Fingerprint of the brief</dt><dd id="tech-brief-hash"></dd></div>
-        <div class="kv" id="tech-spec-hash-wrap" hidden>
-          <div><dt>Fingerprint of the confirmed agreement</dt><dd id="tech-spec-hash"></dd></div>
-          <button class="btn btn-sm copybtn" type="button" id="tech-spec-hash-copy" data-copy=""><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
-        </div>
-        <div id="tech-criteria-wrap" hidden>
-          <dt>Criteria as confirmed</dt>
-          <dd style="font-family:var(--font); font-size:13px; color:var(--fg-2); line-height:1.7">
-            <ol id="tech-criteria" style="margin:6px 0 0; padding-left:16px"></ol>
-          </dd>
-        </div>
-        <div id="tech-diff-wrap" hidden><dt>Diff counts</dt><dd id="tech-diff"></dd></div>
-        <div id="tech-staged-commit-wrap" hidden><dt>Staged commit</dt><dd id="tech-staged-commit"></dd></div>
-        <div id="tech-merge-commit-wrap" hidden><dt>Merge commit</dt><dd id="tech-merge-commit"></dd></div>
-        <div id="tech-staging-repo-wrap" hidden><dt>Staging repository</dt><dd id="tech-staging-repo"></dd></div>
-        <div id="tech-base-commit-wrap" hidden><dt>Base commit</dt><dd id="tech-base-commit"></dd></div>
+    <button class="disclose" type="button" data-disclose="tech" data-disclose-alt="Hide technical details">Show technical details</button>
+    <div id="tech" class="detail">
+      <div class="kv">
+        <div><dt>jobId</dt><dd id="tech-id"></dd></div>
+        <button class="btn btn-sm copybtn" type="button" id="tech-id-copy" data-copy=""><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
       </div>
+      <div><dt>briefHash</dt><dd id="tech-brief-hash"></dd></div>
+      <div class="kv" id="tech-spec-hash-wrap" hidden>
+        <div><dt>specHash</dt><dd id="tech-spec-hash"></dd></div>
+        <button class="btn btn-sm copybtn" type="button" id="tech-spec-hash-copy" data-copy=""><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
+      </div>
+      <div id="tech-criteria-wrap" hidden>
+        <dt>criteria</dt>
+        <dd style="font-family:var(--font); font-size:13px; color:var(--fg-2); line-height:1.7">
+          <ol id="tech-criteria" style="margin:6px 0 0; padding-left:16px"></ol>
+        </dd>
+      </div>
+      <div id="tech-diff-wrap" hidden><dt>diff</dt><dd id="tech-diff"></dd></div>
+      <div id="tech-staged-commit-wrap" hidden><dt>stagedCommit</dt><dd id="tech-staged-commit"></dd></div>
+      <div id="tech-merge-commit-wrap" hidden><dt>mergeCommit</dt><dd id="tech-merge-commit"></dd></div>
+      <div id="tech-staging-repo-wrap" hidden><dt>stagingRepo</dt><dd id="tech-staging-repo"></dd></div>
+      <div id="tech-base-commit-wrap" hidden><dt>baseCommit</dt><dd id="tech-base-commit"></dd></div>
     </div>
   </div>
 </div>
+</main>
 
 <footer class="foot">
   <div class="wrap inner">
@@ -355,6 +368,7 @@
 <script src="/js/bots.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/polish.js"></script>
+<script src="/js/stepflow.js"></script>
 <script src="/js/pages/job.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>

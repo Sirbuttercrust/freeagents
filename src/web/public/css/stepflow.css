@@ -172,3 +172,90 @@
   }
   .stepflow .sf-node::after { content: none; animation: none; }
 }
+
+/* ---------------------------------------------------- where you are
+   The small diagram (FAStepflow.where, js/stepflow.js) that sits at the
+   top of every page in the hire journey. Same five steps as the landing
+   page, a third the size, one step lit. It never plays, so none of the
+   armed/play rules above reach it (it carries .sf-done and no
+   data-stepflow).
+
+   Lit is full-strength text on a brighter rim; steps behind are the
+   second grey; steps ahead are the quietest grey and dimmed. Still no
+   accent: "you are on step 2" is navigation, not a witnessed event. */
+.sf-where { margin: 0 0 34px; }
+.sf-where[hidden] { display: none; }
+
+.stepflow.sf-small { --sf-node: 34px; max-width: 640px; }
+.sf-small .sf-step { gap: 8px; padding: 0 4px; }
+.sf-small .sf-node { border-radius: 10px; color: var(--fg-3); }
+.sf-small .sf-node svg { width: 16px; height: 16px; }
+.sf-small .sf-label {
+  font-size: 12.5px;
+  line-height: 1.35;
+  font-weight: 450;
+  color: var(--fg-3);
+  max-width: 14ch;
+}
+.sf-small .sf-step + .sf-step::before { background: var(--line); }
+
+.sf-small .sf-past .sf-node { color: var(--fg-2); }
+.sf-small .sf-past .sf-label { color: var(--fg-2); }
+.sf-small .sf-past + .sf-step::before { background: var(--fg-3); }
+
+.sf-small .sf-now .sf-node {
+  color: var(--fg);
+  border-color: var(--fg-2);
+  box-shadow: inset 0 1px 0 var(--pane-glow), var(--pane-shadow-hi);
+}
+.sf-small .sf-now .sf-label { color: var(--fg); font-weight: 550; }
+.sf-small .sf-ahead .sf-node { opacity: 0.55; }
+
+/* Every step behind the reader: all five in the second grey. */
+.sf-small.sf-complete .sf-node { color: var(--fg-2); }
+
+.sf-caption { display: none; margin: 12px 0 0; font-size: 13px; color: var(--fg-2); }
+
+/* A phone keeps the five plates in a row (the vertical layout above is
+   for the big diagram, where each step has room to speak) and swaps the
+   five labels for one line naming the lit step. The labels leave the
+   screen but not the accessibility tree. */
+@media (max-width: 640px) {
+  .stepflow.sf-small { grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 0; }
+  .sf-small .sf-step { flex-direction: column; padding: 0; }
+  .sf-small .sf-step + .sf-step::before {
+    top: calc(var(--sf-node) / 2);
+    bottom: auto;
+    right: 50%;
+    left: auto;
+    width: 100%;
+    height: 1px;
+  }
+  .sf-small .sf-label {
+    position: absolute;
+    width: 1px; height: 1px;
+    margin: -1px; padding: 0; border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .sf-caption { display: block; }
+}
+
+/* ------------------------------------------------ the way to the detail
+   The journey pages keep one job each and move their explanations behind
+   a link that names what is behind it ("What happens if the work is not
+   right"). This is that link. It stands on its own line, so it takes the
+   44px floor at every width rather than borrowing a sentence's line box. */
+.sf-more {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 13px;
+  color: var(--fg-2);
+  text-decoration: underline;
+  text-decoration-color: var(--line-2);
+  text-underline-offset: 3px;
+}
+.sf-more:hover { color: var(--fg); text-decoration-color: var(--fg-3); }
+.sf-mores { display: flex; flex-wrap: wrap; column-gap: 22px; margin: 22px 0 0; }

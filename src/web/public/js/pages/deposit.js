@@ -67,7 +67,7 @@
     renderByWhen(price);
     renderWho(job);
     renderRedoAndFinality(price);
-    A.setTextById("tech-spec-hash", typeof job.specHash === "string" && job.specHash !== "" ? job.specHash : "computed when the deposit settles");
+    A.setTextById("tech-spec-hash", typeof job.specHash === "string" && job.specHash !== "" ? job.specHash : "computed once the deposit clears");
     wireRailChooser();
     wirePayButton();
     var back = A.el("back-to-agreement");
@@ -111,8 +111,8 @@
     A.setTextById("rail-usdc-amt", money(usdc.total) + " today");
     var depositPct = typeof price.depositPercent === "number" ? price.depositPercent : 25;
     A.setTextById("counts-toward-line",
-      "The deposit counts toward the " + money(priceUsd) + " price, it is not an extra charge. " +
-      "The remaining " + money(roundHalfUpCents(priceUsd - abt.deposit)) + " plus the same fee is due when the work is ready, and you see what changed before you pay it.");
+      "This counts toward the " + money(priceUsd) + " price. " +
+      "The other " + money(roundHalfUpCents(priceUsd - abt.deposit)) + " plus the same fee is due when the work is ready, after you see what changed.");
     A.el("deposit-label").textContent = "Deposit, " + depositPct + " percent of the " + money(priceUsd) + " price";
     applyRailTotals(price);
   }
@@ -168,7 +168,7 @@
   function renderByWhen(price) {
     if (typeof price.deliveryWindowDays === "number") {
       A.setTextById("byline", "Ready " + A.plural(price.deliveryWindowDays, "day", "days") + " after this payment clears");
-      A.setTextById("byline-sub", "Counted from the deposit landing, not from today.");
+      A.setTextById("byline-sub", "Counted from when the deposit arrives.");
     } else {
       A.setTextById("byline", "The delivery window was not part of this agreement");
     }
@@ -197,6 +197,9 @@
         if (operatorLink && typeof result.value.operatorDid === "string" && result.value.operatorDid !== "") {
           operatorLink.setAttribute("href", "/accounts/" + encodeURIComponent(result.value.operatorDid));
           A.setText(operatorLink, A.shortDid(result.value.operatorDid));
+          // Revealed by its value (hire.js's own rule): "operated by" over
+          // an empty link would be a line with nothing on it.
+          A.showById("operated-by", true);
         }
       }
       A.setTextById("agent-name", name);
@@ -210,8 +213,8 @@
   }
   function renderRedoAndFinality(price) {
     var redoAllowance = typeof price.redoAllowance === "number" ? price.redoAllowance : 1;
-    A.setTextById("redo-line", "If the work misses one of the lines above, you can send it back " + (redoAllowance === 1 ? "once" : redoAllowance + " times") + ", free, naming which line.");
-    A.setTextById("finality-line", "This " + money(depositAndFee(price, RAIL_ABT_FEE_PERCENT).deposit) + " deposit does not come back. Not if you decline the work, not if you never merge it, not if you change your mind tomorrow.");
+    A.setTextById("redo-line", "If the work misses a line above, you can send it back " + (redoAllowance === 1 ? "once" : redoAllowance + " times") + ", free.");
+    A.setTextById("finality-line", "The " + money(depositAndFee(price, RAIL_ABT_FEE_PERCENT).deposit) + " deposit does not come back, even if you decline the work or never merge it.");
   }
   // Scope item 8: every refusal gets a sentence a person can act on. One
   // shared shape for both writes (start and confirm); only the 401/409
