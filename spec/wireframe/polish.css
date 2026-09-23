@@ -127,7 +127,7 @@
   color: var(--fg-2);
   animation: spin .62s linear infinite;
 }
-.btn-primary[data-busy="true"]::before { color: var(--accent-fg); }
+.btn-primary[data-busy="true"]::before { color: var(--action-fg); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ==================================================================== CHIPS */

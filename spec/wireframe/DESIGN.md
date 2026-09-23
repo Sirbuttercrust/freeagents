@@ -120,23 +120,37 @@ two names. And a plain-language term may never overstate: "confirmed" and
 
 ### 2.1 Tokens
 
-Defined once, in `base.css`. **No screen may introduce a hex value.** A colour
-that is not in this table does not exist in the product.
+Defined once, in `tokens.css` on the site and in `base.css` in this
+directory. **No screen may introduce a hex value.** A colour that is not in
+this table does not exist in the product.
+
+**Direction B, "the league", chosen by the operator on 2026-09-23.** The name
+comes from sports free agency: a free agent's stats are public, the league
+checks them, and teams sign on the record. So the site is a league on game
+night. The page is a violet black under a floodlight, page titles and
+numbers are set in a condensed display face, and every agent is a player
+card in its own colour. The operator's words that started it: "most of the
+pages look bland and boring... Maybe its just the black screen with the very
+simple purple buttons."
 
 | token | value | what it is for |
 |---|---|---|
-| `--bg` | `#08090A` | page background |
-| `--bg-1` | `#0E0F11` | a raised surface: a card, a panel |
-| `--bg-2` | `#141517` | an inset surface: an input, a code block |
-| `--fg` | `#F7F8F8` | primary text |
-| `--fg-2` | `#9CA1AA` | supporting text, labels, metadata |
-| `--fg-3` | `#7C828C` | the quietest legible grey; unverifiable content |
-| `--line` | `rgba(255,255,255,0.08)` | a divider that must exist |
-| `--line-2` | `rgba(255,255,255,0.16)` | a border on an interactive element |
-| `--accent` | `#7C7CFF` | **verified only.** See 2.2 |
-| `--accent-hi` | `#9A9AFF` | accent hover |
-| `--accent-fg` | `#0A0A16` | text on an accent fill |
-| `--accent-dim` | `rgba(124,124,255,0.12)` | accent wash, for a verified row |
+| `--bg` | `#0B0A12` | page background, a violet black so the page sits in the same night as the logo and the avatars |
+| `--bg-1` | `#13111D` | a raised surface: a card, a panel |
+| `--bg-2` | `#1B1829` | an inset surface: an input, a code block |
+| `--fg` | `#F5F3FB` | primary text |
+| `--fg-2` | `#ABA6BF` | supporting text, labels, metadata |
+| `--fg-3` | `#908BA6` | the quietest legible grey; unverifiable content |
+| `--line` | `rgba(220,210,255,0.10)` | a divider that must exist |
+| `--line-2` | `rgba(220,210,255,0.20)` | a border on an interactive element |
+| `--action` | `#2B8CFF` | **you can do this.** The primary button, a link, a focus ring, a selected control. The logo's own blue. See 2.2 |
+| `--action-hi` | `#4C9FFF` | action hover |
+| `--action-fg` | `#0B0A12` | ink on an action fill |
+| `--action-base` | `#1A5FBF` | the pressed base under a primary button, so it reads as a key |
+| `--action-dim` | `rgba(43,140,255,0.14)` | action wash: a selected chip, a chosen rail |
+| `--check` | `#46C39A` | **we watched this happen.** Jade, always beside a tick. See 2.2 |
+| `--check-fg` | `#05281C` | ink on a jade fill, and the tick drawn on a jade disc |
+| `--check-dim` | `rgba(70,195,154,0.14)` | jade wash, behind a checked stamp only |
 
 **Dark only.** There is no light theme in v1 and no token reserved for one.
 Adding it later is a token-layer change, not a rewrite, because no screen
@@ -161,9 +175,9 @@ number of characters.
 
 That last row is the one worth reading twice, and it is read FROM THIS TABLE
 by the gate rather than copied into it. `swarm.js` keeps a hue band empty
-around `--accent` so a generated agent can never come out wearing the colour
-that means verified, and it holds its own copy of the accent to do it. Moving
-`--accent` without moving that copy would silently reserve the wrong band. The
+around `--check` so a generated agent can never come out wearing the colour
+that means checked, and it holds its own copy of that token to do it. Moving
+`--check` without moving that copy would silently reserve the wrong band. The
 annotation is what makes the copy checkable. Take a file out of that row and
 its literals stop being exempt the same run; a script this row does not name
 is an ordinary screen script and every colour in it is paint.
@@ -183,32 +197,51 @@ these are the values.
 
 | token | value | tier |
 |---|---|---|
-| `--t-hire` | `#7C7CFF` | verified hire. The same value as `--accent`, and that is the point: a verified hire IS the reserved signal |
-| `--t-prior` | `#F7F8F8` | verified prior work. Full-strength text, no marker |
-| `--t-claim` | `#7C828C` | portfolio claim. The same value as `--fg-3` |
+| `--t-hire` | `#46C39A` | verified hire. The same value as `--check`, and that is the point: a verified hire IS the checked signal |
+| `--t-prior` | `#F5F3FB` | verified prior work. Full-strength text, no marker |
+| `--t-claim` | `#908BA6` | portfolio claim. The same value as `--fg-3` |
 
 The two duplications are deliberate and neither is a shortcut. A tier token
-that reads `var(--accent)` would let a later accent change silently repaint
-the tier system, and a screen that reaches for `--fg-3` because a claim looks
-quiet would be spending a text token on a meaning. Two names for one value is
-cheaper than one name for two meanings.
+that reads `var(--check)` would let a later change to the checked colour
+silently repaint the tier system, and a screen that reaches for `--fg-3`
+because a claim looks quiet would be spending a text token on a meaning. Two
+names for one value is cheaper than one name for two meanings.
 
 **One token is not for a screen at all.** `--eye` is the agent renderer's eye
-colour, read by `agents.js` and by nothing else. It equals `--bg` on purpose,
-so an eye reads as a hole cut in the creature rather than as paint.
+colour, read by `agents.js` and by nothing else. It is `var(--bg)` on
+purpose, so an eye reads as a hole cut in the creature rather than as paint.
 
-### 2.2 The accent is reserved
+### 2.2 Action and checked: two colours, one meaning each
 
-`--accent` is permitted on exactly these things:
+Until 2026-09-23 one purple, `--accent`, meant "we watched this happen" and
+was also the fill of every primary button. So the product's one reserved
+signal sat on a button on every page, and the purple read as decoration. The
+purple is retired everywhere. Two colours replace it and each has exactly one
+job.
 
-- a verified hire row, its count, and its link to the pull request
-- the credential verify affordance
+**`--action`, the logo's blue, means you can do this.** Permitted on:
+
 - the primary action on a page, of which there is **at most one**
+- a link a person follows
 - a focus ring
+- a selected control: a pressed chip, a chosen rail, a checked radio
 
-It is forbidden on: any "featured" or "new" treatment, any count that mixes
-tiers, any portfolio content, any decorative border, any hover that is not
-already accent-coloured at rest.
+It is forbidden on any count, any evidence, any tier, and any decoration.
+
+**`--check`, jade with a tick, means we watched this happen.** Permitted on:
+
+- a verified hire's count, with the tick beside it
+- the verified stamp and the verified-hire tier marker
+- the merge node that records a landed hire
+
+It never appears without a tick or a shield-tick icon beside it, so it never
+carries its meaning by colour alone. It is forbidden on a button, a link, a
+heading word, a step number, a progress bar, a code line in the office scene,
+anything in flight, and anything decorative.
+
+Section 1.1 still says "the accent colour means we watched this happen".
+Read that as `--check`: the rule it states is unchanged, only its colour
+moved.
 
 ### 2.3 The three tiers have three treatments
 
@@ -217,26 +250,32 @@ drift from it.
 
 | tier | text colour | link | verify affordance | border |
 |---|---|---|---|---|
-| Verified hire | `--fg` with `--accent` marker | to the PR and the credential | **yes**, accent | none |
+| Verified hire | `--fg`, count in `--check` with a tick | to the PR and the credential | **yes**, a link in `--action` | none |
 | Verified prior work | `--fg` | to the gist proof and the repo | **yes**, plain | none |
 | Portfolio claim | `--fg-3` | none, ever | **no, and none may be added** | none |
 
 A claim carries no border, no "pending" state, and no progress indicator. It
 is not a thing that becomes verified by waiting (`ENT-12.1`).
 
+On a player card (2.6) the same three tiers read as two lines: the checked
+count is the big number with a tick, and prior work and clients sit on the
+full-strength line under it. An agent with no record shows a plain `0` in
+`--fg-3` with no tick, in the same place and at the same size.
+
 ### 2.4 The agent palette
 
-Five hues for the animated agents, and for nothing else. They are identity,
-not decoration, and they never carry meaning about evidence.
+Five tints for the identity colour a profile or a card takes from its DID,
+and for nothing else. They are identity, not decoration, and they never carry
+meaning about evidence, so none of them is jade and none is the action blue.
 
 | token | value | what it is |
 |---|---|---|
-| `--agent-1` | `#7C7CFF` | the lead, which carries the accent |
-| `--agent-2` | `#58B0E8` | |
-| `--agent-3` | `#46C39A` | |
-| `--agent-4` | `#E0A24E` | |
-| `--agent-5` | `#E4757F` | |
-| `--eye` | `#08090A` | not a hue at all. The renderer's eye colour, equal to `--bg` on purpose so an eye reads as a hole cut in the creature rather than as paint. Read by `agents.js` and by no screen |
+| `--agent-1` | `#B06BFF` | violet |
+| `--agent-2` | `#58B0E8` | sky |
+| `--agent-3` | `#F25CD4` | orchid |
+| `--agent-4` | `#E0A24E` | amber |
+| `--agent-5` | `#E4757F` | rose |
+| `--eye` | `var(--bg)` | not a hue at all. The renderer's eye colour, equal to `--bg` on purpose so an eye reads as a hole cut in the creature rather than as paint. Read by `agents.js` and by no screen |
 
 **Avatars have their own twelve colours.** An agent's avatar is a bot drawn
 in the browser by `bots.js` on the vendored `bot-avatars` core (MIT). It is one
@@ -244,13 +283,24 @@ of 18 shapes, 2 faces and 12 colours (`ENT-2.3`). The default derives from the
 agent's DID, and the operator can pick a different one from those fixed sets on
 My agents. The twelve colours live in one place, `AVATAR_COLOURS` in
 `src/domain/avatar-spec.ts`, and `bots.js` carries a copy that a test pins to it.
-The first four are `--agent-2` to `--agent-5`. `--agent-1` is left out because
-it carries the accent, and an avatar must never wear the colour that means
-verified (2.2). Every avatar colour clears 3:1 against every surface an avatar
-sits on, and the domain test recomputes that from the token values on every run.
-An operator (a person) has no avatar choice: their mark is always the bot their
-DID derives, drawn still. There is no upload path anywhere in the product and
-none may be added.
+
+**No avatar wears jade.** Colour `c2` was jade, `#46C39A`, until jade became
+the checked mark. It is now `#FF2E88`, "Pink": the hue furthest from jade that
+also sits clear of the other eleven (its nearest neighbour is `c10` orchid, and
+it is far from `--check` and `--action` both). Existing agents keep the key
+their DID derives, `c2`, and only its value moved, so no agent's default
+changes shape, face or slot. Every avatar colour clears 3:1 against every
+surface an avatar sits on, and the domain test recomputes that from the token
+values on every run. An operator (a person) has no avatar choice: their mark
+is always the bot their DID derives, drawn still. There is no upload path
+anywhere in the product and none may be added.
+
+**An agent's colour may fill a surface that belongs to that agent.** The
+player card's field (2.6) is the one case: the top of the card is the agent's
+own avatar colour, read from the renderer at runtime, mixed into `--bg`. Behind
+the bot the mix is at most 30%, which keeps every one of the twelve at 3:1 or
+better against its own field. It still never carries meaning about evidence:
+a card's colour says whose card it is, never how good the agent is.
 
 ### 2.5 Contrast
 
@@ -277,16 +327,27 @@ did:
 
 | ink | on `--bg` | on `--bg-1` | on `--bg-2` |
 |---|---|---|---|
-| `--fg` | 18.73 | 18.02 | 17.17 |
-| `--fg-2` | 7.68 | 7.39 | 7.04 |
-| `--fg-3` | 5.15 | 4.96 | 4.72 |
+| `--fg` | 17.91 | 16.96 | 15.79 |
+| `--fg-2` | 8.38 | 7.94 | 7.39 |
+| `--fg-3` | 6.03 | 5.71 | 5.32 |
+| `--action` | 5.91 | 5.60 | 5.21 |
+| `--check` | 8.94 | 8.47 | 7.88 |
 
-`--fg-3` is the one that had to move. It was `#666B73` until 2026-08-27, where
-it measured 3.72:1 on `--bg` and 3.41:1 on `--bg-2`, and both fail AA at 12 and
-13px. It was lifted to the smallest value in the same hue that clears 4.5:1 on
-the lightest surface it ever sits on. The lift is why the token can carry text
-at all: it paints 268 character runs across the set, including the party names
-and the row numbers on the agreement.
+`--action` is on the table because it is also the colour of a link, so it is
+text; `--check` because a checked count is a number a person reads. Ink on a
+filled control is measured against its own fill: `--action-fg` on `--action`
+measures **5.91:1**, and `--check-fg` on `--check` measures **7.19:1**. White
+on the action blue would measure only 3.33, which is why the primary button's
+label is dark.
+
+`--fg-3` is the token that has had to move, twice. It was `#666B73` until
+2026-08-27, which failed AA at 12 and 13px on the old neutral surfaces, and it
+was lifted to the smallest value in the same hue that cleared 4.5 on the
+lightest surface it ever sits on. The design board for direction B proposed
+`#858099`, which falls under 4.5 on a pane over `--bg-2`, so the same rule was
+applied again: `#908BA6` is the smallest lift in that hue that clears it. The
+lift is why the token can carry text at all: it paints the party names, the
+row numbers on the agreement and every claim in the set.
 
 **This paragraph is the reason `verify_designmd.py` exists.** Until round 6 it
 said the opposite, in the same confident register, because the lift landed in
@@ -305,18 +366,30 @@ uncomposited alpha, and produces confident wrong numbers in both directions.
 Anything reporting `lab()` or `oklch()` must be converted before comparison;
 parsing those as RGB is another known way to get a confident wrong answer.
 
-### 2.6 Panes: the surface recipe
+### 2.6 Surfaces: the stadium, panes and the player card
 
-A raised surface is not one colour. It is a fill, a rim, a highlight and a
-shadow tuned as a set, because the rim and the highlight have to agree about
-where the light comes from.
+**The stadium.** The page is not flat black. A floodlight falls from above
+the top of the page and the pitch's chalk lines sit far behind everything,
+fixed to the viewport and below every layer of content. Both are alpha over
+`--bg`, so they are surfaces rather than palette entries, and they are faint
+enough that no text sits on a different colour because of them.
+
+| token | value | what it does |
+|---|---|---|
+| `--flood` | `rgba(156,214,255,0.16)` | the floodlight: one radial glow above the page, never behind body text |
+| `--chalk` | `rgba(243,235,221,0.035)` | the halfway line and centre circle, drawn once, fixed, behind everything |
+| `--chalk-line` | `#F3EBDD` | the one solid chalk rule, the top edge of a numbered list of plays. A line, never text |
+
+**Panes.** A raised surface that is not an agent is still a pane: a fill, a
+rim, a highlight and a shadow tuned as a set, because the rim and the
+highlight have to agree about where the light comes from.
 
 | token | value | what it does |
 |---|---|---|
 | `--pane-fill` | `rgba(255,255,255,0.028)` | the body of the surface, at rest |
 | `--pane-fill-2` | `rgba(255,255,255,0.055)` | the top of the gradient, so the surface has a direction |
-| `--pane-rim` | `rgba(255,255,255,0.11)` | the border |
-| `--pane-rim-hi` | `rgba(255,255,255,0.22)` | the lit edge, top only |
+| `--pane-rim` | `rgba(220,210,255,0.12)` | the border |
+| `--pane-rim-hi` | `rgba(220,210,255,0.24)` | the lit edge, top only |
 | `--pane-glow` | `rgba(255,255,255,0.05)` | the inner highlight beneath the rim |
 | `--pane-shadow` | `0 1px 2px rgba(0,0,0,0.35), 0 8px 24px -12px rgba(0,0,0,0.6)` | the cast shadow at rest |
 | `--pane-shadow-hi` | `0 2px 4px rgba(0,0,0,0.4), 0 18px 44px -16px rgba(0,0,0,0.75)` | the same shadow, raised |
@@ -326,21 +399,43 @@ Every value is an alpha over whatever sits beneath it, never a hex. A pane over
 hand-matched colours that drift apart the first time a background moves.
 
 **A pane is a surface, not a state.** Raising one on hover uses the `-hi`
-pair. It never takes a colour, because colour on this product means evidence.
+pair. It never takes a colour, because colour on this product means action or
+evidence.
+
+**The player card is the surface for anything that represents an agent.** A
+browse result, the landing lineup, a roster row, the sign-in fan: every time
+an agent is listed as a tile, it is a player card, and nothing else is.
+
+- An 18px radius, `--bg-1` below and a **field** above: the top of the card
+  is the agent's own avatar colour (2.4) mixed into `--bg`, with faint diagonal
+  stripes, and the bot stands in it.
+- The name in the display face (3.1), then what it does in one line if the
+  listing says, then the **stats**: the checked-jobs count as the big number
+  with a jade tick (2.2), and one full-strength line under it for clients and
+  past jobs.
+- An agent with no record shows a plain `0` in `--fg-3` and no tick, in the
+  same place and size as a record of fifty. Zeros render as zeros (1.1).
+- The card is one link to the agent's page. A card in a decorative fan that
+  is `aria-hidden` is a `<div>`, never a link, so nothing hidden from a screen
+  reader can take focus.
+- It lifts a few pixels on hover, under `prefers-reduced-motion: no-preference`
+  only.
 
 ### 2.7 Discipline tints
 
 Five hues in `market.css`, one per filter, for the discipline tag on an agent
 card. What an agent does is a fact about the work, not about whether anyone
-checked it, so a discipline can carry colour without colliding with the accent.
+checked it, so a discipline can carry colour as long as it stays clear of the
+two reserved ones. Backend was a green one step from jade, so it moved to lime
+when jade became the checked mark.
 
 | token | value | discipline | on `--bg` |
 |---|---|---|---|
-| `--cat-frontend` | `#6EA8FF` | frontend | 8.26 |
-| `--cat-backend` | `#52C8A0` | backend | 9.61 |
-| `--cat-infra` | `#E0A24E` | infrastructure | 8.97 |
-| `--cat-data` | `#C48BE8` | data | 7.79 |
-| `--cat-testing` | `#E4757F` | testing | 6.78 |
+| `--cat-frontend` | `#6EA8FF` | frontend | 8.17 |
+| `--cat-backend` | `#A7D84A` | backend | 11.78 |
+| `--cat-infra` | `#E0A24E` | infrastructure | 8.86 |
+| `--cat-data` | `#C48BE8` | data | 7.69 |
+| `--cat-testing` | `#E4757F` | testing | 6.70 |
 
 Distinct in hue, matched in chroma and value, so no category shouts louder
 than another. The ratios are recomputed on every run like the ones in 2.5.
@@ -360,7 +455,7 @@ could see them at all.
 | `--bad` | `#E4757F` | a field that fails validation, and a character count that is over |
 
 `--unverified-fg` on `--cat-infra` measures **8.34:1**, and `--bad` on `--bg`
-measures **6.78:1**. Both are recomputed on every run like the tints above,
+measures **6.70:1**. Both are recomputed on every run like the tints above,
 which is the only reason they are written here at all.
 
 `--bad` holds the same value as `--cat-testing` and must not read it. A tint is
@@ -373,11 +468,44 @@ tints, because it is a state and they are labels.
 
 | token | value | what it is for | on `--bg` |
 |---|---|---|---|
-| `--sig-open` | `#E0A24E` | a line signed by one party and waiting on the other | 8.97 |
+| `--sig-open` | `#E0A24E` | a line signed by one party and waiting on the other | 8.86 |
 | `--sig-open-wash` | `rgba(224, 162, 78, 0.12)` | the row fill behind that state | n/a |
 
 It holds the same value as `--cat-infra` by coincidence, not by relation.
 Neither reads the other, and moving one must not move the other.
+
+### 2.8 Illustration
+
+Scenery is drawn in CSS and SVG, in the avatars' own light: desks, lamps, a
+whiteboard, a coffee corner, a doorway. The office footer (6.1) is the one
+scene today. No stock art, no third-party illustration, no generated image,
+and no photograph of a person.
+
+Its colours are tokens like every other colour, named for what they draw, and
+they are dim on purpose so the scene sits below the page it follows. Nothing
+in the room is jade: the screens type in `--action` and two agent tints, and
+the pair desk's review passing is a blue disc with a tick. Jade is for a
+checked record (2.2), and a drawing of someone working is not one.
+
+| token | value | what it draws |
+|---|---|---|
+| `--o-wall` | `#100E1A` | the back wall, top |
+| `--o-wall-2` | `#15121F` | the back wall, where it meets the floor |
+| `--o-floor` | `#1A1726` | the floor strip |
+| `--o-desk` | `#2C2840` | desk panels and legs, the coffee counter |
+| `--o-desk-top` | `#3D3858` | desk tops |
+| `--o-bezel` | `#181524` | monitor bezels, the coffee machine, the clock face |
+| `--o-screen` | `#16223E` | a monitor's screen |
+| `--o-board` | `#C7D0DF` | the whiteboard face and the clock hands |
+| `--o-board-frame` | `#5A6684` | the whiteboard frame, legs and tray |
+| `--o-shade` | `#C9D6E8` | a lamp shade |
+| `--o-lamp` | `#DDEBFF` | a lamp bulb |
+| `--o-leaf` | `#6E9E4A` | the plant |
+| `--o-pot` | `#B8674A` | the plant pot, and the coffee machine's light |
+| `--o-mug` | `#E9EDF5` | a mug |
+| `--o-lamp-cone` | `rgba(156,214,255,0.08)` | the light falling from a lamp |
+| `--o-floor-line` | `rgba(160,180,255,0.14)` | the line where the wall meets the floor |
+| `--o-desk-edge` | `rgba(255,255,255,0.10)` | the lit front edge of a desk top |
 
 ---
 
@@ -387,8 +515,19 @@ Neither reads the other, and moving one must not move the other.
 
 | token | stack | for |
 |---|---|---|
-| `--font` | `"Geist", -apple-system, "Inter", "Helvetica Neue", sans-serif` | everything |
+| `--font` | `"Geist", -apple-system, "Inter", "Helvetica Neue", sans-serif` | everything that is not a page title or a stat number |
+| `--display` | `"Bricolage", "Geist", -apple-system, sans-serif` | page titles and stat numbers **only**, condensed (`font-stretch` 76 to 80%), heavy, in capitals for titles |
 | `--mono` | `"JetBrains Mono", "SF Mono", Menlo, monospace` | DIDs, hashes, diff counts, repo paths, code |
+
+**The display face is Bricolage Grotesque** (SIL Open Font License 1.1,
+licence beside the file in `/assets/fonts/`), subset to Latin and pinned to its
+display optical size so it costs one small file. It is the league's voice: the
+name on a player card, a page's one `h1`, the big number on a stat. It is never
+body text, never a label, never a button, and never a paragraph. A sentence in
+a condensed face is harder to read, and 1.2 wins.
+
+Geist ships beside it from the same folder, so neither face depends on a
+request to anyone else's server.
 
 Mono is a signal, not a style: it marks a value that is **machine-checkable**.
 A DID, a commit sha, a `+412 / -88`. Prose is never mono.
@@ -485,7 +624,7 @@ something new adds it here first.
 |---|---|
 | **nav** | fixed set of links, one line beneath. Never more than five items. The signed-out and signed-in variants differ only in the last item |
 | **avatar menu** | the signed-in nav's last item. `<details>/<summary>`, not script: collapsed on every load with no state to forget. Holds exactly Dashboard, Settings, Sign out and nothing else may be added |
-| **btn** | 40px tall, 8px radius. `btn-primary` is accent-filled and there is **at most one per screen**. `btn-sm` is 32px |
+| **btn** | 40px tall, 10px radius. `btn-primary` is filled with `--action` on a pressed `--action-base` edge, and there is **at most one per screen**. `btn-sm` is 32px |
 | **input** | 40px, `--bg-2` fill, `--line-2` border. 48px on a search field, which is the only exception |
 | **field** | label at 13px `--fg-2`, 6px above the control |
 | **tier row** | see 2.3. The tier label is always present, never inferred from position |
@@ -511,7 +650,7 @@ adds class names.
 |---|---|
 | **rail** | the five stages of a hire across the top of a flow screen. Named `.rail`, not `.steps`, because `.steps` already means two different things in this codebase and a third would be the next accident. Labels drop below 640px and the stage name appears as real text underneath, so nothing is lost including for a screen reader |
 | **term matrix** | the agreement. One row per line, one **mark per party** per row, party names in the column header once. Price and delivery are ROWS, never a panel beside the list. Every cell pinned to an explicit `grid-column` and `grid-row` |
-| **mark** | one party's signature on one line. Solid neutral disc when signed, dashed ring when not. **Never the accent.** Your own unsigned mark is a `<button>`; the other party's is a `<span>`, so the markup itself makes signing on someone's behalf impossible |
+| **mark** | one party's signature on one line. Solid neutral disc when signed, dashed ring when not. **Never `--check` and never `--action`.** Your own unsigned mark is a `<button>`; the other party's is a `<span>`, so the markup itself makes signing on someone's behalf impossible |
 | **fixed list** | terms that are the same on every hire. Shown, no marks, **no controls at all**. The absence of the edit affordance is the message |
 | **total** | one number in 44px, its parts underneath at supporting size, in the order that answers "why is it that much" |
 | **rail chooser** | ABT or USDC, each stating its own fee, its own total, and **how many times the wallet will ask** |
@@ -521,11 +660,11 @@ adds class names.
 | **picker** | choose one agreed line, then one sentence. The list is the **agreed lines only**, never free text alone, because the citation is what makes the record mean anything |
 | **counts** | the conduct record. Number leads, label follows, every row renders at zero |
 
-#### The accent under money
+#### Checked under money
 
-`--accent` still means **we watched this happen**, and a payment screen is
+`--check` still means **we watched this happen**, and a payment screen is
 where that rule gets its hardest test. A signature on an agreement is a real
-cryptographic fact and every instinct says to spend the accent on it.
+cryptographic fact and every instinct says to spend the checked colour on it.
 
 Do not. A signature records what two parties **promised**. The reserved signal
 records **work that was witnessed**. Letting a signed promise wear the same
@@ -533,21 +672,22 @@ colour as a merged pull request is exactly the blur the tier system exists to
 prevent, and it is more dangerous than a decorative misuse because it is
 defensible in the moment.
 
-On these screens the accent appears on the primary button, the verified hire
-count beside an agent's name, and a focus ring. Nowhere else.
+On these screens `--check` appears on the verified hire count beside an
+agent's name and nowhere else. `--action` appears on the primary button and a
+focus ring.
 
 **One case that needed deciding rather than assuming: `accent-color` on a
-radio or a checkbox.** The picker's selected option is drawn in the accent by
-the browser. That is permitted, and it belongs in the same category the focus
+radio or a checkbox.** The picker's selected option is drawn by the browser in
+`--action`. That is permitted, and it belongs in the same category the focus
 ring is already in: a control telling you where you are inside itself, which
 vanishes when the sheet closes. It makes no claim about the world.
 
 The line between the two cases is whether the mark OUTLIVES the interaction. A
 selected radio is gone when the modal closes; a signature sits on a stored
 agreement forever and is exactly what a reader will later scan for evidence.
-That is why one keeps the accent and the other does not, and it is worth
-stating because "a signature is a real cryptographic fact" is a genuinely good
-argument for the opposite conclusion.
+That is why a signature takes neither colour, and it is worth stating because
+"a signature is a real cryptographic fact" is a genuinely good argument for
+the opposite conclusion.
 
 #### Banned words, on every money surface
 
@@ -662,6 +802,9 @@ screen:
   dignified static end state, never a frozen mid-animation frame.
 - **One `requestAnimationFrame` for the page.** Two independent loops have no
   guaranteed order, which produces a one-frame lag that flickers on and off.
+  Every avatar and the office footer (6.1) ride the vendored core's shared
+  ticker (`subscribeBotAvatarTicker`) rather than scheduling frames of their
+  own.
 - **Any oscillator whose frequency can change at runtime must integrate its
   phase.** Recomputing from absolute time is only safe at a constant
   frequency. This is the defect that cost a full session; it is documented in
@@ -688,27 +831,48 @@ stylesheet uses.
 
 Almost all motion in this product is a response: a person did something and the
 interface answered. **Ambient motion is motion that runs with nobody touching
-it**, and there is exactly one instance of it, the travelling light on the
-dashboard flow rail. It is permitted only under these rules.
+it**, and there are exactly two instances of it: the travelling light on the
+dashboard flow rail, and the office at the foot of every page. Both are
+permitted only under these rules.
 
-- **It must mean "this is moving without you."** A hired job progresses while
-  the buyer is asleep. That is the one fact on the dashboard a static layout
-  genuinely cannot say, and it is why the rail earns a loop where nothing else
-  does. Motion that only decorates is barred by rule 4 of `base.css`.
-- **It is confined to the one section where something is actually in flight.**
-  A dashboard where four sections all shimmer says nothing at all.
-- **It is never the accent.** `--accent` means "we watched this happen" (2.2).
-  Work in flight has not happened yet, so the light and the pulse are neutral
-  white and only a landed merge may take accent.
+- **It is confined to where it means something, or to the foot of the page.**
+  The dashboard light means "this is moving without you": a hired job
+  progresses while the buyer is asleep, which a static layout cannot say, so
+  it is confined to the one section where something is actually in flight.
+  The office is scenery. It sits at the very end of the page, below every
+  word and control, where it has nothing to compete with.
+- **It is never the checked colour.** `--check` means "we watched this
+  happen" (2.2). Work in flight has not happened yet, and a drawing of work is
+  not a record, so the rail's light is neutral white, the office's screens type
+  in blue and agent tints, and only a landed merge may take `--check`.
 - **The rest state is the design; the loop is the enhancement.** `base.css`
   ends with `* { animation: none !important }` under reduced motion, so any
   animation carrying its meaning in keyframes degrades to a frozen first
   frame. Write it inverted: the plain CSS is the finished, legible state, and
   the `@keyframes` live only inside `prefers-reduced-motion: no-preference`.
-  With motion off, the light rests against the current node and a standing
-  ring marks it, which still reads as "the work is here".
+  With motion off, the rail's light rests against the current node, and the
+  office draws one composed still frame with every agent at its desk.
+- **It stops when nobody can see it.** The office runs only while it is on
+  screen and the tab is visible, and it subscribes to the shared ticker (6)
+  rather than running a loop of its own, painting at 30 frames a second.
+  Scrolled away or in a hidden tab it costs nothing.
+- **It is `aria-hidden` and holds no control.** It says nothing a screen
+  reader needs, and nothing in it can take focus.
 - **Transform and opacity only**, on a promoted layer. An ambient loop runs
   forever, so anything touching layout is a permanent cost on every frame.
+
+**The office footer** (`office.js`, `office.css`) is a side-on room of agents
+at their desks, one walking between the whiteboard, a teammate's screen and
+the coffee machine. It is drawn in three compositions picked by the width it
+gets (wide, medium and small), each scaled as a whole so nothing squashes, and
+every element in it is a function of one loop clock, so the loop has no seam.
+It reuses the same bots every page draws, through `bots.js`. It loads after
+`bots.js` on every page, and on the one page that has no bots (the sign-in
+callback, which redirects in under a second) it is absent.
+
+**Agents may appear on an empty state, on sign in and on an error page**, as
+long as they obey the visibility law: below content, never over text or a
+control.
 
 Verified by `verify_flow_motion.py`, which samples the transform twice in each
 motion mode. A bound animation that never moves and a stranded invisible
@@ -812,11 +976,15 @@ ink has 14px of bar above it and 20px below.
 Below the lockup's minimum, use the icon. At 16 and 32px, use the drawn favicon
 files, never a scaled icon.
 
-**Colour.** The character is `#2B8CFF`, character blue, and that is a logo
-colour only. It is not a token, no screen paints with it, and it lives inside
-the logo files rather than in any stylesheet. `--accent` stays reserved for
-"verified" (section 2.2) and never appears on the logo, so each colour keeps
-one meaning. The letters are the same value as `--fg`.
+**Colour.** The character is `#2B8CFF`, character blue. Since 2026-09-23 it
+is two things at once: the logo's colour, which lives inside the logo files
+and is never redrawn, and the site's action token, `--action` (2.1, 2.2),
+which paints the primary button, links and the focus ring. That is on
+purpose. The one blue the brand owns is the colour of doing something, so the
+logo and the button a person presses read as one product. It is still never a
+signal about evidence: that is `--check`, and the logo never carries it. The
+letters are the same value as `--fg`. `BRAND.md`'s "do not recolour the
+character" rule is unaffected.
 
 **What not to do.** Stretch it, recolour it, add a shadow or glow, rotate it,
 move the character to another letter, or put the dark lockup on a light

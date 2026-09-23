@@ -32,8 +32,8 @@
 :root {
   /* Named for the job, not the hue, so a later palette change does not have to
      reason about what "amber" meant on which screen. Same value as
-     --cat-infra. --sig-open on --bg measures 8.97:1, and --bg on --sig-open
-     measures 8.97:1, so it clears AA as text and as a filled chip.
+     --cat-infra. --sig-open on --bg measures 8.86:1, and --bg on --sig-open
+     measures 8.86:1, so it clears AA as text and as a filled chip.
 
      THE SECOND NUMBER USED TO READ 8.85:1 and was wrong, the same stale copy
      review found in market.css. It is stated as a named PAIR now, on one

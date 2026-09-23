@@ -21,59 +21,107 @@
       makes the eye re-measure at every paragraph, and that re-measuring is
       what "busy" feels like.
 
-   3. ONE ACCENT, AND IT MEANS ONE THING: we watched this happen. Never
-      "featured", never "new", never a button that just wants attention. The
-      moment the accent means two things it means nothing.
+   3. TWO SIGNALS, ONE MEANING EACH. Blue (--action) is something you can
+      do. Jade with a tick (--check) is something we watched happen, and it
+      is never "featured", never "new", never a button that wants attention.
+      The moment a colour means two things it means nothing.
 
    4. NOTHING DECORATIVE. No card shadows, no gradients, no icon that repeats
       what the adjacent word already said.
 */
 
 :root {
-  --bg:        #08090A;
-  --bg-1:      #0E0F11;
-  --bg-2:      #141517;
-  --fg:        #F7F8F8;
-  --fg-2:      #9CA1AA;   /* supporting text, lifted for contrast on 13px */
-  /* The quietest legible grey. Was #666B73, which measured 3.72:1 on --bg and
-     failed WCAG AA on every screen that used it: timestamps, diff sizes, meta
-     lines, the "no hires yet" evidence line. Lifted 2026-08-27 to the smallest
-     value in the same hue that clears 4.5:1 on the LIGHTEST surface it ever
-     sits on (--bg-2), measured on rendered pixels rather than computed CSS.
-     Measured against the worst real surface, which is a .pane fill sampled at
-     rgb(21,22,23) rather than a token value:
-       on --bg 5.15,  on --bg-1 4.96,  on a pane over --bg-2 4.68. */
-  --fg-3:      #7C828C;
-  --line:      rgba(255,255,255,0.08);
-  --line-2:    rgba(255,255,255,0.16);
-  --accent:    #7C7CFF;
-  --accent-hi: #9A9AFF;
-  --accent-fg: #0A0A16;
-  --accent-dim: rgba(124,124,255,0.12);
+  /* Surfaces and text. A violet-black rather than a neutral one, so the
+     page sits in the same night as the logo and the avatars. */
+  --bg:         #0B0A12;
+  --bg-1:       #13111D;
+  --bg-2:       #1B1829;
+  --fg:         #F5F3FB;
+  --fg-2:       #ABA6BF;   /* supporting text, labels, metadata */
+  /* The quietest legible grey: portfolio claims, metadata, step numbers.
+     The board's #858099 measured 3.94:1 on a pane over --bg-2, under the
+     4.5 floor for text under 24px. DESIGN.md 2.5 says the fix is to lift
+     the token, so this is the smallest lift in the same hue that clears
+     4.5 on every surface it sits on, and it stays a clear step below --fg-2
+     so the three-tier read is unchanged. */
+  --fg-3:       #908BA6;
+  --line:       rgba(220,210,255,0.10);
+  --line-2:     rgba(220,210,255,0.20);
 
-  /* Evidence colours. Three, and they are not a grading scale: these are
-     different KINDS of evidence. A claim is unproven, not bad. */
-  --t-hire:  #7C7CFF;
-  --t-prior: #F7F8F8;
-  --t-claim: #7C828C;
+  /* ACTION. The logo's own blue, and the one colour that means "you can do
+     this" (DESIGN 2.2): the primary button, a link, the focus ring, a
+     selected control. It never marks evidence. The primary button stands
+     on a darker base so it reads as a key you press. */
+  --action:      #2B8CFF;
+  --action-hi:   #4C9FFF;
+  --action-fg:   #0B0A12;
+  --action-base: #1A5FBF;
+  --action-dim:  rgba(43,140,255,0.14);
 
-  /* The perched agents. Five hues at a deliberately restrained chroma, so
-     five characters read as one family rather than a toy. The lead carries
-     the accent because it is the same colour that means "verified" on every
-     other surface, and the lead is the one that speaks for the page. */
-  --agent-1: #7C7CFF;
-  --agent-2: #58B0E8;
-  --agent-3: #46C39A;
-  --agent-4: #E0A24E;
-  --agent-5: #E4757F;
-  --eye:     #08090A;
+  /* CHECKED. Jade, always beside a tick, and only on a number or a mark
+     the platform actually witnessed: a verified hire and its count
+     (DESIGN 2.2, 2.3). Nothing decorative, nothing in flight, no button. */
+  --check:      #46C39A;
+  --check-fg:   #05281C;
+  --check-dim:  rgba(70,195,154,0.14);
+
+  /* The three evidence tiers (DESIGN 2.3). Not a grading scale: these are
+     different KINDS of evidence, and a claim is unproven rather than bad. */
+  --t-hire:     #46C39A;
+  --t-prior:    #F5F3FB;
+  --t-claim:    #908BA6;
+
+  /* The stadium: a floodlight from above the page, and the pitch's chalk
+     lines far behind everything. Surfaces, not palette entries (2.6). */
+  --flood:      rgba(156,214,255,0.16);
+  --chalk:      rgba(243,235,221,0.035);
+  --chalk-line: #F3EBDD;
+
+  /* The animated agents' five tints (DESIGN 2.4), used where a profile or a
+     card takes an identity colour from its DID. Identity, never meaning
+     about evidence, so none of them is jade and none is the action blue. */
+  --agent-1:    #B06BFF;
+  --agent-2:    #58B0E8;
+  --agent-3:    #F25CD4;
+  --agent-4:    #E0A24E;
+  --agent-5:    #E4757F;
+  --eye:        var(--bg);
+
+  /* THE OFFICE (DESIGN 6.1), the scene at the foot of every page. Its own
+     small palette, drawn dim so it sits below the content it follows: the
+     room, the furniture, the lamps. The screens' code lines and the
+     whiteboard ink borrow --action and two agent tints, never --check, so
+     nothing in the scenery can be read as a checked number. */
+  --o-wall:        #100E1A;
+  --o-wall-2:      #15121F;
+  --o-floor:       #1A1726;
+  --o-desk:        #2C2840;
+  --o-desk-top:    #3D3858;
+  --o-bezel:       #181524;
+  --o-screen:      #16223E;
+  --o-board:       #C7D0DF;
+  --o-board-frame: #5A6684;
+  --o-shade:       #C9D6E8;
+  --o-lamp:        #DDEBFF;
+  --o-leaf:        #6E9E4A;
+  --o-pot:         #B8674A;
+  --o-mug:         #E9EDF5;
+  --o-lamp-cone:   rgba(156,214,255,0.08);
+  --o-floor-line:  rgba(160,180,255,0.14);
+  --o-desk-edge:   rgba(255,255,255,0.10);
 
   --font: "Geist", -apple-system, "Inter", "Helvetica Neue", sans-serif;
+  --display: "Bricolage", "Geist", -apple-system, sans-serif;
   --mono: "JetBrains Mono", "SF Mono", Menlo, monospace;
 
-  --w: 1080px;      /* narrower than the old 1240. A shorter line is easier
-                       to read, and the space at the edges is doing work. */
-  --r: 8px;
+  --w: 1080px;   /* content width, DESIGN 4 */
+  --r: 10px;
+
+  /* One easing for the whole product, so it has one sense of timing rather
+     than three. Durations are fixed by DESIGN 6: 120ms for a control's state
+     change, 240ms for something entering or leaving, 800ms for a morph. */
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
 }
 
 * { box-sizing: border-box; }
@@ -223,8 +271,8 @@ p:last-child { margin-bottom: 0; }
   white-space: nowrap;
 }
 .btn:hover { background: var(--bg-1); border-color: var(--fg-3); }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 560; }
-.btn-primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+.btn-primary { background: var(--action); border-color: var(--action); color: var(--action-fg); font-weight: 560; }
+.btn-primary:hover { background: var(--action-hi); border-color: var(--action-hi); }
 .btn-sm { height: 32px; padding: 0 12px; font-size: 13px; }
 .btn-block { width: 100%; }
 
@@ -238,7 +286,7 @@ p:last-child { margin-bottom: 0; }
   color: var(--fg); font-family: var(--font); font-size: 15px;
 }
 .input::placeholder { color: var(--fg-3); }
-.input:focus { outline: none; border-color: var(--accent); }
+.input:focus { outline: none; border-color: var(--action); }
 textarea.input { height: auto; padding: 12px 14px; line-height: 1.6; resize: vertical; }
 .field { margin-bottom: 18px; }
 .field label { display: block; font-size: 13px; color: var(--fg-2); margin-bottom: 6px; }
@@ -277,7 +325,7 @@ textarea.input { height: auto; padding: 12px 14px; line-height: 1.6; resize: ver
   cursor: pointer; white-space: nowrap; font-family: var(--font);
 }
 .chip:hover { color: var(--fg); border-color: var(--line-2); }
-.chip[aria-pressed="true"] { background: var(--accent-dim); border-color: var(--accent); color: var(--fg); }
+.chip[aria-pressed="true"] { background: var(--action-dim); border-color: var(--action); color: var(--fg); }
 
 /* ---------------------------------------------------------------- lists
    A row list with one hairline between rows. The hairline earns its place
@@ -303,15 +351,15 @@ textarea.input { height: auto; padding: 12px 14px; line-height: 1.6; resize: ver
 
 .note {
   display: none;
-  border-left: 2px solid var(--accent);
-  background: var(--accent-dim);
+  border-left: 2px solid var(--action);
+  background: var(--action-dim);
   padding: 12px 16px; margin: 16px 0;
   font-size: 13px; line-height: 1.6; color: var(--fg-2);
   border-radius: 0 var(--r) var(--r) 0;
   max-width: 68ch;
 }
 body.notes-on .note { display: block; }
-.note b { color: var(--accent-hi); font-weight: 600; }
+.note b { color: var(--action-hi); font-weight: 600; }
 .note code { font-family: var(--mono); font-size: 12px; color: var(--fg); }
 
 /* A whole SECTION behind the notes toggle, rather than an inline annotation.
@@ -335,7 +383,7 @@ body.notes-on .note { display: block; }
   font-family: var(--font); font-size: 12px; cursor: pointer;
 }
 .notetoggle:hover { color: var(--fg); border-color: var(--fg-3); }
-body.notes-on .notetoggle { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+body.notes-on .notetoggle { background: var(--action); color: var(--action-fg); border-color: var(--action); }
 
 /* The house 44px floor, on the one piece of chrome that appears on every
    screen. Measured on a real touch profile it was 101x34 on all 26 pages, so
@@ -512,7 +560,7 @@ body.notes-on .notetoggle { background: var(--accent); color: var(--accent-fg); 
    and this product does not award anything (DESIGN.md 9). */
 .state { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; }
 .state .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
-.state-live { color: var(--accent); }
+.state-live { color: var(--action); }
 .state-done { color: var(--fg-2); }
 .state-none { color: var(--fg-3); }
 
@@ -571,8 +619,8 @@ body.notes-on .notetoggle { background: var(--accent); color: var(--accent-fg); 
      highlight have to agree about where the light comes from. */
   --pane-fill:   rgba(255,255,255,0.028);
   --pane-fill-2: rgba(255,255,255,0.055);
-  --pane-rim:    rgba(255,255,255,0.11);
-  --pane-rim-hi: rgba(255,255,255,0.22);
+  --pane-rim:    rgba(220,210,255,0.12);
+  --pane-rim-hi: rgba(220,210,255,0.24);
   --pane-glow:   rgba(255,255,255,0.05);
   --pane-shadow: 0 1px 2px rgba(0,0,0,0.35), 0 8px 24px -12px rgba(0,0,0,0.6);
   --pane-shadow-hi: 0 2px 4px rgba(0,0,0,0.4), 0 18px 44px -16px rgba(0,0,0,0.75);
@@ -641,7 +689,7 @@ body.notes-on .notetoggle { background: var(--accent); color: var(--accent-fg); 
 @media (hover: hover) and (prefers-reduced-motion: reduce) {
   .pane-lift:hover { background: linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.04)); }
 }
-.pane-lift:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pane-lift:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
 
 /* ----------------------------------------------------------- .reveal
    Scroll-in. FINISHED STATE IS THE DEFAULT, always.
@@ -690,7 +738,7 @@ body.notes-on .notetoggle { background: var(--accent); color: var(--accent-fg); 
   position: absolute;
   left: -10%; top: -60%;
   width: 70%; height: 220%;
-  background: radial-gradient(closest-side, rgba(124,124,255,0.13), transparent 70%);
+  background: radial-gradient(closest-side, rgba(43,140,255,0.13), transparent 70%);
   filter: blur(30px);
   pointer-events: none;
   z-index: 0;
@@ -715,7 +763,7 @@ body.notes-on .notetoggle { background: var(--accent); color: var(--accent-fg); 
 /* Focus is visible on every interactive element, and it is the accent,
    which is one of the four things the accent is allowed to be. */
 a:focus-visible, button:focus-visible, .chip:focus-visible, .disclose:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--action);
   outline-offset: 2px;
   border-radius: 4px;
 }

@@ -44,11 +44,11 @@
   /* The palette. Identical to AVATAR_COLOURS in src/domain/avatar-spec.ts,
      and DESIGN.md 2.4 is where each value is justified. */
   var COLOURS = {
-    c1: "#58B0E8", c2: "#46C39A", c3: "#E0A24E", c4: "#E4757F", c5: "#FF6A3D", c6: "#FFD32B",
+    c1: "#58B0E8", c2: "#FF2E88", c3: "#E0A24E", c4: "#E4757F", c5: "#FF6A3D", c6: "#FFD32B",
     c7: "#9BE85A", c8: "#1CC4DA", c9: "#B06BFF", c10: "#F25CD4", c11: "#3D8BFF", c12: "#34C759"
   };
   var COLOUR_NAMES = {
-    c1: "Sky", c2: "Jade", c3: "Amber", c4: "Rose", c5: "Vermilion", c6: "Yellow",
+    c1: "Sky", c2: "Pink", c3: "Amber", c4: "Rose", c5: "Vermilion", c6: "Yellow",
     c7: "Lime", c8: "Cyan", c9: "Violet", c10: "Orchid", c11: "Cobalt", c12: "Green"
   };
   var COLOUR_KEYS = ["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12"];

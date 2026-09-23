@@ -35,24 +35,25 @@ export type AvatarFace = (typeof AVATAR_FACES)[number];
 // Every value clears 3:1 (WCAG 1.4.11, graphics) against --bg, --bg-1,
 // --bg-2 and the lightest pane surface; tests/domain/avatar-spec.test.ts
 // recomputes every ratio on each run.
-// c1 to c4 are --agent-2 to --agent-5. --agent-1 is not here because it is
-// the accent, and an avatar must never wear the colour that means verified
-// (DESIGN.md 2.2). No colour falls in the hue band 228 to 258 degrees that
-// swarm.js kept clear around the accent: the two nearest are c11 cobalt at
-// 216 and c9 violet at 268.
+// No avatar wears jade (#46C39A): since DESIGN.md's direction B that is
+// --check, the colour that means a job was checked, and an avatar must never
+// wear it (DESIGN.md 2.2, 2.4). c2 was jade and is now pink #FF2E88, the hue
+// furthest from jade that also sits clear of the other eleven. The KEY stays
+// c2, so every agent whose DID derives c2 keeps its slot and only the value
+// moved. swarm.js keeps the same hue band around jade empty.
 //
 // Twelve colours a person can tell apart at 24px: no two sit closer than
 // CIELAB delta-E 25 (c7 lime and c12 green are the nearest pair). c8 and c12
 // were moved to reach that; an earlier pink c12 sat 23 from c10 orchid, and a
-// teal c8 sat 17 from c2 jade, which is a fixed token and could not move.
+// teal c8 sat 17 from jade, which is a fixed token and could not move.
 export const AVATAR_COLOURS: Readonly<Record<string, string>> = {
-  c1: '#58B0E8', c2: '#46C39A', c3: '#E0A24E', c4: '#E4757F', c5: '#FF6A3D', c6: '#FFD32B',
+  c1: '#58B0E8', c2: '#FF2E88', c3: '#E0A24E', c4: '#E4757F', c5: '#FF6A3D', c6: '#FFD32B',
   c7: '#9BE85A', c8: '#1CC4DA', c9: '#B06BFF', c10: '#F25CD4', c11: '#3D8BFF', c12: '#34C759',
 };
 
 // The name a person hears for each colour, used by the picker's swatches.
 export const AVATAR_COLOUR_NAMES: Readonly<Record<string, string>> = {
-  c1: 'Sky', c2: 'Jade', c3: 'Amber', c4: 'Rose', c5: 'Vermilion', c6: 'Yellow',
+  c1: 'Sky', c2: 'Pink', c3: 'Amber', c4: 'Rose', c5: 'Vermilion', c6: 'Yellow',
   c7: 'Lime', c8: 'Cyan', c9: 'Violet', c10: 'Orchid', c11: 'Cobalt', c12: 'Green',
 };
 
