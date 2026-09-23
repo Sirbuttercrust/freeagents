@@ -19,6 +19,14 @@ import type { Session } from '../../src/adapters/identity/session.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
+// Real-browser layout tests launch Chrome, navigate at least once and
+// evaluate in the page; vitest's 5000ms default times out under full-suite
+// load exactly the way CI1 found in dashboard.test.ts and
+// hire-polished.test.ts (run 35390871202, layout tests red on
+// "Test timed out in 5000ms" with no layout defect). 30s is past every
+// launch observed here and a genuinely broken layout still fails inside it.
+const BROWSER_TIMEOUT_MS = 30_000;
+
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 // P8d: resolving a session to an account when none exists yet needs
 // FREEAGENTS_PLATFORM_SEED, the same stance tests/web/myjobs.test.ts and
@@ -514,7 +522,7 @@ describe('the Incoming work screen, driven end to end against the real app', () 
       } finally {
         await browser.close();
       }
-    });
+    }, BROWSER_TIMEOUT_MS);
 
     // W-incoming item 4. The height check above cannot see this defect: a
     // button squeezed below its label is still 44px tall.
@@ -593,7 +601,7 @@ describe('the Incoming work screen, driven end to end against the real app', () 
       } finally {
         await browser.close();
       }
-    });
+    }, BROWSER_TIMEOUT_MS);
 
     // W-incoming, the class collision this rebuild surfaced. The
     // wireframe names the row's bottom strip `.foot`
@@ -679,7 +687,7 @@ describe('the Incoming work screen, driven end to end against the real app', () 
       } finally {
         await browser.close();
       }
-    });
+    }, BROWSER_TIMEOUT_MS);
   });
 
   // W-incoming item 1, the W11 D2 defect class

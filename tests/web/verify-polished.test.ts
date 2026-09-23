@@ -28,6 +28,14 @@ import { MemoryCredentialRepository } from '../../src/adapters/storage/memory.js
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
+// Real-browser layout tests launch Chrome, navigate at least once and
+// evaluate in the page; vitest's 5000ms default times out under full-suite
+// load exactly the way CI1 found in dashboard.test.ts and
+// hire-polished.test.ts (run 35390871202, layout tests red on
+// "Test timed out in 5000ms" with no layout defect). 30s is past every
+// launch observed here and a genuinely broken layout still fails inside it.
+const BROWSER_TIMEOUT_MS = 30_000;
+
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -431,7 +439,7 @@ describe('5. every real control on the page clears 44px, at 1280 and at 320', ()
     } finally {
       await browser.close();
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 
   it('320px: no horizontal overflow, with every disclosure open and a receipt loaded', async () => {
     if (!hasRealBrowser()) {
@@ -469,7 +477,7 @@ describe('5. every real control on the page clears 44px, at 1280 and at 320', ()
     } finally {
       await browser.close();
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 });
 
 // ------------------------------------------------------- 6. nothing depends on us
@@ -703,6 +711,6 @@ describe('8. the hero reveal lands on visible content in both motion modes', () 
     } finally {
       await browser.close();
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 });
 

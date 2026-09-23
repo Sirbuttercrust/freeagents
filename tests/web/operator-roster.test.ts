@@ -26,6 +26,14 @@ import { createRateLimiter } from '../../src/adapters/identity/verify-rate-limit
 import type { Delegation } from '../../src/domain/agent.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 
+// Real-browser layout tests launch Chrome, navigate at least once and
+// evaluate in the page; vitest's 5000ms default times out under full-suite
+// load exactly the way CI1 found in dashboard.test.ts and
+// hire-polished.test.ts (run 35390871202, layout tests red on
+// "Test timed out in 5000ms" with no layout defect). 30s is past every
+// launch observed here and a genuinely broken layout still fails inside it.
+const BROWSER_TIMEOUT_MS = 30_000;
+
 const SOLO_OPERATOR_DID = 'did:abt:zRosterPageSoloOperator';
 const MANY_OPERATOR_DID = 'did:abt:zRosterPageManyOperator';
 const EMPTY_OPERATOR_DID = 'did:abt:zRosterPageEmptyOperator';
@@ -1012,7 +1020,7 @@ describe('the operator page gallery, work across the roster behind the evidence 
     } finally {
       await browser.close();
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 
   // D2: the visually-hidden tier sentence (.tier.tier-label-a11y) has to
   // actually be hidden on screen, not merely carry the class name. jsdom
@@ -1043,5 +1051,5 @@ describe('the operator page gallery, work across the roster behind the evidence 
     } finally {
       await browser.close();
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 });

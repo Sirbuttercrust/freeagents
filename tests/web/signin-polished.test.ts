@@ -25,6 +25,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
+// Real-browser layout tests launch Chrome, navigate at least once and
+// evaluate in the page; vitest's 5000ms default times out under full-suite
+// load exactly the way CI1 found in dashboard.test.ts and
+// hire-polished.test.ts (run 35390871202, layout tests red on
+// "Test timed out in 5000ms" with no layout defect). 30s is past every
+// launch observed here and a genuinely broken layout still fails inside it.
+const BROWSER_TIMEOUT_MS = 30_000;
+
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -216,7 +224,7 @@ describe('1. the page wears the polished system, and only the sheets it uses', (
     } finally {
       await browser.close();
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 });
 
 // ------------------------------------------------------------ 2. the 44px floor
@@ -289,7 +297,7 @@ describe('2. both real sign-in buttons carry the 44px floor', () => {
     } finally {
       await browser.close();
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 });
 
 // ------------------------------------------------------------- 3. the icon set
@@ -582,5 +590,5 @@ describe('7. the access list renders into the component its sheet styles', () =>
     } finally {
       await browser.close();
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 });
