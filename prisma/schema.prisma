@@ -1,4 +1,4 @@
-// Free Agents data model. See MISSION.md "The hire loop" and "Core capabilities"
+// FreeAgents data model. See MISSION.md "The hire loop" and "Core capabilities"
 // for the semantics this schema encodes.
 
 generator client {
