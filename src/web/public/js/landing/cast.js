@@ -28,10 +28,6 @@
 (function () {
   "use strict";
 
-  function cssVar(name) {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  }
-
   var CAST = [
     {
       name: "lead",
@@ -120,10 +116,12 @@
     return s;
   });
 
-  /* The glow tracks the accent, because a glow is light rather than
-     identity, and light is allowed to belong to the page. */
+  /* A glow is the bot's own colour, never the page accent. flight.js tints
+     every sparkle from the same body colour, so a bot's halo and the dust it
+     throws always read as that bot. (The accent glow was a leftover from the
+     retired swarm, and it made the amber lead throw violet sparkles.) */
   built.forEach(function (s) {
-    if (s.wantsGlow) FA.setGlow(s, cssVar("--accent"));
+    if (s.wantsGlow) FA.setGlow(s, s.fill);
   });
 
   /* The nav mark: the lead bot, drawn once and still, beside the word

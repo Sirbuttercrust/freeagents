@@ -352,6 +352,13 @@
     return r < 22 ? 22 : r;
   }
 
+  /* A sparkle is the bot's own body colour, lightened so it reads as light.
+     Never the glow: a glow is set from outside (cast.js) and once held the
+     page accent, which turned an amber bot's sparkles violet. */
+  function sparkleOf(s, lift) {
+    return FA.mixHex(s.fill, "#FFFFFF", lift);
+  }
+
   function enterAgent(flock, s, px, py) {
     if (s.hover) return;
     s.hover = true;
@@ -374,7 +381,7 @@
     for (var i = 0; i < 7; i++) {
       var a = Math.random() * Math.PI * 2, sp = 30 + Math.random() * 60;
       dust.emit(cx, cy, Math.cos(a) * sp, Math.sin(a) * sp - 20, flock.t,
-                s.glow || FA.mixHex(s.fill, "#FFFFFF", 0.6), 1 + Math.random() * 1.6, 0.7);
+                sparkleOf(s, 0.6), 1 + Math.random() * 1.6, 0.7);
     }
 
     clearTimeout(s.hoverSeq);
@@ -398,7 +405,7 @@
     for (var i = 0; i < 12; i++) {
       var a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 90;
       dust.emit(cx, cy, Math.cos(a) * sp, Math.sin(a) * sp - 30, flock.t,
-                s.glow || FA.mixHex(s.fill, "#FFFFFF", 0.7), 1.2 + Math.random() * 1.8, 0.85);
+                sparkleOf(s, 0.7), 1.2 + Math.random() * 1.8, 0.85);
     }
     s.nudgeVY += 90;
     clearTimeout(s.hoverSeq);
@@ -761,7 +768,7 @@
             -vx * 0.06 + (Math.random() - 0.5) * 22,
             -vy * 0.06 + (Math.random() - 0.5) * 18 + 8,
             t,
-            s.glow || FA.mixHex(s.fill, "#FFFFFF", 0.55),
+            sparkleOf(s, 0.55),
             0.9 + Math.random() * 1.5,
             0.55 + Math.random() * 0.35
           );
