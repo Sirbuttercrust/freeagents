@@ -817,6 +817,6 @@ describe('the conduct record page, driven end to end against the real app', () =
       } finally {
         await browser.close();
       }
-    });
+    }, 60000);
   });
 });

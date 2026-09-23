@@ -48,6 +48,14 @@ import type { Delegation } from '../../src/domain/agent.js';
 import type { Session } from '../../src/adapters/identity/session.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
+// Real-browser layout tests launch Chrome, navigate at least once and
+// evaluate in the page; vitest's 5000ms default times out under full-suite
+// load exactly the way CI1 found in dashboard.test.ts and
+// hire-polished.test.ts (run 35390871202, layout tests red on
+// "Test timed out in 5000ms" with no layout defect). 30s is past every
+// launch observed here and a genuinely broken layout still fails inside it.
+const BROWSER_TIMEOUT_MS = 30_000;
+
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const AGENT_DID = 'did:abt:operatorjob-polish-agent';
 const OPERATOR_LOGIN = 'operatorjob-polish-operator';
@@ -491,7 +499,7 @@ describe('2. the .who avatar is the DID-derived creature, at the size the sheets
       measured.matchesOldRule,
       'a .who .avatar element is back; that selector matched nothing and is why the old img was unsized',
     ).toBe(0);
-  });
+  }, BROWSER_TIMEOUT_MS);
 
   // MUTATION CONTROL for the assertion above. polish.css is what clips the
   // creature and flow.css is what sizes it; disable both in place and the
@@ -528,7 +536,7 @@ describe('2. the .who avatar is the DID-derived creature, at the size the sheets
       measured.off[0] !== measured.on[0] || measured.off[1] !== measured.on[1],
       `the mount kept its 32px box with both sheets disabled (${JSON.stringify(measured)}), so the sheets are not what size it`,
     ).toBe(true);
-  });
+  }, BROWSER_TIMEOUT_MS);
 });
 
 // ------------------------------------------------- 3. the timeline dot states
@@ -624,7 +632,7 @@ describe('3. the timeline distinguishes what happened from what is happening', (
       measured.restColour !== done!.bg,
       `the unclassed dot already draws as done (${measured.restColour}), so the done rule does nothing`,
     ).toBe(true);
-  });
+  }, BROWSER_TIMEOUT_MS);
 });
 
 // --------------------------------------------------- 4. the history is ordered
@@ -836,7 +844,7 @@ describe('6. the polished page holds at 320px, including its open states', () =>
     expect(measured.whoScroll[0], 'the .who row scrolls sideways inside itself').toBe(measured.whoScroll[1]);
     expect(measured.doc[0], 'the 320px page scrolls sideways').toBe(measured.doc[1]);
     expect(measured.short, 'controls under the 44px tap floor at 320px').toEqual([]);
-  });
+  }, BROWSER_TIMEOUT_MS);
 
   it('the refuse sheet, opened at 320px, fits and wears flow.css\u2019s own chrome', async () => {
     // tests/web/operatorjob.test.ts already opens the ACCEPT sheet at 320.

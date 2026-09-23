@@ -41,6 +41,14 @@ import { createJob, type Job } from '../../src/domain/job.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
+// Real-browser layout tests launch Chrome, navigate at least once and
+// evaluate in the page; vitest's 5000ms default times out under full-suite
+// load exactly the way CI1 found in dashboard.test.ts and
+// hire-polished.test.ts (run 35390871202, layout tests red on
+// "Test timed out in 5000ms" with no layout defect). 30s is past every
+// launch observed here and a genuinely broken layout still fails inside it.
+const BROWSER_TIMEOUT_MS = 30_000;
+
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const PLATFORM_SEED = 'e'.repeat(64);
 
@@ -293,7 +301,7 @@ describe('2. the avatar mount is real, not a string that satisfies a regex', () 
       expect(row.pending, `${row.did}: still marked pending after painting`).toBe(false);
       expect(row.kids, `${row.did}: painted more than one root into the mount`).toBe(1);
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 
   it('the creature is derived from the DID, so the same identity wears the same face here as on its profile', async () => {
     if (!hasRealBrowser()) {
@@ -318,7 +326,7 @@ describe('2. the avatar mount is real, not a string that satisfies a regex', () 
       })()
     `));
     expect(same, 'the painted avatar is not what the swarm generator draws for this DID').toBe(true);
-  });
+  }, BROWSER_TIMEOUT_MS);
 
   it('no creature paints outside its 40px mount, so nothing lands on the row beneath', async () => {
     if (!hasRealBrowser()) {
@@ -437,7 +445,7 @@ describe('2. the avatar mount is real, not a string that satisfies a regex', () 
       blank.reduce((n, r) => n + r.ink, 0),
       'the sweep cannot tell art from no art',
     ).toBeLessThan(realInk);
-  });
+  }, BROWSER_TIMEOUT_MS);
 });
 
 // ----------------------------------------------------------------- 3. the tier
@@ -499,7 +507,7 @@ describe('3. the tier pill carries the wireframe\u2019s glyph, not the pre-polis
     // The tier the agent is in must match the glyph it wears.
     const hire = state.pills.find((p) => p.cls.includes('tier-hire'));
     expect(hire?.ico, 'the verified-hire pill wears the wrong glyph').toBe('shield-check');
-  });
+  }, BROWSER_TIMEOUT_MS);
 });
 
 // --------------------------------------------------------- 4. the builder notes
@@ -579,7 +587,7 @@ describe('5. the polished page holds up at 320px, in both motion modes', () => {
     expect(result.sweep.measured, 'no control measured: the sweep is broken, not the page').toBeGreaterThan(3);
     expect(result.sweep.under, 'controls under the 44px floor at 320px with the disclosure open').toEqual([]);
     expect(result.sweep.overflow, 'the 320px page scrolls sideways with the disclosure open').toBe(0);
-  });
+  }, BROWSER_TIMEOUT_MS);
 
   it('under prefers-reduced-motion the roster still lands on visible content', async () => {
     if (!hasRealBrowser()) {
@@ -606,5 +614,5 @@ describe('5. the polished page holds up at 320px, in both motion modes', () => {
     expect(['none', 'matrix(1, 0, 0, 1, 0, 0)']).toContain(state.transform);
     expect(state.avatars, 'no avatar painted under reduced motion').toBe(4);
     expect(state.icons, 'no tier glyph painted under reduced motion').toBe(4);
-  });
+  }, BROWSER_TIMEOUT_MS);
 });

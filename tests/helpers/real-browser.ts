@@ -19,6 +19,19 @@ import net from 'node:net';
 
 const CHROME_ENV = 'CHROME_BIN';
 
+// base.css's own phone/coarse-pointer gate is `(max-width: 760px), (pointer:
+// coarse)` (base.css:541), and this suite's own "phone widths" (320 in every
+// caller) sit well inside it. 760 is the same threshold: a launch at that
+// width or narrower is a phone-shaped viewport, and a real phone's
+// scrollbar is an overlay that consumes no layout width. Wider launches are
+// desktop-shaped, where a real scrollbar DOES consume layout width, so
+// those keep the platform's own scrollbar behaviour rather than hiding it.
+const PHONE_WIDTH_MAX = 760;
+
+function isPhoneWidth(width: number): boolean {
+  return width <= PHONE_WIDTH_MAX;
+}
+
 // Ordered the same way wirebrowse.py orders them: most likely first. Globs
 // are resolved by hand below since this file adds no glob dependency.
 function candidateDirs(): { agentBrowsers: string; puppeteerChrome: string } {
@@ -121,6 +134,7 @@ export class RealBrowser {
     }
     const width = opts.width ?? 1280;
     const height = opts.height ?? 900;
+    const overlay = isPhoneWidth(width);
     const profile = mkdtempSync(join(tmpdir(), 'fa-real-browser-'));
     const browser = new RealBrowser(profile);
     browser.port = await freePort();
@@ -194,6 +208,17 @@ export class RealBrowser {
       deviceScaleFactor: 1,
       mobile: false,
     });
+    // Real phones draw an overlay scrollbar: it paints over the content and
+    // consumes no layout width. Headless Chrome on Linux (the GitHub
+    // Actions runner) draws the classic, space-consuming scrollbar by
+    // default, so a scrollable phone-width page measured clientWidth 15px
+    // narrower there than on a Mac, which drew the overlay style already.
+    // Forcing the overlay behaviour at phone widths makes the measurement
+    // match a real phone on every platform, rather than papering over the
+    // mismatch with a fudged expected value.
+    if (overlay) {
+      await browser.send('Emulation.setScrollbarsHidden', { hidden: true });
+    }
     return browser;
   }
 
@@ -215,6 +240,12 @@ export class RealBrowser {
       deviceScaleFactor: 1,
       mobile: false,
     });
+    // Same overlay-vs-classic reasoning as launch(): a mid-session resize
+    // to a phone width has to apply the same platform-independent
+    // scrollbar behaviour, or a test that resizes down to 320px (the
+    // dashboard dspan-6 pair test does exactly this) would pass at launch
+    // and still read a shrunk clientWidth after the resize.
+    await this.send('Emulation.setScrollbarsHidden', { hidden: isPhoneWidth(width) });
   }
 
   async goto(url: string, waitMs = 500): Promise<void> {

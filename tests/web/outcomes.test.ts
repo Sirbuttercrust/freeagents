@@ -18,6 +18,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
+// Real-browser layout tests launch Chrome, navigate at least once and
+// evaluate in the page; vitest's 5000ms default times out under full-suite
+// load exactly the way CI1 found in dashboard.test.ts and
+// hire-polished.test.ts (run 35390871202, layout tests red on
+// "Test timed out in 5000ms" with no layout defect). 30s is past every
+// launch observed here and a genuinely broken layout still fails inside it.
+const BROWSER_TIMEOUT_MS = 30_000;
+
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 
 const publicJsPages = join(dirname(fileURLToPath(import.meta.url)), '../../src/web/public/js/pages');
@@ -363,7 +371,7 @@ describe('no colour scale, no ordering from good to bad (done-means 5, mutation 
     } finally {
       await browser.close();
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 
   // qa review round 3, D5 (vacuous-gate, third round of round-1 D1 /
   // round-2 D3): the element-level comparison above never descends into a
@@ -418,7 +426,7 @@ describe('no colour scale, no ordering from good to bad (done-means 5, mutation 
     } finally {
       await browser.close();
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 });
 
 describe('the two seven-day clocks (done-means 6, mutation proof 6)', () => {
@@ -593,5 +601,5 @@ describe('layout: 320px, both grids collapse per the wireframe media queries, ev
     } finally {
       await browser.close();
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 });

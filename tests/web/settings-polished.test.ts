@@ -39,6 +39,19 @@ const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const PLATFORM_SEED = 'd'.repeat(64);
 const GITHUB_LOGIN = 'settings-polish-owner';
 
+// EVERY TEST BELOW THAT DRIVES A REAL BROWSER CARRIES AN EXPLICIT TIMEOUT.
+// vitest's default is 5000ms and RealBrowser.launch alone takes 1 to 4s on
+// an idle machine; withOpenPage adds two navigations and a disclosure
+// click on top of that. Run inside the full suite, or beside another
+// seat's build, launch plus that setup regularly passes 5s and the test
+// fails with a timeout that says nothing about the page: CI1 measured the
+// tick-morph test timing out under full-suite load while passing alone in
+// about 3.6s, the same timing-dependency shape
+// tests/web/hire-polished.test.ts:486-495 already named and fixed the same
+// way. 30s is past every launch observed here and a genuinely broken
+// assertion still fails inside it.
+const BROWSER_TIMEOUT_MS = 30_000;
+
 const here = dirname(fileURLToPath(import.meta.url));
 const iconsPath = join(here, '../../src/web/public/js/icons.js');
 const pagePath = join(here, '../../src/web/pages/settings.html');
@@ -423,7 +436,7 @@ describe('3. each account row carries its own stagger index', () => {
         `row ${i} does not arrive after row ${i - 1} (${JSON.stringify(measured.rows)})`,
       ).toBe(true);
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 });
 
 // --------------------------------------------------------- 4. the copy control
@@ -484,7 +497,7 @@ describe('4. the identity copy control is the wireframe\u2019s, and the class do
       measured.without[0] > measured.withClass[0],
       `stripping .copybtn changed nothing (${JSON.stringify(measured)}), so the class is doing no work`,
     ).toBe(true);
-  });
+  }, BROWSER_TIMEOUT_MS);
 
   it('the tick morph swaps the glyphs and leaves the label and the button box alone', async () => {
     const measured = await withOpenPage(1280, async (browser) => {
@@ -533,7 +546,7 @@ describe('4. the identity copy control is the wireframe\u2019s, and the class do
     // beside it does not reflow while the state changes.
     expect(after.lbl, 'the label changed, which is the reflow this design avoids').toBe(before.lbl);
     expect(after.box, 'the button resized while reporting the copy').toEqual(before.box);
-  });
+  }, BROWSER_TIMEOUT_MS);
 
   // MUTATION CONTROL for the morph above: the same reading, with the class
   // polish.css hangs the swap on removed from the button.
@@ -565,7 +578,7 @@ describe('4. the identity copy control is the wireframe\u2019s, and the class do
       parseFloat(measured.copy) > 0.9 && parseFloat(measured.done) > 0.9,
       `the morph survived the class being removed (${JSON.stringify(measured)}), so it is not polish.css doing it`,
     ).toBe(true);
-  });
+  }, BROWSER_TIMEOUT_MS);
 });
 
 // -------------------------------------------- 5. the sheet is doing real work
@@ -621,5 +634,5 @@ describe('5. polish.css is not decoration on this page', () => {
       off.icoslot[0] !== on.icoslot[0],
       `the copy slot is unchanged without polish.css (${JSON.stringify(measured)})`,
     ).toBe(true);
-  });
+  }, BROWSER_TIMEOUT_MS);
 });

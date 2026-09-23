@@ -25,6 +25,14 @@ import { createJob, type Job, type Criterion } from '../../src/domain/job.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
+// Real-browser layout tests launch Chrome, navigate at least once and
+// evaluate in the page; vitest's 5000ms default times out under full-suite
+// load exactly the way CI1 found in dashboard.test.ts and
+// hire-polished.test.ts (run 35390871202, layout tests red on
+// "Test timed out in 5000ms" with no layout defect). 30s is past every
+// launch observed here and a genuinely broken layout still fails inside it.
+const BROWSER_TIMEOUT_MS = 30_000;
+
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 // P8d: resolving a session to an account when none exists yet needs
 // FREEAGENTS_PLATFORM_SEED, the same stance tests/web/myjobs.test.ts takes.
@@ -669,7 +677,7 @@ describe('the My agents screen, driven end to end against the real app', () => {
       } finally {
         await browser.close();
       }
-    });
+    }, BROWSER_TIMEOUT_MS);
 
     it('mutation proof: a row wide enough to force horizontal scroll reddens the overflow assertion above', async () => {
       if (!hasRealBrowser()) {
@@ -700,6 +708,6 @@ describe('the My agents screen, driven end to end against the real app', () => {
       } finally {
         await browser.close();
       }
-    });
+    }, BROWSER_TIMEOUT_MS);
   });
 });

@@ -22,6 +22,14 @@ import type { Delegation } from '../../src/domain/agent.js';
 import type { VerifiableCredential, DeemedCompletionCredential } from '../../src/adapters/credentials/types.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
+// Real-browser layout tests launch Chrome, navigate at least once and
+// evaluate in the page; vitest's 5000ms default times out under full-suite
+// load exactly the way CI1 found in dashboard.test.ts and
+// hire-polished.test.ts (run 35390871202, layout tests red on
+// "Test timed out in 5000ms" with no layout defect). 30s is past every
+// launch observed here and a genuinely broken layout still fails inside it.
+const BROWSER_TIMEOUT_MS = 30_000;
+
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const BUYER_DID = 'did:example:w4-buyer';
 const AGENT_DID = 'did:abt:zW4Agent';
@@ -639,7 +647,7 @@ describe('the identity strip does not overflow a 320px viewport (mobile-horizont
     } finally {
       await browser.close();
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 });
 
 // D2 tap-target-under-44px (qa round 1): #who-operator-link and the
@@ -671,7 +679,7 @@ describe('every rendered interactive control on the job page is at least 44px at
     } finally {
       await browser.close();
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 });
 
 // layout-broken-at-desktop (three strikes on the standing ledger): the
@@ -703,5 +711,5 @@ describe('the job page stays clean at 1280px desktop (layout-broken-at-desktop)'
     } finally {
       await browser.close();
     }
-  });
+  }, BROWSER_TIMEOUT_MS);
 });

@@ -29,6 +29,14 @@ import type { Delegation } from '../../src/domain/agent.js';
 import type { Session } from '../../src/adapters/identity/session.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
+// Real-browser layout tests launch Chrome, navigate at least once and
+// evaluate in the page; vitest's 5000ms default times out under full-suite
+// load exactly the way CI1 found in dashboard.test.ts and
+// hire-polished.test.ts (run 35390871202, layout tests red on
+// "Test timed out in 5000ms" with no layout defect). 30s is past every
+// launch observed here and a genuinely broken layout still fails inside it.
+const BROWSER_TIMEOUT_MS = 30_000;
+
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const AGENT_DID = 'did:abt:operatorjob-page-agent';
 const OPERATOR_LOGIN = 'operatorjob-page-operator';
@@ -861,7 +869,7 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
       } finally {
         await browser.close();
       }
-    });
+    }, BROWSER_TIMEOUT_MS);
 
     it('at 320px the accept-redo dialog, opened, has no horizontal overflow (the wireframe\'s own open state)', async () => {
       if (!hasRealBrowser()) {
@@ -885,7 +893,7 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
       } finally {
         await browser.close();
       }
-    });
+    }, BROWSER_TIMEOUT_MS);
 
     it('at 320px the confirmed-state stage panel also has no horizontal overflow', async () => {
       if (!hasRealBrowser()) {
@@ -910,6 +918,6 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
       } finally {
         await browser.close();
       }
-    });
+    }, BROWSER_TIMEOUT_MS);
   });
 });

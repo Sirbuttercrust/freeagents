@@ -629,6 +629,17 @@ describe('6. the page measures right at 1280 and at 320', () => {
   // and the 320px case hides it because base.css's own 420px rule comes
   // later and restores the padding. Measured before the fix: the pane came
   // back 1080 wide against the wireframe's 1016, flush to the viewport edge.
+  //
+  // Centring is asserted against documentElement.clientWidth, the viewport
+  // the page actually has, not a hardcoded 1280: headless Chrome on the
+  // GitHub Actions Linux runner draws a classic, space-consuming scrollbar
+  // (the Mac driving this file locally draws an overlay one that consumes
+  // none), so a page taller than 1000px reports clientWidth 1265 there and
+  // 1280 here. .wrap centres with `margin: 0 auto` against whatever width
+  // it actually has, so the CORRECT left offset moves with the scrollbar
+  // too; a fixed 132 asserts the Mac's arithmetic on every platform, which
+  // is what made this test read the classic-scrollbar viewport as a
+  // regression rather than as a smaller, still-centred viewport (CI1).
   it('1280px: the content column keeps the wireframe\u2019s gutter', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
@@ -637,7 +648,7 @@ describe('6. the page measures right at 1280 and at 320', () => {
     const browser = await RealBrowser.launch({ width: 1280, height: 1000 });
     try {
       await signedIn(browser);
-      const geometry = await browser.evaluate<{ pane: number[]; who: number[]; h1Wins: string }>(`
+      const geometry = await browser.evaluate<{ pane: number[]; who: number[]; h1Wins: string; clientWidth: number }>(`
         (function () {
           function box(sel) {
             var r = document.querySelector(sel).getBoundingClientRect();
@@ -647,12 +658,17 @@ describe('6. the page measures right at 1280 and at 320', () => {
           return {
             pane: box('.pane'),
             who: box('.who'),
-            h1Wins: document.elementsFromPoint(h.left + 6, h.top + 6)[0].tagName
+            h1Wins: document.elementsFromPoint(h.left + 6, h.top + 6)[0].tagName,
+            clientWidth: document.documentElement.clientWidth
           };
         })()
       `);
       expect(geometry.pane[0], 'the content column is not the wireframe\u2019s 1016px measure').toBe(1016);
-      expect(geometry.pane[1], 'the column is not centred in the 1280px viewport').toBe(132);
+      const expectedLeft = Math.round((geometry.clientWidth - (geometry.pane[0] ?? 0)) / 2);
+      expect(
+        geometry.pane[1],
+        `the column is not centred in the ${geometry.clientWidth}px viewport this platform actually has`,
+      ).toBe(expectedLeft);
       expect(geometry.who[0], 'the identity strip and the rail disagree about the measure').toBe(1016);
 
       // The visibility law, asked of the browser rather than read off a
