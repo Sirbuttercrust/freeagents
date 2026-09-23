@@ -58,18 +58,15 @@ const PLATFORM_SEED = 'c'.repeat(64);
 // 1s each in all four samples; the four full-test durations were
 // 2792ms, 10103ms, 11795ms and 11486ms.
 //
-// The 60_000ms ceiling has to cover a worse cold start than those four
-// samples, because this branch's own CI already produced one: run
-// 35908468398 passed this same test on node 22 in 37529ms with no
-// diagnostic marks running, the slowest full-test duration on record.
-// 60s is roughly 1.6x that sample, not the 5x an earlier version of
-// this comment claimed against the smaller instrumented set. The other
-// limit on a cold launch is tests/helpers/real-browser.ts's own
-// 30000ms port-wait deadline (real-browser.ts:161): launch() cannot
-// legally cost this test more than that deadline plus the sub-1s cost
-// of every step around it, so 60_000ms clears both the worst sample
-// actually seen (37529ms) and the worst a cold launch can cost before
-// real-browser.ts gives up on it first.
+// The 60_000ms ceiling has to cover more than those four samples,
+// because this branch's own CI already produced a slower pass: run
+// 35908468398 passed this same test on node 22 in 37529ms. That run
+// carried no timing marks, so the cause of its extra time is unknown;
+// two other real-Chrome test files were running during its window, and
+// the log cannot show whether their launches overlapped this one. 60s is
+// roughly 1.6x that sample, the slowest full-test duration on record,
+// and not the 5x an earlier version of this comment claimed against the
+// smaller instrumented set.
 const BROWSER_TIMEOUT_MS = 60_000;
 
 function delegationFixture(agentDid: string, operatorDid: string): Delegation {
