@@ -34,10 +34,24 @@ const PLATFORM_SEED = 'c'.repeat(64);
 // caught: run 35390871202 reported both "the two dspan-6 sections..." and
 // "under prefers-reduced-motion..." red with "Test timed out in 5000ms",
 // not a real layout defect, the same timing-dependency shape
-// tests/web/hire-polished.test.ts:486-495 already named and fixed. 30s is
-// past every launch observed here and a genuinely broken layout still
-// fails inside it.
-const BROWSER_TIMEOUT_MS = 30_000;
+// tests/web/hire-polished.test.ts:486-495 already named and fixed.
+//
+// CI2 finding: 30s was not past every launch after all. PR run
+// 35901282897 (identical code to main's own green push run 35900696646)
+// reproduced "the two dspan-6 sections..." as "Test timed out in 30000ms"
+// on node 22, while the SAME test in the SAME run passed on node 24 at
+// 2661ms. That is not a real layout defect either: it is this test's own
+// 30_000ms ceiling colliding with tests/helpers/real-browser.ts's launch()
+// having an internal 30000ms deadline of its own (waiting for Chrome's
+// debug port), so a launch that legitimately needs close to its own
+// ceiling under a loaded shared runner leaves this test's timer with
+// nothing left for the two navigations, two evaluates, the resize and the
+// close that still have to run afterward. Local timing (see the scratch
+// harness this card's handoff cites) put that non-launch overhead at
+// 1.5-2s warm; 60s gives it real headroom above launch()'s own worst case
+// rather than colliding with it, and a genuinely broken layout still
+// fails in milliseconds once the page is up, well inside either ceiling.
+const BROWSER_TIMEOUT_MS = 60_000;
 
 function delegationFixture(agentDid: string, operatorDid: string): Delegation {
   return {
