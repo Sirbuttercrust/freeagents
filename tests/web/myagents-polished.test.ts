@@ -40,14 +40,8 @@ import type { Delegation } from '../../src/domain/agent.js';
 import { createJob, type Job } from '../../src/domain/job.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
-
-// Real-browser layout tests launch Chrome, navigate at least once and
-// evaluate in the page; vitest's 5000ms default times out under full-suite
-// load exactly the way CI1 found in dashboard.test.ts and
-// hire-polished.test.ts (run 35390871202, layout tests red on
-// "Test timed out in 5000ms" with no layout defect). 30s is past every
-// launch observed here and a genuinely broken layout still fails inside it.
-const BROWSER_TIMEOUT_MS = 30_000;
+import { PAINTED_PIXELS_FN } from '../helpers/bot-mount.js';
+import { defaultAvatar, type AvatarSpec } from '../../src/domain/avatar-spec.js';
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const PLATFORM_SEED = 'e'.repeat(64);
@@ -65,6 +59,13 @@ const HIRE_DID = 'did:abt:driftcheck';
 const PRIOR_DID = 'did:abt:hatchmark';
 const COLD_DID = 'did:abt:pixelforge';
 const PLAIN_DID = 'did:abt:seamline';
+const PLAIN_OVERRIDE: AvatarSpec = (() => {
+  const d = defaultAvatar(PLAIN_DID);
+  return { shape: d.shape === 'ghost' ? 'pill' : 'ghost', face: d.face === 'eyes' ? 'mouth' : 'eyes', colour: d.colour === 'c10' ? 'c2' : 'c10' };
+})();
+function servedSpec(did: string): AvatarSpec {
+  return did === PLAIN_DID ? PLAIN_OVERRIDE : defaultAvatar(did);
+}
 
 function delegationFixture(agentDid: string, operatorDid: string): Delegation {
   return {
@@ -173,6 +174,9 @@ beforeAll(async () => {
       name, skills: ['work'], githubLogin: null,
     });
   }
+  // AV2: one row carries an operator override, so the mount assertions can
+  // tell "drew the served spec" from "re-derived the DID default".
+  await agentRepo.setAvatarSpec(PLAIN_DID, PLAIN_OVERRIDE);
 });
 
 afterAll(async () => {
@@ -218,7 +222,9 @@ async function withPage<T>(
     // to land before anything here is worth measuring.
     const deadline = Date.now() + 15000;
     while (Date.now() < deadline) {
-      const painted = await browser.evaluate<number>(`document.querySelectorAll('.rav svg').length`);
+      const painted = await browser.evaluate<number>(
+        `Array.prototype.filter.call(document.querySelectorAll('.rav'), function (h) { return (${PAINTED_PIXELS_FN})(h) > 0; }).length`,
+      );
       if (painted >= 4) break;
       await new Promise((r) => setTimeout(r, 200));
     }
@@ -249,7 +255,8 @@ describe('1. the page wears the wireframe\u2019s visual system', () => {
     expect(scripts).toEqual([
       '/js/pages/api.js',
       '/js/pages/nav.js',
-      '/js/swarm.js',
+      '/js/vendor/bot-avatars/bot-avatars.js',
+      '/js/bots.js',
       '/js/icons.js',
       '/js/polish.js',
       '/js/pages/myagents.js',
@@ -260,7 +267,7 @@ describe('1. the page wears the wireframe\u2019s visual system', () => {
 
 // -------------------------------------------------------------- 2. the avatars
 
-describe('2. the avatar mount is real, not a string that satisfies a regex', () => {
+describe('2. the avatar mount is real, not a string that satisfies a regex', { timeout: 60000 }, () => {
   it('the static shell ships NO data-avatar, and the script sets it from the DID', () => {
     const shell = readFileSync(pagePath, 'utf8');
     // A data-avatar in static markup is one of two defects: a fabricated DID,
@@ -277,17 +284,25 @@ describe('2. the avatar mount is real, not a string that satisfies a regex', () 
     ).toBe(true);
   });
 
-  it('every row mounts its own DID and paints a creature into it', async () => {
+  it('every row mounts its own DID and draws the bot its agent read served', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found; skipping (see CHROME_BIN)');
       return;
     }
-    const rows = await withPage(1280, (b) => b.evaluate<Array<{ did: string; painted: boolean; pending: boolean; kids: number }>>(`
+    type Row = {
+      did: string;
+      shape: string | null; face: string | null; colour: string | null;
+      painted: number; pending: boolean; kids: number;
+    };
+    const rows = await withPage(1280, (b) => b.evaluate<Row[]>(`
       Array.prototype.map.call(document.querySelectorAll('.arow'), function (row) {
         var rav = row.querySelector('.rav');
         return {
           did: rav ? rav.getAttribute('data-avatar') : null,
-          painted: !!(rav && rav.querySelector('svg')),
+          shape: rav ? rav.getAttribute('data-avatar-shape') : null,
+          face: rav ? rav.getAttribute('data-avatar-face') : null,
+          colour: rav ? rav.getAttribute('data-avatar-colour') : null,
+          painted: (${PAINTED_PIXELS_FN})(rav),
           pending: rav ? rav.hasAttribute('data-pending') : null,
           kids: rav ? rav.childElementCount : 0
         };
@@ -297,160 +312,104 @@ describe('2. the avatar mount is real, not a string that satisfies a regex', () 
     expect(rows.length, 'no row rendered: the fixture or the read is broken, not the page').toBe(4);
     expect(rows.map((r) => r.did).sort()).toEqual([HIRE_DID, PRIOR_DID, COLD_DID, PLAIN_DID].sort());
     for (const row of rows) {
-      expect(row.painted, `${row.did}: mounted but never painted`).toBe(true);
-      expect(row.pending, `${row.did}: still marked pending after painting`).toBe(false);
-      expect(row.kids, `${row.did}: painted more than one root into the mount`).toBe(1);
+      const want = servedSpec(row.did);
+      // PLAIN_DID carries an override; the other three wear their default.
+      // A page that re-derived the spec from the DID would fail PLAIN_DID.
+      expect({ shape: row.shape, face: row.face, colour: row.colour }, `${row.did}: wrong bot`).toEqual({ ...want });
+      // A 40px bot at 0.74 fill covers well over a hundred device pixels.
+      expect(row.painted, `${row.did}: mounted but nothing was drawn`).toBeGreaterThan(100);
+      expect(row.pending, `${row.did}: still marked pending after drawing`).toBe(false);
+      expect(row.kids, `${row.did}: more than one root in the mount`).toBe(1);
     }
-  }, BROWSER_TIMEOUT_MS);
+  });
 
-  it('the creature is derived from the DID, so the same identity wears the same face here as on its profile', async () => {
+  it('the bot has the same colour here as the palette says, read off the drawn pixels', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found; skipping (see CHROME_BIN)');
       return;
     }
-    // The page must not fall back to the server's older avatar field: that is
-    // a different generator, and an agent would wear two different faces.
-    //
-    // The generated string is round-tripped through the parser before it is
-    // compared. The mounted copy has already been through it, and the parser
-    // rewrites self-closing tags (<stop/> becomes <stop></stop>), so comparing
-    // the mounted markup against the raw string compares two serialisations
-    // and fails on identical drawings.
-    const same = await withPage(1280, (b) => b.evaluate<boolean>(`
+    // The spec attributes say which bot was asked for. This reads what was
+    // DRAWN: the most common opaque hue on each canvas has to sit near the
+    // palette colour the served spec names, so a renderer that ignored the
+    // colour key (or drew every bot one colour) fails here.
+    const drawn = await withPage(1280, (b) => b.evaluate<Array<{ did: string; hue: number | null; want: number }>>(`
       (function () {
-        var rav = document.querySelector('.arow .rav');
-        if (!rav || !window.FASwarm) return false;
-        var probe = document.createElement('div');
-        probe.innerHTML = window.FASwarm.avatar(rav.getAttribute('data-avatar'), 40);
-        return rav.innerHTML === probe.innerHTML;
+        function hueOf(r, g, b) {
+          var mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+          if (d < 24) return null;
+          var h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+          return Math.round(((h * 60) + 360) % 360);
+        }
+        return Array.prototype.map.call(document.querySelectorAll('.arow .rav'), function (rav) {
+          var c = rav.querySelector('canvas.bot');
+          var d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+          var bins = {};
+          for (var i = 0; i < d.length; i += 4) {
+            if (d[i + 3] < 250) continue;
+            var h = hueOf(d[i], d[i + 1], d[i + 2]);
+            if (h === null) continue;
+            var k = Math.round(h / 10);
+            bins[k] = (bins[k] || 0) + 1;
+          }
+          var best = null, n = 0;
+          Object.keys(bins).forEach(function (k) { if (bins[k] > n) { n = bins[k]; best = +k * 10; } });
+          var hex = window.FABots.COLOURS[rav.getAttribute('data-avatar-colour')];
+          var want = hueOf(parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16));
+          return { did: rav.getAttribute('data-avatar'), hue: best, want: want };
+        });
       })()
     `));
-    expect(same, 'the painted avatar is not what the swarm generator draws for this DID').toBe(true);
-  }, BROWSER_TIMEOUT_MS);
+    expect(drawn.length).toBe(4);
+    for (const row of drawn) {
+      expect(row.hue, `${row.did}: no saturated pixel on the canvas`).not.toBeNull();
+      const gap = Math.min(Math.abs(row.hue! - row.want), 360 - Math.abs(row.hue! - row.want));
+      expect(gap, `${row.did}: drew hue ${row.hue}, palette says ${row.want}`).toBeLessThanOrEqual(25);
+    }
+  });
 
-  it('no creature paints outside its 40px mount, so nothing lands on the row beneath', async () => {
+  it('no bot paints outside its 40px mount, so nothing lands on the row beneath', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found; skipping (see CHROME_BIN)');
       return;
     }
-    // swarm.js draws a contact shadow below the creature, outside the fitted
-    // viewBox, so without the clip a mount paints below itself into the row.
-    //
-    // This hit-tests the CLIP'S EFFECT rather than the svg's box. The box is
-    // useless here: swarm.js writes width and height equal to the mounted
-    // size and display:block, so the svg border box is always exactly the
-    // 40x40 host and `svg.bottom - host.bottom` is structurally 0 whether or
-    // not ink escapes. That was the vacuous assertion this replaces.
-    //
-    // Two rules about how the sweep counts, each of which cost a real defect
-    // to learn:
-    //
-    //   elementsFromPoint returns the SVG ROOT for every point inside its
-    //   border box whether or not anything is painted there, so a hit on the
-    //   root is the box reporting itself. Only a PROPER DESCENDANT is ink.
-    //
-    //   The lattice stays strictly outside that border box. Between the disc
-    //   and the box corners lies the clip's own antialiased edge, which hit
-    //   tests as ink a fraction of a pixel beyond the circle and is not art
-    //   leaving the mount.
-    //
-    // Two controls run in the same page. One removes the clip, so a zero
-    // above means the page is clean rather than the sweep being aimed at
-    // nothing. The other empties every svg of its painted cells and requires
-    // the same sweep to go silent, so the count cannot be reading geometry.
-    const INK = `
-      window.__inkProbe = function (opts) {
-        return Array.prototype.map.call(document.querySelectorAll('.arow .rav'), function (rav) {
-          var svg = rav.querySelector('svg');
-          var stash = [];
-          if (opts.blank) {
-            while (svg.firstChild) { stash.push(svg.firstChild); svg.removeChild(svg.firstChild); }
-          }
-          if (opts.unclip) rav.style.overflow = 'visible';
-          // Sampled while the state is in force, so a control that never
-          // applied cannot report a clean page.
-          var overflow = getComputedStyle(rav).overflow;
-
-          var r = rav.getBoundingClientRect();
-          if (Math.round(r.width) !== 40 || Math.round(r.height) !== 40) {
-            throw new Error('the mount is not 40x40, so this lattice measures the wrong region');
-          }
-          var W = 40, PAD = 8, DROP = 24;
-          var sampled = 0, ink = 0, lowest = null;
-          for (var dx = -PAD; dx < W + PAD; dx++) {
-            for (var dy = -PAD; dy < W + DROP; dy++) {
-              if (dx >= 0 && dx < W && dy >= 0 && dy < W) continue;
-              sampled++;
-              var stack = document.elementsFromPoint(r.left + dx + 0.5, r.top + dy + 0.5);
-              for (var i = 0; i < stack.length; i++) {
-                if (stack[i] !== svg && svg.contains(stack[i])) {
-                  ink++;
-                  if (lowest === null || dy > lowest) lowest = dy;
-                  break;
-                }
-              }
-            }
-          }
-
-          if (opts.unclip) rav.style.overflow = '';
-          for (var j = 0; j < stash.length; j++) svg.appendChild(stash[j]);
-          return { did: rav.getAttribute('data-avatar'), overflow: overflow,
-                   sampled: sampled, ink: ink, lowest: lowest };
-        });
-      };
-      true;
-    `;
-    type Row = { did: string; overflow: string; sampled: number; ink: number; lowest: number | null };
-    const { shipped, unclipped, blank } = await withPage(1280, async (b) => {
-      await b.evaluate(INK);
-      return {
-        shipped: await b.evaluate<Row[]>('window.__inkProbe({})'),
-        unclipped: await b.evaluate<Row[]>('window.__inkProbe({ unclip: true })'),
-        blank: await b.evaluate<Row[]>('window.__inkProbe({ unclip: true, blank: true })'),
-      };
-    });
-
-    // 56 columns by 72 rows around the mount, less the 40x40 box itself.
-    const SAMPLED = 56 * 72 - 40 * 40;
-    expect(shipped.length).toBe(4);
-    for (const row of shipped) {
-      expect(row.overflow, `${row.did}: the avatar box does not clip`).toBe('hidden');
-      expect(row.sampled, `${row.did}: the sweep sampled nothing, so its zero means nothing`).toBe(SAMPLED);
-      expect(row.ink, `${row.did}: art is painting outside the 40px mount`).toBe(0);
+    // A canvas cannot paint outside its own border box, so the whole claim
+    // is that the canvas box IS the 40px host box and the host clips. The
+    // swarm needed a hit-test lattice because an svg's ink could escape its
+    // viewBox; a canvas's cannot. Measured, with a control: widen the canvas
+    // past the host and the clip must be what keeps it in.
+    type Box = { host: number[]; canvas: number[]; overflow: string; hostClipsWide: boolean };
+    const boxes = await withPage(1280, (b) => b.evaluate<Box[]>(`
+      Array.prototype.map.call(document.querySelectorAll('.arow .rav'), function (rav) {
+        var c = rav.querySelector('canvas.bot');
+        function box(el) { var r = el.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]; }
+        var host = box(rav), canvas = box(c);
+        // Control: a canvas forced 20px wider than the host. With the clip in
+        // force the point just right of the host is not the canvas.
+        c.style.width = '60px';
+        var r = rav.getBoundingClientRect();
+        var hit = document.elementFromPoint(r.right + 4, r.top + r.height / 2);
+        var clips = hit !== c;
+        rav.style.overflow = 'visible';
+        var hitOpen = document.elementFromPoint(r.right + 4, r.top + r.height / 2);
+        rav.style.overflow = '';
+        c.style.width = '100%';
+        return { host: host, canvas: canvas, overflow: getComputedStyle(rav).overflow,
+                 hostClipsWide: clips && hitOpen === c };
+      })
+    `));
+    expect(boxes.length).toBe(4);
+    for (const box of boxes) {
+      expect(box.host.slice(2), 'the mount is not 40x40').toEqual([40, 40]);
+      expect(box.canvas, 'the canvas box differs from the host box').toEqual(box.host);
+      expect(box.overflow, 'the avatar box does not clip').toBe('hidden');
+      expect(box.hostClipsWide, 'the control could not show the clip doing the work').toBe(true);
     }
-
-    // Control 1: the clip comes off and the same sweep has to find ink. Not
-    // every identity reaches past its mount, so this is asked of the set.
-    for (const row of unclipped) {
-      expect(row.overflow, `${row.did}: the control never removed the clip`).toBe('visible');
-      expect(row.sampled, `${row.did}: the control sampled nothing`).toBe(SAMPLED);
-    }
-    const realInk = unclipped.reduce((n, r) => n + r.ink, 0);
-    expect(
-      realInk,
-      'unclipping every mount changed nothing, so the assertion above cannot fail',
-    ).toBeGreaterThan(0);
-
-    // Control 2: same sweep, clip still off, every svg emptied of painted
-    // cells. An instrument counting boxes rather than ink reads the same
-    // here as it does above.
-    for (const row of blank) {
-      expect(row.sampled, `${row.did}: the blank control sampled nothing`).toBe(SAMPLED);
-      expect(
-        row.ink,
-        `${row.did}: the sweep reports ink on an svg with no painted cells, so it is counting geometry`,
-      ).toBe(0);
-    }
-    expect(
-      blank.reduce((n, r) => n + r.ink, 0),
-      'the sweep cannot tell art from no art',
-    ).toBeLessThan(realInk);
-  }, BROWSER_TIMEOUT_MS);
+  });
 });
 
 // ----------------------------------------------------------------- 3. the tier
 
-describe('3. the tier pill carries the wireframe\u2019s glyph, not the pre-polish dot', () => {
+describe('3. the tier pill carries the wireframe\u2019s glyph, not the pre-polish dot', { timeout: 60000 }, () => {
   it('every tier the wireframe draws maps to the glyph the wireframe gives it', () => {
     const wireframe = readFileSync(wireframePath, 'utf8');
     // Derived from the wireframe rather than typed here: tier class to icon
@@ -507,7 +466,7 @@ describe('3. the tier pill carries the wireframe\u2019s glyph, not the pre-polis
     // The tier the agent is in must match the glyph it wears.
     const hire = state.pills.find((p) => p.cls.includes('tier-hire'));
     expect(hire?.ico, 'the verified-hire pill wears the wrong glyph').toBe('shield-check');
-  }, BROWSER_TIMEOUT_MS);
+  });
 });
 
 // --------------------------------------------------------- 4. the builder notes
@@ -546,7 +505,7 @@ describe('4. not one of the wireframe\u2019s three builder notes is rendered', (
 
 // ------------------------------------------------------------ 5. states, 320px
 
-describe('5. the polished page holds up at 320px, in both motion modes', () => {
+describe('5. the polished page holds up at 320px, in both motion modes', { timeout: 60000 }, () => {
   const SWEEP = `
     (function () {
       var all = [].filter.call(document.querySelectorAll('button, a[href]'), function (el) {
@@ -587,7 +546,7 @@ describe('5. the polished page holds up at 320px, in both motion modes', () => {
     expect(result.sweep.measured, 'no control measured: the sweep is broken, not the page').toBeGreaterThan(3);
     expect(result.sweep.under, 'controls under the 44px floor at 320px with the disclosure open').toEqual([]);
     expect(result.sweep.overflow, 'the 320px page scrolls sideways with the disclosure open').toBe(0);
-  }, BROWSER_TIMEOUT_MS);
+  });
 
   it('under prefers-reduced-motion the roster still lands on visible content', async () => {
     if (!hasRealBrowser()) {
@@ -604,7 +563,7 @@ describe('5. the polished page holds up at 320px, in both motion modes', () => {
         return {
           opacity: cs.opacity,
           transform: cs.transform,
-          avatars: document.querySelectorAll('.rav svg').length,
+          avatars: Array.prototype.filter.call(document.querySelectorAll('.rav'), function (h) { return (${PAINTED_PIXELS_FN})(h) > 100; }).length,
           icons: document.querySelectorAll('.tier .ico svg').length
         };
       })()
@@ -614,5 +573,144 @@ describe('5. the polished page holds up at 320px, in both motion modes', () => {
     expect(['none', 'matrix(1, 0, 0, 1, 0, 0)']).toContain(state.transform);
     expect(state.avatars, 'no avatar painted under reduced motion').toBe(4);
     expect(state.icons, 'no tier glyph painted under reduced motion').toBe(4);
-  }, BROWSER_TIMEOUT_MS);
+  });
+});
+
+// ------------------------------------------------------ 6. the avatar editor
+
+describe('6. the avatar editor under each row (AV2)', { timeout: 60000 }, () => {
+  // Shared by both tests: open HIRE_DID's editor and wait for its tiles.
+  const OPEN_EDITOR = `
+    (function () {
+      var host = document.querySelector('.rav[data-avatar="${HIRE_DID}"]');
+      var row = host && host.closest('.arow');
+      var toggle = row && row.querySelector('.avedit-toggle');
+      if (!toggle) return false;
+      toggle.click();
+      return toggle.getAttribute('aria-expanded') === 'true';
+    })()
+  `;
+
+  it('OPEN at 320px: 18 shapes, 2 faces, 12 colours, every tile 44px, nothing overflows', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found; skipping (see CHROME_BIN)');
+      return;
+    }
+    type Report = {
+      opened: boolean;
+      counts: { shape: number; face: number; colour: number };
+      checked: { shape: string | null; face: string | null; colour: string | null };
+      small: string[];
+      unnamed: number;
+      overflow: number;
+      panelRight: number;
+      viewport: number;
+      tilesDrawn: number;
+    };
+    const report = await withPage(320, async (b) => {
+      const opened = await b.evaluate<boolean>(OPEN_EDITOR);
+      await new Promise((r) => setTimeout(r, 400));
+      const rest = await b.evaluate<Omit<Report, 'opened'>>(`
+        (function () {
+          var panel = document.querySelector('.avedit:not([hidden])');
+          function n(k) { return panel.querySelectorAll('.avedit-' + k + ' input[type=radio]').length; }
+          function c(k) { var i = panel.querySelector('.avedit-' + k + ' input:checked'); return i ? i.value : null; }
+          var controls = [].slice.call(panel.querySelectorAll('.avedit-opt, button'));
+          var small = controls.filter(function (el) {
+            var r = el.getBoundingClientRect();
+            return r.width < 44 || r.height < 44;
+          }).map(function (el) {
+            var r = el.getBoundingClientRect();
+            return (el.textContent || el.className).trim().slice(0, 24) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height);
+          });
+          // Every radio has an accessible name through its label text.
+          var unnamed = [].filter.call(panel.querySelectorAll('input[type=radio]'), function (i) {
+            var l = i.closest('label');
+            return !l || !(l.textContent || '').trim();
+          }).length;
+          var drawn = [].filter.call(panel.querySelectorAll('.avedit-shape canvas'), function (cv) {
+            if (!cv.width) return false;
+            var d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+            for (var i = 3; i < d.length; i += 4) if (d[i] > 200) return true;
+            return false;
+          }).length;
+          return {
+            counts: { shape: n('shape'), face: n('face'), colour: n('colour') },
+            checked: { shape: c('shape'), face: c('face'), colour: c('colour') },
+            small: small,
+            unnamed: unnamed,
+            overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            panelRight: Math.round(panel.getBoundingClientRect().right),
+            viewport: document.documentElement.clientWidth,
+            tilesDrawn: drawn
+          };
+        })()
+      `);
+      return { opened, ...rest };
+    });
+
+    expect(report.opened, 'the editor did not open, so nothing below was measured').toBe(true);
+    expect(report.counts).toEqual({ shape: 18, face: 2, colour: 12 });
+    // Opens on what is stored: HIRE_DID has no override, so its default.
+    expect(report.checked).toEqual({ ...defaultAvatar(HIRE_DID) });
+    expect(report.tilesDrawn, 'shape tiles were left blank').toBe(18);
+    expect(report.small, 'editor controls under 44px at 320').toEqual([]);
+    expect(report.unnamed, 'a radio with no visible name').toBe(0);
+    expect(report.overflow, 'the 320px page scrolls sideways with the editor open').toBe(0);
+    expect(report.panelRight).toBeLessThanOrEqual(report.viewport);
+  });
+
+  it('Save writes the draft through PUT, the row takes it at once, and Reset puts the default back', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found; skipping (see CHROME_BIN)');
+      return;
+    }
+    const d = defaultAvatar(HIRE_DID);
+    // A spec that differs from the default in every key, so a save that
+    // dropped any one of them shows.
+    const pick: AvatarSpec = {
+      shape: d.shape === 'star' ? 'drop' : 'star',
+      face: d.face === 'eyes' ? 'mouth' : 'eyes',
+      colour: d.colour === 'c6' ? 'c11' : 'c6',
+    };
+    type Seen = { shape: string | null; face: string | null; colour: string | null; status: string };
+    const readRow = `
+      (function () {
+        var host = document.querySelector('.rav[data-avatar="${HIRE_DID}"]');
+        var st = host.closest('.arow').querySelector('.avedit-status');
+        return { shape: host.getAttribute('data-avatar-shape'), face: host.getAttribute('data-avatar-face'),
+                 colour: host.getAttribute('data-avatar-colour'), status: st ? st.textContent : '' };
+      })()
+    `;
+    const seen = await withPage(1280, async (b) => {
+      await b.evaluate(OPEN_EDITOR);
+      await b.evaluate(`
+        (function () {
+          var panel = document.querySelector('.avedit:not([hidden])');
+          Object.entries(${JSON.stringify(pick)}).forEach(function (kv) {
+            var input = panel.querySelector('.avedit-' + kv[0] + ' input[value="' + kv[1] + '"]');
+            input.click();
+          });
+          [].filter.call(panel.querySelectorAll('button'), function (x) { return x.textContent === 'Save'; })[0].click();
+        })()
+      `);
+      await new Promise((r) => setTimeout(r, 800));
+      const afterSave = await b.evaluate<Seen>(readRow);
+      await b.evaluate(`
+        [].filter.call(document.querySelectorAll('.avedit:not([hidden]) button'), function (x) { return x.textContent === 'Reset to default'; })[0].click()
+      `);
+      await new Promise((r) => setTimeout(r, 800));
+      const afterReset = await b.evaluate<Seen>(readRow);
+      return { afterSave, afterReset };
+    });
+
+    // The row changed without a reload, and the server holds the same spec.
+    expect({ shape: seen.afterSave.shape, face: seen.afterSave.face, colour: seen.afterSave.colour }).toEqual({ ...pick });
+    expect(seen.afterSave.status).toContain('Saved');
+    // After reset: the row and the server are both back on the default.
+    expect({ shape: seen.afterReset.shape, face: seen.afterReset.face, colour: seen.afterReset.colour }).toEqual({ ...d });
+    expect(seen.afterReset.status).toContain('default');
+    const served = (await (await fetch(`${baseUrl}/agents/${encodeURIComponent(HIRE_DID)}`)).json()) as { avatarSpec: AvatarSpec };
+    expect(served.avatarSpec, 'the reset did not reach the server').toEqual(d);
+  });
 });

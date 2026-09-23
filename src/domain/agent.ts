@@ -3,6 +3,7 @@
 // to the operator DID (ENT-3). The agent DID is the primary key: it is what
 // a third party verifies against, not an internal id.
 import type { KeyRotation } from './key-rotation.js';
+import type { AvatarSpec } from './avatar-spec.js';
 
 // ENT-3, in the shape the operator's wallet produced it. The stored object
 // is the FULL credential, not a projection of it: drop the proof signature
@@ -72,6 +73,12 @@ export interface Agent {
   // and the platform sets no default and suggests no value.
   readonly minBuyerMerges: number | null;
   readonly maxWalkedAfterConfirm: number | null;
+  // AV1 (ENT-2.3 ruling): the operator's stored override on shape, face and
+  // colour. Null by default, meaning "no override, render the DID-derived
+  // default" -- resolveAvatar (src/domain/avatar-spec.ts) is the one place
+  // that turns this optional field plus the agent's own DID into the
+  // AvatarSpec a response actually carries.
+  readonly avatarSpec: AvatarSpec | null;
 }
 
 // The structural half of "the delegation proof verifies" (R-2 accept). The

@@ -13,7 +13,7 @@
      "Show what needs your attention, and nothing else."
 
      THE STACK. tokens, base, polish, pipeline, and the scripts api, nav,
-     swarm, icons, polish, dashboard, ui. pipeline.css arrives with this
+     bots, icons, polish, dashboard, ui. pipeline.css arrives with this
      rebuild and ships nowhere else yet: it draws the job track, the
      decision cards, the section heads and the twelve-column layout, and
      its own header explains why it carries that name rather than
@@ -66,7 +66,7 @@
 
      This keeps the 30px box and takes the disc off it. It is a layout
      reservation and not a claim: there is no data-avatar attribute, no
-     fill, and nothing for the swarm engine to paint. The alternative,
+     fill, and nothing for the bot renderer to paint. The alternative,
      mounting an empty data-avatar, would paint a grey disc standing in
      for an identity nobody supplied, which is the thing the card
      forbids. When the jobs row shape gains agentDid the face appears in
@@ -366,7 +366,8 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
-<script src="/js/swarm.js"></script>
+<script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
+<script src="/js/bots.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/dashboard.js"></script>

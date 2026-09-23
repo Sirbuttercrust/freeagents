@@ -36,8 +36,8 @@
    article.acard.idc, matching market.css's card component (the same one
    agent.html's profile header and operator.html's roster already draw
    their own identity colour from). Every card's --id-hue is derived from
-   its DID the same way agent.js derives --id-hue on #phero: the same
-   FACore.hash the avatar generator itself seeds from, so the SAME agent
+   its DID the same way agent.js derives --id-hue on #phero, with the
+   FNV-1a hash every page keys it on (FABots.hash), so the SAME agent
    gets the SAME hue on every render and on every page, never randomised
    and never cycled by position in the result list. */
 
@@ -362,20 +362,20 @@
     node.setAttribute("data-agent-card", card.did);
 
     /* Identity colour (DESIGN.md 2.4): per agent, derived from the DID,
-       never picked and never cycled by position in the result list. The
-       same hash swarm.js itself seeds the creature from, read through
-       FACore so this page invents no second hash function -- the exact
-       pattern agent.js already uses for #phero's --id-hue. Five bands,
-       matching the five --agent-* tokens. */
-    if (window.FACore) {
-      var hue = window.FACore.hash(card.did) % 5;
+       never picked and never cycled by position in the result list.
+       FABots.hash is the same FNV-1a the retired swarm engine seeded
+       from, kept byte for byte so no card changes colour; agent.js uses
+       it for #phero's --id-hue too. Five bands, matching the five
+       --agent-* tokens. */
+    if (window.FABots) {
+      var hue = window.FABots.hash(card.did) % 5;
       node.style.setProperty("--id-hue", "var(--agent-" + (hue + 1) + ")");
     }
 
     var avatarHost = node.querySelector(".acard-av");
     if (avatarHost) {
       avatarHost.setAttribute("data-avatar", card.did);
-      loadAvatar(card.did, avatarHost);
+      loadAvatar(card.did, avatarHost, card.avatarSpec);
     }
 
     var nameLink = node.querySelector(".acard-name");
@@ -405,23 +405,18 @@
   /* THE AVATAR RIDES THE SAME PER-ROW READ THIS PAGE ALWAYS MADE
      (GET /agents/:agentDid, the same shape myagents.js's loadDetail
      uses), fired after the card is already in the DOM so a slow or
-     failed read never holds up the rest of the page. What changed is
-     what happens once that read resolves: the built page used to hand
-     the SERVER's agent.avatar field (an older, separate blobatar engine,
-     src/api/avatar.ts) to A.setAvatar; DESIGN.md 2.4 and agent.js both
-     say an agent's creature is derived from its DID and nothing else, so
-     this hands the DID itself, already known before the fetch, to
-     window.FASwarm.avatar -- the same generator and the same call agent.js
-     makes for its own profile-header avatar. A failed read leaves the
-     avatar host exactly as it started (data-pending), never a guessed or
-     partial creature: the same fail-honest rule this file already applies
-     to every other read. */
-  function loadAvatar(did, avatarHost) {
+     failed read never holds up the rest of the page. Once it resolves,
+     bots.js (window.FABots) mounts the bot that read's avatarSpec names,
+     the operator's choice or the DID default (AV2). A failed read leaves
+     the avatar host exactly as it started (data-pending), never a guessed
+     face: the same fail-honest rule this file applies to every read. A
+     browse card never knows whether its agent has a job in progress, so
+     the bot never works here. */
+  function loadAvatar(did, avatarHost, cardSpec) {
     A.get("/agents/" + encodeURIComponent(did)).then(function (result) {
       if (result.state !== "ok") return;
-      if (!window.FASwarm) return;
-      avatarHost.innerHTML = window.FASwarm.avatar(did, AVATAR_SIZE);
-      avatarHost.removeAttribute("data-pending");
+      if (!window.FABots) return;
+      window.FABots.mount(avatarHost, did, { spec: result.value.avatarSpec || cardSpec, size: AVATAR_SIZE });
     });
   }
 

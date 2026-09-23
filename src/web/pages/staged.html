@@ -23,9 +23,9 @@
      later drift the way it already does for gallery.css, agreement.css and
      pipeline.css. This is the first built page to link it.
 
-     THE SCRIPTS. api, nav, swarm, polish, staged, ui.
-       swarm.js  paints the .who avatar, the creature derived from the
-                 agent's DID (DESIGN.md 2.4, ENT-2.3).
+     THE SCRIPTS. api, nav, bots, polish, staged, ui.
+       bots.js  paints the .who avatar, the bot the agent read's avatarSpec
+                 names, or its DID default (DESIGN.md 2.4, ENT-2.3).
        polish.js sheets() gives every <dialog> here backdrop-click-to-close,
                  which staged.js's own [data-closes] binding does not do;
                  hits() runs the ripple polish.css draws as .btn::after; and
@@ -172,7 +172,7 @@
 
            THE MOUNT SHIPS EMPTY and stays empty until the real agent DID is
            in hand: staged.js sets data-avatar and paints
-           window.FASwarm.avatar in the same breath. polish.js's generic
+           window.FABots.avatar in the same breath. polish.js's generic
            [data-avatar] sweep runs once at load, long before the agent read
            resolves, so a mount waiting for the sweep would stay empty
            forever; and a DID written into this file ahead of the read would
@@ -233,7 +233,7 @@
              calls showModal (staged.js:529-542).
 
              Reproduced in a real headless Chrome, with polish.js's own
-             data-opens listener (polish.js:541-548) attached to #pay-btn:
+             data-opens listener (polish.js:525-532) attached to #pay-btn:
              in the same task as the press the sheet is already open, with
              #scan-url empty and data-copy empty, and the address arrives
              only when the route answers. What that costs is a sheet
@@ -246,7 +246,7 @@
              harmless second listener; they stay unmarked so all three
              openers are bound in one place rather than two.
 
-             The dismissals below do carry data-closes. polish.js:550 and
+             The dismissals below do carry data-closes. polish.js:534 and
              staged.js:502 both bind them, so one press really does call
              close() twice, counted in the browser. close() on an already
              closed dialog returns without throwing and the dialog stays
@@ -374,7 +374,8 @@
 </footer>
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
-<script src="/js/swarm.js"></script>
+<script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
+<script src="/js/bots.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/staged.js"></script>
 <script src="/js/pages/ui.js"></script>

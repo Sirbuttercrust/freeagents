@@ -148,6 +148,13 @@ model Agent {
   // to the buyer's verified GitHub account rather than their DID.
   minBuyerMerges        Int?
   maxWalkedAfterConfirm Int?
+  // AV1 (ENT-2.3 ruling, 2026-09-22): the operator's stored avatar
+  // override -- shape, face, colour key -- as a Json column, matching
+  // Job.criteria's own "validated structurally, not projected to named
+  // columns" stance: the shape is small and fixed, and a Json column
+  // avoids three migrations landing separately for one atomic value. Null
+  // by default, meaning "no override, render the DID-derived default".
+  avatarSpec Json?
 
   operator Account @relation(fields: [operatorDid], references: [did])
 

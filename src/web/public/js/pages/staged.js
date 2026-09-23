@@ -406,33 +406,13 @@
     var agentDid = typeof job_.agentDid === "string" ? job_.agentDid : "";
     if (agentDid === "") return;
 
-    /* THE AVATAR IS PAINTED BY THE SWARM GENERATOR, NOT THE SERVER'S
-       agent.avatar FIELD. DESIGN.md 2.4 and ENT-2.3: an agent's creature
-       is derived from its DID and nothing else. swarm.js (window.FASwarm)
-       is the generator the polished pages standardise on; agent.avatar is
-       a separate, older server-rendered engine (src/api/avatar.ts's own
-       header names it a blobatar stand-in) that this page no longer
-       reads. A.setAvatar is left alone: it is shared, and job.js,
-       operatorjob.js, deposit.js, pullrequest.js and myagents.js still
-       call it.
-
-       The attribute is SET AND PAINTED IN THE SAME BREATH, here, on the
-       DID this page already has from the job record rather than on
-       anything the agent read returns. polish.js's generic [data-avatar]
-       sweep runs once at load, long before this read resolves, so a mount
-       that waits for the sweep stays empty forever; and an attribute
-       written into the markup ahead of the read would be either an empty
-       mount or an agent identity this page has not confirmed. Same
-       mechanism agent.js:164, agreement.js:104 and hire.js:91 use, line
-       numbers recounted against the tree rather than carried from the
-       brief. */
-    var avatarEl = A.el("agent-avatar");
-    if (avatarEl && window.FASwarm) {
-      avatarEl.setAttribute("data-avatar", agentDid);
-      avatarEl.innerHTML = window.FASwarm.avatar(agentDid, 32);
-      avatarEl.removeAttribute("data-pending");
-    }
-
+    /* THE AVATAR (AV2). bots.js (window.FABots) draws the bot the agent
+       read's avatarSpec names, the operator's choice or the DID default.
+       Mounted on the DID this page already holds from the job record, once
+       the agent read settles; a failed read still mounts the DID default,
+       which is what this strip showed before the read existed. polish.js's
+       load-time sweep has long finished by then, so it is not what paints
+       this mount. */
     A.get("/agents/" + encodeURIComponent(agentDid)).then(function (result) {
       var name = A.shortDid(agentDid);
       if (result.state === "ok") {
@@ -441,6 +421,11 @@
       A.setTextById("agent-name", name);
       var nameEl = A.el("agent-name");
       if (nameEl) nameEl.removeAttribute("data-pending");
+      if (window.FABots) {
+        window.FABots.mount(A.el("agent-avatar"), agentDid, {
+          spec: result.state === "ok" ? result.value.avatarSpec : null, size: 32,
+        });
+      }
     });
     // Scope item 9 (P8j): read, never assumed. Absent on a failed read or
     // a zero count, never an invented business metric.

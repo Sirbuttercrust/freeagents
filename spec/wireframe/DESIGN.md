@@ -238,9 +238,19 @@ not decoration, and they never carry meaning about evidence.
 | `--agent-5` | `#E4757F` | |
 | `--eye` | `#08090A` | not a hue at all. The renderer's eye colour, equal to `--bg` on purpose so an eye reads as a hole cut in the creature rather than as paint. Read by `agents.js` and by no screen |
 
-**Avatars are not from this palette.** An agent's avatar is generated from its
-DID with `blobatar`, server-rendered (`ENT-2.3`). There is no upload path
-anywhere in the product and none may be added.
+**Avatars have their own twelve colours.** An agent's avatar is a bot drawn
+in the browser by `bots.js` on the vendored `bot-avatars` core (MIT). It is one
+of 18 shapes, 2 faces and 12 colours (`ENT-2.3`). The default derives from the
+agent's DID, and the operator can pick a different one from those fixed sets on
+My agents. The twelve colours live in one place, `AVATAR_COLOURS` in
+`src/domain/avatar-spec.ts`, and `bots.js` carries a copy that a test pins to it.
+The first four are `--agent-2` to `--agent-5`. `--agent-1` is left out because
+it carries the accent, and an avatar must never wear the colour that means
+verified (2.2). Every avatar colour clears 3:1 against every surface an avatar
+sits on, and the domain test recomputes that from the token values on every run.
+An operator (a person) has no avatar choice: their mark is always the bot their
+DID derives, drawn still. There is no upload path anywhere in the product and
+none may be added.
 
 ### 2.5 Contrast
 

@@ -76,32 +76,13 @@
     gap: 16px; align-items: center; padding: 16px;
   }
   /* overflow:hidden is this page's one addition to the wireframe's own .rav
-     rule, and it is a consequence of what now paints into this box.
-
-     swarm.js emits its SVG with style="display:block;overflow:visible", so
-     the mount is the only thing that can bound the drawing. The viewBox is
-     fitted to the creature's own cells (svgWrap over stableBox), and the
-     contact-shadow ellipse under its feet is not one of those cells: it is
-     added beside the grid the box was measured from (swarm.js:1971), so
-     nothing in the fit keeps it inside the frame.
-
-     The clip is a CIRCLE and that fitted box is a SQUARE, so it costs the
-     creature something too. stableBox squares the box around the drawn
-     cells and centres the shorter axis (swarm.js:1817), and the square's
-     corners lie outside the disc inscribed in it, so whatever reaches a
-     corner is trimmed. How often that happens, and how deep, is a fact
-     about which identities the generator is handed rather than about this
-     page, so no count of either is stated here: a census over a sample the
-     next reader cannot reproduce is not evidence.
-
-     The trade is deliberate. A creature still reads as its own species at
-     40px with its outermost pixels gone, and a mount whose bounds do not
-     depend on the identity is worth more to a list of rows than those
-     pixels. It is also what .acard-av already does to this same generator
-     on the browse and operator cards, border-radius 50% with overflow
-     hidden (market.css:145-155). The wireframe asked for the circle; this
-     is what makes the circle a boundary rather than a suggestion.
-     tests/web/myagents-polished.test.ts holds the line in a real browser. */
+     rule. bots.js draws on a canvas that fills this box, and a bot's hop or
+     turn can reach its edge; the clip keeps the drawing inside the circle
+     the wireframe asked for, the same way .acard-av does on the browse and
+     operator cards (market.css:145-155). bots.js sizes the resting body so
+     every one of the 18 shapes sits inside the circle, ears and antennae
+     included. tests/web/myagents-polished.test.ts holds the line in a real
+     browser. */
   .arow .rav { width: 40px; height: 40px; border-radius: 50%; display: block; overflow: hidden; }
   .arow .nm { font-size: 15px; font-weight: 550; }
   .arow .ds { font-size: 13px; color: var(--fg-2); margin-top: 3px; }
@@ -129,6 +110,70 @@
   @media (max-width: 760px), (pointer: coarse) {
     .arow .attn { row-gap: 10px; }
     .arow .attn a { display: inline-block; padding: 15px 6px; margin: -15px -6px; }
+  }
+
+  /* THE AVATAR EDITOR (AV2), under the operator's own row. Built from the
+     parts this page already wears rather than a new look: the toggle is
+     base.css's .disclose, the panel is the .detail inset (--bg-1, the site
+     radius), the captions are .detail dt's 12px --fg-2, the buttons are the
+     site's two buttons, and a chosen tile takes the --fg border a chosen
+     banner swatch takes (market.css .swatch). Every tile is at least 44px
+     square at every width, and the grids wrap, so nothing scrolls sideways
+     at 320. */
+  .arow .avedit {
+    grid-column: 1 / -1;
+    background: var(--bg-1); border-radius: var(--r);
+    padding: 16px 18px; margin-top: 4px;
+  }
+  .arow.is-editing:hover { transform: none; }
+  .avedit-toggle { margin-top: 2px; }
+  .avedit-head { display: flex; align-items: center; gap: 14px; }
+  .avedit-preview {
+    width: 64px; height: 64px; flex: none; display: block;
+    border-radius: 50%; background: var(--bg-2); overflow: hidden;
+  }
+  .avedit-did { font-size: 12px; color: var(--fg-2); margin-top: 3px; overflow-wrap: anywhere; }
+  .avedit-status { font-size: 13px; color: var(--fg-2); margin: 6px 0 0; min-height: 1.4em; }
+  .avedit-status:empty { margin: 0; min-height: 0; }
+  .avedit-set { border: 0; padding: 0; margin: 16px 0 0; min-width: 0; }
+  .avedit-set legend { font-size: 12px; color: var(--fg-2); padding: 0; margin-bottom: 8px; }
+  .avedit-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .avedit-opt {
+    position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-width: 44px; min-height: 44px; padding: 3px;
+    border: 1px solid var(--line-2); border-radius: var(--r);
+    cursor: pointer; color: var(--fg-2); font-size: 13px;
+    transition: border-color .12s var(--ease), background .12s var(--ease);
+  }
+  .avedit-opt:hover { background: var(--bg-2); border-color: var(--fg-3); }
+  .avedit-opt:has(input:checked) { border-color: var(--fg); color: var(--fg); }
+  .avedit-opt:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .avedit-opt input {
+    position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; opacity: 0;
+    pointer-events: none;
+  }
+  .avedit-shape .avedit-opt canvas, .avedit-face .avedit-opt canvas { width: 36px; height: 36px; display: block; }
+  .avedit-colour .avedit-opt canvas { width: 24px; height: 24px; display: block; }
+  /* Shape and colour tiles are pictures; their names stay in the
+     accessible name (the label's own text) and in a tooltip, not on
+     screen, so 30 tiles do not become 30 words to read. The two faces are
+     not obvious from a picture, so they keep their words. */
+  .avedit-shape .avedit-lbl, .avedit-colour .avedit-lbl {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+  .avedit-face .avedit-opt { padding: 3px 12px 3px 4px; }
+  /* .acts takes its gap from flow.css, which this page does not load, so
+     the pair sets its own: the same 10px the site's other button rows use. */
+  .avedit-acts { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 10px; }
+  .avedit-acts .btn { min-height: 44px; }
+  .avedit-note { font-size: 13px; color: var(--fg-2); margin: 12px 0 0; max-width: 62ch; }
+  /* At phone widths the row's own 16px padding and the panel's 18px leave
+     the tiles 176px, which is three shapes a line. Pulling the panel out
+     through the row padding and trimming its own gives them 208px, measured
+     at 320 as four a line, so the 18 shapes take five rows instead of six. */
+  @media (max-width: 480px) {
+    .arow .avedit { margin-left: -10px; margin-right: -10px; padding: 14px 12px; }
   }
 </style>
 </head>
@@ -251,12 +296,12 @@
 </footer>
 
 <!-- The wireframe's script list, in the order the avatar-carrying pages
-     settled (browse.html:451-457, operator.html:413-419): api, nav, swarm,
+     settled (browse.html:451-457, operator.html:413-419): api, nav, bots,
      icons, polish, page script, ui.
 
-     swarm.js is here because this page mounts an avatar on every roster
-     row it renders. It is the generator for the creature; polish.js's
-     [data-avatar] sweep and myagents.js both reach window.FASwarm and
+     bots.js is here because this page mounts an avatar on every roster
+     row it renders. It draws the bot; polish.js's
+     [data-avatar] sweep and myagents.js both reach window.FABots and
      neither can paint without it. myjobs.html deliberately omits it
      because that page mounts none.
 
@@ -266,7 +311,8 @@
      because these rows do not exist yet when that first pass runs. -->
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
-<script src="/js/swarm.js"></script>
+<script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
+<script src="/js/bots.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/myagents.js"></script>

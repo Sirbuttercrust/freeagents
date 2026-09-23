@@ -61,7 +61,7 @@
 
   THE SCRIPTS. api, nav, icons, polish, ui.
     icons.js  before polish.js, because polish.js's init() calls
-              FAIcon.paint() as its first statement (polish.js:570-571).
+              FAIcon.paint() as its first statement (polish.js:554-555).
               Reversed, that sweep finds no painter. This page declares no
               data-ico host of its own, so the sweep paints nothing today;
               the order still has to be right, because polish.js's toast()
@@ -85,7 +85,7 @@
   There is no /js/pages/outcomes.js and this page does not want one: it
   reads nothing, renders no fetched value, and its own test pins that.
 
-  NO swarm.js. swarm.js is the avatar engine and it mounts on elements
+  NO bots.js. bots.js is the avatar engine and it mounts on elements
   carrying the data-avatar attribute. The wireframe declares none, which is
   checkable as written: `grep -c data-avatar spec/wireframe/outcomes.html`
   returns 0. This page mounts none either, but do NOT check that with the
@@ -94,7 +94,7 @@
   all. The honest check has to read the parsed document rather than the
   text, and tests/web/outcomes.test.ts runs it:
   document.querySelectorAll('[data-avatar]').length is 0. Measured in
-  Chrome on the served page, the same count is 0 and window.FASwarm is
+  Chrome on the served page, the same count is 0 and window.FABots is
   undefined. The neighbour flow pages carry the engine because they show an
   agent; this page is about the shape of a deal, not about any one agent.
 

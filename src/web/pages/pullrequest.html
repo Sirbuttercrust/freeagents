@@ -20,10 +20,10 @@
      same four staged.html:7-10 loads, which is the shipped precedent for
      this flow screen.
 
-     THE SCRIPTS. api, nav, swarm, polish, pullrequest, ui, matching
+     THE SCRIPTS. api, nav, bots, polish, pullrequest, ui, matching
      staged.html:375-380.
-       swarm.js  paints the .who avatar, the creature derived from the
-                 agent's DID (DESIGN.md 2.4, ENT-2.3).
+       bots.js  paints the .who avatar, the bot the agent read's avatarSpec
+                 names, or its DID default (DESIGN.md 2.4, ENT-2.3).
        polish.js sheets() gives the close dialog backdrop-click-to-close,
                  which this page's own [data-closes] binding does not do;
                  hits() runs the ripple polish.css draws as .btn::after;
@@ -205,8 +205,8 @@
 
            THE MOUNT SHIPS EMPTY and stays empty until the real agent DID is
            in hand: pullrequest.js sets data-avatar and paints
-           window.FASwarm.avatar in the same breath (renderWho). polish.js's
-           generic [data-avatar] sweep (polish.js:468-497) runs once at load,
+           window.FABots.avatar in the same breath (renderWho). polish.js's
+           generic [data-avatar] sweep (polish.js:470-480) runs once at load,
            long before the agent read resolves, so a mount waiting for the
            sweep would stay empty forever; and a DID written into this file
            ahead of the read would be an identity this page has not
@@ -338,7 +338,8 @@
 </footer>
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
-<script src="/js/swarm.js"></script>
+<script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
+<script src="/js/bots.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/pullrequest.js"></script>
 <script src="/js/pages/ui.js"></script>

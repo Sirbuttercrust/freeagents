@@ -98,13 +98,8 @@
       if (result.state === "ok") {
         name = typeof result.value.name === "string" && result.value.name !== "" ? result.value.name : agentDid;
         agentDisplayName = name;
-        if (window.FASwarm) {
-          var avatarEl = A.el("agent-avatar");
-          if (avatarEl) {
-            avatarEl.setAttribute("data-avatar", agentDid);
-            avatarEl.innerHTML = window.FASwarm.avatar(agentDid, 32);
-            avatarEl.removeAttribute("data-pending");
-          }
+        if (window.FABots) {
+          window.FABots.mount(A.el("agent-avatar"), agentDid, { spec: result.value.avatarSpec, size: 32 });
         }
         var operatorLink = A.el("operator-link");
         if (operatorLink && typeof result.value.operatorDid === "string" && result.value.operatorDid !== "") {

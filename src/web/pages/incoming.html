@@ -154,7 +154,7 @@
 </footer>
 
 <!-- W-incoming: the polished script stack, the sibling order
-     (dashboard.html:367-373) with swarm.js omitted.
+     (dashboard.html:367-373) with bots.js omitted.
 
      ATTRIBUTE NAMES ARE CITED BY LINE, NEVER SPELLED HERE. Two
      instruments read this file as raw text and match on the attribute
@@ -170,16 +170,16 @@
      wireframe's own minus-circle and check-circle glyphs
      (spec/wireframe/incoming.html:93,114,135) instead of a bare dot.
 
-     polish.js sweeps once at load (init(), polish.js:570-589). Two of its
+     polish.js sweeps once at load (init(), polish.js:554-573). Two of its
      passes have something to act on here: navState() (polish.js:297) adds
      .nav.is-stuck, which polish.css:490 styles and nothing else sets, and
      hits() (polish.js:82) starts the ripple polish.css draws as
      .btn::after (polish.css:85-97), which without it is a decoration
      bound to an animation nothing runs. counters() (polish.js:365) and
-     avatars() (polish.js:468) find nothing on this page: it carries no
+     avatars() (polish.js:470) find nothing on this page: it carries no
      character-counted textarea and no avatar mount.
 
-     swarm.js is NOT loaded. It is the avatar engine, and this page mounts
+     bots.js is NOT loaded. It is the avatar engine, and this page mounts
      no avatar, for the reason the incoming "avatars" entry in
      tests/web/wireframe-conformance.test.ts states.
 

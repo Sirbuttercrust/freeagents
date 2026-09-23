@@ -11,6 +11,7 @@
 // default rather than erroring or inventing a fourth.
 import type { AgentWorkRecord } from './agent-work-record.js';
 import { didSuffix } from './agent.js';
+import { resolveAvatar, type AvatarSpec } from './avatar-spec.js';
 
 export type BrowseSort = 'verified-hires' | 'recently-listed' | 'recently-verified';
 
@@ -37,6 +38,11 @@ export interface BrowseAgentFacts {
   readonly name: string;
   readonly skills: readonly string[];
   readonly createdAt: Date;
+  // AV1 (ENT-2.3 ruling): the operator's stored override, if any. Optional
+  // and treated identically to an explicit null (no override, render the
+  // DID-derived default) so every existing caller building this shape
+  // without the field keeps working unchanged.
+  readonly avatarSpec?: AvatarSpec | null;
 }
 
 // One row on the browse surface. Three tier counts, always separate, never
@@ -64,6 +70,19 @@ export interface BrowseCard {
   // population (the summary-contradicts-tier finding from review: a caller-supplied
   // buyerCount drawn from every completed job, tier-blind).
   readonly buyerCount: number;
+  // AV1 (ENT-2.3 ruling): the resolved avatar spec -- the operator's
+  // stored override if present, else the DID-derived default -- so every
+  // page that draws a browse card (browse, myagents, the operator roster,
+  // dashboard's roster reads) carries a spec without a second per-row
+  // fetch. Named avatarSpec, not avatar: the single-agent profile
+  // projection (agentProjection, src/api/app.ts) carries the SAME resolved
+  // spec under avatarSpec too, alongside its own legacy avatar SVG field,
+  // and DATA-CONTRACT.md section 2 names avatarSpec for this response. A
+  // browse card never carries an `avatar` key of any kind (Proof r1,
+  // defect 1: two different keys for the same resolved spec on two routes
+  // is a wire-contract split a client cannot paper over without branching
+  // on the route).
+  readonly avatarSpec: AvatarSpec;
 }
 
 // Distinct buyers, counted over the verified-hire tier ONLY. This is the
@@ -111,6 +130,7 @@ export function toBrowseCard(agent: BrowseAgentFacts, record: AgentWorkRecord): 
     verifiedPriorWorkCount: record.verifiedPriorWork.length,
     portfolioCount: record.portfolio.length,
     buyerCount: verifiedHireBuyerCount(record),
+    avatarSpec: resolveAvatar(agent.avatarSpec ?? null, agent.did),
   };
 }
 
