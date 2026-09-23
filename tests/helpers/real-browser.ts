@@ -11,7 +11,7 @@
 // test dependency is added for it. It cannot be wedged by, and cannot wedge,
 // anything else running on the machine: a fresh remote-debugging port and a
 // fresh throwaway profile directory per instance.
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -85,6 +85,27 @@ export function findChromeBinary(): string | null {
   return null;
 }
 
+// CI4: temporary per-launch timing, unconditional for this measurement
+// push (same pattern the CI2 D1 diagnostic used, folded back out once the
+// runner numbers are in). Prints spawn-to-port-open duration (or give-up
+// duration on failure) and how many Chrome processes were alive on the
+// runner at that moment, so a CI push can answer "is this launch racing
+// other launches for the same spawn/port window" straight from the
+// Actions log instead of guessing. The CI workflow file itself is not
+// touched, since the factory token pushing this branch lacks the
+// `workflow` scope GitHub requires to modify .github/workflows/*.
+function countChromeProcesses(): number {
+  try {
+    const out = execFileSync('pgrep', ['-f', 'remote-debugging-port'], { encoding: 'utf8' });
+    return out.split('\n').filter((line) => line.trim().length > 0).length;
+  } catch {
+    // pgrep exits 1 with empty output when nothing matches; any other
+    // failure (missing pgrep, sandboxed shell) just reports "unknown"
+    // rather than breaking the timed launch it is only observing.
+    return -1;
+  }
+}
+
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = net.createServer();
@@ -154,13 +175,17 @@ export class RealBrowser {
       `--window-size=${width},${height}`,
       'about:blank',
     ];
+    const spawnedAt = Date.now();
+    console.log(`[CI4-TIMING] launch:spawn-start chrome-procs-before=${countChromeProcesses()}`);
     browser.proc = spawn(chrome, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const proc = browser.proc;
 
     let wsUrl: string | null = null;
+    let attempts = 0;
     const deadline = Date.now() + 30000;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 300));
+      attempts += 1;
       if (proc.exitCode !== null) {
         throw new Error(`chrome exited immediately (code ${proc.exitCode})`);
       }
@@ -177,6 +202,12 @@ export class RealBrowser {
       } catch {
         // debug port not up yet
       }
+    }
+    {
+      const elapsed = Date.now() - spawnedAt;
+      console.log(
+        `[CI4-TIMING] launch:spawn-to-port-${wsUrl ? 'open' : 'giveup'} ${elapsed}ms attempts=${attempts} chrome-procs-after=${countChromeProcesses()}`,
+      );
     }
     if (!wsUrl) {
       await browser.close();
