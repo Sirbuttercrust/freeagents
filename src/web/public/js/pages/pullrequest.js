@@ -300,7 +300,7 @@
     if (status === 400) return "This screen sent a malformed request. Reload the page and try again.";
     if (status === 401) return "Your session has expired. Sign in again to close this hire.";
     if (status === 403) return serverMessage || "This account is not a party to this hire.";
-    if (status === 402) return "The remainder has not settled; this hire cannot be closed until it does.";
+    if (status === 402) return "The balance has not arrived yet, so this hire cannot be closed until it does.";
     if (status === 409) return "This hire is no longer at a step where it can be closed this way. Reloading shows its current state.";
     if (status === 404) return "There is no hire at that address.";
     if (status === 503) return "Storage is unavailable just now. Try again in a moment.";

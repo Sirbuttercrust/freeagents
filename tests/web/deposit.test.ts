@@ -547,11 +547,15 @@ describe('the deposit screen, driven end to end against the real app', () => {
   });
 
   describe('the technical disclosure (ruling 5)', () => {
-    it('the fingerprint says it is computed when the deposit settles, never a placeholder hash', async () => {
+    // S1: the wording moved from "settles" to "clears" (settlement is on the
+    // hire journey's no-jargon list). The rule is unchanged: before the
+    // deposit arrives there is no agreed fingerprint, so the field says when
+    // one will exist and never shows a made-up hash.
+    it('the fingerprint says it is computed once the deposit clears, never a placeholder hash', async () => {
       const page = await renderDeposit(baseUrl, 'job-fully-agreed', { token: buyerToken });
       try {
         const hash = page.document.getElementById('tech-spec-hash')?.textContent ?? '';
-        expect(hash.toLowerCase()).toContain('computed when the deposit settles');
+        expect(hash.toLowerCase()).toContain('computed once the deposit clears');
         expect(hash).not.toMatch(/^sha256:/);
       } finally {
         page.close();

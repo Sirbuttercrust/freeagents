@@ -173,6 +173,11 @@
   .prlink { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-family: var(--mono); font-size: 16px; }
   .prlink a { text-decoration: underline; text-underline-offset: 4px; } .prlink a:hover { color: var(--accent-hi); }
   .prlink .diff { color: var(--fg-2); font-size: 13px; }
+  /* S1: the repository link stands alone on its line (the diff beside it is
+     an element, not sentence text), so it takes the 44px floor rather than
+     the in-sentence exemption. Measured at 320 before this rule: 125 x 26.
+     min-height grows the hit box; the flex row already centres the text. */
+  .prlink a { display: inline-flex; align-items: center; min-height: 44px; }
 
   /* The left rule on this page's seven .empty error panels. Page-local for
      the same reason as .prlink, and the same rule eight other built pages
@@ -297,7 +302,7 @@
     <p style="margin:0 0 14px" id="close-consequence-lede"></p>
     <p class="sub" style="max-width:none">Which of the lines you both signed did the work miss?</p>
     <ul class="picker" id="close-picker"></ul>
-    <p class="pickernote">The confirmed criteria only. The price and the delivery date are settled: you have paid in full and the work arrived.</p>
+    <p class="pickernote">Only the agreed lines are listed. Price and delivery date are done: you paid in full and the work arrived.</p>
     <div class="field" style="margin-top:18px; margin-bottom:0">
       <label for="close-why">What is wrong, in one sentence</label>
       <input class="input" id="close-why" placeholder="This is published on your record, in your words">

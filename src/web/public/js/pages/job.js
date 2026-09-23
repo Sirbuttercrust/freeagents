@@ -133,8 +133,9 @@
   // that ended before the balance was paid (declined, withdrawn, lapsed,
   // never staged) maps to null and draws no map: lighting a step on it
   // would say the hire is still moving. Every JobStatus is named here so a
-  // new one is a decision rather than a silent null; the test that pins
-  // STATE_SENTENCES against prisma/schema.prisma pins this map too.
+  // new one is a decision rather than a silent null;
+  // tests/web/hire-journey-simple.test.ts holds this map's keys equal to
+  // the JobStatus enum in prisma/schema.prisma.
   var STEP_FOR_STATUS = {
     draft: 2, proposed: 2,
     confirmed: 3, redo_requested: 3,

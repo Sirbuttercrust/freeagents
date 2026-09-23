@@ -215,6 +215,7 @@ describe('1. the page wears the polished system, and only the sheets it uses', (
       '/js/vendor/bot-avatars/bot-avatars.js',
       '/js/bots.js',
       '/js/polish.js',
+      '/js/stepflow.js',
       '/js/pages/hire.js',
       '/js/pages/ui.js',
     ]);
@@ -315,43 +316,49 @@ describe('2. the avatar is the agent\u2019s bot, mounted only once the DID is kn
   });
 });
 
-// ----------------------------------------------------------------- 3. the rail
+// ----------------------------------------------------------------- 3. the map
 
-describe('3. the five-step rail is a map, and none of its stages is a dead link', () => {
-  it('step 1 is current, stages 2 to 5 carry no href, and .railnow carries the step in real text', async () => {
+// S1 replaced the five-stage text rail (Brief, Agreement, Deposit, The work,
+// Pull request) with the landing page's own five-step diagram, small, so the
+// buyer sees one set of steps from the landing page to the last screen. The
+// guards the rail carried carry over: exactly five steps, exactly one lit,
+// no step a link, and the current step stated in words for a reader who
+// cannot see which plate is lit.
+describe('3. the five-step map shows where the buyer is, and none of its steps is a dead link', () => {
+  it('step 2 (agree the job) is lit, no step carries an href, and the position is stated in words', async () => {
     const page = await renderHire(hirePath(), { token });
     try {
-      const steps = Array.from(page.document.querySelectorAll('.steps li'));
-      expect(steps.length, 'the rail is not the wireframe\u2019s five stages').toBe(5);
-      expect(steps.map((li) => (li.textContent ?? '').replace(/\s+/g, ' ').trim())).toEqual([
-        '1 Brief',
-        '2 Agreement',
-        '3 Deposit',
-        '4 The work',
-        '5 Pull request',
+      const flow = page.document.querySelector('.sf-where ol.stepflow');
+      expect(flow, 'the step diagram did not render').not.toBeNull();
+      const steps = Array.from(flow!.querySelectorAll('.sf-step'));
+      expect(steps.length, 'the map is not the landing page\u2019s five steps').toBe(5);
+      expect(steps.map((li) => (li.querySelector('.sf-label')?.textContent ?? '').trim())).toEqual([
+        'Find an agent',
+        'Agree the job, pay 25%',
+        'Agent works on a copy',
+        'You review the work',
+        'Pay the rest',
       ]);
-      expect(steps[0]!.classList.contains('on'), 'step 1 is not marked current').toBe(true);
+      const lit = steps.filter((li) => li.classList.contains('sf-now'));
+      expect(lit.length, 'exactly one step may be lit').toBe(1);
+      expect(steps.indexOf(lit[0]!), 'the brief is step 2, agreeing the job').toBe(1);
+      expect(lit[0]!.getAttribute('aria-current')).toBe('step');
+      expect(steps[0]!.classList.contains('sf-past'), 'finding the agent is behind the buyer').toBe(true);
+
+      // THE INERT-DECLARED-CONTROL ASSERTION, carried from the rail. This page
+      // runs before any job exists, so a step rendered as an anchor would send
+      // a person to a page that can only say "This address does not name a
+      // hire."
       expect(
-        steps.slice(1).filter((li) => li.classList.contains('on')).length,
-        'more than one stage claims to be current',
-      ).toBe(0);
+        Array.from(flow!.querySelectorAll('a')).map((a) => a.getAttribute('href') ?? ''),
+        'a step is a link to a page that can only refuse',
+      ).toEqual([]);
 
-      // THE INERT-DECLARED-CONTROL ASSERTION. agreement, deposit, staged and
-      // pullrequest are all built and mounted, and every one of them reads
-      // ?job= and refuses without it. This page runs before any job exists,
-      // so a stage rendered as an anchor would send a person to a page that
-      // can only say "This address does not name a hire."
-      const anchors = steps.flatMap((li) => Array.from(li.querySelectorAll('a')));
-      expect(anchors.map((a) => a.getAttribute('href') ?? ''), 'a rail stage is a link to a page that can only refuse').toEqual(
-        [],
-      );
-
-      // The rail collapses to rules under 640px and this line is what carries
-      // the step then, including for a screen reader. Empty text there is the
-      // collapse losing the information rather than restating it.
-      const railnow = page.document.querySelector('.railnow');
-      expect(railnow, 'no .railnow line beneath the rail').not.toBeNull();
-      expect((railnow!.textContent ?? '').trim()).toBe('Step 1 of 5: the brief.');
+      // The position in words: the list's own accessible name, and the one
+      // line a phone shows in place of the five labels.
+      expect(flow!.getAttribute('aria-label')).toBe('How a hire works: step 2 of 5, Agree the job, pay 25%');
+      const caption = page.document.querySelector('.sf-where .sf-caption');
+      expect((caption?.textContent ?? '').trim()).toBe('Step 2 of 5: Agree the job, pay 25%');
     } finally {
       page.close();
     }
@@ -582,7 +589,7 @@ describe('6. the page measures right at 1280 and at 320', () => {
     }
   }, BROWSER_TIMEOUT_MS);
 
-  it('320px: no horizontal overflow, and the rail hands the step to .railnow', async () => {
+  it('320px: no horizontal overflow, and the map hands its labels to one caption line', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
       return;
@@ -594,9 +601,10 @@ describe('6. the page measures right at 1280 and at 320', () => {
         scrollWidth: number;
         clientWidth: number;
         offenders: string[];
-        stepFont: string;
-        railnow: string;
-        railnowText: string;
+        labelWidth: number;
+        plates: number;
+        captionDisplay: string;
+        captionText: string;
         textarea: number;
       }>(`
         (function () {
@@ -607,13 +615,17 @@ describe('6. the page measures right at 1280 and at 320', () => {
             return (el.id || el.className || el.tagName) + ' @' +
                    Math.round(el.getBoundingClientRect().right);
           });
+          var nodes = [].slice.call(document.querySelectorAll('.sf-where .sf-node'));
+          var top = nodes.length ? Math.round(nodes[0].getBoundingClientRect().top) : -1;
+          var caption = document.querySelector('.sf-where .sf-caption');
           return {
             scrollWidth: doc.scrollWidth,
             clientWidth: doc.clientWidth,
             offenders: offenders.slice(0, 8),
-            stepFont: getComputedStyle(document.querySelector('.steps li')).fontSize,
-            railnow: getComputedStyle(document.querySelector('.railnow')).display,
-            railnowText: document.querySelector('.railnow').textContent.trim(),
+            labelWidth: document.querySelector('.sf-where .sf-label').getBoundingClientRect().width,
+            plates: nodes.filter(function (n) { return Math.round(n.getBoundingClientRect().top) === top; }).length,
+            captionDisplay: getComputedStyle(caption).display,
+            captionText: caption.textContent.trim(),
             textarea: Math.round(document.getElementById('brief').getBoundingClientRect().height)
           };
         })()
@@ -624,11 +636,13 @@ describe('6. the page measures right at 1280 and at 320', () => {
       ).toBe(metrics.clientWidth);
       expect(metrics.offenders).toEqual([]);
 
-      // The collapse and its replacement, as a pair. The rail going to
-      // font-size 0 while .railnow stays hidden would drop the step silently.
-      expect(metrics.stepFont, 'the rail did not collapse at 320px').toBe('0px');
-      expect(metrics.railnow, 'the rail collapsed and nothing restated the step').toBe('block');
-      expect(metrics.railnowText).toBe('Step 1 of 5: the brief.');
+      // The collapse and its replacement, as a pair, the same pair the old
+      // rail was held to. Labels leaving the screen while the caption stays
+      // hidden would drop the step silently.
+      expect(metrics.plates, 'the five plates do not sit in one row at 320px').toBe(5);
+      expect(metrics.labelWidth, 'the step labels did not leave the screen at 320px').toBeLessThanOrEqual(1);
+      expect(metrics.captionDisplay, 'the labels left and nothing restated the step').toBe('block');
+      expect(metrics.captionText).toBe('Step 2 of 5: Agree the job, pay 25%');
 
       // base.css's 44px floor sets `textarea.input { min-height: 44px }` at
       // this width. A page-local rule that loses to it collapses the brief
@@ -671,7 +685,7 @@ describe('6. the page measures right at 1280 and at 320', () => {
           }
           var h = document.querySelector('h1').getBoundingClientRect();
           return {
-            pane: box('.pane'),
+            pane: box('.sf-where'),
             who: box('.who'),
             h1Wins: document.elementsFromPoint(h.left + 6, h.top + 6)[0].tagName,
             clientWidth: document.documentElement.clientWidth
@@ -684,7 +698,7 @@ describe('6. the page measures right at 1280 and at 320', () => {
         geometry.pane[1],
         `the column is not centred in the ${geometry.clientWidth}px viewport this platform actually has`,
       ).toBe(expectedLeft);
-      expect(geometry.who[0], 'the identity strip and the rail disagree about the measure').toBe(1016);
+      expect(geometry.who[0], 'the identity strip and the step map disagree about the measure').toBe(1016);
 
       // The visibility law, asked of the browser rather than read off a
       // z-index: nothing decorative may paint over the heading.
@@ -695,20 +709,17 @@ describe('6. the page measures right at 1280 and at 320', () => {
   }, BROWSER_TIMEOUT_MS);
 });
 
-// ------------------------------------------------------- 7. the reveal's end state
+// ------------------------------------------------------- 7. the map's end state
 
-describe('7. the rail pane lands on visible content in both motion modes', () => {
-  // The pane is a .reveal. Reduced motion does not mean "no animation ran",
-  // it means the person sees a dignified static result, and the failure mode
-  // is the pane sitting at its hidden start frame forever: the step rail
-  // missing from the screen that tells a buyer where they are. So the
-  // assertion under reduce is a pair that pulls against itself, nothing moved
-  // AND the pane is still painted, because checking only the first passes a
-  // rail that vanished.
-  it.each([
-    ['no-preference', true],
-    ['reduce', false],
-  ])('prefers-reduced-motion: %s', async (motion, expectJsReveal) => {
+describe('7. the step map is finished and still in both motion modes', () => {
+  // The old rail sat in a .reveal pane and the failure this section caught
+  // was that pane parked at its hidden start frame: the map missing from the
+  // screen that tells a buyer where they are. The step map replaces it and
+  // is never animated at all (FAStepflow.where draws it finished), so the
+  // assertion is the same pair, pulling against itself: nothing is moving
+  // AND everything is painted, in both motion modes. Two samples 600ms apart
+  // must match, or something is still in flight.
+  it.each([['no-preference'], ['reduce']])('prefers-reduced-motion: %s', async (motion) => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
       return;
@@ -722,38 +733,43 @@ describe('7. the rail pane lands on visible content in both motion modes', () =>
       await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify({ token }))})`);
       await browser.goto(`${baseUrl}${hirePath()}`, 500);
 
-      // Polled to a deadline past the page's own 3s unconditional backstop
-      // rather than settled once: a gate that only passes on an idle machine
-      // is flaky, not green, and a genuinely stalled reveal is still stalled
-      // when the deadline passes.
       const measured = await browser.evaluate<{
         matches: boolean;
-        jsReveal: boolean;
-        opacity: string;
-        transform: string;
-        box: [number, number];
+        classes: string;
         steps: number;
+        labels: string[];
+        lit: string;
+        box: [number, number];
+        same: boolean;
       }>(`
         (function () {
-          var pane = document.querySelector('.pane.reveal');
-          var deadline = Date.now() + 6000;
+          function sample() {
+            var ol = document.querySelector('.sf-where ol.stepflow');
+            if (!ol) return null;
+            return [].map.call(ol.querySelectorAll('.sf-node, .sf-label'), function (el) {
+              var cs = getComputedStyle(el);
+              return cs.opacity + '|' + cs.transform;
+            }).join(',');
+          }
           return new Promise(function (resolve) {
-            (function poll() {
-              var cs = getComputedStyle(pane);
-              var settled = parseFloat(cs.opacity) >= 0.99 &&
-                (cs.transform === 'none' || cs.transform === 'matrix(1, 0, 0, 1, 0, 0)');
-              if (settled || Date.now() > deadline) {
-                var r = pane.getBoundingClientRect();
-                resolve({
-                  matches: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-                  jsReveal: document.documentElement.classList.contains('js-reveal'),
-                  opacity: cs.opacity,
-                  transform: cs.transform,
-                  box: [Math.round(r.width), Math.round(r.height)],
-                  steps: pane.querySelectorAll('.steps li').length
-                });
-              } else { setTimeout(poll, 100); }
-            })();
+            var first = sample();
+            setTimeout(function () {
+              var ol = document.querySelector('.sf-where ol.stepflow');
+              var r = ol.getBoundingClientRect();
+              var now = ol.querySelector('.sf-now');
+              resolve({
+                matches: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+                classes: ol.className,
+                steps: ol.querySelectorAll('.sf-step').length,
+                labels: [].map.call(ol.querySelectorAll('.sf-label'), function (el) {
+                  var cs = getComputedStyle(el);
+                  return cs.opacity + '|' + cs.transform;
+                }),
+                lit: now ? getComputedStyle(now.querySelector('.sf-node')).opacity : 'none',
+                box: [Math.round(r.width), Math.round(r.height)],
+                same: first !== null && first === sample()
+              });
+            }, 600);
           });
         })()
       `);
@@ -761,16 +777,14 @@ describe('7. the rail pane lands on visible content in both motion modes', () =>
       // The emulation actually applied. Without this the reduce row silently
       // measures the no-preference branch and confirms it.
       expect(measured.matches, 'the reduced-motion emulation did not apply').toBe(motion === 'reduce');
-      expect(measured.jsReveal, 'the hidden state is applied in the wrong motion mode').toBe(expectJsReveal);
 
-      // Visible, in both modes, and still carrying its five stages.
-      expect(parseFloat(measured.opacity), 'the rail pane settled invisible').toBeGreaterThanOrEqual(0.99);
-      expect(['none', 'matrix(1, 0, 0, 1, 0, 0)'], 'the rail pane settled off its resting position').toContain(
-        measured.transform,
-      );
-      expect(measured.box[0], 'the rail pane has no width').toBeGreaterThan(0);
-      expect(measured.box[1], 'the rail pane has no height').toBeGreaterThan(0);
-      expect(measured.steps, 'the pane settled visible and empty').toBe(5);
+      expect(measured.steps, 'the map settled empty').toBe(5);
+      expect(measured.classes, 'the small map was armed to play').not.toMatch(/sf-armed|sf-play/);
+      expect(measured.same, 'the map was still moving 600ms after load').toBe(true);
+      expect(measured.labels, 'a step label is faded or displaced').toEqual(Array(5).fill('1|none'));
+      expect(measured.lit, 'the lit step is not at full strength').toBe('1');
+      expect(measured.box[0], 'the map has no width').toBeGreaterThan(0);
+      expect(measured.box[1], 'the map has no height').toBeGreaterThan(0);
     } finally {
       await browser.close();
     }
