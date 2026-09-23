@@ -124,20 +124,6 @@
     if (s.wantsGlow) FA.setGlow(s, s.fill);
   });
 
-  /* The nav mark: the lead bot, drawn once and still, beside the word
-     FreeAgents. A mark never moves; the flock below is where motion lives. */
-  var mark = document.getElementById("navmark");
-  if (mark && window.FABots) {
-    var markCanvas = document.createElement("canvas");
-    markCanvas.setAttribute("aria-hidden", "true");
-    markCanvas.style.width = "100%";
-    markCanvas.style.height = "100%";
-    markCanvas.style.display = "block";
-    mark.textContent = "";
-    mark.appendChild(markCanvas);
-    window.FABots.paintPose(markCanvas, 22, CAST[0].opts.spec, null);
-  }
-
   flock.start();
   FAReveal.init();
 

@@ -228,6 +228,20 @@ function loadPages(webDir: string, sourceUrl: string): Readonly<Record<PageName,
   return Object.fromEntries(entries) as Record<PageName, string>;
 }
 
+// The files served at the site root, and the type each answers with. These
+// are the kit's favicon set (spec/wireframe/BRAND.md, "Favicon and app
+// icons"), copied unchanged into public/icons. Exported so the tests read the
+// same list the server mounts.
+export const ROOT_ICONS: ReadonlyArray<readonly [string, string]> = [
+  ['favicon.ico', 'image/x-icon'],
+  ['favicon.svg', 'image/svg+xml'],
+  ['apple-touch-icon.png', 'image/png'],
+  ['icon-192.png', 'image/png'],
+  ['icon-512.png', 'image/png'],
+  ['icon-512-maskable.png', 'image/png'],
+  ['site.webmanifest', 'application/manifest+json'],
+];
+
 // Mounts the site. Called twice by createApp, because order is the whole
 // mechanism: `mountWebPages` runs BEFORE the API routes so a browser can be
 // answered on a shared path, and `mountWebFallback` runs after them so an
@@ -282,6 +296,25 @@ export function createWebSurface(
         '/assets',
         express.static(join(webDir, 'public', 'assets'), { fallthrough: true, index: false }),
       );
+
+      // The favicon set and the web app manifest, at the site root because
+      // that is where browsers, iOS and link unfurlers look for them without
+      // being told. Named routes rather than a static mount on `/`: a mount
+      // there would stat the disk for every API request that passes through.
+      // The content type is set here rather than looked up from the
+      // extension, so `.webmanifest` and `.ico` answer correctly whatever
+      // version of the mime table express happens to carry.
+      for (const [file, type] of ROOT_ICONS) {
+        const path = join(webDir, 'public', 'icons', file);
+        app.get(`/${file}`, (_req: Request, res: Response, next: NextFunction) => {
+          res.type(type).sendFile(path, (err) => {
+            // A missing file falls through to the 404 handler like any other
+            // unknown path. An aborted download has already sent headers and
+            // is left alone.
+            if (err && !res.headersSent) next();
+          });
+        });
+      }
 
       // Pages on paths of their own. No API route reaches these, so there is
       // nothing to negotiate.

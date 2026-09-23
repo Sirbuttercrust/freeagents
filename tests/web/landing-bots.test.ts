@@ -4,7 +4,8 @@
 //
 //   five agents, each a canvas with real pixels, in the two agent layers
 //   each agent wears the spec cast.js names, so no two look alike
-//   the nav mark is the lead bot, drawn still
+//   the header carries the kit logo and no drawn mark (BR5 retired the
+//   canvas nav mark this file used to pin)
 //   no script error, in either motion mode
 //   under reduced motion every agent is still drawn: the static end is the
 //   flock parked at its perches, not an empty page
@@ -33,7 +34,7 @@ type Agent = { layer: string; w: number; h: number; painted: number; hue: number
 type Report = {
   errors: string[];
   agents: Agent[];
-  mark: { canvases: number; painted: number };
+  mark: { shown: string[]; loaded: boolean; drawn: number; navmark: number };
   swarmLeft: number;
   overflow: number;
 };
@@ -64,12 +65,22 @@ const PROBE = `
       var r = c.getBoundingClientRect();
       return { layer: c.closest('.agent-layer').id, w: Math.round(r.width), h: Math.round(r.height), painted: painted(c), hue: hue(c) };
     });
-    var mark = document.getElementById('navmark');
-    var mc = mark ? mark.querySelector('canvas') : null;
+    // The header mark (BR5 superseded AV2's canvas nav mark): the kit logo,
+    // really loaded and really shown, and nothing else drawn beside it.
+    var brand = document.querySelector('.nav .brand');
+    var shown = brand ? [].filter.call(brand.querySelectorAll('img'), function (im) {
+      var r = im.getBoundingClientRect();
+      return getComputedStyle(im).display !== 'none' && r.width > 0 && r.height > 0;
+    }) : [];
     return {
       errors: window.__errs || [],
       agents: agents,
-      mark: { canvases: mark ? mark.querySelectorAll('canvas').length : 0, painted: painted(mc) },
+      mark: {
+        shown: shown.map(function (im) { return im.getAttribute('src'); }),
+        loaded: shown.every(function (im) { return im.complete && im.naturalWidth > 0; }),
+        drawn: brand ? brand.querySelectorAll('canvas, svg').length : -1,
+        navmark: document.querySelectorAll('#navmark').length
+      },
       swarmLeft: document.querySelectorAll('.agent-layer svg[viewBox], #navmark svg').length,
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
     };
@@ -93,7 +104,7 @@ async function landing(width: number, motion: 'reduce' | 'no-preference'): Promi
 
 describe('the landing flock is drawn as bots', { timeout: 60000 }, () => {
   for (const [width, motion] of [[1280, 'no-preference'], [320, 'reduce']] as const) {
-    it(`${width}px, ${motion}: five bots with real pixels, distinct colours, a drawn nav mark, no error`, async () => {
+    it(`${width}px, ${motion}: five bots with real pixels, distinct colours, the kit logo in the header, no error`, async () => {
       if (!hasRealBrowser()) {
         console.warn('no Chrome found; skipping (see CHROME_BIN)');
         return;
@@ -111,8 +122,13 @@ describe('the landing flock is drawn as bots', { timeout: 60000 }, () => {
       const hues = r.agents.map((a) => a.hue);
       expect(hues.every((h) => h !== null), `a bot drew no saturated pixel: ${JSON.stringify(hues)}`).toBe(true);
       expect(new Set(hues).size, `hues ${JSON.stringify(hues)}`).toBeGreaterThanOrEqual(4);
-      expect(r.mark.canvases, 'the nav mark is not one canvas').toBe(1);
-      expect(r.mark.painted, 'the nav mark is blank').toBeGreaterThan(20);
+      // One mark in the header, the kit logo: the lockup at desktop, the icon
+      // on a phone. A leftover canvas mark would be a second one.
+      const want = width === 320 ? '/assets/brand/freeagents-icon-dark.svg' : '/assets/brand/freeagents-logo-dark.svg';
+      expect(r.mark.shown, 'the header does not show exactly the kit logo').toEqual([want]);
+      expect(r.mark.loaded, 'the kit logo file did not load').toBe(true);
+      expect(r.mark.drawn, 'a drawn mark sits in the header beside the logo').toBe(0);
+      expect(r.mark.navmark, 'the retired #navmark slot is back').toBe(0);
       expect(r.overflow, 'the landing page scrolls sideways').toBe(0);
     });
   }

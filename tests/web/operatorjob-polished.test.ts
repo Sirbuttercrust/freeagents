@@ -788,14 +788,19 @@ describe('5. the reveal engages, finishes, and stands down for reduced motion', 
     try {
       await browser.send('Emulation.setScriptExecutionDisabled', { value: true });
       await browser.goto(`${baseUrl}/operatorjob?job=polish-redo`, 600);
-      const out = await browser.evaluate<{ htmlClass: string; text: string; faded: number }>(`
+      const out = await browser.evaluate<{ htmlClass: string; text: string; faded: number; brand: string; logo: boolean }>(`
         (function () {
           var faded = 0;
           Array.prototype.forEach.call(document.querySelectorAll('.reveal, .stagger'), function (el) {
             if (parseFloat(getComputedStyle(el).opacity) < 0.99) faded += 1;
           });
+          var a = document.querySelector('a.brand');
+          var logo = Array.prototype.some.call(document.querySelectorAll('a.brand img'), function (i) {
+            return i.complete && i.naturalWidth > 0 && i.getBoundingClientRect().width > 0;
+          });
           return { htmlClass: document.documentElement.className,
-                   text: (document.body.innerText || '').trim(), faded: faded };
+                   text: (document.body.innerText || '').trim(), faded: faded,
+                   brand: a ? (a.getAttribute('aria-label') || '') : '', logo: logo };
         })()
       `);
       // The hidden state only exists under .js-reveal, which only JavaScript
@@ -806,8 +811,11 @@ describe('5. the reveal engages, finishes, and stands down for reduced motion', 
       // This page's body is data-driven and stays hidden with no script, the
       // same shape staged.html, deposit.html and agreement.html already ship.
       // What must never happen is a blank document: the nav, the footer and
-      // their real destinations are server-rendered and readable.
-      expect(out.text, 'the page is genuinely blank with JavaScript off').toContain('FreeAgents');
+      // their real destinations are server-rendered and readable. The product
+      // name is the logo (DESIGN.md section 8), an image inside a labelled
+      // link, so it is checked as painted and named rather than as text.
+      expect(out.brand, 'the page is genuinely blank with JavaScript off').toBe('FreeAgents home');
+      expect(out.logo, 'the logo did not paint with JavaScript off').toBe(true);
       expect(out.text).toContain('How it works');
       expect(out.text).toContain('Verify a credential');
     } finally {

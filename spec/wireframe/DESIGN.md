@@ -766,18 +766,61 @@ Rules behind the table:
 
 ## 8. The brand mark
 
-**Not designed yet, and deliberately not invented here.** The operator has ideas and
-holds this decision.
+**Chosen by the operator on 2026-09-22.** A character peeks over the name from
+the valley between the F and the A, looking toward "Agents". The name and the
+character together are the lockup. The character on its own is the icon, at
+every size. The full rules, the files and the measurements behind them are in
+`BRAND.md` in this directory, which is the brand kit's own rule sheet copied
+unchanged. This section states what a screen needs; `BRAND.md` wins on anything
+it covers in more detail.
 
-Current state: the wordmark is set in `--font` at 15px / 560 weight with
--0.02em tracking, beside a small accent dot. That is a **placeholder that
-reads as intentional**, not a logo.
+**The files a screen uses.** The site is dark, so it uses the dark-background
+versions only, served as images and never redrawn or recoloured:
 
-When the mark exists, this section gains: the mark itself, its clear space,
-its minimum size, its monochrome and single-colour variants, and the favicon
-set. Until then, **no screen may ship a logo file, and no builder may generate
-one.** A placeholder that is honest about being a placeholder is better than a
-mark nobody chose.
+| where | file |
+|---|---|
+| the nav, above 420px | `brand/freeagents-logo-dark.svg`, the lockup |
+| the nav, 420px and below | `brand/freeagents-icon-dark.svg`, the character alone |
+| the browser tab | `brand/favicon.svg` and `brand/favicon.ico`, drawn for 16 and 32px |
+
+The built site serves the same files from `/assets/brand/`, and the favicon
+set, the app icons and `site.webmanifest` from the site root.
+
+**In the nav.** The `.brand` link holds both images with `alt=""` and shows one
+at a time. The link's `aria-label="FreeAgents home"` is its whole accessible
+name, so the collapse changes what is seen and never what is announced. The
+lockup is 26px tall, which makes it 100px wide, and it is lifted by 11.1% of
+its height so the letters rather than the box sit on the bar's centre line:
+the character above the name makes the box taller than the letters. Below
+420px the link becomes a 44px square holding the 28px character, which frees
+the width the nav links need for their own 44px targets (section 5.3).
+
+**Clear space.** The unit is E, the height of the character's eye: 0.27 of the
+cap height. Keep 2E clear on every side of the lockup and 1E around the icon,
+measured from the outermost ink. In the nav, 2E is about 7px, and the lockup's
+ink has 14px of bar above it and 20px below.
+
+**Minimum sizes**, measured by rendering each file on a ladder of widths:
+
+| file | smallest width |
+|---|---|
+| lockup, colour | 80px |
+| lockup, one colour | 230px |
+| icon, colour | 18px |
+| icon, one colour | 42px |
+
+Below the lockup's minimum, use the icon. At 16 and 32px, use the drawn favicon
+files, never a scaled icon.
+
+**Colour.** The character is `#2B8CFF`, character blue, and that is a logo
+colour only. It is not a token, no screen paints with it, and it lives inside
+the logo files rather than in any stylesheet. `--accent` stays reserved for
+"verified" (section 2.2) and never appears on the logo, so each colour keeps
+one meaning. The letters are the same value as `--fg`.
+
+**What not to do.** Stretch it, recolour it, add a shadow or glow, rotate it,
+move the character to another letter, or put the dark lockup on a light
+background. `BRAND.md` has one drawing of each.
 
 ---
 
