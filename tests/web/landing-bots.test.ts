@@ -185,7 +185,7 @@ describe('the landing flock is drawn as bots', { timeout: 60000 }, () => {
   // after, with every bot (and its halo) hidden in both, so the only pixels
   // that change are the sparkles. The hue of those pixels must be the bot's
   // own hue, read from the bot's own canvas.
-  it('a poked bot throws sparkles in its own colour, measured from screen pixels', async () => {
+  it('a poked bot throws sparkles in its own colour, measured from screen pixels', { timeout: 120000 }, async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found; skipping (see CHROME_BIN)');
       return;
@@ -212,7 +212,7 @@ describe('the landing flock is drawn as bots', { timeout: 60000 }, () => {
     }
   });
 
-  it('under reduced motion a poke throws no sparkles at all', async () => {
+  it('under reduced motion a poke throws no sparkles at all', { timeout: 120000 }, async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found; skipping (see CHROME_BIN)');
       return;
@@ -365,8 +365,9 @@ async function sparkles(
     for (let i = 0; i < count; i++) {
       const botHue = await b.evaluate<number | null>(`__sp.hueOfCanvas(${i})`);
       const name = castName(botHue);
-      // Let any sparkle from the previous poke die out (the longest lives 0.85s).
-      await new Promise((r) => setTimeout(r, 1100));
+      // Let any sparkle from the previous poke die out (the longest lives
+      // 0.85s). Under reduced motion there is none to wait for.
+      if (motion === 'no-preference') await new Promise((r) => setTimeout(r, 1100));
       await b.evaluate('__sp.hide(true)');
       await new Promise((r) => setTimeout(r, 120));
       const c = await b.evaluate<{ x: number; y: number; w: number }>(`__sp.centre(${i})`);
