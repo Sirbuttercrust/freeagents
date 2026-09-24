@@ -4688,12 +4688,34 @@ export function createApp(
       // has recorded; a match skips both gates below and falls through to
       // the normal processing path, which re-confirms the same ref and
       // answers exactly as the first call did.
-      const priceTxHashForIdempotencyCheck = (req.body as { priceTxHash?: unknown } | undefined)?.priceTxHash;
+      // Proof round 2, D1: a replay must match the WHOLE recorded
+      // settlement, not merely the price hash. Comparing priceTxHash
+      // alone let a request carrying the recorded price hash and a
+      // DIFFERENT feeTx hash skip both gates below as if it were the
+      // same wallet response that already landed, and it would then
+      // overwrite the settled row's secondaryHash. A replay is only ever
+      // the exact pair (or the exact "wallet never signed the fee"
+      // outcome) this leg already has recorded.
+      const bodyForIdempotencyCheck = req.body as
+        | { priceTxHash?: unknown; feeTx?: { signed?: unknown; hash?: unknown } }
+        | undefined;
+      const priceTxHashForIdempotencyCheck = bodyForIdempotencyCheck?.priceTxHash;
+      const feeTxForIdempotencyCheck = bodyForIdempotencyCheck?.feeTx;
       const alreadyRecorded = await settlementRepo.findByJobAndLeg(gate.job.id, leg);
+      const incomingFeeHashNormalized =
+        typeof feeTxForIdempotencyCheck === 'object' &&
+        feeTxForIdempotencyCheck !== null &&
+        feeTxForIdempotencyCheck.signed === true &&
+        typeof feeTxForIdempotencyCheck.hash === 'string'
+          ? normalizeUsdcTxHash(feeTxForIdempotencyCheck.hash)
+          : null;
+      const recordedFeeHashNormalized =
+        alreadyRecorded?.secondaryHash != null ? normalizeUsdcTxHash(alreadyRecorded.secondaryHash) : null;
       const isIdempotentReplay =
         alreadyRecorded !== null &&
         typeof priceTxHashForIdempotencyCheck === 'string' &&
-        normalizeUsdcTxHash(alreadyRecorded.hash) === normalizeUsdcTxHash(priceTxHashForIdempotencyCheck);
+        normalizeUsdcTxHash(alreadyRecorded.hash) === normalizeUsdcTxHash(priceTxHashForIdempotencyCheck) &&
+        incomingFeeHashNormalized === recordedFeeHashNormalized;
       if (!isIdempotentReplay) {
         // B25: the job's own agreed rail must match the route it was
         // reached through.

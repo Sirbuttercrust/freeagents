@@ -907,4 +907,58 @@ describe('B23: a wallet response replaying an already-recorded hash stays idempo
       server.close();
     }
   });
+
+  // Proof round 2, D1 (comment 562 on this card): the replay bypass only
+  // compared priceTxHash, so a request that shares the recorded price
+  // hash but carries a DIFFERENT feeTx.hash was still treated as a
+  // replay. That is not a replay of what was recorded; it is a fresh
+  // wallet response that happens to reuse one of the two hashes, and it
+  // must get the ordinary status/rail gates like any other fresh
+  // submission -- not skip them and overwrite the settled row.
+  it('the same priceTxHash with a DIFFERENT feeTx hash after confirm answers 409 and leaves the recorded row unchanged', async () => {
+    const usdcRail = withUsdcEnv(() =>
+      createUsdcPaymentRail({
+        chainClient: fakeUsdcChainClient({
+          '0xidem-price': { status: 1, transfer: depositPriceTransfer() },
+          '0xidem-fee': { status: 1, transfer: depositFeeTransfer() },
+          '0xother-fee': { status: 1, transfer: depositFeeTransfer() },
+        }),
+        rateSource: async () => '1',
+        halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
+      }),
+    );
+    const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
+    try {
+      const jobId = await walkToConfirmed(baseUrl, buyer, agent);
+      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
+      const first = await postSigned(
+        baseUrl,
+        `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
+        { priceTxHash: '0xidem-price', feeTx: { signed: true, hash: '0xidem-fee' } },
+        buyer,
+      );
+      expect(first.status).toBe(200);
+
+      const confirm = await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyer);
+      expect(confirm.status).toBe(200);
+
+      // Same priceTxHash as what settled, but a DIFFERENT feeTx hash: not
+      // the recorded settlement, so the status gate applies like any
+      // fresh submission on a job that has left 'proposed'.
+      const mismatchedReplay = await postSigned(
+        baseUrl,
+        `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
+        { priceTxHash: '0xidem-price', feeTx: { signed: true, hash: '0xother-fee' } },
+        buyer,
+      );
+      expect(mismatchedReplay.status).toBe(409);
+
+      const row = await settlementRepo.findByJobAndLeg(jobId, 'deposit');
+      expect(row?.hash).toBe('0xidem-price');
+      expect(row?.secondaryHash).toBe('0xidem-fee');
+    } finally {
+      server.close();
+    }
+  });
 });
