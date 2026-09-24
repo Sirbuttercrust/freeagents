@@ -11,7 +11,7 @@
 // test dependency is added for it. It cannot be wedged by, and cannot wedge,
 // anything else running on the machine: a fresh remote-debugging port and a
 // fresh throwaway profile directory per instance.
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -108,22 +108,6 @@ interface CdpMessage {
   params?: unknown;
   result?: unknown;
   error?: { message?: string };
-}
-
-// CI4 round 2: temporary per-launch timing for this measurement push, the
-// same pattern the CI4 round 1 diagnostic used. Prints gate-wait duration,
-// spawn-to-port-open (or give-up) duration, and how many Chrome processes
-// were alive on the runner immediately after, so the two pushes below can
-// answer whether PORT_WAIT_MS=12000 has headroom under the new
-// cross-process gate before it lands as the final number. Folded out (see
-// the handoff for which) once the numbers are in.
-function countChromeProcesses(): number {
-  try {
-    const out = execFileSync('pgrep', ['-f', 'remote-debugging-port'], { encoding: 'utf8' });
-    return out.split('\n').filter((line) => line.trim().length > 0).length;
-  } catch {
-    return -1;
-  }
 }
 
 // CI4 round 2 (Proof FAIL r1, defect 1): vitest's own pool runs each test
@@ -235,17 +219,22 @@ export class CrossProcessLaunchGate {
   }
 }
 
-// CI4 round 2 measurement (temporary, uncensored): the first push at
-// PORT_WAIT_MS=12000 showed a real launch open its port at 16045ms
-// (successful) and two consecutive give-ups exactly at the 12000ms
-// deadline that failed a test outright (run 35935765272, node 22). A
-// give-up that lands exactly on the deadline is censored data: it proves
-// nothing about how long that launch would actually have taken with more
-// time. Before sizing the real deadline this measurement push raises it
-// to 25000ms with a single attempt (no retry needed while only
-// observing), so the next runner sample shows the true open-time
-// distribution instead of one truncated by an already-too-tight guess.
-const PORT_WAIT_MS = 25_000;
+// CI4 round 2, final sizing: the gate now holds its slot for a browser's
+// whole lifetime (see CrossProcessLaunchGate's callers), so the two
+// earlier measurement pushes at PORT_WAIT_MS=12000 and 25000 (runs
+// 35935765272, 35936931195) do not apply here; both ran before that fix
+// and their give-ups were caused by the very contention the lifetime fix
+// removes. Under the fixed gate, one more measurement push (run
+// 35938128610, both node versions) shows zero give-ups across 313
+// launches and a worst legitimate open of 9650ms (node 24; node 22's
+// worst was 6555ms). 12000ms leaves about 2.3s of headroom over that
+// worst case, and two attempts (below) total at most about 24.6s
+// including each attempt's close(), leaving over 5s of the 30s test
+// timeout every affected caller sets for whatever the test does before
+// calling launch(). If a future runner sample shows launches still
+// running past 12s under this gate, this number needs to move, and the
+// retry budget with it.
+const PORT_WAIT_MS = 12_000;
 const GIVEUP_MESSAGE = 'chrome debug port never came up';
 
 export async function withLaunchRetry<T>(attempt: () => Promise<T>, maxAttempts: number): Promise<T> {
@@ -312,25 +301,29 @@ export class RealBrowser {
     // not concurrently SPAWNING ones. A launch that fails still releases
     // its slot immediately (the catch below), since a browser that never
     // came up holds nothing worth bounding.
+    //
+    // Two attempts: three measurement pushes on the real runner, all
+    // under this lifetime-holding gate, show zero unexplained give-ups
+    // (624 baseline launches plus 470 more across the three follow-up
+    // pushes) and a worst legitimate open of 9650ms, so a retry now
+    // covers a launch losing an outright race rather than papering over
+    // ongoing contention the gate no longer lets build up.
     return withLaunchRetry(async () => {
-      const gateWaitStart = Date.now();
       const release = await launchGate.acquire();
-      const gateWaitMs = Date.now() - gateWaitStart;
       try {
-        const browser = await RealBrowser.attemptLaunch(chrome, opts, gateWaitMs);
+        const browser = await RealBrowser.attemptLaunch(chrome, opts);
         browser.releaseGate = release;
         return browser;
       } catch (err) {
         release();
         throw err;
       }
-    }, 1);
+    }, 2);
   }
 
   private static async attemptLaunch(
     chrome: string,
     opts: { width?: number; height?: number },
-    gateWaitMs: number,
   ): Promise<RealBrowser> {
     const width = opts.width ?? 1280;
     const height = opts.height ?? 900;
@@ -356,7 +349,6 @@ export class RealBrowser {
     ];
     browser.proc = spawn(chrome, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const proc = browser.proc;
-    const spawnedAt = Date.now();
 
     let wsUrl: string | null = null;
     const deadline = Date.now() + PORT_WAIT_MS;
@@ -378,12 +370,6 @@ export class RealBrowser {
       } catch {
         // debug port not up yet
       }
-    }
-    {
-      const elapsed = Date.now() - spawnedAt;
-      console.log(
-        `[CI4-TIMING] launch:gate-wait=${gateWaitMs}ms spawn-to-port-${wsUrl ? 'open' : 'giveup'}=${elapsed}ms chrome-procs-after=${countChromeProcesses()}`,
-      );
     }
     if (!wsUrl) {
       await browser.close();
