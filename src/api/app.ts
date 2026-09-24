@@ -3494,12 +3494,19 @@ export function createApp(
             : { priceUsd: priceUsd as string, rail: rawRail, deliveryWindowDays: rawWindow };
       }
 
+      // B26 (bug ledger, C1 rehearsal s9): proposedBy names who WROTE the
+      // line, and that fact is the caller's own resolved seat on this job
+      // (gate.party, from resolveJobActingParty above), never the request
+      // body's own claim. A body naming the other seat is silently
+      // corrected to the signer's actual seat, matching how the price
+      // proposal below is credited: neither field trusts self-reported
+      // authorship.
+      const attributedInput = (input as ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>).map(
+        (criterion) => ({ text: criterion.text, proposedBy: gate.party }),
+      );
+
       await applyAndPersist('POST /jobs/:jobId/criteria', res, current, (job) =>
-        proposeCriteria(
-          job,
-          input as ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>,
-          priceProposal,
-        ),
+        proposeCriteria(job, attributedInput, priceProposal),
       );
     }),
   );
@@ -3614,12 +3621,18 @@ export function createApp(
       try {
         confirmed = confirmSpec(current, new Date());
       } catch (err) {
+        // B27 (bug ledger, C1 rehearsal s1): confirmSpec only ever throws
+        // JobError here for a criteria-readiness gap (no criteria at all,
+        // or some outstanding) -- a state conflict, the identical fact
+        // JobPriceError already answers with 409 two lines down. Nothing
+        // the caller SENT on this request is malformed; the AGREEMENT
+        // itself is not ready. 400 told the caller their input was wrong
+        // when the actual defect was the job's own state, so both paths
+        // now answer the same way.
         if (err instanceof JobError) {
-          res.status(400).json({ error: err.message });
+          res.status(409).json({ error: err.message });
           return;
         }
-        // P1: the price gate is a state conflict, the same 409 a
-        // criteria-outstanding confirm already answers with.
         if (err instanceof JobPriceError) {
           res.status(409).json({ error: err.message });
           return;
