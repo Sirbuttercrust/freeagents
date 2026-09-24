@@ -111,6 +111,36 @@ h1 {
 .tabs button[aria-selected="true"] { color: var(--fg); }
 .tabs-line .tabline { opacity: 1; }
 
+/* One row at every width. base.css wrapped .tabs below 761px, and a wrapped
+   tablist put .tabline (one absolutely placed bar at the list's bottom) a
+   whole row under the selected tab. So the row never wraps: when the four
+   tabs are wider than the column, the tablist scrolls sideways inside
+   itself. The bar is a child of the scroller, so it scrolls with the tab it
+   marks, and polish.js scrolls the selected tab into view. The page itself
+   never gets wider than the screen. */
+.tabs {
+  flex-wrap: nowrap;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button { flex: none; white-space: nowrap; }
+@media (max-width: 760px) {
+  .tabs { gap: 0; }
+  .tabs button { padding: 0 12px; }
+}
+/* With no scrollbar, a clipped tab needs another cue that the row goes on.
+   polish.js sets these while there is more row past an edge, and the edge
+   fades. It never fades the selected tab: reveal() keeps that one clear of
+   the fade, and at either end of the row the class is off. */
+.tabs.is-more-r { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+.tabs.is-more-l { -webkit-mask-image: linear-gradient(270deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(270deg, #000 calc(100% - 28px), transparent); }
+.tabs.is-more-l.is-more-r { -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
+
 /* A link a person follows is the action colour; prose keeps its colour and
    takes the underline, so a sentence does not turn blue. */
 :focus-visible { outline-color: var(--action); }
