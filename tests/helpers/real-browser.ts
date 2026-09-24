@@ -235,28 +235,17 @@ export class CrossProcessLaunchGate {
   }
 }
 
-// CI4 round 2 (Proof FAIL r1, defect 2): 17 of the 25 files calling
-// RealBrowser.launch set BROWSER_TIMEOUT_MS = 30_000, including the three
-// that failed together in run 35921744859. A retry whose own port-wait
-// deadline is still 30s cannot complete two attempts before vitest kills
-// the test at 30s: Proof's stub reproduced exactly that, one spawn and
-// "Test timed out" at a 30s test timeout, reaching attempt 2 only with a
-// 120s test timeout. The card rules out raising the per-test timeout, so
-// the port-wait budget itself has to shrink until two attempts fit inside
-// the timeout every affected caller actually uses.
-//
-// 12s per attempt: two attempts plus their `close()` calls total at most
-// about 24.6s (see tests/helpers/real-browser.test.ts, the never-opens-port
-// stub case), leaving over 5s of the 30s budget for whatever a test does
-// before it calls launch(). The cross-process gate above is what makes a
-// shorter deadline safe rather than merely convenient: the measured worst
-// case this card is sized from (11780ms, CI4 round 1) happened while up to
-// 18 Chrome processes were alive at once because the old gate could not
-// see across files; with concurrent spawns actually bounded process-wide,
-// a legitimate launch has far less contention left to lose time to. If a
-// future runner sample shows launches still running past 12s under the
-// new gate, this number needs to move, and the retry budget with it.
-const PORT_WAIT_MS = 12_000;
+// CI4 round 2 measurement (temporary, uncensored): the first push at
+// PORT_WAIT_MS=12000 showed a real launch open its port at 16045ms
+// (successful) and two consecutive give-ups exactly at the 12000ms
+// deadline that failed a test outright (run 35935765272, node 22). A
+// give-up that lands exactly on the deadline is censored data: it proves
+// nothing about how long that launch would actually have taken with more
+// time. Before sizing the real deadline this measurement push raises it
+// to 25000ms with a single attempt (no retry needed while only
+// observing), so the next runner sample shows the true open-time
+// distribution instead of one truncated by an already-too-tight guess.
+const PORT_WAIT_MS = 25_000;
 const GIVEUP_MESSAGE = 'chrome debug port never came up';
 
 export async function withLaunchRetry<T>(attempt: () => Promise<T>, maxAttempts: number): Promise<T> {
@@ -306,13 +295,11 @@ export class RealBrowser {
         `no Chrome found for real-browser layout tests. Set ${CHROME_ENV} to a Chrome/Chromium binary.`,
       );
     }
-    // CI4 round 2: the gate bounds how many launches spawn Chrome at once
-    // across every worker process, not just this one (see
-    // CrossProcessLaunchGate's own comment for why that distinction
-    // matters). The retry covers a launch that loses the spawn/port race
-    // outright under contention, and PORT_WAIT_MS is sized so two attempts
-    // both fit inside the 30s test timeout every real caller uses (see
-    // PORT_WAIT_MS's own comment).
+    // CI4 round 2 measurement (temporary): only ONE attempt while
+    // observing the true open-time distribution (see PORT_WAIT_MS's own
+    // comment) rather than compounding two uncapped 25s attempts into
+    // failures across every affected test file. The retry returns to 2
+    // once PORT_WAIT_MS is set from real numbers.
     return withLaunchRetry(async () => {
       const gateWaitStart = Date.now();
       const release = await launchGate.acquire();
@@ -322,7 +309,7 @@ export class RealBrowser {
       } finally {
         release();
       }
-    }, 2);
+    }, 1);
   }
 
   private static async attemptLaunch(
