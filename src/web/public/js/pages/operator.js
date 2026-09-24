@@ -60,19 +60,9 @@
 
   var A = window.FAApi;
   var ROSTER_CONTROL_THRESHOLD = 10;
-  var AVATAR_SIZE = 52; // matches market.css .acard-av { width:52px; height:52px }
+  var AVATAR_SIZE = 124; // matches league.css .pcard .pc-bot { width:124px; height:124px }
   var WORK_SHOT_CLASSES = ["work-shot-1", "work-shot-2", "work-shot-3", "work-shot-4"];
 
-  // market.css's five discipline tints (.cat-frontend etc), the same table
-  // browse.js's own CAT_CLASS uses, mirrored here rather than imported for
-  // the reason stated above.
-  var CAT_CLASS = {
-    frontend: "cat-frontend",
-    backend: "cat-backend",
-    infrastructure: "cat-infra",
-    data: "cat-data",
-    testing: "cat-testing",
-  };
 
   function currentParams() {
     return new URLSearchParams(window.location.search);
@@ -378,58 +368,17 @@
      browse.js derives it from the DID (FABots.hash), never picked
      and never cycled by position. */
   function rosterRow(agent) {
-    var article = document.createElement("article");
-    article.className = "acard idc";
+    /* THE LEAGUE LOOK: a roster row is a player card (DESIGN.md 2.6), the
+       same one browse draws, built by pcard.js from the same BrowseCard
+       fields. The visually-hidden tier sentence stays, below, so the
+       roster and the same agent's browse card can never disagree about
+       which tier it is in. */
+    var article = window.FAPlayerCard.build(agent, { botSize: AVATAR_SIZE });
     article.setAttribute("data-agent-row", agent.did);
-
-    if (window.FABots && typeof agent.did === "string") {
-      var hue = window.FABots.hash(agent.did) % 5;
-      article.style.setProperty("--id-hue", "var(--agent-" + (hue + 1) + ")");
-    }
-
-    var top = document.createElement("div");
-    top.className = "acard-top";
-    var avatarHost = document.createElement("span");
-    avatarHost.className = "acard-av";
-    avatarHost.setAttribute("data-pending", "");
-    top.appendChild(avatarHost);
+    var body = article.querySelector(".pc-body");
 
     var hire = numberOr(agent.verifiedHireCount);
     var prior = numberOr(agent.verifiedPriorWorkCount);
-    var claim = numberOr(agent.portfolioCount);
-    var badge = cardbadgeFor(hire, prior, claim);
-    if (badge) top.appendChild(badge);
-    article.appendChild(top);
-
-    var body = document.createElement("div");
-    body.className = "acard-body";
-
-    var nameWrap = document.createElement("div");
-    var nameLink = document.createElement("a");
-    nameLink.className = "acard-name";
-    nameLink.setAttribute("href", "/agents/" + encodeURIComponent(agent.did));
-    nameLink.textContent = typeof agent.name === "string" && agent.name !== "" ? agent.name : A.shortDid(agent.did);
-    nameWrap.appendChild(nameLink);
-    body.appendChild(nameWrap);
-
-    /* THE DESCRIPTION LINE (wireframe .acard-desc): BrowseCard carries no
-       description field (src/domain/browse.ts), the same gap browse.js's
-       own row template already records for its card, so there is nothing
-       to render here either. */
-
-    var skills = Array.isArray(agent.skills) ? agent.skills.filter(function (s) { return typeof s === "string" && s !== ""; }) : [];
-    if (skills.length > 0) {
-      var cats = document.createElement("div");
-      cats.className = "acard-cats";
-      skills.forEach(function (s) {
-        var span = document.createElement("span");
-        var mapped = CAT_CLASS[s.toLowerCase()];
-        span.className = mapped ? "cat " + mapped : "cat";
-        span.textContent = s;
-        cats.appendChild(span);
-      });
-      body.appendChild(cats);
-    }
 
     /* The visually-hidden tier sentence: the SAME per-tier table
        browse.js's applyTier applies, read over the identical BrowseCard
@@ -449,19 +398,13 @@
     }
     body.appendChild(tier);
 
-    article.appendChild(body);
-
-    var foot = document.createElement("div");
-    foot.className = "acard-foot";
+    /* The evidence line, visually hidden like the tier sentence: the same
+       counts the stats show, in the words the roster always used, so a
+       reader of the page source or a screen reader gets one sentence. */
     var ev = document.createElement("span");
-    ev.className = "acard-ev";
-    ev.appendChild(evidenceLineFor(hire, prior, claim));
-    foot.appendChild(ev);
-    var go = document.createElement("span");
-    go.className = "ico ico-sm go";
-    go.setAttribute("data-ico", "chevron-right");
-    foot.appendChild(go);
-    article.appendChild(foot);
+    ev.className = "acard-ev tier-label-a11y";
+    ev.appendChild(evidenceLineFor(hire, prior, numberOr(agent.portfolioCount)));
+    body.appendChild(ev);
 
     paintIcons(article);
     return article;
@@ -583,7 +526,7 @@
      before this fetch had anything to key on. */
   function paintRosterAvatar(did, result) {
     if (result.state !== "ok") return;
-    var host = document.querySelector('[data-agent-row="' + cssEscape(did) + '"] .acard-av');
+    var host = document.querySelector('[data-agent-row="' + cssEscape(did) + '"] .pc-bot');
     if (!host || !window.FABots) return;
     window.FABots.mount(host, did, { spec: result.value.avatarSpec, size: AVATAR_SIZE });
   }

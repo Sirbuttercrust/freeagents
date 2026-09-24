@@ -539,7 +539,7 @@ at every paragraph, and that re-measuring is what "busy" feels like.
 
 | role | size | weight | tracking |
 |---|---|---|---|
-| h1 | 28px | 600 | -0.03em |
+| h1 | 40px (32px below 761px), `--display`, capitals | 800 | -0.005em |
 | h2 | 20px | 550 | -0.02em |
 | h3 | 15px | 550 | -0.01em |
 | body | 15px | 400 | 0 |

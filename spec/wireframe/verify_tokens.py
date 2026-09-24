@@ -54,14 +54,20 @@ def rgb(h):
 # by hand rather than trust a browser. What is added is the check the comment
 # always promised: every literal below is compared against base.css :root, and
 # any drift fails here rather than being discovered later.
+# Since the league look (2026-09-23) the one accent is two tokens:
+# --action, the blue every primary button fills with, and --check, the jade
+# reserved for what was witnessed (DESIGN.md 2.1). Each has its own ink, and
+# both ink-on-fill pairs are measured below.
 TOK = {
-    "--bg": "#08090A",
-    "--bg-2": "#141517",
-    "--fg": "#F7F8F8",
-    "--fg-2": "#9CA1AA",
-    "--fg-3": "#7C828C",
-    "--accent": "#7C7CFF",
-    "--accent-fg": "#0A0A16",
+    "--bg": "#0B0A12",
+    "--bg-2": "#1B1829",
+    "--fg": "#F5F3FB",
+    "--fg-2": "#ABA6BF",
+    "--fg-3": "#908BA6",
+    "--action": "#2B8CFF",
+    "--action-fg": "#0B0A12",
+    "--check": "#46C39A",
+    "--check-fg": "#05281C",
 }
 
 # --fg-3 BEFORE the 2026-08-27 lift, kept so section 2 can still show what the
@@ -98,14 +104,17 @@ AA = 4.5   # normal text, under 18.66px bold or 24px regular
 print("=" * 66)
 print("1. THE ARTIFACT, DISPROVED")
 print("=" * 66)
-print("The sampler paired --accent-fg ink against --bg, because it reads the")
+print("The sampler paired --action-fg ink against --bg, because it reads the")
 print("pixel behind the button instead of the button's own fill.\n")
 
-fake = ratio(rgb(TOK["--accent-fg"]), rgb(TOK["--bg"]))
-real = ratio(rgb(TOK["--accent-fg"]), rgb(TOK["--accent"]))
-print("  reported by the sampler   --accent-fg on --bg      %5.2f   (artifact)" % fake)
-print("  what a person sees        --accent-fg on --accent  %5.2f   %s"
+fake = ratio(rgb(TOK["--action-fg"]), rgb(TOK["--bg"]))
+real = ratio(rgb(TOK["--action-fg"]), rgb(TOK["--action"]))
+check = ratio(rgb(TOK["--check-fg"]), rgb(TOK["--check"]))
+print("  reported by the sampler   --action-fg on --bg      %5.2f   (artifact)" % fake)
+print("  what a person sees        --action-fg on --action  %5.2f   %s"
       % (real, "PASS" if real >= AA else "FAIL"))
+print("  the verified stamp        --check-fg on --check    %5.2f   %s"
+      % (check, "PASS" if check >= AA else "FAIL"))
 
 print()
 print("=" * 66)
@@ -139,11 +148,14 @@ if fails_before == 2:
     print("  was a fix, not a preference: that text was never legible where it")
     print("  was used.")
 
-# The accent artifact passing and --fg-2 clearing AA are the two claims this
-# file exists to back. Fail loudly if a later token edit breaks either.
+# The button ink passing on its own fill and --fg-2 clearing AA are the
+# claims this file exists to back. Fail loudly if a later token edit breaks
+# either, and hold the stamp's ink on --check to the same line.
 bad = []
 if real < AA:
-    bad.append("--accent-fg on --accent is below AA")
+    bad.append("--action-fg on --action is below AA")
+if check < AA:
+    bad.append("--check-fg on --check is below AA")
 for bg in ("--bg", "--bg-2"):
     if ratio(rgb(TOK["--fg-2"]), rgb(TOK[bg])) < AA:
         bad.append("--fg-2 on %s is below AA" % bg)

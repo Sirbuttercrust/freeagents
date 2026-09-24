@@ -182,6 +182,70 @@
   function start() {
     render();
     wireSignOut();
+    wireMenu();
+  }
+
+  /* THE PHONE MENU (DESIGN.md 5 nav, the league look). Below 761px the
+     links fold behind one button, built here so every page gets it from
+     the one nav implementation rather than twenty-five copies of markup.
+
+     A real disclosure: the button carries aria-expanded and aria-controls
+     naming the links it shows; Escape closes it and gives focus back to the
+     button; widening past the breakpoint closes it. When open, the links sit
+     in the bar's own flow under it (league.css), so the page is pushed down
+     rather than covered. Without this script nothing is hidden: the links
+     stay in the bar and wrap, the way they always did.
+
+     The current page's link carries aria-current="page", read from the
+     path, so a person in the open menu can see where they are. */
+  var MENU_BREAK = "(min-width: 761px)";
+  function wireMenu() {
+    var nav = document.querySelector("nav.nav");
+    if (!nav || nav.querySelector(".menu")) return;
+    var inner = nav.querySelector(".inner") || nav.firstElementChild;
+    var links = nav.querySelector(".links");
+    if (!inner || !links) return;
+
+    if (!links.id) links.id = "nav-links";
+    Array.prototype.forEach.call(links.querySelectorAll("a[href]"), function (a) {
+      var href = a.getAttribute("href");
+      if (href && href.charAt(0) === "/" && href === window.location.pathname) {
+        a.setAttribute("aria-current", "page");
+      }
+    });
+
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "menu";
+    btn.setAttribute("aria-controls", links.id);
+    btn.setAttribute("aria-expanded", "false");
+    btn.setAttribute("aria-label", "Menu");
+    btn.innerHTML =
+      '<svg class="ico-open" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg>' +
+      '<svg class="ico-close" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15"/></svg>';
+    inner.appendChild(btn);
+    nav.classList.add("has-menu");
+
+    function setOpen(open) {
+      nav.classList.toggle("is-open", open);
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      btn.setAttribute("aria-label", open ? "Close menu" : "Menu");
+    }
+    btn.addEventListener("click", function () {
+      setOpen(btn.getAttribute("aria-expanded") !== "true");
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && btn.getAttribute("aria-expanded") === "true") {
+        setOpen(false);
+        btn.focus();
+      }
+    });
+    if (typeof window.matchMedia === "function") {
+      var mq = window.matchMedia(MENU_BREAK);
+      var onWide = function (e) { if (e.matches) setOpen(false); };
+      if (mq.addEventListener) mq.addEventListener("change", onWide);
+      else if (mq.addListener) mq.addListener(onWide);
+    }
   }
 
   if (document.readyState === "loading") {

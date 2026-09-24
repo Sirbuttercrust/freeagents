@@ -540,7 +540,7 @@ describe('the browse pager fits a 320px screen with ten pages of results (M1 fin
             visibleLabels: visible.map(function (b) { return (b.textContent || '').trim(); }),
             nextEnabled: !next.disabled,
             currentPage: current ? (current.textContent || '').trim() : null,
-            cards: document.querySelectorAll('.acard').length,
+            cards: document.querySelectorAll('[data-agent-card]').length,
             position: pos ? (pos.textContent || '').trim() : '',
             positionShown: pos ? pos.getBoundingClientRect().height > 0 : false,
             widest: Math.max.apply(null, visible.map(function (b) { return Math.round(b.getBoundingClientRect().right); }))
