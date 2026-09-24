@@ -271,7 +271,15 @@ export async function withLaunchRetry<T>(attempt: () => Promise<T>, maxAttempts:
 // instead of just smoothing the spawn contention. Unlike CI4 round 1's
 // LaunchGate, this bound now actually holds across the separate OS
 // processes vitest runs each test file in.
-const launchGate = new CrossProcessLaunchGate(4);
+//
+// FA_LAUNCH_GATE_DIR and FA_LAUNCH_GATE_LIMIT let a test spin up an
+// isolated gate for a real child process (tests/helpers/real-browser.test.ts,
+// the cross-process lifetime probe) without touching every other real
+// process's shared gate directory. Unset in every real caller.
+const launchGate = new CrossProcessLaunchGate(
+  process.env.FA_LAUNCH_GATE_LIMIT ? Number(process.env.FA_LAUNCH_GATE_LIMIT) : 4,
+  process.env.FA_LAUNCH_GATE_DIR ?? DEFAULT_GATE_DIR,
+);
 
 // One throwaway headless Chrome tab, driven over CDP. Deliberately small:
 // goto + evaluate + close. A test that needs more speaks CDP directly via
@@ -283,6 +291,7 @@ export class RealBrowser {
   private port = 0;
   private nextId = 1;
   private pending = new Map<number, { resolve: (v: CdpMessage) => void; reject: (e: Error) => void }>();
+  private releaseGate: (() => void) | null = null;
 
   private constructor(profile: string) {
     this.profile = profile;
@@ -295,19 +304,25 @@ export class RealBrowser {
         `no Chrome found for real-browser layout tests. Set ${CHROME_ENV} to a Chrome/Chromium binary.`,
       );
     }
-    // CI4 round 2 measurement (temporary): only ONE attempt while
-    // observing the true open-time distribution (see PORT_WAIT_MS's own
-    // comment) rather than compounding two uncapped 25s attempts into
-    // failures across every affected test file. The retry returns to 2
-    // once PORT_WAIT_MS is set from real numbers.
+    // CI4 round 2 fallout: the gate slot is held for the WHOLE browser
+    // lifetime (released in close(), not here), because the runner
+    // numbers showed chrome-procs-after staying high for the entire
+    // suite, not just during launches: the contention that starves a
+    // legitimate launch of CPU is concurrently RUNNING Chrome processes,
+    // not concurrently SPAWNING ones. A launch that fails still releases
+    // its slot immediately (the catch below), since a browser that never
+    // came up holds nothing worth bounding.
     return withLaunchRetry(async () => {
       const gateWaitStart = Date.now();
       const release = await launchGate.acquire();
       const gateWaitMs = Date.now() - gateWaitStart;
       try {
-        return await RealBrowser.attemptLaunch(chrome, opts, gateWaitMs);
-      } finally {
+        const browser = await RealBrowser.attemptLaunch(chrome, opts, gateWaitMs);
+        browser.releaseGate = release;
+        return browser;
+      } catch (err) {
         release();
+        throw err;
       }
     }, 1);
   }
@@ -481,6 +496,13 @@ export class RealBrowser {
       rmSync(this.profile, { recursive: true, force: true });
     } catch {
       // best effort cleanup
+    }
+    // CI4 round 2 fallout: released here, not in launch(), so the gate
+    // slot stays occupied for as long as this Chrome process is actually
+    // alive and using the runner's CPU, not just for the launch handshake.
+    if (this.releaseGate) {
+      this.releaseGate();
+      this.releaseGate = null;
     }
   }
 }

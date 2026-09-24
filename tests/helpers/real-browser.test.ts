@@ -285,3 +285,77 @@ describe('RealBrowser.launch: a launch that never opens its port eventually give
     }
   }, 40_000);
 });
+
+// CI4 round 2 measurement fallout: the runner numbers from both pushes
+// (35935765272 and 35936931195) showed chrome-procs-after staying at
+// 11-18 for the ENTIRE run, not just during launches, while gate-wait was
+// always near 0ms. That means the gate was never the bottleneck for
+// SPAWNING; the bottleneck is how many Chrome processes run
+// SIMULTANEOUSLY, competing for the runner's CPU for their whole
+// lifetime. The round 2 gate released its slot right after the CDP
+// handshake, so it bounded concurrent launches but not concurrent live
+// browsers, which is what actually starves a legitimate launch of CPU
+// long enough to miss even a 25s deadline (run 35936931195, node 24, two
+// give-ups past 12s of open attempts already alive).
+//
+// The fix: RealBrowser.close() releases the gate slot, not launch()
+// finishing. Proven here with two REAL child processes, each launching a
+// real Chrome and holding it open for 600ms before closing: with the gate
+// limit at 1, the second process's launch must not even begin until the
+// first process's browser has closed.
+describe('RealBrowser.launch: the gate slot is held for the whole browser lifetime, not just launch', () => {
+  it('a second launch in another process does not even spawn until the first browser closes, with the gate limit at 1', async () => {
+    if (!hasRealBrowser()) return;
+    const gateDir = mkdtempSync(join(tmpdir(), 'fa-lifetime-gate-probe-'));
+    const resultsPath = join(gateDir, 'results.jsonl');
+    writeFileSync(resultsPath, '');
+    const childScript = join(gateDir, 'lifetime-child.mjs');
+    writeFileSync(
+      childScript,
+      [
+        "import { appendFileSync } from 'node:fs';",
+        `const mod = await import(${JSON.stringify(realBrowserModuleUrl)});`,
+        `appendFileSync(${JSON.stringify(resultsPath)}, JSON.stringify({ pid: process.pid, event: 'before-launch', t: Date.now() }) + '\\n');`,
+        'const browser = await mod.RealBrowser.launch({ width: 1280, height: 900 });',
+        `appendFileSync(${JSON.stringify(resultsPath)}, JSON.stringify({ pid: process.pid, event: 'launched', t: Date.now() }) + '\\n');`,
+        'await new Promise((r) => setTimeout(r, 3000));',
+        'await browser.close();',
+        `appendFileSync(${JSON.stringify(resultsPath)}, JSON.stringify({ pid: process.pid, event: 'closed', t: Date.now() }) + '\\n');`,
+      ].join('\n'),
+    );
+    const runChild = (): Promise<void> =>
+      new Promise((resolve, reject) => {
+        const proc = spawn(process.execPath, ['--import', 'tsx', childScript], {
+          env: { ...process.env, FA_LAUNCH_GATE_DIR: gateDir, FA_LAUNCH_GATE_LIMIT: '1' },
+        });
+        let stderr = '';
+        proc.stderr.on('data', (chunk) => {
+          stderr += String(chunk);
+        });
+        proc.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`probe child exited ${code}: ${stderr}`))));
+      });
+    try {
+      await Promise.all([runChild(), runChild()]);
+      const lines = readFileSync(resultsPath, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { pid: number; event: string; t: number });
+      const byPid = new Map<number, Record<string, number>>();
+      for (const line of lines) {
+        const entry = byPid.get(line.pid) ?? {};
+        entry[line.event] = line.t;
+        byPid.set(line.pid, entry);
+      }
+      const windows = [...byPid.values()];
+      expect(windows.length, 'both child processes must have run').toBe(2);
+      const sorted = windows.sort((a, b) => (a['launched'] ?? 0) - (b['launched'] ?? 0));
+      const [first, second] = sorted as [Record<string, number>, Record<string, number>];
+      expect(
+        second['launched'],
+        'with the gate limit at 1, the second browser must not launch until the first one closes',
+      ).toBeGreaterThanOrEqual(first['closed']!);
+    } finally {
+      rmSync(gateDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
