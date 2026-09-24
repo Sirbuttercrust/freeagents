@@ -28,8 +28,9 @@ describe('DID-signed requests (RFC 9421)', () => {
 
     const result = await verify(req, resolver);
 
-    expect(result).not.toBeNull();
-    expect(result?.did).toBe(identity.did);
+    expect(result).not.toBe('invalid');
+    expect(result).not.toBe('unknown-key');
+    expect((result as { did: string }).did).toBe(identity.did);
   });
 
   it('rejects a signature whose covered components omit @method or @target-uri', async () => {
