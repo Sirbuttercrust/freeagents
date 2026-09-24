@@ -30,7 +30,7 @@ import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from '../../src/a
 import { MemorySettlementRepository, MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
-import { abtEnv, reservePort, withEnv, pureTxEncoder } from '../helpers/abt-fixtures.js';
+import { abtEnv, reservePort, withEnv, pureTxEncoder, getSigned } from '../helpers/abt-fixtures.js';
 
 const USDC_TOKEN = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d';
 const USDC_FEE_ADDRESS = '0xFeeAddress000000000000000000000000000';
@@ -318,6 +318,39 @@ describe('B25: payment routes refuse a job priced on the other rail', () => {
         buyer,
       );
       expect(walletResponse.status).toBe(409);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
+
+// Proof round 1, D1 (comment 561 on this card): B23 and B25 were wired
+// only onto /jobs/:jobId/payments/:leg/abt/start. did-connect-js's own
+// /api/did/pay/token mount is the SECOND door to the exact same session
+// mint (app.ts's own comment at requireBuyerToMintAbtSession names this
+// door as the thing that must match /start), and it had neither check:
+// a withdrawn or wrong-rail job still minted a session token through it.
+describe('B23 and B25 on the second door: /api/did/pay/token refuses the same status and rail conflicts /start refuses', () => {
+  it('refuses 409 on a withdrawn job, minting no session', async () => {
+    const { server, baseUrl } = await startApp();
+    try {
+      const jobId = await walkToProposed(baseUrl, 'abt');
+      const withdraw = await postSigned(baseUrl, `/jobs/${jobId}/withdraw`, {}, buyer);
+      expect(withdraw.status).toBe(200);
+
+      const res = await getSigned(baseUrl, `/api/did/pay/token?jobId=${jobId}&leg=deposit`, buyer);
+      expect(res.status).toBe(409);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('refuses 409 on a job priced on the other rail', async () => {
+    const { server, baseUrl } = await startApp();
+    try {
+      const jobId = await walkToProposed(baseUrl, 'usdc');
+      const res = await getSigned(baseUrl, `/api/did/pay/token?jobId=${jobId}&leg=deposit`, buyer);
+      expect(res.status).toBe(409);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }

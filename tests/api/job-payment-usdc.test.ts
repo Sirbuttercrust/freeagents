@@ -846,7 +846,63 @@ describe('S3, Trap 1: self-hire settles normally, paying the buyer\'s own addres
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.confirmed).toBe(true);
       const row = await settlementRepo.findByJobAndLeg(jobId, 'deposit');
+      expect(row).not.toBeNull();
       expect(row?.operatorAddress).toBe(USDC_OPERATOR_ADDRESS);
+    } finally {
+      server.close();
+    }
+  });
+});
+
+// Proof round 1, D3 (comment 561 on this card): the brief requires "a
+// wallet response for a hash already recorded stays idempotent" (B23).
+// The status gate (legStatusEligible) runs before any check for an
+// already-recorded hash, so a replay of the SAME hash that already
+// settled this leg started answering 409 once the job moved past its
+// eligible status (e.g. once confirm() advanced it to 'confirmed') --
+// exactly the case idempotency exists for: a late or duplicate wallet
+// callback for a payment that already landed.
+describe('B23: a wallet response replaying an already-recorded hash stays idempotent, even once the job has moved past the leg\'s eligible status', () => {
+  it('replaying the same priceTxHash/feeTx after confirm answers the same as the first call, not 409', async () => {
+    const usdcRail = withUsdcEnv(() =>
+      createUsdcPaymentRail({
+        chainClient: fakeUsdcChainClient({
+          '0xidem-price': { status: 1, transfer: depositPriceTransfer() },
+          '0xidem-fee': { status: 1, transfer: depositFeeTransfer() },
+        }),
+        rateSource: async () => '1',
+        halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+        spentTransferStorage: fakeSpentTransferStorage(),
+      }),
+    );
+    const { server, baseUrl, buyer, agent, settlementRepo } = await startApp(usdcRail);
+    try {
+      const jobId = await walkToConfirmed(baseUrl, buyer, agent);
+      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
+      const first = await postSigned(
+        baseUrl,
+        `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
+        { priceTxHash: '0xidem-price', feeTx: { signed: true, hash: '0xidem-fee' } },
+        buyer,
+      );
+      expect(first.status).toBe(200);
+
+      const confirm = await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyer);
+      expect(confirm.status).toBe(200);
+
+      // Same hash, same leg, replayed after the job left 'proposed' for
+      // 'confirmed' -- must still answer like the first call, not 409.
+      const replay = await postSigned(
+        baseUrl,
+        `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
+        { priceTxHash: '0xidem-price', feeTx: { signed: true, hash: '0xidem-fee' } },
+        buyer,
+      );
+      expect(replay.status).toBe(200);
+      const replayBody = (await replay.json()) as Record<string, unknown>;
+      expect(replayBody.confirmed).toBe(true);
+      const row = await settlementRepo.findByJobAndLeg(jobId, 'deposit');
+      expect(row?.hash).toBe('0xidem-price');
     } finally {
       server.close();
     }

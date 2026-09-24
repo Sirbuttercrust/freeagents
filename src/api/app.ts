@@ -129,7 +129,6 @@ import {
   type JobStatus,
   type Party,
   type PriceProposal,
-  type Rail,
 } from '../domain/job.js';
 import { depositUsd, remainderUsd } from '../domain/payment.js';
 import { createSettlementGate, remainderSettled, type SettlementGate } from '../adapters/payment/gate.js';
@@ -140,6 +139,9 @@ import { attachAbtPaymentHandlers, type AbtTxEncoder } from '../adapters/payment
 import { createTxEncoder as createAbtTxEncoder } from '@ocap/client/encode';
 import {
   confirmPayment,
+  legRailMismatchMessage,
+  legStatusConflictMessage,
+  legStatusEligible,
   processWalletResponse,
   requestPayment,
   type RouteLeg,
@@ -4340,38 +4342,18 @@ export function createApp(
       : remainderUsd(String(job.priceUsd), job.depositPercent);
   }
 
-  // B23 (bug ledger, C1 rehearsal s7): each leg is only ever eligible
-  // while the job is in the status that leg belongs to. A withdrawn job
-  // used to answer 200 to deposit start with real transfer intents, and
-  // the wallet response wrote an ObservedSettlement row for it -- a buyer
-  // could pay for a job that no longer exists. The deposit leg settles
-  // before confirm (confirm's own gate reads it), so it is eligible only
-  // at 'proposed'; the remainder leg settles while the work sits staged
-  // and unpaid, the exact fact LAPSE_AT_STAGED_STATUSES already names, so
-  // it shares that set. Both start routes AND the wallet-response route
-  // (which can record a settlement, not merely quote one) call this
-  // before doing anything else -- a hash that arrives after the job left
-  // the eligible window is refused the same way a start call would be,
-  // not treated as a late-but-honoured payment.
-  const DEPOSIT_ELIGIBLE_STATUSES: ReadonlySet<JobStatus> = new Set(['proposed']);
-  function legStatusEligible(leg: RouteLeg, status: JobStatus): boolean {
-    return leg === 'deposit' ? DEPOSIT_ELIGIBLE_STATUSES.has(status) : LAPSE_AT_STAGED_STATUSES.has(status);
-  }
-  function legStatusConflictMessage(leg: RouteLeg, status: JobStatus): string {
-    const eligible = leg === 'deposit' ? '"proposed"' : '"staged" or "redo_requested"';
-    return `the ${leg} leg is not payable while this job is in status "${status}"; it is only payable while the job is ${eligible}`;
-  }
-
-  // B25 (bug ledger, C1 rehearsal s8): each rail's routes refuse a job
-  // priced on the OTHER rail, in both directions -- USDC start used to
-  // accept an ABT-priced job and hand out USDC transfer intents nobody
-  // could ever settle against the agreed price. gate.job.rail is null
-  // only before a price is proposed, a case the existing "no agreed
-  // price to pay against" check below already answers; this check runs
-  // only once a rail is actually on record, so the two never race.
-  function legRailMismatchMessage(routeRail: Rail, jobRail: Rail | null): string {
-    return `this job is priced on the "${jobRail}" rail; the "${routeRail}" payment routes refuse it`;
-  }
+  // B23 (bug ledger, C1 rehearsal s7) and B25 (s8): legStatusEligible,
+  // legStatusConflictMessage and legRailMismatchMessage now live in
+  // route-support.ts (imported above), shared by every door onto the
+  // payment surface -- both rails' /start routes below, the USDC
+  // wallet-response route, the ABT session-mint door
+  // (requireBuyerToMintAbtSession above) and the ABT wallet-response
+  // callback (abt-did-connect.ts's onAuth) -- so the same eligibility and
+  // rail rule applies everywhere a leg can be started or settled, rather
+  // than each door growing its own copy (Proof round 1, D1 and D2: the
+  // token-mint door and onAuth each had no gate at all, because the
+  // check used to live only here, where those two doors could not reach
+  // it).
 
   // S3, Ruling 3: the USDC recipient is the address on record for the
   // hired agent's operator Account, never derived (unlike ABT: an EVM
@@ -4441,6 +4423,25 @@ export function createApp(
       }
       const gate = await requireSignedParty('GET/POST /api/did/pay/token', jobId, req, res, ['buyer']);
       if (gate === null) return;
+      // B23 and B25 (Proof round 1, D1): this is the SECOND door to the
+      // exact same session mint /jobs/:jobId/payments/deposit/abt/start
+      // opens (see the comment on this middleware's registration below),
+      // so it must refuse the identical status and rail conflicts /start
+      // refuses -- minting a session for a withdrawn or wrong-rail job
+      // through this door was never blocked just because /start was.
+      const leg = parseRouteLeg(mintExtraParam(req, 'leg'));
+      if (leg === null) {
+        res.status(400).json({ error: 'leg must be "deposit" or "remainder"' });
+        return;
+      }
+      if (gate.job.rail !== null && gate.job.rail !== 'abt') {
+        res.status(409).json({ error: legRailMismatchMessage('abt', gate.job.rail) });
+        return;
+      }
+      if (!legStatusEligible(leg, gate.job.status)) {
+        res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
+        return;
+      }
       next();
     })().catch(next);
   };
@@ -4673,20 +4674,42 @@ export function createApp(
         res.status(503).json({ error: 'the usdc payment rail is not configured on this deployment' });
         return;
       }
-      // B25: the job's own agreed rail must match the route it was
-      // reached through.
-      if (gate.job.rail !== null && gate.job.rail !== 'usdc') {
-        res.status(409).json({ error: legRailMismatchMessage('usdc', gate.job.rail) });
-        return;
-      }
-      // B23: the leg must belong to the job's CURRENT status. A hash
-      // that arrives after the job left the eligible window (a late
-      // callback for a job the buyer has since withdrawn, for example)
-      // is refused the same way a fresh start call would be refused --
-      // never treated as a late-but-honoured payment.
-      if (!legStatusEligible(leg, gate.job.status)) {
-        res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
-        return;
+      // B23 (Proof round 1, D3): "a wallet response for a hash already
+      // recorded stays idempotent" is the brief's own requirement, but the
+      // status and rail gates below ran before any check for a hash this
+      // leg has already settled -- so a replay of the SAME hash started
+      // answering 409 the moment the job moved past its eligible status
+      // (confirm() advancing it from 'proposed' to 'confirmed', for
+      // example), which is exactly the case idempotency exists for: a
+      // late or duplicate wallet callback for a payment that already
+      // landed. A replay is recognised here, before either gate, by
+      // comparing the incoming hash (normalized the same way onWalletResponse
+      // itself normalizes one) against whatever this job and leg already
+      // has recorded; a match skips both gates below and falls through to
+      // the normal processing path, which re-confirms the same ref and
+      // answers exactly as the first call did.
+      const priceTxHashForIdempotencyCheck = (req.body as { priceTxHash?: unknown } | undefined)?.priceTxHash;
+      const alreadyRecorded = await settlementRepo.findByJobAndLeg(gate.job.id, leg);
+      const isIdempotentReplay =
+        alreadyRecorded !== null &&
+        typeof priceTxHashForIdempotencyCheck === 'string' &&
+        normalizeUsdcTxHash(alreadyRecorded.hash) === normalizeUsdcTxHash(priceTxHashForIdempotencyCheck);
+      if (!isIdempotentReplay) {
+        // B25: the job's own agreed rail must match the route it was
+        // reached through.
+        if (gate.job.rail !== null && gate.job.rail !== 'usdc') {
+          res.status(409).json({ error: legRailMismatchMessage('usdc', gate.job.rail) });
+          return;
+        }
+        // B23: the leg must belong to the job's CURRENT status. A hash
+        // that arrives after the job left the eligible window (a late
+        // callback for a job the buyer has since withdrawn, for example)
+        // is refused the same way a fresh start call would be refused --
+        // never treated as a late-but-honoured payment.
+        if (!legStatusEligible(leg, gate.job.status)) {
+          res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
+          return;
+        }
       }
       const body = (req.body ?? {}) as {
         operatorAddress?: unknown;
