@@ -106,6 +106,7 @@ import {
   completeJob,
   confirmSpec,
   createJob,
+  DepositSettledError,
   JobError,
   JobPriceError,
   JobTransitionError,
@@ -3167,6 +3168,13 @@ export function createApp(
         res.status(409).json({ error: err.message });
         return;
       }
+      // DEP1 (B24 ruling, 2026-09-23): the deposit has settled,
+      // so decline is refused -- a state conflict, the same 409 shape
+      // every other domain refusal above already answers with.
+      if (err instanceof DepositSettledError) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
       throw err;
     }
 
@@ -3719,6 +3727,16 @@ export function createApp(
   // time 2026-09-01, bug ledger B10). Mirror of withdraw: the buyer walks
   // away with withdraw, the agent with decline. Which statuses allow it is
   // the transition table's call, not this route's.
+  //
+  // DEP1 (B24 ruling, 2026-09-23): once the buyer's deposit has
+  // settled, the agent can no longer simply decline. The settlement gate
+  // is asked the same depositSettled question confirm's own gate already
+  // asks (settlementGate.depositSettled, the confirm route above), and
+  // the answer is threaded into decline() as its second argument: the
+  // domain throws DepositSettledError, which this route maps to 409 with
+  // a plain-words reason, the same state-conflict shape JobTransitionError
+  // already answers with. A gate failure is 503, never a silent guess,
+  // matching every other settlement-gate call site in this file.
   app.post(
     '/jobs/:jobId/decline',
     didSignature,
@@ -3727,7 +3745,15 @@ export function createApp(
       const label = 'POST /jobs/:jobId/decline';
       const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['agent']);
       if (gate === null) return;
-      await applyAndPersist(label, res, gate.job, decline);
+      let depositIsSettled: boolean;
+      try {
+        depositIsSettled = await settlementGate.depositSettled(gate.job.id);
+      } catch (err) {
+        console.error(`${label}: settlement gate failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      await applyAndPersist(label, res, gate.job, (job) => decline(job, depositIsSettled));
     }),
   );
 

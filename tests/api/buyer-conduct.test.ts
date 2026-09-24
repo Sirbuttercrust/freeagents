@@ -575,7 +575,7 @@ describe('GET /buyers/:githubLogin/conduct (P7)', () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.keyed).toBe(true);
-      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0 });
+      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0 });
     } finally {
       server.close();
     }
@@ -642,7 +642,7 @@ describe('GET /buyers/:githubLogin/conduct (P7)', () => {
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.keyed).toBe(true);
       expect((body.counts as Record<string, unknown>).merged).toBe(1);
-      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 1, redosRefused: 0 });
+      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 1, redosRefused: 0, walkedAfterDeposit: 0 });
       // The two sides are never summed and never share a field: neither
       // object carries a key that belongs to the other.
       expect(Object.keys(body.counts as Record<string, unknown>).sort()).toEqual(
@@ -791,6 +791,50 @@ describe('GET /buyers/:githubLogin/conduct (P7)', () => {
     }
   });
 
+  // DEP1 (B24 ruling, 2026-09-23): same proof shape, the
+  // walkedAfterDeposit half. A route-level assertion on a NON-ZERO
+  // operatorCounts.walkedAfterDeposit, driven by an operator job planted
+  // at expired_unstaged. Deleting the walkedAfterDeposit line in
+  // operatorConductRecord must redden this test.
+  it('an operator whose agent job lapsed expired_unstaged reports a non-zero operatorCounts.walkedAfterDeposit over the wire', async () => {
+    const { server, baseUrl, accountRepo, agentRepo, jobRepo } = await buildApp();
+    try {
+      const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(67));
+      const ownAgent = await signingIdentityFromSeed(new Uint8Array(32).fill(68));
+      const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(69));
+      await accountRepo.register({ did: operator.did, githubLogin: 'operator-p8r-walked-deposit' });
+      await accountRepo.register({ did: buyer.did, githubLogin: 'buyer-p8r-walked-deposit' });
+      await agentRepo.create({
+        did: ownAgent.did,
+        operatorDid: operator.did,
+        delegation: delegationFixture(ownAgent.did, operator.did) as never,
+        name: 'own-agent',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+      const draft = await postSigned(baseUrl, '/jobs', {
+        agentDid: ownAgent.did,
+        repository: 'buyer/target-repo',
+        brief: 'A job the agent never staged, deposit already paid',
+      }, buyer);
+      const draftBody = (await draft.json()) as Record<string, unknown>;
+      const job = await jobRepo.findById(String(draftBody.id));
+      if (job === null) throw new Error('expected the drafted job to be stored');
+      await jobRepo.update({ ...job, status: 'expired_unstaged', confirmedAt: new Date() });
+
+      const res = await fetch(`${baseUrl}/buyers/operator-p8r-walked-deposit/conduct`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.keyed).toBe(true);
+      expect((body.operatorCounts as Record<string, unknown>).walkedAfterDeposit).toBe(1);
+      // DEP1: the same lapse must NOT also count on the buyer's own
+      // walkedAfterConfirm -- the two fields never double-count one fact.
+      expect((body.counts as Record<string, unknown>).walkedAfterConfirm).toBe(0);
+    } finally {
+      server.close();
+    }
+  });
+
   // Mutation proof 4: the roster filter must be the exact operatorDid
   // comparison GET /accounts/:did/agents already uses, never
   // isAgentOperator's didSuffix match. Two accounts whose DID suffixes
@@ -832,7 +876,7 @@ describe('GET /buyers/:githubLogin/conduct (P7)', () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.keyed).toBe(true);
-      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0 });
+      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0 });
     } finally {
       server.close();
     }
@@ -883,7 +927,7 @@ describe('GET /buyers/:githubLogin/conduct (P7)', () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.keyed).toBe(true);
-      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0 });
+      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0 });
     } finally {
       server.close();
     }

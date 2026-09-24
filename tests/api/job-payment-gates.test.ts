@@ -337,3 +337,83 @@ describe('staged-decline route: buyer only, staged -> staged_declined, free (P4)
     }
   });
 });
+
+// DEP1 (B24 ruling, 2026-09-23): once the deposit has settled,
+// the agent's decline route answers 409 and names the reason in plain
+// words. Confirm's own deposit gate already refuses to reach confirmed
+// without a settled deposit, so a decline at confirmed is always over a
+// settled deposit; the interesting proof is a decline that happens
+// AFTER confirm but at proposed is unaffected (decline before any
+// deposit settles stays exactly as it was).
+describe('decline route: refused once the deposit has settled (DEP1, B24)', () => {
+  it('the agent declines a proposed job with no deposit settled at all, unchanged from before the ruling', async () => {
+    const gate = new MemorySettlementGate();
+    const { server, baseUrl, buyer, agent } = await startApp(gate);
+    try {
+      const created = await postSigned(baseUrl, '/jobs', {
+        buyerDid: buyer.did,
+        agentDid: agent.did,
+        repository: 'buyer/target-repo',
+        brief: 'A job nobody paid a deposit on',
+      }, buyer);
+      const jobId = String(((await created.json()) as Record<string, unknown>).id);
+      const decline = await postSigned(baseUrl, `/jobs/${jobId}/decline`, {}, agent);
+      expect(decline.status).toBe(200);
+      const body = (await decline.json()) as Record<string, unknown>;
+      expect(body.status).toBe('declined');
+    } finally {
+      server.close();
+    }
+  });
+
+  it('refuses the agent decline with 409, naming the reason in plain words, once the deposit has settled at confirmed', async () => {
+    const gate = new MemorySettlementGate();
+    const { server, baseUrl, buyer, agent } = await startApp(gate);
+    try {
+      const jobId = await walkToConfirmed(baseUrl, buyer, agent);
+      gate.markDepositSettled(jobId);
+      const confirm = await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyer);
+      expect(confirm.status).toBe(200);
+
+      const decline = await postSigned(baseUrl, `/jobs/${jobId}/decline`, {}, agent);
+      expect(decline.status).toBe(409);
+      const body = (await decline.json()) as Record<string, unknown>;
+      expect(String(body.error)).toContain('deposit');
+
+      const read = await (await fetch(`${baseUrl}/jobs/${jobId}`)).json() as Record<string, unknown>;
+      expect(read.status).toBe('confirmed');
+    } finally {
+      server.close();
+    }
+  });
+
+  // The brief's own wording: "a job that is half-paid (price leg only)
+  // has not settled [its deposit], so decline stays allowed there". The
+  // decline gate reads the DEPOSIT leg specifically, never any
+  // settlement in general: a job whose balance/remainder leg is marked
+  // settled but whose deposit leg is not (a fabricated ordering a normal
+  // confirm can never produce, since confirm refuses without a settled
+  // deposit first, but the route's own gate call is what this proves)
+  // still declines with 200.
+  it('a job with only the balance leg settled, not the deposit leg, still declines: the gate reads the deposit leg specifically', async () => {
+    const gate = new MemorySettlementGate();
+    const { server, baseUrl, buyer, agent } = await startApp(gate);
+    try {
+      const created = await postSigned(baseUrl, '/jobs', {
+        buyerDid: buyer.did,
+        agentDid: agent.did,
+        repository: 'buyer/target-repo',
+        brief: 'A job with the balance leg marked settled, not the deposit',
+      }, buyer);
+      const jobId = String(((await created.json()) as Record<string, unknown>).id);
+      gate.markBalanceSettled(jobId);
+
+      const decline = await postSigned(baseUrl, `/jobs/${jobId}/decline`, {}, agent);
+      expect(decline.status).toBe(200);
+      const body = (await decline.json()) as Record<string, unknown>;
+      expect(body.status).toBe('declined');
+    } finally {
+      server.close();
+    }
+  });
+});
