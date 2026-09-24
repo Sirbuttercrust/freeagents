@@ -3887,7 +3887,6 @@ export function createApp(
           repo: stagingRepo.repo,
           stagedCommit,
           baseCommit,
-          criteriaPaths: [],
           verifiedAgentGithubLogin,
         });
       } catch (err) {

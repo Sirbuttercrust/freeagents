@@ -39,12 +39,11 @@ export interface StagingObserveInput {
   readonly repo: string;
   readonly stagedCommit: string;
   readonly baseCommit: string;
-  readonly criteriaPaths: readonly string[];
   // B14b: the agent's own VERIFIED GitHub login (R-3/R-4, ENT-5), the
   // one identity commitSigners compares each commit's author against.
   // Passed per call, not baked into the observer at construction time,
   // because it is a fact about THIS job's agent, not about the observer
-  // itself -- the same reasoning criteriaPaths above already follows.
+  // itself.
   readonly verifiedAgentGithubLogin: string;
 }
 

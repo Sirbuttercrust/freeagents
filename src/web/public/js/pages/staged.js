@@ -24,8 +24,7 @@
    from depositUsd(priceUsd, depositPercent), never the wireframe's
    literal (ruling 4).
 
-   outOfCriteriaPathCount never renders (ruling 2, structurally always
-   equals filesChanged). The clock states a fixed window and a deadline
+   The clock states a fixed window and a deadline
    date, never a countdown (ruling 4); LAPSE_AT_STAGED_AFTER_DAYS and
    REDO_LAPSE_EXTENSION_DAYS are browser constants pinned by a test
    against the domain's own. Pays over ABT on the REMAINDER, never the

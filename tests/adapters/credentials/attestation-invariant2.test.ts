@@ -122,7 +122,6 @@ describe('platform signature over an attestation, invariant 2', () => {
         lineShareByCategory: { source: 0.8, test: 0.15, lockfile: 0.03, generated: 0.01, vendored: 0.01 },
         testsDeleted: [],
         testsSkipAdded: [],
-        outOfCriteriaPathCount: 1,
         commitSigners: [{ matchesAgentDid: true }],
       },
       now,
@@ -157,7 +156,6 @@ describe('platform signature over an attestation, invariant 2', () => {
     const wireAttestation = subject.attestation as Record<string, unknown>;
     expect(wireAttestation.stagedCommit).toBe(attestation.stagedCommit);
     expect(wireAttestation.diffHash).toBe(attestation.diffHash);
-    expect(wireAttestation.outOfCriteriaPathCount).toBe(1);
   });
 
   it('the refused list never reaches the signed wire bytes, even with sentinel-laden inputs', () => {
@@ -201,7 +199,6 @@ describe('platform signature over an attestation, invariant 2', () => {
       changedPaths: ['src/b.ts', 'src/a.ts'],
       testsDeleted: [] as string[],
       testsSkipAdded: [] as string[],
-      outOfCriteriaPathCount: 1,
     };
     const attestationA = buildAttestation(
       job,

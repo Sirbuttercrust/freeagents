@@ -82,7 +82,6 @@ export interface StagingObservation {
   readonly lineShareByCategory: LineShareByCategory;
   readonly testsDeleted: readonly string[];
   readonly testsSkipAdded: readonly string[];
-  readonly outOfCriteriaPathCount: number;
   readonly commitSigners: readonly CommitSigner[];
 }
 
@@ -101,7 +100,6 @@ export interface Attestation {
   readonly lineShareByCategory: LineShareByCategory;
   readonly testsDeleted: readonly string[];
   readonly testsSkipAdded: readonly string[];
-  readonly outOfCriteriaPathCount: number;
   readonly commitSigners: readonly CommitSigner[];
   // The instant the platform built the document. Not part of the accepted
   // field list's own enumeration, but every signed document in this
@@ -146,7 +144,6 @@ export function buildAttestation(job: Job, observed: StagingObservation, now: Da
     },
     testsDeleted: [...observed.testsDeleted].sort(),
     testsSkipAdded: [...observed.testsSkipAdded].sort(),
-    outOfCriteriaPathCount: observed.outOfCriteriaPathCount,
     // Signers carry no identifying field to sort by; the count and the
     // multiset of booleans are the whole fact, so a stable sort on the
     // boolean value (false before true) removes the only remaining

@@ -88,11 +88,6 @@ function observationFixture(overrides: Partial<StagingObservation> = {}): Stagin
     lineShareByCategory: { source: 61, test: 27, lockfile: 0, generated: 0, vendored: 0 },
     testsDeleted: [],
     testsSkipAdded: ['packages/ui/test/legacy-import.test.ts', 'packages/theme/test/legacy-import.test.ts'],
-    // Ruling 2: always equal to filesChanged in the real system
-    // (criteriaPaths: [] at the call site); carried on the fixture so a
-    // test that accidentally renders it is not trivially passing by
-    // omission.
-    outOfCriteriaPathCount: 9,
     commitSigners: [{ matchesAgentDid: true }, { matchesAgentDid: true }, { matchesAgentDid: true }, { matchesAgentDid: true }],
     ...overrides,
   };

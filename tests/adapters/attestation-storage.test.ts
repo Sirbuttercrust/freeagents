@@ -10,7 +10,7 @@
 // generated client module is stubbed so no test opens a real database, and
 // the real PrismaClientKnownRequestError class is used for the P2002 leg.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildAttestation } from '../../src/domain/attestation.js';
+import { buildAttestation, type Attestation } from '../../src/domain/attestation.js';
 import { createJob, stageWork, type Job } from '../../src/domain/job.js';
 
 const mock = vi.hoisted(() => ({
@@ -72,7 +72,6 @@ const attestation = buildAttestation(
     lineShareByCategory: { source: 1, test: 0, lockfile: 0, generated: 0, vendored: 0 },
     testsDeleted: [],
     testsSkipAdded: [],
-    outOfCriteriaPathCount: 0,
     commitSigners: [{ matchesAgentDid: true }],
   },
   new Date('2026-01-06T00:00:00Z'),
@@ -151,6 +150,32 @@ describe('MemoryAttestationRepository', () => {
     expect((await repo.findByJobId('job_att_2'))?.jobId).toBe('job_att_2');
     expect((await repo.listByJobId('job_att_1'))).toHaveLength(1);
     expect((await repo.listByJobId('job_att_2'))).toHaveLength(1);
+  });
+
+  // The operator, 2026-09-23: outOfCriteriaPathCount is dropped from every new
+  // attestation (this card), but a row written before this card shipped
+  // still carries it in storage -- both drivers store the document
+  // verbatim and never re-validate its shape on the way back out (this
+  // file's own header). A reader must serve that old row exactly as
+  // written, extra field and all, rather than crash or silently strip it.
+  it('reads an attestation stored before the field was dropped without crashing, extra field intact', async () => {
+    const oldAttestation = { ...attestation, outOfCriteriaPathCount: 9 } as unknown as Attestation;
+    const oldSigned = {
+      ...signedFixture,
+      credentialSubject: { ...signedFixture.credentialSubject, attestation: oldAttestation },
+    };
+    const repo = new MemoryAttestationRepository();
+    await repo.save({ jobId: 'job_att_old_shape', attestation: oldAttestation, signed: oldSigned });
+
+    const stored = await repo.findByJobId('job_att_old_shape');
+    expect(stored).not.toBeNull();
+    expect((stored?.attestation as unknown as Record<string, unknown>).outOfCriteriaPathCount).toBe(9);
+    const storedSubject = stored?.signed.credentialSubject as unknown as Record<string, unknown>;
+    expect((storedSubject.attestation as Record<string, unknown>).outOfCriteriaPathCount).toBe(9);
+
+    const all = await repo.listByJobId('job_att_old_shape');
+    expect(all).toHaveLength(1);
+    expect((all[0]?.attestation as unknown as Record<string, unknown>).outOfCriteriaPathCount).toBe(9);
   });
 });
 

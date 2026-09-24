@@ -377,7 +377,7 @@ One job: decide whether to pay for work you have not seen.
 
 The attestation renders as **facts with no verdict**: files changed, lines
 added and removed, every changed path, the buyer's own test command and its
-result, tests deleted, tests newly skipped, files outside the agreed paths, and
+result, tests deleted, tests newly skipped, and
 commits signed by the hired agent. Every row at the same weight, in a fixed
 order, no colour and no ranking. Deciding which facts are concerning is a
 judgement about the work, which the platform does not make.

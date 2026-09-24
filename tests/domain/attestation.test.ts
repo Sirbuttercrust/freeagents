@@ -42,7 +42,6 @@ function observation(overrides: Partial<StagingObservation> = {}): StagingObserv
     lineShareByCategory: { source: 0.7, test: 0.2, lockfile: 0.05, generated: 0.03, vendored: 0.02 },
     testsDeleted: ['tests/old.test.ts'],
     testsSkipAdded: ['tests/flaky.test.ts'],
-    outOfCriteriaPathCount: 2,
     commitSigners: [{ matchesAgentDid: true }, { matchesAgentDid: false }],
     ...overrides,
   };
@@ -72,7 +71,6 @@ describe('buildAttestation: the accepted fields, and only the accepted fields', 
     expect(attestation.lineShareByCategory).toEqual(obs.lineShareByCategory);
     expect(attestation.testsDeleted).toEqual(obs.testsDeleted);
     expect(attestation.testsSkipAdded).toEqual(obs.testsSkipAdded);
-    expect(attestation.outOfCriteriaPathCount).toBe(obs.outOfCriteriaPathCount);
     expect(attestation.commitSigners).toHaveLength(2);
   });
 
@@ -80,15 +78,6 @@ describe('buildAttestation: the accepted fields, and only the accepted fields', 
     const job = stagedJob();
     const attestation = buildAttestation(job, observation({ changedPaths: ['z.ts', 'a.ts', 'm.ts'] }), new Date());
     expect(attestation.changedPaths).toEqual(['a.ts', 'm.ts', 'z.ts']);
-  });
-
-  it('outOfCriteriaPathCount is a count: no per-criterion mapping exists anywhere on the type', () => {
-    const job = stagedJob();
-    const attestation = buildAttestation(job, observation(), new Date());
-    expect(typeof attestation.outOfCriteriaPathCount).toBe('number');
-    // No field on the built object names a criterion or maps a path to one.
-    expect(Object.keys(attestation)).not.toContain('outOfCriteriaMapping');
-    expect(Object.keys(attestation)).not.toContain('criteriaMapping');
   });
 
   it('commitSigners carries only a boolean per signer, never an identity', () => {
@@ -114,7 +103,6 @@ describe('buildAttestation: the accepted fields, and only the accepted fields', 
         'lineShareByCategory',
         'testsDeleted',
         'testsSkipAdded',
-        'outOfCriteriaPathCount',
         'commitSigners',
         'generatedAt',
       ].sort(),
