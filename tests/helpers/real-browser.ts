@@ -128,8 +128,7 @@ const GIVEUP_MESSAGE = 'chrome debug port never came up';
 
 // CI4 round 3: what the runner logs show, and what they do not. Across
 // every measurement push, the slow opens (6.5 to 19s) and every real
-// give-up landed in the first seconds of a job, while several forks were
-// launching Chrome cold at the same moment. Not every first launch was
+// give-up landed in the first seconds of a job. Not every first launch was
 // slow (919ms and 1994ms were both first launches), and some slow ones
 // were not first (12453ms and 16045ms were a job's fourth to sixth open).
 // So the pattern is "cold, in the opening seconds of a job", not "the

@@ -14,7 +14,7 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RealBrowser, WARMUP_PORT_WAIT_MS, hasRealBrowser, warmUpChrome } from './real-browser.js';
 
 // A page whose body is taller than the viewport on every launch below, so a
@@ -66,8 +66,10 @@ describe('RealBrowser: phone-width launches read the same clientWidth on every p
 // the evidence are in real-browser.ts, above warmUpChrome). These tests pin
 // its contract: it reports whether a Chrome actually ran, it gives up
 // loudly rather than silently, and it has its own port budget rather than
-// the per-test one. Each one fails when warmUpChrome is replaced by a
-// function that does nothing.
+// the per-test one. A do-nothing warmUpChrome fails the "returns true" and
+// "logs a give-up" tests; the budget test fails if warmUpChrome stops
+// passing WARMUP_PORT_WAIT_MS to launch. The no-Chrome test pins only the
+// early return and passes for a do-nothing function too.
 describe('warmUpChrome: runs one real Chrome before the tests, and says so when it cannot', () => {
   it('returns false, launching nothing, when no Chrome binary can be found', async () => {
     const previousChromeBin = process.env.CHROME_BIN;
@@ -111,8 +113,29 @@ describe('warmUpChrome: runs one real Chrome before the tests, and says so when 
     }
   });
 
-  it('waits longer for a cold Chrome than a test launch does, because it runs outside any test timeout', () => {
+  it('waits longer for a cold Chrome than a test launch does, because it runs outside any test timeout', async () => {
     expect(WARMUP_PORT_WAIT_MS).toBeGreaterThan(30_000);
+    // A stub path that exists, so findChromeBinary passes and warmUpChrome
+    // reaches launch; the spy then records the budget it was handed.
+    const stubDir = mkdtempSync(join(tmpdir(), 'fa-stub-chrome-'));
+    const stubPath = join(stubDir, 'stub-chrome.sh');
+    writeFileSync(stubPath, '#!/bin/sh\nexit 3\n');
+    chmodSync(stubPath, 0o755);
+    const previousChromeBin = process.env.CHROME_BIN;
+    process.env.CHROME_BIN = stubPath;
+    const launch = vi.spyOn(RealBrowser, 'launch').mockRejectedValue(new Error('stubbed launch'));
+    try {
+      await expect(warmUpChrome(() => {})).resolves.toBe(false);
+      expect(launch).toHaveBeenCalledTimes(1);
+      expect(launch.mock.calls[0]?.[0]?.portWaitMs, 'warm-up must use its own budget, not the per-test one').toBe(
+        WARMUP_PORT_WAIT_MS,
+      );
+    } finally {
+      launch.mockRestore();
+      if (previousChromeBin === undefined) delete process.env.CHROME_BIN;
+      else process.env.CHROME_BIN = previousChromeBin;
+      rmSync(stubDir, { recursive: true, force: true });
+    }
   });
 });
 
