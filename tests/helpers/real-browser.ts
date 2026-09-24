@@ -12,7 +12,7 @@
 // anything else running on the machine: a fresh remote-debugging port and a
 // fresh throwaway profile directory per instance.
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import net from 'node:net';
@@ -110,165 +110,68 @@ interface CdpMessage {
   error?: { message?: string };
 }
 
-// CI4 round 2 (review round 1, defect 1): vitest's own pool runs each test
-// file as a separate OS process (node_modules/vitest/dist/config.js:99,
-// `pool: "forks"`). A module-level counter, however carefully queued, only
-// ever counts launches inside the ONE process it lives in; every other
-// file's worker starts its own counter at zero. The review round's own repro nailed this:
-// two files at a limit of 1 both acquired the "gate" 1ms apart, with 20
-// Chrome processes alive, because there were two separate counters, not
-// one shared one.
-//
-// The fence has to live somewhere every worker process can see: the
-// filesystem. Each slot is a file, `slot-<n>.lock`, claimed with node:fs's
-// `wx` flag (open with O_EXCL), which is atomic on the local disk this
-// runs on (POSIX open(2) with O_CREAT|O_EXCL): whichever process's write
-// call lands first gets the file, every other gets EEXIST. That is real
-// mutual exclusion between processes, not a shared-memory count that only
-// one process can see.
-//
-// A slot left behind by a worker that vitest killed (a timed-out test, a
-// crashed runner) would otherwise wedge every later launch behind a lock
-// nobody will ever release, so each slot file's own content is the owning
-// pid, and a waiter that finds a slot held by a pid that is not running
-// reclaims it immediately rather than treating "the file exists" as proof
-// the launch is still live.
-const DEFAULT_GATE_DIR = join(tmpdir(), 'fa-real-browser-launch-gate');
-const GATE_POLL_MS = 100;
-
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    // ESRCH: no such process, the recorded holder is gone. Any other
-    // error (EPERM, most commonly) means the process exists but this one
-    // cannot signal it, which is still "alive" for this check.
-    return (err as NodeJS.ErrnoException).code !== 'ESRCH';
-  }
-}
-
-export class CrossProcessLaunchGate {
-  private readonly limit: number;
-  private readonly dir: string;
-
-  constructor(limit: number, dir: string = DEFAULT_GATE_DIR) {
-    this.limit = limit;
-    this.dir = dir;
-    mkdirSync(this.dir, { recursive: true });
-  }
-
-  async acquire(): Promise<() => void> {
-    for (;;) {
-      for (let i = 0; i < this.limit; i += 1) {
-        const slotPath = join(this.dir, `slot-${i}.lock`);
-        if (this.tryClaim(slotPath)) {
-          return () => this.release(slotPath);
-        }
-      }
-      await new Promise((r) => setTimeout(r, GATE_POLL_MS));
-    }
-  }
-
-  private tryClaim(slotPath: string): boolean {
-    if (this.writeIfAbsent(slotPath)) return true;
-    if (!this.isStale(slotPath)) return false;
-    // The holder is dead. Take the slot over: removing a lock nobody will
-    // ever release and immediately re-claiming it is safe even if another
-    // waiter races the same reclamation, since only one of the two
-    // `writeIfAbsent` calls that follow can win the O_EXCL write.
-    try {
-      rmSync(slotPath, { force: true });
-    } catch {
-      // another waiter already removed it; fall through to the retry
-    }
-    return this.writeIfAbsent(slotPath);
-  }
-
-  private writeIfAbsent(slotPath: string): boolean {
-    try {
-      writeFileSync(slotPath, String(process.pid), { flag: 'wx' });
-      return true;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
-      throw err;
-    }
-  }
-
-  private isStale(slotPath: string): boolean {
-    let owner: string;
-    try {
-      owner = readFileSync(slotPath, 'utf8');
-    } catch {
-      // The slot vanished between the failed write and this read (the
-      // holder released it): claimable, not stale, but the caller's next
-      // writeIfAbsent will settle which of the racing waiters actually
-      // gets it.
-      return true;
-    }
-    const pid = Number(owner);
-    return !Number.isInteger(pid) || !isPidAlive(pid);
-  }
-
-  private release(slotPath: string): void {
-    try {
-      rmSync(slotPath, { force: true });
-    } catch {
-      // already gone
-    }
-  }
-}
-
-// CI4 round 2, final sizing: the gate now holds its slot for a browser's
-// whole lifetime (see CrossProcessLaunchGate's callers), so the two
-// earlier measurement pushes at PORT_WAIT_MS=12000 and 25000 (runs
-// 35935765272, 35936931195) do not apply here; both ran before that fix
-// and their give-ups were caused by the very contention the lifetime fix
-// removes. Under the fixed gate, one more measurement push (run
-// 35938128610, both node versions) shows zero give-ups across 313
-// launches and a worst legitimate open of 9650ms (node 24; node 22's
-// worst was 6555ms). 12000ms leaves about 2.3s of headroom over that
-// worst case, and two attempts (below) total at most about 24.6s
-// including each attempt's close(), leaving over 5s of the 30s test
-// timeout every affected caller sets for whatever the test does before
-// calling launch(). If a future runner sample shows launches still
-// running past 12s under this gate, this number needs to move, and the
-// retry budget with it.
-const PORT_WAIT_MS = 12_000;
+// CI4 round 3: rounds 1 and 2 both tried to bound CONCURRENCY, first a
+// per-process counter (round 1, proven vacuous across vitest's separate
+// worker processes) then a cross-process slot directory held for a
+// browser's whole lifetime (round 2). Proof round 2 measured the lifetime
+// gate directly on the runner (run 35938128610) and found it never once
+// made a launch wait: gate-wait maxed at 3-6ms across 157 acquires per
+// job. The real give-ups in every measurement push landed in the first
+// handful of log lines of a job, at chrome-procs-after of 1 to 4, the
+// opposite of what a concurrency theory needs. Bounding concurrency
+// further would only slow every job down without touching the actual
+// cause, so no launch gate remains: PORT_WAIT_MS alone, sized from the
+// uncensored worst case the runner has actually shown (see its own
+// comment), plus warmUpChrome (below) removing the cold-start cost that
+// produced every give-up in the first place.
 const GIVEUP_MESSAGE = 'chrome debug port never came up';
 
-export async function withLaunchRetry<T>(attempt: () => Promise<T>, maxAttempts: number): Promise<T> {
-  let lastError: unknown;
-  for (let i = 0; i < maxAttempts; i += 1) {
-    try {
-      return await attempt();
-    } catch (err) {
-      lastError = err;
-      const isGiveup = err instanceof Error && err.message === GIVEUP_MESSAGE;
-      if (!isGiveup) throw err;
-    }
+// CI4 round 3: the Proof round 2 log timeline shows a one-time cost, not
+// sustained contention. A job's FIRST real Chrome launch took 8925 to
+// 18961ms across every measurement push and every node version; every
+// launch after it in the same job took 300-900ms, a 10-60x difference
+// with nothing else that changed. That is what a page-cache miss looks
+// like: the OS has not yet read Chrome's ~200MB binary and shared
+// libraries off the runner's disk, so the first process that execs it
+// blocks on real I/O, and every later exec of the same binary hits the
+// now-resident pages instead. Concurrency numbers do not explain it
+// (chrome-procs-after was 1 to 4 at every slow open, nowhere near the
+// old gate's own limit), but "first exec of this binary in this job"
+// matches every slow-open line without exception.
+//
+// warmUpChrome pays that cost once, outside every per-test timeout,
+// before any test file's own launch ever runs (see vitest.config.ts's
+// globalSetup, which the Vitest docs guarantee runs before test workers
+// are created: https://vitest.dev/config/globalsetup). It launches a
+// throwaway headless Chrome and closes it through the same launch()/
+// close() path every real test uses; any failure (no Chrome binary, a
+// port that never opens) is swallowed exactly the way hasRealBrowser()
+// already lets every real-Chrome test skip rather than fail when Chrome
+// is unavailable, since warm-up is an optimization, not a correctness
+// requirement.
+export async function warmUpChrome(): Promise<void> {
+  if (!findChromeBinary()) return;
+  try {
+    const browser = await RealBrowser.launch({ width: 1280, height: 900, label: 'warmup' });
+    await browser.close();
+  } catch {
+    // Best effort: a failed warm-up just means the first real test pays
+    // the cold-start cost itself, the same as before this existed.
   }
-  throw lastError;
 }
 
-// A launch that spawns Chrome is the expensive, contended step the runner
-// numbers point at. 4 keeps a modest queue depth (roughly matching the
-// highest concurrent chrome-procs-after seen, 18, divided by the 4-5
-// CDP-relevant processes a single headless launch spawns) without
-// serialising the whole suite down to one launch at a time, which would
-// multiply total suite time by the number of real-Chrome test files
-// instead of just smoothing the spawn contention. Unlike CI4 round 1's
-// LaunchGate, this bound now actually holds across the separate OS
-// processes vitest runs each test file in.
-//
-// FA_LAUNCH_GATE_DIR and FA_LAUNCH_GATE_LIMIT let a test spin up an
-// isolated gate for a real child process (tests/helpers/real-browser.test.ts,
-// the cross-process lifetime probe) without touching every other real
-// process's shared gate directory. Unset in every real caller.
-const launchGate = new CrossProcessLaunchGate(
-  process.env.FA_LAUNCH_GATE_LIMIT ? Number(process.env.FA_LAUNCH_GATE_LIMIT) : 4,
-  process.env.FA_LAUNCH_GATE_DIR ?? DEFAULT_GATE_DIR,
-);
+// CI4 round 3 sizing: with warmUpChrome absorbing the first-launch
+// page-cache cost (see its own comment), every measurement push's
+// legitimate opens after a job's first launch land at 300-900ms. The
+// worst SINGLE legitimate open across every push, warmed or not, was
+// 18961ms (run 35936931195, node 24; the uncensored 25s-deadline push).
+// PORT_WAIT_MS stays above that uncensored worst case with real margin,
+// rather than at a number already shown to fail outright (12000ms lost
+// in run 35935765272), and comfortably inside the 30s test timeout every
+// real caller sets. If a future runner sample under warm-up shows a
+// non-first launch still running past this, warmUpChrome did not do its
+// job and this number is the wrong lever to move.
+const PORT_WAIT_MS = 22_000;
 
 // One throwaway headless Chrome tab, driven over CDP. Deliberately small:
 // goto + evaluate + close. A test that needs more speaks CDP directly via
@@ -280,51 +183,28 @@ export class RealBrowser {
   private port = 0;
   private nextId = 1;
   private pending = new Map<number, { resolve: (v: CdpMessage) => void; reject: (e: Error) => void }>();
-  private releaseGate: (() => void) | null = null;
 
   private constructor(profile: string) {
     this.profile = profile;
   }
 
-  static async launch(opts: { width?: number; height?: number } = {}): Promise<RealBrowser> {
+  // CI4 round 3: no launch gate and no retry. Proof round 2 measured the
+  // round 2 gate directly and found it never bound a single launch on the
+  // runner (gate-wait maxed at 3-6ms across 157 acquires per job in the
+  // run meant to justify it), and the round 1/2 retry could not help
+  // against a give-up that repeats on the very next attempt (run
+  // 35935765272: the same test's two consecutive attempts both gave up at
+  // the deadline, 1ms apart). The actual cause, a cold page-cache miss on
+  // a job's first Chrome exec, is a one-time cost that warmUpChrome now
+  // pays before any test's timeout starts, so a single attempt with
+  // PORT_WAIT_MS's own margin is what the measured mechanism calls for.
+  static async launch(opts: { width?: number; height?: number; label?: string } = {}): Promise<RealBrowser> {
     const chrome = findChromeBinary();
     if (!chrome) {
       throw new Error(
         `no Chrome found for real-browser layout tests. Set ${CHROME_ENV} to a Chrome/Chromium binary.`,
       );
     }
-    // CI4 round 2 fallout: the gate slot is held for the WHOLE browser
-    // lifetime (released in close(), not here), because the runner
-    // numbers showed chrome-procs-after staying high for the entire
-    // suite, not just during launches: the contention that starves a
-    // legitimate launch of CPU is concurrently RUNNING Chrome processes,
-    // not concurrently SPAWNING ones. A launch that fails still releases
-    // its slot immediately (the catch below), since a browser that never
-    // came up holds nothing worth bounding.
-    //
-    // Two attempts: three measurement pushes on the real runner, all
-    // under this lifetime-holding gate, show zero unexplained give-ups
-    // (624 baseline launches plus 470 more across the three follow-up
-    // pushes) and a worst legitimate open of 9650ms, so a retry now
-    // covers a launch losing an outright race rather than papering over
-    // ongoing contention the gate no longer lets build up.
-    return withLaunchRetry(async () => {
-      const release = await launchGate.acquire();
-      try {
-        const browser = await RealBrowser.attemptLaunch(chrome, opts);
-        browser.releaseGate = release;
-        return browser;
-      } catch (err) {
-        release();
-        throw err;
-      }
-    }, 2);
-  }
-
-  private static async attemptLaunch(
-    chrome: string,
-    opts: { width?: number; height?: number },
-  ): Promise<RealBrowser> {
     const width = opts.width ?? 1280;
     const height = opts.height ?? 900;
     const overlay = isPhoneWidth(width);
@@ -350,6 +230,13 @@ export class RealBrowser {
     browser.proc = spawn(chrome, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const proc = browser.proc;
 
+    // CI4 round 3 measurement (temporary): tags each launch as the
+    // warm-up or a real test launch, so the runner sample shows directly
+    // whether warmUpChrome absorbed the cold-start cost or whether it
+    // still lands on a later "test" launch. Removed once the round 3
+    // numbers are in (see the handoff for the decision).
+    const label = opts.label ?? 'test';
+    const spawnStart = Date.now();
     let wsUrl: string | null = null;
     const deadline = Date.now() + PORT_WAIT_MS;
     while (Date.now() < deadline) {
@@ -373,8 +260,10 @@ export class RealBrowser {
     }
     if (!wsUrl) {
       await browser.close();
-      throw new Error('chrome debug port never came up');
+      console.log(`[CI4-TIMING] launch:label=${label} spawn-to-port-giveup=${Date.now() - spawnStart}ms`);
+      throw new Error(GIVEUP_MESSAGE);
     }
+    console.log(`[CI4-TIMING] launch:label=${label} spawn-to-port-open=${Date.now() - spawnStart}ms`);
 
     browser.ws = new WebSocket(wsUrl);
     await new Promise<void>((resolve, reject) => {
@@ -482,13 +371,6 @@ export class RealBrowser {
       rmSync(this.profile, { recursive: true, force: true });
     } catch {
       // best effort cleanup
-    }
-    // CI4 round 2 fallout: released here, not in launch(), so the gate
-    // slot stays occupied for as long as this Chrome process is actually
-    // alive and using the runner's CPU, not just for the launch handshake.
-    if (this.releaseGate) {
-      this.releaseGate();
-      this.releaseGate = null;
     }
   }
 }
