@@ -889,14 +889,25 @@ export function createApp(
   // unsigned request passes through untouched) and requireSessionOrSignature
   // (mandatory: the route below refuses outright when this returns 'absent'
   // and no session covers the gap either). A present-but-invalid signature
-  // is worse than none in both callers, so both map 'invalid' to the same
-  // 401 rather than falling through to "as if unsigned".
-  async function verifySignedRequest(req: Request): Promise<'absent' | 'invalid' | { readonly did: string }> {
+  // is worse than none in both callers, so both map 'invalid' and
+  // 'unknown-key' to their own distinct 401 rather than falling through to
+  // "as if unsigned".
+  //
+  // B29 (bug ledger, C1 rehearsal s2): 'unknown-key' and 'invalid' are kept
+  // as two separate outcomes all the way out to the route layer, not
+  // folded back into one 'invalid' here. A caller who signed correctly with
+  // a key this service has simply never registered was being told their
+  // cryptography was wrong; the real fact is narrower, and callers of this
+  // function need to be able to tell the two apart to answer each with its
+  // own message.
+  async function verifySignedRequest(
+    req: Request,
+  ): Promise<'absent' | 'invalid' | 'unknown-key' | { readonly did: string }> {
     // Only a fully unsigned request is absent: absent both headers, this is
     // unchanged behaviour for every caller that exists today. Exactly one
     // present falls through to verifySignature below, which already treats
     // a half-signed request as invalid input (its own first check is
-    // `if (!sigInputValue || !sigValue) return null`) -- restating that
+    // `if (!sigInputValue || !sigValue) return 'invalid'`) -- restating that
     // check here would just be the same 401 twice.
     if (req.headers['signature-input'] === undefined && req.headers['signature'] === undefined) {
       return 'absent';
@@ -908,7 +919,8 @@ export function createApp(
       signingKeys,
       { requiredComponents: ['@method', '@target-uri', 'content-digest'], spendStorage: signatureSpendStorage },
     );
-    if (result === null) return 'invalid';
+    if (result === 'unknown-key') return 'unknown-key';
+    if (result === 'invalid') return 'invalid';
 
     // The adapter verifies the signature bytes; it never sees the body, so
     // the digest match is this function's half -- what binds the body
@@ -938,6 +950,10 @@ export function createApp(
       const outcome = await verifySignedRequest(req);
       if (outcome === 'absent') {
         next();
+        return;
+      }
+      if (outcome === 'unknown-key') {
+        res.status(401).json({ error: 'unknown key' });
         return;
       }
       if (outcome === 'invalid') {
@@ -1013,10 +1029,11 @@ export function createApp(
   // of via a middleware that would always run first. One rule, one
   // function, two call sites: this and requireSessionOrSignature below
   // never diverge on what counts as authenticated.
-  type AuthOutcome = 'ok' | 'invalid-signature' | 'no-proof';
+  type AuthOutcome = 'ok' | 'invalid-signature' | 'unknown-key' | 'no-proof';
   async function authenticateRequest(req: Request): Promise<AuthOutcome> {
     const sigOutcome = await verifySignedRequest(req);
     if (sigOutcome === 'invalid') return 'invalid-signature';
+    if (sigOutcome === 'unknown-key') return 'unknown-key';
     if (sigOutcome !== 'absent') {
       (req as SignedRequest).signerDid = sigOutcome.did;
       return 'ok';
@@ -1038,6 +1055,10 @@ export function createApp(
   const requireSessionOrSignature = (req: Request, res: Response, next: NextFunction): void => {
     void (async () => {
       const outcome = await authenticateRequest(req);
+      if (outcome === 'unknown-key') {
+        res.status(401).json({ error: 'unknown key' });
+        return;
+      }
       if (outcome === 'invalid-signature') {
         res.status(401).json({ error: 'invalid signature' });
         return;
@@ -1073,6 +1094,10 @@ export function createApp(
     did: string,
   ): Promise<Agent | null> {
     const outcome = await authenticateRequest(req);
+    if (outcome === 'unknown-key') {
+      res.status(401).json({ error: 'unknown key' });
+      return null;
+    }
     if (outcome === 'invalid-signature') {
       res.status(401).json({ error: 'invalid signature' });
       return null;
