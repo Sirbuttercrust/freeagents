@@ -61,19 +61,20 @@ describe('RealBrowser: phone-width launches read the same clientWidth on every p
 });
 
 // CI4 round 3: rounds 1 and 2 both tried to bound CONCURRENCY (a launch
-// gate, first spawn-only then lifetime-holding). Proof round 2 measured
+// gate, first spawn-only then lifetime-holding). Review round 2 measured
 // that gate directly (run 35938128610, the lifetime-holding push) and
 // found it never once made a launch wait: gate-wait maxed at 3-6ms across
-// 157 acquires per job. Proof's own log parse also showed every slow open
-// and every real give-up landing in the first handful of log lines of a
-// job, at chrome-procs-after of 1 to 4, not the 11-18 the "sustained
-// contention" theory needed. That is the signature of a one-time cost,
-// not a concurrency problem: the OS has never read Chrome's ~200MB binary
-// and shared libraries off disk before, so the first real launch in a job
-// pays for populating the page cache, and every later launch in that same
-// job reads the now-cached pages and opens its port in a few hundred
-// milliseconds, matching the review's own log timeline (8925-18961ms for
-// a job's first launch, 300-900ms for every launch after).
+// 157 acquires per job. That review's own log parse also showed every
+// slow open and every real give-up landing in the first handful of log
+// lines of a job, at chrome-procs-after of 1 to 4, not the 11-18 the
+// "sustained contention" theory needed. That is the signature of a
+// one-time cost, not a concurrency problem: the OS has never read
+// Chrome's ~200MB binary and shared libraries off disk before, so the
+// first real launch in a job pays for populating the page cache, and
+// every later launch in that same job reads the now-cached pages and
+// opens its port in a few hundred milliseconds, matching the review's
+// own log timeline (8925-18961ms for a job's first launch, 300-900ms for
+// every launch after).
 //
 // warmUpChrome pays that one-time cost itself, once, before any test file
 // is even collected (see vitest.config.ts's globalSetup, which the vitest
@@ -115,7 +116,7 @@ describe('warmUpChrome: absorbs the first-launch page-cache cost once, outside a
 });
 
 // CI4 round 3: rounds 1 and 2's retry (withLaunchRetry) assumed a give-up
-// was an unlucky single loss. Proof round 2's own data contradicts that:
+// was an unlucky single loss. Review round 2's own data contradicts that:
 // run 35935765272 shows the SAME test's two consecutive attempts both
 // giving up at the deadline, 1ms apart in wall time, meaning whatever
 // starved attempt 1 was still starving attempt 2. A retry only helps

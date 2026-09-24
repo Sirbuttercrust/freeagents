@@ -113,7 +113,7 @@ interface CdpMessage {
 // CI4 round 3: rounds 1 and 2 both tried to bound CONCURRENCY, first a
 // per-process counter (round 1, proven vacuous across vitest's separate
 // worker processes) then a cross-process slot directory held for a
-// browser's whole lifetime (round 2). Proof round 2 measured the lifetime
+// browser's whole lifetime (round 2). Review round 2 measured the lifetime
 // gate directly on the runner (run 35938128610) and found it never once
 // made a launch wait: gate-wait maxed at 3-6ms across 157 acquires per
 // job. The real give-ups in every measurement push landed in the first
@@ -126,7 +126,7 @@ interface CdpMessage {
 // produced every give-up in the first place.
 const GIVEUP_MESSAGE = 'chrome debug port never came up';
 
-// CI4 round 3: the Proof round 2 log timeline shows a one-time cost, not
+// CI4 round 3: the review round 2 log timeline shows a one-time cost, not
 // sustained contention. A job's FIRST real Chrome launch took 8925 to
 // 18961ms across every measurement push and every node version; every
 // launch after it in the same job took 300-900ms, a 10-60x difference
@@ -152,7 +152,7 @@ const GIVEUP_MESSAGE = 'chrome debug port never came up';
 export async function warmUpChrome(): Promise<void> {
   if (!findChromeBinary()) return;
   try {
-    const browser = await RealBrowser.launch({ width: 1280, height: 900, label: 'warmup' });
+    const browser = await RealBrowser.launch({ width: 1280, height: 900 });
     await browser.close();
   } catch {
     // Best effort: a failed warm-up just means the first real test pays
@@ -161,16 +161,20 @@ export async function warmUpChrome(): Promise<void> {
 }
 
 // CI4 round 3 sizing: with warmUpChrome absorbing the first-launch
-// page-cache cost (see its own comment), every measurement push's
-// legitimate opens after a job's first launch land at 300-900ms. The
-// worst SINGLE legitimate open across every push, warmed or not, was
-// 18961ms (run 35936931195, node 24; the uncensored 25s-deadline push).
-// PORT_WAIT_MS stays above that uncensored worst case with real margin,
-// rather than at a number already shown to fail outright (12000ms lost
-// in run 35935765272), and comfortably inside the 30s test timeout every
-// real caller sets. If a future runner sample under warm-up shows a
-// non-first launch still running past this, warmUpChrome did not do its
-// job and this number is the wrong lever to move.
+// page-cache cost (see its own comment), the worst SINGLE legitimate
+// open across the whole diagnostic history, warmed or not, was 18961ms
+// (round 2 review push, run 35936931195, node 24, the uncensored
+// 25s-deadline push). PORT_WAIT_MS stays above that uncensored worst
+// case with real margin, rather than at a number already shown to fail
+// outright (12000ms lost in run 35935765272), and comfortably inside the
+// 30s test timeout every real caller sets. Two round-3 measurement runs
+// under warmUpChrome (runs 36005035993 and 36005938897, both node
+// versions) confirm the mechanism: the warm-up launch itself absorbed
+// 363ms to 16622ms, and every real test launch after it landed at
+// 313-735ms with zero give-ups on either node in either run. If a future
+// runner sample under warm-up shows a non-first launch still running
+// past this, warmUpChrome did not do its job and this number is the
+// wrong lever to move.
 const PORT_WAIT_MS = 22_000;
 
 // One throwaway headless Chrome tab, driven over CDP. Deliberately small:
@@ -188,7 +192,7 @@ export class RealBrowser {
     this.profile = profile;
   }
 
-  // CI4 round 3: no launch gate and no retry. Proof round 2 measured the
+  // CI4 round 3: no launch gate and no retry. Review round 2 measured the
   // round 2 gate directly and found it never bound a single launch on the
   // runner (gate-wait maxed at 3-6ms across 157 acquires per job in the
   // run meant to justify it), and the round 1/2 retry could not help
@@ -198,7 +202,7 @@ export class RealBrowser {
   // a job's first Chrome exec, is a one-time cost that warmUpChrome now
   // pays before any test's timeout starts, so a single attempt with
   // PORT_WAIT_MS's own margin is what the measured mechanism calls for.
-  static async launch(opts: { width?: number; height?: number; label?: string } = {}): Promise<RealBrowser> {
+  static async launch(opts: { width?: number; height?: number } = {}): Promise<RealBrowser> {
     const chrome = findChromeBinary();
     if (!chrome) {
       throw new Error(
@@ -230,13 +234,6 @@ export class RealBrowser {
     browser.proc = spawn(chrome, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const proc = browser.proc;
 
-    // CI4 round 3 measurement (temporary): tags each launch as the
-    // warm-up or a real test launch, so the runner sample shows directly
-    // whether warmUpChrome absorbed the cold-start cost or whether it
-    // still lands on a later "test" launch. Removed once the round 3
-    // numbers are in (see the handoff for the decision).
-    const label = opts.label ?? 'test';
-    const spawnStart = Date.now();
     let wsUrl: string | null = null;
     const deadline = Date.now() + PORT_WAIT_MS;
     while (Date.now() < deadline) {
@@ -260,10 +257,8 @@ export class RealBrowser {
     }
     if (!wsUrl) {
       await browser.close();
-      console.log(`[CI4-TIMING] launch:label=${label} spawn-to-port-giveup=${Date.now() - spawnStart}ms`);
       throw new Error(GIVEUP_MESSAGE);
     }
-    console.log(`[CI4-TIMING] launch:label=${label} spawn-to-port-open=${Date.now() - spawnStart}ms`);
 
     browser.ws = new WebSocket(wsUrl);
     await new Promise<void>((resolve, reject) => {
