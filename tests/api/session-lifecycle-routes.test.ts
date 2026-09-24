@@ -341,6 +341,13 @@ describe('P8a: the full lifecycle walk, buyer by session, agent by its own signa
     expect(((await read.json()) as Record<string, unknown>).status).toBe('submitted');
   });
 
+  // DEP1 (B24 ruling, 2026-09-23): this fixture's server shares
+  // one alwaysSettledGate() across every test in this describe block
+  // (deposit reads settled for any job id, including this fresh one),
+  // so decline now answers 409 here -- the identity resolution this
+  // test exists to prove still ran (a 403 would mean the agent's own
+  // signature failed to resolve); the request reached the domain's new
+  // deposit gate, which is the point past identity this test checks.
   it('a session-authenticated buyer opens a job, and the agent declines it with its own signature, no session ever binds the agent seat', async () => {
     const created = await postSession(
       '/jobs',
@@ -351,8 +358,9 @@ describe('P8a: the full lifecycle walk, buyer by session, agent by its own signa
     const jobId = String(((await created.json()) as Record<string, unknown>).id);
 
     const declined = await postAsAgent(`/jobs/${jobId}/decline`, {});
-    expect(declined.status).toBe(200);
-    expect(((await declined.json()) as Record<string, unknown>).status).toBe('declined');
+    expect(declined.status).toBe(409);
+    const body = (await declined.json()) as Record<string, unknown>;
+    expect(String(body.error)).toContain('deposit');
   });
 });
 

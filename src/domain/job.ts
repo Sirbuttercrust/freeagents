@@ -250,6 +250,18 @@ export class JobPriceError extends Error {
   }
 }
 
+// DEP1 (B24 ruling, 2026-09-23, answering "yes" to the recommendation):
+// once the buyer's deposit has settled, the agent can no longer simply
+// decline. A state conflict, the same 409 shape JobTransitionError and
+// JobPriceError already answer with -- the caller sent nothing malformed,
+// the AGREEMENT (and the money already paid on it) is what refuses this.
+export class DepositSettledError extends Error {
+  constructor(jobId: string) {
+    super(`job ${jobId} has a settled deposit; it can no longer be declined`);
+    this.name = 'DepositSettledError';
+  }
+}
+
 // Opens a job in draft from the buyer's brief. The brief is the verifiable
 // fact of this record: briefHash is hashSpec of the brief as supplied, so
 // anyone holding the prose can recompute it with off-the-shelf tools.
@@ -844,20 +856,25 @@ export function completeJob(
   };
 }
 
-export function decline(job: Job): Job {
+// DEP1 (B24 ruling, 2026-09-23, answering "yes" to the recommendation:
+// "after the deposit is paid, the agent can't simply decline. If it
+// walks away anyway, its public record shows 'walked away after
+// deposit', the same way buyers who back out get marked today."). The
+// deposit fact is the caller's to supply (mirroring every other route
+// that asks the settlement gate first and passes the answer in, rather
+// than this pure domain function reaching for I/O itself): a job with no
+// settled deposit declines exactly as before; a job whose deposit has
+// settled refuses with DepositSettledError, a state conflict the route
+// maps to 409. The only way left to abandon a paid job is to never stage
+// it, which expireUnstaged below turns into expired_unstaged -- the
+// operator's own walked-away fact, not the agent's decline.
+export function decline(job: Job, depositSettled = false): Job {
   validateJobTransition(job.status, 'declined');
+  if (depositSettled) {
+    throw new DepositSettledError(job.id);
+  }
   return { ...job, status: 'declined' };
 }
-
-// OPEN FAIRNESS QUESTION (do not resolve here, brief section "An open
-// question you must not resolve"): an agent may still decline a job at
-// confirmed, after the buyer's deposit has already reached the operator
-// (confirmSpec's own deposit gate runs before this edge is ever reached).
-// The platform holds nothing and reverses nothing (MISSION.md invariant
-// 12), so that deposit is gone from the buyer's side with no refund path
-// and no penalty on the agent. This function adds neither: the edge stays
-// exactly as it already was, and the fairness question awaits the owner's
-// ruling on a later card.
 
 // The acceptance-criteria exchange R-8 owns (ENT-6, D2). The first propose
 // walks draft -> proposed, the edge the transition table already records;
