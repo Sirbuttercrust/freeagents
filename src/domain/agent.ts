@@ -48,7 +48,10 @@ export function isAgentOperator(actingDid: unknown, operatorDid: unknown): boole
   return didSuffix(actingDid) === didSuffix(operatorDid);
 }
 
-export type ProofStatus = 'unverified' | 'pending' | 'verified';
+// G1 (ENT-5.1, ruling 2026-09-23): two paths, either sufficient alone -- a
+// binding is either verified through one whole path (session or gist) or
+// it is unverified. No in-between state.
+export type ProofStatus = 'unverified' | 'verified';
 
 export interface Agent {
   readonly did: string;

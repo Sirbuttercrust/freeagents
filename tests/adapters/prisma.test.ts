@@ -698,7 +698,7 @@ describe('PrismaAgentRepository', () => {
       name: 'scout',
       skills: ['triage'],
       githubLogin: 'scout-agent',
-      proofStatus: 'pending',
+      proofStatus: 'verified',
       createdAt,
     };
     vi.mocked(mock.agentUpdate).mockResolvedValue(updatedRow);
@@ -709,12 +709,12 @@ describe('PrismaAgentRepository', () => {
     const repo = new PrismaAgentRepository();
     const row = await repo.updateGithubBinding('did:abt:agent-1', {
       handle: 'scout-agent',
-      status: 'pending',
+      status: 'verified',
     });
 
     expect(mock.agentUpdate).toHaveBeenCalledWith({
       where: { did: 'did:abt:agent-1' },
-      data: { githubLogin: 'scout-agent', proofStatus: 'pending' },
+      data: { githubLogin: 'scout-agent', proofStatus: 'verified' },
     });
     expect(row).toEqual({ ...updatedRow, keyRotations: [], floorPriceUsd: null, minBuyerMerges: null, maxWalkedAfterConfirm: null, avatarSpec: null });
   });
@@ -725,7 +725,7 @@ describe('PrismaAgentRepository', () => {
     const repo = new PrismaAgentRepository();
     const row = await repo.updateGithubBinding('did:abt:agent-none', {
       handle: 'scout-agent',
-      status: 'pending',
+      status: 'verified',
     });
 
     expect(row).toBeNull();
@@ -737,7 +737,7 @@ describe('PrismaAgentRepository', () => {
 
     const repo = new PrismaAgentRepository();
     const err = await repo
-      .updateGithubBinding('did:abt:agent-2', { handle: 'scout-agent', status: 'pending' })
+      .updateGithubBinding('did:abt:agent-2', { handle: 'scout-agent', status: 'verified' })
       .catch((e: unknown) => e);
 
     expect(err).toBe(original);
@@ -749,7 +749,7 @@ describe('PrismaAgentRepository', () => {
 
     const repo = new PrismaAgentRepository();
     const err = await repo
-      .updateGithubBinding('did:abt:agent-3', { handle: 'scout-agent', status: 'pending' })
+      .updateGithubBinding('did:abt:agent-3', { handle: 'scout-agent', status: 'verified' })
       .catch((e: unknown) => e);
 
     expect(err).toBe(original);

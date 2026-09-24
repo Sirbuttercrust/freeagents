@@ -501,7 +501,7 @@ describe('POST /jobs/:jobId/stage: an agent with no verified GitHub login cannot
       expect(confirmedRow?.status).toBe('confirmed');
 
       // Revoke verification between confirm and stage.
-      await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-unverified', status: 'pending' });
+      await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-unverified', status: 'unverified' });
 
       const stage = await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-unverified' }, agent);
       expect(stage.status).toBe(503);

@@ -23,18 +23,18 @@
  *   - the real operator registration flow works end to end
  *   - the real agent delegation flow works end to end, with a delegation
  *     proof a real wallet actually signed
- *   - direction one of the GitHub account proof works end to end: the DID
- *     document (served by a wrapped resolver, the real one has no resolver
- *     yet) carries the account in alsoKnownAs, and the binding is recorded
- *     as pending
- *   - direction two of the GitHub account proof works end to end: the agent
- *     wallet key signs the canonical proof bytes, the statement is published
- *     as a public gist, and with both directions holding the binding is
- *     verified, with a third party re-checking the signature without the
+ *   - the sign-in identity boundary is stated before effort and holds
+ *     (R-23): the capability document reads with no identity, browsing an
+ *     agent needs none, and a hire with no buyer named is refused
+ *   - path one of the GitHub account proof works end to end (G1, ENT-5.1):
+ *     an operator's own GitHub OAuth session verifies the agent's binding
+ *     the instant it is registered, with zero extra steps, and a body
+ *     naming a login that is not the session's own never verifies this way
+ *   - path two of the GitHub account proof works end to end (G1, ENT-5.1):
+ *     the agent wallet key signs the canonical proof bytes, the statement
+ *     is published as a public gist, and the gist alone verifies the
+ *     binding, with a third party re-checking the signature without the
  *     service
- *   - the identity boundary is stated before effort and holds (R-23): the
- *     capability document reads with no identity, browsing an agent needs
- *     none, and a hire with no buyer named is refused
  *   - the deleted-gist re-check works end to end (R-5): the gist no longer
  *     resolves, and the next check drops the verified binding to
  *     unverified, with a third party reading the public gist surface and
@@ -342,15 +342,11 @@ async function verifyIndependent(credential: Record<string, unknown>): Promise<b
   }
 }
 
-// R-3, direction one: the real resolveDid throws NotImplementedError until a
-  // resolver exists, so the flow is exercised through a WRAPPED adapter - the
-  // real one's verifyDelegation (and hence the R-2 flow below) is untouched.
-// It serves one agent DID a standard DID Core document whose alsoKnownAs
-// carries the account URL; every other DID gets a document with no
-// alsoKnownAs. The target DID is set by the flow test, because the wallet's
-// DID is random per run.
-let accountProofDid: string | null = null;
-
+// G1: direction one (the DID document's alsoKnownAs entry) is gone from
+// the account-proof route entirely; identityAdapter.resolveDid is called
+// only by the merge route now (to resolve the agent's signing verification
+// method), which never reads alsoKnownAs. The wrapped resolveDid below
+// stays real (no NotImplementedError) purely for that merge-route need.
 // R-4, direction two: the agent wallet whose key signs the gist statement.
 // Set by the flow test, because the wallet's DID is random per run.
 let proofSigningWallet: WalletObject | null = null;
@@ -419,11 +415,15 @@ const githubAdapter: GithubAdapter = {
 const identityAdapter: IdentityAdapter = {
   ...createIdentityAdapter(),
   resolveDid: (did: string): Promise<DidDocument> => {
+    // alsoKnownAs is never read any more (direction one is gone from the
+    // account-proof route); this document exists purely so the merge
+    // route's own resolveDid call (to find the signing verification
+    // method) has something real to resolve.
     const doc: DidDocument = {
       id: did,
       controller: null,
       verificationMethod: [`${did}#key-1`],
-      alsoKnownAs: did === accountProofDid ? ['https://github.com/scout-agent'] : null,
+      alsoKnownAs: null,
     };
     return Promise.resolve(doc);
   },
@@ -828,55 +828,63 @@ describe('the API starts and answers', () => {
     expect(empty.status).toBe(400);
   });
 
-  it('proves direction one of the GitHub account binding through the DID document', async () => {
-    // The R-3 flow. The operator's wallet authors the alsoKnownAs entry off
-    // platform; the wrapped resolver above serves it for this one DID.
+  it('proves G1 path one: the operator\'s own GitHub session verifies the binding with zero extra steps', async () => {
+    // The operator's session IS the proof (ENT-5.1, path one): the fixed
+    // e2e session (testSessionAdapter, 'test-session-user') already backs
+    // authHeader for post(), so a githubLogin naming that SAME login
+    // verifies immediately on registration, no gist, no DID document.
     const operatorWallet = fromRandom();
     const agentWallet = fromRandom();
     const credential = await signW3CDelegation(operatorWallet, agentWallet);
 
-    // 1. Register and delegate, as in the R-2 flow above.
-    const op = await post('/accounts', { did: operatorWallet.toDid(), githubLogin: 'operator-proof' });
+    const op = await post('/accounts', { did: operatorWallet.toDid(), githubLogin: 'test-session-user' });
     expect(op.status).toBe(201);
-    const created = await postAsWallet('/agents', {
+
+    // Registered through post() (the fixed session), naming the session's
+    // own login: verified the instant the agent exists.
+    const created = await post('/agents', {
       did: agentWallet.toDid(),
+      operator: operatorWallet.toDid(),
       delegation: credential,
       name: 'scout',
       skills: ['triage'],
-    }, operatorWallet);
+      githubLogin: 'test-session-user',
+    });
     expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as Record<string, unknown>;
+    expect(createdBody.proofStatus).toBe('verified');
+    expect(createdBody.githubLogin).toBe('test-session-user');
 
-    // 2. The wrapped resolver now serves this DID the document that carries
-    // https://github.com/scout-agent in alsoKnownAs.
-    accountProofDid = agentWallet.toDid();
-
-    // 3. The matching handle records the binding. ENT-5.1: direction one
-    // alone is pending, never verified.
-    const ok = await postAsWallet(`/agents/${agentWallet.toDid()}/account-proof`, { handle: 'scout-agent' }, operatorWallet);
-    expect(ok.status).toBe(200);
-    const okBody = (await ok.json()) as Record<string, unknown>;
-    expect(okBody.proofStatus).toBe('pending');
-    expect(okBody.githubLogin).toBe('scout-agent');
-
-    // 4. A different handle does not match the document: a conflict, and the
-    // failed check must not replace the recorded binding.
-    const wrong = await postAsWallet(`/agents/${agentWallet.toDid()}/account-proof`, { handle: 'someone-else' }, operatorWallet);
-    expect(wrong.status).toBe(409);
+    // Read-back agrees: no account-proof call was ever made.
     const read = await get(`/agents/${agentWallet.toDid()}`);
     const readBody = (await read.json()) as Record<string, unknown>;
-    expect(readBody.proofStatus).toBe('pending');
-    expect(readBody.githubLogin).toBe('scout-agent');
+    expect(readBody.proofStatus).toBe('verified');
 
-    // 5. An unregistered agent is a 404, so the 200 above meant something.
-    const missing = await postAsWallet('/agents/did:abt:nobody/account-proof', { handle: 'scout-agent' }, operatorWallet);
-    expect(missing.status).toBe(404);
+    // A body naming a login that is NOT the session's own never verifies
+    // this way: the server takes the login from the session, never trusts
+    // the body alone.
+    const untrustedWallet = fromRandom();
+    const untrustedCredential = await signW3CDelegation(operatorWallet, untrustedWallet);
+    const untrusted = await post('/agents', {
+      did: untrustedWallet.toDid(),
+      operator: operatorWallet.toDid(),
+      delegation: untrustedCredential,
+      name: 'scout-untrusted',
+      skills: ['triage'],
+      githubLogin: 'someone-elses-login',
+    });
+    expect(untrusted.status).toBe(201);
+    const untrustedBody = (await untrusted.json()) as Record<string, unknown>;
+    expect(untrustedBody.proofStatus).toBe('unverified');
   });
 
-  it('proves direction two of the GitHub account binding through a signed gist', async () => {
-    // The R-4 flow. The agent's wallet key signs the canonical proof bytes;
-    // the gist is published as a plain fixture the fake adapter serves; and
-    // the wrapped identity adapter verifies with real node:crypto ed25519,
-    // so the signature round trip is genuine end to end.
+  it('proves G1 path two: a signed gist alone verifies the binding, with no DID document involved', async () => {
+    // The R-4 flow, standing on its own per ENT-5.1: the agent's wallet key
+    // signs the canonical proof bytes; the gist is published as a plain
+    // fixture the fake adapter serves; and the wrapped identity adapter
+    // verifies with real node:crypto ed25519, so the signature round trip
+    // is genuine end to end. No alsoKnownAs, no accountProofDid wiring: the
+    // route never calls resolveDid for this route at all any more.
     const operatorWallet = fromRandom();
     const agentWallet = fromRandom();
     const credential = await signW3CDelegation(operatorWallet, agentWallet);
@@ -893,9 +901,8 @@ describe('the API starts and answers', () => {
     expect(created.status).toBe(201);
 
     // 2. The wallet key becomes the agent key: the wrapped verifier now
-    // checks signatures against it, and the resolver serves the document.
+    // checks signatures against it.
     proofSigningWallet = agentWallet;
-    accountProofDid = agentWallet.toDid();
 
     // 3. The agent signs the canonical proof bytes with its wallet key -
     // raw ed25519, no pre-hash, base64 - and the gist goes up.
@@ -909,7 +916,7 @@ describe('the API starts and answers', () => {
       files: { 'proof.txt': statement },
     });
 
-    // 4. Both directions hold: 200 and verified, per ENT-5.1.
+    // 4. The gist alone verifies (ENT-5.1, path two: sufficient by itself).
     const ok = await postAsWallet(`/agents/${agentWallet.toDid()}/account-proof`, {
       handle: 'scout-agent',
       gist: 'https://gist.github.com/scout-agent/e2e-proof-gist',
