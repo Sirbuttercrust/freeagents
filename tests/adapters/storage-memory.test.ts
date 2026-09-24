@@ -130,7 +130,7 @@ describe('MemoryAgentRepository.updateGithubBinding', () => {
     const repo = new MemoryAgentRepository();
     const updated = await repo.updateGithubBinding('did:abt:zNobody', {
       handle: 'scout-agent',
-      status: 'pending',
+      status: 'verified',
     });
     expect(updated).toBeNull();
   });
@@ -140,10 +140,10 @@ describe('MemoryAgentRepository.updateGithubBinding', () => {
     const did = 'did:abt:zAgentMemory';
     await register(repo, did);
 
-    const first = await repo.updateGithubBinding(did, { handle: 'scout-agent', status: 'pending' });
+    const first = await repo.updateGithubBinding(did, { handle: 'scout-agent', status: 'unverified' });
     expect(first).not.toBeNull();
     expect(first?.githubLogin).toBe('scout-agent');
-    expect(first?.proofStatus).toBe('pending');
+    expect(first?.proofStatus).toBe('unverified');
 
     // The live DID document is the source of truth: a later successful check
     // for a different handle must replace, not accumulate, the binding.

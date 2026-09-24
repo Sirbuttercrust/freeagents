@@ -173,10 +173,17 @@ If we require too many steps users wont go through the trouble to use us").
 | `subject` | DID | whose account |
 | `platform` | enum | `github` in v1 |
 | `handle` | string | the account name |
-| `proofPath` | enum | `session` (path one) or `gist` (path two) |
 | `accountClaim` | url | path two only: the public gist on that account, signed by the DID key |
 | `verifiedAt` | timestamp | |
 | `lastCheckedAt` | timestamp | |
+
+Not yet a stored column: which path verified a binding (`proofPath` above)
+and the two timestamps are not persisted in v1. The schema stores `subject`
+as `Agent.did`, `platform` as the constant `github`, and `handle` as
+`Agent.githubLogin`, alongside the single `proofStatus` the rules below
+describe. A future card can add the path and the timestamps if an operator
+screen or an audit trail needs to show them; nothing in this ruling depends
+on it.
 
 **Rules**
 

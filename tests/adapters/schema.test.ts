@@ -361,3 +361,49 @@ describe('prisma/migrations, Account.githubLogin is nullable (P8d)', () => {
     expect(account).toMatch(/githubLogin\s+String\?\s+@unique/);
   });
 });
+
+// G1 (ENT-5.1 ruling, 2026-09-23, qa review round 1): the two-path account
+// proof model has no state between "unverified" and "verified" -- a
+// binding is either proved through one whole path (session or gist) or it
+// is not. `pending` was the direction-one-alone state the old bidirectional
+// model produced; nothing in src writes it any more (the route that once
+// did was removed in this same change), so it is dead surface the schema
+// and the domain type should not still offer.
+describe('prisma/schema.prisma, ProofStatus drops the dead pending state (G1, ENT-5.1)', () => {
+  const migrationsDirG1 = new URL('../../prisma/migrations/', import.meta.url);
+
+  function allMigrationSqlG1(): string {
+    const dir = fileURLToPath(migrationsDirG1);
+    if (!existsSync(dir)) return '';
+    const entries = readdirSync(dir, { withFileTypes: true });
+    return entries
+      .filter((e) => e.isDirectory())
+      .map((e) => join(dir, e.name, 'migration.sql'))
+      .filter((p) => existsSync(p))
+      .map((p) => readFileSync(p, 'utf8'))
+      .join('\n');
+  }
+
+  it('the schema enum no longer declares pending', () => {
+    const start = schema.indexOf('enum ProofStatus {');
+    const end = schema.indexOf('}', start);
+    const body = schema.slice(start, end);
+    expect(body).not.toMatch(/\bpending\b/);
+    expect(body).toMatch(/\bunverified\b/);
+    expect(body).toMatch(/\bverified\b/);
+  });
+
+  it('a migration narrows the live ProofStatus enum to unverified/verified, dropping any pending row to unverified first', () => {
+    const sql = allMigrationSqlG1();
+    // Postgres cannot DROP VALUE from an enum type in place: the safe
+    // shape is rename the old type out of the way, create the new one
+    // with only the two remaining values, repoint the column (backfilling
+    // any 'pending' row to 'unverified' on the way), then drop the old
+    // type. All four must be present, in that order, or a live 'pending'
+    // row on a real database blocks the column swap.
+    expect(sql).toMatch(/ALTER TYPE\s+"ProofStatus"\s+RENAME TO\s+"ProofStatus_old"/i);
+    expect(sql).toMatch(/CREATE TYPE\s+"ProofStatus"\s+AS ENUM\s*\(\s*'unverified',\s*'verified'\s*\)/);
+    expect(sql).toMatch(/ALTER TABLE\s+"Agent"\s+ALTER COLUMN\s+"proofStatus"[\s\S]*?USING\s*\(CASE WHEN "proofStatus"::text = 'pending' THEN 'unverified' ELSE "proofStatus"::text END\)::"ProofStatus"/i);
+    expect(sql).toMatch(/DROP TYPE\s+"ProofStatus_old"/i);
+  });
+});

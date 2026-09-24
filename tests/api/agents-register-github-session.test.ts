@@ -11,11 +11,13 @@ import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
+import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import type { DidDocument, IdentityAdapter } from '../../src/adapters/identity/types.js';
 import type { Delegation } from '../../src/domain/agent.js';
-import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
+import { fakeGitHubConfig, mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
+import { createPasskeyFixture } from '../helpers/webauthn-fixtures.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
 function delegationFor(agentDid: string, operatorDid: string): Delegation {
@@ -212,5 +214,76 @@ describe('POST /agents, path one (G1): session-verified GitHub login registers v
     // No session at all: sessionSubject is never set, so path one cannot
     // fire regardless of what the body claims.
     expect(body.proofStatus).toBe('unverified');
+  });
+
+  // qa (review round 1, guard-without-a-test): the sessionMethod ===
+  // 'github-oauth' check at the path-one branch has no coverage. A passkey
+  // session's subject is whatever the caller picked at POST
+  // /auth/passkey/register, so without this check a passkey named after a
+  // victim's GitHub login would record that login verified. Mutation proof
+  // (run by hand, then reverted -- git status confirmed clean afterward):
+  // relaxing the check to `sessioned.sessionMethod !== undefined` left every
+  // other path-one test green while this one failed.
+  it('a passkey session whose subject equals the body githubLogin does not verify it (path one requires an OAuth session)', async () => {
+    const passkeySessionAdapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      passkey: { rpName: 'FreeAgents test', rpID: 'localhost', origin: 'http://localhost:3000' },
+    });
+    const passkeyApp = createApp(
+      accountRepo,
+      agentRepo,
+      fakeIdentity(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      passkeySessionAdapter,
+    );
+    const passkeyServer = passkeyApp.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => passkeyServer.once('listening', resolve));
+    const passkeyAddress = passkeyServer.address();
+    if (passkeyAddress === null || typeof passkeyAddress === 'string') {
+      throw new Error('expected server to listen on a port');
+    }
+    const passkeyBaseUrl = `http://127.0.0.1:${passkeyAddress.port}`;
+
+    try {
+      const victimLogin = 'victim-login';
+      const passkeyOperatorDid = 'did:abt:zPathOnePasskeyOperator';
+      await accountRepo.register({ did: passkeyOperatorDid, passkeySubject: victimLogin });
+
+      const { optionsJson } = await passkeySessionAdapter.registerPasskey(victimLogin);
+      const { challenge } = JSON.parse(optionsJson) as { challenge: string };
+      const fixture = createPasskeyFixture();
+      const response = fixture.registrationResponse(challenge, 'localhost');
+      const passkeySession = await passkeySessionAdapter.verifyPasskey(
+        JSON.stringify({ subject: victimLogin, response }),
+      );
+      if (passkeySession === null) throw new Error('expected a passkey session');
+
+      const agentDid = 'did:abt:zPathOnePasskeyVictimAgent';
+      const res = await postJson(
+        passkeyBaseUrl,
+        '/agents',
+        {
+          did: agentDid,
+          delegation: delegationFor(agentDid, passkeyOperatorDid),
+          name: 'scout',
+          skills: ['triage'],
+          githubLogin: victimLogin,
+        },
+        { authorization: `Bearer ${passkeySession.token}` },
+      );
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.githubLogin).toBe(victimLogin);
+      expect(body.proofStatus).toBe('unverified');
+    } finally {
+      await new Promise<void>((resolve) => passkeyServer.close(() => resolve()));
+    }
   });
 });
