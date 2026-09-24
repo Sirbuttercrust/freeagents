@@ -3664,6 +3664,16 @@ export function createApp(
       // grantPush may ever target -- an agent with no verified binding
       // yet cannot be granted push on a repository nobody proved it
       // controls.
+      //
+      // B28 (bug ledger, C1 rehearsal s4 and s6): a missing or unverified
+      // GitHub login is a fact about the AGENT's own record, not a GitHub
+      // service fault -- confirm answered 503 for both, which told a
+      // caller to retry something that would never work no matter how
+      // many times it tried. This is now the same state-conflict 409
+      // every other confirm-readiness gap already answers with, naming
+      // the missing verified login so the caller knows what to fix. A
+      // real GitHub outage (the catch block reaching the API calls below)
+      // keeps its own 503, unchanged.
       let agent: Agent | null;
       try {
         agent = await agentRepo.findByDid(current.agentDid);
@@ -3673,8 +3683,9 @@ export function createApp(
         return;
       }
       if (agent === null || agent.githubLogin === null || agent.proofStatus !== 'verified') {
-        console.error(`${label}: agent ${current.agentDid} has no verified GitHub login; cannot grant push on a staging repository`);
-        res.status(503).json({ error: 'github unavailable' });
+        res.status(409).json({
+          error: 'confirm needs the agent to have a verified GitHub login; none is on record for this agent yet',
+        });
         return;
       }
 
