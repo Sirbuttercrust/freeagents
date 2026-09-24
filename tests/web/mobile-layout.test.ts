@@ -858,3 +858,76 @@ describe('every field you can type into is at least 16px wherever the floor appl
     }
   }, 60_000);
 });
+
+// THE SIDE GUTTER OF A `.wrap.section` BLOCK (GUT1).
+//
+// `.wrap` owns the side gutter (base.css: 32px, 20px at <=760, 14px at
+// <=420). `.section` and `.section-sm` are one class each, so on an element
+// carrying both they tie on specificity with `.wrap`, and while they were
+// written as `padding: <v> 0` shorthands the later rule won all four sides:
+// `.wrap.section` lost its gutter at every width above 420, `.wrap.section-sm`
+// above 760, and their text ran to the screen edge while the nav and footer
+// kept a margin. 1024 and 600 both sit in the band where both classes broke.
+//
+// The expected value is read from a bare `.wrap` probe appended to the same
+// page rather than hard-coded, so a page that styles `.wrap` differently is
+// compared against itself. Computed style, not boxes, so a block hidden
+// until the page's data arrives counts the same as a shown one. Vertical
+// padding is out of scope here on purpose: it is frozen at what main
+// renders, and the card's external gutter gate holds it to a baseline.
+describe('a .wrap.section block keeps the side gutter .wrap gives the nav and footer (GUT1)', () => {
+  it('every .wrap.section and .wrap.section-sm on every page matches a bare .wrap at 1024 and 600', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for the gutter measurement; skipping (see CHROME_BIN)');
+      return;
+    }
+    const widths: ReadonlyArray<Viewport> = [
+      { label: 'desktop 1024', width: 1024, height: 900, mobile: false, touch: false },
+      { label: 'narrow 600', width: 600, height: 900, mobile: false, touch: false },
+    ];
+    const browser = await RealBrowser.launch({ width: 1024, height: 900 });
+    const wrong: string[] = [];
+    let blocks = 0;
+    try {
+      await signIn(browser);
+      for (const viewport of widths) {
+        for (const [label, path] of PAGES) {
+          await measure(browser, path, viewport);
+          const read = await browser.evaluate<{
+            probe: { left: string; right: string };
+            blocks: ReadonlyArray<{ name: string; left: string; right: string }>;
+          }>(`
+            (function () {
+              var probe = document.createElement('div');
+              probe.className = 'wrap';
+              document.body.appendChild(probe);
+              var p = getComputedStyle(probe);
+              var out = { probe: { left: p.paddingLeft, right: p.paddingRight }, blocks: [] };
+              probe.remove();
+              document.querySelectorAll('.wrap.section, .wrap.section-sm').forEach(function (el, i) {
+                var cs = getComputedStyle(el);
+                var tag = el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + '.' + el.className.trim().split(/\\s+/).join('.');
+                out.blocks.push({ name: tag + '[' + i + ']', left: cs.paddingLeft, right: cs.paddingRight });
+              });
+              return out;
+            })()
+          `);
+          blocks += read.blocks.length;
+          for (const b of read.blocks) {
+            if (b.left !== read.probe.left || b.right !== read.probe.right) {
+              wrong.push(
+                `${label} (${path}) at ${viewport.label}: ${b.name} padding ${b.left}/${b.right}, .wrap is ${read.probe.left}/${read.probe.right}`,
+              );
+            }
+          }
+        }
+      }
+    } finally {
+      await browser.close();
+    }
+    // Not vacuous: the pages carry dozens of these blocks today. A sweep
+    // that found none would pass against the very CSS that broke them.
+    expect(blocks, 'no .wrap.section or .wrap.section-sm found on any page').toBeGreaterThan(20);
+    expect(wrong, `${wrong.length} blocks lost their side gutter:\n${wrong.join('\n')}`).toEqual([]);
+  }, 300_000);
+});
