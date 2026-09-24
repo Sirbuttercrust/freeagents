@@ -380,7 +380,7 @@
   white-space: nowrap;
   /* A soft throw of the accent, so the badge sits ON the page rather than in
      it. Small enough that it never competes with the name beside it. */
-  box-shadow: 0 2px 14px rgba(70,195,154,0.34);
+  box-shadow: 0 2px 14px var(--check-dim);
 }
 .pverified .ico { width: 15px; height: 15px; }
 
