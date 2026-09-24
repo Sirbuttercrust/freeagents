@@ -126,42 +126,52 @@ interface CdpMessage {
 // produced every give-up in the first place.
 const GIVEUP_MESSAGE = 'chrome debug port never came up';
 
-// CI4 round 3: the review round 2 log timeline shows a one-time cost, not
-// sustained contention. A job's FIRST real Chrome launch took 8925 to
-// 18961ms across every measurement push and every node version; every
-// launch after it in the same job took 300-900ms, a 10-60x difference
-// with nothing else that changed. That is what a page-cache miss looks
-// like: the OS has not yet read Chrome's ~200MB binary and shared
-// libraries off the runner's disk, so the first process that execs it
-// blocks on real I/O, and every later exec of the same binary hits the
-// now-resident pages instead. Concurrency numbers do not explain it
-// (chrome-procs-after was 1 to 4 at every slow open, nowhere near the
-// old gate's own limit), but "first exec of this binary in this job"
-// matches every slow-open line without exception.
+// CI4 round 3: what the runner logs show, and what they do not. Across
+// every measurement push, the slow opens (6.5 to 19s) and every real
+// give-up landed in the first seconds of a job, while several forks were
+// launching Chrome cold at the same moment. Not every first launch was
+// slow (919ms and 1994ms were both first launches), and some slow ones
+// were not first (12453ms and 16045ms were a job's fourth to sixth open).
+// So the pattern is "cold, in the opening seconds of a job", not "the
+// first launch pays and every later one is fast". Why cold is slow is a
+// hypothesis, not a measurement: the likeliest is the OS reading Chrome's
+// binary and libraries off disk for the first time. Nothing here measured
+// page-cache residency.
 //
-// warmUpChrome pays that cost once, outside every per-test timeout,
-// before any test file's own launch ever runs (see vitest.config.ts's
-// globalSetup, which the Vitest docs guarantee runs before test workers
-// are created: https://vitest.dev/config/globalsetup). It launches a
-// throwaway headless Chrome and closes it through the same launch()/
-// close() path every real test uses; any failure (no Chrome binary, a
-// port that never opens) is swallowed exactly the way hasRealBrowser()
-// already lets every real-Chrome test skip rather than fail when Chrome
-// is unavailable, since warm-up is an optimization, not a correctness
-// requirement.
-export async function warmUpChrome(): Promise<void> {
-  if (!findChromeBinary()) return;
+// warmUpChrome launches one throwaway Chrome before any test worker exists
+// (vitest.config.ts globalSetup, which the Vitest docs say runs before
+// workers are created: https://vitest.dev/config/globalsetup), so the
+// cold start happens outside every per-test timeout. Under it, two runner
+// measurement runs (36005035993 and 36005938897, both node versions) put
+// all 628 test opens between 301 and 735ms, with no real give-up.
+//
+// Its own port wait is WARMUP_PORT_WAIT_MS, not the per-test budget:
+// globalSetup has no 30s test timeout, and the runner has shown a cold
+// launch with no port at 25023ms. A warm-up that still gives up is logged
+// to stderr, never swallowed silently, because the first tests are then
+// back to paying the cold start themselves and CI output should say so.
+// It returns whether a Chrome actually ran, so its test can fail when it
+// does nothing.
+export const WARMUP_PORT_WAIT_MS = 60_000;
+
+export async function warmUpChrome(log: (msg: string) => void = (m) => console.warn(m)): Promise<boolean> {
+  if (!findChromeBinary()) return false;
+  const started = Date.now();
   try {
-    const browser = await RealBrowser.launch({ width: 1280, height: 900 });
+    const browser = await RealBrowser.launch({ width: 1280, height: 900, portWaitMs: WARMUP_PORT_WAIT_MS });
     await browser.close();
-  } catch {
-    // Best effort: a failed warm-up just means the first real test pays
-    // the cold-start cost itself, the same as before this existed.
+    return true;
+  } catch (err) {
+    log(
+      `[real-browser] Chrome warm-up gave up after ${Date.now() - started}ms (${(err as Error).message}); ` +
+        'the first real-browser tests will pay the cold start inside their own timeout.',
+    );
+    return false;
   }
 }
 
-// CI4 round 3 sizing: with warmUpChrome absorbing the first-launch
-// page-cache cost (see its own comment), the worst SINGLE legitimate
+// CI4 round 3 sizing: with warmUpChrome taking the cold start (see its
+// own comment), the worst SINGLE legitimate
 // open across the whole diagnostic history, warmed or not, was 18961ms
 // (round 2 review push, run 35936931195, node 24, the uncensored
 // 25s-deadline push). PORT_WAIT_MS stays above that uncensored worst
@@ -169,9 +179,9 @@ export async function warmUpChrome(): Promise<void> {
 // outright (12000ms lost in run 35935765272), and comfortably inside the
 // 30s test timeout every real caller sets. Two round-3 measurement runs
 // under warmUpChrome (runs 36005035993 and 36005938897, both node
-// versions) confirm the mechanism: the warm-up launch itself absorbed
-// 363ms to 16622ms, and every real test launch after it landed at
-// 313-735ms with zero give-ups on either node in either run. If a future
+// versions) are consistent with it: the warm-up launch itself took 819ms
+// to 16622ms, and every real test launch after it landed at 301-735ms
+// with no real give-up on either node in either run. If a future
 // runner sample under warm-up shows a non-first launch still running
 // past this, warmUpChrome did not do its job and this number is the
 // wrong lever to move.
@@ -198,11 +208,12 @@ export class RealBrowser {
   // run meant to justify it), and the round 1/2 retry could not help
   // against a give-up that repeats on the very next attempt (run
   // 35935765272: the same test's two consecutive attempts both gave up at
-  // the deadline, 1ms apart). The actual cause, a cold page-cache miss on
-  // a job's first Chrome exec, is a one-time cost that warmUpChrome now
-  // pays before any test's timeout starts, so a single attempt with
-  // PORT_WAIT_MS's own margin is what the measured mechanism calls for.
-  static async launch(opts: { width?: number; height?: number } = {}): Promise<RealBrowser> {
+  // the deadline, 12046ms and 12047ms long, 12.2s apart). Launches were
+  // slow while Chrome was cold in the opening seconds of a job, which
+  // warmUpChrome now takes before any test's timeout starts, so a single
+  // attempt with PORT_WAIT_MS's own margin is what the runner data calls
+  // for.
+  static async launch(opts: { width?: number; height?: number; portWaitMs?: number } = {}): Promise<RealBrowser> {
     const chrome = findChromeBinary();
     if (!chrome) {
       throw new Error(
@@ -235,7 +246,7 @@ export class RealBrowser {
     const proc = browser.proc;
 
     let wsUrl: string | null = null;
-    const deadline = Date.now() + PORT_WAIT_MS;
+    const deadline = Date.now() + (opts.portWaitMs ?? PORT_WAIT_MS);
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 300));
       if (proc.exitCode !== null) {

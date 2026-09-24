@@ -15,7 +15,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { RealBrowser, hasRealBrowser, warmUpChrome } from './real-browser.js';
+import { RealBrowser, WARMUP_PORT_WAIT_MS, hasRealBrowser, warmUpChrome } from './real-browser.js';
 
 // A page whose body is taller than the viewport on every launch below, so a
 // platform that draws a space-consuming scrollbar has one to draw. Without
@@ -60,66 +60,67 @@ describe('RealBrowser: phone-width launches read the same clientWidth on every p
   }, 20_000);
 });
 
-// CI4 round 3: rounds 1 and 2 both tried to bound CONCURRENCY (a launch
-// gate, first spawn-only then lifetime-holding). Review round 2 measured
-// that gate directly (run 35938128610, the lifetime-holding push) and
-// found it never once made a launch wait: gate-wait maxed at 3-6ms across
-// 157 acquires per job. That review's own log parse also showed every
-// slow open and every real give-up landing in the first handful of log
-// lines of a job, at chrome-procs-after of 1 to 4, not the 11-18 the
-// "sustained contention" theory needed. That is the signature of a
-// one-time cost, not a concurrency problem: the OS has never read
-// Chrome's ~200MB binary and shared libraries off disk before, so the
-// first real launch in a job pays for populating the page cache, and
-// every later launch in that same job reads the now-cached pages and
-// opens its port in a few hundred milliseconds, matching the review's
-// own log timeline (8925-18961ms for a job's first launch, 300-900ms for
-// every launch after).
-//
-// warmUpChrome pays that one-time cost itself, once, before any test file
-// is even collected (see vitest.config.ts's globalSetup, which the vitest
-// docs guarantee runs before workers are created). By the time the first
-// real test file launches its own Chrome, the pages are already resident
-// and that launch is cheap too. It errors nothing when Chrome cannot be
-// found, the same fact hasRealBrowser() already lets every real-Chrome
-// test skip instead of fail.
-describe('warmUpChrome: absorbs the first-launch page-cache cost once, outside any test timeout', () => {
-  it('resolves without throwing when no Chrome binary can be found', async () => {
+// CI4 round 3: warmUpChrome launches one throwaway Chrome before any test
+// worker exists, so the cold start that the runner logs show in the opening
+// seconds of a job lands outside every per-test timeout (the mechanism and
+// the evidence are in real-browser.ts, above warmUpChrome). These tests pin
+// its contract: it reports whether a Chrome actually ran, it gives up
+// loudly rather than silently, and it has its own port budget rather than
+// the per-test one. Each one fails when warmUpChrome is replaced by a
+// function that does nothing.
+describe('warmUpChrome: runs one real Chrome before the tests, and says so when it cannot', () => {
+  it('returns false, launching nothing, when no Chrome binary can be found', async () => {
     const previousChromeBin = process.env.CHROME_BIN;
     process.env.CHROME_BIN = join(tmpdir(), 'fa-warmup-missing-chrome-binary-that-does-not-exist');
     try {
-      await expect(warmUpChrome()).resolves.toBeUndefined();
+      await expect(warmUpChrome(() => {})).resolves.toBe(false);
     } finally {
       if (previousChromeBin === undefined) delete process.env.CHROME_BIN;
       else process.env.CHROME_BIN = previousChromeBin;
     }
   });
 
-  it('launches and closes a real Chrome when one is available, leaving no process behind', async () => {
+  it('returns true when a real Chrome is available, because it launched and closed one', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
       return;
     }
-    await expect(warmUpChrome()).resolves.toBeUndefined();
-    // A real launch straight after warm-up must be fast: this is the
-    // actual behaviour warmUpChrome exists to produce, not an
-    // implementation detail of how it gets there.
-    const started = Date.now();
-    const browser = await RealBrowser.launch({ width: 1280, height: 900 });
+    const logged: string[] = [];
+    await expect(warmUpChrome((m) => logged.push(m))).resolves.toBe(true);
+    expect(logged, 'a warm-up that succeeded logs nothing').toEqual([]);
+  }, 90_000);
+
+  it('logs a give-up instead of swallowing it, when Chrome never opens its port', async () => {
+    const stubDir = mkdtempSync(join(tmpdir(), 'fa-stub-chrome-'));
+    const stubPath = join(stubDir, 'stub-chrome.sh');
+    // Exits at once, so the launch fails fast without waiting out the
+    // warm-up's own 60s budget.
+    writeFileSync(stubPath, '#!/bin/sh\nexit 3\n');
+    chmodSync(stubPath, 0o755);
+    const previousChromeBin = process.env.CHROME_BIN;
+    process.env.CHROME_BIN = stubPath;
+    const logged: string[] = [];
     try {
-      const elapsed = Date.now() - started;
-      expect(elapsed, 'a launch right after warm-up should not pay a fresh page-cache-miss cost').toBeLessThan(5_000);
+      await expect(warmUpChrome((m) => logged.push(m))).resolves.toBe(false);
+      expect(logged.length, 'exactly one warm-up give-up line').toBe(1);
+      expect(logged[0]).toContain('Chrome warm-up gave up');
     } finally {
-      await browser.close();
+      if (previousChromeBin === undefined) delete process.env.CHROME_BIN;
+      else process.env.CHROME_BIN = previousChromeBin;
+      rmSync(stubDir, { recursive: true, force: true });
     }
-  }, 30_000);
+  });
+
+  it('waits longer for a cold Chrome than a test launch does, because it runs outside any test timeout', () => {
+    expect(WARMUP_PORT_WAIT_MS).toBeGreaterThan(30_000);
+  });
 });
 
 // CI4 round 3: rounds 1 and 2's retry (withLaunchRetry) assumed a give-up
 // was an unlucky single loss. Review round 2's own data contradicts that:
 // run 35935765272 shows the SAME test's two consecutive attempts both
-// giving up at the deadline, 1ms apart in wall time, meaning whatever
-// starved attempt 1 was still starving attempt 2. A retry only helps
+// giving up at the deadline (12046ms and 12047ms long, 12.2s apart),
+// meaning whatever starved attempt 1 was still starving attempt 2. A retry only helps
 // against a transient loss; the round 1/2 failure was not transient, so
 // there is no retry left to test here. What matters instead is that a
 // single attempt, launched after warm-up, finishes well inside the
