@@ -380,6 +380,16 @@ interface PageMeasurement {
     readonly layer: string;
   }>;
   readonly excludedFixedLayers: ReadonlyArray<string>;
+  // Same shape for the second exclusion: elements past the edge that sit
+  // inside a sideways scroller which itself ends inside the screen, and the
+  // distinct scrollers that earned it. See clipScroller below.
+  readonly excludedScrolled: ReadonlyArray<{
+    readonly name: string;
+    readonly width: number;
+    readonly right: number;
+    readonly scroller: string;
+  }>;
+  readonly excludedScrollers: ReadonlyArray<string>;
   // Which half of `(max-width: 760px), (pointer: coarse)` is live. A font
   // size measured without these is a number with no rule attached: at 320
   // both are true, and the round-1 defect lived entirely in the case where
@@ -445,7 +455,39 @@ async function measure(browser: RealBrowser, path: string, viewport: Viewport = 
       // aria-hidden, pointer-events none, below the content) fly 47
       // decorative marks past the right edge by design while the document
       // still measures exactly 320.
-      var overflowing = pastEdge.filter(function (el) { return !fixedLayer(el); }).slice(0, 8).map(describe);
+      // The nearest ancestor that clips sideways (overflow-x other than
+      // visible) and whose own right edge is inside the screen, or null.
+      // Content past such a box is clipped by it: it cannot widen the page,
+      // and it is reached by scrolling THAT box, not the page. The agent
+      // page's tablist is one (league.css .tabs): at 320 its last tab runs
+      // past the edge until the row is scrolled. A clipping ancestor that is
+      // itself past the edge earns nothing, so a too-wide scroller is still
+      // caught as the scroller.
+      function clipScroller(el) {
+        var p = el.parentElement;
+        while (p && p !== document.body) {
+          if (getComputedStyle(p).overflowX !== 'visible') {
+            return p.getBoundingClientRect().right <= vw + 1 ? p : null;
+          }
+          p = p.parentElement;
+        }
+        return null;
+      }
+      var overflowing = pastEdge
+        .filter(function (el) { return !fixedLayer(el) && !clipScroller(el); })
+        .slice(0, 8).map(describe);
+      var scrolled = pastEdge.filter(function (el) { return !fixedLayer(el) && !!clipScroller(el); });
+      var excludedScrolled = scrolled.slice(0, 8).map(function (el) {
+        var out = describe(el);
+        out.scroller = name(clipScroller(el));
+        return out;
+      });
+      var excludedScrollers = [];
+      scrolled.forEach(function (el) {
+        var s = name(clipScroller(el));
+        if (excludedScrollers.indexOf(s) === -1) excludedScrollers.push(s);
+      });
+      excludedScrollers.sort();
       var excluded = pastEdge.filter(function (el) { return !!fixedLayer(el); });
       var excludedFixed = excluded.slice(0, 8).map(function (el) {
         var out = describe(el);
@@ -475,6 +517,8 @@ async function measure(browser: RealBrowser, path: string, viewport: Viewport = 
         overflowing: overflowing,
         excludedFixed: excludedFixed,
         excludedFixedLayers: excludedFixedLayers,
+        excludedScrolled: excludedScrolled,
+        excludedScrollers: excludedScrollers,
         pointerCoarse: window.matchMedia('(pointer: coarse)').matches,
         narrowViewport: window.matchMedia('(max-width: 760px)').matches,
         smallFields: smallFields
@@ -653,6 +697,16 @@ const ALLOWED_FIXED_BLEED: Readonly<Record<string, ReadonlyArray<string>>> = {
   landing: ['div#layer-back.agent-layer', 'div#layer-front.agent-layer'],
 };
 
+// The only sideways scrollers allowed to clip content past the right edge,
+// by page. The agent page's tablist keeps its four tabs on one row and
+// scrolls inside itself below its natural width (league.css .tabs), because
+// a wrapped row put the moving underline a whole row under the selected tab.
+// Same rule as the fixed-bleed table: keyed by label, so a page cannot hide
+// a too-wide row behind overflow-x without being named here.
+const ALLOWED_SCROLL_CLIP: Readonly<Record<string, ReadonlyArray<string>>> = {
+  agent: ['div.tabs'],
+};
+
 describe('no page widens the layout viewport at 320px (M1, mobile-horizontal-overflow)', () => {
   it.each(PAGES)('%s lays out inside 320px', async (label, path) => {
     if (!hasRealBrowser()) {
@@ -707,6 +761,13 @@ describe('no page widens the layout viewport at 320px (M1, mobile-horizontal-ove
         measured.excludedFixedLayers.filter((layer) => !allowedBleed.includes(layer)),
         `${label} is claiming the fixed-layer exclusion, which only landing's decoration may: ${JSON.stringify(measured.excludedFixed)}`,
       ).toEqual([]);
+
+      // And the scroll-clip exclusion, held to its own named list.
+      const allowedClip = ALLOWED_SCROLL_CLIP[label] ?? [];
+      expect(
+        measured.excludedScrollers.filter((s) => !allowedClip.includes(s)),
+        `${label} is hiding content past the edge inside a scroller nobody named: ${JSON.stringify(measured.excludedScrolled)}`,
+      ).toEqual([]);
     } finally {
       await browser.close();
     }
@@ -739,6 +800,37 @@ describe('no page widens the layout viewport at 320px (M1, mobile-horizontal-ove
       `);
       expect(layers.map((l) => `div#${l.id}.agent-layer`).sort()).toEqual(ALLOWED_FIXED_BLEED.landing);
       expect(layers.every((l) => l.position === 'fixed'), `agent layers are ${JSON.stringify(layers)}`).toBe(true);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
+  // The scroll-clip allowance, held to the same standard: the agent page's
+  // tablist must still be a sideways scroller that ends inside the screen,
+  // or the permission is for something that no longer exists.
+  it('agent still renders the tablist scroller the scroll-clip allowance is written for', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for the mobile layout measurement; skipping (see CHROME_BIN)');
+      return;
+    }
+    const agentPath = PAGES.find(([label]) => label === 'agent')?.[1];
+    expect(agentPath, 'the sweep no longer has an agent page').toBeDefined();
+    const browser = await RealBrowser.launch({ width: NARROW, height: 780 });
+    try {
+      await signIn(browser);
+      await measure(browser, agentPath as string);
+      const tabs = await browser.evaluate<{ found: boolean; overflowX: string; right: number; flexWrap: string }>(`
+        (function () {
+          var el = document.querySelector('.tabs[role="tablist"]');
+          if (!el) return { found: false, overflowX: '', right: 0, flexWrap: '' };
+          var cs = getComputedStyle(el);
+          return { found: true, overflowX: cs.overflowX, right: el.getBoundingClientRect().right, flexWrap: cs.flexWrap };
+        })()
+      `);
+      expect(tabs.found, 'agent page has no tablist').toBe(true);
+      expect(tabs.overflowX, 'agent tablist no longer scrolls sideways').toBe('auto');
+      expect(tabs.flexWrap, 'agent tablist wraps again, which puts the underline under the wrong tab').toBe('nowrap');
+      expect(tabs.right).toBeLessThanOrEqual(NARROW);
     } finally {
       await browser.close();
     }
