@@ -96,6 +96,21 @@ h1 {
 }
 .btn-block.btn-primary { margin-bottom: 4px; }
 
+/* Tabs. The wireframe kept its tab rule inline on the agent page, so the
+   built page shipped polish.css's moving underline over bare browser
+   buttons: grey, outset, 13px. This is the league board's underline tab
+   (look/b), and polish.css's .tabline slides under the selected one. */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 26px; }
+.tabs button {
+  min-height: 44px; padding: 0 16px;
+  border: 0; border-radius: 0; background: transparent;
+  color: var(--fg-2); font-family: var(--font); font-size: 15px; font-weight: 600;
+  cursor: pointer;
+}
+.tabs button:hover { color: var(--fg); }
+.tabs button[aria-selected="true"] { color: var(--fg); }
+.tabs-line .tabline { opacity: 1; }
+
 /* A link a person follows is the action colour; prose keeps its colour and
    takes the underline, so a sentence does not turn blue. */
 :focus-visible { outline-color: var(--action); }
@@ -336,7 +351,18 @@ h1 {
 
 /* ----------------------------------------------------------------- footer
    The office sits at the very foot of the page, and the footer's links sit
-   on its floor, so the room reads as the ground the site stands on. */
+   on its floor, so the room reads as the ground the site stands on.
+
+   The footer is the last thing on every page. A short page (hire, deposit,
+   settings) used to end with the footer halfway up the screen and a band of
+   empty page under it, so the body is a column the height of the viewport
+   and the footer takes the space that is left. Body children fill the
+   width they did as blocks: a flex item with auto side margins otherwise
+   shrinks to its content. */
+body { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+body > * { flex-shrink: 0; width: 100%; }
+body > .foot, body > .foot:has(> .site-office) { margin-top: auto; }
+
 .site-office { display: block; margin-top: 34px; }
 /* The room's height before office.js builds it (on pages that fetch the bot
    engine lazily, that is when the footer nears the screen). Each rule is
@@ -346,10 +372,19 @@ h1 {
 .site-office:not(.office) { aspect-ratio: 1180 / 250; max-height: 250px; }
 @media (max-width: 899px) { .site-office:not(.office) { aspect-ratio: 760 / 250; } }
 @media (max-width: 559px) { .site-office:not(.office) { aspect-ratio: 420 / 226; max-height: 226px; } }
-.foot:has(> .site-office) { border-top: 0; margin-top: 0; padding-top: 0; }
+.foot:has(> .site-office) { border-top: 0; padding-top: 0; padding-bottom: 0; }
+/* The links are one thin bar on the office floor, edge to edge, and it ends
+   the page: no block of floor under them, no page padding below. */
 .foot > .site-office + .inner,
-.foot > .site-office + .wrap { background: var(--o-floor); }
-.foot > .site-office + .inner { max-width: none; padding-left: max(32px, calc((100% - var(--w)) / 2 + 32px)); padding-right: max(32px, calc((100% - var(--w)) / 2 + 32px)); }
+.foot > .site-office + .wrap {
+  background: var(--o-floor);
+  max-width: none; min-height: 0;
+  padding: 6px max(32px, calc((100% - var(--w)) / 2 + 32px));
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 22px;
+}
+.foot > .site-office + .wrap > .links { gap: 4px 22px; }
 @media (max-width: 760px) {
   .site-office { margin-top: 22px; }
+  .foot > .site-office + .inner,
+  .foot > .site-office + .wrap { padding: 4px 16px; gap: 0 6px; }
 }

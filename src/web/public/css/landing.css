@@ -305,10 +305,6 @@ section { padding: 88px 0; }
 /* ---------------------------------------------------------------- footer */
 
 .foot { padding: 40px 0 56px; border-top: 1px solid var(--line); color: var(--fg-2); font-size: 13px; }
-/* The flock's last perch anchors to this box's live rect, so it needs real
-   height even when the link row is one line tall. Reserved rather than
-   discovered, so the agents do not land on the page edge at narrow widths. */
-#foot-inner { min-height: 130px; }
 .foot .links { display: flex; flex-wrap: wrap; gap: 22px; }
 .foot a { min-height: 44px; display: inline-flex; align-items: center; }
 .foot a:hover { color: var(--fg); }
