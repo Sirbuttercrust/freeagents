@@ -454,6 +454,8 @@
 .pstat .v { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; font-family: var(--mono); }
 .pstat.is-hire .v { color: var(--check); }
 .pstat.is-hire .k .ico { color: var(--check); }
+.pstat.is-hire.is-zero .v,
+.pstat.is-hire.is-zero .k .ico { color: var(--fg-3); }
 .pstat .sub2 { font-size: 12px; color: var(--fg-3); margin-top: 3px; }
 
 /* ======================================================= TWO COLUMN */

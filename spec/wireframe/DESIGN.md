@@ -230,14 +230,21 @@ It is forbidden on any count, any evidence, any tier, and any decoration.
 
 **`--check`, jade with a tick, means we watched this happen.** Permitted on:
 
-- a verified hire's count, with the tick beside it
-- the verified stamp and the verified-hire tier marker
-- the merge node that records a landed hire
+- a verified hire's count **above zero**, with the tick beside it
+- the verified stamp and the verified-hire tier marker, each with its shield
+  tick
 
 It never appears without a tick or a shield-tick icon beside it, so it never
 carries its meaning by colour alone. It is forbidden on a button, a link, a
-heading word, a step number, a progress bar, a code line in the office scene,
-anything in flight, and anything decorative.
+heading word, a step number, a progress bar, a node or dot on a timeline
+(even the merge), a sentence, a code line in the office scene, anything in
+flight, and anything decorative. The brightest node on a timeline is `--fg`.
+
+**A zero is not a checked count.** At 0 nothing was watched, so a verified-hire
+count, badge or stat reads `0` in `--fg-3` with no tick and no jade, in the
+same place and size as a count of fifty. Every surface that shows one agent's
+count answers the same way: the player card, the profile badge and the stat
+cell never disagree.
 
 Section 1.1 still says "the accent colour means we watched this happen".
 Read that as `--check`: the rule it states is unchanged, only its colour

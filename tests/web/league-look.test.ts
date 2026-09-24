@@ -293,6 +293,87 @@ describe('the player card on browse', () => {
   }, BROWSER_TIMEOUT_MS);
 });
 
+// JADE ONLY BESIDE A TICK (DESIGN.md 2.2). --check means "we watched this
+// happen", so every visible element that paints jade must carry a tick or a
+// shield tick itself or have one as a sibling, and a zero count must never be
+// jade. The token gate reads literals only; this reads computed colour, so it
+// also catches var(--check) and var(--t-hire) used in the wrong place. The
+// cold agent's page is the zero case: nothing on it may be jade at all.
+const JADE_SWEEP = `
+  new Promise(function (resolve) {
+    var tries = 0;
+    (function wait() {
+      var s = document.getElementById('summary');
+      if (s && s.hasAttribute('data-pending') && tries++ < 40) { setTimeout(wait, 100); return; }
+      setTimeout(function () {
+        // A tick is a drawn tick, not just any icon: the git-merge glyph on
+        // a node is an svg too. These are the tick strokes the site draws
+        // (icons.js shield-check, check and check-circle; pcard.js pc-tick).
+        var TICKS = ['m9 12 2 2 4-4', 'm5 12 5 5L20 7', 'm8.5 12 2.5 2.5L16 9.5', 'M4.6 8.2l2.2 2.2 4.6-4.9'];
+        function isTick(svg) {
+          return [].some.call(svg.querySelectorAll('path'), function (p) { return TICKS.indexOf(p.getAttribute('d')) !== -1; });
+        }
+        function holdsTick(el) {
+          if (el.tagName.toLowerCase() === 'svg') return isTick(el);
+          return [].some.call(el.querySelectorAll('svg'), isTick);
+        }
+        function hasTick(el) {
+          if (holdsTick(el)) return true;
+          var p = el.parentElement;
+          if (!p) return false;
+          return [].some.call(p.children, function (c) { return c !== el && holdsTick(c); });
+        }
+        var bad = [];
+        var jadeCount = 0;
+        document.querySelectorAll('body *').forEach(function (e) {
+          if (e.closest('svg') || e.closest('[aria-hidden="true"]')) return;
+          var r = e.getBoundingClientRect();
+          if (r.width < 2 || r.height < 2) return;
+          var cs = getComputedStyle(e);
+          if (cs.visibility === 'hidden' || cs.display === 'none') return;
+          var props = ['color', 'backgroundColor', 'borderTopColor'].filter(function (k) { return cs[k] === '${JADE}'; });
+          if (props.length === 0) return;
+          // color only matters where the element draws text or an icon itself
+          if (props.length === 1 && props[0] === 'color' && !e.textContent.trim() && !e.querySelector('svg')) return;
+          jadeCount++;
+          var text = e.textContent.replace(/\\s+/g, ' ').trim().slice(0, 40);
+          if (!hasTick(e)) bad.push((e.id || e.className || e.tagName) + ' [' + props.join(',') + '] "' + text + '"');
+          if (/^0(\\D|$)/.test(text)) bad.push('zero in jade: ' + (e.id || e.className) + ' "' + text + '"');
+        });
+        resolve({ bad: bad, jadeCount: jadeCount });
+      }, 500);
+    })();
+  })
+`;
+
+describe('jade sits only beside a tick, and never on a zero', () => {
+  // 'some': the page shows checked work, so the sweep must find jade (else
+  // it proves nothing). 'none': the zero case, no jade at all. 'any': the
+  // page may or may not show jade (the sign-in fan is aria-hidden).
+  it.each([
+    ['/', 'some'],
+    ['/browse', 'some'],
+    ['/how', 'some'],
+    ['/signin', 'any'],
+    [`/agents/${HIRED_DID}`, 'some'],
+    [`/agents/${COLD_DID}`, 'none'],
+    // No account behind this DID in the fixture, so this is the not-found
+    // state, whose stat row still renders a 0. Nothing on it was watched.
+    [`/accounts/${OPERATOR_DID}`, 'none'],
+  ])('%s', async (path, jade) => {
+    if (!hasRealBrowser()) return;
+    const b = await open(path, 1280, 'reduce');
+    try {
+      const s = await b.evaluate<{ bad: string[]; jadeCount: number }>(JADE_SWEEP);
+      expect(s.bad, 'jade without a tick, or a zero painted jade').toEqual([]);
+      if (jade === 'none') expect(s.jadeCount, 'an agent with no checked hire shows no jade at all').toBe(0);
+      if (jade === 'some') expect(s.jadeCount, 'the sweep found no jade on a page with checked work').toBeGreaterThan(0);
+    } finally {
+      await b.close();
+    }
+  }, BROWSER_TIMEOUT_MS);
+});
+
 describe('the phone menu', () => {
   it('at 320px: closed by default, a 44px button, and the open menu fits with 44px links', async () => {
     if (!hasRealBrowser()) return;

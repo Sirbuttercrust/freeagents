@@ -48,7 +48,10 @@
      paragraph fills both roles, so nothing here is a duplicate render. */
   .summary { font-size: 15px; color: var(--fg-2); margin-top: 14px; }
   .summary b { color: var(--fg); font-weight: 550; }
-  .summary .hire { color: var(--t-hire); font-weight: 550; }
+  /* Full-strength, never jade. The sentence has no tick beside it, and
+     DESIGN.md 2.2 keeps --check for a count that sits with one (the badge
+     above this line and the stat cell below it). */
+  .summary .hire { color: var(--fg); font-weight: 550; }
 
   .ident {
     display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 16px;
@@ -230,9 +233,11 @@
   <!-- THREE NUMBERS, NEVER SUMMED, plus merge rate as a fraction (never a
        percentage, DESIGN.md, locked). The row is the visual half of the
        rule that the tiers stay apart: three cells, three labels, no
-       total. Only the verified hire count carries the accent. -->
+       total. Only the verified hire count carries jade, and only above
+       zero: the cell ships as .is-zero (grey) and agent.js lifts that once
+       the record shows a checked hire (DESIGN.md 2.2). -->
   <div class="pstats">
-    <div class="pstat is-hire">
+    <div class="pstat is-hire is-zero">
       <span class="k"><span class="ico ico-sm" data-ico="shield-check"></span>Verified hires</span>
       <span class="v" id="pstat-hires">0</span>
       <span class="sub2">we watched them merge</span>

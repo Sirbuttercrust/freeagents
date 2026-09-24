@@ -331,6 +331,10 @@
     var prior = numberOr(totals.totalVerifiedPriorWorkCount);
     var claims = numberOr(totals.totalPortfolioCount);
     A.setTextById("pstat-hires", String(hires));
+    /* A zero is not a checked count, so the cell goes grey (market.css
+       .pstat.is-hire.is-zero, DESIGN.md 2.2). */
+    var hireCell = A.el("pstat-hires");
+    if (hireCell && hireCell.parentNode) hireCell.parentNode.classList.toggle("is-zero", hires === 0);
     A.setTextById("pstat-hires-sub", "across " + A.plural(rosterSize, "agent", "agents"));
     A.setTextById("pstat-prior", String(prior));
     A.setTextById("pstat-claims", String(claims));

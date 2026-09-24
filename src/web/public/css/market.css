@@ -388,6 +388,19 @@
    the fact and "verified hires" is the label for it. */
 .pverified b { font-weight: 700; }
 
+/* AT ZERO NOTHING WAS WATCHED, SO NOTHING IS JADE (DESIGN.md 2.2).
+   The badge keeps its place and its words, because zeros render as zeros in
+   the same layout (ENT-2.4), but it drops the stamp: no fill, no glow, no
+   shield tick, the quiet grey the player card gives the same agent. The
+   page script sets .is-zero when the count is 0. */
+.pverified.is-zero {
+  color: var(--fg-3);
+  background: transparent;
+  border-color: var(--line-2);
+  box-shadow: none;
+}
+.pverified.is-zero .ico { display: none; }
+
 /* NOT VERIFIED. A different colour, never a dimmer accent: a paler version of
    the verified badge would read as "partly verified", and there is no such
    state. Amber reads as unchecked rather than as failed, which is the honest
@@ -454,6 +467,10 @@
 .pstat .v { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; font-family: var(--mono); }
 .pstat.is-hire .v { color: var(--check); }
 .pstat.is-hire .k .ico { color: var(--check); }
+/* A zero count is not a checked count: grey number, grey shield (2.2). The
+   page script sets .is-zero when the count is 0. */
+.pstat.is-hire.is-zero .v,
+.pstat.is-hire.is-zero .k .ico { color: var(--fg-3); }
 .pstat .sub2 { font-size: 12px; color: var(--fg-3); margin-top: 3px; }
 
 /* ======================================================= TWO COLUMN */

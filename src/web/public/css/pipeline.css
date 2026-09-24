@@ -96,9 +96,10 @@
 .flow-step.is-done .flow-dot { background: var(--fg-2); border-color: var(--fg-2); }
 .flow-step.is-now  .flow-dot { background: var(--fg);   border-color: var(--fg); }
 
-/* The one node allowed the accent, and only when the merge actually landed.
-   DESIGN.md 2.2, and the same treatment as job.html `.track li.merged`. */
-.flow-step.is-merged .flow-dot { background: var(--t-hire); border-color: var(--t-hire); }
+/* The landed merge is the brightest node. It is not jade: a dot has no tick
+   beside it, and DESIGN.md 2.2 keeps --check for a count that does. The same
+   treatment as job.html `.track li.merged`. */
+.flow-step.is-merged .flow-dot { background: var(--fg); border-color: var(--fg); }
 
 /* THE STANDING RING. This is the reduced-motion end state of the pulse, and
    it is written as the default so it is what remains when animation is off:

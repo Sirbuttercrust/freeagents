@@ -177,9 +177,10 @@
 .who .r a { color: var(--fg-2); }
 .who .r a:hover { color: var(--fg); }
 
-/* The verified hire count beside a name. This IS witnessed work, so it is one
-   of the four places the accent is allowed. */
-.who .hires { color: var(--check); font-size: 13px; font-weight: 550; }
+/* The verified hire count beside a name, in words. It has no tick beside it
+   and reads the same at 0 as at 12, so it is plain supporting text and not
+   jade: DESIGN.md 2.2 keeps --check for a count that sits beside a tick. */
+.who .hires { color: var(--fg-2); font-size: 13px; font-weight: 550; }
 
 @media (max-width: 420px) {
   .who { flex-wrap: wrap; }
