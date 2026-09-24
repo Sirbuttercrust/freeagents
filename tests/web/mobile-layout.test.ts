@@ -874,7 +874,7 @@ describe('every field you can type into is at least 16px wherever the floor appl
 // compared against itself. Computed style, not boxes, so a block hidden
 // until the page's data arrives counts the same as a shown one. Vertical
 // padding is out of scope here on purpose: it is frozen at what main
-// renders, and ~/hermes-ops' gutter gate holds it to a baseline.
+// renders, and the card's external gutter gate holds it to a baseline.
 describe('a .wrap.section block keeps the side gutter .wrap gives the nav and footer (GUT1)', () => {
   it('every .wrap.section and .wrap.section-sm on every page matches a bare .wrap at 1024 and 600', async () => {
     if (!hasRealBrowser()) {
