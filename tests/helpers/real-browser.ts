@@ -110,11 +110,11 @@ interface CdpMessage {
   error?: { message?: string };
 }
 
-// CI4 round 2 (Proof FAIL r1, defect 1): vitest's own pool runs each test
+// CI4 round 2 (review round 1, defect 1): vitest's own pool runs each test
 // file as a separate OS process (node_modules/vitest/dist/config.js:99,
 // `pool: "forks"`). A module-level counter, however carefully queued, only
 // ever counts launches inside the ONE process it lives in; every other
-// file's worker starts its own counter at zero. Proof's repro nailed this:
+// file's worker starts its own counter at zero. The review round's own repro nailed this:
 // two files at a limit of 1 both acquired the "gate" 1ms apart, with 20
 // Chrome processes alive, because there were two separate counters, not
 // one shared one.

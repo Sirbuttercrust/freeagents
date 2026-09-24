@@ -164,10 +164,10 @@ describe('withLaunchRetry: retries a launch that gives up once', () => {
   });
 });
 
-// CI4 round 2 (Proof FAIL r1): vitest's default pool is "forks", a separate
+// CI4 round 2 (review round 1): vitest's default pool is "forks", a separate
 // child process per test file (node_modules/vitest/dist/config.js:99), so a
 // module-level counter like the LaunchGate above only bounds launches
-// inside ONE file. Proof's own repro showed two files' launches acquiring
+// inside ONE file. The review round's own repro showed two files' launches acquiring
 // an in-process limit-1 gate 1ms apart, 20 Chrome processes alive, because
 // each file's counter starts at zero. The fence has to live somewhere every
 // worker process can see it: a directory of numbered slot files under
@@ -252,7 +252,7 @@ describe('CrossProcessLaunchGate: bounds concurrent launches across separate OS 
   });
 });
 
-// CI4 round 2 (Proof FAIL r1, defect 2): every real launch site sets
+// CI4 round 2 (review round 1, defect 2): every real launch site sets
 // BROWSER_TIMEOUT_MS = 30_000 (17 of the 25 files that call
 // RealBrowser.launch, including the three that failed together in run
 // 35921744859). A retry whose own per-attempt deadline is 30s cannot
