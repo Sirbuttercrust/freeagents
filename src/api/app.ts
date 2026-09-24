@@ -24,7 +24,7 @@ import {
 import { createDidAbtSigningKeyResolver, createKnownKeyStore } from '../adapters/identity/did-abt-resolver.js';
 import { verify as verifySignature } from '../adapters/identity/http-signature.js';
 import { createIdentityAdapter } from '../adapters/identity/identity.js';
-import type { DidDocument, IdentityAdapter } from '../adapters/identity/types.js';
+import type { IdentityAdapter } from '../adapters/identity/types.js';
 import { createRateLimiter, type RateLimiter } from '../adapters/identity/verify-rate-limit.js';
 import { createSignatureSpendStorage } from '../adapters/identity/signature-spend-storage.js';
 import type { SignatureSpendStorage } from '../adapters/identity/signature-spend-storage-types.js';
@@ -71,7 +71,6 @@ import {
 } from '../domain/browse.js';
 import { operatorAggregate } from '../domain/operator-roster.js';
 import {
-  didDocumentPointsAtGithubAccount,
   gistProofPayload,
   githubAccountUrl,
   parseGistStatement,
@@ -1987,7 +1986,7 @@ export function createApp(
     }
 
     try {
-      const row = await agentRepo.create({
+      let row = await agentRepo.create({
         did,
         operatorDid: operator,
         delegation: proof,
@@ -1998,6 +1997,30 @@ export function createApp(
         minBuyerMerges: (minBuyerMerges as number | undefined) ?? null,
         maxWalkedAfterConfirm: (maxWalkedAfterConfirm as number | undefined) ?? null,
       });
+      // G1 path one (ENT-5.1): sign-in is the proof when the agent works
+      // from its operator's own GitHub account, zero extra steps. A GitHub
+      // OAuth session already proved the operator controls sessionSubject
+      // (session-github-passkey.ts returns the login GitHub itself
+      // reported), so a githubLogin that names that SAME login, case-
+      // insensitively (GitHub logins are their own case-insensitive
+      // namespace), records verified immediately. The login is compared
+      // against the session, never trusted from the body alone: a request
+      // authenticated by an R-34 signature carries no sessionMethod at all
+      // (authenticateRequest only sets it on the session path), so a
+      // signature-only registration can never take this branch regardless
+      // of what githubLogin claims, and a body naming a login that is not
+      // the session's own falls through to path two (the signed gist) with
+      // no verification recorded here.
+      const sessioned = req as SessionedRequest;
+      if (
+        typeof githubLogin === 'string' &&
+        sessioned.sessionMethod === 'github-oauth' &&
+        typeof sessioned.sessionSubject === 'string' &&
+        sessioned.sessionSubject.toLowerCase() === githubLogin.toLowerCase()
+      ) {
+        const verifiedRow = await agentRepo.updateGithubBinding(did, { handle: githubLogin, status: 'verified' });
+        if (verifiedRow !== null) row = verifiedRow;
+      }
       res.status(201).json(agentProjection(row));
     } catch (err) {
       if (err instanceof AgentAlreadyExistsError) {
@@ -2102,11 +2125,16 @@ export function createApp(
     }
   });
 
-  // R-3 + R-4 (ENT-5): does the agent's GitHub account hold? Direction one
-  // is the DID document's standard alsoKnownAs entry; direction two is a
-  // public gist whose statement the agent's key signed. Without gist the
-  // route records direction one as pending (R-3); with it, the binding is
-  // marked verified only when BOTH directions hold (ENT-5.1).
+  // G1 path two (ENT-5.1): a signed gist, alone, is now the whole proof. An
+  // agent with its own separate GitHub account (the account the operator's
+  // own session did not already prove) authors a public gist holding a
+  // statement its key signed; the route checks it out and records the
+  // binding verified. Direction one (the DID document's alsoKnownAs entry)
+  // is gone from this route entirely: this adapter's resolveDid can never
+  // learn that field for real (identity.ts's own header comment), so
+  // requiring it meant this route answered 503 for every agent, forever
+  // (bugs.md B22). Everything this route already checked about the gist
+  // itself stays unchanged.
   // S3+S4 follow-on (security sweep, item 3): this route was also in the
   // ungated /agents/:agentDid/* write family. Same treatment as
   // key-rotation and compromise-report: body shape first, then
@@ -2119,7 +2147,18 @@ export function createApp(
 
     if (typeof handle !== 'string' || handle.length === 0 || /\s/.test(handle)) {
       res.status(400).json({
-        error: 'body must be { handle, gist? }; handle is a non-empty string with no whitespace',
+        error: 'body must be { handle, gist }; handle is a non-empty string with no whitespace, gist a URL like https://gist.github.com/<owner>/<id>',
+      });
+      return;
+    }
+
+    // The gist is the whole proof now: a body naming a handle with no gist
+    // at all has nothing this route can check, so it is the same 400 shape
+    // a malformed gist URL already gets, not a silent no-op. Checked before
+    // authentication, matching this route's own body-shape-first ordering.
+    if (body.gist === undefined) {
+      res.status(400).json({
+        error: 'body must be { handle, gist }; gist is required (a URL like https://gist.github.com/<owner>/<id>)',
       });
       return;
     }
@@ -2132,73 +2171,16 @@ export function createApp(
     // claimed handle: the operator is pointing at someone else's gist, which
     // no signature could fix anyway.
     let gistRef: GistUrlRef | null = null;
-    if (body.gist !== undefined) {
-      if (typeof body.gist !== 'string' || (gistRef = parseGistUrl(body.gist)) === null) {
-        res.status(400).json({
-          error: 'gist, when present, must be a URL like https://gist.github.com/<owner>/<id>',
-        });
-        return;
-      }
-      if (gistRef.owner.toLowerCase() !== handle.toLowerCase()) {
-        res.status(409).json({
-          error: `direction two (signed gist): the gist URL owner ${gistRef.owner} does not match the claimed handle ${handle}`,
-        });
-        return;
-      }
-    }
-
-    // A NotImplementedError until a resolver is wired, or any other
-    // resolution failure, is a 503: the operator cannot fix a missing
-    // backend, and failing open would record an unverified claim as held.
-    let doc: DidDocument;
-    try {
-      doc = await identityAdapter.resolveDid(did);
-    } catch (err) {
-      console.error('POST /agents/:agentDid/account-proof: identity resolution failed', err);
-      res.status(503).json({ error: 'identity resolution unavailable' });
-      return;
-    }
-
-    // alsoKnownAs undefined means the resolver could not determine the
-    // field at all (Review finding, round 1, D1, task t_8a82c865): this adapter's
-    // resolveDid never learns it, so a 409 naming "add ... to its
-    // alsoKnownAs field" would be a remedy the operator can never satisfy
-    // from this adapter's point of view. That is a platform limitation,
-    // not an operator error, so it is the same 503 an unresolvable DID
-    // gets, distinct from a genuinely resolved document with no claim
-    // (alsoKnownAs: null), which stays the 409 below.
-    if (doc.alsoKnownAs === undefined) {
-      console.error(
-        `POST /agents/:agentDid/account-proof: identity resolution for ${did} cannot determine alsoKnownAs`,
-      );
-      res.status(503).json({ error: 'identity resolution unavailable' });
-      return;
-    }
-
-    if (!didDocumentPointsAtGithubAccount(doc.alsoKnownAs, handle)) {
-      // The message names the DID and the exact URL to author, so the
-      // operator can act on it in their wallet tooling. The prefix appears
-      // only when both directions were requested, to say which one failed.
-      const prefix = gistRef === null ? '' : 'direction one (DID document): ';
-      res.status(409).json({
-        error: `${prefix}the DID document for ${did} does not point at the GitHub account: add ${githubAccountUrl(handle)} to its alsoKnownAs field`,
+    if (typeof body.gist !== 'string' || (gistRef = parseGistUrl(body.gist)) === null) {
+      res.status(400).json({
+        error: 'gist must be a URL like https://gist.github.com/<owner>/<id>',
       });
       return;
     }
-
-    if (gistRef === null) {
-      // R-3: direction one alone records pending, never verified (ENT-5.1).
-      try {
-        const updated = await agentRepo.updateGithubBinding(did, { handle, status: 'pending' });
-        if (updated === null) {
-          res.status(404).json({ error: `agent ${did} is not registered` });
-          return;
-        }
-        res.status(200).json(agentProjection(updated));
-      } catch (err) {
-        console.error('POST /agents/:agentDid/account-proof: storage failed', err);
-        res.status(503).json({ error: 'storage unavailable' });
-      }
+    if (gistRef.owner.toLowerCase() !== handle.toLowerCase()) {
+      res.status(409).json({
+        error: `direction two (signed gist): the gist URL owner ${gistRef.owner} does not match the claimed handle ${handle}`,
+      });
       return;
     }
 
