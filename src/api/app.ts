@@ -129,6 +129,7 @@ import {
   type JobStatus,
   type Party,
   type PriceProposal,
+  type Rail,
 } from '../domain/job.js';
 import { depositUsd, remainderUsd } from '../domain/payment.js';
 import { createSettlementGate, remainderSettled, type SettlementGate } from '../adapters/payment/gate.js';
@@ -4339,6 +4340,39 @@ export function createApp(
       : remainderUsd(String(job.priceUsd), job.depositPercent);
   }
 
+  // B23 (bug ledger, C1 rehearsal s7): each leg is only ever eligible
+  // while the job is in the status that leg belongs to. A withdrawn job
+  // used to answer 200 to deposit start with real transfer intents, and
+  // the wallet response wrote an ObservedSettlement row for it -- a buyer
+  // could pay for a job that no longer exists. The deposit leg settles
+  // before confirm (confirm's own gate reads it), so it is eligible only
+  // at 'proposed'; the remainder leg settles while the work sits staged
+  // and unpaid, the exact fact LAPSE_AT_STAGED_STATUSES already names, so
+  // it shares that set. Both start routes AND the wallet-response route
+  // (which can record a settlement, not merely quote one) call this
+  // before doing anything else -- a hash that arrives after the job left
+  // the eligible window is refused the same way a start call would be,
+  // not treated as a late-but-honoured payment.
+  const DEPOSIT_ELIGIBLE_STATUSES: ReadonlySet<JobStatus> = new Set(['proposed']);
+  function legStatusEligible(leg: RouteLeg, status: JobStatus): boolean {
+    return leg === 'deposit' ? DEPOSIT_ELIGIBLE_STATUSES.has(status) : LAPSE_AT_STAGED_STATUSES.has(status);
+  }
+  function legStatusConflictMessage(leg: RouteLeg, status: JobStatus): string {
+    const eligible = leg === 'deposit' ? '"proposed"' : '"staged" or "redo_requested"';
+    return `the ${leg} leg is not payable while this job is in status "${status}"; it is only payable while the job is ${eligible}`;
+  }
+
+  // B25 (bug ledger, C1 rehearsal s8): each rail's routes refuse a job
+  // priced on the OTHER rail, in both directions -- USDC start used to
+  // accept an ABT-priced job and hand out USDC transfer intents nobody
+  // could ever settle against the agreed price. gate.job.rail is null
+  // only before a price is proposed, a case the existing "no agreed
+  // price to pay against" check below already answers; this check runs
+  // only once a rail is actually on record, so the two never race.
+  function legRailMismatchMessage(routeRail: Rail, jobRail: Rail | null): string {
+    return `this job is priced on the "${jobRail}" rail; the "${routeRail}" payment routes refuse it`;
+  }
+
   // S3, Ruling 3: the USDC recipient is the address on record for the
   // hired agent's operator Account, never derived (unlike ABT: an EVM
   // address is a different shape entirely, so there is no reduction from
@@ -4489,6 +4523,17 @@ export function createApp(
         res.status(409).json({ error: 'this job has no agreed price to pay against' });
         return;
       }
+      // B25: the job's own agreed rail must match the route it was
+      // reached through.
+      if (gate.job.rail !== null && gate.job.rail !== 'abt') {
+        res.status(409).json({ error: legRailMismatchMessage('abt', gate.job.rail) });
+        return;
+      }
+      // B23: the leg must belong to the job's CURRENT status.
+      if (!legStatusEligible(leg, gate.job.status)) {
+        res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
+        return;
+      }
       // The did-connect-js generateSession route reads req.query,
       // req.body and req.params into extraParams (protocol.js's own
       // mechanism); jobId/leg ride through req.query so the web layer's
@@ -4563,6 +4608,17 @@ export function createApp(
         res.status(409).json({ error: 'this job has no agreed price to pay against' });
         return;
       }
+      // B25: the job's own agreed rail must match the route it was
+      // reached through.
+      if (gate.job.rail !== null && gate.job.rail !== 'usdc') {
+        res.status(409).json({ error: legRailMismatchMessage('usdc', gate.job.rail) });
+        return;
+      }
+      // B23: the leg must belong to the job's CURRENT status.
+      if (!legStatusEligible(leg, gate.job.status)) {
+        res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
+        return;
+      }
       // S3, Ruling 5: no address on record is a 409, fail closed -- a
       // payment that cannot name a real recipient must not begin.
       const operatorAddressResult = await usdcOperatorAddressForJob(gate.job.agentDid);
@@ -4615,6 +4671,21 @@ export function createApp(
       if (gate === null) return;
       if (usdcPaymentRail === null) {
         res.status(503).json({ error: 'the usdc payment rail is not configured on this deployment' });
+        return;
+      }
+      // B25: the job's own agreed rail must match the route it was
+      // reached through.
+      if (gate.job.rail !== null && gate.job.rail !== 'usdc') {
+        res.status(409).json({ error: legRailMismatchMessage('usdc', gate.job.rail) });
+        return;
+      }
+      // B23: the leg must belong to the job's CURRENT status. A hash
+      // that arrives after the job left the eligible window (a late
+      // callback for a job the buyer has since withdrawn, for example)
+      // is refused the same way a fresh start call would be refused --
+      // never treated as a late-but-honoured payment.
+      if (!legStatusEligible(leg, gate.job.status)) {
+        res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
         return;
       }
       const body = (req.body ?? {}) as {
