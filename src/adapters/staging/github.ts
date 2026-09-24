@@ -86,9 +86,6 @@ export function createGithubStagingObserver(github: GithubAdapter): StagingObser
         .filter((file) => isTestFilePath(file.path) && addedLinesIntroduceSkipMarker(file.patch))
         .map((file) => file.path);
 
-      const criteriaPaths = new Set(input.criteriaPaths);
-      const outOfCriteriaPathCount = changedPaths.filter((path) => !criteriaPaths.has(path)).length;
-
       // A signer matches the agent DID only when BOTH GitHub's own
       // cryptographic verification passed AND the commit's GitHub author
       // is the agent's verified login -- a verified-but-someone-else's
@@ -107,7 +104,6 @@ export function createGithubStagingObserver(github: GithubAdapter): StagingObser
         lineShareByCategory,
         testsDeleted,
         testsSkipAdded,
-        outOfCriteriaPathCount,
         commitSigners,
       };
     },
