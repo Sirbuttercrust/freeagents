@@ -260,7 +260,7 @@ describe('DID-signed hire-loop routes (R-34)', () => {
     expect(replayed.status).toBe(401);
   });
 
-  it('refuses a well-formed signature from an unregistered DID', async () => {
+  it('refuses a well-formed signature from an unregistered DID with 401 "unknown key", not "invalid signature"', async () => {
     const response = await postSigned(
       '/jobs',
       { buyerDid: buyer.did, agentDid: agent.did, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
@@ -268,6 +268,40 @@ describe('DID-signed hire-loop routes (R-34)', () => {
     );
 
     expect(response.status).toBe(401);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.error).toBe('unknown key');
+  });
+
+  it('keeps "invalid signature" for a signature that does not verify, distinct from unknown key', async () => {
+    const targetUri = `${baseUrl}/jobs`;
+    const bodyText = JSON.stringify({
+      buyerDid: buyer.did,
+      agentDid: agent.did,
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    });
+    const signed = signRequest(buyer, 'POST', targetUri, { body: bodyText });
+    const forgedSignature = signed.signature.replace(/:[A-Za-z0-9+/=]+:$/, (match) => {
+      const inner = match.slice(1, -1);
+      const bytes = Buffer.from(inner, 'base64');
+      bytes[0] = (bytes[0] ?? 0) ^ 0xff;
+      return `:${bytes.toString('base64')}:`;
+    });
+
+    const response = await fetch(targetUri, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'signature-input': signed['signature-input'],
+        signature: forgedSignature,
+        'content-digest': signed['content-digest'],
+      },
+      body: bodyText,
+    });
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.error).toBe('invalid signature');
   });
 
   it('refuses a signature naming the wrong buyerDid with 403, not 401', async () => {

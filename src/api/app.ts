@@ -139,6 +139,9 @@ import { attachAbtPaymentHandlers, type AbtTxEncoder } from '../adapters/payment
 import { createTxEncoder as createAbtTxEncoder } from '@ocap/client/encode';
 import {
   confirmPayment,
+  legRailMismatchMessage,
+  legStatusConflictMessage,
+  legStatusEligible,
   processWalletResponse,
   requestPayment,
   type RouteLeg,
@@ -889,14 +892,25 @@ export function createApp(
   // unsigned request passes through untouched) and requireSessionOrSignature
   // (mandatory: the route below refuses outright when this returns 'absent'
   // and no session covers the gap either). A present-but-invalid signature
-  // is worse than none in both callers, so both map 'invalid' to the same
-  // 401 rather than falling through to "as if unsigned".
-  async function verifySignedRequest(req: Request): Promise<'absent' | 'invalid' | { readonly did: string }> {
+  // is worse than none in both callers, so both map 'invalid' and
+  // 'unknown-key' to their own distinct 401 rather than falling through to
+  // "as if unsigned".
+  //
+  // B29 (bug ledger, C1 rehearsal s2): 'unknown-key' and 'invalid' are kept
+  // as two separate outcomes all the way out to the route layer, not
+  // folded back into one 'invalid' here. A caller who signed correctly with
+  // a key this service has simply never registered was being told their
+  // cryptography was wrong; the real fact is narrower, and callers of this
+  // function need to be able to tell the two apart to answer each with its
+  // own message.
+  async function verifySignedRequest(
+    req: Request,
+  ): Promise<'absent' | 'invalid' | 'unknown-key' | { readonly did: string }> {
     // Only a fully unsigned request is absent: absent both headers, this is
     // unchanged behaviour for every caller that exists today. Exactly one
     // present falls through to verifySignature below, which already treats
     // a half-signed request as invalid input (its own first check is
-    // `if (!sigInputValue || !sigValue) return null`) -- restating that
+    // `if (!sigInputValue || !sigValue) return 'invalid'`) -- restating that
     // check here would just be the same 401 twice.
     if (req.headers['signature-input'] === undefined && req.headers['signature'] === undefined) {
       return 'absent';
@@ -908,7 +922,8 @@ export function createApp(
       signingKeys,
       { requiredComponents: ['@method', '@target-uri', 'content-digest'], spendStorage: signatureSpendStorage },
     );
-    if (result === null) return 'invalid';
+    if (result === 'unknown-key') return 'unknown-key';
+    if (result === 'invalid') return 'invalid';
 
     // The adapter verifies the signature bytes; it never sees the body, so
     // the digest match is this function's half -- what binds the body
@@ -938,6 +953,10 @@ export function createApp(
       const outcome = await verifySignedRequest(req);
       if (outcome === 'absent') {
         next();
+        return;
+      }
+      if (outcome === 'unknown-key') {
+        res.status(401).json({ error: 'unknown key' });
         return;
       }
       if (outcome === 'invalid') {
@@ -1013,10 +1032,11 @@ export function createApp(
   // of via a middleware that would always run first. One rule, one
   // function, two call sites: this and requireSessionOrSignature below
   // never diverge on what counts as authenticated.
-  type AuthOutcome = 'ok' | 'invalid-signature' | 'no-proof';
+  type AuthOutcome = 'ok' | 'invalid-signature' | 'unknown-key' | 'no-proof';
   async function authenticateRequest(req: Request): Promise<AuthOutcome> {
     const sigOutcome = await verifySignedRequest(req);
     if (sigOutcome === 'invalid') return 'invalid-signature';
+    if (sigOutcome === 'unknown-key') return 'unknown-key';
     if (sigOutcome !== 'absent') {
       (req as SignedRequest).signerDid = sigOutcome.did;
       return 'ok';
@@ -1038,6 +1058,10 @@ export function createApp(
   const requireSessionOrSignature = (req: Request, res: Response, next: NextFunction): void => {
     void (async () => {
       const outcome = await authenticateRequest(req);
+      if (outcome === 'unknown-key') {
+        res.status(401).json({ error: 'unknown key' });
+        return;
+      }
       if (outcome === 'invalid-signature') {
         res.status(401).json({ error: 'invalid signature' });
         return;
@@ -1073,6 +1097,10 @@ export function createApp(
     did: string,
   ): Promise<Agent | null> {
     const outcome = await authenticateRequest(req);
+    if (outcome === 'unknown-key') {
+      res.status(401).json({ error: 'unknown key' });
+      return null;
+    }
     if (outcome === 'invalid-signature') {
       res.status(401).json({ error: 'invalid signature' });
       return null;
@@ -3469,12 +3497,19 @@ export function createApp(
             : { priceUsd: priceUsd as string, rail: rawRail, deliveryWindowDays: rawWindow };
       }
 
+      // B26 (bug ledger, C1 rehearsal s9): proposedBy names who WROTE the
+      // line, and that fact is the caller's own resolved seat on this job
+      // (gate.party, from resolveJobActingParty above), never the request
+      // body's own claim. A body naming the other seat is silently
+      // corrected to the signer's actual seat, matching how the price
+      // proposal below is credited: neither field trusts self-reported
+      // authorship.
+      const attributedInput = (input as ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>).map(
+        (criterion) => ({ text: criterion.text, proposedBy: gate.party }),
+      );
+
       await applyAndPersist('POST /jobs/:jobId/criteria', res, current, (job) =>
-        proposeCriteria(
-          job,
-          input as ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>,
-          priceProposal,
-        ),
+        proposeCriteria(job, attributedInput, priceProposal),
       );
     }),
   );
@@ -3589,12 +3624,18 @@ export function createApp(
       try {
         confirmed = confirmSpec(current, new Date());
       } catch (err) {
+        // B27 (bug ledger, C1 rehearsal s1): confirmSpec only ever throws
+        // JobError here for a criteria-readiness gap (no criteria at all,
+        // or some outstanding) -- a state conflict, the identical fact
+        // JobPriceError already answers with 409 two lines down. Nothing
+        // the caller SENT on this request is malformed; the AGREEMENT
+        // itself is not ready. 400 told the caller their input was wrong
+        // when the actual defect was the job's own state, so both paths
+        // now answer the same way.
         if (err instanceof JobError) {
-          res.status(400).json({ error: err.message });
+          res.status(409).json({ error: err.message });
           return;
         }
-        // P1: the price gate is a state conflict, the same 409 a
-        // criteria-outstanding confirm already answers with.
         if (err instanceof JobPriceError) {
           res.status(409).json({ error: err.message });
           return;
@@ -3626,6 +3667,16 @@ export function createApp(
       // grantPush may ever target -- an agent with no verified binding
       // yet cannot be granted push on a repository nobody proved it
       // controls.
+      //
+      // B28 (bug ledger, C1 rehearsal s4 and s6): a missing or unverified
+      // GitHub login is a fact about the AGENT's own record, not a GitHub
+      // service fault -- confirm answered 503 for both, which told a
+      // caller to retry something that would never work no matter how
+      // many times it tried. This is now the same state-conflict 409
+      // every other confirm-readiness gap already answers with, naming
+      // the missing verified login so the caller knows what to fix. A
+      // real GitHub outage (the catch block reaching the API calls below)
+      // keeps its own 503, unchanged.
       let agent: Agent | null;
       try {
         agent = await agentRepo.findByDid(current.agentDid);
@@ -3635,8 +3686,9 @@ export function createApp(
         return;
       }
       if (agent === null || agent.githubLogin === null || agent.proofStatus !== 'verified') {
-        console.error(`${label}: agent ${current.agentDid} has no verified GitHub login; cannot grant push on a staging repository`);
-        res.status(503).json({ error: 'github unavailable' });
+        res.status(409).json({
+          error: 'confirm needs the agent to have a verified GitHub login; none is on record for this agent yet',
+        });
         return;
       }
 
@@ -4290,6 +4342,19 @@ export function createApp(
       : remainderUsd(String(job.priceUsd), job.depositPercent);
   }
 
+  // B23 (bug ledger, C1 rehearsal s7) and B25 (s8): legStatusEligible,
+  // legStatusConflictMessage and legRailMismatchMessage now live in
+  // route-support.ts (imported above), shared by every door onto the
+  // payment surface -- both rails' /start routes below, the USDC
+  // wallet-response route, the ABT session-mint door
+  // (requireBuyerToMintAbtSession above) and the ABT wallet-response
+  // callback (abt-did-connect.ts's onAuth) -- so the same eligibility and
+  // rail rule applies everywhere a leg can be started or settled, rather
+  // than each door growing its own copy (Proof round 1, D1 and D2: the
+  // token-mint door and onAuth each had no gate at all, because the
+  // check used to live only here, where those two doors could not reach
+  // it).
+
   // S3, Ruling 3: the USDC recipient is the address on record for the
   // hired agent's operator Account, never derived (unlike ABT: an EVM
   // address is a different shape entirely, so there is no reduction from
@@ -4358,6 +4423,25 @@ export function createApp(
       }
       const gate = await requireSignedParty('GET/POST /api/did/pay/token', jobId, req, res, ['buyer']);
       if (gate === null) return;
+      // B23 and B25 (Proof round 1, D1): this is the SECOND door to the
+      // exact same session mint /jobs/:jobId/payments/deposit/abt/start
+      // opens (see the comment on this middleware's registration below),
+      // so it must refuse the identical status and rail conflicts /start
+      // refuses -- minting a session for a withdrawn or wrong-rail job
+      // through this door was never blocked just because /start was.
+      const leg = parseRouteLeg(mintExtraParam(req, 'leg'));
+      if (leg === null) {
+        res.status(400).json({ error: 'leg must be "deposit" or "remainder"' });
+        return;
+      }
+      if (gate.job.rail !== null && gate.job.rail !== 'abt') {
+        res.status(409).json({ error: legRailMismatchMessage('abt', gate.job.rail) });
+        return;
+      }
+      if (!legStatusEligible(leg, gate.job.status)) {
+        res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
+        return;
+      }
       next();
     })().catch(next);
   };
@@ -4440,6 +4524,17 @@ export function createApp(
         res.status(409).json({ error: 'this job has no agreed price to pay against' });
         return;
       }
+      // B25: the job's own agreed rail must match the route it was
+      // reached through.
+      if (gate.job.rail !== null && gate.job.rail !== 'abt') {
+        res.status(409).json({ error: legRailMismatchMessage('abt', gate.job.rail) });
+        return;
+      }
+      // B23: the leg must belong to the job's CURRENT status.
+      if (!legStatusEligible(leg, gate.job.status)) {
+        res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
+        return;
+      }
       // The did-connect-js generateSession route reads req.query,
       // req.body and req.params into extraParams (protocol.js's own
       // mechanism); jobId/leg ride through req.query so the web layer's
@@ -4514,6 +4609,17 @@ export function createApp(
         res.status(409).json({ error: 'this job has no agreed price to pay against' });
         return;
       }
+      // B25: the job's own agreed rail must match the route it was
+      // reached through.
+      if (gate.job.rail !== null && gate.job.rail !== 'usdc') {
+        res.status(409).json({ error: legRailMismatchMessage('usdc', gate.job.rail) });
+        return;
+      }
+      // B23: the leg must belong to the job's CURRENT status.
+      if (!legStatusEligible(leg, gate.job.status)) {
+        res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
+        return;
+      }
       // S3, Ruling 5: no address on record is a 409, fail closed -- a
       // payment that cannot name a real recipient must not begin.
       const operatorAddressResult = await usdcOperatorAddressForJob(gate.job.agentDid);
@@ -4567,6 +4673,65 @@ export function createApp(
       if (usdcPaymentRail === null) {
         res.status(503).json({ error: 'the usdc payment rail is not configured on this deployment' });
         return;
+      }
+      // B23 (Proof round 1, D3): "a wallet response for a hash already
+      // recorded stays idempotent" is the brief's own requirement, but the
+      // status and rail gates below ran before any check for a hash this
+      // leg has already settled -- so a replay of the SAME hash started
+      // answering 409 the moment the job moved past its eligible status
+      // (confirm() advancing it from 'proposed' to 'confirmed', for
+      // example), which is exactly the case idempotency exists for: a
+      // late or duplicate wallet callback for a payment that already
+      // landed. A replay is recognised here, before either gate, by
+      // comparing the incoming hash (normalized the same way onWalletResponse
+      // itself normalizes one) against whatever this job and leg already
+      // has recorded; a match skips both gates below and falls through to
+      // the normal processing path, which re-confirms the same ref and
+      // answers exactly as the first call did.
+      // Proof round 2, D1: a replay must match the WHOLE recorded
+      // settlement, not merely the price hash. Comparing priceTxHash
+      // alone let a request carrying the recorded price hash and a
+      // DIFFERENT feeTx hash skip both gates below as if it were the
+      // same wallet response that already landed, and it would then
+      // overwrite the settled row's secondaryHash. A replay is only ever
+      // the exact pair (or the exact "wallet never signed the fee"
+      // outcome) this leg already has recorded.
+      const bodyForIdempotencyCheck = req.body as
+        | { priceTxHash?: unknown; feeTx?: { signed?: unknown; hash?: unknown } }
+        | undefined;
+      const priceTxHashForIdempotencyCheck = bodyForIdempotencyCheck?.priceTxHash;
+      const feeTxForIdempotencyCheck = bodyForIdempotencyCheck?.feeTx;
+      const alreadyRecorded = await settlementRepo.findByJobAndLeg(gate.job.id, leg);
+      const incomingFeeHashNormalized =
+        typeof feeTxForIdempotencyCheck === 'object' &&
+        feeTxForIdempotencyCheck !== null &&
+        feeTxForIdempotencyCheck.signed === true &&
+        typeof feeTxForIdempotencyCheck.hash === 'string'
+          ? normalizeUsdcTxHash(feeTxForIdempotencyCheck.hash)
+          : null;
+      const recordedFeeHashNormalized =
+        alreadyRecorded?.secondaryHash != null ? normalizeUsdcTxHash(alreadyRecorded.secondaryHash) : null;
+      const isIdempotentReplay =
+        alreadyRecorded !== null &&
+        typeof priceTxHashForIdempotencyCheck === 'string' &&
+        normalizeUsdcTxHash(alreadyRecorded.hash) === normalizeUsdcTxHash(priceTxHashForIdempotencyCheck) &&
+        incomingFeeHashNormalized === recordedFeeHashNormalized;
+      if (!isIdempotentReplay) {
+        // B25: the job's own agreed rail must match the route it was
+        // reached through.
+        if (gate.job.rail !== null && gate.job.rail !== 'usdc') {
+          res.status(409).json({ error: legRailMismatchMessage('usdc', gate.job.rail) });
+          return;
+        }
+        // B23: the leg must belong to the job's CURRENT status. A hash
+        // that arrives after the job left the eligible window (a late
+        // callback for a job the buyer has since withdrawn, for example)
+        // is refused the same way a fresh start call would be refused --
+        // never treated as a late-but-honoured payment.
+        if (!legStatusEligible(leg, gate.job.status)) {
+          res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
+          return;
+        }
       }
       const body = (req.body ?? {}) as {
         operatorAddress?: unknown;

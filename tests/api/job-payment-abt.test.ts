@@ -974,3 +974,68 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
     }
   });
 });
+
+// Proof round 1, D2 (comment 561 on this card): B23's own status gate
+// (legStatusEligible) was wired onto the /start route and the token-mint
+// door, but never onto onAuth (abt-did-connect.ts), the wallet-response
+// leg of the ABT rail. A session minted while the job was 'proposed' could
+// still complete the DID Connect protocol and write a settlement row
+// AFTER the buyer withdrew the job mid-session -- B23's exact s7 fact,
+// on the door the brief calls "every wallet-response route".
+describe('B23 on the abt wallet-response path: onAuth refuses a session completed after the job left its eligible status', () => {
+  it('a session started at proposed, then completed after the job is withdrawn, confirms nothing and writes no settlement', async () => {
+    const fakeChain15 = fakeAbtChainClient(true);
+    const started15 = await startAbtApp(fakeChain15.client);
+    try {
+      const { sessionToken, authCallbackUrl } = await startAbtSession(started15.baseUrl, started15.buyer, {
+        jobId: started15.jobId,
+        leg: 'deposit',
+      });
+      const authPath = new URL(authCallbackUrl).pathname;
+
+      // The job leaves 'proposed' for 'withdrawn' in the middle of the
+      // session, after the session was minted but before the wallet
+      // protocol completes.
+      const withdraw = await postSigned(started15.baseUrl, `/jobs/${started15.jobId}/withdraw`, {}, started15.buyer);
+      expect(withdraw.status).toBe(200);
+
+      const step0Res = await fetch(authCallbackUrl);
+      const step0Body = (await step0Res.json()) as DidConnectClaimResponse;
+      const step0 = decodeClaimBody(step0Body);
+      const step0SubmitRes = await fetch(`${started15.baseUrl}${authPath}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          _t_: sessionToken,
+          userPk: started15.buyerWallet.publicKey,
+          userInfo: await walletResponseJwt(started15.buyerWallet, step0.challenge, [{ type: 'authPrincipal' }]),
+        }),
+      });
+      const step1Body = (await step0SubmitRes.json()) as DidConnectClaimResponse;
+      const step1 = decodeClaimBody(step1Body);
+      const prepareTxClaim = step1.requestedClaims.find((c) => c.type === 'prepareTx') as
+        | { readonly partialTx: string }
+        | undefined;
+      if (prepareTxClaim === undefined) {
+        throw new Error('expected a prepareTx claim at step 1');
+      }
+      const finalTx = await walletSignsPartialTx(prepareTxClaim.partialTx, started15.buyerWallet);
+      const step1SubmitRes = await fetch(`${started15.baseUrl}${authPath}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          _t_: sessionToken,
+          userPk: started15.buyerWallet.publicKey,
+          userInfo: await walletResponseJwt(started15.buyerWallet, step1.challenge, [{ type: 'prepareTx', finalTx }]),
+        }),
+      });
+      const finalBody = (await step1SubmitRes.json()) as { appPk: string; authInfo: string };
+      const decoded = jwtDecode(finalBody.authInfo) as unknown as Record<string, unknown>;
+      const response = decoded.response as { confirmed: boolean };
+      expect(response.confirmed).toBe(false);
+      expect(await started15.settlementRepo.findByJobAndLeg(started15.jobId, 'deposit')).toBeNull();
+    } finally {
+      started15.server.close();
+    }
+  });
+});
