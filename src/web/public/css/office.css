@@ -239,7 +239,8 @@
   100% { transform: scaleX(var(--w, 1)); opacity: 0; }
 }
 
-/* The pair's screen: a review, then a green check when it passes. */
+/* The pair's screen: a review, then a blue disc with a tick when it passes.
+   Blue, not jade: a drawing of a review is not a review anyone watched. */
 .review .code { transform: scaleX(var(--w, 1)); opacity: 0.55; }
 .check {
   position: absolute;

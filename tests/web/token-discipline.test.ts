@@ -47,7 +47,7 @@ function tokenRgbs(): Set<string> {
   for (const f of readdirSync(cssDir).filter((n) => n.endsWith('.css'))) {
     const src = stripComments(readFileSync(join(cssDir, f), 'utf8'));
     for (const m of src.matchAll(/--[\w-]+\s*:\s*#([0-9A-Fa-f]{6})\b/g)) {
-      const h = m[1];
+      const h = m[1] ?? '000000';
       out.add([0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)).join(','));
     }
   }
