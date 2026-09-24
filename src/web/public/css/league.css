@@ -129,6 +129,13 @@ h1 {
 }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs button { flex: none; white-space: nowrap; }
+/* The scroller clips anything drawn outside it, and base.css draws the focus
+   ring 2px outside the button, so a focused tab showed only two side bars.
+   Here the ring sits inside the tab instead: 2px in from each edge, clear of
+   the scroller's edge at any width and of the 2px .tabline along the bottom.
+   Only the selected tab takes focus (roving tabindex in polish.js), and
+   reveal() keeps that tab out of the edge fades, so the ring is never masked. */
+.tabs button:focus-visible { outline-offset: -4px; }
 @media (max-width: 760px) {
   .tabs { gap: 0; }
   .tabs button { padding: 0 12px; }
