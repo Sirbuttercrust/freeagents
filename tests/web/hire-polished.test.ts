@@ -214,6 +214,7 @@ describe('1. the page wears the polished system, and only the sheets it uses', (
       '/js/pages/nav.js',
       '/js/vendor/bot-avatars/bot-avatars.js',
       '/js/bots.js',
+      '/js/office.js',
       '/js/polish.js',
       '/js/stepflow.js',
       '/js/pages/hire.js',
