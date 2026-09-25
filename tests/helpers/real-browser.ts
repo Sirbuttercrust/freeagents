@@ -110,6 +110,82 @@ interface CdpMessage {
   error?: { message?: string };
 }
 
+// CI4 round 3: rounds 1 and 2 both tried to bound CONCURRENCY, first a
+// per-process counter (round 1, proven vacuous across vitest's separate
+// worker processes) then a cross-process slot directory held for a
+// browser's whole lifetime (round 2). Review round 2 measured the lifetime
+// gate directly on the runner (run 35938128610) and found it never once
+// made a launch wait: gate-wait maxed at 3-6ms across 157 acquires per
+// job. The real give-ups in every measurement push landed in the first
+// handful of log lines of a job, at chrome-procs-after of 1 to 4, the
+// opposite of what a concurrency theory needs. Bounding concurrency
+// further would only slow every job down without touching the actual
+// cause, so no launch gate remains: PORT_WAIT_MS alone, sized from the
+// uncensored worst case the runner has actually shown (see its own
+// comment), plus warmUpChrome (below) removing the cold-start cost that
+// produced every give-up in the first place.
+const GIVEUP_MESSAGE = 'chrome debug port never came up';
+
+// CI4 round 3: what the runner logs show, and what they do not. Across
+// every measurement push, the slow opens (6.5 to 19s) and every real
+// give-up landed in the first seconds of a job. Not every first launch was
+// slow (919ms and 1994ms were both first launches), and some slow ones
+// were not first (12453ms and 16045ms were a job's fourth to sixth open).
+// So the pattern is "cold, in the opening seconds of a job", not "the
+// first launch pays and every later one is fast". Why cold is slow is a
+// hypothesis, not a measurement: the likeliest is the OS reading Chrome's
+// binary and libraries off disk for the first time. Nothing here measured
+// page-cache residency.
+//
+// warmUpChrome launches one throwaway Chrome before any test worker exists
+// (vitest.config.ts globalSetup, which the Vitest docs say runs before
+// workers are created: https://vitest.dev/config/globalsetup), so the
+// cold start happens outside every per-test timeout. Under it, two runner
+// measurement runs (36005035993 and 36005938897, both node versions) put
+// all 628 test opens between 301 and 735ms, with no real give-up.
+//
+// Its own port wait is WARMUP_PORT_WAIT_MS, not the per-test budget:
+// globalSetup has no 30s test timeout, and the runner has shown a cold
+// launch with no port at 25023ms. A warm-up that still gives up is logged
+// to stderr, never swallowed silently, because the first tests are then
+// back to paying the cold start themselves and CI output should say so.
+// It returns whether a Chrome actually ran, so its test can fail when it
+// does nothing.
+export const WARMUP_PORT_WAIT_MS = 60_000;
+
+export async function warmUpChrome(log: (msg: string) => void = (m) => console.warn(m)): Promise<boolean> {
+  if (!findChromeBinary()) return false;
+  const started = Date.now();
+  try {
+    const browser = await RealBrowser.launch({ width: 1280, height: 900, portWaitMs: WARMUP_PORT_WAIT_MS });
+    await browser.close();
+    return true;
+  } catch (err) {
+    log(
+      `[real-browser] Chrome warm-up gave up after ${Date.now() - started}ms (${(err as Error).message}); ` +
+        'the first real-browser tests will pay the cold start inside their own timeout.',
+    );
+    return false;
+  }
+}
+
+// CI4 round 3 sizing: with warmUpChrome taking the cold start (see its
+// own comment), the worst SINGLE legitimate
+// open across the whole diagnostic history, warmed or not, was 18961ms
+// (round 2 review push, run 35936931195, node 24, the uncensored
+// 25s-deadline push). PORT_WAIT_MS stays above that uncensored worst
+// case with real margin, rather than at a number already shown to fail
+// outright (12000ms lost in run 35935765272), and comfortably inside the
+// 30s test timeout every real caller sets. Two round-3 measurement runs
+// under warmUpChrome (runs 36005035993 and 36005938897, both node
+// versions) are consistent with it: the warm-up launch itself took 819ms
+// to 16622ms, and every real test launch after it landed at 301-735ms
+// with no real give-up on either node in either run. If a future
+// runner sample under warm-up shows a non-first launch still running
+// past this, warmUpChrome did not do its job and this number is the
+// wrong lever to move.
+const PORT_WAIT_MS = 22_000;
+
 // One throwaway headless Chrome tab, driven over CDP. Deliberately small:
 // goto + evaluate + close. A test that needs more speaks CDP directly via
 // `send`, which keeps this file from growing a second test framework.
@@ -125,7 +201,18 @@ export class RealBrowser {
     this.profile = profile;
   }
 
-  static async launch(opts: { width?: number; height?: number } = {}): Promise<RealBrowser> {
+  // CI4 round 3: no launch gate and no retry. Review round 2 measured the
+  // round 2 gate directly and found it never bound a single launch on the
+  // runner (gate-wait maxed at 3-6ms across 157 acquires per job in the
+  // run meant to justify it), and the round 1/2 retry could not help
+  // against a give-up that repeats on the very next attempt (run
+  // 35935765272: the same test's two consecutive attempts both gave up at
+  // the deadline, 12046ms and 12047ms long, 12.2s apart). Launches were
+  // slow while Chrome was cold in the opening seconds of a job, which
+  // warmUpChrome now takes before any test's timeout starts, so a single
+  // attempt with PORT_WAIT_MS's own margin is what the runner data calls
+  // for.
+  static async launch(opts: { width?: number; height?: number; portWaitMs?: number } = {}): Promise<RealBrowser> {
     const chrome = findChromeBinary();
     if (!chrome) {
       throw new Error(
@@ -158,7 +245,7 @@ export class RealBrowser {
     const proc = browser.proc;
 
     let wsUrl: string | null = null;
-    const deadline = Date.now() + 30000;
+    const deadline = Date.now() + (opts.portWaitMs ?? PORT_WAIT_MS);
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 300));
       if (proc.exitCode !== null) {
@@ -180,7 +267,7 @@ export class RealBrowser {
     }
     if (!wsUrl) {
       await browser.close();
-      throw new Error('chrome debug port never came up');
+      throw new Error(GIVEUP_MESSAGE);
     }
 
     browser.ws = new WebSocket(wsUrl);

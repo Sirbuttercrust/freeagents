@@ -34,7 +34,6 @@ const INPUT = {
   repo: 'staging-job_1',
   stagedCommit: 'staged-sha',
   baseCommit: 'base-sha',
-  criteriaPaths: ['src/allowed.ts'],
   verifiedAgentGithubLogin: 'scout-agent',
 };
 
@@ -141,40 +140,6 @@ describe('createGithubStagingObserver: git facts, no execution', () => {
     const observation = await observer.observe(INPUT);
 
     expect(observation.testsSkipAdded).toEqual(['tests/flaky.test.ts']);
-  });
-
-  it('outOfCriteriaPathCount counts changed paths outside the job criteria paths', async () => {
-    const github = fakeGithub({
-      compareCommits: () =>
-        Promise.resolve({
-          files: [
-            { path: 'src/allowed.ts', status: 'modified', additions: 1, deletions: 0, patch: null },
-            { path: 'src/not-agreed.ts', status: 'modified', additions: 1, deletions: 0, patch: null },
-            { path: 'other/also-not-agreed.ts', status: 'modified', additions: 1, deletions: 0, patch: null },
-          ],
-          commits: [],
-        }),
-    });
-    const observer = createGithubStagingObserver(github);
-
-    const observation = await observer.observe(INPUT);
-
-    expect(observation.outOfCriteriaPathCount).toBe(2);
-  });
-
-  it('an empty criteriaPaths list makes every changed path out of criteria', async () => {
-    const github = fakeGithub({
-      compareCommits: () =>
-        Promise.resolve({
-          files: [{ path: 'src/anything.ts', status: 'modified', additions: 1, deletions: 0, patch: null }],
-          commits: [],
-        }),
-    });
-    const observer = createGithubStagingObserver(github);
-
-    const observation = await observer.observe({ ...INPUT, criteriaPaths: [] });
-
-    expect(observation.outOfCriteriaPathCount).toBe(1);
   });
 
   it('commitSigners: matchesAgentDid true when the commit is GitHub-verified AND authored by the verified agent login', async () => {

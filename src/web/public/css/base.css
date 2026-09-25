@@ -58,8 +58,8 @@ a { color: inherit; text-decoration: none; }
 
 /* Generous and CONSISTENT vertical rhythm. Every major block is separated by
    the same distance, so the eye learns the spacing once. */
-.section { padding: 56px 0; }
-.section-sm { padding: 34px 0; }
+.section { padding-top: 56px; padding-bottom: 56px; }
+.section-sm { padding-top: 34px; padding-bottom: 34px; }
 
 h1 {
   font-size: 28px; line-height: 1.15; letter-spacing: -0.03em;
@@ -452,7 +452,7 @@ a:focus-visible, button:focus-visible, .chip:focus-visible, .disclose:focus-visi
 
 @media (max-width: 760px) {
   .wrap { padding: 0 20px; }
-  .section { padding: 40px 0; }
+  .section { padding-top: 40px; padding-bottom: 40px; }
   .nav .links { gap: 16px; font-size: 13px; }
 }
 

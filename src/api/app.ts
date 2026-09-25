@@ -23,8 +23,8 @@ import {
 } from '../adapters/github/types.js';
 import { createDidAbtSigningKeyResolver, createKnownKeyStore } from '../adapters/identity/did-abt-resolver.js';
 import { verify as verifySignature } from '../adapters/identity/http-signature.js';
-import { createIdentityAdapter } from '../adapters/identity/identity.js';
-import type { DidDocument, IdentityAdapter } from '../adapters/identity/types.js';
+import { CandidateKeyRejectedError, createIdentityAdapter, DidNotResolvableError } from '../adapters/identity/identity.js';
+import type { IdentityAdapter } from '../adapters/identity/types.js';
 import { createRateLimiter, type RateLimiter } from '../adapters/identity/verify-rate-limit.js';
 import { createSignatureSpendStorage } from '../adapters/identity/signature-spend-storage.js';
 import type { SignatureSpendStorage } from '../adapters/identity/signature-spend-storage-types.js';
@@ -71,7 +71,6 @@ import {
 } from '../domain/browse.js';
 import { operatorAggregate } from '../domain/operator-roster.js';
 import {
-  didDocumentPointsAtGithubAccount,
   gistProofPayload,
   githubAccountUrl,
   parseGistStatement,
@@ -106,6 +105,7 @@ import {
   completeJob,
   confirmSpec,
   createJob,
+  DepositSettledError,
   JobError,
   JobPriceError,
   JobTransitionError,
@@ -139,6 +139,9 @@ import { attachAbtPaymentHandlers, type AbtTxEncoder } from '../adapters/payment
 import { createTxEncoder as createAbtTxEncoder } from '@ocap/client/encode';
 import {
   confirmPayment,
+  legRailMismatchMessage,
+  legStatusConflictMessage,
+  legStatusEligible,
   processWalletResponse,
   requestPayment,
   type RouteLeg,
@@ -889,14 +892,25 @@ export function createApp(
   // unsigned request passes through untouched) and requireSessionOrSignature
   // (mandatory: the route below refuses outright when this returns 'absent'
   // and no session covers the gap either). A present-but-invalid signature
-  // is worse than none in both callers, so both map 'invalid' to the same
-  // 401 rather than falling through to "as if unsigned".
-  async function verifySignedRequest(req: Request): Promise<'absent' | 'invalid' | { readonly did: string }> {
+  // is worse than none in both callers, so both map 'invalid' and
+  // 'unknown-key' to their own distinct 401 rather than falling through to
+  // "as if unsigned".
+  //
+  // B29 (bug ledger, C1 rehearsal s2): 'unknown-key' and 'invalid' are kept
+  // as two separate outcomes all the way out to the route layer, not
+  // folded back into one 'invalid' here. A caller who signed correctly with
+  // a key this service has simply never registered was being told their
+  // cryptography was wrong; the real fact is narrower, and callers of this
+  // function need to be able to tell the two apart to answer each with its
+  // own message.
+  async function verifySignedRequest(
+    req: Request,
+  ): Promise<'absent' | 'invalid' | 'unknown-key' | { readonly did: string }> {
     // Only a fully unsigned request is absent: absent both headers, this is
     // unchanged behaviour for every caller that exists today. Exactly one
     // present falls through to verifySignature below, which already treats
     // a half-signed request as invalid input (its own first check is
-    // `if (!sigInputValue || !sigValue) return null`) -- restating that
+    // `if (!sigInputValue || !sigValue) return 'invalid'`) -- restating that
     // check here would just be the same 401 twice.
     if (req.headers['signature-input'] === undefined && req.headers['signature'] === undefined) {
       return 'absent';
@@ -908,7 +922,8 @@ export function createApp(
       signingKeys,
       { requiredComponents: ['@method', '@target-uri', 'content-digest'], spendStorage: signatureSpendStorage },
     );
-    if (result === null) return 'invalid';
+    if (result === 'unknown-key') return 'unknown-key';
+    if (result === 'invalid') return 'invalid';
 
     // The adapter verifies the signature bytes; it never sees the body, so
     // the digest match is this function's half -- what binds the body
@@ -938,6 +953,10 @@ export function createApp(
       const outcome = await verifySignedRequest(req);
       if (outcome === 'absent') {
         next();
+        return;
+      }
+      if (outcome === 'unknown-key') {
+        res.status(401).json({ error: 'unknown key' });
         return;
       }
       if (outcome === 'invalid') {
@@ -1013,10 +1032,11 @@ export function createApp(
   // of via a middleware that would always run first. One rule, one
   // function, two call sites: this and requireSessionOrSignature below
   // never diverge on what counts as authenticated.
-  type AuthOutcome = 'ok' | 'invalid-signature' | 'no-proof';
+  type AuthOutcome = 'ok' | 'invalid-signature' | 'unknown-key' | 'no-proof';
   async function authenticateRequest(req: Request): Promise<AuthOutcome> {
     const sigOutcome = await verifySignedRequest(req);
     if (sigOutcome === 'invalid') return 'invalid-signature';
+    if (sigOutcome === 'unknown-key') return 'unknown-key';
     if (sigOutcome !== 'absent') {
       (req as SignedRequest).signerDid = sigOutcome.did;
       return 'ok';
@@ -1038,6 +1058,10 @@ export function createApp(
   const requireSessionOrSignature = (req: Request, res: Response, next: NextFunction): void => {
     void (async () => {
       const outcome = await authenticateRequest(req);
+      if (outcome === 'unknown-key') {
+        res.status(401).json({ error: 'unknown key' });
+        return;
+      }
       if (outcome === 'invalid-signature') {
         res.status(401).json({ error: 'invalid signature' });
         return;
@@ -1073,6 +1097,10 @@ export function createApp(
     did: string,
   ): Promise<Agent | null> {
     const outcome = await authenticateRequest(req);
+    if (outcome === 'unknown-key') {
+      res.status(401).json({ error: 'unknown key' });
+      return null;
+    }
     if (outcome === 'invalid-signature') {
       res.status(401).json({ error: 'invalid signature' });
       return null;
@@ -1152,6 +1180,27 @@ export function createApp(
     res.status(200).json({
       methods: SIGN_IN_METHODS.map(signInMethodProjection),
     });
+  });
+
+  // ISS1 (bugs.md B30): the one place a third party learns which DID is
+  // FreeAgents' own issuer -- published outside any credential, so a
+  // credential cannot forge it. Public, unauthenticated, cacheable: the
+  // identity changes only when the deployment's signing key changes, so a
+  // caller (or an intermediate cache) may hold this response for a while
+  // without missing anything. The data comes from the SAME
+  // credentialsAdapter every issuance route already shares, never a
+  // second key.
+  app.get('/.well-known/freeagents-issuer.json', async (_req: Request, res: Response) => {
+    try {
+      const description = await credentialsAdapter.describeIssuer();
+      res
+        .status(200)
+        .set('Cache-Control', 'public, max-age=3600')
+        .json(description);
+    } catch (err) {
+      console.error('GET /.well-known/freeagents-issuer.json: failed to describe the issuer', err);
+      res.status(503).json({ error: 'issuer identity unavailable' });
+    }
   });
 
   // P8b: wires the existing SessionAdapter to HTTP. The adapter itself
@@ -1987,7 +2036,7 @@ export function createApp(
     }
 
     try {
-      const row = await agentRepo.create({
+      let row = await agentRepo.create({
         did,
         operatorDid: operator,
         delegation: proof,
@@ -1998,6 +2047,30 @@ export function createApp(
         minBuyerMerges: (minBuyerMerges as number | undefined) ?? null,
         maxWalkedAfterConfirm: (maxWalkedAfterConfirm as number | undefined) ?? null,
       });
+      // G1 path one (ENT-5.1): sign-in is the proof when the agent works
+      // from its operator's own GitHub account, zero extra steps. A GitHub
+      // OAuth session already proved the operator controls sessionSubject
+      // (session-github-passkey.ts returns the login GitHub itself
+      // reported), so a githubLogin that names that SAME login, case-
+      // insensitively (GitHub logins are their own case-insensitive
+      // namespace), records verified immediately. The login is compared
+      // against the session, never trusted from the body alone: a request
+      // authenticated by an R-34 signature carries no sessionMethod at all
+      // (authenticateRequest only sets it on the session path), so a
+      // signature-only registration can never take this branch regardless
+      // of what githubLogin claims, and a body naming a login that is not
+      // the session's own falls through to path two (the signed gist) with
+      // no verification recorded here.
+      const sessioned = req as SessionedRequest;
+      if (
+        typeof githubLogin === 'string' &&
+        sessioned.sessionMethod === 'github-oauth' &&
+        typeof sessioned.sessionSubject === 'string' &&
+        sessioned.sessionSubject.toLowerCase() === githubLogin.toLowerCase()
+      ) {
+        const verifiedRow = await agentRepo.updateGithubBinding(did, { handle: githubLogin, status: 'verified' });
+        if (verifiedRow !== null) row = verifiedRow;
+      }
       res.status(201).json(agentProjection(row));
     } catch (err) {
       if (err instanceof AgentAlreadyExistsError) {
@@ -2102,11 +2175,16 @@ export function createApp(
     }
   });
 
-  // R-3 + R-4 (ENT-5): does the agent's GitHub account hold? Direction one
-  // is the DID document's standard alsoKnownAs entry; direction two is a
-  // public gist whose statement the agent's key signed. Without gist the
-  // route records direction one as pending (R-3); with it, the binding is
-  // marked verified only when BOTH directions hold (ENT-5.1).
+  // G1 path two (ENT-5.1): a signed gist, alone, is now the whole proof. An
+  // agent with its own separate GitHub account (the account the operator's
+  // own session did not already prove) authors a public gist holding a
+  // statement its key signed; the route checks it out and records the
+  // binding verified. Direction one (the DID document's alsoKnownAs entry)
+  // is gone from this route entirely: this adapter's resolveDid can never
+  // learn that field for real (identity.ts's own header comment), so
+  // requiring it meant this route answered 503 for every agent, forever
+  // (bugs.md B22). Everything this route already checked about the gist
+  // itself stays unchanged.
   // S3+S4 follow-on (security sweep, item 3): this route was also in the
   // ungated /agents/:agentDid/* write family. Same treatment as
   // key-rotation and compromise-report: body shape first, then
@@ -2119,7 +2197,18 @@ export function createApp(
 
     if (typeof handle !== 'string' || handle.length === 0 || /\s/.test(handle)) {
       res.status(400).json({
-        error: 'body must be { handle, gist? }; handle is a non-empty string with no whitespace',
+        error: 'body must be { handle, gist }; handle is a non-empty string with no whitespace, gist a URL like https://gist.github.com/<owner>/<id>',
+      });
+      return;
+    }
+
+    // The gist is the whole proof now: a body naming a handle with no gist
+    // at all has nothing this route can check, so it is the same 400 shape
+    // a malformed gist URL already gets, not a silent no-op. Checked before
+    // authentication, matching this route's own body-shape-first ordering.
+    if (body.gist === undefined) {
+      res.status(400).json({
+        error: 'body must be { handle, gist }; gist is required (a URL like https://gist.github.com/<owner>/<id>)',
       });
       return;
     }
@@ -2132,73 +2221,16 @@ export function createApp(
     // claimed handle: the operator is pointing at someone else's gist, which
     // no signature could fix anyway.
     let gistRef: GistUrlRef | null = null;
-    if (body.gist !== undefined) {
-      if (typeof body.gist !== 'string' || (gistRef = parseGistUrl(body.gist)) === null) {
-        res.status(400).json({
-          error: 'gist, when present, must be a URL like https://gist.github.com/<owner>/<id>',
-        });
-        return;
-      }
-      if (gistRef.owner.toLowerCase() !== handle.toLowerCase()) {
-        res.status(409).json({
-          error: `direction two (signed gist): the gist URL owner ${gistRef.owner} does not match the claimed handle ${handle}`,
-        });
-        return;
-      }
-    }
-
-    // A NotImplementedError until a resolver is wired, or any other
-    // resolution failure, is a 503: the operator cannot fix a missing
-    // backend, and failing open would record an unverified claim as held.
-    let doc: DidDocument;
-    try {
-      doc = await identityAdapter.resolveDid(did);
-    } catch (err) {
-      console.error('POST /agents/:agentDid/account-proof: identity resolution failed', err);
-      res.status(503).json({ error: 'identity resolution unavailable' });
-      return;
-    }
-
-    // alsoKnownAs undefined means the resolver could not determine the
-    // field at all (Review finding, round 1, D1, task t_8a82c865): this adapter's
-    // resolveDid never learns it, so a 409 naming "add ... to its
-    // alsoKnownAs field" would be a remedy the operator can never satisfy
-    // from this adapter's point of view. That is a platform limitation,
-    // not an operator error, so it is the same 503 an unresolvable DID
-    // gets, distinct from a genuinely resolved document with no claim
-    // (alsoKnownAs: null), which stays the 409 below.
-    if (doc.alsoKnownAs === undefined) {
-      console.error(
-        `POST /agents/:agentDid/account-proof: identity resolution for ${did} cannot determine alsoKnownAs`,
-      );
-      res.status(503).json({ error: 'identity resolution unavailable' });
-      return;
-    }
-
-    if (!didDocumentPointsAtGithubAccount(doc.alsoKnownAs, handle)) {
-      // The message names the DID and the exact URL to author, so the
-      // operator can act on it in their wallet tooling. The prefix appears
-      // only when both directions were requested, to say which one failed.
-      const prefix = gistRef === null ? '' : 'direction one (DID document): ';
-      res.status(409).json({
-        error: `${prefix}the DID document for ${did} does not point at the GitHub account: add ${githubAccountUrl(handle)} to its alsoKnownAs field`,
+    if (typeof body.gist !== 'string' || (gistRef = parseGistUrl(body.gist)) === null) {
+      res.status(400).json({
+        error: 'gist must be a URL like https://gist.github.com/<owner>/<id>',
       });
       return;
     }
-
-    if (gistRef === null) {
-      // R-3: direction one alone records pending, never verified (ENT-5.1).
-      try {
-        const updated = await agentRepo.updateGithubBinding(did, { handle, status: 'pending' });
-        if (updated === null) {
-          res.status(404).json({ error: `agent ${did} is not registered` });
-          return;
-        }
-        res.status(200).json(agentProjection(updated));
-      } catch (err) {
-        console.error('POST /agents/:agentDid/account-proof: storage failed', err);
-        res.status(503).json({ error: 'storage unavailable' });
-      }
+    if (gistRef.owner.toLowerCase() !== handle.toLowerCase()) {
+      res.status(409).json({
+        error: `direction two (signed gist): the gist URL owner ${gistRef.owner} does not match the claimed handle ${handle}`,
+      });
       return;
     }
 
@@ -2287,14 +2319,49 @@ export function createApp(
     // The signature covers the canonical bytes built from the DID and the
     // account URL, not the statement text as written: a third party
     // reconstructs the same bytes from the gist alone (invariant 2).
+    //
+    // PRF1 (bugs.md B31): the statement's optional `key` line is passed
+    // through as a candidate. identityAdapter.verify only trusts it after
+    // checking it derives this agent's own DID (the same binding check
+    // buildDidAbtLoader already applies), so this is never a bypass, only
+    // a second source for a key the platform would otherwise need a prior
+    // agent-signed request to have already observed.
     let checksOut: boolean;
     try {
       checksOut = await identityAdapter.verify({
         payload: gistProofPayload(did, githubAccountUrl(handle)),
         signature: statement.signature,
         signerDid: did,
+        ...(statement.key !== undefined ? { candidateKeyMultibase: statement.key } : {}),
       });
     } catch (err) {
+      // PRF1 r1 (Proof review round 1, defect 1 and 2): an unresolvable DID
+      // has two different remedies, both the operator's to fix, and they
+      // differ. CandidateKeyRejectedError means a `key` line was present but
+      // named a key that does not derive this agent's own DID: the gist is
+      // public and operator-authored, so this is a 409 naming the fix, not
+      // an outage. DidNotResolvableError (per identity.ts's own contract,
+      // now only ever thrown when NO candidate was offered at all) is the
+      // original B31 gap: the platform genuinely has no key for this DID
+      // yet, and the fix is to add the `key` line, so this is also a 409
+      // naming it, never a message that reads like a platform failure with
+      // no visible way out. Every other thrown error (the identity
+      // subsystem itself failing, as the dedicated verifier-down test
+      // simulates) is a real platform fault and stays a 503.
+      if (err instanceof CandidateKeyRejectedError) {
+        console.error('POST /agents/:agentDid/account-proof: candidate key rejected', err);
+        res.status(409).json({
+          error: `direction two (signed gist): the key line does not derive ${did}; check the publicKeyMultibase on the key line matches this agent's own key`,
+        });
+        return;
+      }
+      if (err instanceof DidNotResolvableError) {
+        console.error('POST /agents/:agentDid/account-proof: identity verification failed', err);
+        res.status(409).json({
+          error: 'direction two (signed gist): this agent has no key on record yet; add a `key: <publicKeyMultibase>` line to the gist statement naming the agent\'s own key',
+        });
+        return;
+      }
       console.error('POST /agents/:agentDid/account-proof: identity verification failed', err);
       res.status(503).json({ error: 'identity verification unavailable' });
       return;
@@ -3167,6 +3234,13 @@ export function createApp(
         res.status(409).json({ error: err.message });
         return;
       }
+      // DEP1 (B24 ruling, 2026-09-23): the deposit has settled,
+      // so decline is refused -- a state conflict, the same 409 shape
+      // every other domain refusal above already answers with.
+      if (err instanceof DepositSettledError) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
       throw err;
     }
 
@@ -3479,12 +3553,19 @@ export function createApp(
             : { priceUsd: priceUsd as string, rail: rawRail, deliveryWindowDays: rawWindow };
       }
 
+      // B26 (bug ledger, C1 rehearsal s9): proposedBy names who WROTE the
+      // line, and that fact is the caller's own resolved seat on this job
+      // (gate.party, from resolveJobActingParty above), never the request
+      // body's own claim. A body naming the other seat is silently
+      // corrected to the signer's actual seat, matching how the price
+      // proposal below is credited: neither field trusts self-reported
+      // authorship.
+      const attributedInput = (input as ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>).map(
+        (criterion) => ({ text: criterion.text, proposedBy: gate.party }),
+      );
+
       await applyAndPersist('POST /jobs/:jobId/criteria', res, current, (job) =>
-        proposeCriteria(
-          job,
-          input as ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>,
-          priceProposal,
-        ),
+        proposeCriteria(job, attributedInput, priceProposal),
       );
     }),
   );
@@ -3599,12 +3680,18 @@ export function createApp(
       try {
         confirmed = confirmSpec(current, new Date());
       } catch (err) {
+        // B27 (bug ledger, C1 rehearsal s1): confirmSpec only ever throws
+        // JobError here for a criteria-readiness gap (no criteria at all,
+        // or some outstanding) -- a state conflict, the identical fact
+        // JobPriceError already answers with 409 two lines down. Nothing
+        // the caller SENT on this request is malformed; the AGREEMENT
+        // itself is not ready. 400 told the caller their input was wrong
+        // when the actual defect was the job's own state, so both paths
+        // now answer the same way.
         if (err instanceof JobError) {
-          res.status(400).json({ error: err.message });
+          res.status(409).json({ error: err.message });
           return;
         }
-        // P1: the price gate is a state conflict, the same 409 a
-        // criteria-outstanding confirm already answers with.
         if (err instanceof JobPriceError) {
           res.status(409).json({ error: err.message });
           return;
@@ -3636,6 +3723,16 @@ export function createApp(
       // grantPush may ever target -- an agent with no verified binding
       // yet cannot be granted push on a repository nobody proved it
       // controls.
+      //
+      // B28 (bug ledger, C1 rehearsal s4 and s6): a missing or unverified
+      // GitHub login is a fact about the AGENT's own record, not a GitHub
+      // service fault -- confirm answered 503 for both, which told a
+      // caller to retry something that would never work no matter how
+      // many times it tried. This is now the same state-conflict 409
+      // every other confirm-readiness gap already answers with, naming
+      // the missing verified login so the caller knows what to fix. A
+      // real GitHub outage (the catch block reaching the API calls below)
+      // keeps its own 503, unchanged.
       let agent: Agent | null;
       try {
         agent = await agentRepo.findByDid(current.agentDid);
@@ -3645,8 +3742,9 @@ export function createApp(
         return;
       }
       if (agent === null || agent.githubLogin === null || agent.proofStatus !== 'verified') {
-        console.error(`${label}: agent ${current.agentDid} has no verified GitHub login; cannot grant push on a staging repository`);
-        res.status(503).json({ error: 'github unavailable' });
+        res.status(409).json({
+          error: 'confirm needs the agent to have a verified GitHub login; none is on record for this agent yet',
+        });
         return;
       }
 
@@ -3719,6 +3817,16 @@ export function createApp(
   // time 2026-09-01, bug ledger B10). Mirror of withdraw: the buyer walks
   // away with withdraw, the agent with decline. Which statuses allow it is
   // the transition table's call, not this route's.
+  //
+  // DEP1 (B24 ruling, 2026-09-23): once the buyer's deposit has
+  // settled, the agent can no longer simply decline. The settlement gate
+  // is asked the same depositSettled question confirm's own gate already
+  // asks (settlementGate.depositSettled, the confirm route above), and
+  // the answer is threaded into decline() as its second argument: the
+  // domain throws DepositSettledError, which this route maps to 409 with
+  // a plain-words reason, the same state-conflict shape JobTransitionError
+  // already answers with. A gate failure is 503, never a silent guess,
+  // matching every other settlement-gate call site in this file.
   app.post(
     '/jobs/:jobId/decline',
     didSignature,
@@ -3727,7 +3835,15 @@ export function createApp(
       const label = 'POST /jobs/:jobId/decline';
       const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['agent']);
       if (gate === null) return;
-      await applyAndPersist(label, res, gate.job, decline);
+      let depositIsSettled: boolean;
+      try {
+        depositIsSettled = await settlementGate.depositSettled(gate.job.id);
+      } catch (err) {
+        console.error(`${label}: settlement gate failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      await applyAndPersist(label, res, gate.job, (job) => decline(job, depositIsSettled));
     }),
   );
 
@@ -3887,7 +4003,6 @@ export function createApp(
           repo: stagingRepo.repo,
           stagedCommit,
           baseCommit,
-          criteriaPaths: [],
           verifiedAgentGithubLogin,
         });
       } catch (err) {
@@ -4283,6 +4398,19 @@ export function createApp(
       : remainderUsd(String(job.priceUsd), job.depositPercent);
   }
 
+  // B23 (bug ledger, C1 rehearsal s7) and B25 (s8): legStatusEligible,
+  // legStatusConflictMessage and legRailMismatchMessage now live in
+  // route-support.ts (imported above), shared by every door onto the
+  // payment surface -- both rails' /start routes below, the USDC
+  // wallet-response route, the ABT session-mint door
+  // (requireBuyerToMintAbtSession above) and the ABT wallet-response
+  // callback (abt-did-connect.ts's onAuth) -- so the same eligibility and
+  // rail rule applies everywhere a leg can be started or settled, rather
+  // than each door growing its own copy (Proof round 1, D1 and D2: the
+  // token-mint door and onAuth each had no gate at all, because the
+  // check used to live only here, where those two doors could not reach
+  // it).
+
   // S3, Ruling 3: the USDC recipient is the address on record for the
   // hired agent's operator Account, never derived (unlike ABT: an EVM
   // address is a different shape entirely, so there is no reduction from
@@ -4351,6 +4479,25 @@ export function createApp(
       }
       const gate = await requireSignedParty('GET/POST /api/did/pay/token', jobId, req, res, ['buyer']);
       if (gate === null) return;
+      // B23 and B25 (Proof round 1, D1): this is the SECOND door to the
+      // exact same session mint /jobs/:jobId/payments/deposit/abt/start
+      // opens (see the comment on this middleware's registration below),
+      // so it must refuse the identical status and rail conflicts /start
+      // refuses -- minting a session for a withdrawn or wrong-rail job
+      // through this door was never blocked just because /start was.
+      const leg = parseRouteLeg(mintExtraParam(req, 'leg'));
+      if (leg === null) {
+        res.status(400).json({ error: 'leg must be "deposit" or "remainder"' });
+        return;
+      }
+      if (gate.job.rail !== null && gate.job.rail !== 'abt') {
+        res.status(409).json({ error: legRailMismatchMessage('abt', gate.job.rail) });
+        return;
+      }
+      if (!legStatusEligible(leg, gate.job.status)) {
+        res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
+        return;
+      }
       next();
     })().catch(next);
   };
@@ -4433,6 +4580,17 @@ export function createApp(
         res.status(409).json({ error: 'this job has no agreed price to pay against' });
         return;
       }
+      // B25: the job's own agreed rail must match the route it was
+      // reached through.
+      if (gate.job.rail !== null && gate.job.rail !== 'abt') {
+        res.status(409).json({ error: legRailMismatchMessage('abt', gate.job.rail) });
+        return;
+      }
+      // B23: the leg must belong to the job's CURRENT status.
+      if (!legStatusEligible(leg, gate.job.status)) {
+        res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
+        return;
+      }
       // The did-connect-js generateSession route reads req.query,
       // req.body and req.params into extraParams (protocol.js's own
       // mechanism); jobId/leg ride through req.query so the web layer's
@@ -4507,6 +4665,17 @@ export function createApp(
         res.status(409).json({ error: 'this job has no agreed price to pay against' });
         return;
       }
+      // B25: the job's own agreed rail must match the route it was
+      // reached through.
+      if (gate.job.rail !== null && gate.job.rail !== 'usdc') {
+        res.status(409).json({ error: legRailMismatchMessage('usdc', gate.job.rail) });
+        return;
+      }
+      // B23: the leg must belong to the job's CURRENT status.
+      if (!legStatusEligible(leg, gate.job.status)) {
+        res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
+        return;
+      }
       // S3, Ruling 5: no address on record is a 409, fail closed -- a
       // payment that cannot name a real recipient must not begin.
       const operatorAddressResult = await usdcOperatorAddressForJob(gate.job.agentDid);
@@ -4560,6 +4729,65 @@ export function createApp(
       if (usdcPaymentRail === null) {
         res.status(503).json({ error: 'the usdc payment rail is not configured on this deployment' });
         return;
+      }
+      // B23 (Proof round 1, D3): "a wallet response for a hash already
+      // recorded stays idempotent" is the brief's own requirement, but the
+      // status and rail gates below ran before any check for a hash this
+      // leg has already settled -- so a replay of the SAME hash started
+      // answering 409 the moment the job moved past its eligible status
+      // (confirm() advancing it from 'proposed' to 'confirmed', for
+      // example), which is exactly the case idempotency exists for: a
+      // late or duplicate wallet callback for a payment that already
+      // landed. A replay is recognised here, before either gate, by
+      // comparing the incoming hash (normalized the same way onWalletResponse
+      // itself normalizes one) against whatever this job and leg already
+      // has recorded; a match skips both gates below and falls through to
+      // the normal processing path, which re-confirms the same ref and
+      // answers exactly as the first call did.
+      // Proof round 2, D1: a replay must match the WHOLE recorded
+      // settlement, not merely the price hash. Comparing priceTxHash
+      // alone let a request carrying the recorded price hash and a
+      // DIFFERENT feeTx hash skip both gates below as if it were the
+      // same wallet response that already landed, and it would then
+      // overwrite the settled row's secondaryHash. A replay is only ever
+      // the exact pair (or the exact "wallet never signed the fee"
+      // outcome) this leg already has recorded.
+      const bodyForIdempotencyCheck = req.body as
+        | { priceTxHash?: unknown; feeTx?: { signed?: unknown; hash?: unknown } }
+        | undefined;
+      const priceTxHashForIdempotencyCheck = bodyForIdempotencyCheck?.priceTxHash;
+      const feeTxForIdempotencyCheck = bodyForIdempotencyCheck?.feeTx;
+      const alreadyRecorded = await settlementRepo.findByJobAndLeg(gate.job.id, leg);
+      const incomingFeeHashNormalized =
+        typeof feeTxForIdempotencyCheck === 'object' &&
+        feeTxForIdempotencyCheck !== null &&
+        feeTxForIdempotencyCheck.signed === true &&
+        typeof feeTxForIdempotencyCheck.hash === 'string'
+          ? normalizeUsdcTxHash(feeTxForIdempotencyCheck.hash)
+          : null;
+      const recordedFeeHashNormalized =
+        alreadyRecorded?.secondaryHash != null ? normalizeUsdcTxHash(alreadyRecorded.secondaryHash) : null;
+      const isIdempotentReplay =
+        alreadyRecorded !== null &&
+        typeof priceTxHashForIdempotencyCheck === 'string' &&
+        normalizeUsdcTxHash(alreadyRecorded.hash) === normalizeUsdcTxHash(priceTxHashForIdempotencyCheck) &&
+        incomingFeeHashNormalized === recordedFeeHashNormalized;
+      if (!isIdempotentReplay) {
+        // B25: the job's own agreed rail must match the route it was
+        // reached through.
+        if (gate.job.rail !== null && gate.job.rail !== 'usdc') {
+          res.status(409).json({ error: legRailMismatchMessage('usdc', gate.job.rail) });
+          return;
+        }
+        // B23: the leg must belong to the job's CURRENT status. A hash
+        // that arrives after the job left the eligible window (a late
+        // callback for a job the buyer has since withdrawn, for example)
+        // is refused the same way a fresh start call would be refused --
+        // never treated as a late-but-honoured payment.
+        if (!legStatusEligible(leg, gate.job.status)) {
+          res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
+          return;
+        }
       }
       const body = (req.body ?? {}) as {
         operatorAddress?: unknown;

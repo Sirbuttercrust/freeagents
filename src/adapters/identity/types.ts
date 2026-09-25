@@ -30,6 +30,14 @@ export interface SignedPayload {
   readonly payload: string;
   readonly signature: string;
   readonly signerDid: string;
+  // PRF1 (bugs.md B31): an optional publicKeyMultibase the caller believes
+  // is signerDid's own key (e.g. the gist statement's own `key` line).
+  // verify() below only trusts this when it derives signerDid itself --
+  // the identical binding check buildDidAbtLoader and the R-34 signing-key
+  // resolver already perform -- so an attacker cannot name their own key
+  // for someone else's DID. When absent, verify() falls back to the
+  // observed-key store exactly as before.
+  readonly candidateKeyMultibase?: string;
 }
 
 export interface IdentityAdapter {

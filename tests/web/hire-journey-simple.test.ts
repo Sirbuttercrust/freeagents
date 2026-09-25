@@ -205,7 +205,6 @@ const OBSERVATION: StagingObservation = {
   lineShareByCategory: { source: 70, test: 20, lockfile: 0, generated: 0, vendored: 0 },
   testsDeleted: [],
   testsSkipAdded: [],
-  outOfCriteriaPathCount: 4,
   commitSigners: [{ matchesAgentDid: true }],
 };
 

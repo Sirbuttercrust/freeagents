@@ -38,6 +38,12 @@ export interface BuyerJobFacts {
 // ratio, no percentage, no letter grade.
 export interface BuyerConduct {
   readonly confirmed: number;
+  // DEP1 (B24 ruling, 2026-09-23): a confirmed job the BUYER
+  // withdrew from, and nothing else. expired_unstaged used to count here
+  // too, but that is the AGENT never staging paid work, staging is the
+  // agent's move, not the buyer's, so it moved to the operator's
+  // walkedAfterDeposit (below) instead. What remains here is exactly the
+  // buyer walking away with nothing delivered.
   readonly walkedAfterConfirm: number;
   readonly stagedDeclined: number;
   readonly closedUnpaid: number;
@@ -56,9 +62,9 @@ export interface BuyerConduct {
   // line 405's definition, staged_declined plus closed_unpaid: work was
   // delivered and the buyer declined it or went quiet. This is a DERIVED
   // field, computed in buyerConductRecord below from the two counters this
-  // module already keeps, and it is NOT walkedAfterConfirm: that field is
-  // expired_unstaged plus a confirmed job withdrawn, which is walking away
-  // with NOTHING delivered, a different fact the wireframe's own "walked
+  // module already keeps, and it is NOT walkedAfterConfirm: that field
+  // (DEP1: now withdrawn-after-confirm alone) is walking away with
+  // NOTHING delivered, a different fact the wireframe's own "walked
   // away" description ("Work was delivered...") would misrepresent.
   // walkedAfterConfirm is untouched by this field: it still feeds the P7
   // operator threshold (buyerConductThresholdFailure, maxWalkedAfterConfirm
@@ -136,13 +142,14 @@ export function buyerConductRecord(jobs: readonly BuyerJobFacts[]): BuyerConduct
 
     if (confirmedReached) confirmed += 1;
 
-    // walkedAfterConfirm: withdrawn from confirmed, plus expired_unstaged.
-    // Both are the buyer leaving a confirmed job with nothing delivered.
-    // A withdrawn row with no confirmedAt (draft or proposed walk-away)
-    // is neither confirmed nor a walk-away-AFTER-confirm.
-    if (status === 'expired_unstaged') {
-      walkedAfterConfirm += 1;
-    } else if (status === 'withdrawn' && confirmedReached) {
+    // walkedAfterConfirm: withdrawn from confirmed, and ONLY that (DEP1,
+    // DEP1 ruling, 2026-09-23). expired_unstaged used to count
+    // here too, but staging is the agent's move, not the buyer's, so
+    // that lapse now lands on the operator's walkedAfterDeposit
+    // (operatorConductRecord below) instead. A withdrawn row with no
+    // confirmedAt (draft or proposed walk-away) is neither confirmed nor
+    // a walk-away-AFTER-confirm.
+    if (status === 'withdrawn' && confirmedReached) {
       walkedAfterConfirm += 1;
     }
 
@@ -254,6 +261,14 @@ export interface OperatorJobFacts {
 export interface OperatorConduct {
   readonly deliveredNeverPaid: number;
   readonly redosRefused: number;
+  // DEP1 (B24 ruling, 2026-09-23): the operator's own jobs that
+  // ended expired_unstaged -- the agent never staged paid work and the
+  // 30-day unstaged lapse fired (expireUnstaged, src/domain/job.ts).
+  // Every confirmed job has a settled deposit (confirm refuses without
+  // one), so this is exactly "walked away after the deposit" from the
+  // operator's chair. A plain count, the same stance deliveredNeverPaid
+  // and redosRefused already take.
+  readonly walkedAfterDeposit: number;
 }
 
 // Total: any input in, one OperatorConduct out, the same totality stance
@@ -264,6 +279,7 @@ export function operatorConductRecord(jobs: readonly OperatorJobFacts[]): Operat
 
   let deliveredNeverPaid = 0;
   let redosRefused = 0;
+  let walkedAfterDeposit = 0;
 
   for (const raw of rows) {
     const job: OperatorJobFacts = raw ?? { status: '' };
@@ -277,7 +293,12 @@ export function operatorConductRecord(jobs: readonly OperatorJobFacts[]): Operat
     if (status === 'staged_declined' || status === 'closed_unpaid') deliveredNeverPaid += 1;
 
     if (job.redoRefusedAt !== null && job.redoRefusedAt !== undefined) redosRefused += 1;
+
+    // DEP1: expired_unstaged is the operator's lapse, moved off the
+    // buyer's walkedAfterConfirm (buyerConductRecord above) onto this
+    // field, since staging is the agent's move, not the buyer's.
+    if (status === 'expired_unstaged') walkedAfterDeposit += 1;
   }
 
-  return { deliveredNeverPaid, redosRefused };
+  return { deliveredNeverPaid, redosRefused, walkedAfterDeposit };
 }

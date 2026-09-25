@@ -47,6 +47,9 @@ const STRANGER_GITHUB_LOGIN = 'stranger-confirm';
 
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
+  // B26: this line's body claims 'buyer', but every propose call in this
+  // file signs as the agent (line 219 below); proposedBy is derived from
+  // the signer, so the stored value is 'agent' regardless of this claim.
   { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
 ];
 
@@ -224,7 +227,9 @@ describe('job confirm (R-9)', () => {
     expect(first.status).toBe(200);
     expect(((await first.json()) as Record<string, unknown>).criteria).toEqual([
       { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: false },
-      { text: 'Checkout e2e test passes', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false },
+      // B26: 'agent', not the body's claimed 'buyer' -- see the fixture's
+      // own comment above.
+      { text: 'Checkout e2e test passes', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
     ]);
     expect((await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agent)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyer)).status).toBe(200);
@@ -285,7 +290,10 @@ describe('job confirm (R-9)', () => {
     // Criterion 1 is missing the agent's acceptance.
 
     const early = await postSigned(`/jobs/${jobId}/confirm`, {}, buyer);
-    expect(early.status).toBe(400);
+    // B27 (bug ledger, C1 rehearsal s1): criteria outstanding is a state
+    // conflict, the same fact a missing price already answers with 409,
+    // not a malformed-input 400 -- nothing the caller SENT was wrong.
+    expect(early.status).toBe(409);
     const body = (await early.json()) as { error: string };
     expect(body.error).toContain('1 of 2 outstanding');
 
@@ -309,7 +317,8 @@ describe('job confirm (R-9)', () => {
     await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, buyer);
 
     const confirm = await postSigned(`/jobs/${jobId}/confirm`, {}, buyer);
-    expect(confirm.status).toBe(400);
+    // B27: same conflict as above, 409 not 400.
+    expect(confirm.status).toBe(409);
     const body = (await confirm.json()) as { error: string };
     expect(body.error).toContain('2 of 2 outstanding');
 
@@ -355,9 +364,12 @@ describe('job confirm (R-9)', () => {
   it('answers 400 when a proposed row somehow holds no criteria', async () => {
     const scripted = await startWith(new ScriptedRow({ ...draftRow('j-empty'), status: 'proposed', criteria: [] }));
     try {
-      const res = await postSignedTo(scripted.baseUrl, '/jobs/j-empty/confirm', {}, buyer);
-      expect(res.status).toBe(400);
-      expect(((await res.json()) as { error: string }).error).toContain('nothing was agreed');
+      const res_ = await postSignedTo(scripted.baseUrl, '/jobs/j-empty/confirm', {}, buyer);
+      // B27: "nothing was agreed" is the same state-conflict fact as
+      // outstanding criteria (confirmSpec throws JobError for both), so it
+      // takes the same 409 this route now gives every confirm-readiness gap.
+      expect(res_.status).toBe(409);
+      expect(((await res_.json()) as { error: string }).error).toContain('nothing was agreed');
     } finally {
       await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
     }
@@ -377,7 +389,7 @@ describe('job confirm (R-9)', () => {
     expect(readBack.status).toBe('confirmed');
     expect(readBack.criteria).toEqual([
       { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true },
-      { text: 'Checkout e2e test passes', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: true },
+      { text: 'Checkout e2e test passes', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true },
     ]);
     expect(String(readBack.specHash)).toMatch(/^sha256:[0-9a-f]{64}$/);
   });

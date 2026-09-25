@@ -48,7 +48,10 @@ export function isAgentOperator(actingDid: unknown, operatorDid: unknown): boole
   return didSuffix(actingDid) === didSuffix(operatorDid);
 }
 
-export type ProofStatus = 'unverified' | 'pending' | 'verified';
+// G1 (ENT-5.1, ruling 2026-09-23): two paths, either sufficient alone -- a
+// binding is either verified through one whole path (session or gist) or
+// it is unverified. No in-between state.
+export type ProofStatus = 'unverified' | 'verified';
 
 export interface Agent {
   readonly did: string;
@@ -72,6 +75,15 @@ export interface Agent {
   // synthesis row 7). Both null by default: null means no filter is set,
   // and the platform sets no default and suggests no value.
   readonly minBuyerMerges: number | null;
+  // DEP1 (B24 ruling, 2026-09-23): this filter's meaning
+  // narrowed. walkedAfterConfirm no longer counts expired_unstaged (an
+  // agent lapse, now the operator's own walkedAfterDeposit count
+  // instead), so this threshold now refuses only buyers who WITHDREW
+  // from a confirmed job themselves. That narrowing is intended, not a
+  // regression: the field is unrenamed, and an operator who set it
+  // before this ruling keeps refusing the exact same buyer behaviour
+  // (withdrawing after confirm), just no longer a behaviour that was
+  // never the buyer's to begin with.
   readonly maxWalkedAfterConfirm: number | null;
   // AV1 (ENT-2.3 ruling): the operator's stored override on shape, face and
   // colour. Null by default, meaning "no override, render the DID-derived

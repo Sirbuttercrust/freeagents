@@ -15,6 +15,18 @@
 // failure (network down, DNS) must never block startup the way every
 // other capability here already refuses to: caught and logged as its own
 // line, not thrown.
+//
+// ISS1 (bugs.md B30, review round 1): the configuration report now
+// carries the derived issuer DID on its credentials line, read from
+// ONE credentials adapter this file builds itself and hands into
+// createApp -- never a second, independent call to platformIssuerFromEnv.
+// That is what this file's own mocks below now prove: createCredentialsAdapter
+// and createCredentialRepository are each called exactly once, the SAME
+// adapter instance's describeIssuer() feeds the report line, and that
+// same instance (plus the same repository) is the sixth and eighth
+// argument createApp receives -- so a test double standing in for
+// "the app" cannot hide two separate derivations the way mocking
+// platformIssuerFromEnv directly used to.
 import { describe, expect, it, vi } from 'vitest';
 
 const mock = vi.hoisted(() => ({
@@ -27,7 +39,17 @@ const mock = vi.hoisted(() => ({
   formatConfigReport: vi.fn(() => 'configuration report:\n  database: configured'),
   probeGithubTokenScope: vi.fn(async () => ({ requiredScope: 'repo', scopesHeader: 'repo', hasRequiredScope: true })),
   formatGithubScopeLine: vi.fn(() => '  githubTokenScope: has repo'),
+  describeIssuer: vi.fn(async () => ({
+    issuer: 'did:abt:zServerTestDerivedDid',
+    verificationMethod: 'did:abt:zServerTestDerivedDid#zKey',
+    publicKeyMultibase: 'zKey',
+  })),
+  credentialRepoSentinel: { __brand: 'credentialRepoSentinel' },
 }));
+
+const credentialsAdapterSentinel = { describeIssuer: mock.describeIssuer, __brand: 'credentialsAdapterSentinel' };
+const createCredentialsAdapter = vi.fn(() => credentialsAdapterSentinel);
+const createCredentialRepository = vi.fn(() => mock.credentialRepoSentinel);
 
 mock.createApp.mockImplementation(() => ({ listen: mock.listen }));
 
@@ -39,14 +61,21 @@ vi.mock('../../src/adapters/config/report.js', () => ({
   probeGithubTokenScope: mock.probeGithubTokenScope,
   formatGithubScopeLine: mock.formatGithubScopeLine,
 }));
+vi.mock('../../src/adapters/credentials/credentials.js', () => ({
+  createCredentialsAdapter,
+}));
+vi.mock('../../src/adapters/storage/storage.js', () => ({
+  createCredentialRepository,
+}));
 
 const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
 // Side-effecting on import, like the real process boot: resolveListenPort()
 // runs and its result is handed straight to app.listen().
 await import('../../src/api/server.js');
-// The scope probe is async (a real network call in production); give its
-// microtask a turn to resolve before asserting on the second log line.
+// The scope probe and the issuer derivation are both async (a real network
+// call and a real key derivation in production); give their microtasks a
+// turn to resolve before asserting on their log lines.
 await new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('src/api/server.ts', () => {
@@ -56,9 +85,30 @@ describe('src/api/server.ts', () => {
     expect(mock.listen).toHaveBeenCalledWith(4242, expect.any(Function));
   });
 
-  it('builds and logs the configuration report exactly once at startup', () => {
+  it('builds exactly one credentials adapter over exactly one credential repository', () => {
+    expect(createCredentialRepository).toHaveBeenCalledTimes(1);
+    expect(createCredentialsAdapter).toHaveBeenCalledTimes(1);
+    expect(createCredentialsAdapter).toHaveBeenCalledWith(undefined, mock.credentialRepoSentinel);
+  });
+
+  it('hands that SAME credentials adapter and repository into createApp, never a second construction', () => {
+    expect(mock.createApp).toHaveBeenCalledWith(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      credentialsAdapterSentinel,
+      undefined,
+      mock.credentialRepoSentinel,
+    );
+  });
+
+  it('builds and logs the configuration report exactly once at startup, carrying the SAME adapter\'s derived issuer DID', () => {
+    expect(mock.describeIssuer).toHaveBeenCalledTimes(1);
     expect(mock.buildConfigReport).toHaveBeenCalledTimes(1);
     expect(mock.formatConfigReport).toHaveBeenCalledTimes(1);
+    expect(mock.formatConfigReport).toHaveBeenCalledWith(expect.anything(), 'did:abt:zServerTestDerivedDid');
     expect(logSpy).toHaveBeenCalledWith('configuration report:\n  database: configured');
   });
 

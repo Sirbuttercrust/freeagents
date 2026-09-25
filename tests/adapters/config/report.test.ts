@@ -255,6 +255,31 @@ describe('formatConfigReport: never prints a value', () => {
     expect(output).toContain('database: configured');
     expect(output).toContain('usdcRail: not configured (missing FREEAGENTS_USDC_RPC_URL');
   });
+
+  // ISS1 (bugs.md B30): FREEAGENTS_PLATFORM_DID is gone as a configuration
+  // knob, but an operator still needs to see, at boot, which DID this
+  // deployment signs credentials as. The derived DID is passed in
+  // separately (server.ts resolves it once via platformIssuerFromEnv, the
+  // same value the running app actually signs with) and prints on the
+  // credentials line specifically, never invented by this formatter.
+  it('prints the derived issuer DID on the credentials line, when given one', () => {
+    const report = buildConfigReport({ FREEAGENTS_PLATFORM_SEED: '0'.repeat(64) });
+    const output = formatConfigReport(report, 'did:abt:zDerivedFromTheSeed');
+    expect(output).toContain('credentials: configured, issuer did:abt:zDerivedFromTheSeed');
+  });
+
+  it('still names the issuer DID on the credentials line when the capability is not configured (ephemeral key)', () => {
+    const report = buildConfigReport({});
+    const output = formatConfigReport(report, 'did:abt:zEphemeralKeyDid');
+    expect(output).toContain('credentials: not configured (missing FREEAGENTS_PLATFORM_SEED), issuer did:abt:zEphemeralKeyDid');
+  });
+
+  it('omits the issuer suffix entirely when no derived DID is given', () => {
+    const report = buildConfigReport({ FREEAGENTS_PLATFORM_SEED: '0'.repeat(64) });
+    const output = formatConfigReport(report);
+    expect(output).toContain('credentials: configured');
+    expect(output).not.toContain('issuer');
+  });
 });
 
 // B14a constraint: "the platform token needs `repo` scope now, not

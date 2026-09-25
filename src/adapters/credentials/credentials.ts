@@ -4,6 +4,7 @@ import { securityLoader } from '@digitalbazaar/security-document-loader';
 import * as vc from '@digitalbazaar/vc';
 import { type Attestation } from '../../domain/attestation.js';
 import { NotImplementedError } from '../not-implemented.js';
+import { deriveDidFromSeed } from '../identity/did-from-seed.js';
 import { createCredentialRepository } from '../storage/storage.js';
 import { CredentialNotFoundError, type CredentialRepository } from '../storage/types.js';
 import type {
@@ -12,13 +13,13 @@ import type {
   DeemedCompletionClaim,
   DeemedCompletionCredential,
   IssuedCredentialDocument,
+  IssuerDescription,
   SignedAttestation,
   VerifiableCredential,
   WorkHistoryClaim,
 } from './types.js';
 
 const CAPABILITY = 'credentials';
-const DEFAULT_PLATFORM_DID = 'did:abt:freeagents-platform';
 // Generic default, no real deployment hostname in a committed file
 // (invariant 10; CLAUDE.md "This repository is public"). Matches the PORT
 // default the app already ships with.
@@ -39,21 +40,41 @@ export function isValidPlatformSeedHex(value: string): boolean {
 // missing or malformed seed still returns a usable issuer (dev/test mode)
 // but the credentials it signs will not verify past this process's
 // lifetime, since the seed backing the proof is thrown away on restart.
-export function platformIssuerFromEnv(): CredentialsIssuer {
-  // `||` and not `??`: Blocklet Server materialises every declared env var,
-  // so an unconfigured deployment delivers '' rather than undefined, and the
-  // nullish fallback would issue credentials under an empty issuer DID.
-  const did = process.env.FREEAGENTS_PLATFORM_DID || DEFAULT_PLATFORM_DID;
+//
+// ISS1 (bugs.md B30): the issuer DID is ALWAYS derived from this key,
+// through the exact same call createOperatorDid uses (did-from-seed.ts's
+// deriveDidFromSeed), never configured. A verifier holding only the
+// credential can already derive did:abt from the key named in
+// proof.verificationMethod (did-abt-resolver.ts's own binding check); this
+// makes the issuer field itself pass that identical check, rather than
+// naming a string no key on earth derives.
+export async function platformIssuerFromEnv(): Promise<CredentialsIssuer> {
   const hex = process.env.FREEAGENTS_PLATFORM_SEED;
-  if (hex !== undefined && isValidPlatformSeedHex(hex)) {
-    return { did, seed: Uint8Array.from(Buffer.from(hex.replace(/^0x/i, ''), 'hex')) };
+  // FREEAGENTS_PLATFORM_DID no longer selects anything; it is read only to
+  // warn once if a deployment still sets it, naming the DID actually in
+  // effect. `||` and not `??`: Blocklet Server materialises every declared
+  // env var, so an unconfigured deployment delivers '' rather than
+  // undefined, and the nullish check would warn on an unset deployment too.
+  const ignoredConfiguredDid = process.env.FREEAGENTS_PLATFORM_DID || '';
+  const seed =
+    hex !== undefined && isValidPlatformSeedHex(hex)
+      ? Uint8Array.from(Buffer.from(hex.replace(/^0x/i, ''), 'hex'))
+      : (() => {
+          console.warn(
+            'credentials: FREEAGENTS_PLATFORM_SEED is not set (or is not 64 hex characters); ' +
+              'issuing with a random ephemeral key. Credentials issued now will not verify after ' +
+              'a restart. This is a dev/test mode, not production issuance.'
+          );
+          return crypto.getRandomValues(new Uint8Array(32));
+        })();
+  const { did } = await deriveDidFromSeed(seed);
+  if (ignoredConfiguredDid !== '') {
+    console.warn(
+      `credentials: FREEAGENTS_PLATFORM_DID is set but is no longer used; the issuer DID is always ` +
+        `derived from FREEAGENTS_PLATFORM_SEED. The DID in effect is ${did}.`
+    );
   }
-  console.warn(
-    'credentials: FREEAGENTS_PLATFORM_SEED is not set (or is not 64 hex characters); ' +
-      'issuing with a random ephemeral key. Credentials issued now will not verify after ' +
-      'a restart. This is a dev/test mode, not production issuance.'
-  );
-  return { did, seed: crypto.getRandomValues(new Uint8Array(32)) };
+  return { did, seed };
 }
 
 // The origin a credential id resolves against. ENT-8 (spec/entities.md:208)
@@ -81,6 +102,24 @@ async function resolveStoredCredential(
     throw new CredentialNotFoundError(credentialId);
   }
   return document;
+}
+
+// ISS1 (bugs.md B30): the public description of the issuer, for
+// GET /.well-known/freeagents-issuer.json. Derives the SAME key
+// signWithPlatformKey below signs with (Ed25519VerificationKey2020.generate
+// from issuer.seed with issuer.did as controller), so the published
+// verificationMethod is provably the one every issued credential's
+// proof.verificationMethod actually names.
+async function describeIssuerFromKey(issuer: CredentialsIssuer): Promise<IssuerDescription> {
+  const key = await Ed25519VerificationKey2020.generate({ seed: issuer.seed, controller: issuer.did });
+  if (key.publicKeyMultibase === undefined) {
+    throw new Error('describeIssuerFromKey: key generation did not produce a publicKeyMultibase');
+  }
+  return {
+    issuer: issuer.did,
+    verificationMethod: `${issuer.did}#${key.publicKeyMultibase}`,
+    publicKeyMultibase: key.publicKeyMultibase,
+  };
 }
 
 // Shared by issueWorkHistoryCredential and signAttestation: the one
@@ -216,17 +255,28 @@ async function signDeemedCompletionDocument(
 // platform issuer (platformIssuerFromEnv above); the app's default for
 // serving without issuing is createCredentialResolver below, until R-36
 // wires this adapter into the merge route.
+//
+// platformIssuerFromEnv is async (deriving a DID from the seed's public key
+// takes an await), so the default cannot be evaluated as a plain default
+// parameter the way it used to be. Instead the resolution is a single
+// memoized promise per factory call: every signing path below awaits the
+// SAME promise, so all credentials this adapter instance issues carry the
+// identical issuer, and platformIssuerFromEnv's console.warn calls fire at
+// most once no matter how many credentials get issued.
 export function createCredentialsAdapter(
-  issuer: CredentialsIssuer = platformIssuerFromEnv(),
+  issuer?: CredentialsIssuer,
   credentialRepo: CredentialRepository = createCredentialRepository(),
   publicBaseUrl: string = publicBaseUrlFromEnv(),
 ): CredentialsAdapter {
+  const issuerPromise: Promise<CredentialsIssuer> =
+    issuer !== undefined ? Promise.resolve(issuer) : platformIssuerFromEnv();
   // Stripped here too, not only inside publicBaseUrlFromEnv's default path:
   // a caller (a test, a future config source) may pass this argument
   // directly, and the id must not double its separator either way.
   const base = publicBaseUrl.replace(/\/+$/, '');
   return {
     async issueWorkHistoryCredential(subjectDid: string, claim: WorkHistoryClaim): Promise<VerifiableCredential> {
+      const resolvedIssuer = await issuerPromise;
       const credential = {
         '@context': [
           'https://www.w3.org/ns/credentials/v2',
@@ -246,7 +296,7 @@ export function createCredentialsAdapter(
         // two rules; they are not in conflict.
         id: `${base}/v1/credentials/${claim.jobId}`,
         type: ['VerifiableCredential', 'CompletedHireCredential'],
-        issuer: issuer.did,
+        issuer: resolvedIssuer.did,
         validFrom: new Date().toISOString(),
         credentialSubject: {
           id: subjectDid,
@@ -271,7 +321,7 @@ export function createCredentialsAdapter(
         },
       };
 
-      const signed = await signWithPlatformKey(issuer, credential);
+      const signed = await signWithPlatformKey(resolvedIssuer, credential);
       return signed as unknown as VerifiableCredential;
     },
     verifyCredential(_credential: VerifiableCredential): Promise<boolean> {
@@ -283,12 +333,17 @@ export function createCredentialsAdapter(
     getCredential: (credentialId: string) => resolveStoredCredential(credentialRepo, credentialId),
     // P5: sign an attestation with the same platform key and the same
     // Ed25519Signature2020 construction issuance already uses above.
-    signAttestation: (attestation: Attestation) => signAttestationDocument(issuer, base, attestation),
+    signAttestation: async (attestation: Attestation) =>
+      signAttestationDocument(await issuerPromise, base, attestation),
     // P6: the distinct deemed-completion credential, same platform key,
     // same Ed25519Signature2020 construction as every other issuance path
     // in this factory.
-    issueDeemedCompletionCredential: (subjectDid: string, claim: DeemedCompletionClaim) =>
-      signDeemedCompletionDocument(issuer, base, subjectDid, claim),
+    issueDeemedCompletionCredential: async (subjectDid: string, claim: DeemedCompletionClaim) =>
+      signDeemedCompletionDocument(await issuerPromise, base, subjectDid, claim),
+    // ISS1 (bugs.md B30): the well-known route's data source, resolved
+    // from the SAME issuerPromise every signing path above awaits, so the
+    // published key is provably the signing key.
+    describeIssuer: async () => describeIssuerFromKey(await issuerPromise),
   };
 }
 
@@ -320,6 +375,11 @@ export function createCredentialResolver(
     // which the deemed-completion issuance path calls (see src/api/app.ts).
     issueDeemedCompletionCredential(_subjectDid: string, _claim: DeemedCompletionClaim): Promise<DeemedCompletionCredential> {
       throw new NotImplementedError(CAPABILITY, 'issueDeemedCompletionCredential');
+    },
+    // Same stance again: this serve-only adapter carries no signing key at
+    // all, so it has no issuer identity to publish.
+    describeIssuer(): Promise<IssuerDescription> {
+      throw new NotImplementedError(CAPABILITY, 'describeIssuer');
     },
   };
 }

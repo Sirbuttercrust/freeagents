@@ -574,7 +574,7 @@ measure.
 
 ## 4. Space
 
-`--w: 1080px` is the content width.
+`--w: 1080px` is the content width. `.wrap` owns the side gutter, and `.section` and `.section-sm` set top and bottom padding only, so a block carrying both classes keeps the same side margin as the nav and footer.
 
 **Space instead of lines.** A border is a permanent mark separating two things
 forever; a gap does the same work and leaves nothing behind. Every divider

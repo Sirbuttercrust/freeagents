@@ -7,6 +7,7 @@ import {
   confirmSpec,
   createJob,
   decline,
+  DepositSettledError,
   isTerminal,
   JobError,
   JobTransitionError,
@@ -127,6 +128,23 @@ describe('job state machine', () => {
     expect(decline(proposedJob()).status).toBe('declined');
     expect(decline(proposedJob({ status: 'confirmed' })).status).toBe('declined');
     expect(decline(proposedJob({ status: 'submitted' })).status).toBe('declined');
+  });
+
+  // DEP1 ruling, 2026-09-23: once the deposit has settled, the
+  // agent can no longer simply decline. decline() takes the settlement
+  // fact as a second, explicit argument (mirroring the route layer's own
+  // settlement gate calls), defaulting to false so every existing call
+  // site above keeps its unpaid-decline behaviour unchanged.
+  it('declines a proposed job with no deposit settled, unchanged from before the ruling', () => {
+    expect(decline(proposedJob(), false).status).toBe('declined');
+  });
+
+  it('refuses to decline a proposed job once the deposit has settled (B24)', () => {
+    expect(() => decline(proposedJob(), true)).toThrow(DepositSettledError);
+  });
+
+  it('refuses to decline a confirmed job once the deposit has settled (B24): confirm never runs without one', () => {
+    expect(() => decline(proposedJob({ status: 'confirmed' }), true)).toThrow(DepositSettledError);
   });
 
   it('rejects confirming a job that is not proposed', () => {

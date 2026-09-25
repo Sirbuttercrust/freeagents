@@ -60,7 +60,6 @@ function observationFixture(overrides: Partial<StagingObservation> = {}): Stagin
     lineShareByCategory: { source: 61, test: 27, lockfile: 0, generated: 0, vendored: 0 },
     testsDeleted: [],
     testsSkipAdded: [],
-    outOfCriteriaPathCount: 9,
     commitSigners: [{ matchesAgentDid: true }],
     ...overrides,
   };

@@ -226,14 +226,12 @@
            signed attestation instead, so no fabricated fact about a real
            agent's work can reach this markup.
 
-           SIX ROWS, NOT THE WIREFRAME'S SEVEN. "Files outside the paths you
-           agreed" is omitted: buildAttestation is called with
-           criteriaPaths: [] (app.ts:3787), and github.ts:89-90 computes
-           outOfCriteriaPathCount as the paths NOT in that set, so the field
-           structurally equals filesChanged on every hire this platform can
-           produce. Rendering it would put a second copy of the first row
-           under a label claiming it measures something else. P8k ruling 2;
-           the omission stands. -->
+           SIX ROWS. "Files outside the paths you agreed" is dropped from the
+           attestation entirely (operator ruling, 2026-09-23): nothing on the
+           platform records the paths a buyer and agent agreed on, so the
+           field was structurally always equal to filesChanged. The platform
+           reports what it can measure, not a count against a fact it never
+           recorded. -->
       <ul class="facts pane pane-pad reveal" id="facts"></ul>
       <div id="choices-section">
         <h2 style="margin-top:40px; margin-bottom:18px">Your three choices</h2>

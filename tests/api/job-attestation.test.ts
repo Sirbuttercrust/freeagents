@@ -201,7 +201,6 @@ describe('a wired staging observer publishes the attestation before the job reac
     expect(attestation.lineShareByCategory).toBeDefined();
     expect(attestation.testsDeleted).toBeDefined();
     expect(attestation.testsSkipAdded).toBeDefined();
-    expect(attestation.outOfCriteriaPathCount).toBeDefined();
     expect(attestation.commitSigners).toBeDefined();
   });
 
@@ -276,6 +275,7 @@ describe('attestation signing failure fails the whole stage (P5 anchor: staged m
       getCredential: () => Promise.reject(new Error('unused')),
       signAttestation: () => Promise.reject(new Error('signing key unavailable')),
       issueDeemedCompletionCredential: () => Promise.reject(new Error('unused')),
+      describeIssuer: () => Promise.reject(new Error('unused')),
     };
     const stagedCommit = 'commit-sign-fail';
     active = await startApp({
@@ -502,7 +502,7 @@ describe('POST /jobs/:jobId/stage: an agent with no verified GitHub login cannot
       expect(confirmedRow?.status).toBe('confirmed');
 
       // Revoke verification between confirm and stage.
-      await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-unverified', status: 'pending' });
+      await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-unverified', status: 'unverified' });
 
       const stage = await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-unverified' }, agent);
       expect(stage.status).toBe(503);

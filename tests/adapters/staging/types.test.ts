@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { NotImplementedError } from '../../../src/adapters/not-implemented.js';
 import { createMemoryStagingObserver, createUnwiredStagingObserver } from '../../../src/adapters/staging/types.js';
 
-const INPUT = { owner: 'freeagents-platform', repo: 'staging-job_1', stagedCommit: 'commit-1', baseCommit: 'base-1', criteriaPaths: ['src/a.ts'], verifiedAgentGithubLogin: 'scout-agent' };
+const INPUT = { owner: 'freeagents-platform', repo: 'staging-job_1', stagedCommit: 'commit-1', baseCommit: 'base-1', verifiedAgentGithubLogin: 'scout-agent' };
 
 describe('createUnwiredStagingObserver: the default, which refuses', () => {
   it('throws NotImplementedError rather than returning a zeroed observation', async () => {
@@ -32,7 +32,6 @@ describe('createMemoryStagingObserver: a test drives it directly with fixed obse
       lineShareByCategory: { source: 1, test: 0, lockfile: 0, generated: 0, vendored: 0 },
       testsDeleted: [],
       testsSkipAdded: [],
-      outOfCriteriaPathCount: 0,
       commitSigners: [{ matchesAgentDid: true }],
     };
     const observer = createMemoryStagingObserver(new Map([['commit-1', observation]]));
