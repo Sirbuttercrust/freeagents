@@ -249,7 +249,7 @@ describe('the deposit screen, driven end to end against the real app', () => {
     const sessionAdapterRef = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: 'deposit-page-buyer', id: 9301 }) });
     settlementGate = unsettledGate();
     const { github, calls } = createStagingLifecycleGithubFake();
-    openStagedPullRequestCalls = calls.openStagedPullRequest;
+    openStagedPullRequestCalls = calls.getPullRequest;
 
     // The ABT rail needs a real operator address to resolve a recipient
     // (abt-did-connect.ts reads operatorAddressAbt, never the DID

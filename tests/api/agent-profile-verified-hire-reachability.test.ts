@@ -11,13 +11,16 @@
 // pull request, merge - then reads GET /agents/:agentDid, the same path a
 // buyer takes. No hand-built CredentialEvidence, no direct credentialRepo
 // call.
+//
+// STG2: the agent opens its own PR (registerAgentForkPullRequest on the
+// shared fixture) and reports the URL; the merge route re-reads the same
+// ref later with the merged facts substituted in via setPullRequest.
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
 import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
-import type { GithubAdapter, PullRequestRef, PullRequestSummary } from '../../src/adapters/github/types.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter } from '../../src/adapters/identity/types.js';
 import {
@@ -30,13 +33,18 @@ import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../h
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
-import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
+import {
+  createStagingLifecycleGithubFake,
+  registerAgentForkPullRequest,
+  type StagingLifecycleFixture,
+} from '../helpers/github-staging-fixtures.js';
 
 const ISSUER_DID = 'did:abt:test-platform-issuer-reachability';
 const ISSUER_SEED = new Uint8Array(32).fill(3);
 const MERGE_SHA = 'reachability-merge-sha';
 const MERGED_AT = new Date('2026-08-27T10:00:00Z');
 const AGENT_GITHUB_LOGIN = 'scout-reachability';
+const REPOSITORY = 'buyer/target-repo';
 
 function fakeIdentity(): IdentityAdapter {
   return {
@@ -46,32 +54,8 @@ function fakeIdentity(): IdentityAdapter {
   };
 }
 
-// The one variable under test: whether GitHub reports the base repository as
-// public. Everything else about the merge is identical between the two
-// tests below, so a difference in the resulting tier can only come from this
-// one fact. Layers getPullRequest (for the merge route's own observation)
-// on top of the shared staging-lifecycle fake (for confirm/stage/pull-request).
-function scriptedGithub(repositoryPublic: boolean): GithubAdapter {
-  const { github: staging } = createStagingLifecycleGithubFake();
-  return {
-    ...staging,
-    getPullRequest: (ref: PullRequestRef): Promise<PullRequestSummary> =>
-      Promise.resolve({
-        ref,
-        state: 'merged',
-        mergeCommitSha: MERGE_SHA,
-        mergedAt: MERGED_AT,
-        headSha: 'reachability-head-sha',
-        additions: 20,
-        deletions: 4,
-        filesChanged: 2,
-        repositoryPublic,
-      }),
-  };
-}
-
 async function startWith(
-  github: GithubAdapter,
+  fixture: StagingLifecycleFixture,
   agentDid: string,
   buyerDid: string,
 ): Promise<{ server: Server; baseUrl: string; authHeader: Record<string, string> }> {
@@ -98,7 +82,7 @@ async function startWith(
     operatorRepo,
     agentRepo,
     fakeIdentity(),
-    github,
+    fixture.github,
     new MemoryJobRepository(),
     credentials,
     undefined,
@@ -142,14 +126,21 @@ async function postSigned(baseUrl: string, path: string, body: unknown, identity
 
 // Walks one job all the way to a merged credential, over HTTP, exactly as a
 // real buyer and agent would. Returns the merge response body.
+//
+// STG2: repositoryPublic is the one variable under test (whether GitHub
+// reports the base repository as public); everything else about the merge
+// is identical between the two tests below, so a difference in the
+// resulting tier can only come from this one fact.
 async function walkToMerge(
   baseUrl: string,
+  fixture: StagingLifecycleFixture,
   agent: SigningIdentity,
   buyer: SigningIdentity,
+  repositoryPublic: boolean,
 ): Promise<Record<string, unknown>> {
   const draft = await postSigned(baseUrl, '/jobs', {
     agentDid: agent.did,
-    repository: 'buyer/target-repo',
+    repository: REPOSITORY,
     brief: 'Fix the checkout timeout',
   }, buyer);
   expect(draft.status).toBe(201);
@@ -176,9 +167,35 @@ async function walkToMerge(
   expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agent)).status).toBe(200);
   expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyer)).status).toBe(200);
   expect((await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agent)).status).toBe(200);
-  const pr = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agent);
+
+  const { url, ref } = registerAgentForkPullRequest(fixture, {
+    repository: REPOSITORY,
+    jobId,
+    stagedCommit: 'commit-sha-1',
+    agentLogin: AGENT_GITHUB_LOGIN,
+  });
+  const pr = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, { pullRequestUrl: url }, agent);
   expect(pr.status).toBe(200);
   const prBody = (await pr.json()) as Record<string, unknown>;
+
+  // The PR merges: same ref, same head sha, now reported merged with the
+  // repositoryPublic fact under test.
+  fixture.setPullRequest(ref, {
+    state: 'merged',
+    mergeCommitSha: MERGE_SHA,
+    mergedAt: MERGED_AT,
+    headSha: 'commit-sha-1',
+    additions: 20,
+    deletions: 4,
+    filesChanged: 2,
+    repositoryPublic,
+    headRepoOwner: AGENT_GITHUB_LOGIN,
+    headRepoFullName: `${AGENT_GITHUB_LOGIN}/target-repo`,
+    headRepoIsFork: true,
+    baseRepoFullName: REPOSITORY,
+    authorLogin: AGENT_GITHUB_LOGIN,
+    body: `Job: ${jobId}\n`,
+  });
 
   const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, buyer);
   expect(merge.status).toBe(200);
@@ -189,9 +206,10 @@ describe('GET /agents/:agentDid, verified-hire reachability from a REAL merge (R
   it('a platform-brokered merge into a PUBLIC repository reaches verifiedHires, driven through the real merge route', async () => {
     const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(101));
     const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(102));
-    const { server, baseUrl } = await startWith(scriptedGithub(true), agent.did, buyer.did);
+    const fixture = createStagingLifecycleGithubFake();
+    const { server, baseUrl } = await startWith(fixture, agent.did, buyer.did);
     try {
-      const mergeBody = await walkToMerge(baseUrl, agent, buyer);
+      const mergeBody = await walkToMerge(baseUrl, fixture, agent, buyer, true);
       const credential = mergeBody.credential as Record<string, unknown>;
 
       const profile = await fetch(`${baseUrl}/agents/${agent.did}`);
@@ -201,7 +219,7 @@ describe('GET /agents/:agentDid, verified-hire reachability from a REAL merge (R
       expect(body.verifiedHires).toEqual([
         {
           credentialId: credential.id,
-          repository: 'buyer/target-repo',
+          repository: REPOSITORY,
           pullRequest: mergeBody.pullRequestUrl,
           mergedAt: MERGED_AT.toISOString(),
           mergeCommit: MERGE_SHA,
@@ -220,9 +238,10 @@ describe('GET /agents/:agentDid, verified-hire reachability from a REAL merge (R
   it('a platform-brokered merge into a PRIVATE repository does not reach verifiedHires, driven through the real merge route', async () => {
     const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(103));
     const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(104));
-    const { server, baseUrl } = await startWith(scriptedGithub(false), agent.did, buyer.did);
+    const fixture = createStagingLifecycleGithubFake();
+    const { server, baseUrl } = await startWith(fixture, agent.did, buyer.did);
     try {
-      await walkToMerge(baseUrl, agent, buyer);
+      await walkToMerge(baseUrl, fixture, agent, buyer, false);
 
       const profile = await fetch(`${baseUrl}/agents/${agent.did}`);
       expect(profile.status).toBe(200);

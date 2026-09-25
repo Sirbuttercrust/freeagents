@@ -7,6 +7,18 @@
 // reports and checks that the job only ever completes when that report says
 // merged.
 //
+// STG2: the platform no longer opens the pull request itself. The agent
+// opens it from its own fork and reports the URL to POST
+// /jobs/:jobId/pull-request, which reads it back and records `submitted`
+// only when five facts hold (base repo, head fork ownership, head sha,
+// open state, Job trailer). Every test that walks a job to `submitted`
+// registers a plausible agent-fork PR on the shared github fixture first
+// (registerAgentForkPullRequest), matching the exact jobId under test so
+// the Job-trailer check passes, then mutates that same registration to
+// simulate the PR's later state (merged, closed, head moved) before
+// calling /merge -- mirroring how a real PR starts open and is observed
+// again later.
+//
 // runExchange's storage-fault legs are NOT re-covered per route:
 // tests/api/job-criteria.test.ts pins each leg of that shared skeleton. The
 // legs new to THIS route - the state pre-check, github's three answers,
@@ -19,7 +31,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
 import type { CredentialsAdapter, VerifiableCredential } from '../../src/adapters/credentials/types.js';
-import type { GithubAdapter, PullRequestRef, PullRequestSummary } from '../../src/adapters/github/types.js';
+import type { GithubAdapter, PullRequestRef } from '../../src/adapters/github/types.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import type { DidDocument, IdentityAdapter } from '../../src/adapters/identity/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
@@ -35,7 +47,11 @@ import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../h
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
-import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
+import {
+  createStagingLifecycleGithubFake,
+  registerAgentForkPullRequest,
+  type StagingLifecycleFixture,
+} from '../helpers/github-staging-fixtures.js';
 
 const agentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(91));
 const buyerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(92));
@@ -68,85 +84,42 @@ function fakeIdentity(
   return { ...createIdentityAdapter(), resolveDid: resolve };
 }
 
-interface RecordedCalls {
-  getPullRequest: PullRequestRef[];
+function prRef(): PullRequestRef {
+  return { owner: FORK_OWNER, repo: FORK_REPO, number: PR_NUMBER };
 }
 
-function emptyRecordings(): RecordedCalls {
-  return { getPullRequest: [] };
+function prUrl(): string {
+  return `https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/${PR_NUMBER}`;
 }
 
-// Only getPullRequest and openStagedPullRequest ever resolve out of band;
-// the staging lifecycle (createStagingRepository/grantPush/getCommit/
-// getDefaultBranchHead) is the shared working fake, matching
-// tests/api/job-pull-request.test.ts's fixture.
-function fakeGithub(
-  recorded: RecordedCalls,
-  script: (ref: PullRequestRef) => Promise<PullRequestSummary>,
-): GithubAdapter {
-  const { github: staging } = createStagingLifecycleGithubFake();
-  return {
-    ...staging,
-    getPullRequest: (ref) => {
-      recorded.getPullRequest.push(ref);
-      return script(ref);
-    },
-    // Every job in this file walks through the same PR, so the fake merge
-    // route can always parse the ref straight back out of pullRequestUrl.
-    openStagedPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: PR_NUMBER }),
+// STG2: registers a fresh, submittable agent-fork PR on the fixture --
+// open, headSha matching the job's staged commit, owned and authored by
+// the agent's verified login, base repo matching, and a body carrying
+// the given job's own Job trailer. Every walkToSubmitted call needs this
+// immediately before POSTing to /pull-request, because the route now
+// reads this PR back and checks all five facts before recording
+// `submitted`.
+function registerSubmittablePr(fixture: StagingLifecycleFixture, jobId: string): { readonly url: string } {
+  return registerAgentForkPullRequest(fixture, {
+    repository: `${FORK_OWNER}/${FORK_REPO}`,
+    jobId,
+    stagedCommit: 'commit-sha-1',
+    agentLogin: AGENT_GITHUB_LOGIN,
+    number: PR_NUMBER,
+  });
+}
+
+// A github double whose getPullRequest can be switched to reject on
+// demand, for the "github unavailable at merge time" leg: the submission
+// read must still succeed (registerSubmittablePr's fixture answers it),
+// and only the LATER merge-time read fails.
+function switchableGithub(fixture: StagingLifecycleFixture): { readonly github: GithubAdapter; setFailing: (value: boolean) => void } {
+  let failing = false;
+  const github: GithubAdapter = {
+    ...fixture.github,
+    getPullRequest: (ref) => (failing ? Promise.reject(new Error('connection refused by github')) : fixture.github.getPullRequest(ref)),
   };
-}
-
-function mergedGithub(recorded: RecordedCalls): GithubAdapter {
-  return fakeGithub(recorded, (ref) =>
-    Promise.resolve({
-      ref,
-      state: 'merged',
-      mergeCommitSha: MERGE_SHA,
-      mergedAt: MERGED_AT,
-      headSha: 'head-sha-1',
-      additions: 412,
-      deletions: 87,
-      filesChanged: 9,
-      repositoryPublic: true,
-    }),
-  );
-}
-
-function openGithub(recorded: RecordedCalls): GithubAdapter {
-  return fakeGithub(recorded, (ref) =>
-    Promise.resolve({
-      ref,
-      state: 'open',
-      mergeCommitSha: null,
-      mergedAt: null,
-      headSha: 'head-sha-1',
-      additions: 0,
-      deletions: 0,
-      filesChanged: 0,
-      repositoryPublic: true,
-    }),
-  );
-}
-
-function closedGithub(recorded: RecordedCalls): GithubAdapter {
-  return fakeGithub(recorded, (ref) =>
-    Promise.resolve({
-      ref,
-      state: 'closed',
-      mergeCommitSha: null,
-      mergedAt: null,
-      headSha: 'head-sha-1',
-      additions: 0,
-      deletions: 0,
-      filesChanged: 0,
-      repositoryPublic: true,
-    }),
-  );
-}
-
-function rejectingGithub(recorded: RecordedCalls): GithubAdapter {
-  return fakeGithub(recorded, () => Promise.reject(new Error('connection refused by github')));
+  return { github, setFailing: (value: boolean) => { failing = value; } };
 }
 
 // A row already in submitted, with a URL in the exact shape submitPullRequest
@@ -171,7 +144,7 @@ function submittedJob(id: string): Job {
       new Date(submittedAt.getTime() - 24 * 60 * 60 * 1000),
     ),
     status: 'submitted',
-    pullRequestUrl: `https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/${PR_NUMBER}`,
+    pullRequestUrl: prUrl(),
     submittedAt,
     stagedAt: new Date(submittedAt.getTime() - 6 * 60 * 60 * 1000),
     stagedCommit: 'commit-sha-1',
@@ -192,6 +165,39 @@ function submittedJob(id: string): Job {
     stagingRepo: { owner: 'freeagents-platform', repo: `staging-${id}` },
     baseCommit: 'buyer-target-repo-head-sha',
   };
+}
+
+// The PR summary a directly-planted submittedJob() row needs registered
+// on the fixture so the merge route's own read succeeds -- matching
+// headSha (== 'commit-sha-1'), fork ownership and Job trailer, so only
+// the field under test (state, merge facts) varies between callers.
+function registerMatchingPrFor(fixture: StagingLifecycleFixture, id: string, overrides: Partial<Parameters<StagingLifecycleFixture['setPullRequest']>[1]> = {}): void {
+  registerAgentForkPullRequest(fixture, {
+    repository: 'buyer/target-repo',
+    jobId: id,
+    stagedCommit: 'commit-sha-1',
+    agentLogin: AGENT_GITHUB_LOGIN,
+    number: PR_NUMBER,
+  });
+  if (Object.keys(overrides).length > 0) {
+    fixture.setPullRequest(prRef(), {
+      state: 'open',
+      mergeCommitSha: null,
+      mergedAt: null,
+      headSha: 'commit-sha-1',
+      additions: 1,
+      deletions: 0,
+      filesChanged: 1,
+      repositoryPublic: true,
+      headRepoOwner: AGENT_GITHUB_LOGIN,
+      headRepoFullName: `${AGENT_GITHUB_LOGIN}/${FORK_REPO}`,
+      headRepoIsFork: true,
+      baseRepoFullName: `${FORK_OWNER}/${FORK_REPO}`,
+      authorLogin: AGENT_GITHUB_LOGIN,
+      body: `Job: ${id}\n`,
+      ...overrides,
+    });
+  }
 }
 
 let server: Server;
@@ -299,10 +305,12 @@ async function openDraft(
 }
 
 // One job walked draft -> submitted over HTTP: propose, accept both, confirm,
-// open the pull request. Returns the submitted body so the merge tests can
-// compare against it. P1: confirm needs an agreed price too, so the price
-// rides the proposal and both parties accept it alongside the criteria.
-async function walkToSubmitted(jobId: string, base: string = baseUrl): Promise<Record<string, unknown>> {
+// stage, open the pull request. Returns the submitted body so the merge
+// tests can compare against it. P1: confirm needs an agreed price too, so
+// the price rides the proposal and both parties accept it alongside the
+// criteria. STG2: registers a matching agent-fork PR on the fixture right
+// before submitting it, so the route's five-fact check passes.
+async function walkToSubmitted(jobId: string, fixture: StagingLifecycleFixture, base: string = baseUrl): Promise<Record<string, unknown>> {
   expect(
     (await postSigned(`/jobs/${jobId}/criteria`, { criteria: proposal, priceUsd: '500.00', rail: 'abt' }, agentIdentity, base))
       .status,
@@ -315,7 +323,8 @@ async function walkToSubmitted(jobId: string, base: string = baseUrl): Promise<R
   expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agentIdentity, base)).status).toBe(200);
   expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity, base)).status).toBe(200);
   expect((await postSigned(`/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agentIdentity, base)).status).toBe(200);
-  const pr = await postSigned(`/jobs/${jobId}/pull-request`, {}, agentIdentity, base);
+  const { url } = registerSubmittablePr(fixture, jobId);
+  const pr = await postSigned(`/jobs/${jobId}/pull-request`, { pullRequestUrl: url }, agentIdentity, base);
   expect(pr.status).toBe(200);
   return (await pr.json()) as Record<string, unknown>;
 }
@@ -324,6 +333,8 @@ async function walkToSubmitted(jobId: string, base: string = baseUrl): Promise<R
 // confirmedAt, then the submit pair (R-10) plus deadline (R-12): one writer
 // per group. A completed job adds exactly mergeCommit and mergedAt (R-11).
 // An outcome job (R-12) projects the submitted keyset and nothing more.
+// STG2: pullRequestTemplate rides alongside stagedCommit/stagedAt, so it
+// joins every submitted-or-later keyset too.
 const SUBMITTED_KEYS = [
   'agentDid',
   'baseCommit',
@@ -335,6 +346,7 @@ const SUBMITTED_KEYS = [
   'criteria',
   'deadline',
   'id',
+  'pullRequestTemplate',
   'pullRequestUrl',
   'repository',
   'specHash',
@@ -353,13 +365,13 @@ const COMPLETED_WITH_CREDENTIAL_KEYS = [...COMPLETED_KEYS, 'credential'].sort();
 
 describe('job merge (R-11)', () => {
   const jobRepo = new MemoryJobRepository();
-  const recorded = emptyRecordings();
+  const fixture = createStagingLifecycleGithubFake();
   // Set by the happy-path walk; the lock test posts that same id again.
   let happyJobId: string;
   let happyCredentialRepo: CredentialRepository;
 
   beforeAll(async () => {
-    ({ server, baseUrl, credentialRepo: happyCredentialRepo, authHeader } = await startWith(jobRepo, mergedGithub(recorded)));
+    ({ server, baseUrl, credentialRepo: happyCredentialRepo, authHeader } = await startWith(jobRepo, fixture.github));
   });
 
   afterAll(() => {
@@ -368,8 +380,26 @@ describe('job merge (R-11)', () => {
 
   it('walks submitted -> merge on ONE row and projects the completed keys', async () => {
     happyJobId = await openDraft('Fix the login bug on the checkout page');
-    const submittedBody = await walkToSubmitted(happyJobId);
+    const submittedBody = await walkToSubmitted(happyJobId, fixture);
     expect(submittedBody.status).toBe('submitted');
+
+    // The PR merges: same ref, same head sha, now reported merged.
+    fixture.setPullRequest(prRef(), {
+      state: 'merged',
+      mergeCommitSha: MERGE_SHA,
+      mergedAt: MERGED_AT,
+      headSha: 'commit-sha-1',
+      additions: 412,
+      deletions: 87,
+      filesChanged: 9,
+      repositoryPublic: true,
+      headRepoOwner: AGENT_GITHUB_LOGIN,
+      headRepoFullName: `${AGENT_GITHUB_LOGIN}/${FORK_REPO}`,
+      headRepoIsFork: true,
+      baseRepoFullName: `${FORK_OWNER}/${FORK_REPO}`,
+      authorLogin: AGENT_GITHUB_LOGIN,
+      body: `Job: ${happyJobId}\n`,
+    });
 
     const merge = await postSigned(`/jobs/${happyJobId}/merge`, {}, buyerIdentity);
     expect(merge.status).toBe(200);
@@ -398,7 +428,7 @@ describe('job merge (R-11)', () => {
 
     const read = await get(`/jobs/${happyJobId}`);
     expect(await read.json()).toEqual(mergedBody);
-    expect(recorded.getPullRequest.length).toBe(1);
+    expect(fixture.calls.getPullRequest.length).toBeGreaterThanOrEqual(1);
   });
 
   it('stores the same credential document it returns', async () => {
@@ -423,32 +453,33 @@ describe('job merge (R-11)', () => {
   });
 
   it('answers 409 on an already-completed job, without observing github a second time', async () => {
+    const before = fixture.calls.getPullRequest.length;
     const again = await postSigned(`/jobs/${happyJobId}/merge`, {}, buyerIdentity);
     expect(again.status).toBe(409);
     // The terminal state is checked before github is asked again: the count
-    // stays at the one call the happy-path walk made.
-    expect(recorded.getPullRequest.length).toBe(1);
+    // stays at whatever it already was.
+    expect(fixture.calls.getPullRequest.length).toBe(before);
   });
 
   it('answers 404 for an unknown id, with zero adapter or storage-complete calls', async () => {
-    const before = recorded.getPullRequest.length;
+    const before = fixture.calls.getPullRequest.length;
     const completeSpy = vi.spyOn(jobRepo, 'complete');
     const nowhere = await post('/jobs/j-nowhere/merge');
     expect(nowhere.status).toBe(404);
     expect(await nowhere.json()).toEqual({ error: 'not found' });
-    expect(recorded.getPullRequest.length).toBe(before);
+    expect(fixture.calls.getPullRequest.length).toBe(before);
     expect(completeSpy).not.toHaveBeenCalled();
     completeSpy.mockRestore();
   });
 
   it('answers 409 for a fresh draft, without asking github once', async () => {
     const draftId = await openDraft('A draft nobody confirmed');
-    const before = recorded.getPullRequest.length;
+    const before = fixture.calls.getPullRequest.length;
 
     const early = await postSigned(`/jobs/${draftId}/merge`, {}, buyerIdentity);
     expect(early.status).toBe(409);
     expect(((await early.json()) as { error: string }).error).toContain('status "draft"');
-    expect(recorded.getPullRequest.length).toBe(before);
+    expect(fixture.calls.getPullRequest.length).toBe(before);
   });
 });
 
@@ -458,13 +489,16 @@ describe('job merge (R-11)', () => {
 describe('GET /jobs/:jobId, no credential row (R-36)', () => {
   it('omits the credential field for a completed job with no stored credential', async () => {
     const repo = new MemoryJobRepository();
+    const fixture = createStagingLifecycleGithubFake();
+    const row = submittedJob('j-no-cred');
+    registerMatchingPrFor(fixture, row.id, { state: 'merged', mergeCommitSha: MERGE_SHA, mergedAt: MERGED_AT });
     await repo.create({
-      ...submittedJob('j-no-cred'),
+      ...row,
       status: 'completed',
       mergeCommit: MERGE_SHA,
       mergedAt: MERGED_AT,
     });
-    const scripted = await startWith(repo, mergedGithub(emptyRecordings()));
+    const scripted = await startWith(repo, fixture.github);
     try {
       const read = await get('/jobs/j-no-cred', scripted.baseUrl);
       expect(read.status).toBe(200);
@@ -478,7 +512,9 @@ describe('GET /jobs/:jobId, no credential row (R-36)', () => {
 
   it('never looks up a credential for an unmerged job (the mergeCommit guard)', async () => {
     const repo = new MemoryJobRepository();
+    const fixture = createStagingLifecycleGithubFake();
     const row = submittedJob('j-unmerged-no-lookup');
+    registerMatchingPrFor(fixture, row.id, { state: 'merged', mergeCommitSha: MERGE_SHA, mergedAt: MERGED_AT });
     await repo.create(row);
     class ThrowingCredentialRepository implements CredentialRepository {
       async save(): Promise<never> {
@@ -491,7 +527,7 @@ describe('GET /jobs/:jobId, no credential row (R-36)', () => {
         throw new Error('should never be called for an unmerged job');
       }
     }
-    const scripted = await startWith(repo, mergedGithub(emptyRecordings()), {
+    const scripted = await startWith(repo, fixture.github, {
       credentialRepo: new ThrowingCredentialRepository(),
     });
     try {
@@ -507,8 +543,11 @@ describe('GET /jobs/:jobId, no credential row (R-36)', () => {
 
   it('answers 503 when the credential lookup fails, and logs the cause', async () => {
     const repo = new MemoryJobRepository();
+    const fixture = createStagingLifecycleGithubFake();
+    const row = submittedJob('j-cred-lookup-fails');
+    registerMatchingPrFor(fixture, row.id, { state: 'merged', mergeCommitSha: MERGE_SHA, mergedAt: MERGED_AT });
     await repo.create({
-      ...submittedJob('j-cred-lookup-fails'),
+      ...row,
       status: 'completed',
       mergeCommit: MERGE_SHA,
       mergedAt: MERGED_AT,
@@ -524,7 +563,7 @@ describe('GET /jobs/:jobId, no credential row (R-36)', () => {
         throw new Error('storage down');
       }
     }
-    const scripted = await startWith(repo, mergedGithub(emptyRecordings()), {
+    const scripted = await startWith(repo, fixture.github, {
       credentialRepo: new ThrowingCredentialRepository(),
     });
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -547,11 +586,12 @@ describe('GET /jobs/:jobId, no credential row (R-36)', () => {
 // re-covered here.
 describe('job merge, credential-issuance faulted legs (R-36)', () => {
   it('answers 503 when identity resolution fails, and leaves the job submitted', async () => {
-    const faults = emptyRecordings();
+    const fixture = createStagingLifecycleGithubFake();
     const row = submittedJob('j-identity-fails');
+    registerMatchingPrFor(fixture, row.id, { state: 'merged', mergeCommitSha: MERGE_SHA, mergedAt: MERGED_AT });
     const repo = new MemoryJobRepository();
     await repo.create(row);
-    const scripted = await startWith(repo, mergedGithub(faults), {
+    const scripted = await startWith(repo, fixture.github, {
       identity: fakeIdentity(() => Promise.reject(new Error('resolver unavailable'))),
     });
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -571,11 +611,12 @@ describe('job merge, credential-issuance faulted legs (R-36)', () => {
   });
 
   it('answers 503 when the resolved DID document carries no verification method, and leaves the job submitted', async () => {
-    const faults = emptyRecordings();
+    const fixture = createStagingLifecycleGithubFake();
     const row = submittedJob('j-no-verification-method');
+    registerMatchingPrFor(fixture, row.id, { state: 'merged', mergeCommitSha: MERGE_SHA, mergedAt: MERGED_AT });
     const repo = new MemoryJobRepository();
     await repo.create(row);
-    const scripted = await startWith(repo, mergedGithub(faults), {
+    const scripted = await startWith(repo, fixture.github, {
       identity: fakeIdentity((did) =>
         Promise.resolve({ id: did, controller: null, verificationMethod: [], alsoKnownAs: null }),
       ),
@@ -596,8 +637,9 @@ describe('job merge, credential-issuance faulted legs (R-36)', () => {
   });
 
   it('answers 503 when credential issuance fails, and leaves the job submitted', async () => {
-    const faults = emptyRecordings();
+    const fixture = createStagingLifecycleGithubFake();
     const row = submittedJob('j-issuance-fails');
+    registerMatchingPrFor(fixture, row.id, { state: 'merged', mergeCommitSha: MERGE_SHA, mergedAt: MERGED_AT });
     const repo = new MemoryJobRepository();
     await repo.create(row);
     const failingCredentials: CredentialsAdapter = {
@@ -609,7 +651,7 @@ describe('job merge, credential-issuance faulted legs (R-36)', () => {
         Promise.reject(new NotImplementedError('credentials', 'issueDeemedCompletionCredential')),
       describeIssuer: () => Promise.reject(new NotImplementedError('credentials', 'describeIssuer')),
     };
-    const scripted = await startWith(repo, mergedGithub(faults), { credentials: failingCredentials });
+    const scripted = await startWith(repo, fixture.github, { credentials: failingCredentials });
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
@@ -626,8 +668,9 @@ describe('job merge, credential-issuance faulted legs (R-36)', () => {
   });
 
   it('answers 503 when the credential-repo write fails, but the job has already completed (the named residual)', async () => {
-    const faults = emptyRecordings();
+    const fixture = createStagingLifecycleGithubFake();
     const row = submittedJob('j-cred-save-fails');
+    registerMatchingPrFor(fixture, row.id, { state: 'merged', mergeCommitSha: MERGE_SHA, mergedAt: MERGED_AT });
     const repo = new MemoryJobRepository();
     await repo.create(row);
     class SaveFailingCredentialRepository implements CredentialRepository {
@@ -641,7 +684,7 @@ describe('job merge, credential-issuance faulted legs (R-36)', () => {
         return [];
       }
     }
-    const scripted = await startWith(repo, mergedGithub(faults), {
+    const scripted = await startWith(repo, fixture.github, {
       credentialRepo: new SaveFailingCredentialRepository(),
     });
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -671,7 +714,7 @@ describe('job merge, credential-issuance faulted legs (R-36)', () => {
 // exercises the branch startWith's own default papers over.
 describe("createApp's credentials default, no credentials adapter given (R-36)", () => {
   it('shares state with the given credential repository', async () => {
-    const faults = emptyRecordings();
+    const fixture = createStagingLifecycleGithubFake();
     const agentRepo = new MemoryAgentRepository();
     await agentRepo.create({
       did: AGENT_DID,
@@ -690,7 +733,7 @@ describe("createApp's credentials default, no credentials adapter given (R-36)",
       operatorRepo,
       agentRepo,
       fakeIdentity(),
-      mergedGithub(faults),
+      fixture.github,
       new MemoryJobRepository(),
       undefined,
       undefined,
@@ -711,7 +754,23 @@ describe("createApp's credentials default, no credentials adapter given (R-36)",
     const base = `http://127.0.0.1:${address.port}`;
     try {
       const jobId = await openDraft('Fix the login bug on the checkout page', base);
-      await walkToSubmitted(jobId, base);
+      await walkToSubmitted(jobId, fixture, base);
+      fixture.setPullRequest(prRef(), {
+        state: 'merged',
+        mergeCommitSha: MERGE_SHA,
+        mergedAt: MERGED_AT,
+        headSha: 'commit-sha-1',
+        additions: 1,
+        deletions: 0,
+        filesChanged: 1,
+        repositoryPublic: true,
+        headRepoOwner: AGENT_GITHUB_LOGIN,
+        headRepoFullName: `${AGENT_GITHUB_LOGIN}/${FORK_REPO}`,
+        headRepoIsFork: true,
+        baseRepoFullName: `${FORK_OWNER}/${FORK_REPO}`,
+        authorLogin: AGENT_GITHUB_LOGIN,
+        body: `Job: ${jobId}\n`,
+      });
       const merge = await postSigned(`/jobs/${jobId}/merge`, {}, buyerIdentity, base);
       expect(merge.status).toBe(200);
       const body = (await merge.json()) as Record<string, unknown>;
@@ -728,13 +787,14 @@ describe("createApp's credentials default, no credentials adapter given (R-36)",
 // the same pattern tests/api/job-pull-request.test.ts uses.
 describe('job merge, faulted legs (R-11)', () => {
   it('answers 409 with the open wording when github reports the PR still open, and records nothing', async () => {
-    const faults = emptyRecordings();
-    const scripted = await startWith(new MemoryJobRepository(), openGithub(faults));
+    const fixture = createStagingLifecycleGithubFake();
+    const scripted = await startWith(new MemoryJobRepository(), fixture.github);
     try {
       const jobId = await openDraft('A PR still under review', scripted.baseUrl);
-      const submittedBody = await walkToSubmitted(jobId, scripted.baseUrl);
+      const submittedBody = await walkToSubmitted(jobId, fixture, scripted.baseUrl);
       expect(submittedBody.status).toBe('submitted');
 
+      // Left as-is: still open, headSha unchanged from submission.
       const merge = await postSigned(`/jobs/${jobId}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(409);
       expect(((await merge.json()) as { error: string }).error).toBe('pull request is open; it has not merged yet');
@@ -754,11 +814,27 @@ describe('job merge, faulted legs (R-11)', () => {
   // a hire (the invariant-2 legs in tests/api/job-invariant2.test.ts pin the
   // absence half off-platform).
   it('records closed_unmerged when github reports the PR closed unmerged', async () => {
-    const faults = emptyRecordings();
-    const scripted = await startWith(new MemoryJobRepository(), closedGithub(faults));
+    const fixture = createStagingLifecycleGithubFake();
+    const scripted = await startWith(new MemoryJobRepository(), fixture.github);
     try {
       const jobId = await openDraft('A PR that was closed unmerged', scripted.baseUrl);
-      await walkToSubmitted(jobId, scripted.baseUrl);
+      await walkToSubmitted(jobId, fixture, scripted.baseUrl);
+      fixture.setPullRequest(prRef(), {
+        state: 'closed',
+        mergeCommitSha: null,
+        mergedAt: null,
+        headSha: 'commit-sha-1',
+        additions: 0,
+        deletions: 0,
+        filesChanged: 0,
+        repositoryPublic: true,
+        headRepoOwner: AGENT_GITHUB_LOGIN,
+        headRepoFullName: `${AGENT_GITHUB_LOGIN}/${FORK_REPO}`,
+        headRepoIsFork: true,
+        baseRepoFullName: `${FORK_OWNER}/${FORK_REPO}`,
+        authorLogin: AGENT_GITHUB_LOGIN,
+        body: `Job: ${jobId}\n`,
+      });
 
       const merge = await postSigned(`/jobs/${jobId}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(200);
@@ -773,26 +849,28 @@ describe('job merge, faulted legs (R-11)', () => {
       // The outcome stays on record: the read-back is the recorded row.
       const read = await get(`/jobs/${jobId}`, scripted.baseUrl);
       expect(await read.json()).toEqual(body);
-      expect(faults.getPullRequest.length).toBe(1);
+      const callsAfterFirstMerge = fixture.calls.getPullRequest.length;
 
       // Second observation: the terminal state is checked before github is
       // asked again, and it is a conflict, not a rewrite.
       const again = await postSigned(`/jobs/${jobId}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(again.status).toBe(409);
       expect(((await again.json()) as { error: string }).error).toContain('closed_unmerged');
-      expect(faults.getPullRequest.length).toBe(1);
+      expect(fixture.calls.getPullRequest.length).toBe(callsAfterFirstMerge);
     } finally {
       await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
     }
   });
 
   it('answers 503 when github fails, and logs the cause', async () => {
-    const faults = emptyRecordings();
-    const scripted = await startWith(new MemoryJobRepository(), rejectingGithub(faults));
+    const fixture = createStagingLifecycleGithubFake();
+    const { github, setFailing } = switchableGithub(fixture);
+    const scripted = await startWith(new MemoryJobRepository(), github);
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const jobId = await openDraft('A PR github cannot be reached for', scripted.baseUrl);
-      await walkToSubmitted(jobId, scripted.baseUrl);
+      await walkToSubmitted(jobId, fixture, scripted.baseUrl);
+      setFailing(true);
 
       const merge = await postSigned(`/jobs/${jobId}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(503);
@@ -805,8 +883,9 @@ describe('job merge, faulted legs (R-11)', () => {
   });
 
   it('answers 404 when the row vanishes between the read and the write', async () => {
-    const faults = emptyRecordings();
+    const fixture = createStagingLifecycleGithubFake();
     const row = submittedJob('j-vanish');
+    registerMatchingPrFor(fixture, row.id, { state: 'merged', mergeCommitSha: MERGE_SHA, mergedAt: MERGED_AT });
     class VanishingCompleteRepository implements JobRepository {
       async create(): Promise<never> {
         throw new Error('unreachable');
@@ -824,7 +903,7 @@ describe('job merge, faulted legs (R-11)', () => {
         return null;
       }
     }
-    const scripted = await startWith(new VanishingCompleteRepository(), mergedGithub(faults));
+    const scripted = await startWith(new VanishingCompleteRepository(), fixture.github);
     try {
       const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(404);
@@ -835,8 +914,9 @@ describe('job merge, faulted legs (R-11)', () => {
   });
 
   it('answers 503 when storage fails to persist the completion, and logs the cause', async () => {
-    const faults = emptyRecordings();
+    const fixture = createStagingLifecycleGithubFake();
     const row = submittedJob('j-throw');
+    registerMatchingPrFor(fixture, row.id, { state: 'merged', mergeCommitSha: MERGE_SHA, mergedAt: MERGED_AT });
     const failure = new Error('connection refused');
     class ThrowingCompleteRepository implements JobRepository {
       async create(): Promise<never> {
@@ -855,7 +935,7 @@ describe('job merge, faulted legs (R-11)', () => {
         return null;
       }
     }
-    const scripted = await startWith(new ThrowingCompleteRepository(), mergedGithub(faults));
+    const scripted = await startWith(new ThrowingCompleteRepository(), fixture.github);
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
@@ -873,6 +953,8 @@ describe('job merge, faulted legs (R-11)', () => {
     // enum, so the only witness is a planted row - the well-formed URL
     // proves the 500 comes from completeJob's validator, not the URL guard.
     const row: Job = { ...submittedJob('j-corrupt-merge'), status: 'corrupted' as JobStatus };
+    const fixture = createStagingLifecycleGithubFake();
+    registerMatchingPrFor(fixture, row.id, { state: 'merged', mergeCommitSha: MERGE_SHA, mergedAt: MERGED_AT });
     class ScriptedRow implements JobRepository {
       async create(): Promise<never> {
         throw new Error('unreachable');
@@ -890,8 +972,7 @@ describe('job merge, faulted legs (R-11)', () => {
         return null;
       }
     }
-    const faults = emptyRecordings();
-    const scripted = await startWith(new ScriptedRow(), mergedGithub(faults));
+    const scripted = await startWith(new ScriptedRow(), fixture.github);
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
@@ -900,6 +981,88 @@ describe('job merge, faulted legs (R-11)', () => {
       expect(errorLog).toHaveBeenCalled();
     } finally {
       errorLog.mockRestore();
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+});
+
+// STG2: the head-moved 409, before ANY outcome is recorded. The agent
+// forked the buyer's repository itself and holds push on that fork, so
+// nothing stops it from resetting the branch after the platform attested
+// a commit; the merge route's own check catches that, for both an open
+// and a merged PR (the card's own two cases).
+describe('job merge, head moved off the attested commit (STG2)', () => {
+  it('answers 409 and records nothing when the PR is open but its head sha no longer matches the attested commit', async () => {
+    const fixture = createStagingLifecycleGithubFake();
+    const row = submittedJob('j-head-moved-open');
+    registerMatchingPrFor(fixture, row.id, { state: 'open', headSha: 'moved-off-the-attested-commit' });
+    const repo = new MemoryJobRepository();
+    await repo.create(row);
+    const scripted = await startWith(repo, fixture.github);
+    try {
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
+      expect(merge.status).toBe(409);
+      const body = (await merge.json()) as Record<string, unknown>;
+      expect(body.error).toBe('the pull request head moved off the attested commit');
+      expect(body.attested).toBe('commit-sha-1');
+      expect(body.head).toBe('moved-off-the-attested-commit');
+
+      const read = await get(`/jobs/${row.id}`, scripted.baseUrl);
+      const readBack = (await read.json()) as Record<string, unknown>;
+      expect(readBack.status).toBe('submitted');
+      expect(readBack.mergeCommit).toBeUndefined();
+    } finally {
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+
+  it('answers 409 and records nothing when the PR merged but its head sha no longer matches the attested commit', async () => {
+    const fixture = createStagingLifecycleGithubFake();
+    const row = submittedJob('j-head-moved-merged');
+    registerMatchingPrFor(fixture, row.id, {
+      state: 'merged',
+      mergeCommitSha: MERGE_SHA,
+      mergedAt: MERGED_AT,
+      headSha: 'moved-off-the-attested-commit',
+    });
+    const repo = new MemoryJobRepository();
+    await repo.create(row);
+    const scripted = await startWith(repo, fixture.github);
+    try {
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
+      expect(merge.status).toBe(409);
+      const body = (await merge.json()) as Record<string, unknown>;
+      expect(body.error).toBe('the pull request head moved off the attested commit');
+      expect(body.attested).toBe('commit-sha-1');
+      expect(body.head).toBe('moved-off-the-attested-commit');
+
+      const read = await get(`/jobs/${row.id}`, scripted.baseUrl);
+      const readBack = (await read.json()) as Record<string, unknown>;
+      expect(readBack.status).toBe('submitted');
+      expect(readBack.mergeCommit).toBeUndefined();
+      expect(readBack.mergedAt).toBeUndefined();
+    } finally {
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
+
+  it('answers 409 and records nothing when the PR closed unmerged but its head sha no longer matches the attested commit', async () => {
+    const fixture = createStagingLifecycleGithubFake();
+    const row = submittedJob('j-head-moved-closed');
+    registerMatchingPrFor(fixture, row.id, { state: 'closed', headSha: 'moved-off-the-attested-commit' });
+    const repo = new MemoryJobRepository();
+    await repo.create(row);
+    const scripted = await startWith(repo, fixture.github);
+    try {
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
+      expect(merge.status).toBe(409);
+      const body = (await merge.json()) as Record<string, unknown>;
+      expect(body.error).toBe('the pull request head moved off the attested commit');
+
+      const read = await get(`/jobs/${row.id}`, scripted.baseUrl);
+      const readBack = (await read.json()) as Record<string, unknown>;
+      expect(readBack.status).toBe('submitted');
+    } finally {
       await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
     }
   });
@@ -961,14 +1124,15 @@ describe('job merge, outcomes (R-12)', () => {
   const pastDeadline = () => new Date(Date.now() - dayInMs);
 
   it('records stale when github reports the PR open past the deadline', async () => {
-    const faults = emptyRecordings();
+    const fixture = createStagingLifecycleGithubFake();
     const row = { ...submittedJob('j-stale'), deadline: pastDeadline() };
+    registerMatchingPrFor(fixture, row.id, { state: 'open' });
     const repo = new ScriptedOutcomeRepository(
       row,
       (r) => Promise.resolve(r),
       () => Promise.reject(new Error('unreachable')),
     );
-    const scripted = await startWith(repo, openGithub(faults));
+    const scripted = await startWith(repo, fixture.github);
     try {
       const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(200);
@@ -986,21 +1150,21 @@ describe('job merge, outcomes (R-12)', () => {
 
       const read = await get(`/jobs/${row.id}`, scripted.baseUrl);
       expect(await read.json()).toEqual(body);
-      expect(faults.getPullRequest.length).toBe(1);
     } finally {
       await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
     }
   });
 
   it('answers 409 on a stale row whose PR is still open, without recording again', async () => {
-    const faults = emptyRecordings();
+    const fixture = createStagingLifecycleGithubFake();
     const row: Job = { ...submittedJob('j-stale-open'), status: 'stale', deadline: pastDeadline() };
+    registerMatchingPrFor(fixture, row.id, { state: 'open' });
     const repo = new ScriptedOutcomeRepository(
       row,
       () => Promise.reject(new Error('unreachable')),
       () => Promise.reject(new Error('unreachable')),
     );
-    const scripted = await startWith(repo, openGithub(faults));
+    const scripted = await startWith(repo, fixture.github);
     try {
       const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(409);
@@ -1018,8 +1182,9 @@ describe('job merge, outcomes (R-12)', () => {
   });
 
   it('still completes a stale job when github reports the merge (D3 2026-08-22)', async () => {
-    const faults = emptyRecordings();
+    const fixture = createStagingLifecycleGithubFake();
     const row: Job = { ...submittedJob('j-stale-merged'), status: 'stale', deadline: pastDeadline() };
+    registerMatchingPrFor(fixture, row.id, { state: 'merged', mergeCommitSha: MERGE_SHA, mergedAt: MERGED_AT });
     const repo = new ScriptedOutcomeRepository(
       row,
       () => Promise.reject(new Error('unreachable')),
@@ -1031,7 +1196,7 @@ describe('job merge, outcomes (R-12)', () => {
           mergedAt: anchor.completedAt,
         }),
     );
-    const scripted = await startWith(repo, mergedGithub(faults));
+    const scripted = await startWith(repo, fixture.github);
     try {
       const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(200);
@@ -1048,8 +1213,9 @@ describe('job merge, outcomes (R-12)', () => {
   it('records closed_unmerged when a stale row is observed closed (R-31: an outcome update)', async () => {
     // stale -> closed_unmerged is legal since R-31: an outcome update after
     // stale, the same closed_unmerged state, no new field.
-    const faults = emptyRecordings();
+    const fixture = createStagingLifecycleGithubFake();
     const row: Job = { ...submittedJob('j-stale-closed'), status: 'stale', deadline: pastDeadline() };
+    registerMatchingPrFor(fixture, row.id, { state: 'closed' });
     const repo = new ScriptedOutcomeRepository(
       row,
       (r) => Promise.resolve(r),
@@ -1059,7 +1225,7 @@ describe('job merge, outcomes (R-12)', () => {
           status: 'closed_unmerged' as const,
         }),
     );
-    const scripted = await startWith(repo, closedGithub(faults));
+    const scripted = await startWith(repo, fixture.github);
     try {
       const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(200);
@@ -1081,14 +1247,15 @@ describe('job merge, outcomes (R-12)', () => {
   });
 
   it('answers 503 when storage fails to persist the stale record, and logs the cause', async () => {
-    const faults = emptyRecordings();
+    const fixture = createStagingLifecycleGithubFake();
     const row = { ...submittedJob('j-stale-503'), deadline: pastDeadline() };
+    registerMatchingPrFor(fixture, row.id, { state: 'open' });
     const repo = new ScriptedOutcomeRepository(
       row,
       () => Promise.reject(new Error('connection refused')),
       () => Promise.reject(new Error('unreachable')),
     );
-    const scripted = await startWith(repo, openGithub(faults));
+    const scripted = await startWith(repo, fixture.github);
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
@@ -1110,14 +1277,15 @@ describe('job merge, outcomes (R-12)', () => {
   });
 
   it('answers 404 when the row vanishes on the closed record', async () => {
-    const faults = emptyRecordings();
+    const fixture = createStagingLifecycleGithubFake();
     const row = submittedJob('j-closed-404');
+    registerMatchingPrFor(fixture, row.id, { state: 'closed' });
     const repo = new ScriptedOutcomeRepository(
       row,
       () => Promise.resolve(null),
       () => Promise.reject(new Error('unreachable')),
     );
-    const scripted = await startWith(repo, closedGithub(faults));
+    const scripted = await startWith(repo, fixture.github);
     try {
       const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(merge.status).toBe(404);
@@ -1135,14 +1303,14 @@ describe('job merge, who may (B8, 2026-09-01)', () => {
   // B6 and B7 blocks: unsigned 401, stranger 403, zero GitHub calls on the
   // refused legs, then both parties 200.
   const jobRepo = new MemoryJobRepository();
-  const recorded = emptyRecordings();
+  const fixture = createStagingLifecycleGithubFake();
   let stranger: SigningIdentity;
 
   beforeAll(async () => {
     stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(93));
     // Registered, so the signature resolves and the refusal is the party
     // check (403), not an unknown key (401).
-    ({ server, baseUrl, authHeader } = await startWith(jobRepo, mergedGithub(recorded), {
+    ({ server, baseUrl, authHeader } = await startWith(jobRepo, fixture.github, {
       extraAccounts: [{ did: stranger.did, githubLogin: 'stranger-merge' }],
     }));
   });
@@ -1153,8 +1321,8 @@ describe('job merge, who may (B8, 2026-09-01)', () => {
 
   it('refuses an unsigned merge with 401 and a stranger with 403, firing github zero times', async () => {
     const jobId = await openDraft('Fix the login bug on the checkout page');
-    await walkToSubmitted(jobId);
-    const before = recorded.getPullRequest.length;
+    await walkToSubmitted(jobId, fixture);
+    const before = fixture.calls.getPullRequest.length;
     const unsigned = await fetch(`${baseUrl}/jobs/${jobId}/merge`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -1162,17 +1330,50 @@ describe('job merge, who may (B8, 2026-09-01)', () => {
     });
     expect(unsigned.status).toBe(401);
     expect((await postSigned(`/jobs/${jobId}/merge`, {}, stranger)).status).toBe(403);
-    expect(recorded.getPullRequest.length).toBe(before);
+    expect(fixture.calls.getPullRequest.length).toBe(before);
     const job = (await (await get(`/jobs/${jobId}`)).json()) as { status: string };
     expect(job.status).toBe('submitted');
   });
 
   it('lets the buyer merge, and on a second job the agent', async () => {
     const buyerJob = await openDraft('Fix the login bug on the checkout page');
-    await walkToSubmitted(buyerJob);
+    await walkToSubmitted(buyerJob, fixture);
+    fixture.setPullRequest(prRef(), {
+      state: 'merged',
+      mergeCommitSha: MERGE_SHA,
+      mergedAt: MERGED_AT,
+      headSha: 'commit-sha-1',
+      additions: 1,
+      deletions: 0,
+      filesChanged: 1,
+      repositoryPublic: true,
+      headRepoOwner: AGENT_GITHUB_LOGIN,
+      headRepoFullName: `${AGENT_GITHUB_LOGIN}/${FORK_REPO}`,
+      headRepoIsFork: true,
+      baseRepoFullName: `${FORK_OWNER}/${FORK_REPO}`,
+      authorLogin: AGENT_GITHUB_LOGIN,
+      body: `Job: ${buyerJob}\n`,
+    });
     expect((await postSigned(`/jobs/${buyerJob}/merge`, {}, buyerIdentity)).status).toBe(200);
+
     const agentJob = await openDraft('Fix the login bug on the checkout page');
-    await walkToSubmitted(agentJob);
+    await walkToSubmitted(agentJob, fixture);
+    fixture.setPullRequest(prRef(), {
+      state: 'merged',
+      mergeCommitSha: `${MERGE_SHA}-2`,
+      mergedAt: MERGED_AT,
+      headSha: 'commit-sha-1',
+      additions: 1,
+      deletions: 0,
+      filesChanged: 1,
+      repositoryPublic: true,
+      headRepoOwner: AGENT_GITHUB_LOGIN,
+      headRepoFullName: `${AGENT_GITHUB_LOGIN}/${FORK_REPO}`,
+      headRepoIsFork: true,
+      baseRepoFullName: `${FORK_OWNER}/${FORK_REPO}`,
+      authorLogin: AGENT_GITHUB_LOGIN,
+      body: `Job: ${agentJob}\n`,
+    });
     expect((await postSigned(`/jobs/${agentJob}/merge`, {}, agentIdentity)).status).toBe(200);
   });
 });

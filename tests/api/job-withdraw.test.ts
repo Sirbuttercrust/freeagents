@@ -40,6 +40,7 @@ const SUBMITTED_KEYS = [
   'criteria',
   'deadline',
   'id',
+  'pullRequestTemplate',
   'pullRequestUrl',
   'repository',
   'specHash',
