@@ -50,10 +50,11 @@ export class DidNotResolvableError extends Error {
 // distinct from DidNotResolvableError, exactly when a caller offered a
 // candidate key and the binding check rejected it (malformed, or it derives
 // some other DID) and the observed-key store had nothing to fall back on
-// either. The account-proof route needs the two apart because only one has
-// an operator-actionable remedy: a rejected candidate names a fixable gist
-// line, while an absent candidate on an unobserved DID means "no key at
-// all was offered" (DidNotResolvableError keeps that meaning unchanged).
+// either. The account-proof route keeps the two apart because they carry
+// different remedies, not because only one is operator-actionable: a
+// rejected candidate means fix the existing `key` line, while an absent
+// candidate on an unobserved DID means add one (DidNotResolvableError keeps
+// that meaning unchanged).
 export class CandidateKeyRejectedError extends Error {
   constructor(did: string) {
     super(`the candidate key offered for ${did} does not derive that DID, and no other key has been observed for it`);
