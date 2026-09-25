@@ -35,10 +35,11 @@ const ED25519_SEED_LENGTH = 32;
 // Thrown by resolveDid and verify when a DID's key has never been observed
 // in this process (KnownKeyStore has no entry). Named rather than a bare
 // Error, matching the rest of this codebase's stance (GistNotFoundError,
-// AgentAlreadyExistsError): every app.ts call site already maps ANY thrown
-// error from these two methods to 503 (identity resolution/verification
-// unavailable), so this class exists for callers that want to distinguish
-// "never observed" from a genuine bug, not because app.ts requires it today.
+// AgentAlreadyExistsError). Callers map it differently depending on whether
+// the caller could have supplied a candidate key: resolveDid has no such
+// caller (POST /jobs/:jobId/merge maps it to 503, a platform failure), while
+// account-proof's verify() call maps it to 409 naming the key-line remedy,
+// because the operator could add a `key` line to the gist and resolve it.
 export class DidNotResolvableError extends Error {
   constructor(did: string) {
     super(`${did} has not been observed in this process; no verificationMethod can be derived locally`);
