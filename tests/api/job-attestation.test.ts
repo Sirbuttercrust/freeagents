@@ -275,6 +275,7 @@ describe('attestation signing failure fails the whole stage (P5 anchor: staged m
       getCredential: () => Promise.reject(new Error('unused')),
       signAttestation: () => Promise.reject(new Error('signing key unavailable')),
       issueDeemedCompletionCredential: () => Promise.reject(new Error('unused')),
+      describeIssuer: () => Promise.reject(new Error('unused')),
     };
     const stagedCommit = 'commit-sign-fail';
     active = await startApp({

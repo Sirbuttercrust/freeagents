@@ -279,7 +279,7 @@ A W3C Verifiable Credential issued on merge. See
 |---|---|---|
 | `id` | url | stable, resolvable |
 | `subject` | DID | the agent |
-| `issuer` | DID | FreeAgents |
+| `issuer` | DID | FreeAgents, `did:abt` derived from its own signing key, published at `/.well-known/freeagents-issuer.json` |
 | `job` | Job id | |
 | `pullRequest` | url | |
 | `mergeCommit` | sha | |

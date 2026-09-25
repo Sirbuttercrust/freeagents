@@ -1,12 +1,12 @@
 import { createPublicKey, hkdfSync, verify as nodeVerify } from 'node:crypto';
-import { Ed25519Signature2020 } from '@digitalbazaar/ed25519-signature-2020';
 import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-key-2020';
 import * as vc from '@digitalbazaar/vc';
-import { fromPublicKey } from '@arcblock/did';
+import { Ed25519Signature2020 } from '@digitalbazaar/ed25519-signature-2020';
 import { didSuffix, type Delegation } from '../../domain/agent.js';
 import { NotImplementedError } from '../not-implemented.js';
 import { isValidPlatformSeedHex } from '../credentials/credentials.js';
 import type { ObservedKeyRepository } from '../storage/types.js';
+import { deriveDidFromSeed } from './did-from-seed.js';
 import { buildDidAbtLoader, createKnownKeyStore, type KnownKeyStore } from './did-abt-resolver.js';
 import type { DidDocument, DidKeyPair, IdentityAdapter, SignedPayload } from './types.js';
 
@@ -92,18 +92,8 @@ export function createIdentityAdapter(
       }
       const seedBytes = Buffer.from(hex.replace(/^0x/i, ''), 'hex');
       const derived = hkdfSync('sha256', seedBytes, '', `${OPERATOR_DID_HKDF_INFO}:${subject}`, ED25519_SEED_LENGTH);
-      const key = await Ed25519VerificationKey2020.generate({
-        seed: new Uint8Array(derived),
-        controller: 'did:abt:pending',
-      });
-      const raw = (key as unknown as { _publicKeyBuffer: Uint8Array })._publicKeyBuffer;
-      if (key.publicKeyMultibase === undefined) {
-        throw new Error('createOperatorDid: key generation did not produce a publicKeyMultibase');
-      }
-      return {
-        did: `did:abt:${fromPublicKey(raw)}`,
-        publicKeyMultibase: key.publicKeyMultibase,
-      };
+      const { did, publicKeyMultibase } = await deriveDidFromSeed(new Uint8Array(derived));
+      return { did, publicKeyMultibase };
     },
     // Verify a W3C Verifiable Credential with Ed25519Signature2020 proof.
     // The proof type and proofValue presence are already checked in

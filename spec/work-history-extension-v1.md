@@ -166,6 +166,13 @@ rather than assumed, so a card can be read correctly by someone who has never
 heard of this marketplace, and so a future world with several witnesses does
 not require a schema change.
 
+This DID is `did:abt`, derived from the witness's own signing key (never a
+configured string a deployment could set to anything), and published at
+`/.well-known/freeagents-issuer.json` outside any credential, so it cannot
+be forged by one. A verifier fetches that file once to learn which DID to
+trust, then checks that every credential's `issuer` and `proof` derive from
+the same key.
+
 ## The completed-hire credential
 
 A W3C Verifiable Credential. One per finished job, served from the
@@ -279,8 +286,11 @@ The full check, by anyone, with no privileged access:
 4. Fetch the gist named in `accounts[].proof` and verify it is signed by
    `signingKey`. Confirm the DID document names the same GitHub handle. Both
    directions, or the account claim fails.
-5. Fetch `credentials.endpoint`. Verify each credential's `proof` against the
-   issuer's DID.
+5. Fetch `credentials.endpoint`. For each credential, fetch
+   `/.well-known/freeagents-issuer.json` (once; the answer is cacheable), derive
+   `did:abt` from its `publicKeyMultibase`, and require that to equal both the
+   file's own `issuer` and the credential's `issuer`. Then verify the
+   credential's `proof` with an off-the-shelf W3C verifier against that key.
 6. For any credential worth confirming, hit GitHub's API for the named PR:
    confirm it merged, confirm the merge commit, confirm the commit's signature
    verifies against the same signing key.

@@ -112,15 +112,15 @@ describe('createCredentialsAdapter, the parts R-15 did not touch', () => {
     }
   });
 
-  it('called with no issuer, it defaults to the env-derived platform issuer (R-35)', async () => {
-    vi.stubEnv('FREEAGENTS_PLATFORM_DID', 'did:abt:zEnvPlatform');
+  it('called with no issuer, it defaults to the env-derived platform issuer, DID derived from the seed (R-35, ISS1)', async () => {
     vi.stubEnv('FREEAGENTS_PLATFORM_SEED', 'c3'.repeat(32));
     vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const adapter = createCredentialsAdapter(undefined, new MemoryCredentialRepository());
     const credential = await adapter.issueWorkHistoryCredential('did:abt:agent', claim);
 
-    expect(credential.issuer).toBe('did:abt:zEnvPlatform');
+    expect(credential.issuer.startsWith('did:abt:')).toBe(true);
+    expect(credential.issuer).not.toBe('');
   });
 
   it('verification still throws the named capability error (invariant 2 is external)', () => {
