@@ -598,6 +598,7 @@ describe('GET /agents (R-20 browse)', () => {
       recordKeyRotation: () => Promise.reject(new Error('unused')),
       // listAll intentionally omitted.
       setAvatarSpec: () => Promise.reject(new Error('unused')),
+      setNegotiatesOnOwnersBehalf: () => Promise.reject(new Error('unused')),
     };
     const app = createApp(new MemoryAccountRepository(), stub);
     await withApp(app, async (url) => {
@@ -615,6 +616,7 @@ describe('GET /agents (R-20 browse)', () => {
       recordKeyRotation: () => Promise.reject(new Error('unused')),
       listAll: () => Promise.reject(new Error('db down')),
       setAvatarSpec: () => Promise.reject(new Error('unused')),
+      setNegotiatesOnOwnersBehalf: () => Promise.reject(new Error('unused')),
     };
     const app = createApp(new MemoryAccountRepository(), failing);
     await withApp(app, async (url) => {

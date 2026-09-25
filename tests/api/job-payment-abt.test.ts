@@ -100,6 +100,7 @@ async function startAbtApp(chainClient: AbtChainClient): Promise<StartedAbtApp> 
       name: 'scout',
       skills: ['triage'],
       githubLogin: null,
+      negotiatesOnOwnersBehalf: true,
     });
     // P8c: the ABT rail now reads operatorAddressAbt, never the DID
     // suffix, so this agent's operator needs a real account row carrying
@@ -338,6 +339,7 @@ describe('POST /jobs/:jobId/payments/deposit/abt/start: an unconfigured rail ref
       name: 'scout',
       skills: ['triage'],
       githubLogin: null,
+      negotiatesOnOwnersBehalf: true,
     });
     const jobRepo = new MemoryJobRepository();
     const settlementRepo = new MemorySettlementRepository();
@@ -690,6 +692,7 @@ describe('S3, Trap 1: self-hire settles normally on ABT, paying the buyer\'s own
         name: 'self-hired-scout',
         skills: ['triage'],
         githubLogin: null,
+        negotiatesOnOwnersBehalf: true,
       });
       const jobRepo = new MemoryJobRepository();
       const settlementRepo = new MemorySettlementRepository();
@@ -791,6 +794,7 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
         name: 'scout',
         skills: ['triage'],
         githubLogin: null,
+        negotiatesOnOwnersBehalf: true,
       });
       await operatorRepo.register({ did: 'did:abt:op-abt-unset', githubLogin: 'operator-abt-unset' });
 
@@ -904,6 +908,7 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
         name: 'scout',
         skills: ['triage'],
         githubLogin: null,
+        negotiatesOnOwnersBehalf: true,
       });
       await operatorRepo.register({ did: 'did:abt:op-abt-set', githubLogin: 'operator-abt-set' });
       // The stored address deliberately differs from the DID suffix

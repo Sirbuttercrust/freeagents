@@ -203,6 +203,7 @@ async function createAgent(
     name: 'scout',
     skills: ['triage'],
     githubLogin: verifiedGithubLogin,
+    negotiatesOnOwnersBehalf: true,
   });
   // B14a: confirm refuses to create a staging repository for an agent with
   // no VERIFIED GitHub binding, so any test that walks a job past confirm

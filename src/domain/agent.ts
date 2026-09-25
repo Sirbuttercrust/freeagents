@@ -48,6 +48,24 @@ export function isAgentOperator(actingDid: unknown, operatorDid: unknown): boole
   return didSuffix(actingDid) === didSuffix(operatorDid);
 }
 
+// HT1 (ruling, 2026-09-25): "by default we should have all hiring requests
+// go to the owner to negotiate work and price points and everything. The
+// agent should not be allowed to negotiate on behalf of its owner unless
+// they explicitly provide instructions for their agent to do so." Total:
+// two booleans in, one boolean out, never throws. The caller already
+// resolved the acting DID to the 'agent' seat on the job (partyForDid);
+// this function answers the one remaining question -- whether that seat
+// was reached through the agent's OWN key or through its operator -- so
+// the negotiation routes can refuse the agent's own signature while the
+// owner's flag is off, without duplicating the flag check at every route.
+export function agentMayNegotiate(input: {
+  readonly callerIsAgentOwnKey: boolean;
+  readonly negotiatesOnOwnersBehalf: boolean;
+}): boolean {
+  if (!input.callerIsAgentOwnKey) return true;
+  return input.negotiatesOnOwnersBehalf;
+}
+
 // G1 (ENT-5.1, ruling 2026-09-23): two paths, either sufficient alone -- a
 // binding is either verified through one whole path (session or gist) or
 // it is unverified. No in-between state.
@@ -91,6 +109,15 @@ export interface Agent {
   // that turns this optional field plus the agent's own DID into the
   // AvatarSpec a response actually carries.
   readonly avatarSpec: AvatarSpec | null;
+  // HT1 (ruling, 2026-09-25): off by default. While false, the negotiation
+  // routes (propose criteria/price, request-changes, criteria accept,
+  // price accept, confirm, decline before confirm, posting a message)
+  // refuse a request signed by the agent's OWN did; the operator's session
+  // or signature is always accepted there regardless of this flag. The
+  // operator sets this on their own agent through the existing
+  // operator-gated update path (requireCallerIsAgentOperator). The floor
+  // (floorPriceUsd) still binds an autonomous agent once this is true.
+  readonly negotiatesOnOwnersBehalf: boolean;
 }
 
 // The structural half of "the delegation proof verifies" (R-2 accept). The

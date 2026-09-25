@@ -157,6 +157,11 @@ model Agent {
   // avoids three migrations landing separately for one atomic value. Null
   // by default, meaning "no override, render the DID-derived default".
   avatarSpec Json?
+  // HT1 (ruling, 2026-09-25): off by default. While false, the negotiation
+  // routes refuse a request signed by the agent's OWN did; the operator's
+  // session or signature is always accepted there. The operator sets this
+  // on their own agent through the existing operator-gated update path.
+  negotiatesOnOwnersBehalf Boolean @default(false)
 
   operator Account @relation(fields: [operatorDid], references: [did])
 

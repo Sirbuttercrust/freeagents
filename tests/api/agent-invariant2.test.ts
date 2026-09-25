@@ -326,6 +326,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       floorPriceUsd: stored?.floorPriceUsd ?? null,
       minBuyerMerges: stored?.minBuyerMerges ?? null,
       maxWalkedAfterConfirm: stored?.maxWalkedAfterConfirm ?? null,
+      negotiatesOnOwnersBehalf: stored?.negotiatesOnOwnersBehalf ?? false,
     });
 
     // A stranger fetching from the public API can verify with no further

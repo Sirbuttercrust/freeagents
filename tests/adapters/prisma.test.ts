@@ -487,6 +487,7 @@ describe('PrismaAgentRepository', () => {
         floorPriceUsd: null,
         minBuyerMerges: null,
         maxWalkedAfterConfirm: null,
+        negotiatesOnOwnersBehalf: false,
       },
     });
     expect(row).toEqual({
@@ -503,6 +504,7 @@ describe('PrismaAgentRepository', () => {
       minBuyerMerges: null,
       maxWalkedAfterConfirm: null,
       avatarSpec: null,
+      negotiatesOnOwnersBehalf: false,
     });
   });
 
@@ -632,6 +634,7 @@ describe('PrismaAgentRepository', () => {
       minBuyerMerges: null,
       maxWalkedAfterConfirm: null,
       avatarSpec: null,
+      negotiatesOnOwnersBehalf: false,
     });
   });
 
@@ -716,7 +719,7 @@ describe('PrismaAgentRepository', () => {
       where: { did: 'did:abt:agent-1' },
       data: { githubLogin: 'scout-agent', proofStatus: 'verified' },
     });
-    expect(row).toEqual({ ...updatedRow, keyRotations: [], floorPriceUsd: null, minBuyerMerges: null, maxWalkedAfterConfirm: null, avatarSpec: null });
+    expect(row).toEqual({ ...updatedRow, keyRotations: [], floorPriceUsd: null, minBuyerMerges: null, maxWalkedAfterConfirm: null, avatarSpec: null, negotiatesOnOwnersBehalf: false });
   });
 
   it('updateGithubBinding: a P2025 not-found comes back as null, not an error', async () => {

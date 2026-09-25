@@ -133,6 +133,7 @@ describe('an operator acts for their own agent (P8v)', () => {
       name: 'scout',
       skills: ['triage'],
       githubLogin: AGENT_GITHUB_LOGIN,
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
 
@@ -277,6 +278,7 @@ describe('an operator acts for their own agent (P8v)', () => {
       name: 'scout-dual',
       skills: ['triage'],
       githubLogin: 'scout-operator-acts-dual',
+      negotiatesOnOwnersBehalf: true,
     });
     await dualAgentRepo.updateGithubBinding(dualAgent.did, { handle: 'scout-operator-acts-dual', status: 'verified' });
 
