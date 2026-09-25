@@ -371,6 +371,10 @@ async function render(path: string): Promise<Rendered> {
   expect(response.status, `unexpected status for ${path}`).toBe(200);
   const markup = await response.text();
 
+  // Every read the page makes goes through here, so the count of reads
+  // still in flight (body included) is a settle signal that holds whatever
+  // markup the page draws. render() waits on it after the DOM signals.
+  let inFlight = 0;
   const dom = new JSDOM(markup, {
     url: `${baseUrl}${path}`,
     runScripts: 'dangerously',
@@ -380,7 +384,16 @@ async function render(path: string): Promise<Rendered> {
     beforeParse(window) {
       Object.defineProperty(window, 'fetch', {
         writable: true,
-        value: (input: string, init?: RequestInit) => fetch(new URL(input, baseUrl), init),
+        value: async (input: string, init?: RequestInit) => {
+          inFlight += 1;
+          try {
+            const res = await fetch(new URL(input, baseUrl), init);
+            const body = await res.arrayBuffer();
+            return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+          } finally {
+            inFlight -= 1;
+          }
+        },
       });
     },
   });
@@ -425,6 +438,24 @@ async function render(path: string): Promise<Rendered> {
   } else {
     throw new Error(`page at ${path} carries neither a gallery nor a browse settle signal`);
   }
+
+  // The league look's player card (pcard.js) mounts its bot canvas the
+  // moment the card is built, before browse.js's per-card GET /agents/:did
+  // avatar read has gone out, and it has no .acard-av. So browseSettled
+  // reads true while those reads are still pending, and one that lands
+  // after close() calls bots.js's mount() on a torn-down document: CI run
+  // 36162157231, "Cannot read properties of undefined (reading
+  // 'createElement')" at bots.js:398 <- browse.js:388, on node 22 and 24.
+  // No DOM fact tells a first mount from the avatar read's mount, so wait
+  // on the reads themselves: none in flight for three polls in a row,
+  // which also covers the .then that runs after the last body is read.
+  let quiet = 0;
+  const quietDeadline = Date.now() + 4000;
+  while (quiet < 3 && Date.now() < quietDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    quiet = inFlight === 0 ? quiet + 1 : 0;
+  }
+  if (quiet < 3) throw new Error(`page at ${path} still had ${inFlight} read(s) in flight after 4000ms`);
 
   if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
 
