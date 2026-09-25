@@ -104,7 +104,7 @@ describe('the deposit screen, driven end to end against the real app', () => {
   let baseUrl: string;
   let buyerToken: string;
   let settlementGate: ReturnType<typeof unsettledGate>;
-  let openStagedPullRequestCalls: unknown[];
+  let getPullRequestCalls: unknown[];
 
   beforeAll(async () => {
     agentRepo = new MemoryAgentRepository();
@@ -249,7 +249,7 @@ describe('the deposit screen, driven end to end against the real app', () => {
     const sessionAdapterRef = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: 'deposit-page-buyer', id: 9301 }) });
     settlementGate = unsettledGate();
     const { github, calls } = createStagingLifecycleGithubFake();
-    openStagedPullRequestCalls = calls.getPullRequest;
+    getPullRequestCalls = calls.getPullRequest;
 
     // The ABT rail needs a real operator address to resolve a recipient
     // (abt-did-connect.ts reads operatorAddressAbt, never the DID
@@ -895,6 +895,6 @@ describe('the deposit screen, driven end to end against the real app', () => {
   });
 
   it('reuses the platform staging repository lifecycle exactly once per confirm (sanity: no double staging repo call leaking from this page)', () => {
-    expect(openStagedPullRequestCalls.length).toBe(0);
+    expect(getPullRequestCalls.length).toBe(0);
   });
 });

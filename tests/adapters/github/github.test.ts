@@ -270,8 +270,8 @@ describe('createGithubAdapter, getPullRequest (R-11 observation, R-17 repository
 // platform account IS the platform's staging copy, and since STG2 the
 // platform never opens a pull request at all (the agent opens it from its
 // own fork, outside this adapter), so there is no fork step left to fork,
-// read a fork ref for, or branch on, and no openStagedPullRequest method
-// left to test.
+// read a fork ref for, or branch on -- the adapter's write surface for
+// pull requests is gone entirely.
 
 describe('createGithubAdapter, FREEAGENTS_GITHUB_API_BASE override (B4)', () => {
   it('honours the env override for every call the adapter makes', async () => {

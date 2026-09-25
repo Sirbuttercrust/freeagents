@@ -9,7 +9,8 @@
 //
 // STG2: the agent opens its own PR and reports the URL; the route reads it
 // back via github.getPullRequest, so this file's fake scripts that read
-// instead of the old openStagedPullRequest write.
+// instead of the platform ever writing a pull request on the agent's
+// behalf.
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';

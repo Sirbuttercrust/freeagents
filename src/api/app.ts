@@ -189,6 +189,21 @@ function notImplemented(_req: Request, res: Response): void {
   res.status(501).json({ error: 'not implemented' });
 }
 
+// QA round 1, defect 1 (HIGH): GitHub reports a repository owner, a repo
+// name, a user login and a commit sha in ITS OWN canonical case, regardless
+// of the spelling a caller typed when the fact was first stored (POST
+// /jobs's repository, account-proof's githubLogin, stage's stagedCommit).
+// GitHub itself treats all four identifiers case-insensitively -- the same
+// stance account-proof's own gist-owner check already takes (app.ts:2238,
+// 2292). Comparing any of them with a bare !== refuses an honest, fully
+// paid pull request forever whenever the stored spelling and GitHub's
+// reported spelling merely differ in case. Every chain-identifier compare
+// in the pull-request and merge routes goes through this one function.
+function chainIdentifiersMatch(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.toLowerCase() === b.toLowerCase();
+}
+
 // The Account record projection is the whole response. Exactly these six
 // fields, nothing more: tests/api/account-invariant2.test.ts asserts the
 // key set, and a seventh field here would be a contract change.
@@ -4362,25 +4377,25 @@ export function createApp(
       // answers 409 naming the one fact that failed"). No fact here is
       // ever asserted by either party -- every one comes straight off
       // what GitHub itself reports on the PR object.
-      if (summary.baseRepoFullName !== current.repository) {
+      if (!chainIdentifiersMatch(summary.baseRepoFullName, current.repository)) {
         res.status(409).json({
           error: `the pull request's base repository (${summary.baseRepoFullName}) does not match this job's repository (${current.repository})`,
         });
         return;
       }
-      if (summary.headRepoOwner !== verifiedGithubLogin || !summary.headRepoIsFork) {
+      if (!chainIdentifiersMatch(summary.headRepoOwner, verifiedGithubLogin) || !summary.headRepoIsFork) {
         res.status(409).json({
           error: `the pull request's head repository must be a fork owned by the agent's verified GitHub login (${verifiedGithubLogin})`,
         });
         return;
       }
-      if (summary.authorLogin !== verifiedGithubLogin) {
+      if (!chainIdentifiersMatch(summary.authorLogin, verifiedGithubLogin)) {
         res.status(409).json({
           error: `the pull request's author (${String(summary.authorLogin)}) must be the agent's verified GitHub login (${verifiedGithubLogin})`,
         });
         return;
       }
-      if (summary.headSha !== current.stagedCommit) {
+      if (!chainIdentifiersMatch(summary.headSha, current.stagedCommit)) {
         res.status(409).json({
           error: `the pull request's head sha (${summary.headSha}) does not match the attested commit (${String(current.stagedCommit)})`,
         });
@@ -5012,7 +5027,7 @@ export function createApp(
       // commit; a closed or merged PR whose head moved records nothing
       // either, since a mismatch here means this was never the work the
       // platform attested to.
-      if (summary.headSha !== current.stagedCommit) {
+      if (!chainIdentifiersMatch(summary.headSha, current.stagedCommit)) {
         res.status(409).json({
           error: 'the pull request head moved off the attested commit',
           attested: current.stagedCommit,

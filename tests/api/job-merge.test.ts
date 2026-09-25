@@ -1066,6 +1066,29 @@ describe('job merge, head moved off the attested commit (STG2)', () => {
       await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
     }
   });
+
+  // QA round 1, defect 1 (HIGH): the same case-insensitive identity GitHub
+  // reports on a repository or login also applies to a commit sha -- an
+  // uppercase-attested sha, or a sha GitHub echoes back in different case
+  // than this service stored, is still the same commit, not a moved head.
+  it('does NOT flag the head as moved when the attested and reported sha differ only in case', async () => {
+    const fixture = createStagingLifecycleGithubFake();
+    const row = { ...submittedJob('j-head-case-only'), stagedCommit: 'COMMIT-SHA-1' };
+    registerMatchingPrFor(fixture, row.id, { state: 'open', headSha: 'commit-sha-1' });
+    const repo = new MemoryJobRepository();
+    await repo.create(row);
+    const scripted = await startWith(repo, fixture.github);
+    try {
+      const merge = await postSigned(`/jobs/${row.id}/merge`, {}, buyerIdentity, scripted.baseUrl);
+      // Still open (not merged), so this answers the existing "still
+      // open" 409 -- the point is it must NOT be the head-moved 409.
+      expect(merge.status).toBe(409);
+      const body = (await merge.json()) as Record<string, unknown>;
+      expect(body.error).toBe('pull request is open; it has not merged yet');
+    } finally {
+      await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
+    }
+  });
 });
 
 // R-12 (ENT-7.2): the unhappy outcomes, observed at the merge route. The

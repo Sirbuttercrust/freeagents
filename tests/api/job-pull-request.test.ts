@@ -633,6 +633,160 @@ describe('job pull-request, the P4 anchor and the five 409 facts (STG2)', () => 
       await new Promise<void>((resolve) => s.close(() => resolve()));
     }
   });
+
+  it('409s when the agent has a GitHub login on record that is not yet verified (the R-5 downgrade path)', async () => {
+    // Distinct from the null-login test above: this plants a login that IS
+    // present (agent.githubLogin !== null) but whose proofStatus dropped to
+    // unverified (account-proof's own R-5 downgrade, app.ts:2261, is one way
+    // this happens live). Deleting the proofStatus half of the guard at the
+    // route (app.ts:4343) would leave every other test in this file green,
+    // since they all plant a verified login or a null one -- this is the
+    // only test that pins the unverified-but-present case.
+    const fixture = createStagingLifecycleGithubFake();
+    const agentRepo = new MemoryAgentRepository();
+    await agentRepo.create({
+      did: agent.did,
+      operatorDid: 'did:abt:op-pr-unverified-login',
+      delegation: { fixture: true } as never,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: AGENT_GITHUB_LOGIN,
+    });
+    await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'unverified' });
+    const operatorRepo = new MemoryAccountRepository();
+    await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-pr-unverified-login' });
+    const jobRepo = new MemoryJobRepository();
+    const sessionAdapter = testSessionAdapter();
+    const app = createApp(
+      operatorRepo,
+      agentRepo,
+      undefined,
+      fixture.github,
+      jobRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+      undefined,
+      alwaysSettledGate(),
+      anyCommitStagingObserver(),
+    );
+    const s = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => s.once('listening', resolve));
+    const address = s.address();
+    if (address === null || typeof address === 'string') throw new Error('expected a port');
+    const scriptedBase = `http://127.0.0.1:${address.port}`;
+    try {
+      // Same shape as the null-login test: confirm would refuse an
+      // unverified agent, so this plants a job directly at staged to
+      // isolate the pull-request route's own check.
+      const draft = await openDraft('A job with an unverified agent login', scriptedBase);
+      const row = {
+        ...createJob(
+          { id: draft.jobId, buyerDid: buyer.did, agentDid: agent.did, repository: REPOSITORY, brief: 'x' },
+          new Date(),
+        ),
+        status: 'staged' as JobStatus,
+        criteria: [{ text: 'x', proposedBy: 'agent' as const, acceptedByBuyer: true, acceptedByAgent: true }],
+        priceUsd: '100.00',
+        rail: 'abt' as const,
+        priceAcceptedByBuyer: true,
+        priceAcceptedByAgent: true,
+        confirmedSpecHash: 'sha256:' + 'a'.repeat(64),
+        confirmedAt: new Date(),
+        stagedCommit: 'commit-sha-1',
+        stagedAt: new Date(),
+        stagingRepo: { owner: 'freeagents-platform', repo: `staging-${draft.jobId}` },
+        baseCommit: 'base-sha',
+      };
+      await jobRepo.update(row as Job);
+      const { url } = registerAgentForkPullRequest(fixture, {
+        repository: REPOSITORY,
+        jobId: draft.jobId,
+        stagedCommit: 'commit-sha-1',
+        agentLogin: AGENT_GITHUB_LOGIN,
+      });
+      const res = await postSigned(`/jobs/${draft.jobId}/pull-request`, { pullRequestUrl: url }, agent, scriptedBase);
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toContain('verified GitHub login');
+    } finally {
+      await new Promise<void>((resolve) => s.close(() => resolve()));
+    }
+  });
+
+  // HIGH defect, QA round 1: GitHub reports owner, repo and login in ITS
+  // OWN canonical case, case-insensitively, regardless of how POST /jobs,
+  // account-proof or stage stored the caller's original spelling. An exact
+  // !== compare on repository, login or head sha refuses an honest PR
+  // forever on a paid job whose stored spelling and GitHub's reported
+  // spelling merely differ in case. Each of the three facts gets its own
+  // case-flipped test; the fourth fact (open/closed state, the Job:
+  // trailer) has no analogous case-identity concern.
+  it('matches the base repository case-insensitively (GitHub reports canonical case, the job stored the caller\'s spelling)', async () => {
+    const fixture = createStagingLifecycleGithubFake();
+    ({ server, baseUrl } = await startWith(new MemoryJobRepository(), fixture.github));
+    try {
+      const { jobId } = await freshJob();
+      const { url } = registerAgentForkPullRequest(fixture, {
+        repository: REPOSITORY.toUpperCase(),
+        jobId,
+        stagedCommit: 'commit-sha-1',
+        agentLogin: AGENT_GITHUB_LOGIN,
+      });
+      const res = await postSigned(`/jobs/${jobId}/pull-request`, { pullRequestUrl: url }, agent);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.status).toBe('submitted');
+    } finally {
+      server.close();
+    }
+  });
+
+  it('matches the fork owner and PR author case-insensitively (GitHub reports the login in its own canonical case)', async () => {
+    const fixture = createStagingLifecycleGithubFake();
+    ({ server, baseUrl } = await startWith(new MemoryJobRepository(), fixture.github));
+    try {
+      const { jobId } = await freshJob();
+      const { url } = registerAgentForkPullRequest(fixture, {
+        repository: REPOSITORY,
+        jobId,
+        stagedCommit: 'commit-sha-1',
+        agentLogin: AGENT_GITHUB_LOGIN,
+        headRepoOwner: AGENT_GITHUB_LOGIN.toUpperCase(),
+        authorLogin: AGENT_GITHUB_LOGIN.toUpperCase(),
+      });
+      const res = await postSigned(`/jobs/${jobId}/pull-request`, { pullRequestUrl: url }, agent);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.status).toBe('submitted');
+    } finally {
+      server.close();
+    }
+  });
+
+  it('matches the head sha case-insensitively (GitHub resolves an uppercase SHA and reports it back in lower case)', async () => {
+    const fixture = createStagingLifecycleGithubFake();
+    ({ server, baseUrl } = await startWith(new MemoryJobRepository(), fixture.github));
+    try {
+      const { jobId } = await freshJob();
+      const { url } = registerAgentForkPullRequest(fixture, {
+        repository: REPOSITORY,
+        jobId,
+        stagedCommit: 'commit-sha-1',
+        agentLogin: AGENT_GITHUB_LOGIN,
+        headSha: 'COMMIT-SHA-1',
+      });
+      const res = await postSigned(`/jobs/${jobId}/pull-request`, { pullRequestUrl: url }, agent);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.status).toBe('submitted');
+    } finally {
+      server.close();
+    }
+  });
 });
 
 // The github-failure and corrupted-state legs need servers whose storage or
