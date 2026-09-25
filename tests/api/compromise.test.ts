@@ -438,6 +438,7 @@ describe('POST /agents/:agentDid/compromise-report and GET .../compromise-report
       updateGithubBinding: (did, input) => baseAgents.updateGithubBinding(did, input),
       recordKeyRotation: (did, input) => baseAgents.recordKeyRotation(did, input),
       setAvatarSpec: (did, avatarSpec) => baseAgents.setAvatarSpec(did, avatarSpec),
+      setNegotiatesOnOwnersBehalf: (did, flag) => baseAgents.setNegotiatesOnOwnersBehalf(did, flag),
     };
     return createApp(
       overrides.accountRepo ?? new MemoryAccountRepository(),

@@ -506,7 +506,7 @@ describe('7. the access list renders into the component its sheet styles', () =>
 
       rows.forEach((el) => {
         expect(el.querySelector('.what')?.textContent ?? '').not.toBe('');
-        expect(el.querySelector('.where')?.textContent ?? '').toMatch(/^(GET|POST) \//);
+        expect(el.querySelector('.where')?.textContent ?? '').toMatch(/^(GET|POST|PUT) \//);
       });
 
       // The reason is the service's own sentence, so at least one row must

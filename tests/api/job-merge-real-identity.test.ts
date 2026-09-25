@@ -116,6 +116,7 @@ async function startApp(): Promise<{
     name: 'scout',
     skills: ['triage'],
     githubLogin: 'scout-h1-real-identity',
+    negotiatesOnOwnersBehalf: true,
   });
   await agentRepo.updateGithubBinding(agentIdentity.did, { handle: 'scout-h1-real-identity', status: 'verified' });
   const operatorRepo = new MemoryAccountRepository();
@@ -232,6 +233,7 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
       name: 'scout',
       skills: ['triage'],
       githubLogin: 'scout-h1-mutation',
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.updateGithubBinding(agentIdentity.did, { handle: 'scout-h1-mutation', status: 'verified' });
     const operatorRepo = new MemoryAccountRepository();

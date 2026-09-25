@@ -65,6 +65,7 @@ async function startApp(settlementGate: MemorySettlementGate, github?: GithubAda
     name: 'scout',
     skills: ['triage'],
     githubLogin: AGENT_GITHUB_LOGIN,
+    negotiatesOnOwnersBehalf: true,
   });
   await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
   const jobRepo = new MemoryJobRepository();

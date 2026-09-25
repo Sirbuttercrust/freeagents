@@ -217,6 +217,7 @@ describe('GET /agents/:agentDid/credentials, storage branches', () => {
       updateGithubBinding: (did, input) => baseAgents.updateGithubBinding(did, input),
       recordKeyRotation: (did, input) => baseAgents.recordKeyRotation(did, input),
       setAvatarSpec: (did, avatarSpec) => baseAgents.setAvatarSpec(did, avatarSpec),
+      setNegotiatesOnOwnersBehalf: (did, flag) => baseAgents.setNegotiatesOnOwnersBehalf(did, flag),
     };
     return createApp(
       new MemoryAccountRepository(),

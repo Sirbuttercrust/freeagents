@@ -102,6 +102,7 @@ describe('POST /jobs/:jobId/confirm: an agent with no verified GitHub login (B28
       name: 'scout',
       skills: ['triage'],
       githubLogin: null,
+      negotiatesOnOwnersBehalf: true,
     });
     const { server, baseUrl } = await startApp(agentRepo);
     try {
@@ -124,6 +125,7 @@ describe('POST /jobs/:jobId/confirm: an agent with no verified GitHub login (B28
       name: 'scout',
       skills: ['triage'],
       githubLogin: 'scout-confirm-github',
+      negotiatesOnOwnersBehalf: true,
     });
     // create() alone leaves proofStatus 'unverified' (memory.ts's own
     // default): a login name is present, but nothing has proved it yet.

@@ -101,6 +101,7 @@ describe('DID-signed hire-loop routes (R-34)', () => {
       name: 'scout',
       skills: ['triage'],
       githubLogin: 'scout-signed-routes',
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-signed-routes', status: 'verified' });
     // stranger is a registered agent DID -- registered, but not a party to
@@ -113,6 +114,7 @@ describe('DID-signed hire-loop routes (R-34)', () => {
       name: 'stranger',
       skills: ['triage'],
       githubLogin: 'stranger-signed-routes',
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.updateGithubBinding(stranger.did, { handle: 'stranger-signed-routes', status: 'verified' });
 

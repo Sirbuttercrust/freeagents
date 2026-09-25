@@ -149,6 +149,7 @@ describe('POST /jobs/:jobId/confirm: a path-one (session-verified) agent clears 
         name: 'scout',
         skills: ['triage'],
         githubLogin: sessionLogin,
+        negotiatesOnOwnersBehalf: true,
       },
       authHeader,
     );

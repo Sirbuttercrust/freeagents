@@ -249,6 +249,7 @@ describe('POST /jobs/:jobId/merge, G1 path one, invariant 2: a third party still
         name: 'scout',
         skills: ['triage'],
         githubLogin: sessionLogin,
+        negotiatesOnOwnersBehalf: true,
       },
       authHeader,
     );

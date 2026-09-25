@@ -153,6 +153,7 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
       name: 'scout',
       skills: ['triage'],
       githubLogin: 'scout-merge-invariant2',
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.updateGithubBinding(agentDid, { handle: 'scout-merge-invariant2', status: 'verified' });
 

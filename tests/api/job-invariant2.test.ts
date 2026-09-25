@@ -162,6 +162,7 @@ describe('job draft, invariant 2 (R-28): the brief hash is verifiable off-platfo
       delegation: await signW3CDelegation(operatorWallet, agentWallet),
       name: 'scout',
       skills: ['triage'],
+      negotiatesOnOwnersBehalf: true,
     }, await signingIdentityFromWallet(operatorWallet));
     expect(delegated.status).toBe(201);
   });
@@ -322,6 +323,7 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
       delegation: await signW3CDelegation(operatorWallet, agentWallet),
       name: 'scout',
       skills: ['triage'],
+      negotiatesOnOwnersBehalf: true,
     }, operatorIdentity);
     expect(delegated.status).toBe(201);
     await agentRepo.updateGithubBinding(agentWallet.toDid(), { handle: 'scout-outcome-inv2', status: 'verified' });

@@ -516,6 +516,7 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       updateGithubBinding: (did, input) => base.updateGithubBinding(did, input),
       recordKeyRotation: (did, input) => base.recordKeyRotation(did, input),
       setAvatarSpec: (did, avatarSpec) => base.setAvatarSpec(did, avatarSpec),
+      setNegotiatesOnOwnersBehalf: (did, flag) => base.setNegotiatesOnOwnersBehalf(did, flag),
     };
     const app = createApp(accountRepo, repo);
     await withApp(app, async (url) => {
@@ -549,6 +550,7 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       updateGithubBinding: (did, input) => base.updateGithubBinding(did, input),
       recordKeyRotation: () => Promise.reject(new Error('db down')),
       setAvatarSpec: (did, avatarSpec) => base.setAvatarSpec(did, avatarSpec),
+      setNegotiatesOnOwnersBehalf: (did, flag) => base.setNegotiatesOnOwnersBehalf(did, flag),
     };
     const app = createApp(accountRepo, repo);
     await withApp(app, async (url) => {
@@ -588,6 +590,7 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       updateGithubBinding: (did, input) => base.updateGithubBinding(did, input),
       recordKeyRotation: () => Promise.resolve(null),
       setAvatarSpec: (did, avatarSpec) => base.setAvatarSpec(did, avatarSpec),
+      setNegotiatesOnOwnersBehalf: (did, flag) => base.setNegotiatesOnOwnersBehalf(did, flag),
     };
     const app = createApp(accountRepo, repo);
     await withApp(app, async (url) => {

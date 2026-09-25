@@ -153,6 +153,7 @@ export class MemoryAgentRepository implements AgentRepository {
       minBuyerMerges: input.minBuyerMerges ?? null,
       maxWalkedAfterConfirm: input.maxWalkedAfterConfirm ?? null,
       avatarSpec: null,
+      negotiatesOnOwnersBehalf: input.negotiatesOnOwnersBehalf ?? false,
     };
     this.rows.set(input.did, row);
     return row;
@@ -210,6 +211,16 @@ export class MemoryAgentRepository implements AgentRepository {
     const row = this.rows.get(did);
     if (row === undefined) return null;
     const updated: Agent = { ...row, avatarSpec };
+    this.rows.set(did, updated);
+    return updated;
+  }
+
+  // HT1 (ruling, 2026-09-25): overwrites the stored negotiation flag, the
+  // same overwrite shape setAvatarSpec above takes.
+  async setNegotiatesOnOwnersBehalf(did: string, negotiatesOnOwnersBehalf: boolean): Promise<Agent | null> {
+    const row = this.rows.get(did);
+    if (row === undefined) return null;
+    const updated: Agent = { ...row, negotiatesOnOwnersBehalf };
     this.rows.set(did, updated);
     return updated;
   }
