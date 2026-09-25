@@ -65,11 +65,11 @@
   }
 
   function renderWho(agentDid, agent) {
-    var name = typeof agent.name === "string" && agent.name !== "" ? agent.name : agent.did;
+    var name = A.agentName(agent);
     A.setTextById("agent-name", name);
     var nameEl = A.el("agent-name");
     if (nameEl) nameEl.removeAttribute("data-pending");
-    document.title = "Hire " + name + ": FreeAgents";
+    document.title = (name === A.UNNAMED_AGENT ? "Hire this agent" : "Hire " + name) + ": FreeAgents";
 
     /* THE AVATAR (AV2). bots.js (window.FABots) draws the bot this read's
        avatarSpec names, the operator's choice or the DID default. Mounted
@@ -83,14 +83,11 @@
     /* The operator line is REVEALED BY ITS VALUE, never shipped visible
        and filled in later: an agent whose record carries no operatorDid
        would otherwise leave "operated by" standing over an anchor with no
-       destination and no text. */
-    var operatorRow = A.el("operated-by");
-    var operatorLink = A.el("operator-link");
-    if (operatorRow && operatorLink && typeof agent.operatorDid === "string" && agent.operatorDid !== "") {
-      operatorLink.setAttribute("href", "/accounts/" + encodeURIComponent(agent.operatorDid));
-      A.setText(operatorLink, A.shortDid(agent.operatorDid));
-      A.show(operatorRow, true);
-    }
+       destination and no text. S1: named in words (A.nameOperator), never
+       the DID; the exact identities sit in the technical details. */
+    A.nameOperator("operated-by", "operator-link", agent.operatorDid);
+    A.techIdentity("tech-agent-did-wrap", "tech-agent-did", agentDid);
+    A.techIdentity("tech-operator-did-wrap", "tech-operator-did", agent.operatorDid);
 
     var profileHref = "/agents/" + encodeURIComponent(agentDid);
     var back = A.el("back-to-profile");

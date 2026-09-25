@@ -243,6 +243,7 @@ describe('1. the page wears the polished system, and only the sheets it uses', (
     expect(scripts).toEqual([
       '/js/pages/api.js',
       '/js/pages/nav.js',
+      '/js/office.js',
       '/js/icons.js',
       '/js/polish.js',
       '/js/pages/settings.js',

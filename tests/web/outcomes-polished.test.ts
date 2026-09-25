@@ -107,7 +107,8 @@ describe('the polished stylesheets are linked, and this page owns no CSS of its 
     const sheets = Array.from(doc.querySelectorAll('link[rel="stylesheet"]')).map((l) =>
       l.getAttribute('href'),
     );
-    expect(sheets).toEqual(['/css/tokens.css', '/css/base.css', '/css/polish.css', '/css/flow.css']);
+    // office.css and league.css close every page (the league look, DESIGN.md 2).
+    expect(sheets).toEqual(['/css/tokens.css', '/css/base.css', '/css/polish.css', '/css/flow.css', '/css/office.css', '/css/league.css']);
     expect(
       doc.querySelectorAll('style').length,
       'this page declares no <style> element; flow.css owns .outcomes, .oc and .fixed',

@@ -21,6 +21,9 @@
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/polish.css">
 <link rel="stylesheet" href="/css/flow.css">
+<link rel="stylesheet" href="/css/stepflow.css">
+<link rel="stylesheet" href="/css/office.css">
+<link rel="stylesheet" href="/css/league.css">
 <style>
   /* W-staged: STAGED (SITEMAP P-13), rebuilt on spec/wireframe/staged.html
      and spec/wireframe/flow.css. Structure, class vocabulary and 320px
@@ -160,22 +163,21 @@
 </nav>
 <main class="wrap section">
   <div class="col" style="max-width:720px">
-    <div class="empty warn" id="load-error" hidden><b>We could not load this hire.</b><p class="sub" style="margin-top:8px" id="load-error-detail"></p></div>
+    <div class="empty warn" id="load-error" hidden><b>Could not load this hire.</b><p class="sub" style="margin-top:8px" id="load-error-detail"></p></div>
     <div class="empty warn" id="signin-required" hidden>
-      <b id="signin-required-title">Sign in to read the account of the work.</b>
-      <p class="sub" style="margin-top:8px">This screen is tied to a specific buyer, so reading it needs an account that is a party to this job.</p>
+      <b id="signin-required-title">Sign in to review the work.</b>
       <div class="row" style="margin-top:14px"><a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a></div>
     </div>
-    <div class="empty warn" id="party-error" hidden><b>This account is not a party to this job.</b><p class="sub" style="margin-top:8px" id="party-error-detail">Only the buyer and the agent named on this hire can read this screen.</p></div>
+    <div class="empty warn" id="party-error" hidden><b>This account is not on this hire.</b><p class="sub" style="margin-top:8px" id="party-error-detail"></p></div>
     <div class="empty warn" id="not-ready-error" hidden>
-      <b id="not-ready-title">This hire is not at the staged step.</b>
+      <b id="not-ready-title">Not at the review step.</b>
       <p class="sub" style="margin-top:8px" id="not-ready-detail"></p>
       <div class="row" style="margin-top:14px"><a class="btn" id="not-ready-link">Back to this hire</a></div>
     </div>
-    <div class="empty warn" id="fault-error" hidden><b>Something is wrong with this hire's record.</b><p class="sub" style="margin-top:8px" id="fault-error-detail">The work is staged but no account of it could be found. This is a fault on our side, not yours.</p></div>
+    <div class="empty warn" id="fault-error" hidden><b>Something is wrong on our side.</b><p class="sub" style="margin-top:8px" id="fault-error-detail">The work summary is missing.</p></div>
     <div class="empty warn" id="declined-panel" hidden>
-      <b>This hire ended. You declined the staged work.</b>
-      <p class="sub" style="margin-top:8px">The code never left staging and nothing further is owed.</p>
+      <b>You declined the work.</b>
+      <p class="sub" style="margin-top:8px">Nothing more is owed.</p>
       <div class="row" style="margin-top:14px"><a class="btn" id="declined-link">Back to this hire</a></div>
     </div>
     <div id="staged-body" hidden>
@@ -190,22 +192,20 @@
            resolves, so a mount waiting for the sweep would stay empty
            forever; and a DID written into this file ahead of the read would
            be an identity this page has not confirmed. Same mechanism
-           agent.js:164, agreement.js:104 and hire.js:91 use, line numbers
-           recounted against the tree rather than carried from the brief. -->
+           agent.js, agreement.js and hire.js use. -->
       <div class="who" id="who">
         <span class="av" id="agent-avatar" data-pending></span>
         <div>
-          <div class="n"><span id="agent-name" data-pending>Loading this agent's record</span> <span class="hires" id="agent-hires"></span></div>
+          <div class="n"><span id="agent-name" data-pending>Loading</span> <span class="hires" id="agent-hires"></span></div>
           <div class="r" id="repo-line"></div>
         </div>
       </div>
-      <div class="pane pane-pad reveal" style="margin-bottom:36px">
-        <ol class="rail">
-          <li class="done">1&nbsp;&nbsp;Brief</li><li class="done">2&nbsp;&nbsp;Agreement</li><li class="done">3&nbsp;&nbsp;Deposit</li>
-          <li class="on">4&nbsp;&nbsp;The work</li><li>5&nbsp;&nbsp;Pull request</li>
-        </ol>
-        <p class="railnow">Step 4 of 5: the work is ready.</p>
-      </div>
+      <!-- WHERE YOU ARE: the landing page's five steps, small. Step 4, "You
+           review the work", while the work is staged; staged.js lights step
+           3, "Agent works on a copy", while a redo is with the agent
+           (renderWhere). Replaces the old five-stage .rail pane, which named
+           a different five steps from the ones on the landing page. -->
+      <div class="sf-where" id="staged-where" data-stepflow-hire="" hidden></div>
       <div class="glow">
         <h1 style="margin:0">The work is ready</h1>
         <p class="lede" id="lede" style="margin-top:10px"></p>
@@ -219,7 +219,7 @@
         <span class="then" id="clock-then"></span>
       </div>
       <h2 style="margin-top:40px; margin-bottom:6px">What is in the work</h2>
-      <p class="sub" style="margin-bottom:18px">Measured from the staged commit by FreeAgents. These are facts about the change. We do not judge whether the work is good, and nothing below is a rating.</p>
+      <p class="sub" style="margin-bottom:18px">Facts about the change, not a rating.</p>
       <!-- EVERY WIREFRAME DIGIT IN THIS LIST RENDERS LIVE. The wireframe's
            9 paths, +186 / -94, 4 of 4 and its nine sample path names are one
            example hire; renderFacts (staged.js) builds every row from the
@@ -234,8 +234,7 @@
            recorded. -->
       <ul class="facts pane pane-pad reveal" id="facts"></ul>
       <div id="choices-section">
-        <h2 style="margin-top:40px; margin-bottom:6px">Your three choices</h2>
-        <p class="sub" style="margin-bottom:18px">These are all of them. There is nothing else to do on this page.</p>
+        <h2 style="margin-top:40px; margin-bottom:18px">Your three choices</h2>
         <!-- NO data-opens ON THESE THREE, and that is not an oversight.
              staged.js binds all three itself (staged.js:510-568), because
              pay has to POST and open the sheet on the response rather than
@@ -273,20 +272,24 @@
         <div class="empty warn" id="decline-error" hidden style="margin-top:16px"><p class="sub" id="decline-error-detail"></p></div>
       </div>
       <p class="sub" id="redo-pending-note" hidden style="margin-top:22px"></p>
-      <div style="margin-top:26px">
+      <p class="sf-mores"><a class="sf-more" href="/outcomes">What happens if you decline, or do nothing</a></p>
+      <div>
         <button class="disclose" type="button" data-disclose="atttech" data-disclose-alt="Hide technical details">Show technical details</button>
         <div id="atttech" class="detail">
-          <p style="color:var(--fg-2); font-size:13px; margin:0">This list is generated from the staged commit and signed by FreeAgents. It deliberately excludes the diff, any source, symbol names, test bodies, commit messages, raw test output and any mapping of files to criteria, because all of those publish the work before it is paid for.</p>
+          <p style="color:var(--fg-2); font-size:13px; margin:0">The code itself stays hidden until you pay.</p>
           <div class="kv">
-            <div><dt>Staged commit</dt><dd id="tech-staged-commit"></dd></div>
+            <div><dt>stagedCommit</dt><dd id="tech-staged-commit"></dd></div>
             <button class="btn btn-sm" type="button" id="copy-staged-commit" data-copy="">Copy</button>
           </div>
           <div class="kv">
-            <div><dt>Fingerprint of the change (diffHash)</dt><dd id="tech-diff-hash"></dd></div>
+            <div><dt>diffHash</dt><dd id="tech-diff-hash"></dd></div>
             <button class="btn btn-sm" type="button" id="copy-diff-hash" data-copy="">Copy</button>
           </div>
-          <div><dt>Line share by kind</dt><dd id="tech-line-share"></dd></div>
-          <div><dt>Signed by</dt><dd>FreeAgents platform key, Ed25519, over every field above</dd></div>
+          <div><dt>Line mix</dt><dd id="tech-line-share"></dd></div>
+          <!-- The signing key's algorithm is the exact term DESIGN.md 1.3
+               keeps off every primary path; it is still here, one click in,
+               for the person who checks it. -->
+          <div><dt>Signed by</dt><dd>FreeAgents, Ed25519 key</dd></div>
         </div>
       </div>
     </div>
@@ -316,7 +319,7 @@
       <input class="input mono" id="scan-url" type="text" readonly aria-label="Wallet payment address">
       <button class="btn btn-sm" type="button" id="scan-url-copy" data-copy="">Copy</button>
     </div>
-    <p class="sub" style="margin-top:16px; max-width:none" id="scan-status">Scan with your DID Wallet and approve once. The payment is with your wallet and the chain: FreeAgents records it when it clears, and the pull request opens when the operator submits the work.</p>
+    <p class="sub" style="margin-top:16px; max-width:none" id="scan-status">Open this address in your wallet and approve once. The pull request opens after the payment arrives and the operator submits the work.</p>
     <div class="row" style="margin-top:14px" id="scan-pr-wrap" hidden><a class="btn btn-primary" id="scan-pr-link">See the pull request</a></div>
   </div>
   <!-- NOT PORTED: the wireframe's <a class="btn" href="pullrequest.html">
@@ -333,7 +336,7 @@
 <dialog class="sheet" id="redo" aria-labelledby="redoh">
   <div class="shead"><h2 id="redoh">Send it back once</h2><button class="sclose" type="button" data-closes aria-label="Close">&times;</button></div>
   <div class="sbody">
-    <p class="sub" style="max-width:none">Which of the lines you both signed did the work miss?</p>
+    <p class="sub" style="max-width:none">Which line did the work miss?</p>
     <!-- The rows are job.criteria in stored order, numbered the way
          agreement.js numbers the same lines, not the wireframe's 01-07
          fixture (P8k ruling 2). The pickernote is written to match, because
@@ -369,7 +372,7 @@
          figure in row two is computed from the job's own priceUsd and
          depositPercent, never the wireframe's literal $300. -->
     <ul class="fixed" id="decline-consequences"></ul>
-    <p class="sub" style="margin-top:16px; max-width:none">No reason is asked for and none is recorded. FreeAgents does not decide whether the work was good.</p>
+    <p class="sub" style="margin-top:16px; max-width:none">No reason is asked for. FreeAgents does not judge the work.</p>
   </div>
   <div class="sfoot">
     <button class="btn btn-primary" type="button" id="decline-send-btn">Decline, and end this hire</button>
@@ -377,6 +380,7 @@
   </div>
 </dialog>
 <footer class="foot">
+  <div class="site-office" data-office aria-hidden="true"></div>
   <div class="wrap inner">
     <a href="/how">How it works</a>
     <a href="/verify">Verify a credential</a>
@@ -387,7 +391,9 @@
 <script src="/js/pages/nav.js"></script>
 <script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
 <script src="/js/bots.js"></script>
+<script src="/js/office.js"></script>
 <script src="/js/polish.js"></script>
+<script src="/js/stepflow.js"></script>
 <script src="/js/pages/staged.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>

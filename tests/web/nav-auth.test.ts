@@ -474,7 +474,7 @@ describe('the Settings link (P8v ruling 7): one implementation in nav.js, absent
 });
 
 
-describe('at 320px the nav bar does not overflow and a tap on My agents reaches the link (P8n repair, D1)', () => {
+describe('at 320px the nav bar does not overflow, and in the open menu a tap on My agents reaches the link (P8n repair, D1)', () => {
   it('documentElement does not scroll sideways and a click at the link centre navigates instead of hitting sign-out', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
@@ -503,6 +503,42 @@ describe('at 320px the nav bar does not overflow and a tap on My agents reaches 
         ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth })
       `);
       expect(overflow.scrollWidth, 'the 320px nav bar must not scroll sideways').toBe(overflow.clientWidth);
+
+      // The league look folds the links behind one menu button below 761px
+      // (DESIGN.md 5, nav.js wireMenu). The closed bar hides them; the open
+      // menu is the state a phone user taps in, so that is the state tested.
+      const menu = await browser.evaluate<{ expanded: string | null; linksShown: boolean; w: number; h: number }>(`
+        (function () {
+          var btn = document.querySelector('nav.nav .menu');
+          var before = getComputedStyle(document.getElementById('nav-links') || document.querySelector('nav.nav .links')).display;
+          var r = btn.getBoundingClientRect();
+          btn.click();
+          var links = document.querySelector('nav.nav .links');
+          return {
+            expanded: btn.getAttribute('aria-expanded'),
+            linksShown: before === 'none' && getComputedStyle(links).display !== 'none',
+            w: r.width, h: r.height,
+          };
+        })()
+      `);
+      expect(menu.expanded, 'the menu button reports itself open').toBe('true');
+      expect(menu.linksShown, 'links are folded while closed and shown once open').toBe(true);
+      expect(Math.min(menu.w, menu.h), 'the menu button is a 44px tap target').toBeGreaterThanOrEqual(44);
+
+      const open = await browser.evaluate<{ scrollWidth: number; clientWidth: number; smallest: number }>(`
+        (function () {
+          var hs = Array.prototype.map.call(document.querySelectorAll('nav.nav .links a'), function (a) {
+            return a.getBoundingClientRect().height;
+          });
+          return {
+            scrollWidth: document.documentElement.scrollWidth,
+            clientWidth: document.documentElement.clientWidth,
+            smallest: Math.min.apply(null, hs),
+          };
+        })()
+      `);
+      expect(open.scrollWidth, 'the open 320px menu must not scroll sideways').toBe(open.clientWidth);
+      expect(open.smallest, 'every link in the open menu is at least 44px tall').toBeGreaterThanOrEqual(44);
 
       const tap = await browser.evaluate<{ hitId: string; sessionAfter: boolean; pathnameAfter: string }>(`
         (function () {

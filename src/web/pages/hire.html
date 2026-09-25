@@ -20,6 +20,9 @@
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/stepflow.css">
+<link rel="stylesheet" href="/css/office.css">
+<link rel="stylesheet" href="/css/league.css">
 <style>
   /* W-hire: THE BRIEF, rebuilt on spec/wireframe/hire.html (SITEMAP P-10,
      ENT-4). Structure, copy, class vocabulary, colour and 320px behaviour
@@ -99,30 +102,12 @@
      NOT RENDERED: the wireframe's div.note block (lines 217 to 273). Those
      are builder notes written to the reader of the spec, not page copy. */
 
-  /* .steps: the five-stage rail, spec/wireframe/hire.html:40-50. Ported into
-     a page-local block because base.css's own .steps is a DIFFERENT
-     component (a spaced text rail with <b> numbers) and a page-local rule
-     wins at equal specificity on source order. .done is not ported: step 1
-     is the only state this screen has.
-
-     THE CURRENT STEP IS --fg, NOT --accent. "You are on step 1" is
-     navigation state, not witnessed work, so under DESIGN.md 2.2 it has no
-     claim on the reserved colour. */
-  .steps { display: flex; gap: 0; margin: 0; list-style: none; padding: 0; }
-  .steps li {
-    flex: 1; font-size: 12px; color: var(--fg-3);
-    padding-top: 12px; border-top: 2px solid var(--line);
-    font-family: var(--mono); letter-spacing: 0.02em;
-  }
-  .steps li.on { color: var(--fg); border-top-color: var(--fg); }
-
-  /* Under 640px the rail collapses to five rules and .railnow carries the
-     step in real text, so nothing is lost, including for a screen reader.
-     Both halves live here because flow.css, where the wireframe's own
-     .railnow rule sits, is not one of this page's stylesheets. */
-  @media (max-width: 640px) { .steps li { font-size: 0; padding-top: 8px; } }
-  .railnow { display: none; font-size: 13px; color: var(--fg-2); margin-top: 12px; }
-  @media (max-width: 640px) { .railnow { display: block; } }
+  /* S1 (the hire journey, simple): the five-stage .steps rail and its
+     .railnow line are gone from this page, and so is the .draftflag block.
+     The rail became the landing page's step diagram, small, with step 2
+     lit (stepflow.css's .sf-where, drawn by stepflow.js), so the buyer
+     sees the same five steps on every page of the hire. The draft
+     statement became the second sentence of the lede. */
 
   /* .who: the agent/operator strip, spec/wireframe/hire.html:55-61. The
      420px wrap is this build's addition: the wireframe's strip holds a
@@ -148,19 +133,13 @@
      specificity, and a page-local rule wins on source order. */
   textarea.input { min-height: 150px; resize: vertical; line-height: 1.55; font-family: var(--font); }
 
-  /* spec/wireframe/hire.html:63-66, verbatim. */
-  .draftflag {
-    font-family: var(--mono); font-size: 12px; color: var(--fg-3);
-    border-left: 2px solid var(--line-2); padding-left: 12px; margin: 24px 0;
-  }
-
   /* The two guard sentences, rendered only once a guard has fired, so each
      is a field's error state and takes polish.css's --bad.
 
      NOT wired to polish.css's .field.is-bad pair, which reddens the input
      and EVERY .hint in the field at once. The brief's field carries a
-     standing guidance hint ("Length is a guide, not a gate") that is not the
-     fault and must not turn red under the error beneath it. */
+     standing guidance hint ("Length is a guide, not a limit") that is not
+     the fault and must not turn red under the error beneath it. */
   .field-error { font-size: 12.5px; color: var(--bad); margin-top: 8px; }
 
   /* THE 44px FLOOR ON THIS PAGE'S OWN REAL CONTROLS, UNCONDITIONAL.
@@ -204,13 +183,13 @@
 </nav>
 
 <!-- NO INNER COLUMN, AND `section` IS ON AN INNER DIV, NOT ON .wrap.
-     The wireframe puts this page's content directly in <main class="wrap">,
+     The wireframe puts this page's content directly in the main element (class "wrap"),
      so the .who strip, the rail pane and both fields take the full measure
      and the lede caps itself at 56ch through base.css. The page this
      replaces declared a page-local .col at 640px, narrower than the design
      and a private copy of a shared name besides. base.css's own .narrow is
      not the fix either: it sets a max-width with no margin, so it pins the
-     column against the left edge. Measured at 1280 with .narrow on <main>:
+     column against the left edge. Measured at 1280 with .narrow on the main element:
      the column sat at x=0, 640px wide, with the other 640px of the viewport
      empty beside it.
 
@@ -218,7 +197,7 @@
      measurable. base.css declares `.wrap { padding: 0 32px }` at line 57 and
      `.section { padding: 56px 0 }` at line 61: one class each, so they tie
      on specificity and the later rule wins outright, zeroing the horizontal
-     gutter. Measured at 1280 with both classes on <main>: the pane came back
+     gutter. Measured at 1280 with both classes on the main element: the pane came back
      1080 wide against the wireframe's 1016, flush to the edge with no
      gutter, and the 320px case hid it because base.css's own 420px rule
      comes later still and restores the padding. On an inner div `.section`
@@ -227,16 +206,12 @@
   <div class="section">
 
   <div class="empty warn" id="load-error" hidden>
-    <b>We could not confirm who you would be hiring.</b>
+    <b>We could not load this agent.</b>
     <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
   </div>
 
   <div class="empty warn" id="signin-required" hidden>
     <b>Sign in to hire an agent.</b>
-    <p class="sub" style="margin-top:8px">
-      A brief you send needs to be traceable to an account, so this
-      platform knows who to notify when the agent answers it.
-    </p>
     <div class="row" style="margin-top:14px">
       <a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a>
     </div>
@@ -251,41 +226,40 @@
     <div class="who" id="who">
       <span class="av" id="agent-avatar" data-pending></span>
       <div>
-        <div class="n" id="agent-name" data-pending>Loading this agent's record</div>
+        <div class="n" id="agent-name" data-pending>Loading</div>
         <div class="r" id="operated-by" hidden>operated by <a id="operator-link"></a></div>
       </div>
       <span class="spacer"></span>
       <a class="btn btn-sm" id="back-to-profile">Back to profile</a>
     </div>
 
-    <div class="pane pane-pad reveal" style="margin-bottom:36px">
-      <ol class="steps">
-        <li class="on">1&nbsp;&nbsp;Brief</li>
-        <li>2&nbsp;&nbsp;Agreement</li>
-        <li>3&nbsp;&nbsp;Deposit</li>
-        <li>4&nbsp;&nbsp;The work</li>
-        <li>5&nbsp;&nbsp;Pull request</li>
-      </ol>
-      <p class="railnow">Step 1 of 5: the brief.</p>
-    </div>
+    <!-- WHERE YOU ARE: the landing page's five steps, small, step 2 lit.
+         Choosing this agent was step 1; the brief opens step 2, agreeing
+         the job. stepflow.js draws it from its own HIRE_STEPS, the one
+         list every page in the journey shares. -->
+    <div class="sf-where" data-stepflow-hire="2"></div>
 
     <h1>What needs doing?</h1>
+    <!-- One line where there were two blocks. It carries the old lede
+         (the agent answers with a price and a delivery date) and the old
+         draft statement (ENT-4.1: nothing binds until both sides sign),
+         because a person reading either needs the other. -->
     <p class="lede">
-      Write it the way you would explain it to a colleague. The agent
-      turns this into a numbered agreement with a price and a delivery
-      date, and you read that before anything starts.
+      The agent replies with a price and a delivery date. Nobody owes
+      anything until you both sign.
     </p>
 
     <form id="hire-form" style="margin-top:28px">
       <div class="field">
         <label class="small" for="repo">Which repository</label>
         <input class="input" id="repo" type="text" placeholder="owner/name" autocomplete="off" spellcheck="false">
+        <!-- The field note departure 1 keeps, cut to what a person acts
+             on. "Type it exactly" is the whole of the old reason: no
+             endpoint lists a buyer's repositories, so there is no picker.
+             The write-access fact moved behind the link at the foot of the
+             form, where /how#limits states it with its reason. -->
         <p class="sub" style="margin-top:8px">
-          An owner/name pair on GitHub, like <span class="mono">buyer/target-repo</span>.
-          This build does not yet read the repository list from your
-          GitHub account, so type it exactly; a repository that does not
-          exist surfaces once work is staged, not here. FreeAgents never
-          asks for write access to your repository and cannot be given it.
+          Owner and name on GitHub, like <span class="mono">buyer/target-repo</span>. Type it exactly.
         </p>
         <p class="field-error" id="repo-error" hidden></p>
       </div>
@@ -299,32 +273,41 @@
              createJob rejects an empty brief and nothing else
              (src/domain/job.ts:266), so no length is claimed as a rule. -->
         <div class="between" style="margin-top:7px">
-          <span class="hint dim" style="font-size:12.5px">A brief is prose. Length is a guide, not a gate.</span>
+          <span class="hint dim" style="font-size:12.5px">Length is a guide, not a limit.</span>
           <span class="counter" id="c-brief"></span>
         </div>
         <p class="field-error" id="brief-error" hidden></p>
-      </div>
-
-      <div class="draftflag">
-        Sending creates a draft record of this request. Neither side owes
-        the other anything until both of you have signed the agreement.
       </div>
 
       <div class="empty warn" id="submit-error" hidden style="margin-bottom:16px">
         <p class="sub" id="submit-error-detail"></p>
       </div>
 
-      <div class="row" style="margin-top:8px">
+      <div class="row" style="margin-top:28px">
         <button class="btn btn-primary" type="submit" id="btn-send">Send the brief</button>
         <a class="btn" id="back-to-profile-bottom">Back to profile</a>
       </div>
+      <p class="sf-mores"><a class="sf-more" href="/how#limits">What FreeAgents never does with your code</a></p>
     </form>
+
+    <!-- The exact identities the strip above names in words (DESIGN.md
+         1.3: a did:abt string reads as a name on the surface and lives in a
+         detail panel, labelled). Filled by hire.js once the agent read
+         lands; each row hidden until it has a value. -->
+    <div style="margin-top:28px">
+      <button class="disclose" type="button" data-disclose="hiretech" data-disclose-alt="Hide technical details">Show technical details</button>
+      <div id="hiretech" class="detail">
+        <div id="tech-agent-did-wrap" hidden><dt>agentDid</dt><dd id="tech-agent-did"></dd></div>
+        <div id="tech-operator-did-wrap" hidden><dt>operatorDid</dt><dd id="tech-operator-did"></dd></div>
+      </div>
+    </div>
   </div>
 
   </div>
 </main>
 
 <footer class="foot">
+  <div class="site-office" data-office aria-hidden="true"></div>
   <div class="wrap inner">
     <a href="/how">How it works</a>
     <a href="/verify">Verify a credential</a>
@@ -336,7 +319,9 @@
 <script src="/js/pages/nav.js"></script>
 <script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
 <script src="/js/bots.js"></script>
+<script src="/js/office.js"></script>
 <script src="/js/polish.js"></script>
+<script src="/js/stepflow.js"></script>
 <script src="/js/pages/hire.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>

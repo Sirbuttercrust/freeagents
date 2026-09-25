@@ -2,8 +2,8 @@
 
    Every perch names a real element by id. Those ids are the contract between
    this file and the markup: #cluster, #headline, #how-title, #step-1..4,
-   #record, #evidence-title, #tier-1..3, #never-title, #refuse, #empty and
-   #foot-inner must exist on any page that loads this script. What is INSIDE
+   #record, #evidence-title, #tier-1..3, #never-title, #refuse and #empty
+   must exist on any page that loads this script. What is INSIDE
    them is free to change, which is the whole reason perches anchor to live
    rects instead of pixel numbers.
 
@@ -23,10 +23,38 @@
    lead, two quick small ones, one slow drifter, and one heavier one.
 
    SIZES ARE SET BY DRAWN MASS, NOT BY BOX SIZE. A bot fills about three
-   quarters of its box, so these numbers are the box. */
+   quarters of its box, so these numbers are the box.
+
+   THE LAST PERCH IS THE LAUNCH BAND, NEVER THE FOOTER. The flock used to
+   settle on #foot-inner, which put five bots over the footer's links and
+   inside the office scene, where the office's own agents already live.
+   The last perch sits beside the launch band's cards, or above them on a
+   narrow screen (LAST, below), clear of the cards and above the office. */
 
 (function () {
   "use strict";
+
+  /* The last perch, in two layouts. The flock ends beside whatever the
+     launch band shows (#empty is the zero sentence, or the lineup once
+     agents exist; pcard.js moves the id), never on top of it and never in
+     the footer. Beside needs a real margin: the three cards are 740px wide,
+     so below 1000px there is no room at the sides and the flock lines up in
+     the band's open strip ABOVE the cards instead, smaller. Chosen once at
+     load; the perches still follow the live rect of #empty. */
+  var WIDE = !window.matchMedia || window.matchMedia("(min-width: 1000px)").matches;
+  var LAST = WIDE ? {
+    lead:      { anchor: "#empty", ax: 1.00, ay: 0.46, dx: 64,  layer: "front", size: 96, expr: "pleased" },
+    scout:     { anchor: "#empty", ax: 1.00, ay: 0.08, dx: 58,  layer: "front", size: 64, expr: "rest" },
+    drift:     { anchor: "#empty", ax: 0.00, ay: 0.62, dx: -62, layer: "back",  size: 80, expr: "rest" },
+    anchorite: { anchor: "#empty", ax: 1.00, ay: 0.86, dx: 50,  layer: "front", size: 62, expr: "rest" },
+    tag:       { anchor: "#empty", ax: 0.00, ay: 0.18, dx: -52, layer: "front", size: 58, expr: "perk" }
+  } : {
+    lead:      { anchor: "#empty", ax: 0.50, ay: 0, dy: -34, layer: "front", size: 56, expr: "pleased" },
+    scout:     { anchor: "#empty", ax: 0.70, ay: 0, dy: -30, layer: "front", size: 44, expr: "rest" },
+    drift:     { anchor: "#empty", ax: 0.12, ay: 0, dy: -32, layer: "back",  size: 50, expr: "rest" },
+    anchorite: { anchor: "#empty", ax: 0.88, ay: 0, dy: -30, layer: "front", size: 44, expr: "rest" },
+    tag:       { anchor: "#empty", ax: 0.30, ay: 0, dy: -28, layer: "front", size: 40, expr: "perk" }
+  };
 
   var CAST = [
     {
@@ -42,7 +70,7 @@
         { anchor: "#record",     ax: 1.00, ay: 0.22, dx: 62, layer: "front", size: 82, expr: "focus" },
         { anchor: "#tier-1",     ax: 0.00, ay: 0.5,  dx: -46, layer: "front", size: 76, expr: "perk" },
         { anchor: "#refuse",     ax: 1.00, ay: 0.14, dx: 66, layer: "front", size: 78, expr: "focus" },
-        { anchor: "#foot-inner", ax: 0.72, ay: 0.5,  layer: "front", size: 106, expr: "pleased" }
+        LAST.lead
       ]
     },
     {
@@ -56,7 +84,7 @@
         { anchor: "#step-4",     ax: 0.5,  ay: -0.1, layer: "front", size: 68, expr: "perk" },
         { anchor: "#tier-3",     ax: 0.02, ay: 0.5,  dx: -40, layer: "back", size: 62, expr: "rest" },
         { anchor: "#never-title",ax: 1.00, ay: 0.3,  dx: 52, layer: "front", size: 70, expr: "focus" },
-        { anchor: "#foot-inner", ax: 0.84, ay: 0.34, layer: "front", size: 74, expr: "rest" }
+        LAST.scout
       ]
     },
     {
@@ -70,7 +98,7 @@
         { anchor: "#record",     ax: 0.14, ay: -0.4, layer: "back",  size: 76, expr: "rest" },
         { anchor: "#evidence-title", ax: 0.96, ay: 0.2, dx: 40, layer: "back", size: 74, expr: "rest" },
         { anchor: "#refuse",     ax: 0.04, ay: 0.86, dx: -44, layer: "back", size: 70, expr: "rest" },
-        { anchor: "#foot-inner", ax: 0.60, ay: 0.66, layer: "front", size: 88, expr: "rest" }
+        LAST.drift
       ]
     },
     {
@@ -85,7 +113,7 @@
         { anchor: "#tier-2",     ax: 0.99, ay: 0.5,  dx: 44, layer: "front", size: 64, expr: "focus" },
         { anchor: "#tier-3",     ax: 0.99, ay: 0.5,  dx: 44, layer: "front", size: 62, expr: "rest" },
         { anchor: "#empty",      ax: 1.00, ay: 0.5,  dx: 54, layer: "front", size: 68, expr: "perk" },
-        { anchor: "#foot-inner", ax: 0.92, ay: 0.62, layer: "front", size: 70, expr: "rest" }
+        LAST.anchorite
       ]
     },
     {
@@ -99,7 +127,7 @@
         { anchor: "#record",     ax: 0.5,  ay: 1.16, layer: "back",  size: 58, expr: "rest" },
         { anchor: "#tier-1",     ax: 0.99, ay: 0.5,  dx: 40, layer: "back", size: 56, expr: "rest" },
         { anchor: "#empty",      ax: 0.06, ay: 1.5,  layer: "front", size: 60, expr: "rest" },
-        { anchor: "#foot-inner", ax: 0.52, ay: 0.4,  layer: "front", size: 64, expr: "perk" }
+        LAST.tag
       ]
     }
   ];

@@ -291,6 +291,52 @@
     return did.slice(0, 16) + "\u2026" + did.slice(-6);
   }
 
+  /* S1: the name a person reads for an agent (DESIGN.md 1.3: a did:abt
+     string reads as the agent's name and avatar on the surface). The
+     record's own name, or the plain words when it has none or the read
+     failed. The DID itself stays on the agent's profile, one link away. */
+  var UNNAMED_AGENT = "This agent";
+  function agentName(agent) {
+    return agent && typeof agent.name === "string" && agent.name.trim() !== "" ? agent.name : UNNAMED_AGENT;
+  }
+
+  /* S1: the "operated by" line, named in words. The operator's GitHub
+     handle when their account carries one (the name operator.js leads
+     with); otherwise the sentence becomes "See who runs this agent", which
+     stays true whether the account has no handle or the read failed. Never
+     the DID: that sits on the operator's own page and in a page's technical
+     details. The row stays hidden until the account read settles, so it
+     never shows a line with nothing on it.
+
+     Markup contract: <div id=rowId hidden>operated by <a id=linkId></a></div>.
+     The words before the link stay a text node, so the link reads as part
+     of a sentence (the inline-link exemption to the 44px floor). */
+  function nameOperator(rowId, linkId, operatorDid) {
+    var row = el(rowId);
+    var link = el(linkId);
+    if (!row || !link || typeof operatorDid !== "string" || operatorDid === "") return;
+    link.setAttribute("href", "/accounts/" + encodeURIComponent(operatorDid));
+    get("/accounts/" + encodeURIComponent(operatorDid)).then(function (result) {
+      var login = result.state === "ok" && typeof result.value.githubLogin === "string" ? result.value.githubLogin.trim() : "";
+      var lead = link.previousSibling;
+      if (!lead || lead.nodeType !== 3) {
+        lead = document.createTextNode("");
+        row.insertBefore(lead, link);
+      }
+      lead.nodeValue = login !== "" ? "operated by " : "See ";
+      setText(link, login !== "" ? "@" + login : "who runs this agent");
+      show(row, true);
+    });
+  }
+
+  /* S1: one exact identity in a technical details panel, its row shown
+     only once there is a value (never a blank row). */
+  function techIdentity(wrapId, valueId, did) {
+    if (typeof did !== "string" || did === "") return;
+    setText(el(valueId), did);
+    show(el(wrapId), true);
+  }
+
   /* Wallet tooling signs with the short-form key hash (z...) while the
      registry records the full DID (did:abt:z...). Both name the same key
      (src/domain/agent.ts:35-37, the server-side original of this rule), so
@@ -365,6 +411,10 @@
     setAvatar: setAvatar,
     readableDate: readableDate,
     shortDid: shortDid,
+    agentName: agentName,
+    UNNAMED_AGENT: UNNAMED_AGENT,
+    nameOperator: nameOperator,
+    techIdentity: techIdentity,
     didSuffix: didSuffix,
     plural: plural,
     credentialPath: credentialPath,

@@ -828,7 +828,9 @@ describe('the pull-request screen, driven end to end against the real app', () =
         expect(new Set(sentences).size).toBe(6);
         expect((sentences[0] ?? '').toLowerCase()).not.toContain('you');
         expect((sentences[0] ?? '').toLowerCase()).toContain('screen');
-        expect((sentences[3] ?? '').toLowerCase()).toContain('remainder has not settled');
+        // S1: "remainder has not settled" became plain words (settlement is
+        // on the no-jargon list); the 402 still names the unpaid balance.
+        expect((sentences[3] ?? '').toLowerCase()).toContain('balance has not arrived');
       } finally {
         page.close();
       }

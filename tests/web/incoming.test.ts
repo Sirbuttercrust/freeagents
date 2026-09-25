@@ -640,7 +640,7 @@ describe('the Incoming work screen, driven end to end against the real app', () 
 
         const seen = await browser.evaluate<{
           rowFeet: { borderTopWidth: string; actionHeight: number }[];
-          pageFooterBorderTop: string;
+          pageFooterOfficeHeight: number;
           pageFooterLinkHeights: number[];
         }>(`
           (function () {
@@ -654,7 +654,12 @@ describe('the Incoming work screen, driven end to end against the real app', () 
             var pf = document.querySelector('footer.foot');
             return {
               rowFeet: rowFeet,
-              pageFooterBorderTop: getComputedStyle(pf).borderTopWidth,
+              // The league look: the page footer's top edge is the office
+              // scene (DESIGN.md 2.8, league.css), not a hairline.
+              pageFooterOfficeHeight: (function () {
+                var o = pf.querySelector('.site-office');
+                return o ? o.getBoundingClientRect().height : 0;
+              })(),
               pageFooterLinkHeights: Array.prototype.map.call(pf.querySelectorAll('a'), function (a) {
                 return a.getBoundingClientRect().height;
               }),
@@ -679,7 +684,7 @@ describe('the Incoming work screen, driven end to end against the real app', () 
 
         // The other side of the same collision: the undo must be page-local
         // and must not reach the real footer.
-        expect(seen.pageFooterBorderTop, 'the page footer lost its own top rule').not.toBe('0px');
+        expect(seen.pageFooterOfficeHeight, 'the page footer lost its office scene').toBeGreaterThan(0);
         expect(seen.pageFooterLinkHeights.length).toBeGreaterThan(0);
         for (const height of seen.pageFooterLinkHeights) {
           expect(height, 'a page footer link fell under the 44px floor').toBeGreaterThanOrEqual(44);

@@ -145,7 +145,7 @@ describe('the pull-request page at 320px, in a real browser (W-pullrequest)', ()
         openOverflow: { scrollWidth: number; clientWidth: number; widest: string[] };
         controls: Array<{ what: string; w: number; h: number }>;
         picker: Array<{ label: [number, number]; radio: [number, number] }>;
-        railCollapsed: { liFontSize: string; railnowDisplay: string };
+        railCollapsed: { labelWidth: number; captionDisplay: string; captionText: string; lit: number };
         fixedRows: string;
         avatar: { tag: string; cls: string; did: string | null; painted: number; canvases: number; w: number; h: number };
         glow: { textZ: string; glowZ: string };
@@ -168,9 +168,12 @@ describe('the pull-request page at 320px, in a real browser (W-pullrequest)', ()
         const ar = avatarEl.getBoundingClientRect();
         const avatar = { tag: avatarEl.tagName.toLowerCase(), cls: avatarEl.className, did: avatarEl.getAttribute('data-avatar'), painted: (${PAINTED_PIXELS_FN})(avatarEl), canvases: avatarEl.querySelectorAll('canvas').length, w: +ar.width.toFixed(1), h: +ar.height.toFixed(1) };
 
+        const caption = document.querySelector('.sf-where .sf-caption');
         const railCollapsed = {
-          liFontSize: getComputedStyle(document.querySelector('.rail li')).fontSize,
-          railnowDisplay: getComputedStyle(document.querySelector('.railnow')).display,
+          labelWidth: document.querySelector('.sf-where .sf-label').getBoundingClientRect().width,
+          captionDisplay: getComputedStyle(caption).display,
+          captionText: caption.textContent.trim(),
+          lit: document.querySelectorAll('.sf-where .sf-now').length,
         };
 
         const glow = {
@@ -220,10 +223,14 @@ describe('the pull-request page at 320px, in a real browser (W-pullrequest)', ()
       expect(report.glow.glowZ, '.glow::before is not below the content').toBe('0');
       expect(report.glow.textZ, 'the heading is not lifted above .glow::before').toBe('1');
 
-      // flow.css:146-150: under 640px the rail labels collapse and .railnow
-      // carries the stage name in real text instead.
-      expect(report.railCollapsed.liFontSize).toBe('0px');
-      expect(report.railCollapsed.railnowDisplay).toBe('block');
+      // S1: the five-stage .rail became the landing page's step map, small.
+      // Under 640px its labels leave the screen and one caption line says
+      // where the hire is. On this page the balance is paid, so every step
+      // is behind the buyer and none is lit.
+      expect(report.railCollapsed.labelWidth, 'the step labels did not leave the screen at 320').toBeLessThanOrEqual(1);
+      expect(report.railCollapsed.captionDisplay).toBe('block');
+      expect(report.railCollapsed.captionText).toBe('All 5 steps done');
+      expect(report.railCollapsed.lit, 'a step is lit on a hire whose steps are all done').toBe(0);
 
       // flow.css:505-508: the .fixed rows go single column under 420px. One
       // track in the computed value is what single column looks like.

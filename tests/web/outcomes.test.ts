@@ -530,6 +530,7 @@ describe('no JavaScript of its own (done-means 10)', () => {
     expect(scriptSrcs).toEqual([
       '/js/pages/api.js',
       '/js/pages/nav.js',
+      '/js/office.js',
       '/js/icons.js',
       '/js/polish.js',
       '/js/pages/ui.js',

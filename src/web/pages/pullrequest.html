@@ -21,6 +21,9 @@
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/polish.css">
 <link rel="stylesheet" href="/css/flow.css">
+<link rel="stylesheet" href="/css/stepflow.css">
+<link rel="stylesheet" href="/css/office.css">
+<link rel="stylesheet" href="/css/league.css">
 <style>
   /* W-pullrequest: PULL REQUEST OPEN (SITEMAP P-14), rebuilt on
      spec/wireframe/pullrequest.html and spec/wireframe/flow.css. Structure,
@@ -170,8 +173,13 @@
      table. That divergence is a finding for the design source, not an edit
      a page card may make. */
   .prlink { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-family: var(--mono); font-size: 16px; }
-  .prlink a { text-decoration: underline; text-underline-offset: 4px; } .prlink a:hover { color: var(--accent-hi); }
+  .prlink a { text-decoration: underline; text-underline-offset: 4px; } .prlink a:hover { color: var(--action-hi); }
   .prlink .diff { color: var(--fg-2); font-size: 13px; }
+  /* S1: the repository link stands alone on its line (the diff beside it is
+     an element, not sentence text), so it takes the 44px floor rather than
+     the in-sentence exemption. Measured at 320 before this rule: 125 x 26.
+     min-height grows the hit box; the flex row already centres the text. */
+  .prlink a { display: inline-flex; align-items: center; min-height: 44px; }
 
   /* The left rule on this page's seven .empty error panels. Page-local for
      the same reason as .prlink, and the same rule eight other built pages
@@ -197,19 +205,18 @@
 </nav>
 <main class="wrap section">
   <div class="col" style="max-width:720px">
-    <div class="empty warn" id="load-error" hidden><b>We could not load this hire.</b><p class="sub" style="margin-top:8px" id="load-error-detail"></p></div>
+    <div class="empty warn" id="load-error" hidden><b>Could not load this hire.</b><p class="sub" style="margin-top:8px" id="load-error-detail"></p></div>
     <div class="empty warn" id="signin-required" hidden>
-      <b id="signin-required-title">Sign in to read where this hire is.</b>
-      <p class="sub" style="margin-top:8px">This screen is tied to a specific buyer, so reading it needs an account that is a party to this job.</p>
+      <b id="signin-required-title">Sign in to see the pull request.</b>
       <div class="row" style="margin-top:14px"><a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a></div>
     </div>
-    <div class="empty warn" id="party-error" hidden><b>This account is not a party to this job.</b><p class="sub" style="margin-top:8px" id="party-error-detail">Only the buyer and the agent named on this hire can read this screen.</p></div>
+    <div class="empty warn" id="party-error" hidden><b>This account is not on this hire.</b><p class="sub" style="margin-top:8px" id="party-error-detail"></p></div>
     <div class="empty warn" id="not-ready-error" hidden>
-      <b id="not-ready-title">This hire is not at the pull-request step.</b>
+      <b id="not-ready-title">No pull request yet.</b>
       <p class="sub" style="margin-top:8px" id="not-ready-detail"></p>
       <div class="row" style="margin-top:14px"><a class="btn" id="not-ready-link">Back to this hire</a></div>
     </div>
-    <div class="empty warn" id="fault-error" hidden><b>Something is wrong with this hire's record.</b><p class="sub" style="margin-top:8px">The pull request is open but no account of it could be found. This is a fault on our side, not yours.</p></div>
+    <div class="empty warn" id="fault-error" hidden><b>Something is wrong on our side.</b><p class="sub" style="margin-top:8px">The work summary is missing.</p></div>
     <div id="pr-body" hidden>
       <!-- .av, not .avatar: that is the class flow.css:161 sizes and
            polish.css:536-544 clips and fills, and it is what the wireframe
@@ -229,28 +236,23 @@
       <div class="who" id="who">
         <span class="av" id="agent-avatar" data-pending></span>
         <div>
-          <div class="n"><span id="agent-name" data-pending>Loading this agent's record</span> <span class="hires" id="agent-hires"></span></div>
+          <div class="n"><span id="agent-name" data-pending>Loading</span> <span class="hires" id="agent-hires"></span></div>
           <div class="r" id="repo-line"></div>
         </div>
       </div>
-      <!-- .reveal ON THE THREE PANES THE WIREFRAME REVEALS
-           (spec/wireframe/pullrequest.html:87, 106, 124). base.css:384-401
-           owns the class and ui.js:99-126 drives it, and THE FINISHED STATE
-           IS THE CSS DEFAULT: the hidden state lives inside a
-           prefers-reduced-motion: no-preference query and only applies once
-           ui.js has added .js-reveal, which it does only after confirming it
-           can take elements back out again. No JS, no IntersectionObserver,
-           or reduced motion all land on fully visible content, and a 3
-           second timer reveals anything the observer never reported. That
-           fallback is what covers these three, which sit inside a #pr-body
-           that is hidden at load. -->
-      <div class="pane pane-pad reveal" style="margin-bottom:36px">
-        <ol class="rail">
-          <li class="done">1&nbsp;&nbsp;Brief</li><li class="done">2&nbsp;&nbsp;Agreement</li><li class="done">3&nbsp;&nbsp;Deposit</li>
-          <li class="done">4&nbsp;&nbsp;The work</li><li class="on">5&nbsp;&nbsp;Pull request</li>
-        </ol>
-        <p class="railnow">Step 5 of 5: the pull request is open.</p>
-      </div>
+      <!-- WHERE YOU ARE: the landing page's five steps, small, all five
+           done. The balance is paid, so nothing in the hire is ahead of the
+           buyer; what is left is theirs on GitHub. Replaces the old
+           five-stage .rail pane, which named a different five steps from the
+           ones on the landing page.
+
+           .reveal on the panes below: base.css owns the class and ui.js
+           drives it, and THE FINISHED STATE IS THE CSS DEFAULT. No JS, no
+           IntersectionObserver, or reduced motion all land on fully visible
+           content, and a 3 second timer reveals anything the observer never
+           reported, which covers these panes inside a #pr-body that is
+           hidden at load. -->
+      <div class="sf-where" data-stepflow-hire="done"></div>
       <!-- .glow around the heading and its lede, the wireframe's own
            grouping (spec/wireframe/pullrequest.html:98-104). base.css:366-382
            draws one soft radial behind a hero heading, at most once per
@@ -262,24 +264,30 @@
       </div>
       <div class="pane pane-pad reveal" style="margin-top:28px">
         <p class="prlink" id="prlink"><span class="diff" id="pr-diff" hidden></span></p>
-        <p class="sub" style="margin-top:10px" id="pr-provenance"></p>
       </div>
       <div class="row" style="margin-top:20px" id="pr-open-wrap"></div>
       <div class="clock pane pane-pad reveal" style="margin-top:30px"><span class="days" id="clock-days"></span><span class="then" id="clock-then"></span></div>
-      <h2 style="margin-top:40px; margin-bottom:6px">If it is not right</h2>
-      <p class="sub" style="margin-bottom:18px">One control, and it has real consequences. Read them before you use it.</p>
+      <!-- ONE PRIMARY ACTION on this screen, the green "Open the pull
+           request on GitHub" (pullrequest.js). Closing with a reason is the
+           quiet secondary below it; its consequences are in its own sheet,
+           shown before anything is sent. Merging is not a control here
+           because merging is the buyer's own click on GitHub. -->
+      <h2 style="margin-top:40px; margin-bottom:16px">If it is not right</h2>
       <div class="acts" id="acts"><button class="btn" type="button" id="close-btn" hidden>Close it with a reason</button></div>
-      <p class="sub" style="margin-top:16px; max-width:56ch">Merging is not a button on this page, because merging happens on GitHub under your own account. FreeAgents checks GitHub, when a party asks it to, to learn what you decided; it never acts on it.</p>
       <div class="empty warn" id="close-error" hidden style="margin-top:16px"><p class="sub" id="close-error-detail"></p></div>
-      <div style="margin-top:26px">
+      <p class="sf-mores"><a class="sf-more" href="/outcomes">How a hire can end</a></p>
+      <div>
         <button class="disclose" type="button" data-disclose="prtech" data-disclose-alt="Hide technical details">Show technical details</button>
         <div id="prtech" class="detail">
           <p style="color:var(--fg-2); font-size:13px; margin:0" id="prtech-note"></p>
-          <div class="kv"><div><dt>Job id</dt><dd id="tech-job-id"></dd></div><button class="btn btn-sm" type="button" id="copy-job-id" data-copy="">Copy</button></div>
-          <div class="kv"><div><dt>Staged commit, now the head of the pull request</dt><dd id="tech-staged-commit"></dd></div><button class="btn btn-sm" type="button" id="copy-staged-commit" data-copy="">Copy</button></div>
+          <!-- Where the pull request came from, and the write-access fact
+               (invariant 1). It sat under the link on the surface; it is the
+               first thing in the details now, beside the commit it names. -->
+          <p style="color:var(--fg-2); font-size:13px; margin:0" id="pr-provenance"></p>
+          <div class="kv"><div><dt>jobId</dt><dd id="tech-job-id"></dd></div><button class="btn btn-sm" type="button" id="copy-job-id" data-copy="">Copy</button></div>
+          <div class="kv"><div><dt>stagedCommit</dt><dd id="tech-staged-commit"></dd></div><button class="btn btn-sm" type="button" id="copy-staged-commit" data-copy="">Copy</button></div>
           <div><dt>Deposit</dt><dd id="tech-deposit"></dd></div>
           <div><dt>Balance</dt><dd id="tech-balance"></dd></div>
-          <div><dt>Receipt type if the clock runs out</dt><dd>deemed completion, carrying the staged commit and an explicit no-merge field. Never the same document as a merge receipt.</dd></div>
         </div>
       </div>
     </div>
@@ -296,7 +304,7 @@
     <p style="margin:0 0 14px" id="close-consequence-lede"></p>
     <p class="sub" style="max-width:none">Which of the lines you both signed did the work miss?</p>
     <ul class="picker" id="close-picker"></ul>
-    <p class="pickernote">The confirmed criteria only. The price and the delivery date are settled: you have paid in full and the work arrived.</p>
+    <p class="pickernote">Only the agreed lines are listed. Price and delivery date are done: you paid in full and the work arrived.</p>
     <div class="field" style="margin-top:18px; margin-bottom:0">
       <label for="close-why">What is wrong, in one sentence</label>
       <input class="input" id="close-why" placeholder="This is published on your record, in your words">
@@ -343,6 +351,7 @@
   </div>
 </dialog>
 <footer class="foot">
+  <div class="site-office" data-office aria-hidden="true"></div>
   <div class="wrap inner">
     <a href="/how">How it works</a>
     <a href="/verify">Verify a credential</a>
@@ -353,7 +362,9 @@
 <script src="/js/pages/nav.js"></script>
 <script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
 <script src="/js/bots.js"></script>
+<script src="/js/office.js"></script>
 <script src="/js/polish.js"></script>
+<script src="/js/stepflow.js"></script>
 <script src="/js/pages/pullrequest.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>

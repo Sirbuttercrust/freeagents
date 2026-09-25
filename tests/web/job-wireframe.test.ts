@@ -346,11 +346,13 @@ describe('the identity strip reads the agent record and links back to its profil
     }
   });
 
-  it('degrades to the shortened DID, with no avatar and no crash, when the agent read 404s', async () => {
+  it('degrades to the agent named in plain words, with no avatar and no crash, when the agent read 404s', async () => {
     const page = await render('/jobs/w4-job-agent-absent');
     try {
       const name = page.document.getElementById('who-agent-name')?.textContent ?? '';
-      expect(name.length).toBeGreaterThan(0);
+      // S1: never the DID on the surface (DESIGN.md 1.3), even on a failed read.
+      expect(name).toBe('This agent');
+      expect(name).not.toMatch(/did:/i);
       expect(name).not.toBe('axiom-ui');
       // A failed secondary read never blanks the primary record: the
       // heading and claim still render.

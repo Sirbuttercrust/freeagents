@@ -127,12 +127,16 @@ describe('1. the page wears the polished system, and only the sheets it uses', (
     expect(overLoaded, 'stylesheets loaded by a page that uses none of their components').toEqual([]);
   });
 
-  it('loads the polished scripts in order, and does not load the avatar engine', async () => {
+  it('loads the polished scripts in order: the bot engine for the card fan, and no swarm.js', async () => {
     const scripts = loadedScripts(await servedMarkup());
 
     expect(scripts).toEqual([
       '/js/pages/api.js',
       '/js/pages/nav.js',
+      '/js/vendor/bot-avatars/bot-avatars.js',
+      '/js/bots.js',
+      '/js/pcard.js',
+      '/js/office.js',
       '/js/icons.js',
       '/js/polish.js',
       '/js/pages/signin.js',

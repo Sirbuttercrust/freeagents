@@ -178,6 +178,12 @@
     var verifiedCount = Array.isArray(agent.verifiedHires) ? agent.verifiedHires.length : 0;
     A.setTextById("pverified-count", String(verifiedCount));
     A.setTextById("pverified-noun", verifiedCount === 1 ? "verified hire" : "verified hires");
+    /* At zero nothing was watched, so the badge keeps its place and its
+       words but loses the jade stamp and the shield tick (DESIGN.md 2.2,
+       market.css .pverified.is-zero), the same grey 0 the player card
+       gives this agent. */
+    var badge = A.el("pverified-badge");
+    if (badge) badge.classList.toggle("is-zero", verifiedCount === 0);
     A.showById("pverified-badge", true);
 
     A.showById("ident", true);
@@ -291,6 +297,10 @@
     var prior = Array.isArray(agent.verifiedPriorWork) ? agent.verifiedPriorWork.length : 0;
     var claims = Array.isArray(agent.portfolio) ? agent.portfolio.length : 0;
     A.setTextById("pstat-hires", String(hires));
+    /* A zero is not a checked count, so the cell goes grey (market.css
+       .pstat.is-hire.is-zero, DESIGN.md 2.2). */
+    var hireCell = A.el("pstat-hires");
+    if (hireCell && hireCell.parentNode) hireCell.parentNode.classList.toggle("is-zero", hires === 0);
     A.setTextById("pstat-prior", String(prior));
     A.setTextById("pstat-claims", String(claims));
   }
@@ -434,9 +444,19 @@
 
     var tier = document.createElement("span");
     tier.className = "tier " + tierClass;
-    var dot = document.createElement("span");
-    dot.className = "dot";
-    tier.appendChild(dot);
+    /* The tier's own glyph rather than a coloured dot: jade on the
+       verified-hire label must sit beside its shield tick (DESIGN.md 2.2),
+       and the other two tiers take their icons.js glyphs so the three rows
+       still read as one set. */
+    var glyph = document.createElement("span");
+    glyph.className = "ico";
+    glyph.setAttribute("aria-hidden", "true");
+    glyph.setAttribute("data-ico", tierClass === "tier-hire" ? "shield-check" : tierClass === "tier-prior" ? "link-2" : "file-dash");
+    if (window.FAIcon) {
+      var drawn = window.FAIcon.svg(glyph.getAttribute("data-ico"));
+      if (drawn) glyph.appendChild(drawn);
+    }
+    tier.appendChild(glyph);
     tier.appendChild(document.createTextNode(tierLabel));
     node.appendChild(tier);
 
@@ -685,6 +705,13 @@
       label = "Portfolio claim";
     }
     span.appendChild(icon);
+    /* Drawn here, not left for a later paint pass: this badge is built
+       after icons.js has swept the page, so an unpainted slot would leave
+       the jade stamp without its shield tick (DESIGN.md 2.2). */
+    if (window.FAIcon) {
+      var drawn = window.FAIcon.svg(icon.getAttribute("data-ico"));
+      if (drawn) icon.appendChild(drawn);
+    }
     span.appendChild(document.createTextNode(label));
     return span;
   }

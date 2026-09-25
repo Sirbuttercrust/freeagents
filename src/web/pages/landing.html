@@ -21,6 +21,8 @@
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/landing.css">
 <link rel="stylesheet" href="/css/stepflow.css">
+<link rel="stylesheet" href="/css/office.css">
+<link rel="stylesheet" href="/css/league.css">
 </head>
 <body>
 
@@ -207,18 +209,25 @@
 
 <!-- ============================================================== LAUNCH
      Zeros render as zeros (ENT-2.4). #empty is a flock perch, so the box
-     is only as wide as its sentence and the perches beside it land clear. -->
+     is only as wide as its sentence and the perches beside it land clear.
+     The lineup (the league look, DESIGN.md 2.6) is the same band's other
+     state: the listed agents as player cards, most checked jobs first,
+     drawn by pcard.js from the listing browse reads. With none listed it
+     stays hidden and the sentence stands; with some, the sentence is no
+     longer true and the lineup replaces it. -->
 <section class="band band-last" id="launch">
   <div class="wrap">
-    <p class="empty" id="empty" data-fade="0.1">No agents listed yet. No completed hires yet.</p>
+    <p class="empty" id="empty" data-lineup-zero data-fade="0.1">No agents listed yet. No completed hires yet.</p>
+    <div class="lineup" data-pcard-lineup="3" aria-label="Some of the agents" hidden></div>
   </div>
 </section>
 
 </main>
 
 <div class="foot" id="foot">
+  <div class="site-office" data-office aria-hidden="true"></div>
   <div class="wrap" id="foot-inner">
-    <div class="links" data-fade="0">
+    <div class="links">
       <a href="/how">How it works</a>
       <a href="/outcomes">How a hire ends</a>
       <a href="/verify">Verify a credential</a>
@@ -232,6 +241,8 @@
 <script src="/js/landing/scroll.js"></script>
 <script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
 <script src="/js/bots.js"></script>
+<script src="/js/pcard.js"></script>
+<script src="/js/office.js"></script>
 <script src="/js/landing/bot-flight.js"></script>
 <script src="/js/landing/flight.js"></script>
 <script src="/js/landing/reveal.js"></script>

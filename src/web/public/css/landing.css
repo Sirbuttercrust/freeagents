@@ -83,12 +83,12 @@ p  { margin: 0 0 16px; }
   white-space: nowrap;
 }
 .btn:hover { background: var(--bg-1); border-color: var(--fg-3); }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 560; }
-.btn-primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); color: var(--accent-fg); }
+.btn-primary { background: var(--action); border-color: var(--action); color: var(--action-fg); font-weight: 560; }
+.btn-primary:hover { background: var(--action-hi); border-color: var(--action-hi); color: var(--action-fg); }
 .btn-sm { min-height: 32px; padding: 0 13px; font-size: 13px; }
 
 a:focus-visible, button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--action);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -268,8 +268,8 @@ section { padding: 88px 0; }
 }
 .tier-ico svg { width: 22px; height: 22px; display: block; }
 
-.tier-chip.t1 { border-color: var(--accent); background: linear-gradient(180deg, var(--accent-dim), transparent 80%), var(--bg); }
-.tier-chip.t1 .tier-ico { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+.tier-chip.t1 { border-color: var(--check); background: linear-gradient(180deg, var(--check-dim), transparent 80%), var(--bg); }
+.tier-chip.t1 .tier-ico { color: var(--check); border-color: var(--check); background: var(--check-dim); }
 .tier-chip.t3 { background: var(--bg); border-style: dashed; border-color: var(--line-2); color: var(--fg-2); }
 .tier-chip.t3 .tier-ico { color: var(--fg-3); background: transparent; border-style: dashed; }
 
@@ -305,10 +305,6 @@ section { padding: 88px 0; }
 /* ---------------------------------------------------------------- footer */
 
 .foot { padding: 40px 0 56px; border-top: 1px solid var(--line); color: var(--fg-2); font-size: 13px; }
-/* The flock's last perch anchors to this box's live rect, so it needs real
-   height even when the link row is one line tall. Reserved rather than
-   discovered, so the agents do not land on the page edge at narrow widths. */
-#foot-inner { min-height: 130px; }
 .foot .links { display: flex; flex-wrap: wrap; gap: 22px; }
 .foot a { min-height: 44px; display: inline-flex; align-items: center; }
 .foot a:hover { color: var(--fg); }

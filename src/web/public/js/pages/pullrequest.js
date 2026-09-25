@@ -100,13 +100,13 @@
   function showNotReadyOrTerminal(status) {
     if (Object.prototype.hasOwnProperty.call(TERMINAL_SENTENCES, status)) {
       A.setTextById("terminal-title", TERMINAL_SENTENCES[status]);
-      A.setTextById("terminal-detail", "There is nothing further to do on this screen.");
+      A.setTextById("terminal-detail", "Nothing more to do here.");
       var terminalLink = A.el("terminal-link");
       if (terminalLink) terminalLink.setAttribute("href", "/jobs/" + encodeURIComponent(job.id));
       A.showById("terminal-panel", true);
       return;
     }
-    A.setTextById("not-ready-detail", "This hire's status is \"" + status + "\", not submitted. Reload this page or return to the hire to see its current state.");
+    A.setTextById("not-ready-detail", "Open the hire to see where it is.");
     var link = A.el("not-ready-link");
     if (link) link.setAttribute("href", "/jobs/" + encodeURIComponent(job.id));
     A.showById("not-ready-error", true);
@@ -125,10 +125,8 @@
        load-time sweep has long finished by then, so it is not what paints
        this mount. */
     A.get("/agents/" + encodeURIComponent(agentDid)).then(function (result) {
-      var name = A.shortDid(agentDid);
-      if (result.state === "ok") {
-        name = typeof result.value.name === "string" && result.value.name !== "" ? result.value.name : agentDid;
-      }
+      // S1: a name in words, never the DID (DESIGN.md 1.3).
+      var name = A.agentName(result.state === "ok" ? result.value : null);
       A.setTextById("agent-name", name);
       if (window.FABots) {
         window.FABots.mount(A.el("agent-avatar"), agentDid, {
@@ -150,7 +148,7 @@
   // is submittedAt, a recorded projection fact.
   function renderLede(job_) {
     var submittedDate = A.readableDate(job_.submittedAt);
-    A.setTextById("lede", "Paid in full. The pull request opened" + (submittedDate ? " on " + submittedDate : "") + ". The merge button is yours, in your repository.");
+    A.setTextById("lede", "Paid in full. The pull request opened" + (submittedDate ? " on " + submittedDate : "") + ". Merging is up to you.");
   }
 
   // The diff line renders only from the signed attestation. The
@@ -202,7 +200,7 @@
     var submittedAtMs = typeof job_.submittedAt === "string" ? Date.parse(job_.submittedAt) : NaN;
     var deadlineText = isNaN(submittedAtMs) ? "" : A.readableDate(new Date(submittedAtMs + DEEM_COMPLETED_AFTER_DAYS * MS_PER_DAY).toISOString());
     A.setTextById("clock-days", A.plural(DEEM_COMPLETED_AFTER_DAYS, "day", "days") + " to review" + (deadlineText ? ", until " + deadlineText + "." : "."));
-    A.setTextById("clock-then", "If you merge, the job completes and a receipt is issued. If you do nothing by then, the job is recorded as completed anyway, with a receipt that says plainly that no merge was observed. The agent has delivered and been paid, so silence does not take that back.");
+    A.setTextById("clock-then", "Merge it and you get a receipt. Do nothing and it is recorded as completed anyway, with a receipt that says no merge was observed.");
   }
   // Same computation P8j uses, from the same constants.
   function remainderAndFee(price) {
@@ -215,7 +213,7 @@
     return { deposit: deposit, depositFee: depositFee, remainder: remainder, fee: fee };
   }
   function renderTechnical(job_) {
-    A.setTextById("prtech-note", "The state of this job comes from GitHub's API, not from either party telling us anything. A receipt is issued on an observed merge, or at the deemed-completion mark with a distinct type that records the staged commit and states that no merge was seen.");
+    A.setTextById("prtech-note", "FreeAgents checks GitHub for the status; neither party reports it. A merge gets a merge receipt. If the review window runs out, a different receipt records the staged commit and that no merge was seen.");
     A.setTextById("tech-job-id", typeof job_.id === "string" ? job_.id : "");
     var copyJobId = A.el("copy-job-id");
     if (copyJobId) copyJobId.setAttribute("data-copy", typeof job_.id === "string" ? job_.id : "");
@@ -267,7 +265,7 @@
     });
     var price = job_.price && typeof job_.price === "object" ? job_.price : null;
     var priceUsd = price !== null && typeof price.priceUsd === "string" ? "$" + parseFloat(price.priceUsd).toFixed(2) : "";
-    A.setTextById("close-consequence-lede", "Closing stops the receipt. Nothing is refunded" + (priceUsd ? ": you have paid the full " + priceUsd : "") + " and it stays with the agent.");
+    A.setTextById("close-consequence-lede", "Closing stops the receipt. Nothing is refunded" + (priceUsd ? ": the full " + priceUsd + " stays with the agent." : "."));
   }
   var closeWhyInput = A.el("close-why");
   function updateSendEnabled() {
@@ -300,7 +298,7 @@
     if (status === 400) return "This screen sent a malformed request. Reload the page and try again.";
     if (status === 401) return "Your session has expired. Sign in again to close this hire.";
     if (status === 403) return serverMessage || "This account is not a party to this hire.";
-    if (status === 402) return "The remainder has not settled; this hire cannot be closed until it does.";
+    if (status === 402) return "The balance has not arrived yet, so this hire cannot be closed until it does.";
     if (status === 409) return "This hire is no longer at a step where it can be closed this way. Reloading shows its current state.";
     if (status === 404) return "There is no hire at that address.";
     if (status === 503) return "Storage is unavailable just now. Try again in a moment.";
