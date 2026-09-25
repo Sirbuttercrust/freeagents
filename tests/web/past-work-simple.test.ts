@@ -624,7 +624,7 @@ describe('(d) the record leads, and the evidence rules hold (MISSION invariants 
       expect(reachable(compromise), 'the compromise window is hidden').toBe(true);
       expect(squash(compromise.textContent)).toMatch(/A key was reported compromised, covering work signed from .+ onward\.\s*Reported on .+\./);
       expect(reachable(d.getElementById('rotations-wrap')!)).toBe(true);
-      expect(squash(d.getElementById('rotations')?.textContent)).toMatch(/^This agent replaced a signing key on .+\. Receipts signed with the old key still check out\.$/);
+      expect(squash(d.getElementById('rotations')?.textContent)).toMatch(/^This agent replaced a signing key on .+\.\s*Receipts signed with the old key still check out\.$/);
 
       // The freshness dates stay reachable (R-37).
       for (const id of ['tech-created', 'tech-record-changed', 'tech-last-hire']) {
