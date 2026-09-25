@@ -67,6 +67,7 @@ async function startWith(
     name: 'scout',
     skills: ['triage'],
     githubLogin: AGENT_GITHUB_LOGIN,
+    negotiatesOnOwnersBehalf: true,
   });
   // B14a: confirm grants push to the agent's VERIFIED GitHub login; a
   // create() alone leaves proofStatus 'unverified' (memory.ts's own

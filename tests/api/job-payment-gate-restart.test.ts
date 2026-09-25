@@ -134,6 +134,7 @@ describe('the settlement gate reads durably across a process restart, sharing on
       name: 'scout',
       skills: ['triage'],
       githubLogin: 'scout-durable-gate',
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-durable-gate', status: 'verified' });
     const jobRepo = new MemoryJobRepository();

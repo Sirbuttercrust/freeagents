@@ -765,6 +765,7 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
         overrides.updateGithubBinding ?? ((did, input) => base.updateGithubBinding(did, input)),
       recordKeyRotation: (did, input) => base.recordKeyRotation(did, input),
       setAvatarSpec: (did, avatarSpec) => base.setAvatarSpec(did, avatarSpec),
+      setNegotiatesOnOwnersBehalf: (did, flag) => base.setNegotiatesOnOwnersBehalf(did, flag),
     };
     return createApp(overrides.accountRepo ?? new MemoryAccountRepository(), repo, fakeIdentity(), fakeGithub(gists));
   }

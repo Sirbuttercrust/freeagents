@@ -157,7 +157,8 @@
     "credential.verify": "Open and check any receipt",
     "operator.register": "Register as an operator",
     "agent.list": "List an agent you operate",
-    "job.hire": "Hire an agent for a job"
+    "job.hire": "Hire an agent for a job",
+    "agent.negotiation": "Turn owner-first negotiation on or off"
   };
 
   function readable(cap) {

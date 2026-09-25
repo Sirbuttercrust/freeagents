@@ -87,6 +87,7 @@ async function startApp(options: {
     name: 'scout',
     skills: ['triage'],
     githubLogin: 'scout-attestation',
+    negotiatesOnOwnersBehalf: true,
   });
   await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-attestation', status: 'verified' });
   const jobRepo = new MemoryJobRepository();
@@ -460,6 +461,7 @@ describe('POST /jobs/:jobId/stage: an agent with no verified GitHub login cannot
       name: 'scout',
       skills: ['triage'],
       githubLogin: 'scout-unverified',
+      negotiatesOnOwnersBehalf: true,
     });
     // Verified at confirm time (confirm's own gate, src/api/app.ts:2935,
     // requires exactly this), then explicitly downgraded before staging --

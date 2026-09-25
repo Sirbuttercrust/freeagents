@@ -480,6 +480,9 @@ class VanishingAfterFirstReadAgentRepository implements AgentRepository {
   async setAvatarSpec(): Promise<Agent | null> {
     return null;
   }
+  async setNegotiatesOnOwnersBehalf(): Promise<Agent | null> {
+    return null;
+  }
 }
 
 // A JobRepository whose create() always throws, everything else
@@ -586,6 +589,7 @@ describe('every refusal POST /jobs can return renders its own distinct sentence'
       minBuyerMerges: null,
       maxWalkedAfterConfirm: null,
       avatarSpec: null,
+      negotiatesOnOwnersBehalf: false,
     };
     const vanishingAgentRepo = new VanishingAfterFirstReadAgentRepository(realAgent);
     const sessionAdapter = createSessionAdapter({

@@ -14,7 +14,7 @@ import type { Server } from 'node:http';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
-import { MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAccountRepository, MemoryAgentRepository } from '../../src/adapters/storage/memory.js';
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { createJob, type Job, type JobStatus } from '../../src/domain/job.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
@@ -120,9 +120,24 @@ async function startWith(repo: JobRepository): Promise<{ server: Server; baseUrl
   await accounts.register({ did: BUYER_DID, githubLogin: 'buyer-withdraw' });
   await accounts.register({ did: AGENT_DID, githubLogin: 'agent-withdraw' });
   await accounts.register({ did: strangerIdentity.did, githubLogin: 'stranger-withdraw' });
+  // HT1: decline is a negotiation route, and the agent's own key acts
+  // here in every test this file scripts, so the fixture agent is
+  // registered with the owner's flag already on -- this file is not
+  // testing the negotiation gate (tests/api/job-negotiation-gate.test.ts
+  // owns that), only withdraw/decline's own party and status rules.
+  const agentRepo = new MemoryAgentRepository();
+  await agentRepo.create({
+    did: AGENT_DID,
+    operatorDid: 'did:abt:op-withdraw',
+    delegation: { fixture: true } as never,
+    name: 'scout',
+    skills: ['triage'],
+    githubLogin: null,
+    negotiatesOnOwnersBehalf: true,
+  });
   const server = createApp(
     accounts,
-    undefined,
+    agentRepo,
     undefined,
     undefined,
     repo,

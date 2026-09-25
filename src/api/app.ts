@@ -58,7 +58,7 @@ import {
   createReviewRepository,
   createObservedKeyRepository,
 } from '../adapters/storage/storage.js';
-import { delegationConsistent, isAgentOperator, type Agent, type Delegation } from '../domain/agent.js';
+import { delegationConsistent, isAgentOperator, agentMayNegotiate, type Agent, type Delegation } from '../domain/agent.js';
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
 import { buildAttestation, AttestationError } from '../domain/attestation.js';
 import { lastHireCompletedAt, recordLastChangedAt } from '../domain/freshness.js';
@@ -301,6 +301,10 @@ function agentProjection(row: Agent): Record<string, unknown> {
     // attempt on them.
     minBuyerMerges: row.minBuyerMerges,
     maxWalkedAfterConfirm: row.maxWalkedAfterConfirm,
+    // HT1 (ruling, 2026-09-25): off by default, rides the base key set
+    // unconditionally like every other opt-in flag above. Set only by
+    // PUT /agents/:agentDid/negotiation, gated to the agent's own operator.
+    negotiatesOnOwnersBehalf: row.negotiatesOnOwnersBehalf,
   };
 }
 
@@ -1937,6 +1941,10 @@ export function createApp(
     const floorPriceUsd = body.floorPriceUsd;
     const minBuyerMerges = body.minBuyerMerges;
     const maxWalkedAfterConfirm = body.maxWalkedAfterConfirm;
+    // HT1 (ruling, 2026-09-25): off by default (the safe default every
+    // other opt-in flag on this route takes), so a caller that omits it
+    // gets the owner-first behavior with no extra step.
+    const negotiatesOnOwnersBehalf = body.negotiatesOnOwnersBehalf;
 
     // P7: both thresholds validate as non-negative integers when present.
     // Omitted or explicitly null means no filter, the same stance
@@ -1954,10 +1962,11 @@ export function createApp(
       (floorPriceUsd !== undefined && floorPriceUsd !== null &&
         (typeof floorPriceUsd !== 'string' || !/^\d+\.\d{2}$/.test(floorPriceUsd))) ||
       !isValidThreshold(minBuyerMerges) ||
-      !isValidThreshold(maxWalkedAfterConfirm)
+      !isValidThreshold(maxWalkedAfterConfirm) ||
+      (negotiatesOnOwnersBehalf !== undefined && typeof negotiatesOnOwnersBehalf !== 'boolean')
     ) {
       res.status(400).json({
-        error: 'body must be { did, delegation, name, skills, operator?, githubLogin?, floorPriceUsd?, minBuyerMerges?, maxWalkedAfterConfirm? }; did, name non-empty strings, skills non-empty list of strings, operator (if present) a string, floorPriceUsd (if present) a decimal string with exactly two places, minBuyerMerges and maxWalkedAfterConfirm (if present) non-negative integers',
+        error: 'body must be { did, delegation, name, skills, operator?, githubLogin?, floorPriceUsd?, minBuyerMerges?, maxWalkedAfterConfirm?, negotiatesOnOwnersBehalf? }; did, name non-empty strings, skills non-empty list of strings, operator (if present) a string, floorPriceUsd (if present) a decimal string with exactly two places, minBuyerMerges and maxWalkedAfterConfirm (if present) non-negative integers, negotiatesOnOwnersBehalf (if present) a boolean',
       });
       return;
     }
@@ -2069,6 +2078,7 @@ export function createApp(
         floorPriceUsd: (floorPriceUsd as string | undefined) ?? null,
         minBuyerMerges: (minBuyerMerges as number | undefined) ?? null,
         maxWalkedAfterConfirm: (maxWalkedAfterConfirm as number | undefined) ?? null,
+        negotiatesOnOwnersBehalf: (negotiatesOnOwnersBehalf as boolean | undefined) ?? false,
       });
       // G1 path one (ENT-5.1): sign-in is the proof when the agent works
       // from its operator's own GitHub account, zero extra steps. A GitHub
@@ -2541,6 +2551,36 @@ export function createApp(
       res.status(200).json(agentProjection(updated));
     } catch (err) {
       console.error('DELETE /agents/:agentDid/avatar: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // HT1 (ruling, 2026-09-25): "The agent should not be allowed to
+  // negotiate on behalf of its owner unless they explicitly provide
+  // instructions for their agent to do so." The operator's own switch,
+  // gated the same way the avatar override is: requireCallerIsAgentOperator
+  // carries the unsigned-401, stranger-403 and unknown-agent-404 gates in
+  // one call, so this route owns only the body's shape and the write.
+  app.put('/agents/:agentDid/negotiation', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+    const body = (req.body ?? {}) as { negotiatesOnOwnersBehalf?: unknown };
+    if (typeof body.negotiatesOnOwnersBehalf !== 'boolean') {
+      res.status(400).json({ error: 'body must be { negotiatesOnOwnersBehalf }, a boolean' });
+      return;
+    }
+
+    const gated = await requireCallerIsAgentOperator('PUT /agents/:agentDid/negotiation', req, res, did);
+    if (gated === null) return;
+
+    try {
+      const updated = await agentRepo.setNegotiatesOnOwnersBehalf(did, body.negotiatesOnOwnersBehalf);
+      if (updated === null) {
+        res.status(404).json({ error: `agent ${did} is not registered` });
+        return;
+      }
+      res.status(200).json(agentProjection(updated));
+    } catch (err) {
+      console.error('PUT /agents/:agentDid/negotiation: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
@@ -3411,6 +3451,44 @@ export function createApp(
     return { did: actingDid, party };
   }
 
+  // HT1 (ruling, 2026-09-25): "by default we should have all hiring
+  // requests go to the owner to negotiate work and price points and
+  // everything. The agent should not be allowed to negotiate on behalf of
+  // its owner unless they explicitly provide instructions for their agent
+  // to do so." The resolved party is 'agent' either because the caller's
+  // DID equals the job's own agentDid (the agent's OWN key) or because the
+  // caller is that agent's operator (partyForDid's own two-branch order,
+  // checked first-buyer-then-agentDid-then-operator) -- so `did ===
+  // job.agentDid` is exactly the caller-is-agent's-own-key fact, computed
+  // for free from what resolveJobActingParty already returned, no second
+  // lookup needed to tell the two apart. Only when that is true does this
+  // function need to read the agent's stored flag at all: an operator
+  // negotiating for their own agent is untouched, matching the brief's
+  // "the operator's session or signature is always accepted there".
+  async function requireNegotiationAllowed(
+    label: string,
+    res: Response,
+    job: Job,
+    actingDid: string,
+    party: Party,
+  ): Promise<boolean> {
+    if (party !== 'agent' || actingDid !== job.agentDid) return true;
+    let jobAgent: Agent | null;
+    try {
+      jobAgent = await agentRepo.findByDid(job.agentDid);
+    } catch (err) {
+      console.error(`${label}: storage failed reading the job's agent`, err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return false;
+    }
+    const negotiatesOnOwnersBehalf = jobAgent?.negotiatesOnOwnersBehalf ?? false;
+    if (agentMayNegotiate({ callerIsAgentOwnKey: true, negotiatesOnOwnersBehalf })) return true;
+    res.status(403).json({
+      error: "the owner has not allowed this agent to negotiate on its own signature; sign in as the operator, or have the operator turn on negotiatesOnOwnersBehalf for this agent",
+    });
+    return false;
+  }
+
   // Lifecycle routes (withdraw, decline, pull-request, merge) were outside
   // the ENT-6.2 gate: the launch rehearsal (2026-09-01, bug ledger B6 to B8)
   // withdrew a job and opened a pull request with NO signature at all.
@@ -3429,7 +3507,7 @@ export function createApp(
     req: Request,
     res: Response,
     allowed: readonly Party[],
-  ): Promise<{ readonly job: Job; readonly party: Party } | null> {
+  ): Promise<{ readonly did: string; readonly job: Job; readonly party: Party } | null> {
     const current = await loadForExchange(label, jobId, res);
     if (current === null) return null;
     const gate = await resolveJobActingParty(req, res, current);
@@ -3438,7 +3516,7 @@ export function createApp(
       res.status(403).json({ error: `only the ${allowed.join(' or ')} may ${label.replace(/^POST \/jobs\/:jobId\//, '')} this job` });
       return null;
     }
-    return { job: current, party: gate.party };
+    return { did: gate.did, job: current, party: gate.party };
   }
 
   // The party-aware sibling of runExchange, for the four routes ENT-6.2
@@ -3460,6 +3538,10 @@ export function createApp(
 
     const gate = await resolveJobActingParty(req, res, current);
     if (gate === null) return;
+    // HT1: the negotiation gate runs after the ordinary party check
+    // (proving who you are, then whether that party may negotiate), and
+    // before the domain ever applies the exchange.
+    if (!(await requireNegotiationAllowed(label, res, current, gate.did, gate.party))) return;
     await applyAndPersist(label, res, current, (job) => apply(job, gate.party), paymentGate);
   }
 
@@ -3540,6 +3622,10 @@ export function createApp(
 
       const gate = await resolveJobActingParty(req, res, current);
       if (gate === null) return;
+      // HT1: proposing criteria/price is the negotiation route the brief
+      // names first. Runs before the floor check below, so an agent
+      // without permission never even learns its own floor was consulted.
+      if (!(await requireNegotiationAllowed('POST /jobs/:jobId/criteria', res, current, gate.did, gate.party))) return;
 
       let priceProposal: PriceProposal | undefined;
       if (priceNamed) {
@@ -3697,7 +3783,10 @@ export function createApp(
       // between the money gate and persistence), so it calls the shared
       // identity gate directly rather than inlining a signature-only
       // check. A signed-in buyer confirms a hire with no key.
-      if ((await resolveJobActingParty(req, res, current)) === null) return;
+      const confirmGate = await resolveJobActingParty(req, res, current);
+      if (confirmGate === null) return;
+      // HT1: confirm is a negotiation route too (the brief's own list).
+      if (!(await requireNegotiationAllowed(label, res, current, confirmGate.did, confirmGate.party))) return;
 
       let confirmed: Job;
       try {
@@ -3858,6 +3947,8 @@ export function createApp(
       const label = 'POST /jobs/:jobId/decline';
       const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['agent']);
       if (gate === null) return;
+      // HT1: decline before confirm is a negotiation route too.
+      if (!(await requireNegotiationAllowed(label, res, gate.job, gate.did, gate.party))) return;
       let depositIsSettled: boolean;
       try {
         depositIsSettled = await settlementGate.depositSettled(gate.job.id);

@@ -82,6 +82,7 @@ describe('job price exchange (P1)', () => {
       name: 'scout',
       skills: ['triage'],
       githubLogin: null,
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.create({
       did: flooredAgent.did,
@@ -91,6 +92,7 @@ describe('job price exchange (P1)', () => {
       skills: ['triage'],
       githubLogin: null,
       floorPriceUsd: '100.00',
+      negotiatesOnOwnersBehalf: true,
     });
     // Registered so its signature verifies (R-34), but never named a party
     // on any job this file creates: the fixture for the 403 leg.

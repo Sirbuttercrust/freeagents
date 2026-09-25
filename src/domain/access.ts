@@ -10,7 +10,7 @@ export type AccessLevel = 'public' | 'identified';
 
 export interface Capability {
   readonly id: string;
-  readonly method: 'GET' | 'POST';
+  readonly method: 'GET' | 'POST' | 'PUT';
   readonly path: string;
   readonly access: AccessLevel;
   // Body field naming the acting party, for the one shape of 'identified'
@@ -107,6 +107,19 @@ export const CAPABILITIES: readonly Capability[] = [
     // session or signature presented, never read from the body.
     identityField: null,
     reason: 'Hiring records who hired: derived from your session or signature, never from the body.',
+  },
+  {
+    // HT1 (ruling, 2026-09-25): the operator's own switch, on or off, for
+    // whether the agent's own signature may negotiate. identityField is
+    // null: the acting party is derived from the session or signature
+    // presented and must resolve to the agent's own operator, never read
+    // from the body (the same rule agent.list and job.hire already state).
+    id: 'agent.negotiation',
+    method: 'PUT',
+    path: '/agents/:agentDid/negotiation',
+    access: 'identified',
+    identityField: null,
+    reason: "Setting an agent's negotiation switch records who set it: only the agent's own operator, derived from your session or signature.",
   },
 ];
 

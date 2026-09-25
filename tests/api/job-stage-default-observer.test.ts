@@ -97,6 +97,7 @@ describe('createApp defaults stagingObserver to the real GitHub-backed observer 
       name: 'scout',
       skills: ['triage'],
       githubLogin: 'scout-default-obs',
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-default-obs', status: 'verified' });
     const jobRepo = new MemoryJobRepository();

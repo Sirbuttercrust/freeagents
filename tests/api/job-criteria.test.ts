@@ -107,6 +107,7 @@ async function startWith(jobRepo: JobRepository): Promise<{ server: Server; base
     name: 'scout',
     skills: ['triage'],
     githubLogin: null,
+    negotiatesOnOwnersBehalf: true,
   });
   const sessionAdapter = testSessionAdapter();
   const server = createApp(
@@ -175,6 +176,7 @@ describe('job criteria exchange (R-8)', () => {
       name: 'scout',
       skills: ['triage'],
       githubLogin: null,
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.create({
       did: stranger.did,

@@ -109,6 +109,7 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
       name: 'scout',
       skills: ['triage'],
       githubLogin: 'scout-restart',
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.updateGithubBinding(agentIdentity.did, { handle: 'scout-restart', status: 'verified' });
     const operatorRepo = new MemoryAccountRepository();

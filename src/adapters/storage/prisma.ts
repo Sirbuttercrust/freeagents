@@ -215,6 +215,7 @@ export class PrismaAgentRepository implements AgentRepository {
           floorPriceUsd: input.floorPriceUsd ?? null,
           minBuyerMerges: input.minBuyerMerges ?? null,
           maxWalkedAfterConfirm: input.maxWalkedAfterConfirm ?? null,
+          negotiatesOnOwnersBehalf: input.negotiatesOnOwnersBehalf ?? false,
         } as unknown as Prisma.AgentCreateInput,
       });
       // A fresh agent has no rotation history; do not add a nested create.
@@ -308,6 +309,24 @@ export class PrismaAgentRepository implements AgentRepository {
       throw err;
     }
   }
+
+  // HT1 (ruling, 2026-09-25): overwrites the stored negotiation flag, the
+  // same P2025-to-null mapping every other overwrite write in this class
+  // uses.
+  async setNegotiatesOnOwnersBehalf(did: string, negotiatesOnOwnersBehalf: boolean): Promise<Agent | null> {
+    try {
+      await db().agent.update({
+        where: { did },
+        data: { negotiatesOnOwnersBehalf } as unknown as Prisma.AgentUpdateInput,
+      });
+      return agentWithRotations(did);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        return null;
+      }
+      throw err;
+    }
+  }
 }
 
 // R-16 (ENT-8.4): a compromise report, addressed structurally for the same
@@ -382,6 +401,11 @@ function toAgent(
     // null already carries. Json column: arrives as whatever the database
     // round-tripped, so it is validated structurally rather than trusted.
     avatarSpec?: unknown;
+    // HT1: same reasoning as floorPriceUsd above -- a worktree generated
+    // before this column exists types the Agent row without it, and an
+    // absent column means "the owner has not allowed this agent to
+    // negotiate", the fail-closed default a stored false already carries.
+    negotiatesOnOwnersBehalf?: boolean;
   },
   keyRotations: readonly KeyRotation[],
 ): Agent {
@@ -404,6 +428,7 @@ function toAgent(
     // shape/face/colour key -- isValidAvatarSpec is the same guard
     // resolveAvatar itself applies at the wire boundary.
     avatarSpec: isValidAvatarSpec(row.avatarSpec) ? row.avatarSpec : null,
+    negotiatesOnOwnersBehalf: row.negotiatesOnOwnersBehalf ?? false,
   };
 }
 

@@ -153,6 +153,7 @@ async function startApp(usdcRail: ReturnType<typeof createUsdcPaymentRail> | nul
     name: 'scout',
     skills: ['triage'],
     githubLogin: 'scout-usdc-surface',
+    negotiatesOnOwnersBehalf: true,
   });
   await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-usdc-surface', status: 'verified' });
   const jobRepo = new MemoryJobRepository();
@@ -571,6 +572,7 @@ describe('the remainder leg confirms independently of the deposit leg, and unloc
       name: 'scout',
       skills: ['triage'],
       githubLogin: 'scout-usdc-remainder',
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-usdc-remainder', status: 'verified' });
     const jobRepo = new MemoryJobRepository();
@@ -724,6 +726,7 @@ describe('S3, Ruling 5: no operator address on record fails closed', () => {
       name: 'scout',
       skills: ['triage'],
       githubLogin: 'scout-usdc-noaddress',
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-usdc-noaddress', status: 'verified' });
     const jobRepo = new MemoryJobRepository();
@@ -796,6 +799,7 @@ describe('S3, Trap 1: self-hire settles normally, paying the buyer\'s own addres
       name: 'self-hired-scout',
       skills: ['triage'],
       githubLogin: 'self-hired-scout-usdc',
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.updateGithubBinding(agentIdentity.did, { handle: 'self-hired-scout-usdc', status: 'verified' });
     const jobRepo = new MemoryJobRepository();

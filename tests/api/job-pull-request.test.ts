@@ -89,6 +89,7 @@ async function startWith(
     name: 'scout',
     skills: ['triage'],
     githubLogin: AGENT_GITHUB_LOGIN,
+    negotiatesOnOwnersBehalf: true,
   });
   // B14a: confirm grants push to the agent's VERIFIED GitHub login.
   await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
