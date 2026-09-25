@@ -227,7 +227,7 @@
     /* The wireframe's tier pill carries a GLYPH, not base.css's pre-polish
        .dot (base.css:161). myagents.html:88, 102, 115 and 128 draw
        file-dash, shield-check, shield-check and link-2 respectively, which
-       is the same tier-to-icon map agent.js:672-695 and browse.js:514-545
+       is the same tier-to-icon map agent.js's tierRow and tierBadge and browse.js:514-545
        already use, so one tier means one glyph everywhere on the site.
        polish.css:46 gives .ico its box and :74 sizes it to 13px inside a
        .tier; the glyph inherits the tier's colour through currentColor, so

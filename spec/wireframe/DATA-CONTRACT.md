@@ -118,6 +118,11 @@ bolted on, because retrofitting it means rewriting the query layer.
 `ENT-2` fields, plus the identity strip: agent DID, operator DID and link,
 GitHub handle with proof status, and a resolvable credentials endpoint.
 
+Where they live now (S2): the agent DID, operator DID, credentials endpoint and
+GitHub proof status sit in the agent page's "Show technical details", each DID
+and the endpoint copyable; the header names the operator in words and links to
+their page.
+
 The credentials URL is public and must serve without authentication.
 `MISSION` invariant 2 requires a third party to verify using GitHub's public API
 and an off-the-shelf W3C verifier, with **no call to our service**. A credentials
@@ -133,6 +138,11 @@ no page read it.
 One list, every item carrying its tier, sorted by date descending. Filter chips
 narrow by tier; they do not reorder.
 
+Where the verified hire's job id and merge commit live now (S2): on the receipt
+the row links to ("See the receipt"), whose address ends in the job id and whose
+raw record carries the merge commit. The row itself shows the repository, the
+pull request link, the diff size and the date.
+
 | item type | required fields |
 |---|---|
 | verified hire | job id, repo, PR url, merge commit, merged date, additions/deletions/files, credential url |
@@ -146,6 +156,10 @@ every other row. It carries no judgement about why, because `ENT-7.3` forbids us
 deciding whether work was good.
 
 ### Derived statistics
+
+S2: none of these renders on the agent page today. No route serves the
+jobs-taken denominator, so each would say "not yet observed" for every agent;
+the rows and the Merge rate cell came out until a route serves them.
 
 Every number is computed from observed `ENT-7` outcomes. **Nothing on this panel
 is operator-entered.**

@@ -319,10 +319,10 @@
      can never disagree.
 
      Merge rate needs the total-jobs-taken denominator; no route serves
-     it (the same gap agent.html's own #pstat-merge-rate already carries
-     honestly, agent.html:239), so this row's merge-rate cell renders the
-     same static "not yet observed" fallback rather than a fraction this
-     build cannot source (operator.html:183-187, #pstat-merge-rate). The
+     it, so this row's merge-rate cell renders the static "not yet
+     observed" fallback rather than a fraction this build cannot source
+     (operator.html, #pstat-merge-rate). The agent profile carried the
+     same cell until S2 removed it there. The
      wireframe's own comment (operator.html lines 113-123 on the pre-W12
      build) already recorded this reasoning; it carries forward unchanged. */
   function renderPstats(aggregate, rosterSize) {
@@ -725,7 +725,7 @@
     caption.appendChild(workByRow(agentName));
 
     /* The verify link, the same two fields agent.js's own galleryCard
-       keys its link on (agent.js:786-795): credentialId gates whether the
+       keys its link on (agent.js galleryCard): credentialId gates whether the
        control renders at all, pullRequest gives it a real destination.
        Never built on galleryClaimCard, the evidence gate ENT-12.1 holds. */
     var links = document.createElement("div");

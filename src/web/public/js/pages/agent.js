@@ -1,13 +1,15 @@
 /* P-3 agent profile: read the record and render it.
 
-   FOUR PUBLIC ROUTES, no session, nothing privileged:
+   FIVE PUBLIC READS, no session, nothing privileged:
 
      GET /agents/:did                      the record itself, including the
                                             three R-17 evidence tiers
      GET /agents/:did/hires                counts and buyer-diversity labels
      GET /agents/:did/compromise-reports   R-16, the visible window
-     GET /jobs/:jobId                      one hire's repository, pull
-                                           request and receipt
+     GET /agents/:did/reviews              R-22, buyer opinion
+     GET /accounts/:operatorDid            the operator's GitHub login, so
+                                           the header names them in words
+                                           (A.nameOperator, api.js)
 
    THREE TIERS, ONE SOURCE. verifiedHires, verifiedPriorWork and portfolio
    all come from GET /agents/:did (agent-work-record.ts, R-17): the same
@@ -32,10 +34,17 @@
    might be hiding an unresolved fact (api.js rule 1).
 
    WHAT IS NOT RENDERED, AND WHY IT IS NOT FAKED. Closed-unmerged outcomes
-   and the derived-statistics panel need routes that do not exist (see the
-   HTML comment in agent.html). Verified prior work renders from the API's
-   own array, which is always empty until ENT-11 is wired to this route;
-   its section still renders, honestly empty, exactly like the others. */
+   and the derived statistics (merge rate, typical change, time to pull
+   request, languages) need routes that do not exist (see the HTML comment
+   above the work-history panel in agent.html). Verified prior work renders
+   from the API's own array, which is always empty until ENT-11 is wired
+   to this route; its section still renders, honestly empty, exactly like
+   the others.
+
+   NO MACHINE WORDS ON THE SURFACE (S2). The agent's and operator's DIDs,
+   the job id and the merge commit are exact terms (DESIGN.md 1.3): the
+   DIDs are written only into the technical details, and a work-history
+   row reaches its job id and merge commit through its receipt link. */
 
 (function () {
   "use strict";
@@ -86,12 +95,6 @@
          at hires.state itself, not by the map's emptiness. */
       var selfHireByMergeCommit = selfHireLookup(hires);
       renderSummary(agent.value, hires, selfHireByMergeCommit);
-      /* The wireframe's record sentence (DESIGN.md "record sentence, not a
-         stat block") also names verified prior work and unchecked claims,
-         which #summary's own pinned wording does not carry. Read straight
-         off the same three tier arrays #summary and the work-history rows
-         both render from, so this line can never disagree with either. */
-      renderRecordLine(agent.value);
       /* The three tiers, one call each, same order every time (R-18,
          ENT-2.4): verified hires, then verified prior work, then
          portfolio claims. Nothing here decides that order per agent. */
@@ -108,9 +111,10 @@
          chip labels count the SAME rows a reader sees, never a second
          tally computed a different way. */
       renderWorkHistoryTabs(agent.value);
-      renderFacts(agent.value);
-      renderRotations(agent.value);
-      renderCompromise(reports);
+      /* Rotations and compromise reports share one list of exact keys in
+         the technical details, so each returns the keys it named. */
+      var keys = renderRotations(agent.value).concat(renderCompromise(reports));
+      renderTechKeys(keys);
       renderReviews(reviews);
     });
   }
@@ -127,19 +131,21 @@
     A.showById("gallery-empty", false);
     A.showById("reviews-empty", false);
     A.showById("pverified-badge", false);
-    /* The identity row is filled in by renderAgent and by nothing else, so
-       on this path it holds only its own placeholders. Left up, it reads as
-       a permanent "operator loading" under a heading that already said the
-       agent does not exist: a claim that we are still working when we have
-       finished and failed. */
-    A.showById("ident", false);
+    /* The "operated by" line is shown only by A.nameOperator, which only
+       renderAgent calls, so on this path it stays hidden: a line that read
+       "operated by" with nothing after it would claim we are still working
+       when we have finished and failed. */
+    A.showById("operated-by", false);
     document.title = "Agent not found: FreeAgents";
   }
 
   /* ------------------------------------------------------------ header */
 
   function renderAgent(agent) {
-    var name = typeof agent.name === "string" && agent.name !== "" ? agent.name : agent.did;
+    /* The record's name, or "This agent" (A.agentName, the hire journey's
+       rule). Never the DID: it is an exact term, and it sits in the
+       technical details. */
+    var name = A.agentName(agent);
     A.setTextById("name", name);
     document.title = name + ": FreeAgents";
 
@@ -186,30 +192,21 @@
     if (badge) badge.classList.toggle("is-zero", verifiedCount === 0);
     A.showById("pverified-badge", true);
 
-    A.showById("ident", true);
-    A.setTextById("did-short", A.shortDid(agent.did));
-    setCopy("did-copy", agent.did);
-
     /* P8g: the hire CTA's one and only destination. Taken from agent.did,
-       the same field did-short and tech-did already render from, never a
-       second read: the query string carries the DID (public, fine to be
-       there) and never a session token (the brief's own line: the token
-       rides in no URL anywhere). */
+       the same field tech-did renders from, never a second read: the query
+       string carries the DID (public, fine to be there) and never a session
+       token (the brief's own line: the token rides in no URL anywhere). */
     var hireCta = A.el("hire-cta");
     if (hireCta && typeof agent.did === "string" && agent.did !== "") {
       hireCta.setAttribute("href", "/hire?agent=" + encodeURIComponent(agent.did));
     }
 
-    /* Two renders of the same fact: the header's "by <operator>" line
-       (.pby, DESIGN.md's profile-header component) and the identity box's
-       "Operator" row (invariant 2). Both read agent.operatorDid and
-       nothing else, so they can never disagree with each other. */
-    [A.el("operator-link"), A.el("operator-link-2")].forEach(function (operator) {
-      if (operator && typeof agent.operatorDid === "string") {
-        operator.setAttribute("href", "/accounts/" + encodeURIComponent(agent.operatorDid));
-        A.setText(operator, A.shortDid(agent.operatorDid));
-      }
-    });
+    /* The header's "operated by" line (.pby, DESIGN.md's profile-header
+       component), named in words the way the hire journey names it: the
+       operator's GitHub login, or "See who runs this agent". Never the
+       DID, which is the technical details' "Its operator" row below. Both
+       read agent.operatorDid and nothing else. */
+    A.nameOperator("operated-by", "operator-link", agent.operatorDid);
 
     /* The proof status in plain language (DESIGN 7.1: "GitHub account
        confirmed", never "bidirectional account proof verified"). An
@@ -245,9 +242,6 @@
       }
     }
 
-    var credentials = A.el("credentials-link");
-    if (credentials) credentials.setAttribute("href", "/agents/" + encodeURIComponent(agent.did) + "/credentials");
-
     A.setTextById("tech-did", agent.did);
     setCopy("tech-did-copy", agent.did);
     A.setTextById("tech-operator", agent.operatorDid);
@@ -282,16 +276,14 @@
 
   /* -------------------------------------------------------------- stats
 
-     DESIGN.md's four-cell pstats row: Verified hires (the only cell
+     DESIGN.md's pstats row, three cells: Verified hires (the only cell
      carrying the accent, via .is-hire in the markup), Verified prior
-     work, Portfolio claims, Merge rate. Three counts, never summed, plus
-     merge rate as a fraction (never a percentage, DESIGN.md, locked).
-     Reads the SAME three tier arrays every other count on this page
-     reads, so this row can never disagree with the record sentence or
-     the rows below it. Merge rate needs the total-jobs-taken denominator,
-     which no route serves (Handoff gap 1), so it stays "not yet
-     observed" here too rather than a fraction with an invented
-     denominator. */
+     work, Portfolio claims. Three counts, never summed. Reads the SAME
+     three tier arrays every other count on this page reads, so this row
+     can never disagree with the record sentence or the rows below it.
+     S2 removed the fourth cell, Merge rate: it needs the total-jobs-taken
+     denominator, which no route serves, so it said "not yet observed"
+     for every agent. */
   function renderStats(agent) {
     var hires = Array.isArray(agent.verifiedHires) ? agent.verifiedHires.length : 0;
     var prior = Array.isArray(agent.verifiedPriorWork) ? agent.verifiedPriorWork.length : 0;
@@ -368,35 +360,20 @@
     ));
     summary.removeAttribute("data-pending");
 
+    /* Counted beside the total, never subtracted from it, and each such
+       row carries its own label (R-33). */
     if (selfHires > 0) {
       A.showById("selfhires", true);
       A.setTextById(
         "selfhires",
-        "Of those, " + A.plural(selfHires, "hire was", "hires were") +
-          " placed by this agent's own operator. Counted, and labelled on the row."
+        "Of those, " + A.plural(selfHires, "hire was", "hires were") + " placed by its own operator, labelled on the row."
       );
     }
   }
 
-  /* The wireframe's record sentence (DESIGN.md "record sentence, not a
-     stat block"): "N verified hires, N verified prior work, N unchecked
-     claims." Reads the SAME three tier arrays #summary and the
-     work-history rows render from (agent.verifiedHires,
-     agent.verifiedPriorWork, agent.portfolio), so it can never disagree
-     with either about how many an agent has. The wireframe's third clause,
-     "Merged N of M jobs taken", is not stated here: M needs the total
-     count of every job this agent TOOK, merged or not, and no route
-     serves that denominator yet (the same gap named beside the
-     work-history and "What it works on" markup). Listed as a handoff gap
-     rather than printed with an invented M. */
-  function renderRecordLine(agent) {
-    var verifiedPriorWork = Array.isArray(agent.verifiedPriorWork) ? agent.verifiedPriorWork.length : 0;
-    var portfolio = Array.isArray(agent.portfolio) ? agent.portfolio.length : 0;
-    A.setTextById(
-      "record-line",
-      verifiedPriorWork + " verified prior work, " + A.plural(portfolio, "unchecked claim", "unchecked claims") + "."
-    );
-  }
+  /* S2 removed the second record line (#record-line). It restated the
+     prior-work and claim counts the pstats row directly under the summary
+     already shows, in the same order, from the same two arrays. */
 
   /* -------------------------------------------------------- tier rows
 
@@ -479,9 +456,9 @@
        registers no capability gate on that route; and
        tests/api/job-invariant2.test.ts pins `brief` into the response key
        set deliberately, so a third party can recompute briefHash without
-       calling this service). This row already carries the job id that
-       read needs: the "job <jobId>" span below is parsed from the same
-       credentialId via A.credentialKey (R-40).
+       calling this service). The job id that read needs is the last path
+       segment of the row's credentialId (A.credentialKey, R-40), which the
+       row's receipt link carries.
 
        So the repository stays in .title for two reasons that are product
        decisions, not missing data: (1) a second fetch per verified-hire
@@ -531,24 +508,11 @@
       meta.appendChild(diff);
     }
 
-    /* The job id (DATA-CONTRACT section 4: "verified hire | job id, ...").
-       A credential id is '<base>/v1/credentials/<completedJobId>' (R-40),
-       so its last path segment IS the job id; A.credentialKey applies the
-       exact same rule server-side storage already uses to resolve one
-       (credentialLookupKey, src/adapters/storage/types.ts), rather than a
-       second parsing rule invented here. */
-    var jobId = A.credentialKey(typeof item.credentialId === "string" ? item.credentialId : "");
-    if (jobId !== "") {
-      var job = document.createElement("span");
-      job.textContent = "job " + jobId;
-      meta.appendChild(job);
-    }
-
-    if (typeof item.mergeCommit === "string" && item.mergeCommit !== "") {
-      var commit = document.createElement("span");
-      commit.textContent = "merge " + item.mergeCommit.slice(0, 12);
-      meta.appendChild(commit);
-    }
+    /* S2: no job id and no merge commit on the row. Both are exact terms
+       (DESIGN.md 1.3: "the change that shipped" on the surface, the hash
+       underneath), and both are on the receipt this row links to, in its
+       technical half: the receipt's address ends in the job id (R-40) and
+       its raw record carries the merge commit. */
 
     /* The self-hire label sits on the row itself, not only in the
        summary's count, so a row read on its own still carries it (R-33). */
@@ -661,15 +625,15 @@
   }
 
   /* Proof round 2, D3: the wireframe closes the panel with a sentence
-     naming the whole rule (agent.html line 424-430). Its third clause
-     ("The claim above has no picture...") only makes sense when a claim
-     is actually on the page, so that clause is appended only when this
-     agent has one; the first two sentences are true of every profile
-     that reaches this panel at all. */
+     naming the whole rule (spec/wireframe/agent.html, p.callout-sm). S2
+     cut it to the rule itself. The clause about a claim only makes sense
+     when a claim is actually on the page, so it is appended only when
+     this agent has one; the first sentence is true of every profile that
+     reaches this panel at all. */
   function renderGalleryCallout(hasClaim) {
-    var text = "A preview is earned by a public repository that traces to an account this agent proved it controls. Work it was hired for and work it built on its own both qualify.";
+    var text = "A preview is earned by a public repository this agent proved it controls.";
     if (hasClaim) {
-      text += " A portfolio claim carries no picture, because there is nothing public to point at.";
+      text += " A claim has no picture: there is nothing public to point at.";
     }
     A.setTextById("gallery-callout-text", text);
     A.showById("gallery-callout", true);
@@ -820,14 +784,20 @@
     return figure;
   }
 
-  /* -------------------------------------------------- keys and disputes */
+  /* -------------------------------------------------- keys and disputes
+
+     Both lists state their facts in words beside the record, with dates;
+     the exact keys they name are exact terms (DESIGN.md 1.3), so each
+     function returns its keys and renderTechKeys writes them into the
+     technical details instead of onto the surface. */
 
   function renderRotations(agent) {
     var rotations = Array.isArray(agent.keyRotations) ? agent.keyRotations : [];
-    if (rotations.length === 0) return;
+    if (rotations.length === 0) return [];
 
     A.showById("rotations-wrap", true);
     var host = A.el("rotations");
+    var keys = [];
     rotations.forEach(function (rotation) {
       var row = document.createElement("div");
 
@@ -847,24 +817,23 @@
       note.textContent = "Receipts signed with the old key still check out.";
       row.appendChild(note);
 
-      var keys = document.createElement("div");
-      keys.className = "mono";
-      keys.style.marginTop = "6px";
-      keys.style.color = "var(--fg-3)";
-      keys.textContent = String(rotation.fromKey || "") + " \u2192 " + String(rotation.toKey || "");
-      row.appendChild(keys);
-
       host.appendChild(row);
+      keys.push("Replaced: " + String(rotation.fromKey || "") + " \u2192 " + String(rotation.toKey || ""));
     });
+    return keys;
   }
 
+  /* R-16: the window is shown, with the date it starts and the date it was
+     reported. A failed read renders nothing here, as before: the receipt
+     page reads its own dispute status per receipt. */
   function renderCompromise(reports) {
-    if (reports.state !== "ok") return;
+    if (reports.state !== "ok") return [];
     var list = Array.isArray(reports.value.reports) ? reports.value.reports : [];
-    if (list.length === 0) return;
+    if (list.length === 0) return [];
 
     A.showById("compromise-wrap", true);
     var host = A.el("compromise");
+    var keys = [];
     list.forEach(function (report) {
       var row = document.createElement("div");
 
@@ -884,22 +853,35 @@
         row.appendChild(when);
       }
 
-      var key = document.createElement("div");
-      key.className = "mono";
-      key.style.marginTop = "6px";
-      key.style.color = "var(--fg-3)";
-      key.textContent = String(report.key || "");
-      row.appendChild(key);
-
       host.appendChild(row);
+      keys.push("Reported compromised: " + String(report.key || ""));
     });
+    return keys;
+  }
+
+  /* The exact keys behind the two lists above, one per line, in the
+     technical details. The row stays hidden when neither list has one. */
+  function renderTechKeys(keys) {
+    if (keys.length === 0) return;
+    var host = A.el("tech-keys");
+    if (!host) return;
+    host.textContent = "";
+    keys.forEach(function (text) {
+      var line = document.createElement("div");
+      line.textContent = text;
+      host.appendChild(line);
+    });
+    A.showById("tech-keys-wrap", true);
   }
 
   /* ENT-10, R-22: reviews are buyer opinion, never platform verification,
-     and the copy on the page says so (the section heading's own <p class="sub">
-     already carries "opinion" and "not platform verification" from the
-     server-rendered HTML). This function only fills the rows: no rating,
-     no score, text plus who wrote it plus which job it came from. */
+     and the copy on the page says so (the panel's own p.sub, "The buyer's
+     own opinion, not verification.", ships in agent.html). This function
+     only fills the rows: no rating, no score, the text and when it was
+     written. Each is attributed in words, never by the buyer's DID: POST
+     /jobs/:jobId/reviews only stores a review whose author is the proven
+     buyer of a completed job with this agent (assertReviewEligible, R-22),
+     so "from the buyer who hired it" is true of every row. */
   function renderReviews(reviews) {
     if (reviews.state !== "ok") return;
     var list = Array.isArray(reviews.value.reviews) ? reviews.value.reviews : [];
@@ -923,7 +905,7 @@
       var meta = document.createElement("div");
       meta.className = "meta";
       var author = document.createElement("span");
-      author.textContent = "by " + A.shortDid(review.authorDid);
+      author.textContent = "from the buyer who hired it";
       meta.appendChild(author);
       body.appendChild(meta);
 
@@ -984,22 +966,6 @@
       if (!section) return;
       section.hidden = bucket !== "all" && bucket !== key;
     });
-  }
-
-  /* --------------------------------------------------------------- facts
-
-     "What it works on" (wireframe agent.html): five loose facts, no
-     bordered grid (DESIGN.md 4.1: a grid reads as audited data, and this
-     page shows facts, never a judgement). Four of the five need the total
-     count of every job an agent TOOK, merged or not, which no route
-     serves yet (the same gap the work-history section names above); each
-     renders the honest "not yet observed" label the markup already ships
-     with, rather than a placeholder number. Only "Listed since" is
-     answered here, from agent.createdAt, the same read this page's
-     technical panel already renders under "Listed since". */
-  function renderFacts(agent) {
-    var listedSince = A.readableDate(agent.createdAt);
-    A.setTextById("fact-listed-since", listedSince === null ? "not recorded" : listedSince);
   }
 
   if (document.readyState === "loading") {

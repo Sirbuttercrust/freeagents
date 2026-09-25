@@ -65,7 +65,7 @@
      parity with browse.html and agent.html, W12 D2). rosterRow builds
      span.tier.tier-label-a11y the same way browse.js's applyTier does, so
      the definition has to travel with it: browse.html:125 and
-     agent.html:96 both keep this page-local rather than shared, and this
+     agent.html's own .tier-label-a11y rule both keep this page-local rather than shared, and this
      page matches them rather than inventing a second copy that could
      drift. The evidence line directly beneath already states the same
      fact visibly; this keeps it for a screen reader and for the
@@ -203,11 +203,9 @@
          operatorConductForDid exists (src/api/app.ts) but no route
          exposes it, and the only conduct route is
          GET /buyers/:githubLogin/conduct, the BUYER's record, not the
-         operator's. agent.html solves the identical gap by shipping this
-         cell with the honest value "not yet observed"
-         (agent.html:239, id pstat-merge-rate); this ships the same
-         static fallback, in the same words, so the two profile pages
-         answer an absent denominator identically. Never a fraction, never
+         operator's. This cell ships the honest value "not yet observed",
+         the same static fallback the agent profile shipped until S2
+         removed that page's cell. Never a fraction, never
          a percentage this build cannot source. -->
     <div class="pstat">
       <span class="k"><span class="ico ico-sm" data-ico="git-merge"></span>Merge rate</span>
@@ -284,7 +282,7 @@
   </div>
 
   <!-- tmpl-gallery-hire-link: the SAME control agent.html's own gallery
-       carries (agent.html:620), cloned for every verified-hire and
+       carries (agent.html's tmpl-gallery-hire-link), cloned for every verified-hire and
        verified prior-work card, never the claim tier (ENT-12.1). -->
   <template id="tmpl-gallery-hire-link"><a class="btn btn-sm" href="#"><span class="ico ico-sm" data-ico="git-merge"></span>Read the pull request</a></template>
 </div>
