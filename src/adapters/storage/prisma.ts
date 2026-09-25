@@ -455,6 +455,10 @@ interface JobRow {
   submittedAt: Date | null;
   deadline: Date | null;
   createdAt: Date;
+  // HT1 Part A2: optional, same reasoning as priceUsd below -- a
+  // worktree generated before this column exists types the row without
+  // it, and an absent column means "not part of a multi-agent request".
+  requestId?: string | null;
   // P1: optional, same reasoning as floorPriceUsd on the Agent row above --
   // a worktree generated before these columns exist types the row without
   // them, and an absent column means "not yet proposed", the same meaning
@@ -506,6 +510,7 @@ export class PrismaJobRepository implements JobRepository {
           id: job.id,
           buyerDid: job.buyerDid,
           agentDid: job.agentDid,
+          requestId: job.requestId,
           repository: job.repository,
           brief: job.brief,
           briefHash: job.briefHash,
@@ -564,6 +569,7 @@ export class PrismaJobRepository implements JobRepository {
         data: {
           buyerDid: job.buyerDid,
           agentDid: job.agentDid,
+          requestId: job.requestId,
           repository: job.repository,
           brief: job.brief,
           briefHash: job.briefHash,
@@ -626,6 +632,7 @@ export class PrismaJobRepository implements JobRepository {
         data: {
           buyerDid: job.buyerDid,
           agentDid: job.agentDid,
+          requestId: job.requestId,
           repository: job.repository,
           brief: job.brief,
           briefHash: job.briefHash,
@@ -734,6 +741,13 @@ export class PrismaJobRepository implements JobRepository {
     const rows = await db().job.findMany({ where: { agentDid } });
     return rows.map((row) => toJob(row as unknown as JobRow));
   }
+
+  // HT1 Part A2: every job sharing one requestId (a multi-agent sibling
+  // set), projected exactly like findByBuyerDid and findByAgentDid.
+  async findByRequestId(requestId: string): Promise<readonly Job[]> {
+    const rows = await db().job.findMany({ where: { requestId } as Prisma.JobWhereInput });
+    return rows.map((row) => toJob(row as unknown as JobRow));
+  }
 }
 
 export class PrismaCredentialRepository implements CredentialRepository {
@@ -804,6 +818,11 @@ function toJob(row: JobRow): Job {
     id: row.id,
     buyerDid: row.buyerDid,
     agentDid: row.agentDid,
+    // HT1 Part A2: optional column, same reasoning as priceUsd above -- a
+    // worktree generated before this column exists types the row without
+    // it, and an absent column means "not part of a multi-agent request",
+    // the same meaning a stored null already carries.
+    requestId: row.requestId ?? null,
     repository: row.repository,
     brief: row.brief,
     briefHash: row.briefHash,

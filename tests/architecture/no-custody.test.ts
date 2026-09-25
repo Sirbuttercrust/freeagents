@@ -157,6 +157,7 @@ describe('the settlement state is structurally singular until the payment state 
       id: 'job_1',
       buyerDid: 'did:example:buyer',
       agentDid: 'did:example:agent',
+      requestId: null,
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',
       briefHash: 'sha256:brief',

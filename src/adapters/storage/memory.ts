@@ -349,6 +349,17 @@ export class MemoryJobRepository implements JobRepository {
     }
     return rows;
   }
+
+  // HT1 Part A2: every job sharing one requestId (a multi-agent sibling
+  // set). Exact string match, the same stance findByBuyerDid and
+  // findByAgentDid already take.
+  async findByRequestId(requestId: string): Promise<readonly Job[]> {
+    const rows: Job[] = [];
+    for (const row of this.rows.values()) {
+      if (row.requestId === requestId) rows.push(row);
+    }
+    return rows;
+  }
 }
 
 // Each stored row carries its subjectDid and repositoryPublic beside the

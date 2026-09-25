@@ -99,6 +99,22 @@ export interface Job {
   readonly id: string;
   readonly buyerDid: string;
   readonly agentDid: string;
+  // HT1 Part A2 (ruling, 2026-09-25, Temper): nullable, set ONLY when a
+  // buyer's request named 2 or 3 agents in one call (route layer, POST
+  // /jobs). A one-agent request leaves this null, so every existing row
+  // and fixture stays valid with no backfill. Every job carrying the same
+  // requestId shares one buyer and one brief, opened in the same request.
+  //
+  // Sibling privacy is structural, not a route gate (Option 1 of the A2
+  // design fork; GET /jobs/:jobId stays fully public per invariant 2):
+  // this field, sibling ids, sibling agent names and sibling prices never
+  // appear in jobProjection or any other response an owner who is not
+  // that sibling's own operator can read. There is no route that looks a
+  // job up by requestId; the only way to reach a sibling row is
+  // findByRequestId, called only from the route layer's own withdraw-on-
+  // confirm and confirm-conflict checks, never from anything a caller can
+  // trigger by id or requestId directly.
+  readonly requestId: string | null;
   readonly repository: string;
   // The buyer's own prose for the work (ENT-4). Stored verbatim so a third
   // party holding it can recompute briefHash without calling this service.
@@ -272,6 +288,10 @@ export function createJob(
     readonly agentDid: string;
     readonly repository: string;
     readonly brief: string;
+    // HT1 Part A2: optional, defaults to null. The route sets this only
+    // when the buyer's request named 2 or 3 agents; a one-agent request
+    // (including every existing caller of this function) leaves it null.
+    readonly requestId?: string | null;
   },
   now: Date,
 ): Job {
@@ -282,6 +302,7 @@ export function createJob(
     id: input.id,
     buyerDid: input.buyerDid,
     agentDid: input.agentDid,
+    requestId: input.requestId ?? null,
     repository: input.repository,
     brief: input.brief,
     briefHash: hashSpec(input.brief),
