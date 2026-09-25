@@ -77,14 +77,14 @@
    four cards do not read as one repeated texture. */
 .work-shot-1 {
   background:
-    linear-gradient(180deg, rgba(124,124,255,0.16), transparent 42%),
+    linear-gradient(180deg, rgba(43,140,255,0.16), transparent 42%),
     repeating-linear-gradient(180deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 34px),
-    linear-gradient(115deg, rgba(124,124,255,0.10), transparent 55%),
+    linear-gradient(115deg, rgba(43,140,255,0.10), transparent 55%),
     var(--bg-1);
 }
 .work-shot-2 {
   background:
-    radial-gradient(60% 90% at 78% 18%, rgba(70,195,154,0.20), transparent 60%),
+    radial-gradient(60% 90% at 78% 18%, rgba(43,140,255,0.16), transparent 60%),
     repeating-linear-gradient(90deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 46px),
     var(--bg-1);
 }

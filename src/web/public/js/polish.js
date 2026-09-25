@@ -211,7 +211,38 @@
       function moveLine(el) {
         line.style.width = el.offsetWidth + "px";
         line.style.transform = "translateX(" + el.offsetLeft + "px)";
+        reveal(el);
       }
+
+      /* A narrow screen scrolls the row inside the tablist (league.css)
+         rather than wrapping it. Bring the selected tab fully into view by
+         moving the row's own scrollLeft. scrollIntoView would also scroll
+         the page vertically, which on load would yank the reader down to
+         the tabs. offsetLeft is measured against the list, so it does not
+         change as the row scrolls. FADE is league.css's edge fade width:
+         the tab stops that far in from an edge that still has more row
+         past it, so the fade never lands on the selected tab. At either end
+         the browser clamps scrollLeft and the fade is off. */
+      var FADE = 28;
+      function reveal(el) {
+        edges();
+        if (list.scrollWidth <= list.clientWidth) return;
+        var left = el.offsetLeft, right = left + el.offsetWidth;
+        var to = list.scrollLeft;
+        if (left - FADE < list.scrollLeft) to = left - FADE;
+        else if (right + FADE > list.scrollLeft + list.clientWidth) to = right + FADE - list.clientWidth;
+        to = Math.max(0, Math.min(to, list.scrollWidth - list.clientWidth));
+        if (Math.abs(to - list.scrollLeft) < 1) return;
+        if (list.scrollTo && !REDUCED) list.scrollTo({ left: to, behavior: "smooth" });
+        else list.scrollLeft = to;
+      }
+
+      function edges() {
+        var max = list.scrollWidth - list.clientWidth;
+        list.classList.toggle("is-more-l", max > 1 && list.scrollLeft > 1);
+        list.classList.toggle("is-more-r", max > 1 && list.scrollLeft < max - 1);
+      }
+      list.addEventListener("scroll", edges, { passive: true });
 
       function select(el) {
         each(btns, function (b) {

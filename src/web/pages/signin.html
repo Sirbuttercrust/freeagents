@@ -20,6 +20,8 @@
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/office.css">
+<link rel="stylesheet" href="/css/league.css">
 <style>
   /* P-8 SIGN IN, rebuilt on spec/wireframe/signin.html (W-signin). One job:
      get someone an identity, with an account ready to hire or list, without
@@ -144,6 +146,8 @@
 </nav>
 
 <div class="wrap section">
+  <div class="signin-stage">
+  <div class="signin-col">
   <div class="narrow">
     <h1>Sign in</h1>
     <p class="sub" style="margin-bottom:26px" id="notice" data-pending>
@@ -185,6 +189,14 @@
       <a class="btn" href="/how">How it works</a>
       <a class="btn" href="/verify">Verify a receipt</a>
     </div>
+  </div>
+  </div>
+  <!-- The card fan (the league look, DESIGN.md 2.6): two real listed agents
+       either side of an empty "your agent" card with zeros, drawn by
+       pcard.js from the same listing browse reads. Decoration, so it is
+       aria-hidden and every card in it is a div with nothing focusable.
+       With no agents listed, only "your agent" shows. -->
+  <div class="pcard-fan" data-pcard-fan aria-hidden="true"></div>
   </div>
 </div>
 
@@ -313,6 +325,7 @@
 </div>
 
 <footer class="foot">
+  <div class="site-office" data-office aria-hidden="true"></div>
   <div class="wrap inner">
     <a href="/how">How it works</a>
     <a href="/verify">Verify a credential</a>
@@ -322,6 +335,10 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
+<script src="/js/bots.js"></script>
+<script src="/js/pcard.js"></script>
+<script src="/js/office.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/signin.js"></script>

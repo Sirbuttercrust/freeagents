@@ -9,9 +9,13 @@
    script adds when it is about to play, so no script, no observer and
    reduced motion all land here.
 
-   NO ACCENT. The accent means "we watched this happen" (DESIGN.md 2.2), and
-   a diagram of how a hire goes is a description, not a witnessed event.
-   Lit is full-strength text; unlit is the quietest grey.
+   NO COLOUR ON THE BIG DIAGRAM. Jade (--check) means "we watched this
+   happen" (DESIGN.md 2.2), and a diagram of how a hire goes is a
+   description, not a witnessed event, so it is never jade. It is never
+   the action blue either: the landing diagram describes a hire, it does
+   not track one, so no step on it is "you are here". Lit is full-strength
+   text; unlit is the quietest grey. The one blue in this file is the
+   current step of the small diagram below.
 
    Spacing is on the DESIGN.md 4 steps: 4, 8, 12, 16, 22, 34, 56. */
 
@@ -113,7 +117,7 @@
 }
 
 /* The moment a step lights, its plate gives one soft ring. Neutral, never
-   the accent. Lives only in the playing state, so the finished diagram and
+   blue or jade. Lives only in the playing state, so the finished diagram and
    the reduced-motion diagram carry no leftover glow. */
 .stepflow.sf-play .sf-node::after {
   content: "";
@@ -172,3 +176,108 @@
   }
   .stepflow .sf-node::after { content: none; animation: none; }
 }
+
+/* ---------------------------------------------------- where you are
+   The small diagram (FAStepflow.where, js/stepflow.js) that sits at the
+   top of every page in the hire journey. Same five steps as the landing
+   page, a third the size, one step lit. It never plays, so none of the
+   armed/play rules above reach it (it carries .sf-done and no
+   data-stepflow).
+
+   The current step is lit in the logo blue, --action: blue rim, a soft
+   --action-dim fill and halo, the icon in blue, and its label in
+   full-strength text at the heavier weight. The operator, 2026-09-25, on
+   the hire-journey screens: "the current state of where things are on the
+   flow chart needs to be more clear, maybe a colored highlight on the
+   current step of the flow?" DESIGN.md 2.2 lists it among the places the
+   blue is permitted. It is never jade and never a tick: "you are on step
+   2" is navigation, not a witnessed event.
+
+   Steps behind are a quiet full grey and the line through them is drawn
+   in that grey, up to and into the current step; the line ahead is the
+   faintest rule and the steps ahead are dimmed. So the row reads as done,
+   here, still to come. When every step is done nothing is blue, because
+   nothing is current. Colour is never the only signal: the current step
+   also carries aria-current="step", the list's aria-label names it, and
+   on a phone the caption says it in words. */
+.sf-where { margin: 0 0 34px; }
+.sf-where[hidden] { display: none; }
+
+.stepflow.sf-small { --sf-node: 34px; max-width: 640px; }
+.sf-small .sf-step { gap: 8px; padding: 0 4px; }
+.sf-small .sf-node { border-radius: 10px; color: var(--fg-3); }
+.sf-small .sf-node svg { width: 16px; height: 16px; }
+.sf-small .sf-label {
+  font-size: 12.5px;
+  line-height: 1.35;
+  font-weight: 450;
+  color: var(--fg-3);
+  max-width: 14ch;
+}
+.sf-small .sf-step + .sf-step::before { background: var(--line); }
+
+.sf-small .sf-past .sf-node { color: var(--fg-2); }
+.sf-small .sf-past .sf-label { color: var(--fg-2); }
+.sf-small .sf-past + .sf-step::before { background: var(--fg-2); }
+
+/* The fill is the blue wash laid on the opaque base, so the line that
+   runs behind the plates never shows through the lit one. */
+.sf-small .sf-now .sf-node {
+  color: var(--action);
+  border-color: var(--action);
+  background: linear-gradient(var(--action-dim), var(--action-dim)), var(--bg-1);
+  box-shadow: 0 0 0 4px var(--action-dim), var(--pane-shadow-hi);
+}
+.sf-small .sf-now .sf-label { color: var(--fg); font-weight: 600; }
+.sf-small .sf-ahead .sf-node { opacity: 0.55; }
+
+/* Every step behind the reader: all five in the second grey. */
+.sf-small.sf-complete .sf-node { color: var(--fg-2); }
+
+.sf-caption { display: none; margin: 12px 0 0; font-size: 13px; color: var(--fg-2); }
+/* "Step 2 of 5" in the caption, in the same blue as the lit plate. */
+.sf-caption-step { color: var(--action); font-weight: 600; }
+
+/* A phone keeps the five plates in a row (the vertical layout above is
+   for the big diagram, where each step has room to speak) and swaps the
+   five labels for one line naming the lit step. The labels leave the
+   screen but not the accessibility tree. */
+@media (max-width: 640px) {
+  .stepflow.sf-small { grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 0; }
+  .sf-small .sf-step { flex-direction: column; padding: 0; }
+  .sf-small .sf-step + .sf-step::before {
+    top: calc(var(--sf-node) / 2);
+    bottom: auto;
+    right: 50%;
+    left: auto;
+    width: 100%;
+    height: 1px;
+  }
+  .sf-small .sf-label {
+    position: absolute;
+    width: 1px; height: 1px;
+    margin: -1px; padding: 0; border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .sf-caption { display: block; }
+}
+
+/* ------------------------------------------------ the way to the detail
+   The journey pages keep one job each and move their explanations behind
+   a link that names what is behind it ("What happens if the work is not
+   right"). This is that link. It stands on its own line, so it takes the
+   44px floor at every width rather than borrowing a sentence's line box. */
+.sf-more {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 13px;
+  color: var(--fg-2);
+  text-decoration: underline;
+  text-decoration-color: var(--line-2);
+  text-underline-offset: 3px;
+}
+.sf-more:hover { color: var(--fg); text-decoration-color: var(--fg-3); }
+.sf-mores { display: flex; flex-wrap: wrap; column-gap: 22px; margin: 22px 0 0; }

@@ -103,7 +103,7 @@
      Darken instead, same gesture, opposite direction. */
   .btn-primary::after {
     background: radial-gradient(circle at var(--px, 50%) var(--py, 50%),
-                rgba(10,10,22,0.55), transparent 55%);
+                rgba(11,10,18,0.55), transparent 55%);
   }
 }
 
@@ -127,7 +127,7 @@
   color: var(--fg-2);
   animation: spin .62s linear infinite;
 }
-.btn-primary[data-busy="true"]::before { color: var(--accent-fg); }
+.btn-primary[data-busy="true"]::before { color: var(--action-fg); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ==================================================================== CHIPS */
@@ -449,7 +449,7 @@ a.st:hover .pip { border-color: var(--fg-3); }
 .field .hint { font-size: 12.5px; color: var(--fg-3); margin-top: 6px; display: flex; align-items: center; gap: 6px; }
 .field.is-bad .input { border-color: var(--bad); }
 .field.is-bad .hint { color: var(--bad); }
-.field.is-ok .input { border-color: rgba(70,195,154,0.55); }
+.field.is-ok .input { border-color: var(--line-2); }
 
 /* Character budget on a textarea, so a brief does not have to be guessed at. */
 .counter { font-family: var(--mono); font-size: 11.5px; color: var(--fg-3); }

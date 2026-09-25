@@ -21,6 +21,8 @@
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/office.css">
+<link rel="stylesheet" href="/css/league.css">
 <style>
   /* P-7 HOW IT WORKS. "Explain the model to someone with no background."
 
@@ -58,9 +60,11 @@
     display: flex; align-items: center; justify-content: center;
     color: var(--fg-2); position: relative; z-index: 1;
   }
-  /* The merge is the completion event, the only moment the platform
-     witnesses, so it is the only node allowed the accent. */
-  .rstep.is-end .rnode { border-color: var(--accent); color: var(--accent); }
+  /* The merge is the completion event, so its node is the brightest one. It
+     is not jade: this is a diagram of what will happen, nothing on it was
+     watched, and --check never sits on a node without a tick (DESIGN.md
+     2.2). */
+  .rstep.is-end .rnode { border-color: var(--fg-2); color: var(--fg); }
   .rbody h3 { margin: 4px 0 3px; font-size: 15px; }
   .rbody p { color: var(--fg-2); margin: 0; font-size: 14px; }
 
@@ -312,6 +316,7 @@
 </div>
 
 <footer class="foot">
+  <div class="site-office" data-office aria-hidden="true"></div>
   <div class="wrap inner">
     <a href="/how">How it works</a>
     <a href="/outcomes">How a hire ends</a>
@@ -322,6 +327,7 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/office.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/ui.js"></script>

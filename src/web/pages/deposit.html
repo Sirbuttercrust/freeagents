@@ -21,6 +21,9 @@
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/polish.css">
 <link rel="stylesheet" href="/css/flow.css">
+<link rel="stylesheet" href="/css/stepflow.css">
+<link rel="stylesheet" href="/css/office.css">
+<link rel="stylesheet" href="/css/league.css">
 <style>
   /* P8i DEPOSIT (P-12), rebuilt on spec/wireframe/deposit.html (W-deposit).
      Structure, copy, class vocabulary, colour and 320px behaviour come from
@@ -123,43 +126,43 @@
 </nav>
 <main class="wrap section">
   <div class="col" style="max-width:720px">
-    <div class="empty warn" id="load-error" hidden><b>We could not load this hire.</b><p class="sub" style="margin-top:8px" id="load-error-detail"></p></div>
+    <div class="empty warn" id="load-error" hidden><b>Could not load this hire.</b><p class="sub" style="margin-top:8px" id="load-error-detail"></p></div>
     <div class="empty warn" id="signin-required" hidden>
       <b id="signin-required-title">Sign in to pay the deposit.</b>
-      <p class="sub" style="margin-top:8px">This deposit is tied to a specific buyer, so paying it needs an account that is a party to this job.</p>
       <div class="row" style="margin-top:14px"><a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a></div>
     </div>
-    <div class="empty warn" id="party-error" hidden><b>This account is not a party to this job.</b><p class="sub" style="margin-top:8px" id="party-error-detail">Only the buyer and the agent named on this hire can read this deposit screen.</p></div>
+    <div class="empty warn" id="party-error" hidden><b>This account is not on this hire.</b><p class="sub" style="margin-top:8px" id="party-error-detail"></p></div>
+    <!-- The link label is "Back to this hire" because deposit.js points it
+         at the agreement when lines are unsigned and at /jobs/<id> when the
+         hire has moved past the deposit: both are this hire's pages, and the
+         old label ("Back to the agreement") was wrong for the second. -->
     <div class="empty warn" id="not-ready-error" hidden>
-      <b id="not-ready-title">This hire is not ready for a deposit yet.</b>
+      <b id="not-ready-title">Not ready for a deposit yet.</b>
       <p class="sub" style="margin-top:8px" id="not-ready-detail"></p>
-      <div class="row" style="margin-top:14px"><a class="btn" id="not-ready-link">Back to the agreement</a></div>
+      <div class="row" style="margin-top:14px"><a class="btn" id="not-ready-link">Back to this hire</a></div>
     </div>
     <div id="deposit-body" hidden>
-      <!-- .reveal ON THE FIVE BLOCKS THE WIREFRAME REVEALS
-           (spec/wireframe/deposit.html:89, 101, 130, 154, 171). base.css
-           owns the class and ui.js drives it, and the FINISHED STATE IS THE
-           CSS DEFAULT: the hidden state lives inside a
-           prefers-reduced-motion: no-preference query and only applies once
-           ui.js has added .js-reveal, which it does only after confirming
-           it can take elements back out again. No JS, no
-           IntersectionObserver, or reduced motion all land on fully visible
-           content, and a 3 second timer reveals anything the observer never
-           reported. That fallback is what covers the two blocks below that
-           are empty at load (#getlist and the totals), and the same shape
-           already ships inside hire.html's hidden #hire-body. -->
-      <div class="pane pane-pad reveal" style="margin-bottom:36px">
-        <ol class="rail">
-          <li class="done">1&nbsp;&nbsp;Brief</li><li class="done">2&nbsp;&nbsp;Agreement</li><li class="on">3&nbsp;&nbsp;Deposit</li>
-          <li>4&nbsp;&nbsp;The work</li><li>5&nbsp;&nbsp;Pull request</li>
-        </ol>
-        <p class="railnow">Step 3 of 5: the deposit.</p>
-      </div>
+      <!-- WHERE YOU ARE: the landing page's five steps, small, step 2 lit
+           ("Agree the job, pay 25%"). This screen is the second half of that
+           step. Replaces the old five-stage .rail pane (Brief, Agreement,
+           Deposit, The work, Pull request), which named a different five
+           steps from the ones the buyer met on the landing page.
+
+           .reveal ON THE BLOCKS BELOW: base.css owns the class and ui.js
+           drives it, and THE FINISHED STATE IS THE CSS DEFAULT. The hidden
+           state lives inside a prefers-reduced-motion: no-preference query
+           and only applies once ui.js has added .js-reveal. A 3 second timer
+           reveals anything the observer never reported, which is what covers
+           the blocks here that are empty at load (#getlist and the totals). -->
+      <div class="sf-where" data-stepflow-hire="2"></div>
       <!-- 1. THE ONE NUMBER -->
       <div class="total pane pane-pad reveal">
-        <p class="small muted" style="margin:0 0 6px">Leaving your wallet today</p>
+        <p class="small muted" style="margin:0 0 6px">You pay today</p>
         <div class="big" id="total-amount" data-pending>Loading</div>
-        <p class="when">One payment, right now. Nothing else is charged today.</p>
+        <!-- Who is paid, on the surface, because it is what a person needs
+             to trust the button (MISSION.md, Settlement). How the payment is
+             split is in the technical details. -->
+        <p class="when">Paid straight to the operator. FreeAgents never holds it.</p>
         <ul class="parts">
           <li><span id="deposit-label">Deposit</span><span class="amt" id="deposit-amount"></span></li>
           <li><span id="fee-label">Fee</span><span class="amt" id="fee-amount"></span></li>
@@ -167,22 +170,23 @@
         </ul>
         <p class="sub" style="margin-top:16px" id="counts-toward-line"></p>
       </div>
-      <!-- 2. WHICH RAIL -->
-      <h2 style="margin-top:34px; margin-bottom:6px">How you are paying</h2>
-      <p class="sub" style="margin-bottom:16px">Both go straight from your wallet to the hired agent's operator. FreeAgents never holds the money.</p>
+      <!-- 2. WHICH RAIL. Each option states its fee, its total and how many
+           times the wallet asks (DESIGN.md 5.2, rail chooser). How each one
+           splits the payment is in the technical details. -->
+      <h2 style="margin-top:34px; margin-bottom:16px">How you are paying</h2>
       <div class="rails reveal">
         <div class="railopt">
           <input type="radio" name="rail" id="rail-abt" checked>
-          <label for="rail-abt"><span class="rname">ABT</span><span class="ramt" id="rail-abt-amt"></span><span class="rwhy">3 percent fee. Your wallet asks you to approve once.</span></label>
+          <label for="rail-abt"><span class="rname">ABT</span><span class="ramt" id="rail-abt-amt"></span><span class="rwhy">3% fee, one approval</span></label>
         </div>
         <div class="railopt">
           <input type="radio" name="rail" id="rail-usdc">
-          <label for="rail-usdc"><span class="rname">USDC</span><span class="ramt" id="rail-usdc-amt"></span><span class="rwhy">6 percent fee. Your wallet asks you to approve twice, once for the operator and once for the fee. Two taps, one payment.</span></label>
+          <label for="rail-usdc"><span class="rname">USDC</span><span class="ramt" id="rail-usdc-amt"></span><span class="rwhy">6% fee, two approvals</span></label>
         </div>
       </div>
-      <!-- 3. WHAT YOU GET -->
-      <h2 style="margin-top:34px; margin-bottom:6px">What you get</h2>
-      <p class="sub" style="margin-bottom:14px">The lines you both signed.</p>
+      <!-- 3. WHAT YOU GET: the lines both parties signed, the price and the
+           delivery window among them (renderGetList in deposit.js). -->
+      <h2 style="margin-top:34px; margin-bottom:14px">What you get</h2>
       <ol class="getlist pane pane-pad reveal" id="getlist"></ol>
       <!-- 4. BY WHEN -->
       <h2 style="margin-top:34px; margin-bottom:6px">By when</h2>
@@ -192,10 +196,8 @@
 
            THE AVATAR THE WIREFRAME MOUNTS (spec/wireframe/deposit.html:172)
            is this one, and it is real data: this screen already knows which
-           agent is being hired. It was a hand-rolled <div class="avatar">
-           with a page-local disc rule, which is a substitute for the
-           engine's mount point rather than the mount point. It is now the
-           wireframe's own `span.av`, painted by the bot renderer.
+           agent is being hired. The wireframe's own `span.av`, painted by
+           the bot renderer.
 
            THE MOUNT SHIPS EMPTY AND UNNAMED. deposit.js sets data-avatar
            and paints it in the same breath once the agent read resolves.
@@ -203,33 +205,44 @@
            before that read returns, so a mount waiting on the sweep stays
            empty forever; and a data-avatar written into this file would be
            an agent identity the page has not confirmed. Same mechanism
-           hire.js:89-94, agent.js and agreement.js already use. -->
+           hire.js, agent.js and agreement.js already use.
+
+           The profile link is its own line with a label that says what is
+           there, in place of the old sentence "Read every one of them on
+           this agent's profile". -->
       <h2 style="margin-top:34px; margin-bottom:14px">Who you are hiring</h2>
       <div class="who pane pane-pad reveal" id="who" style="border-bottom:0; margin-bottom:0; padding:18px 22px">
         <span class="av" id="agent-avatar" data-pending></span>
         <div>
-          <div class="n"><span id="agent-name" data-pending>Loading this agent's record</span> <span class="hires" id="agent-hires"></span></div>
-          <div class="r">operated by <a id="operator-link">loading</a></div>
+          <div class="n"><span id="agent-name" data-pending>Loading</span> <span class="hires" id="agent-hires"></span></div>
+          <div class="r" id="operated-by" hidden>operated by <a id="operator-link"></a></div>
         </div>
       </div>
-      <p class="sub" style="margin-top:10px">Read every one of them on <a id="agent-profile-link" style="text-decoration:underline">this agent's profile</a>.</p>
-      <!-- 6 AND 7: THE TWO SENTENCES -->
+      <p class="sf-mores" style="margin-top:4px"><a class="sf-more" id="agent-profile-link">See its past work</a></p>
+      <!-- 6 AND 7: THE TWO SENTENCES. The redo allowance and the deposit's
+           finality, each with this hire's own numbers (deposit.js). They stay
+           on the surface: they are what the buyer is agreeing to by paying. -->
       <p class="oneline" id="redo-line" style="margin-top:34px"></p>
-      <p class="oneline" id="finality-line" style="margin-top:16px"></p>
-      <!-- 8. THE SCAN -->
+      <p class="oneline" id="finality-line" style="margin-top:12px"></p>
+      <!-- 8. THE PAYMENT. One primary button. -->
       <div class="row" style="margin-top:32px">
         <button class="btn btn-primary" type="button" id="pay-btn" disabled>Loading</button>
         <a class="btn" id="back-to-agreement">Back to the agreement</a>
       </div>
-      <p class="sub" id="usdc-pay-note" hidden style="margin-top:10px">USDC payment from the browser is not available yet. ABT is the rail that pays today.</p>
+      <p class="sub" id="usdc-pay-note" hidden style="margin-top:10px">Pay with ABT for now.</p>
       <div class="empty warn" id="pay-error" hidden style="margin-top:16px"><p class="sub" id="pay-error-detail"></p></div>
-      <div style="margin-top:26px">
+      <p class="sf-mores"><a class="sf-more" href="/outcomes">What happens if the work is not right</a></p>
+      <div>
         <button class="disclose" type="button" data-disclose="paytech" data-disclose-alt="Hide technical details">Show technical details</button>
         <div id="paytech" class="detail">
-          <p style="color:var(--fg-2); font-size:13px; margin:0">FreeAgents never receives, holds or forwards the money. The payment goes from your wallet to the operator's address, with the platform fee as a separate output of the same signed transaction. There is no escrow, no balance and no account we could freeze.</p>
-          <div><dt>ABT rail</dt><dd>one signed transaction, two outputs: price to the operator, fee to the platform. One signature.</dd></div>
-          <div><dt>USDC rail</dt><dd>two ERC-20 transfers, one per recipient. Two signatures.</dd></div>
-          <div><dt>Fingerprint of the agreement (specHash)</dt><dd id="tech-spec-hash">computed once the deposit settles</dd></div>
+          <div><dt>ABT</dt><dd>one payment, split between operator and FreeAgents.</dd></div>
+          <div><dt>USDC</dt><dd>one transfer to each.</dd></div>
+          <div><dt>specHash</dt><dd id="tech-spec-hash">computed once the deposit clears</dd></div>
+          <!-- The exact identities the surface names in words (DESIGN.md
+               1.3: a did:abt string reads as a name on the surface and lives
+               here, labelled). Filled by deposit.js; hidden until known. -->
+          <div id="tech-agent-did-wrap" hidden><dt>agentDid</dt><dd id="tech-agent-did"></dd></div>
+          <div id="tech-operator-did-wrap" hidden><dt>operatorDid</dt><dd id="tech-operator-did"></dd></div>
         </div>
       </div>
     </div>
@@ -256,9 +269,9 @@
      input, four buttons (Copy, the close cross, Cancel, and "I approved in
      my wallet"), four paragraphs, and no element with class "qr". -->
 <dialog class="sheet" id="scan" aria-labelledby="scanh">
-  <div class="shead"><h2 id="scanh">Open this in your DID Wallet</h2><button class="sclose" type="button" data-closes aria-label="Close">&times;</button></div>
+  <div class="shead"><h2 id="scanh">Open this in your wallet</h2><button class="sclose" type="button" data-closes aria-label="Close">&times;</button></div>
   <div class="sbody">
-    <p class="sub" style="max-width:none">Open your DID Wallet and paste or open this address. It is a one-time link for this payment only.</p>
+    <p class="sub" style="max-width:none">Paste or open this one-time address in your wallet.</p>
     <div class="urlcopy">
       <input class="input mono" id="scan-url" type="text" readonly aria-label="Wallet payment address">
       <button class="btn btn-sm" type="button" id="scan-url-copy" data-copy="">Copy</button>
@@ -271,6 +284,7 @@
   <div class="sfoot"><button class="btn" type="button" data-closes>Cancel</button><button class="btn btn-primary" type="button" id="approved-btn">I approved in my wallet</button></div>
 </dialog>
 <footer class="foot">
+  <div class="site-office" data-office aria-hidden="true"></div>
   <div class="wrap inner">
     <a href="/how">How it works</a>
     <a href="/verify">Verify a credential</a>
@@ -295,7 +309,9 @@
 <script src="/js/pages/nav.js"></script>
 <script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
 <script src="/js/bots.js"></script>
+<script src="/js/office.js"></script>
 <script src="/js/polish.js"></script>
+<script src="/js/stepflow.js"></script>
 <script src="/js/pages/deposit.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>

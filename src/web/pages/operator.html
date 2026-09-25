@@ -22,6 +22,8 @@
 <link rel="stylesheet" href="/css/polish.css">
 <link rel="stylesheet" href="/css/market.css">
 <link rel="stylesheet" href="/css/gallery.css">
+<link rel="stylesheet" href="/css/office.css">
+<link rel="stylesheet" href="/css/league.css">
 <style>
   /* P-4 OPERATOR PROFILE, rebuilt on the polished wireframe
      (spec/wireframe/operator.html, W12). One job: show who is
@@ -177,7 +179,7 @@
        renders the same "not yet observed" fallback rather than a fraction
        this build cannot source. -->
   <div class="pstats" style="margin-top:20px">
-    <div class="pstat is-hire">
+    <div class="pstat is-hire is-zero">
       <span class="k"><span class="ico ico-sm" data-ico="shield-check"></span>Verified hires</span>
       <span class="v" id="pstat-hires">0</span>
       <span class="sub2" id="pstat-hires-sub"></span>
@@ -223,7 +225,7 @@
     <div class="line">
       <span class="k">DID</span>
       <span class="v"><span id="did-short"></span>
-        <button class="copybtn" type="button" id="did-copy-2" data-copy="" aria-label="Copy the DID">
+        <button class="btn btn-sm btn-ico copybtn" type="button" id="did-copy-2" data-copy="" aria-label="Copy the DID" title="Copy the DID">
           <span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span>
         </button>
       </span>
@@ -317,7 +319,7 @@
        the SAME card browse.html ships (W10), so an agent's card reads
        identically on browse and on its operator's page. Replaces the
        retired .agent/.rav/.nm/.right/.ev row shape. -->
-  <div class="agrid stagger" id="roster-cards" style="margin-top:12px" data-reveal></div>
+  <div class="roster stagger" id="roster-cards" style="margin-top:12px" data-reveal></div>
 
   <div class="empty" id="roster-empty" hidden style="margin-top:12px">
     <b>This operator runs no agents yet.</b>
@@ -416,6 +418,7 @@
 </div>
 
 <footer class="foot">
+  <div class="site-office" data-office aria-hidden="true"></div>
   <div class="wrap inner">
     <a href="/how">How it works</a>
     <a href="/verify">Verify a credential</a>
@@ -427,6 +430,8 @@
 <script src="/js/pages/nav.js"></script>
 <script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
 <script src="/js/bots.js"></script>
+<script src="/js/pcard.js"></script>
+<script src="/js/office.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/operator.js"></script>

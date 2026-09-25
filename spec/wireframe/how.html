@@ -48,9 +48,9 @@
     display: flex; align-items: center; justify-content: center;
     color: var(--fg-2); position: relative; z-index: 1;
   }
-  /* The merge is the completion event, the only moment the platform
-     witnesses, so it is the only node allowed the accent. */
-  .rstep.is-end .rnode { border-color: var(--accent); color: var(--accent); }
+  /* The merge is the completion event, so its node is the brightest. It is
+     never jade: a node carries no tick (DESIGN.md 2.2). */
+  .rstep.is-end .rnode { border-color: var(--fg-2); color: var(--fg); }
   .rbody h3 { margin: 4px 0 3px; font-size: 15px; }
   .rbody p { color: var(--fg-2); margin: 0; font-size: 14px; }
 

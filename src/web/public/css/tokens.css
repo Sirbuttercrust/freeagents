@@ -2,61 +2,106 @@
    Every colour, family and step in the product is here and nowhere else.
 
    DESIGN.md 2.1: "No screen may introduce a hex value. A colour that is not
-   in this table does not exist in the product." Both stylesheets that follow
-   (base.css for the marketplace pages, landing.css for the marketing page)
-   consume these and define no colour of their own.
+   in this table does not exist in the product." Every stylesheet that
+   follows consumes these and defines no colour of its own.
+
+   DIRECTION B, "THE LEAGUE" (chosen 2026-09-23). A free agent's stats are
+   public and checked by the league, and teams sign on the record. So the
+   site is a league on game night: stadium dark with a floodlight glow, a
+   condensed display face for titles and numbers, and every agent a player
+   card in its own colour. Logo blue is the action colour. Jade with a tick
+   means a number somebody checked, and nothing else.
 
    Dark only. There is no light theme in v1 and no token reserved for one,
    because adding it later is a change to this file rather than a rewrite of
    every screen. */
 
 :root {
-  /* Surfaces and text */
-  --bg:         #08090A;
-  --bg-1:       #0E0F11;
-  --bg-2:       #141517;
-  --fg:         #F7F8F8;
-  --fg-2:       #9CA1AA;   /* supporting text, labels, metadata */
+  /* Surfaces and text. A violet-black rather than a neutral one, so the
+     page sits in the same night as the logo and the avatars. */
+  --bg:         #0B0A12;
+  --bg-1:       #13111D;
+  --bg-2:       #1B1829;
+  --fg:         #F5F3FB;
+  --fg-2:       #ABA6BF;   /* supporting text, labels, metadata */
   /* The quietest legible grey: portfolio claims, metadata, step numbers.
-     LIFTED from #666B73 on 2026-08-30. DESIGN.md 2.5 calls this the tightest
-     pair in the system and says outright that if a measurement fails, the
-     fix is to lift the token rather than leave it. It failed: measured
-     against real rendered pixels it came out at 3.72:1 on --bg and 3.38:1
-     on a pane, against a 4.5 floor for text under 24px. This value measures
-     5.23:1 on --bg and 4.76:1 on the lightest pane surface, and it stays a
-     clear step below --fg-2, so the three-tier read is unchanged. */
-  --fg-3:       #7E838C;
-  --line:       rgba(255,255,255,0.08);
-  --line-2:     rgba(255,255,255,0.16);
+     The board's #858099 measured 3.94:1 on a pane over --bg-2, under the
+     4.5 floor for text under 24px. DESIGN.md 2.5 says the fix is to lift
+     the token, so this is the smallest lift in the same hue that clears
+     4.5 on every surface it sits on, and it stays a clear step below --fg-2
+     so the three-tier read is unchanged. */
+  --fg-3:       #908BA6;
+  --line:       rgba(220,210,255,0.10);
+  --line-2:     rgba(220,210,255,0.20);
 
-  /* The accent means "we watched this happen" and nothing else (DESIGN 2.2).
-     Permitted on: a verified hire row and its links, the credential verify
-     affordance, the one primary action on a page, and a focus ring. */
-  --accent:     #7C7CFF;
-  --accent-hi:  #9A9AFF;
-  --accent-fg:  #0A0A16;
-  --accent-dim: rgba(124,124,255,0.12);
+  /* ACTION. The logo's own blue, and the one colour that means "you can do
+     this" (DESIGN 2.2): the primary button, a link, the focus ring, a
+     selected control. It never marks evidence. The primary button stands
+     on a darker base so it reads as a key you press. */
+  --action:      #2B8CFF;
+  --action-hi:   #4C9FFF;
+  --action-fg:   #0B0A12;
+  --action-base: #1A5FBF;
+  --action-dim:  rgba(43,140,255,0.14);
+
+  /* CHECKED. Jade, always beside a tick, and only on a number or a mark
+     the platform actually witnessed: a verified hire and its count
+     (DESIGN 2.2, 2.3). Nothing decorative, nothing in flight, no button. */
+  --check:      #46C39A;
+  --check-fg:   #05281C;
+  --check-dim:  rgba(70,195,154,0.14);
 
   /* The three evidence tiers (DESIGN 2.3). Not a grading scale: these are
      different KINDS of evidence, and a claim is unproven rather than bad. */
-  --t-hire:     var(--accent);
-  --t-prior:    var(--fg);
-  --t-claim:    var(--fg-3);
+  --t-hire:     #46C39A;
+  --t-prior:    #F5F3FB;
+  --t-claim:    #908BA6;
 
-  /* The animated agents (DESIGN 2.4). Identity, never meaning about
-     evidence. An avatar is derived from a DID and uses none of these. */
-  --agent-1:    #7C7CFF;
+  /* The stadium: a floodlight from above the page, and the pitch's chalk
+     lines far behind everything. Surfaces, not palette entries (2.6). */
+  --flood:      rgba(156,214,255,0.16);
+  --chalk:      rgba(243,235,221,0.035);
+  --chalk-line: #F3EBDD;
+
+  /* The animated agents' five tints (DESIGN 2.4), used where a profile or a
+     card takes an identity colour from its DID. Identity, never meaning
+     about evidence, so none of them is jade and none is the action blue. */
+  --agent-1:    #B06BFF;
   --agent-2:    #58B0E8;
-  --agent-3:    #46C39A;
+  --agent-3:    #F25CD4;
   --agent-4:    #E0A24E;
   --agent-5:    #E4757F;
   --eye:        var(--bg);
 
+  /* THE OFFICE (DESIGN 6.1), the scene at the foot of every page. Its own
+     small palette, drawn dim so it sits below the content it follows: the
+     room, the furniture, the lamps. The screens' code lines and the
+     whiteboard ink borrow --action and two agent tints, never --check, so
+     nothing in the scenery can be read as a checked number. */
+  --o-wall:        #100E1A;
+  --o-wall-2:      #15121F;
+  --o-floor:       #1A1726;
+  --o-desk:        #2C2840;
+  --o-desk-top:    #3D3858;
+  --o-bezel:       #181524;
+  --o-screen:      #16223E;
+  --o-board:       #C7D0DF;
+  --o-board-frame: #5A6684;
+  --o-shade:       #C9D6E8;
+  --o-lamp:        #DDEBFF;
+  --o-leaf:        #6E9E4A;
+  --o-pot:         #B8674A;
+  --o-mug:         #E9EDF5;
+  --o-lamp-cone:   rgba(156,214,255,0.08);
+  --o-floor-line:  rgba(160,180,255,0.14);
+  --o-desk-edge:   rgba(255,255,255,0.10);
+
   --font: "Geist", -apple-system, "Inter", "Helvetica Neue", sans-serif;
+  --display: "Bricolage", "Geist", -apple-system, sans-serif;
   --mono: "JetBrains Mono", "SF Mono", Menlo, monospace;
 
   --w: 1080px;   /* content width, DESIGN 4 */
-  --r: 8px;
+  --r: 10px;
 
   /* One easing for the whole product, so it has one sense of timing rather
      than three. Durations are fixed by DESIGN 6: 120ms for a control's state
@@ -71,8 +116,8 @@
      the product (2.1). */
   --pane-fill:      rgba(255,255,255,0.028);
   --pane-fill-2:    rgba(255,255,255,0.055);
-  --pane-rim:       rgba(255,255,255,0.11);
-  --pane-rim-hi:    rgba(255,255,255,0.22);
+  --pane-rim:       rgba(220,210,255,0.12);
+  --pane-rim-hi:    rgba(220,210,255,0.24);
   --pane-glow:      rgba(255,255,255,0.05);
   --pane-shadow:    0 1px 2px rgba(0,0,0,0.35), 0 8px 24px -12px rgba(0,0,0,0.6);
   --pane-shadow-hi: 0 2px 4px rgba(0,0,0,0.4), 0 18px 44px -16px rgba(0,0,0,0.75);

@@ -48,21 +48,7 @@
   var PAGE_SIZE = 10;
   var SORT_KEYS = ["verified-hires", "recently-listed", "recently-verified"];
   var DEFAULT_SORT = "verified-hires";
-  var AVATAR_SIZE = 52; // matches market.css .acard-av { width:52px; height:52px }
-
-  // market.css's five discipline tints (.cat-frontend etc). Only a skill
-  // string that matches one of these five, case-insensitive, gets the
-  // matching class; every other self-asserted skill renders as a plain
-  // .cat (DATA-CONTRACT section 7: skills are free text, no discipline
-  // taxonomy exists to migrate the schema toward, so nothing here invents
-  // a sixth category for a string that does not match one of the five).
-  var CAT_CLASS = {
-    frontend: "cat-frontend",
-    backend: "cat-backend",
-    infrastructure: "cat-infra",
-    data: "cat-data",
-    testing: "cat-testing",
-  };
+  var AVATAR_SIZE = 124; // matches league.css .pcard .pc-bot { width:124px; height:124px }
 
   // The page's whole state lives here, always derived from the URL on
   // load and always written back to the URL on change (D1: bookmarkable).
@@ -356,46 +342,29 @@
     });
   }
 
+  /* THE LEAGUE LOOK: every result is a player card (DESIGN.md 2.6, built
+     by pcard.js), the same card the landing lineup, an operator's roster
+     and the sign-in fan draw. The card's field is the agent's own avatar
+     colour and its big number is the checked-jobs count; the visible
+     numbers come from the same BrowseCard fields this page always read.
+
+     The tier sentence and the proof line stay, visually hidden, in the
+     tmpl-card <template> shape (.tier / .proof, tier-label-a11y), so a
+     screen reader hears the identical sentence a sighted person reads off
+     the stats and the cross-page tests read the same words they always
+     did. */
   function cardFor(card) {
-    var tmpl = A.el("tmpl-card");
-    var node = tmpl.content.firstElementChild.cloneNode(true);
+    var node = window.FAPlayerCard.build(card, { botSize: AVATAR_SIZE });
     node.setAttribute("data-agent-card", card.did);
 
-    /* Identity colour (DESIGN.md 2.4): per agent, derived from the DID,
-       never picked and never cycled by position in the result list.
-       FABots.hash is the same FNV-1a the retired swarm engine seeded
-       from, kept byte for byte so no card changes colour; agent.js uses
-       it for #phero's --id-hue too. Five bands, matching the five
-       --agent-* tokens. */
-    if (window.FABots) {
-      var hue = window.FABots.hash(card.did) % 5;
-      node.style.setProperty("--id-hue", "var(--agent-" + (hue + 1) + ")");
-    }
+    var tmpl = A.el("tmpl-card");
+    var hidden = tmpl.content.firstElementChild.cloneNode(true);
+    var body = node.querySelector(".pc-body");
+    body.appendChild(hidden.querySelector(".tier"));
+    body.appendChild(hidden.querySelector(".proof"));
 
-    var avatarHost = node.querySelector(".acard-av");
-    if (avatarHost) {
-      avatarHost.setAttribute("data-avatar", card.did);
-      loadAvatar(card.did, avatarHost, card.avatarSpec);
-    }
-
-    var nameLink = node.querySelector(".acard-name");
-    var href = "/agents/" + encodeURIComponent(card.did);
-    nameLink.setAttribute("href", href);
-    nameLink.textContent = typeof card.name === "string" && card.name !== "" ? card.name : A.shortDid(card.did);
-
-    var catsHost = node.querySelector(".acard-cats");
-    var skills = Array.isArray(card.skills) ? card.skills.filter(function (s) { return typeof s === "string" && s !== ""; }) : [];
-    if (skills.length > 0) {
-      skills.forEach(function (s) {
-        var span = document.createElement("span");
-        var mapped = CAT_CLASS[s.toLowerCase()];
-        span.className = mapped ? "cat " + mapped : "cat";
-        span.textContent = s;
-        catsHost.appendChild(span);
-      });
-    } else {
-      catsHost.remove();
-    }
+    var bot = node.querySelector(".pc-bot");
+    if (bot) loadAvatar(card.did, bot, card.avatarSpec);
 
     applyTier(node, card);
 
@@ -420,43 +389,32 @@
     });
   }
 
-  /* Per-tier rendering (the brief's own table):
+  /* Per-tier text (the brief's own table), written to the card's hidden
+     .tier and .proof lines:
 
-       verified hires above zero   tier-hire,  "N verified hires",
-                                    a pverified cardbadge with the count,
-                                    evidence line with prior and claim
-                                    counts beside it
-       no hires, prior above zero  tier-prior, "N verified prior work",
-                                    a punverified cardbadge reading
-                                    "No hires yet", evidence line "N prior"
-       neither, some claims        tier-claim, "No verified record",
-                                    a punverified cardbadge reading
-                                    "Unverified", evidence line with the
-                                    claim count
-       neither, no claims either   tier-claim, "No verified record",
-                                    NO cardbadge (nothing at all to state,
-                                    not even an unverified claim; see the
-                                    comment on cardbadgeFor below)
+       verified hires above zero   tier-hire,  "N verified hires", and the
+                                    last verified date when there is one
+       no hires, prior above zero  tier-prior, "N verified prior work"
+       neither                     tier-claim, "No verified record", and
+                                    the self-reported claim count
 
-     ENT-2.4 governs the third and fourth cases: an agent with no verified
-     record renders as an agent with no verified record, no reordering, no
+     The visible card is the player card (pcard.js): its checked-jobs count
+     and stamp say the same fact on sight. The old cardbadge and evidence
+     line went with the old tile; the stamp now shows only for a real
+     checked hire, and a card with nothing checked carries no badge of any
+     kind, which is the cold-start rule browse.test.ts holds.
+
+     ENT-2.4 governs the last case: an agent with no verified record
+     renders as an agent with no verified record, no reordering, no
      scolding either.
 
-     .tier and .proof carry the same fact a second time, visually hidden
-     (browse.html's own .tier-label-a11y), so a screen reader and this
-     page's own conformance/functional tests read the identical sentence
-     the visible badge and evidence line state, never a second phrasing
-     that could drift from the first. */
+     .tier and .proof are visually hidden (browse.html's own
+     .tier-label-a11y), so a screen reader and this page's own
+     conformance/functional tests read one sentence per card. */
   function applyTier(node, card) {
     var hire = numberOr(card.verifiedHireCount);
     var prior = numberOr(card.verifiedPriorWorkCount);
     var claim = numberOr(card.portfolioCount);
-
-    var top = node.querySelector(".acard-top");
-    var badge = cardbadgeFor(hire, prior, claim);
-    if (badge && top) top.appendChild(badge);
-
-    node.querySelector(".acard-ev").appendChild(evidenceLineFor(hire, prior, claim));
 
     var tierEl = node.querySelector(".tier");
     var proofEl = node.querySelector(".proof");
@@ -489,99 +447,6 @@
       proofEl.classList.add("dim");
       proofEl.textContent = "Nothing verified. " + A.plural(claim, "claim", "claims") + ", all self-reported.";
     }
-  }
-
-  /* The wireframe's cardbadge (market.css .pverified / .punverified,
-     top right of every card): a pverified stamp with the hire count when
-     there is one to stamp, a punverified stamp naming why not otherwise.
-
-     OMITTED WHEN THE CARD HAS NOTHING TO REPORT AT ALL (hire, prior and
-     claim all zero). tests/web/browse.test.ts's cold-start case asserts a
-     card with nothing on it carries zero elements matching
-     [class*="badge"], the concrete form ENT-2.4's "no promotional
-     framing" rule takes here: an "Unverified" stamp about zero claims
-     states nothing the hidden tier text ("No verified record") does not
-     already say, so the badge slot stays empty rather than becoming
-     chrome with nothing behind it. Every wireframe sample DOES carry a
-     badge, but every wireframe sample also carries at least one claim,
-     one prior-work item or one hire; none illustrates the genuinely
-     empty case this rule covers. */
-  function cardbadgeFor(hire, prior, claim) {
-    var span = document.createElement("span");
-    var icon = document.createElement("span");
-    icon.className = "ico";
-    icon.setAttribute("aria-hidden", "true");
-
-    if (hire > 0) {
-      span.className = "pverified pverified-sm cardbadge";
-      icon.setAttribute("data-ico", "shield-check");
-      span.appendChild(icon);
-      var b = document.createElement("b");
-      b.textContent = String(hire);
-      span.appendChild(b);
-      span.appendChild(document.createTextNode(" verified"));
-      return span;
-    }
-    if (prior > 0) {
-      span.className = "punverified punverified-sm cardbadge";
-      icon.setAttribute("data-ico", "link-2");
-      span.appendChild(icon);
-      span.appendChild(document.createTextNode("No hires yet"));
-      return span;
-    }
-    if (claim > 0) {
-      span.className = "punverified punverified-sm cardbadge";
-      icon.setAttribute("data-ico", "file-dash");
-      span.appendChild(icon);
-      span.appendChild(document.createTextNode("Unverified"));
-      return span;
-    }
-    return null;
-  }
-
-  /* The wireframe's footer evidence line (market.css .acard-ev): the
-     verified-hire count first, always, then one more fact beside it
-     separated by the drawn .sep rule -- prior work when there is any,
-     the claim count otherwise. Matches the wireframe's own four sample
-     cards cell for cell (axiom-ui: "12 verified · 31 prior", pellucid:
-     "0 verified · 47 prior", tessellate: "0 verified · 3 claims",
-     gridwright: "3 verified · 8 prior"). */
-  function evidenceLineFor(hire, prior, claim) {
-    var frag = document.createDocumentFragment();
-
-    var first = document.createElement("span");
-    first.className = hire > 0 ? "hires" : "none";
-    if (hire > 0) {
-      var icon = document.createElement("span");
-      icon.className = "ico";
-      icon.setAttribute("data-ico", "shield-check");
-      icon.setAttribute("aria-hidden", "true");
-      first.appendChild(icon);
-    }
-    first.appendChild(document.createTextNode(hire + " verified"));
-    frag.appendChild(first);
-
-    var secondText = "";
-    var secondNone = false;
-    if (prior > 0) {
-      secondText = prior + " prior";
-    } else if (claim > 0) {
-      secondText = A.plural(claim, "claim", "claims");
-      secondNone = true;
-    }
-    if (secondText !== "") {
-      var sep = document.createElement("span");
-      sep.className = "sep";
-      sep.setAttribute("aria-hidden", "true");
-      frag.appendChild(sep);
-
-      var second = document.createElement("span");
-      if (secondNone) second.className = "none";
-      second.textContent = secondText;
-      frag.appendChild(second);
-    }
-
-    return frag;
   }
 
   /* The three page numbers a phone shows: the current page and its two

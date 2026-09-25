@@ -305,7 +305,7 @@
       agents.forEach(function (s) {
         var hex = cs.getPropertyValue(s.colourVar).trim();
         global.FA.setFill(s, hex);
-        global.FA.setEye(s, cs.getPropertyValue("--eye").trim() || "#08090A" /* = --eye */);
+        global.FA.setEye(s, cs.getPropertyValue("--eye").trim() || "#0B0A12" /* = --bg */);
         if (s.wantsGlow) global.FA.setGlow(s, hex);
       });
     }
