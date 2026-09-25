@@ -97,7 +97,6 @@ import {
   GistNotFoundError,
   type Gist,
   type GithubAdapter,
-  type OpenStagedPullRequestInput,
   type PullRequestRef,
 } from '../../src/adapters/github/types.js';
 import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
@@ -112,7 +111,7 @@ import { signRequest, signingIdentityFromSeed, signingIdentityFromWallet, type S
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
-import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
+import { createStagingLifecycleGithubFake, registerAgentForkPullRequest } from '../helpers/github-staging-fixtures.js';
 
 let server: Server;
 let base: string;
@@ -357,14 +356,12 @@ let proofSigningWallet: WalletObject | null = null;
 // adapter in this test.
 const gists = new Map<string, Gist | null>();
 
-// R-10 / B14a: what the hire flow asked github to do. The fake records its
-// input so the flow can assert the buyer's repository was referenced
-// READ-ONLY and every write went to the platform's own staging repo.
-const forkCalls: OpenStagedPullRequestInput[] = [];
-
-// R-11 (ENT-7.1): what the hire flow asked github about a pull request's
-// merge state. The fake always reports merged, so the flow proves the merge
-// route completes a job from GitHub's own report, never from a client claim.
+// R-10 / B14a: what the hire flow asked github to report about a pull
+// request the agent opened from its own fork. The fake fixture's own
+// getPullRequest is scriptable per ref via setPullRequest (STG2); this
+// module tracks calls at the SAME shared adapter so every flow test below
+// observes its own ref's call count.
+const stagingFixture = createStagingLifecycleGithubFake();
 const getPullRequestCalls: PullRequestRef[] = [];
 const E2E_MERGE_COMMIT_SHA = 'e2e-merge-sha';
 const E2E_MERGED_AT = new Date('2026-08-20T12:00:00Z');
@@ -378,20 +375,10 @@ const delegatedAvatars: string[] = [];
 // registers it, before that flow's own confirm call.
 const agentRepo = new MemoryAgentRepository();
 const githubAdapter: GithubAdapter = {
-  ...createStagingLifecycleGithubFake().github,
+  ...stagingFixture.github,
   getPullRequest: (ref) => {
     getPullRequestCalls.push(ref);
-    return Promise.resolve({
-      ref,
-      state: 'merged',
-      mergeCommitSha: E2E_MERGE_COMMIT_SHA,
-      mergedAt: E2E_MERGED_AT,
-      headSha: 'e2e-head-sha',
-      additions: 128,
-      deletions: 12,
-      filesChanged: 5,
-      repositoryPublic: true,
-    });
+    return stagingFixture.github.getPullRequest(ref);
   },
   getPublicGist: (ref) => {
     const gist = gists.get(ref.id);
@@ -402,13 +389,6 @@ const githubAdapter: GithubAdapter = {
       return Promise.reject(new Error(`gist ${ref.id} not found`));
     }
     return Promise.resolve(gist);
-  },
-  openStagedPullRequest: (input) => {
-    forkCalls.push(input);
-    // R-10 / B14a: the PR opens against the SOURCE repository (buyer's),
-    // from the staging repository the platform created -- the owner
-    // differs from the source, which is what keeps invariant 1 true.
-    return Promise.resolve({ owner: input.sourceOwner, repo: input.sourceRepo, number: 1 });
   },
 };
 
@@ -1296,7 +1276,13 @@ describe('the API starts and answers', () => {
     // before an opened pull request becomes reachable.
     const staged = await postSigned(`/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-e2e-fork' }, agentIdentity);
     expect(staged.status).toBe(200);
-    const pr = await postSigned(`/jobs/${jobId}/pull-request`, {}, agentIdentity);
+    const { url } = registerAgentForkPullRequest(stagingFixture, {
+      repository: 'buyer/target-repo',
+      jobId,
+      stagedCommit: 'commit-sha-e2e-fork',
+      agentLogin: 'scout-e2e-pr',
+    });
+    const pr = await postSigned(`/jobs/${jobId}/pull-request`, { pullRequestUrl: url }, agentIdentity);
     expect(pr.status).toBe(200);
     const prBody = (await pr.json()) as Record<string, unknown>;
     expect(prBody.status).toBe('submitted');
@@ -1305,16 +1291,14 @@ describe('the API starts and answers', () => {
     // R-12: the deadline rides the submission, 30 days out from the domain.
     expect(typeof prBody.deadline).toBe('string');
 
-    // 7. What github was asked to do: source named read-only is the BUYER's
-    // repo; branch, title and body carry the job id.
-    const call = forkCalls.at(-1) as OpenStagedPullRequestInput;
-    expect(call.sourceOwner).toBe('buyer');
-    expect(call.sourceRepo).toBe('target-repo');
-    expect(call.title).toContain(jobId);
-    expect(call.body).toContain(jobId);
+    // 7. What the PR the agent opened actually carries: the buyer's
+    // repository as base, the agent's own fork as head, the job id in
+    // the body -- observed the same way a stranger reading the public PR
+    // would (ENT-4.5), via the URL this route just recorded.
+    expect(url).toContain('buyer/target-repo/pull/');
 
     // 8. Locked: posting again conflicts and opens no second PR.
-    expect((await postSigned(`/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(409);
+    expect((await postSigned(`/jobs/${jobId}/pull-request`, { pullRequestUrl: url }, agentIdentity)).status).toBe(409);
   });
 
   it('observes the merge and completes the job (R-11)', async () => {
@@ -1374,10 +1358,32 @@ describe('the API starts and answers', () => {
     expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
     const staged = await postSigned(`/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-e2e-merge' }, agentIdentity);
     expect(staged.status).toBe(200);
-    const pr = await postSigned(`/jobs/${jobId}/pull-request`, {}, agentIdentity);
+    const { url, ref } = registerAgentForkPullRequest(stagingFixture, {
+      repository: 'buyer/target-repo',
+      jobId,
+      stagedCommit: 'commit-sha-e2e-merge',
+      agentLogin: 'scout-e2e-merge',
+    });
+    const pr = await postSigned(`/jobs/${jobId}/pull-request`, { pullRequestUrl: url }, agentIdentity);
     expect(pr.status).toBe(200);
 
     // 7. Merge: github's own report stamps the completion facts.
+    stagingFixture.setPullRequest(ref, {
+      state: 'merged',
+      mergeCommitSha: E2E_MERGE_COMMIT_SHA,
+      mergedAt: E2E_MERGED_AT,
+      headSha: 'commit-sha-e2e-merge',
+      additions: 128,
+      deletions: 12,
+      filesChanged: 5,
+      repositoryPublic: true,
+      headRepoOwner: 'scout-e2e-merge',
+      headRepoFullName: 'scout-e2e-merge/target-repo',
+      headRepoIsFork: true,
+      baseRepoFullName: 'buyer/target-repo',
+      authorLogin: 'scout-e2e-merge',
+      body: `Job: ${jobId}\n`,
+    });
     const before = getPullRequestCalls.length;
     const merge = await postSigned(`/jobs/${jobId}/merge`, {}, buyerIdentity);
     expect(merge.status).toBe(200);
@@ -1401,6 +1407,7 @@ describe('the API starts and answers', () => {
       'mergeCommit',
       'mergedAt',
       'price',
+      'pullRequestTemplate',
       'pullRequestUrl',
       'repository',
       'specHash',

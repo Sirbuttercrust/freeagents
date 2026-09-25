@@ -1,12 +1,13 @@
 // GitHub capability: read-only, plus the staging repository lifecycle
-// (B14a) and opening the pull request from it. There is no method here
-// that writes to a repository the caller does not own, by construction:
-// createStagingRepository only ever creates a repository under the
-// platform account, grantPush only ever adds a collaborator to a
-// repository the platform owns, and openStagedPullRequest's only write
-// against the buyer's (source) repository is the pull request itself --
-// the standard cross-repo PR shape, which grants no write access to the
-// source's contents (invariant 1).
+// (B14a) and, since STG2, plain reads of a pull request the AGENT opened
+// itself from its own fork. There is no method here that writes to a
+// repository the caller does not own, by construction: createStagingRepository
+// only ever creates an empty repository under the platform account, and
+// grantPush only ever adds a collaborator to a repository the platform
+// owns. Nothing in this adapter ever opens a pull request or writes a
+// single byte against the buyer's (source) repository or the agent's own
+// fork -- the agent holds its own GitHub credentials and does that work
+// itself, outside this service (invariant 1, STG2 refined shape).
 
 export interface PullRequestRef {
   readonly owner: string;
@@ -35,6 +36,29 @@ export interface PullRequestSummary {
   // reason additions/deletions/filesChanged do above: never counted or
   // asserted by this service or by either party.
   readonly repositoryPublic: boolean;
+  // STG2: the fork-delivery facts the pull-request route checks before it
+  // will ever record `submitted`, and the merge route checks again before
+  // it will record any outcome. All five come straight off GitHub's own
+  // pull request object -- never asserted by either party.
+  //
+  // headRepoOwner/headRepoFullName/headRepoIsFork are null when GitHub
+  // reports head.repo as null (the documented shape for a PR whose head
+  // repository was since deleted -- e.g. the agent deleted its fork). A
+  // null head repo can never be an agent-owned fork, so the route's own
+  // fork check treats null the same as "not a match", never as "unknown".
+  readonly headRepoOwner: string | null;
+  readonly headRepoFullName: string | null;
+  readonly headRepoIsFork: boolean;
+  // The PR's base repository, full name (owner/repo). Compared against
+  // job.repository by the pull-request route.
+  readonly baseRepoFullName: string;
+  // The PR's author login. Null when GitHub reports no user (a rare wire
+  // shape; docs.github.com/en/rest/pulls/pulls does not guarantee `user`
+  // is non-null on every response).
+  readonly authorLogin: string | null;
+  // The PR body, exactly as GitHub stores it. '' when GitHub reports null
+  // (a PR opened with no description) -- never guessed at.
+  readonly body: string;
 }
 
 export interface CommitSignatureStatus {
@@ -43,10 +67,11 @@ export interface CommitSignatureStatus {
 }
 
 // B14a: the staging repository half of the hire loop (bugs.md B14/B14a).
-// Every staged commit lives in a repository the platform created, at a
-// base the platform pinned, and the pull request opens from that exact
-// commit -- never from a fork of the buyer's repository, and never from
-// a branch the adapter merely assumes exists.
+// STG2: every staged commit lives in an EMPTY repository the platform
+// created -- no seeded tree, no root commit, never any history the
+// platform authored -- and the agent seeds it itself by pushing a real
+// clone of the buyer's repository, so baseCommit exists in staging with
+// its true SHA, the buyer's own commit ancestry intact.
 
 export interface StagingRepoRef {
   readonly owner: string;
@@ -125,24 +150,6 @@ export class NotPlatformOwnerError extends Error {
     super(`refusing to write to ${owner}: not the platform account`);
     this.name = 'NotPlatformOwnerError';
   }
-}
-
-// R-10, invariant 1: the pull request opens from the staging repository
-// at the attested commit. stagingOwner/stagingRepo/stagedCommit name
-// WHERE the platform's own copy of the work lives and WHICH commit was
-// attested; sourceOwner/sourceRepo name the buyer's repository, read
-// only as the PR's base -- never written to except by the PR-open call
-// itself (the sanctioned cross-repo write NotPlatformOwnerError's own
-// comment names).
-export interface OpenStagedPullRequestInput {
-  readonly stagingOwner: string;
-  readonly stagingRepo: string;
-  readonly stagedCommit: string;
-  readonly sourceOwner: string;
-  readonly sourceRepo: string;
-  readonly branch: string;
-  readonly title: string;
-  readonly body: string;
 }
 
 // A public gist, as far as the account-proof flow cares about it: the id, the
@@ -250,13 +257,6 @@ export interface GithubAdapter {
   // current head sha -- the fact the confirm route pins as baseCommit
   // before creating the staging repository. Read-only.
   getDefaultBranchHead(ref: StagingRepoRef): Promise<DefaultBranchHead>;
-  // B14a: opens the pull request from the staging repository at the
-  // attested commit. Creates a branch in the staging repo pointing at
-  // stagedCommit (so the agent cannot move it after attestation), then
-  // opens the PR with that branch as head and the source repository as
-  // base -- the standard cross-repo PR shape, no write access granted
-  // to the source's contents (invariant 1).
-  openStagedPullRequest(input: OpenStagedPullRequestInput): Promise<PullRequestRef>;
   // B14b: compares two commits in the SAME repository and returns the
   // changed files (path, status, additions, deletions, patch) and the
   // commits between them (sha, author login, verification verdict).

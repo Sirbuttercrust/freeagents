@@ -56,13 +56,18 @@ function mergedGithub(): GithubAdapter {
         state: 'merged',
         mergeCommitSha: MERGE_SHA,
         mergedAt: new Date('2026-08-22T09:00:00Z'),
-        headSha: 'head-sha-resolvability',
+        headSha: 'commit-sha-1',
         additions: 5,
         deletions: 1,
         filesChanged: 1,
         repositoryPublic: true,
+        headRepoOwner: 'scout-resolvability',
+        headRepoFullName: `scout-resolvability/${FORK_REPO}`,
+        headRepoIsFork: true,
+        baseRepoFullName: `${FORK_OWNER}/${FORK_REPO}`,
+        authorLogin: 'scout-resolvability',
+        body: `Job: ${JOB_ID}\n`,
       }),
-    openStagedPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: PR_NUMBER }),
   };
 }
 
@@ -91,6 +96,11 @@ function submittedJob(): Job {
     deadline: new Date(submittedAt.getTime() + 30 * 86_400_000),
     confirmedSpecHash: 'b'.repeat(64),
     confirmedAt: new Date(submittedAt.getTime() - 12 * 60 * 60 * 1000),
+    // STG2: the merge route's head-moved check compares github's reported
+    // headSha against this field, so it must match what mergedGithub()
+    // reports ('commit-sha-1') for the merge to record at all.
+    stagedCommit: 'commit-sha-1',
+    stagedAt: new Date(submittedAt.getTime() - 6 * 60 * 60 * 1000),
   };
 }
 

@@ -15,7 +15,6 @@ import {
   type GetCommitInput,
   type GithubAdapter,
   type GrantPushInput,
-  type OpenStagedPullRequestInput,
   type PullRequestRef,
   type PullRequestSummary,
   type StagingRepoRef,
@@ -33,23 +32,19 @@ const DEFAULT_API_BASE = 'https://api.github.com';
 // Token scope the platform account needs, for whoever mints
 // FREEAGENTS_GITHUB_TOKEN: a classic PAT needs the `repo` scope (not
 // `public_repo`), because B14a's staging repository lifecycle creates a
-// PRIVATE repository, reads the buyer's repository's git objects, and
-// adds a collaborator -- `public_repo` cannot create a private repo or
-// read a private one, and cannot add a collaborator to any repository.
-// `repo` covers creating a repository for the authenticated user (POST
-// /user/repos), reading and writing git objects (trees, blobs, commits,
-// refs) on both the buyer's repository and the platform's own staging
-// repositories, adding a collaborator (PUT .../collaborators/{username}),
-// and opening a pull request against a repository the platform does not
-// own -- never write access to the buyer's repository's default branch or
-// its own collaborator list (invariant 1). A fine-grained PAT is the same
-// shape: "Contents" (read and write) and "Administration" (write, for
+// PRIVATE repository and adds a collaborator to it -- `public_repo`
+// cannot create a private repo and cannot add a collaborator to any
+// repository. `repo` covers creating a repository for the authenticated
+// user (POST /user/repos), adding a collaborator (PUT
+// .../collaborators/{username}), and reading a pull request the AGENT
+// opened on the buyer's repository (GET .../pulls/{n}) -- never write
+// access to the buyer's repository or the agent's fork (STG2, invariant
+// 1: the platform never opens a pull request and never pushes to a
+// repository it does not own). A fine-grained PAT is the same shape:
+// "Contents" (read and write) and "Administration" (write, for
 // repository creation and collaborator management) on the platform
-// account's own repositories, "Contents" (read) plus "Pull requests"
-// (write) as the cross-repo grant against the buyer's repository. See
-// docs.github.com/en/rest/repos/repos, docs.github.com/en/rest/git/trees,
-// docs.github.com/en/rest/git/blobs, docs.github.com/en/rest/git/commits,
-// docs.github.com/en/rest/git/refs,
+// account's own repositories, "Pull requests" (read) on the buyer's
+// repository. See docs.github.com/en/rest/repos/repos,
 // docs.github.com/en/rest/collaborators/collaborators,
 // docs.github.com/en/rest/pulls/pulls, docs.github.com/en/rest/gists/gists
 // (apiVersion=2022-11-28).
@@ -111,11 +106,16 @@ interface RawPullRequest {
   readonly merged: boolean;
   readonly merge_commit_sha: string | null;
   readonly merged_at: string | null;
-  readonly head: { readonly sha: string };
+  readonly head: {
+    readonly sha: string;
+    readonly repo: { readonly full_name: string; readonly fork: boolean; readonly owner: { readonly login: string } } | null;
+  };
   readonly additions: number;
   readonly deletions: number;
   readonly changed_files: number;
-  readonly base: { readonly repo: { readonly private: boolean } };
+  readonly base: { readonly repo: { readonly private: boolean; readonly full_name: string } };
+  readonly user: { readonly login: string } | null;
+  readonly body: string | null;
 }
 
 // merged wins over the raw `state` string: a merged PR reports state
@@ -218,6 +218,16 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
         // R-17: base.repo.private, inverted. Never passed through, never
         // counted or asserted by this service (see types.ts's own comment).
         repositoryPublic: !raw.base.repo.private,
+        // STG2: the fork-delivery facts, straight off the same PR object.
+        // head.repo is null when GitHub reports the head repository gone
+        // (e.g. a deleted fork) -- projected as null throughout, never
+        // guessed at.
+        headRepoOwner: raw.head.repo === null ? null : raw.head.repo.owner.login,
+        headRepoFullName: raw.head.repo === null ? null : raw.head.repo.full_name,
+        headRepoIsFork: raw.head.repo === null ? false : raw.head.repo.fork,
+        baseRepoFullName: raw.base.repo.full_name,
+        authorLogin: raw.user === null ? null : raw.user.login,
+        body: raw.body ?? '',
       };
     },
 
@@ -250,25 +260,20 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
       };
     },
 
-    // B14a: creates a private repository under the platform account,
-    // seeded from the buyer's repository at baseCommit via the Git Data
-    // API (read the source tree, create the same tree and a root commit
-    // in the new repo). auto_init: true sidesteps GitHub's own
-    // restriction that a ref cannot be created in a truly empty
-    // repository (docs.github.com/en/rest/git/refs: "You are unable to
-    // create new references for empty repositories"); the seeded root
-    // commit then force-repoints the auto-initialised default branch,
-    // discarding the throwaway initial commit auto_init made. A fork is
-    // not used (card brief): forks of a public repo cannot be private,
-    // and a fork carries the buyer's history, which the agent has no
-    // business rewriting.
+    // B14a, STG2: creates an EMPTY private repository under the platform
+    // account -- no auto_init, no seeded blob/tree/commit, no root
+    // commit. The agent seeds it itself by cloning the buyer's repository
+    // and pushing (real history, real SHAs), so baseCommit ends up living
+    // in staging with its true SHA rather than a platform-authored copy.
+    // A fork is not used (card brief): forks of a public repo cannot be
+    // private, and a fork carries the buyer's history, which the agent
+    // has no business rewriting.
     async createStagingRepository(input: CreateStagingRepositoryInput): Promise<CreateStagingRepositoryResult> {
       const tok = requireToken();
 
-      // 1. Create the private repo under the platform account.
       const repoResponse = await githubRequest(fetchImpl, apiBase, tok, '/user/repos', {
         method: 'POST',
-        body: { name: `staging-${input.jobId}`, private: true, auto_init: true },
+        body: { name: `staging-${input.jobId}`, private: true, auto_init: false },
       });
       await requireOk(repoResponse, 'create staging repository');
       const repo = (await repoResponse.json()) as {
@@ -276,97 +281,8 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
         readonly name: string;
         readonly default_branch: string;
       };
-      const owner = repo.owner.login;
-      const repoName = repo.name;
-      const defaultBranch = repo.default_branch;
 
-      // 2. Read the base commit to learn its tree. Read-only against the
-      // source repository.
-      const baseCommitResponse = await githubRequest(
-        fetchImpl,
-        apiBase,
-        tok,
-        `/repos/${input.sourceOwner}/${input.sourceRepo}/git/commits/${input.baseCommit}`,
-      );
-      await requireOk(baseCommitResponse, 'read base commit');
-      const baseCommit = (await baseCommitResponse.json()) as { readonly tree: { readonly sha: string } };
-
-      // 3. Read the source tree recursively (every path in one call).
-      const sourceTreeResponse = await githubRequest(
-        fetchImpl,
-        apiBase,
-        tok,
-        `/repos/${input.sourceOwner}/${input.sourceRepo}/git/trees/${baseCommit.tree.sha}?recursive=1`,
-      );
-      await requireOk(sourceTreeResponse, 'read source tree');
-      const sourceTree = (await sourceTreeResponse.json()) as {
-        readonly truncated: boolean;
-        readonly tree: ReadonlyArray<{
-          readonly path: string;
-          readonly mode: string;
-          readonly type: string;
-          readonly sha: string;
-        }>;
-      };
-      // A truncated listing means GitHub did not return every entry;
-      // seeding from a partial tree would silently drop files, so this
-      // refuses rather than publishing an incomplete staging repository.
-      if (sourceTree.truncated) {
-        throw new Error(
-          `github createStagingRepository: source tree at ${baseCommit.tree.sha} was truncated by the API; too large to seed in one call`,
-        );
-      }
-
-      // 4. Copy every blob (files only; the recursive listing already
-      // flattens subdirectories into path-qualified entries, so no tree
-      // objects need copying, only blobs).
-      const blobEntries = sourceTree.tree.filter((entry) => entry.type === 'blob');
-      const seededTree: Array<{ path: string; mode: string; type: string; sha: string }> = [];
-      for (const entry of blobEntries) {
-        const blobResponse = await githubRequest(
-          fetchImpl,
-          apiBase,
-          tok,
-          `/repos/${input.sourceOwner}/${input.sourceRepo}/git/blobs/${entry.sha}`,
-        );
-        await requireOk(blobResponse, 'read source blob');
-        const blob = (await blobResponse.json()) as { readonly content: string; readonly encoding: string };
-        const createBlobResponse = await githubRequest(fetchImpl, apiBase, tok, `/repos/${owner}/${repoName}/git/blobs`, {
-          method: 'POST',
-          body: { content: blob.content, encoding: blob.encoding },
-        });
-        await requireOk(createBlobResponse, 'create staging blob');
-        const createdBlob = (await createBlobResponse.json()) as { readonly sha: string };
-        seededTree.push({ path: entry.path, mode: entry.mode, type: entry.type, sha: createdBlob.sha });
-      }
-
-      // 5. Build the same tree in the staging repository.
-      const treeResponse = await githubRequest(fetchImpl, apiBase, tok, `/repos/${owner}/${repoName}/git/trees`, {
-        method: 'POST',
-        body: { tree: seededTree },
-      });
-      await requireOk(treeResponse, 'create staging tree');
-      const stagingTree = (await treeResponse.json()) as { readonly sha: string };
-
-      // 6. A ROOT commit, no parents: staging history never inherits the
-      // buyer's (card brief, "a fork carries the buyer's history the
-      // agent has no business rewriting").
-      const commitResponse = await githubRequest(fetchImpl, apiBase, tok, `/repos/${owner}/${repoName}/git/commits`, {
-        method: 'POST',
-        body: { message: `Seed from ${input.sourceOwner}/${input.sourceRepo}@${input.baseCommit}`, tree: stagingTree.sha, parents: [] },
-      });
-      await requireOk(commitResponse, 'create staging root commit');
-      const rootCommit = (await commitResponse.json()) as { readonly sha: string };
-
-      // 7. Force-repoint the auto_init default branch at the seeded root
-      // commit, discarding auto_init's own throwaway README commit.
-      const refResponse = await githubRequest(fetchImpl, apiBase, tok, `/repos/${owner}/${repoName}/git/refs/heads/${defaultBranch}`, {
-        method: 'PATCH',
-        body: { sha: rootCommit.sha, force: true },
-      });
-      await requireOk(refResponse, 'repoint staging default branch');
-
-      return { owner, repo: repoName, defaultBranch, baseCommit: input.baseCommit };
+      return { owner: repo.owner.login, repo: repo.name, defaultBranch: repo.default_branch, baseCommit: input.baseCommit };
     },
 
     // B14a: adds the agent's verified GitHub login as a push collaborator
@@ -428,60 +344,6 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
       await requireOk(refResponse, 'read default branch head');
       const headRef = (await refResponse.json()) as { readonly object: { readonly sha: string } };
       return { defaultBranch: repo.default_branch, sha: headRef.object.sha };
-    },
-
-    // R-10, invariant 1: opens the pull request from the staging
-    // repository at the attested commit, never from a branch the adapter
-    // merely assumes exists. Every write against the SOURCE (buyer's)
-    // repository path is exactly one call: the pull request itself (the
-    // standard cross-repo PR shape -- it grants no write access to the
-    // source's contents). The branch that names the attested commit is
-    // created on the staging repository, never on the source, so the
-    // agent cannot move it after attestation.
-    async openStagedPullRequest(input: OpenStagedPullRequestInput): Promise<PullRequestRef> {
-      requirePlatformOwner(input.stagingOwner);
-      const tok = requireToken();
-
-      // 1. Create the branch on the staging repo, pointed at the
-      // attested commit.
-      const branchResponse = await githubRequest(fetchImpl, apiBase, tok, `/repos/${input.stagingOwner}/${input.stagingRepo}/git/refs`, {
-        method: 'POST',
-        body: { ref: `refs/heads/${input.branch}`, sha: input.stagedCommit },
-      });
-      await requireOk(branchResponse, 'create staged branch');
-
-      // 2. Read the source repository's own default branch (read-only):
-      // the PR's base is whatever the buyer's repository is actually on,
-      // never assumed.
-      const sourceRepoResponse = await githubRequest(fetchImpl, apiBase, tok, `/repos/${input.sourceOwner}/${input.sourceRepo}`);
-      await requireOk(sourceRepoResponse, 'read source repository');
-      const sourceRepo = (await sourceRepoResponse.json()) as { readonly default_branch: string };
-
-      // 3. Open the pull request: head names the staging owner and
-      // branch via head_repo (GitHub's own cross-repo shape for two
-      // repositories that are not fork-related -- proven live 2026-09-06
-      // against a genuine non-fork cross-repo PR), base is the source's
-      // own default branch, targeting the SOURCE repository as GitHub's
-      // cross-repo PR convention requires.
-      const prResponse = await githubRequest(fetchImpl, apiBase, tok, `/repos/${input.sourceOwner}/${input.sourceRepo}/pulls`, {
-        method: 'POST',
-        body: {
-          title: input.title,
-          body: input.body,
-          head: `${input.stagingOwner}:${input.branch}`,
-          head_repo: input.stagingRepo,
-          base: sourceRepo.default_branch,
-        },
-      });
-      await requireOk(prResponse, 'open pull request');
-      const pr = (await prResponse.json()) as { readonly number: number };
-
-      // The pull request number is allocated in the BASE repository's
-      // namespace (GitHub's own docs: POST /repos/{source}/pulls returns
-      // a PR that resolves at https://github.com/{source}/pull/{n}), so
-      // the ref this adapter hands back names the address GitHub itself
-      // answers to.
-      return { owner: input.sourceOwner, repo: input.sourceRepo, number: pr.number };
     },
 
     // B14b: compares two commits within one repository (the staging

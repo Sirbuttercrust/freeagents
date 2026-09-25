@@ -6,6 +6,11 @@
 // whether some unrelated caller had issued a GET first. Every assertion
 // here fails without applyLapses (or an equivalent live settlement check)
 // running in front of every mutation route's own logic, not only GET's.
+//
+// STG2: the agent opens its own PR and reports the URL; the route reads it
+// back via github.getPullRequest, so this file's fake scripts that read
+// instead of the platform ever writing a pull request on the agent's
+// behalf.
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
@@ -16,23 +21,23 @@ import {
   MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
 import { createJob, requestRedo, stageWork, type Job } from '../../src/domain/job.js';
-import type { GithubAdapter, OpenStagedPullRequestInput, PullRequestRef } from '../../src/adapters/github/types.js';
-import { NotImplementedError } from '../../src/adapters/not-implemented.js';
+import type { GithubAdapter, PullRequestRef } from '../../src/adapters/github/types.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
-import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
+import {
+  createStagingLifecycleGithubFake,
+  registerAgentForkPullRequest,
+  type StagingLifecycleFixture,
+} from '../helpers/github-staging-fixtures.js';
 
-function fakeGithub(recorded: OpenStagedPullRequestInput[], mergeCalls: PullRequestRef[] = []): GithubAdapter {
-  const { github: staging } = createStagingLifecycleGithubFake();
+const AGENT_GITHUB_LOGIN = 'scout-lapse';
+const REPOSITORY = 'buyer/target-repo';
+
+function fakeGithub(fixture: StagingLifecycleFixture, mergeCalls: PullRequestRef[] = []): GithubAdapter {
   return {
-    ...staging,
+    ...fixture.github,
     getPullRequest: (ref) => {
       mergeCalls.push(ref);
-      return Promise.reject(new NotImplementedError('github', 'getPullRequest'));
-    },
-    openStagedPullRequest: (input) => {
-      recorded.push(input);
-      const ref: PullRequestRef = { owner: input.sourceOwner, repo: input.sourceRepo, number: 1 };
-      return Promise.resolve(ref);
+      return fixture.github.getPullRequest(ref);
     },
   };
 }
@@ -59,7 +64,7 @@ const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(112));
 function confirmedJob(id: string, confirmedAt: Date): Job {
   return {
     ...createJob(
-      { id, buyerDid: buyer.did, agentDid: agent.did, repository: 'buyer/target-repo', brief: 'Fix the login bug' },
+      { id, buyerDid: buyer.did, agentDid: agent.did, repository: REPOSITORY, brief: 'Fix the login bug' },
       new Date(confirmedAt.getTime() - 86_400_000),
     ),
     status: 'confirmed',
@@ -86,7 +91,8 @@ describe('lapse enforcement binds to mutation routes, not only GET (P4, anchor)'
   let agentRepo: MemoryAgentRepository;
   let accounts: MemoryAccountRepository;
   let gate: MemorySettlementGate;
-  let forkCalls: OpenStagedPullRequestInput[];
+  let fixture: StagingLifecycleFixture;
+  let forkCalls: PullRequestRef[];
 
   beforeAll(async () => {
     accounts = new MemoryAccountRepository();
@@ -98,16 +104,18 @@ describe('lapse enforcement binds to mutation routes, not only GET (P4, anchor)'
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
-      githubLogin: null,
+      githubLogin: AGENT_GITHUB_LOGIN,
     });
+    await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
     jobRepo = new MemoryJobRepository();
     gate = new MemorySettlementGate();
+    fixture = createStagingLifecycleGithubFake();
     forkCalls = [];
     const app = createApp(
       accounts,
       agentRepo,
       undefined,
-      fakeGithub(forkCalls),
+      fakeGithub(fixture, forkCalls),
       jobRepo,
       undefined,
       undefined,
@@ -148,7 +156,13 @@ describe('lapse enforcement binds to mutation routes, not only GET (P4, anchor)'
     await jobRepo.create(job);
 
     const before = forkCalls.length;
-    const pr = await postSigned(baseUrl, `/jobs/${job.id}/pull-request`, {}, agent);
+    const { url } = registerAgentForkPullRequest(fixture, {
+      repository: REPOSITORY,
+      jobId: job.id,
+      stagedCommit: 'commit-sha-2',
+      agentLogin: AGENT_GITHUB_LOGIN,
+    });
+    const pr = await postSigned(baseUrl, `/jobs/${job.id}/pull-request`, { pullRequestUrl: url }, agent);
     // The route's own money gate (402, unsettled) or the transition gate
     // (409, already closed_unpaid) may answer first depending on check
     // order -- either is a legitimate refusal. What must hold regardless:
@@ -184,7 +198,13 @@ describe('lapse enforcement binds to mutation routes, not only GET (P4, anchor)'
     await jobRepo.create(job);
     gate.markBalanceSettled(job.id);
 
-    const pr = await postSigned(baseUrl, `/jobs/${job.id}/pull-request`, {}, agent);
+    const { url } = registerAgentForkPullRequest(fixture, {
+      repository: REPOSITORY,
+      jobId: job.id,
+      stagedCommit: 'commit-sha-5',
+      agentLogin: AGENT_GITHUB_LOGIN,
+    });
+    const pr = await postSigned(baseUrl, `/jobs/${job.id}/pull-request`, { pullRequestUrl: url }, agent);
     expect(pr.status).toBe(200);
     const body = (await pr.json()) as Record<string, unknown>;
     expect(body.status).toBe('submitted');
@@ -247,11 +267,12 @@ describe('merge refuses every P4 non-observable status with 409, not 500 (D7, t_
     });
     jobRepo = new MemoryJobRepository();
     mergeCalls = [];
+    const fixture = createStagingLifecycleGithubFake();
     const app = createApp(
       accounts,
       agentRepo,
       undefined,
-      fakeGithub([], mergeCalls),
+      fakeGithub(fixture, mergeCalls),
       jobRepo,
       undefined,
       undefined,

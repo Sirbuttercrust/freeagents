@@ -21,7 +21,7 @@ import {
 } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
-import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
+import { createStagingLifecycleGithubFake, registerAgentForkPullRequest } from '../helpers/github-staging-fixtures.js';
 
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
@@ -578,13 +578,13 @@ describe('the remainder leg confirms independently of the deposit leg, and unloc
     const jobRepo = new MemoryJobRepository();
     const settlementRepo = new MemorySettlementRepository();
     const gate = new PrismaSettlementGate(settlementRepo);
-    const { github, calls } = createStagingLifecycleGithubFake();
-    const forkCalls = calls.openStagedPullRequest;
+    const fixture = createStagingLifecycleGithubFake();
+    const forkCalls = fixture.calls.getPullRequest;
     const app = createApp(
       operatorRepo,
       agentRepo,
       undefined,
-      github,
+      fixture.github,
       jobRepo,
       undefined,
       undefined,
@@ -621,7 +621,7 @@ describe('the remainder leg confirms independently of the deposit leg, and unloc
       await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-usdc-1' }, agent);
 
       const before = forkCalls.length;
-      const prBlocked = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agent);
+      const prBlocked = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, { pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1' }, agent);
       expect(prBlocked.status).toBe(402);
       expect(forkCalls.length).toBe(before);
 
@@ -635,7 +635,13 @@ describe('the remainder leg confirms independently of the deposit leg, and unloc
       const remainderRow = await settlementRepo.findByJobAndLeg(jobId, 'remainder');
       expect(remainderRow?.amountUsd).toBe('375.00');
 
-      const pr = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agent);
+      const { url } = registerAgentForkPullRequest(fixture, {
+        repository: 'buyer/target-repo',
+        jobId,
+        stagedCommit: 'commit-usdc-1',
+        agentLogin: 'scout-usdc-remainder',
+      });
+      const pr = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, { pullRequestUrl: url }, agent);
       expect(pr.status).toBe(200);
       expect(forkCalls.length).toBe(before + 1);
     } finally {

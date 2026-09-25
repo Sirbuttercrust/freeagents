@@ -26,7 +26,6 @@ function stubbedGithub(): GithubAdapter {
   const { github: staging } = createStagingLifecycleGithubFake();
   return {
     ...staging,
-    openStagedPullRequest: () => Promise.resolve({ owner: 'northsound', repo: 'commerce', number: 4471 }),
     getPullRequest: (ref: PullRequestRef): Promise<PullRequestSummary> =>
       Promise.resolve({
         ref,
@@ -39,6 +38,15 @@ function stubbedGithub(): GithubAdapter {
         filesChanged: 7,
         // R-17: GitHub reports base repo visibility; the seed repo is public.
         repositoryPublic: true,
+        // STG2: the manual seed script drives merge directly, so no real
+        // pull-request route ever checks these; filled in for type shape
+        // consistency with a plausible agent-fork PR.
+        headRepoOwner: 'northsound',
+        headRepoFullName: 'northsound/commerce',
+        headRepoIsFork: true,
+        baseRepoFullName: 'northsound/commerce',
+        authorLogin: 'northsound',
+        body: '',
       }),
   };
 }

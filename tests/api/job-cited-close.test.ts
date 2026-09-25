@@ -15,12 +15,17 @@ import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../h
 import { testSessionAdapter } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
-import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
+import {
+  createStagingLifecycleGithubFake,
+  registerAgentForkPullRequest,
+  type StagingLifecycleFixture,
+} from '../helpers/github-staging-fixtures.js';
 import type { SettlementGate } from '../../src/adapters/payment/gate.js';
 
 let buyer: SigningIdentity;
 let agent: SigningIdentity;
 const AGENT_GITHUB_LOGIN = 'scout-cited-close';
+const REPOSITORY = 'buyer/target-repo';
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
   { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
@@ -42,7 +47,7 @@ async function postSigned(base: string, path: string, body: unknown, identity: S
   });
 }
 
-async function startWith(repo: JobRepository, credentialRepo: MemoryCredentialRepository, settlementGate: SettlementGate = alwaysSettledGate()): Promise<{ server: Server; baseUrl: string }> {
+async function startWith(repo: JobRepository, credentialRepo: MemoryCredentialRepository, settlementGate: SettlementGate = alwaysSettledGate()): Promise<{ server: Server; baseUrl: string; fixture: StagingLifecycleFixture }> {
   const agentRepo = new MemoryAgentRepository();
   await agentRepo.create({
     did: agent.did,
@@ -57,12 +62,12 @@ async function startWith(repo: JobRepository, credentialRepo: MemoryCredentialRe
   const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-cited-close-scripted' });
   const sessionAdapter = testSessionAdapter();
-  const { github } = createStagingLifecycleGithubFake();
+  const fixture = createStagingLifecycleGithubFake();
   const s = createApp(
     operatorRepo,
     agentRepo,
     undefined,
-    github,
+    fixture.github,
     repo,
     undefined,
     undefined,
@@ -80,11 +85,11 @@ async function startWith(repo: JobRepository, credentialRepo: MemoryCredentialRe
   if (address === null || typeof address === 'string') {
     throw new Error('expected server to listen on a port');
   }
-  return { server: s, baseUrl: `http://127.0.0.1:${address.port}` };
+  return { server: s, baseUrl: `http://127.0.0.1:${address.port}`, fixture };
 }
 
-async function walkToSubmitted(base: string): Promise<string> {
-  const created = await postSigned(base, '/jobs', { agentDid: agent.did, repository: 'buyer/target-repo', brief: 'Fix the login bug' }, buyer);
+async function walkToSubmitted(base: string, fixture: StagingLifecycleFixture): Promise<string> {
+  const created = await postSigned(base, '/jobs', { agentDid: agent.did, repository: REPOSITORY, brief: 'Fix the login bug' }, buyer);
   expect(created.status).toBe(201);
   const jobId = String(((await created.json()) as Record<string, unknown>).id);
   expect((await postSigned(base, `/jobs/${jobId}/criteria`, { criteria: proposal, priceUsd: '500.00', rail: 'abt' }, agent)).status).toBe(200);
@@ -96,7 +101,13 @@ async function walkToSubmitted(base: string): Promise<string> {
   expect((await postSigned(base, `/jobs/${jobId}/price/accept`, {}, agent)).status).toBe(200);
   expect((await postSigned(base, `/jobs/${jobId}/confirm`, {}, buyer)).status).toBe(200);
   expect((await postSigned(base, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agent)).status).toBe(200);
-  expect((await postSigned(base, `/jobs/${jobId}/pull-request`, {}, agent)).status).toBe(200);
+  const { url } = registerAgentForkPullRequest(fixture, {
+    repository: REPOSITORY,
+    jobId,
+    stagedCommit: 'commit-sha-1',
+    agentLogin: AGENT_GITHUB_LOGIN,
+  });
+  expect((await postSigned(base, `/jobs/${jobId}/pull-request`, { pullRequestUrl: url }, agent)).status).toBe(200);
   return jobId;
 }
 
@@ -104,6 +115,7 @@ describe('job cited close after paying (P6, design record row 4)', () => {
   let server: Server;
   let baseUrl: string;
   let credentialRepo: MemoryCredentialRepository;
+  let fixture: StagingLifecycleFixture;
 
   beforeAll(async () => {
     buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(131));
@@ -112,6 +124,7 @@ describe('job cited close after paying (P6, design record row 4)', () => {
     const started = await startWith(new MemoryJobRepository(), credentialRepo);
     server = started.server;
     baseUrl = started.baseUrl;
+    fixture = started.fixture;
   });
 
   afterAll(() => {
@@ -119,7 +132,7 @@ describe('job cited close after paying (P6, design record row 4)', () => {
   });
 
   it('the buyer closes citing a confirmed criterion and a sentence of reasoning', async () => {
-    const jobId = await walkToSubmitted(baseUrl);
+    const jobId = await walkToSubmitted(baseUrl, fixture);
     const res = await postSigned(baseUrl, `/jobs/${jobId}/cited-close`, { criterionIndex: 0, reasonText: 'The login bug is not actually fixed.' }, buyer);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -132,25 +145,25 @@ describe('job cited close after paying (P6, design record row 4)', () => {
   });
 
   it('the agent cannot cited-close (403): only the buyer holds this move', async () => {
-    const jobId = await walkToSubmitted(baseUrl);
+    const jobId = await walkToSubmitted(baseUrl, fixture);
     const res = await postSigned(baseUrl, `/jobs/${jobId}/cited-close`, { criterionIndex: 0, reasonText: 'Not fixed.' }, agent);
     expect(res.status).toBe(403);
   });
 
   it('an empty reasonText is 400: a cited close needs at least one sentence', async () => {
-    const jobId = await walkToSubmitted(baseUrl);
+    const jobId = await walkToSubmitted(baseUrl, fixture);
     const res = await postSigned(baseUrl, `/jobs/${jobId}/cited-close`, { criterionIndex: 0, reasonText: '   ' }, buyer);
     expect(res.status).toBe(400);
   });
 
   it('an out-of-range criterionIndex is 400', async () => {
-    const jobId = await walkToSubmitted(baseUrl);
+    const jobId = await walkToSubmitted(baseUrl, fixture);
     const res = await postSigned(baseUrl, `/jobs/${jobId}/cited-close`, { criterionIndex: 99, reasonText: 'Not fixed.' }, buyer);
     expect(res.status).toBe(400);
   });
 
   it('issues no credential of any type: a cited-closed job has nothing in the credential repository', async () => {
-    const jobId = await walkToSubmitted(baseUrl);
+    const jobId = await walkToSubmitted(baseUrl, fixture);
     const res = await postSigned(baseUrl, `/jobs/${jobId}/cited-close`, { criterionIndex: 0, reasonText: 'Not fixed.' }, buyer);
     expect(res.status).toBe(200);
     const stored = await credentialRepo.findByDocumentId(jobId);
@@ -190,6 +203,7 @@ describe('cited close is gated on the live settlement fact (P6 review round 1, D
   let server: Server;
   let baseUrl: string;
   let gate: ToggleableSettlementGate;
+  let fixture: StagingLifecycleFixture;
 
   beforeAll(async () => {
     buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(133));
@@ -198,6 +212,7 @@ describe('cited close is gated on the live settlement fact (P6 review round 1, D
     const started = await startWith(new MemoryJobRepository(), new MemoryCredentialRepository(), gate);
     server = started.server;
     baseUrl = started.baseUrl;
+    fixture = started.fixture;
   });
 
   afterAll(() => {
@@ -205,7 +220,7 @@ describe('cited close is gated on the live settlement fact (P6 review round 1, D
   });
 
   it('refuses a cited close with 402 when the remainder has not settled, and stores no cited-close fact', async () => {
-    const jobId = await walkToSubmitted(baseUrl);
+    const jobId = await walkToSubmitted(baseUrl, fixture);
     const askedBefore = gate.askedBalanceCount;
     gate.setSettled(false);
     const res = await postSigned(baseUrl, `/jobs/${jobId}/cited-close`, { criterionIndex: 0, reasonText: 'Not fixed.' }, buyer);
@@ -219,7 +234,7 @@ describe('cited close is gated on the live settlement fact (P6 review round 1, D
   });
 
   it('allows the cited close once the remainder settles again', async () => {
-    const jobId = await walkToSubmitted(baseUrl);
+    const jobId = await walkToSubmitted(baseUrl, fixture);
     gate.setSettled(true);
     const res = await postSigned(baseUrl, `/jobs/${jobId}/cited-close`, { criterionIndex: 0, reasonText: 'Not fixed, still.' }, buyer);
     expect(res.status).toBe(200);

@@ -12,29 +12,21 @@ import {
   MemoryJobRepository,
   MemoryAccountRepository,
 } from '../../src/adapters/storage/memory.js';
-import type { GithubAdapter, OpenStagedPullRequestInput, PullRequestRef } from '../../src/adapters/github/types.js';
+import type { GithubAdapter } from '../../src/adapters/github/types.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
-import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
+import {
+  createStagingLifecycleGithubFake,
+  registerAgentForkPullRequest,
+} from '../helpers/github-staging-fixtures.js';
 
 const AGENT_GITHUB_LOGIN = 'scout-payment-gate';
+const REPOSITORY = 'buyer/target-repo';
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
   { text: 'Checkout e2e test passes', proposedBy: 'buyer' },
 ];
-
-function fakeGithub(recorded: OpenStagedPullRequestInput[]): GithubAdapter {
-  const { github: staging } = createStagingLifecycleGithubFake();
-  return {
-    ...staging,
-    openStagedPullRequest: (input) => {
-      recorded.push(input);
-      const ref: PullRequestRef = { owner: input.sourceOwner, repo: input.sourceRepo, number: 1 };
-      return Promise.resolve(ref);
-    },
-  };
-}
 
 async function postSigned(baseUrl: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
   const bodyText = JSON.stringify(body);
@@ -69,12 +61,12 @@ async function startApp(settlementGate: MemorySettlementGate, github?: GithubAda
   });
   await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
   const jobRepo = new MemoryJobRepository();
-  const forkCalls: OpenStagedPullRequestInput[] = [];
+  const fixture = createStagingLifecycleGithubFake();
   const app = createApp(
     operatorRepo,
     agentRepo,
     undefined,
-    github ?? fakeGithub(forkCalls),
+    github ?? fixture.github,
     jobRepo,
     undefined,
     undefined,
@@ -100,7 +92,7 @@ async function startApp(settlementGate: MemorySettlementGate, github?: GithubAda
     throw new Error('expected server to listen on a port');
   }
   const baseUrl = `http://127.0.0.1:${address.port}`;
-  return { server, baseUrl, buyer, agent, forkCalls };
+  return { server, baseUrl, buyer, agent, fixture };
 }
 
 async function walkToConfirmed(
@@ -196,7 +188,7 @@ describe('confirm is gated on the deposit (P4, anchor)', () => {
 describe('pull-request is gated on the balance, before any fork call (P4, anchor)', () => {
   it('refuses with 402 when the balance is unsettled, and fires github zero times', async () => {
     const gate = new MemorySettlementGate();
-    const { server, baseUrl, buyer, agent, forkCalls } = await startApp(gate);
+    const { server, baseUrl, buyer, agent, fixture } = await startApp(gate);
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
       gate.markDepositSettled(jobId);
@@ -209,12 +201,18 @@ describe('pull-request is gated on the balance, before any fork call (P4, anchor
       const stage = await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'abc123def' }, agent);
       expect(stage.status).toBe(200);
 
-      const before = forkCalls.length;
-      const pr = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agent);
+      const before = fixture.calls.getPullRequest.length;
+      const { url } = registerAgentForkPullRequest(fixture, {
+        repository: REPOSITORY,
+        jobId,
+        stagedCommit: 'abc123def',
+        agentLogin: AGENT_GITHUB_LOGIN,
+      });
+      const pr = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, { pullRequestUrl: url }, agent);
       expect(pr.status).toBe(402);
       const body = (await pr.json()) as Record<string, unknown>;
       expect(body.error).toBeDefined();
-      expect(forkCalls.length).toBe(before);
+      expect(fixture.calls.getPullRequest.length).toBe(before);
 
       const read = await (await fetch(`${baseUrl}/jobs/${jobId}`)).json() as Record<string, unknown>;
       expect(read.status).toBe('staged');
@@ -225,7 +223,7 @@ describe('pull-request is gated on the balance, before any fork call (P4, anchor
 
   it('allows pull-request once the balance is settled, and fires github exactly once', async () => {
     const gate = new MemorySettlementGate();
-    const { server, baseUrl, buyer, agent, forkCalls } = await startApp(gate);
+    const { server, baseUrl, buyer, agent, fixture } = await startApp(gate);
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
       gate.markDepositSettled(jobId);
@@ -233,9 +231,15 @@ describe('pull-request is gated on the balance, before any fork call (P4, anchor
       await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'abc123def' }, agent);
       gate.markBalanceSettled(jobId);
 
-      const pr = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agent);
+      const { url } = registerAgentForkPullRequest(fixture, {
+        repository: REPOSITORY,
+        jobId,
+        stagedCommit: 'abc123def',
+        agentLogin: AGENT_GITHUB_LOGIN,
+      });
+      const pr = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, { pullRequestUrl: url }, agent);
       expect(pr.status).toBe(200);
-      expect(forkCalls.length).toBe(1);
+      expect(fixture.calls.getPullRequest.length).toBe(1);
       const body = (await pr.json()) as Record<string, unknown>;
       expect(body.status).toBe('submitted');
     } finally {

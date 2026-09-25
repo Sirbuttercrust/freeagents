@@ -36,23 +36,30 @@ const PR_NUMBER = 21;
 const MERGE_SHA = 'restart-merge-sha';
 const MERGED_AT = new Date('2026-08-31T10:00:00Z');
 
-function fakeGithub(): GithubAdapter {
+function fakeGithub(jobId: () => string, prState: () => 'open' | 'merged'): GithubAdapter {
   const { github: staging } = createStagingLifecycleGithubFake();
   return {
     ...staging,
-    getPullRequest: (ref: PullRequestRef) =>
-      Promise.resolve({
+    getPullRequest: (ref: PullRequestRef) => {
+      const state = prState();
+      return Promise.resolve({
         ref,
-        state: 'merged',
-        mergeCommitSha: MERGE_SHA,
-        mergedAt: MERGED_AT,
-        headSha: 'restart-head-sha',
+        state,
+        mergeCommitSha: state === 'merged' ? MERGE_SHA : null,
+        mergedAt: state === 'merged' ? MERGED_AT : null,
+        headSha: 'commit-sha-1',
         additions: 8,
         deletions: 2,
         filesChanged: 1,
         repositoryPublic: true,
-      }),
-    openStagedPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: PR_NUMBER }),
+        headRepoOwner: 'scout-restart',
+        headRepoFullName: `scout-restart/${FORK_REPO}`,
+        headRepoIsFork: true,
+        baseRepoFullName: `${FORK_OWNER}/${FORK_REPO}`,
+        authorLogin: 'scout-restart',
+        body: `Job: ${jobId()}\n`,
+      });
+    },
   };
 }
 
@@ -115,6 +122,9 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
       credentialRepo,
     );
 
+    let jobIdRef = '';
+    let prState: 'open' | 'merged' = 'open';
+
     // Process 1: identity is undefined so createApp wires its OWN real
     // adapter with its OWN fresh in-process KnownKeyStore -- the durable
     // repositories are the only thing shared with process 2 below.
@@ -122,7 +132,7 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
       operatorRepo,
       agentRepo,
       undefined,
-      fakeGithub(),
+      fakeGithub(() => jobIdRef, () => prState),
       jobRepo,
       credentials,
       undefined,
@@ -145,6 +155,7 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
     }, buyerIdentity);
     expect(draft.status).toBe(201);
     const jobId = String(((await draft.json()) as Record<string, unknown>).id);
+    jobIdRef = jobId;
 
     // The agent's only signed request in this process: what teaches the
     // (process-1) KnownKeyStore, and now must also teach durable storage.
@@ -168,17 +179,18 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(first.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agentIdentity)).status).toBe(200);
-    expect((await postSigned(first.baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(first.baseUrl, `/jobs/${jobId}/pull-request`, { pullRequestUrl: `https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/${PR_NUMBER}` }, agentIdentity)).status).toBe(200);
 
     // The process exits. Nothing about process 1 survives into process 2
     // except the durable repositories.
     first.server.close();
 
+    prState = 'merged';
     const app2 = createApp(
       operatorRepo,
       agentRepo,
       undefined,
-      fakeGithub(),
+      fakeGithub(() => jobIdRef, () => prState),
       jobRepo,
       credentials,
       undefined,
