@@ -164,8 +164,8 @@ describe('createIdentityAdapter, verify with a candidate key (PRF1, bugs.md B31)
   });
 
   // PRF1 r1 (defect 2): the two failure shapes must stay distinguishable, so
-  // the route can answer with an operator-fixable 409 for one and an honest
-  // 503 for the other.
+  // the route can answer each with its own 409 remedy: fix the existing
+  // `key` line for a rejected candidate, or add one for an unobserved DID.
   it('throws CandidateKeyRejectedError (not DidNotResolvableError) when a candidate was offered but rejected', async () => {
     const identity = createIdentityAdapter(createKnownKeyStore());
     const wallet = fromRandom();
