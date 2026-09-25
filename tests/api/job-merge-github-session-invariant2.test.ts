@@ -181,19 +181,28 @@ describe('POST /jobs/:jobId/merge, G1 path one, invariant 2: a third party still
     };
 
     const { github: staging } = createStagingLifecycleGithubFake();
+    let jobIdForBody = '';
+    let prState: 'open' | 'merged' = 'open';
+    let prAuthorLogin = '';
     const github: GithubAdapter = {
       ...staging,
       getPullRequest: (ref: PullRequestRef) =>
         Promise.resolve({
           ref,
-          state: 'merged',
-          mergeCommitSha: MERGE_SHA,
-          mergedAt: MERGED_AT,
-          headSha: 'g1-path-one-head-sha',
+          state: prState,
+          mergeCommitSha: prState === 'merged' ? MERGE_SHA : null,
+          mergedAt: prState === 'merged' ? MERGED_AT : null,
+          headSha: 'commit-sha-1',
           additions: 40,
           deletions: 3,
           filesChanged: 2,
           repositoryPublic: true,
+          headRepoOwner: prAuthorLogin,
+          headRepoFullName: `${prAuthorLogin}/target-repo`,
+          headRepoIsFork: true,
+          baseRepoFullName: 'buyer/target-repo',
+          authorLogin: prAuthorLogin,
+          body: `Job: ${jobIdForBody}\n`,
         }),
     };
 
@@ -235,7 +244,8 @@ describe('POST /jobs/:jobId/merge, G1 path one, invariant 2: a third party still
     const live = await sessionAdapter.getSession(sessionToken);
     if (live === null) throw new Error('expected the minted token to resolve to a live session');
     sessionLogin = live.subject;
-    const authHeader = { authorization: `Bearer ${sessionToken}` };
+    prAuthorLogin = sessionLogin;
+    const authHeader = { authorization: 'Bearer ' + sessionToken };
 
     const operatorDid = 'did:abt:zG1PathOneInvariant2Operator';
     await accountRepo.register({ did: operatorDid, githubLogin: sessionLogin });
@@ -265,6 +275,7 @@ describe('POST /jobs/:jobId/merge, G1 path one, invariant 2: a third party still
     }, buyerIdentity);
     expect(draft.status).toBe(201);
     const jobId = String(((await draft.json()) as Record<string, unknown>).id);
+    jobIdForBody = jobId;
 
     expect(
       (
@@ -286,8 +297,9 @@ describe('POST /jobs/:jobId/merge, G1 path one, invariant 2: a third party still
     expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agentIdentity)).status).toBe(200);
-    expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, { pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1' }, agentIdentity)).status).toBe(200);
 
+    prState = 'merged';
     const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, buyerIdentity);
     expect(merge.status).toBe(200);
     const mergeBody = (await merge.json()) as Record<string, unknown>;

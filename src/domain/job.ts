@@ -751,6 +751,28 @@ export function applyLapses(job: Job, now: Date, remainderIsSettled = false): Jo
   return deemCompleted(lapseAtStaged(expireUnstaged(job, now), now, remainderIsSettled), now);
 }
 
+// STG2: the pull-request template a staged job's projection carries, so
+// the agent can open the real PR from its own fork without re-deriving
+// the title and body lines by hand. Same lines the route used to write
+// when it opened the PR itself (R-10's original shape): the job id in
+// the title where triage sees it first, and a body carrying the job id,
+// repository, brief hash and spec hash so anyone holding the PR alone
+// can tie it to the job (invariant 2). The final sentence states the new
+// mechanism: the agent opens it from its own fork, and the platform
+// holds no write access to the source repository.
+export function pullRequestTemplate(job: Job): { readonly title: string; readonly body: string } {
+  const title = `FreeAgents job ${job.id}`;
+  const body = [
+    `Job: ${job.id}`,
+    `Repository: ${job.repository}`,
+    `Brief hash: ${job.briefHash}`,
+    `Spec hash: ${String(job.confirmedSpecHash)}`,
+    '',
+    'This pull request was opened by the agent from its own fork, at the attested commit; the platform holds no write access to the source repository.',
+  ].join('\n');
+  return { title, body };
+}
+
 export function submitPullRequest(job: Job, pullRequestUrl: string, now: Date): Job {
   validateJobTransition(job.status, 'submitted');
   return {

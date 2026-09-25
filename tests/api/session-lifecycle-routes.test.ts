@@ -41,8 +41,7 @@ import {
   MemoryJobRepository,
   MemoryAttestationRepository,
 } from '../../src/adapters/storage/memory.js';
-import type { GithubAdapter } from '../../src/adapters/github/types.js';
-import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
+import { createStagingLifecycleGithubFake, registerAgentForkPullRequest } from '../helpers/github-staging-fixtures.js';
 import { signingIdentityFromSeed, signingIdentityFromWallet, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { fakeGitHubConfig } from '../helpers/session-fixtures.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
@@ -165,10 +164,12 @@ async function postSigned(baseUrl: string, path: string, body: unknown, identity
 // B14a (merged after this card's branch point) replaced fork-and-PR with
 // the platform-owned staging repository lifecycle, so the adapter this
 // file hands createApp has to speak that lifecycle. The shared fixture is
-// the house fake for exactly this case: a suite that walks a job through
-// confirm to pull-request without itself being about staging mechanics.
-function fakeGithub(): GithubAdapter {
-  return createStagingLifecycleGithubFake().github;
+// STG2: the shared house fake for exactly this case: a suite that walks a
+// job through confirm to pull-request without itself being about staging
+// mechanics. Returns the whole fixture (not just .github) so a test can
+// register the PR the agent "opened from its own fork" before posting.
+function fakeGithub(): ReturnType<typeof createStagingLifecycleGithubFake> {
+  return createStagingLifecycleGithubFake();
 }
 
 // Boots createApp on an ephemeral port and resolves once it is listening.
@@ -232,6 +233,7 @@ describe('P8a: the full lifecycle walk, buyer by session, agent by its own signa
 
   let agentIdentity: SigningIdentity;
   let buyerAuthHeader: Record<string, string>;
+  let githubFixture: ReturnType<typeof createStagingLifecycleGithubFake>;
 
   beforeAll(async () => {
     const repo = new MemoryAccountRepository();
@@ -244,12 +246,13 @@ describe('P8a: the full lifecycle walk, buyer by session, agent by its own signa
     await repo.register({ did: BUYER_DID, githubLogin: 'p8a-walk-buyer-login', passkeySubject: buyerSubject });
 
     const sessionAdapter = passkeyAdapter();
+    githubFixture = fakeGithub();
 
     ({ server, baseUrl } = await bootServer(
       repo,
       agentRepo,
       undefined,
-      fakeGithub(),
+      githubFixture.github,
       jobRepo,
       undefined,
       undefined,
@@ -326,13 +329,20 @@ describe('P8a: the full lifecycle walk, buyer by session, agent by its own signa
     expect(restaged.status).toBe(200);
     expect(((await restaged.json()) as Record<string, unknown>).status).toBe('staged');
 
-    const pullRequest = await postAsAgent(`/jobs/${jobId}/pull-request`, {});
+    const pullRequest = await postAsAgent(`/jobs/${jobId}/pull-request`, {
+      pullRequestUrl: registerAgentForkPullRequest(githubFixture, {
+        repository: 'buyer/target-repo',
+        jobId,
+        stagedCommit: 'p8a-commit-2',
+        agentLogin: 'p8a-walk-agent-login',
+      }).url,
+    });
     expect(pullRequest.status).toBe(200);
     const pullRequestBody = (await pullRequest.json()) as Record<string, unknown>;
     expect(pullRequestBody.status).toBe('submitted');
-    // B14a: the PR is opened cross-repo, from the platform's staging
-    // repository into the buyer's own repository, so the URL names the
-    // source repo. Same shape job-pull-request.test.ts pins.
+    // STG2: the PR is opened by the agent from its own fork, against the
+    // buyer's repository, so the URL names the source repo. Same shape
+    // job-pull-request.test.ts pins.
     expect(pullRequestBody.pullRequestUrl).toBe('https://github.com/buyer/target-repo/pull/1');
 
     // The buyer's session reads the job the agent's key moved forward,

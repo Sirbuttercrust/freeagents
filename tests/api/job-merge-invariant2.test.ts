@@ -164,19 +164,27 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
     };
 
     const { github: staging } = createStagingLifecycleGithubFake();
+    let jobIdForBody = '';
+    let prState: 'open' | 'merged' = 'open';
     const github: GithubAdapter = {
       ...staging,
       getPullRequest: (ref: PullRequestRef) =>
         Promise.resolve({
           ref,
-          state: 'merged',
-          mergeCommitSha: MERGE_SHA,
-          mergedAt: MERGED_AT,
-          headSha: 'inv2-head-sha',
+          state: prState,
+          mergeCommitSha: prState === 'merged' ? MERGE_SHA : null,
+          mergedAt: prState === 'merged' ? MERGED_AT : null,
+          headSha: 'commit-sha-1',
           additions: 55,
           deletions: 6,
           filesChanged: 3,
           repositoryPublic: true,
+          headRepoOwner: 'scout-merge-invariant2',
+          headRepoFullName: 'scout-merge-invariant2/target-repo',
+          headRepoIsFork: true,
+          baseRepoFullName: 'buyer/target-repo',
+          authorLogin: 'scout-merge-invariant2',
+          body: `Job: ${jobIdForBody}\n`,
         }),
     };
 
@@ -219,6 +227,7 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
     }, buyerIdentity);
     expect(draft.status).toBe(201);
     const jobId = String(((await draft.json()) as Record<string, unknown>).id);
+    jobIdForBody = jobId;
 
     expect(
       (
@@ -240,8 +249,9 @@ describe('POST /jobs/:jobId/merge, invariant 2 (R-36): a third party verifies th
     expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agentIdentity)).status).toBe(200);
-    expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, { pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1' }, agentIdentity)).status).toBe(200);
 
+    prState = 'merged';
     const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, buyerIdentity);
     expect(merge.status).toBe(200);
     const mergeBody = (await merge.json()) as Record<string, unknown>;
