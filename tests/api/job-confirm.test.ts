@@ -153,6 +153,7 @@ async function startWith(repo: JobRepository): Promise<{ server: Server; baseUrl
     name: 'scout',
     skills: ['triage'],
     githubLogin: AGENT_GITHUB_LOGIN,
+    negotiatesOnOwnersBehalf: true,
   });
   await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
   const operatorRepo = new MemoryAccountRepository();
@@ -183,6 +184,7 @@ describe('job confirm (R-9)', () => {
       name: 'scout',
       skills: ['triage'],
       githubLogin: AGENT_GITHUB_LOGIN,
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
     await agentRepo.create({
@@ -192,6 +194,7 @@ describe('job confirm (R-9)', () => {
       name: 'stranger',
       skills: ['triage'],
       githubLogin: STRANGER_GITHUB_LOGIN,
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.updateGithubBinding(stranger.did, { handle: STRANGER_GITHUB_LOGIN, status: 'verified' });
     const { github } = createStagingLifecycleGithubFake();
@@ -442,6 +445,7 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
           delegation: await signW3CDelegation(operatorWallet, agentWallet),
           name: 'scout',
           skills: ['triage'],
+          negotiatesOnOwnersBehalf: true,
         }, await signingIdentityFromWallet(operatorWallet))
       ).status,
     ).toBe(201);

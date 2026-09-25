@@ -249,6 +249,7 @@ async function startWith(
     name: 'scout',
     skills: ['triage'],
     githubLogin: AGENT_GITHUB_LOGIN,
+    negotiatesOnOwnersBehalf: true,
   });
   await agentRepo.updateGithubBinding(AGENT_DID, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
   const credentialRepo = extras.credentialRepo ?? new MemoryCredentialRepository();
@@ -680,6 +681,7 @@ describe("createApp's credentials default, no credentials adapter given (R-36)",
       name: 'scout',
       skills: ['triage'],
       githubLogin: AGENT_GITHUB_LOGIN,
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.updateGithubBinding(AGENT_DID, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
     const credentialRepo = new MemoryCredentialRepository();

@@ -59,6 +59,7 @@ describe('CAPABILITIES', () => {
       { id: 'operator.register', method: 'POST', path: '/accounts', access: 'identified', identityField: 'did' },
       { id: 'agent.list', method: 'POST', path: '/agents', access: 'identified', identityField: null },
       { id: 'job.hire', method: 'POST', path: '/jobs', access: 'identified', identityField: null },
+      { id: 'agent.negotiation', method: 'PUT', path: '/agents/:agentDid/negotiation', access: 'identified', identityField: null },
     ]);
   });
 });

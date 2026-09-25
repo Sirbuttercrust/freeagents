@@ -277,6 +277,7 @@ async function setupAbtJobWithProvisionedOperator(
         name: 'scout',
         skills: ['triage'],
         githubLogin: null,
+        negotiatesOnOwnersBehalf: true,
       });
 
       const buyerWallet = fromRandom();
@@ -392,6 +393,7 @@ describe('P8d: signing in gives you an account, no POST /accounts call anywhere'
         name: 'scout',
         skills: ['triage'],
         githubLogin: null,
+        negotiatesOnOwnersBehalf: true,
       });
       const accountRepo = new MemoryAccountRepository();
       const baseUrl = await listen(
@@ -430,6 +432,7 @@ describe('P8d: signing in gives you an account, no POST /accounts call anywhere'
         name: 'scout',
         skills: ['triage'],
         githubLogin: null,
+        negotiatesOnOwnersBehalf: true,
       });
       const accountRepo = new MemoryAccountRepository();
       const baseUrl = await listen(
@@ -493,6 +496,7 @@ describe('P8d: signing in gives you an account, no POST /accounts call anywhere'
         name: 'scout',
         skills: ['triage'],
         githubLogin: null,
+        negotiatesOnOwnersBehalf: true,
       });
       // Holds both provisioning attempts at register() until BOTH have
       // arrived (see BarrierAccountRepository above), so the race is
@@ -605,6 +609,7 @@ describe('P8d: signing in gives you an account, no POST /accounts call anywhere'
         name: 'scout',
         skills: ['triage'],
         githubLogin: null,
+        negotiatesOnOwnersBehalf: true,
       });
       const accountRepo = new MemoryAccountRepository();
       const baseUrl = await listen(

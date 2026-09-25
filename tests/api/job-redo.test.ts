@@ -51,6 +51,7 @@ async function startWith(repo: JobRepository, attestationRepo: MemoryAttestation
     name: 'scout',
     skills: ['triage'],
     githubLogin: AGENT_GITHUB_LOGIN,
+    negotiatesOnOwnersBehalf: true,
   });
   await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
   const operatorRepo = new MemoryAccountRepository();

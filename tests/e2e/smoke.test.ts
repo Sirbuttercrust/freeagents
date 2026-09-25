@@ -606,6 +606,7 @@ describe('the API starts and answers', () => {
       delegation: credential,
       name: 'scout',
       skills: ['triage'],
+      negotiatesOnOwnersBehalf: true,
     }, operatorWallet);
     expect(created.status).toBe(201);
     const createdBody = (await created.json()) as Record<string, unknown>;
@@ -649,6 +650,7 @@ describe('the API starts and answers', () => {
       delegation: credential,
       name: 'scout',
       skills: ['triage'],
+      negotiatesOnOwnersBehalf: true,
     }, operatorWallet);
     expect(dup.status).toBe(409);
 
@@ -661,6 +663,7 @@ describe('the API starts and answers', () => {
       delegation: credential,
       name: 'orphan',
       skills: ['triage'],
+      negotiatesOnOwnersBehalf: true,
     }, agentWallet);
     expect(orphan.status).toBe(404);
 
@@ -689,6 +692,7 @@ describe('the API starts and answers', () => {
       delegation,
       name: 'scout',
       skills: ['triage'],
+      negotiatesOnOwnersBehalf: true,
     }, operatorWallet);
     expect(delegated.status).toBe(201);
 
@@ -777,6 +781,7 @@ describe('the API starts and answers', () => {
       delegation: credential,
       name: 'scout',
       skills: ['triage'],
+      negotiatesOnOwnersBehalf: true,
     }, operatorWallet);
     expect(delegated.status).toBe(201);
     // Wire-level: this is the file's second delegated agent, a different
@@ -849,6 +854,7 @@ describe('the API starts and answers', () => {
       name: 'scout',
       skills: ['triage'],
       githubLogin: 'test-session-user',
+      negotiatesOnOwnersBehalf: true,
     });
     expect(created.status).toBe(201);
     const createdBody = (await created.json()) as Record<string, unknown>;
@@ -872,6 +878,7 @@ describe('the API starts and answers', () => {
       name: 'scout-untrusted',
       skills: ['triage'],
       githubLogin: 'someone-elses-login',
+      negotiatesOnOwnersBehalf: true,
     });
     expect(untrusted.status).toBe(201);
     const untrustedBody = (await untrusted.json()) as Record<string, unknown>;
@@ -897,6 +904,7 @@ describe('the API starts and answers', () => {
       delegation: credential,
       name: 'scout',
       skills: ['triage'],
+      negotiatesOnOwnersBehalf: true,
     }, operatorWallet);
     expect(created.status).toBe(201);
 
@@ -1037,6 +1045,7 @@ describe('the API starts and answers', () => {
       delegation: credential,
       name: 'scout',
       skills: ['triage'],
+      negotiatesOnOwnersBehalf: true,
     }, await signingIdentityFromWallet(operatorWallet));
     expect(delegated.status).toBe(201);
 
@@ -1116,6 +1125,7 @@ describe('the API starts and answers', () => {
       delegation: credential,
       name: 'scout',
       skills: ['triage'],
+      negotiatesOnOwnersBehalf: true,
     }, await signingIdentityFromWallet(operatorWallet));
     expect(delegated.status).toBe(201);
     await agentRepo.updateGithubBinding(agentWallet.toDid(), { handle: 'scout-e2e-confirm', status: 'verified' });
@@ -1245,6 +1255,7 @@ describe('the API starts and answers', () => {
       delegation: credential,
       name: 'scout',
       skills: ['triage'],
+      negotiatesOnOwnersBehalf: true,
     }, await signingIdentityFromWallet(operatorWallet));
     expect(delegated.status).toBe(201);
     await agentRepo.updateGithubBinding(agentWallet.toDid(), { handle: 'scout-e2e-pr', status: 'verified' });
@@ -1327,6 +1338,7 @@ describe('the API starts and answers', () => {
       delegation: credential,
       name: 'scout',
       skills: ['triage'],
+      negotiatesOnOwnersBehalf: true,
     }, await signingIdentityFromWallet(operatorWallet));
     expect(delegated.status).toBe(201);
     await agentRepo.updateGithubBinding(agentWallet.toDid(), { handle: 'scout-e2e-merge', status: 'verified' });
@@ -1543,6 +1555,7 @@ describe('the API starts and answers', () => {
       delegation: credential,
       name: 'scout',
       skills: ['triage'],
+      negotiatesOnOwnersBehalf: true,
     }, operatorWallet);
     expect(delegated.status).toBe(201);
     await agentRepo.updateGithubBinding(agentWallet.toDid(), { handle: 'scout-e2e-r34', status: 'verified' });

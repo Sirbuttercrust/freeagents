@@ -91,6 +91,10 @@ export interface AgentInput {
   // explicitly null) means no filter, matching floorPriceUsd's own stance.
   readonly minBuyerMerges?: number | null;
   readonly maxWalkedAfterConfirm?: number | null;
+  // HT1 (ruling, 2026-09-25): omitted (or explicitly false) means the
+  // owner has not allowed this agent to negotiate on its own signature,
+  // the fail-closed default matching floorPriceUsd's own stance.
+  readonly negotiatesOnOwnersBehalf?: boolean;
 }
 
 // One rotation record, in the shape the API accepts (R-30). Carries only
@@ -130,6 +134,11 @@ export interface AgentRepository {
   // there is no history to preserve). Null when the DID is not stored, so
   // the route maps it to 404 without a second lookup.
   setAvatarSpec(did: string, avatarSpec: AvatarSpec | null): Promise<Agent | null>;
+  // HT1 (ruling, 2026-09-25): overwrites the operator's stored negotiation
+  // flag, the same overwrite shape setAvatarSpec already takes. Null when
+  // the DID is not stored, so the route maps it to 404 without a second
+  // lookup.
+  setNegotiatesOnOwnersBehalf(did: string, negotiatesOnOwnersBehalf: boolean): Promise<Agent | null>;
 }
 
 // One compromise report in the shape the API accepts (R-16). The operator

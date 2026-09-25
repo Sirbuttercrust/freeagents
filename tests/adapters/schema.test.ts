@@ -407,3 +407,32 @@ describe('prisma/schema.prisma, ProofStatus drops the dead pending state (G1, EN
     expect(sql).toMatch(/DROP TYPE\s+"ProofStatus_old"/i);
   });
 });
+
+// HT1 (ruling, 2026-09-25): the owner-first negotiation flag. Same pinning
+// pattern as the AV1/S3/P8c blocks above, against the SQL Postgres would
+// actually run for the negotiatesOnOwnersBehalf column this card adds.
+describe('prisma/migrations, Agent.negotiatesOnOwnersBehalf is actually migrated (HT1)', () => {
+  const migrationsDirHt1 = new URL('../../prisma/migrations/', import.meta.url);
+
+  function allMigrationSqlHt1(): string {
+    const dir = fileURLToPath(migrationsDirHt1);
+    if (!existsSync(dir)) return '';
+    const entries = readdirSync(dir, { withFileTypes: true });
+    return entries
+      .filter((e) => e.isDirectory())
+      .map((e) => join(dir, e.name, 'migration.sql'))
+      .filter((p) => existsSync(p))
+      .map((p) => readFileSync(p, 'utf8'))
+      .join('\n');
+  }
+
+  it('a migration adds Agent.negotiatesOnOwnersBehalf, boolean, defaulting false', () => {
+    const sql = allMigrationSqlHt1();
+    expect(sql).toMatch(/ALTER TABLE\s+"Agent"\s+ADD COLUMN\s+"negotiatesOnOwnersBehalf"\s+BOOLEAN\s+NOT NULL\s+DEFAULT\s+false/i);
+  });
+
+  it('the schema declares negotiatesOnOwnersBehalf as a non-null boolean defaulting false', () => {
+    const agent = modelBody('Agent');
+    expect(agent).toMatch(/negotiatesOnOwnersBehalf\s+Boolean\s+@default\(false\)/);
+  });
+});
