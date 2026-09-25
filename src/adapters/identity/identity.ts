@@ -2,6 +2,7 @@ import { createPublicKey, hkdfSync, verify as nodeVerify } from 'node:crypto';
 import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-key-2020';
 import * as vc from '@digitalbazaar/vc';
 import { Ed25519Signature2020 } from '@digitalbazaar/ed25519-signature-2020';
+import { fromPublicKey } from '@arcblock/did';
 import { didSuffix, type Delegation } from '../../domain/agent.js';
 import { NotImplementedError } from '../not-implemented.js';
 import { isValidPlatformSeedHex } from '../credentials/credentials.js';
@@ -35,14 +36,31 @@ const ED25519_SEED_LENGTH = 32;
 // Thrown by resolveDid and verify when a DID's key has never been observed
 // in this process (KnownKeyStore has no entry). Named rather than a bare
 // Error, matching the rest of this codebase's stance (GistNotFoundError,
-// AgentAlreadyExistsError): every app.ts call site already maps ANY thrown
-// error from these two methods to 503 (identity resolution/verification
-// unavailable), so this class exists for callers that want to distinguish
-// "never observed" from a genuine bug, not because app.ts requires it today.
+// AgentAlreadyExistsError). Callers map it differently depending on whether
+// the caller could have supplied a candidate key: resolveDid has no such
+// caller (POST /jobs/:jobId/merge maps it to 503, a platform failure), while
+// account-proof's verify() call maps it to 409 naming the key-line remedy,
+// because the operator could add a `key` line to the gist and resolve it.
 export class DidNotResolvableError extends Error {
   constructor(did: string) {
     super(`${did} has not been observed in this process; no verificationMethod can be derived locally`);
     this.name = 'DidNotResolvableError';
+  }
+}
+
+// PRF1 r1 (Proof review round 1, defect 1 and 2): verify() throws this,
+// distinct from DidNotResolvableError, exactly when a caller offered a
+// candidate key and the binding check rejected it (malformed, or it derives
+// some other DID) and the observed-key store had nothing to fall back on
+// either. The account-proof route keeps the two apart because they carry
+// different remedies, not because only one is operator-actionable: a
+// rejected candidate means fix the existing `key` line, while an absent
+// candidate on an unobserved DID means add one (DidNotResolvableError keeps
+// that meaning unchanged).
+export class CandidateKeyRejectedError extends Error {
+  constructor(did: string) {
+    super(`the candidate key offered for ${did} does not derive that DID, and no other key has been observed for it`);
+    this.name = 'CandidateKeyRejectedError';
   }
 }
 
@@ -175,9 +193,47 @@ export function createIdentityAdapter(
     // false, matching verifyDelegation's stance); only an unresolvable
     // signerDid throws, the same "no data to work from" case resolveDid
     // above throws on.
+    //
+    // PRF1 (bugs.md B31): a caller may also pass candidateKeyMultibase --
+    // the gist statement's own optional key line -- naming a key it
+    // believes is signerDid's. This closes the defect where a brand-new
+    // agent's first proof answered 503 because resolveVerificationMethod
+    // only ever learns a key from a PRIOR signed request from that same
+    // key (the onVerified path in http-signature.ts): a fresh agent that
+    // has never sent one had nothing to resolve, even with a perfectly
+    // valid signature in hand. The candidate is trusted only after the
+    // SAME binding check buildDidAbtLoader and the R-34 signing-key
+    // resolver already apply to every other key this service accepts: the
+    // public key must itself derive signerDid via did:abt's own encoding
+    // (fromPublicKey), never taken on the caller's word. A candidate that
+    // fails that check (malformed, or derives some other DID) falls back
+    // to the observed-key store exactly as before, so a well-behaved
+    // caller who simply omits the field sees no change at all.
+    //
+    // PRF1 r1 (Proof review round 1, defect 2): when the fallback ALSO has
+    // nothing, the two ways of getting here are told apart. A caller who
+    // offered a candidate and had it rejected gets CandidateKeyRejectedError:
+    // the gist is public and operator-authored, so naming the bad line back
+    // is an operator-fixable conflict, not a platform outage. A caller who
+    // offered no candidate at all keeps the original DidNotResolvableError.
+    // Neither path is a security downgrade: the rejection already happened
+    // inside candidateVerificationMethod's binding check before this branch
+    // runs, so nothing here lets an unbound key through.
     async verify(signed: SignedPayload): Promise<boolean> {
-      const verificationMethod = await resolveVerificationMethod(signed.signerDid);
+      const candidate = signed.candidateKeyMultibase;
+      const candidateOffered = typeof candidate === 'string' && candidate.length > 0;
+      let verificationMethod: string | null = null;
+      if (candidateOffered) {
+        verificationMethod = await candidateVerificationMethod(signed.signerDid, candidate);
+      }
+      const candidateRejected = candidateOffered && verificationMethod === null;
       if (verificationMethod === null) {
+        verificationMethod = await resolveVerificationMethod(signed.signerDid);
+      }
+      if (verificationMethod === null) {
+        if (candidateRejected) {
+          throw new CandidateKeyRejectedError(signed.signerDid);
+        }
         throw new DidNotResolvableError(signed.signerDid);
       }
       const fragment = verificationMethod.slice(verificationMethod.indexOf('#') + 1);
@@ -202,4 +258,24 @@ export function createIdentityAdapter(
       }
     },
   };
+}
+
+// PRF1 (bugs.md B31): the binding check a candidate key must pass before
+// verify() above will use it -- does the key's OWN derived DID equal the
+// DID the caller claims it belongs to? Identical in substance to
+// buildDidAbtLoader's binding check (did-abt-resolver.ts) and the R-34
+// signing-key resolver's own fromPublicKey comparison: never a new rule,
+// the same one this service already applies to every other key it accepts.
+// Total: any malformed fingerprint or non-matching derivation is null, the
+// caller's cue to fall back to the observed-key store, never a throw.
+async function candidateVerificationMethod(did: string, candidateKeyMultibase: string): Promise<string | null> {
+  try {
+    const key = await Ed25519VerificationKey2020.fromFingerprint({ fingerprint: candidateKeyMultibase });
+    const raw = (key as unknown as { _publicKeyBuffer: Uint8Array })._publicKeyBuffer;
+    if (raw.length !== 32) return null;
+    if (fromPublicKey(raw) !== did.replace(/^did:abt:/, '')) return null;
+    return `${did}#${candidateKeyMultibase}`;
+  } catch {
+    return null;
+  }
 }

@@ -55,6 +55,14 @@ export interface GistStatement {
   readonly did: string;
   readonly github: string;
   readonly signature: string;
+  // PRF1 (bugs.md B31): optional publicKeyMultibase for the signer's own
+  // key. Additive to the v1 format: a statement without this line still
+  // parses exactly as before, and an old publisher's gist keeps verifying
+  // through the observed-key store. When present, the route treats it as
+  // a candidate key only after checking it derives the agent's own DID
+  // (the same binding check buildDidAbtLoader already performs), never as
+  // a trusted value on its own.
+  readonly key?: string;
 }
 
 // Total. Line-based `key: value`, keys case-insensitive, surrounding
@@ -62,6 +70,8 @@ export interface GistStatement {
 // lines, anything without a colon) ignored. All four keys of the v1 format
 // are required, else null; a non-1 version is a different format, also null.
 // The value may contain colons (a DID does), so only the first colon splits.
+// The optional `key` line is read the same way; an empty value is treated as
+// absent rather than a malformed statement, since it carries no claim either way.
 export function parseGistStatement(content: string): GistStatement | null {
   if (typeof content !== 'string') return null;
   const values = new Map<string, string>();
@@ -70,9 +80,9 @@ export function parseGistStatement(content: string): GistStatement | null {
     if (line === '') continue;
     const idx = line.indexOf(':');
     if (idx <= 0) continue;
-    const key = line.slice(0, idx).trim().toLowerCase();
+    const fieldName = line.slice(0, idx).trim().toLowerCase();
     const value = line.slice(idx + 1).trim();
-    values.set(key, value);
+    values.set(fieldName, value);
   }
   if (values.get('version') !== '1') return null;
   const did = values.get('did');
@@ -81,7 +91,13 @@ export function parseGistStatement(content: string): GistStatement | null {
   if (did === undefined || did.length === 0) return null;
   if (github === undefined || github.length === 0) return null;
   if (signature === undefined || signature.length === 0) return null;
-  return { did, github, signature };
+  const key = values.get('key');
+  return {
+    did,
+    github,
+    signature,
+    ...(key !== undefined && key.length > 0 ? { key } : {}),
+  };
 }
 
 // Does this statement bind this agent DID to this claimed handle? The DID is

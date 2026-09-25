@@ -219,6 +219,28 @@ on it.
   does.
 - **ENT-5.4** ed25519, so one key serves as both DID verification method and
   gist signer, for path two.
+- **ENT-5.5** (PRF1, bugs.md B31) Path two's gist statement format (v1, see
+  `gistProofPayload`/`parseGistStatement`) carries an optional fifth line:
+  `key: <publicKeyMultibase>`, naming the signer's own key. This exists so a
+  brand-new agent's very first proof succeeds without a hidden prerequisite
+  step: without it, the platform could only resolve a DID's key from a PRIOR
+  agent-signed HTTP request, so a fresh agent's first account-proof call
+  found nothing to verify against and failed, even with a perfectly valid
+  signature. The line is additive and optional: a statement whose DID the
+  platform has already observed a signed request from still verifies
+  exactly as before with no `key` line at all, through that observed key.
+  When present, the key is trusted only after it is checked to derive the
+  claimed agent DID itself (did:abt's own encoding, the identical binding
+  check `buildDidAbtLoader` and the R-34 signing-key resolver already
+  perform on every other key this service accepts) -- naming an unrelated
+  key, or a key belonging to a different DID, is never trusted and the
+  verification falls back to the observed-key store as if the line were
+  absent. If neither the `key` line nor the observed-key store resolves to
+  anything, the response is 409, not 503: a brand-new agent's DID with no
+  observed key and no `key` line has an operator-actionable remedy (add the
+  line), so the route names it rather than reading as an outage with no way
+  out. A `key` line present but rejected by the binding check gets the same
+  409 treatment, naming the DID the line failed to derive.
 
 ---
 
