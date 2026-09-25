@@ -1,7 +1,15 @@
 /* The office: a small side-on room at the foot of every page where the
    agents work (DESIGN.md 6.1, 2.8). Ported from the design board's
    shared/office.css. Every colour is a token; the scene is aria-hidden,
-   holds no control, and sits below the content it follows. */
+   holds no control, and sits below the content it follows.
+
+   EVERY SELECTOR IS UNDER .office. This file loads on every page, after
+   polish.css and flow.css, and the scene's class names are ordinary words
+   the pages use too: a bare .clock turned the review clock pane on the
+   staged and pull-request pages into a 32px absolute box, a bare .counter
+   lifted the hire page's "0 / 2000" out of its row and over the hint
+   beside it, and a bare .code would draw the 404 page's p.code at zero
+   width. office.js builds every one of these inside the .office root. */
 
 .office {
   --office-h: 232px;
@@ -41,7 +49,7 @@
 
 /* The room is laid out on its composition's design width and scaled as a
    whole by office.js, so nothing inside it is ever squashed. */
-.office__room {
+.office .office__room {
   position: absolute;
   bottom: 0;
   left: 50%;
@@ -53,9 +61,9 @@
 .office.is-paused *::before,
 .office.is-paused *::after { animation-play-state: paused !important; }
 
-.monitor__screen.is-checked .code { opacity: 0.12; transition: opacity 240ms ease; }
+.office .monitor__screen.is-checked .code { opacity: 0.12; transition: opacity 240ms ease; }
 
-.floor-shadow {
+.office .floor-shadow {
   position: absolute;
   left: 0;
   height: 7px;
@@ -65,17 +73,17 @@
   pointer-events: none;
 }
 
-.clock {
+.office .clock {
   position: absolute;
   width: 32px;
   height: 32px;
   z-index: 1;
 }
-.clock svg { width: 100%; height: 100%; }
+.office .clock svg { width: 100%; height: 100%; }
 
 /* ---------------------------------------------------------------- lamps */
 
-.lamp {
+.office .lamp {
   position: absolute;
   top: 0;
   width: 44px;
@@ -83,27 +91,27 @@
   z-index: 1;
   pointer-events: none;
 }
-.lamp__cord {
+.office .lamp__cord {
   width: 1px;
   height: 30px;
   margin: 0 auto;
   background: rgba(255, 255, 255, 0.18);
 }
-.lamp__shade {
+.office .lamp__shade {
   width: 44px;
   height: 18px;
   border-radius: 22px 22px 4px 4px;
   background: var(--o-shade);
   box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.25);
 }
-.lamp__bulb {
+.office .lamp__bulb {
   width: 14px;
   height: 6px;
   margin: -1px auto 0;
   border-radius: 0 0 7px 7px;
   background: var(--o-lamp);
 }
-.lamp__cone {
+.office .lamp__cone {
   position: absolute;
   top: 52px;
   left: 50%;
@@ -116,19 +124,19 @@
 
 /* ------------------------------------------------------------- stations */
 
-.station {
+.office .station {
   position: absolute;
   bottom: var(--floor);
   transform: translateX(-50%);
 }
 
-.bot-host {
+.office .bot-host {
   position: absolute;
   width: var(--bot, 66px);
   height: var(--bot, 66px);
   pointer-events: none;
 }
-.bot-host canvas {
+.office .bot-host canvas {
   display: block;
   width: 100%;
   height: 100%;
@@ -136,14 +144,14 @@
 
 /* A desk: a top, a modesty panel that hides the seated agent's lower half,
    and two legs. The seated agent sits BEHIND the desk (lower z-index). */
-.desk {
+.office .desk {
   position: absolute;
   bottom: 0;
   left: 0;
   height: 50px;
   z-index: 3;
 }
-.desk__top {
+.office .desk__top {
   position: absolute;
   top: 0;
   left: 0;
@@ -153,7 +161,7 @@
   background: var(--o-desk-top);
   box-shadow: inset 0 1px 0 var(--o-desk-edge);
 }
-.desk__panel {
+.office .desk__panel {
   position: absolute;
   top: 8px;
   left: 14%;
@@ -162,8 +170,8 @@
   border-radius: 0 0 6px 6px;
   background: var(--o-desk);
 }
-.desk::before,
-.desk::after {
+.office .desk::before,
+.office .desk::after {
   content: "";
   position: absolute;
   top: 8px;
@@ -172,14 +180,14 @@
   border-radius: 0 0 3px 3px;
   background: var(--o-desk);
 }
-.desk::before { left: 8px; }
-.desk::after { right: 8px; }
+.office .desk::before { left: 8px; }
+.office .desk::after { right: 8px; }
 
-.monitor {
+.office .monitor {
   position: absolute;
   z-index: 4;
 }
-.monitor__bezel {
+.office .monitor__bezel {
   position: relative;
   width: 100%;
   height: 100%;
@@ -188,7 +196,7 @@
   background: var(--o-bezel);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 24px -6px var(--o-code);
 }
-.monitor__screen {
+.office .monitor__screen {
   position: relative;
   height: 100%;
   border-radius: 3px;
@@ -199,13 +207,13 @@
   flex-direction: column;
   gap: 4px;
 }
-.monitor__stand {
+.office .monitor__stand {
   width: 8px;
   height: 7px;
   margin: 0 auto;
   background: var(--o-bezel);
 }
-.monitor__foot {
+.office .monitor__foot {
   width: 30px;
   height: 3px;
   margin: 0 auto;
@@ -214,7 +222,7 @@
 }
 
 /* Lines of code being typed. Each row grows in steps, one after another. */
-.code {
+.office .code {
   display: block;
   height: 3px;
   border-radius: 2px;
@@ -223,15 +231,15 @@
   transform-origin: left center;
   transform: scaleX(0);
 }
-.code:nth-child(3n + 2) { background: var(--o-code-2); }
-.code:nth-child(4n + 3) { background: var(--o-code-3); }
-.is-live .typing .code {
+.office .code:nth-child(3n + 2) { background: var(--o-code-2); }
+.office .code:nth-child(4n + 3) { background: var(--o-code-3); }
+.office.is-live .typing .code {
   animation: type-row 7s steps(8, end) infinite;
 }
-.is-live .typing .code:nth-child(2) { animation-delay: 0.9s; }
-.is-live .typing .code:nth-child(3) { animation-delay: 1.8s; }
-.is-live .typing .code:nth-child(4) { animation-delay: 2.7s; }
-.is-live .typing .code:nth-child(5) { animation-delay: 3.6s; }
+.office.is-live .typing .code:nth-child(2) { animation-delay: 0.9s; }
+.office.is-live .typing .code:nth-child(3) { animation-delay: 1.8s; }
+.office.is-live .typing .code:nth-child(4) { animation-delay: 2.7s; }
+.office.is-live .typing .code:nth-child(5) { animation-delay: 3.6s; }
 @keyframes type-row {
   0% { transform: scaleX(0); }
   12% { transform: scaleX(var(--w, 1)); }
@@ -241,8 +249,8 @@
 
 /* The pair's screen: a review, then a blue disc with a tick when it passes.
    Blue, not jade: a drawing of a review is not a review anyone watched. */
-.review .code { transform: scaleX(var(--w, 1)); opacity: 0.55; }
-.check {
+.office .review .code { transform: scaleX(var(--w, 1)); opacity: 0.55; }
+.office .check {
   position: absolute;
   inset: 0;
   display: grid;
@@ -251,18 +259,18 @@
   transform: scale(0.6);
   transition: opacity 240ms ease, transform 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.check svg { width: 26px; height: 26px; }
-.check .check-disc { fill: var(--action); }
-.check .check-tick { stroke: var(--action-fg); }
-.check.is-on { opacity: 1; transform: scale(1); }
+.office .check svg { width: 26px; height: 26px; }
+.office .check .check-disc { fill: var(--action); }
+.office .check .check-tick { stroke: var(--action-fg); }
+.office .check.is-on { opacity: 1; transform: scale(1); }
 
 /* The whiteboard on its stand. */
-.board {
+.office .board {
   position: absolute;
   bottom: 0;
   z-index: 2;
 }
-.board__face {
+.office .board__face {
   position: absolute;
   top: 0;
   left: 0;
@@ -272,9 +280,9 @@
   border: 4px solid var(--o-board-frame);
   opacity: 0.92;
 }
-.board__face svg { position: absolute; inset: 6px; width: calc(100% - 12px); height: calc(100% - 12px); overflow: visible; }
-.board__legs::before,
-.board__legs::after {
+.office .board__face svg { position: absolute; inset: 6px; width: calc(100% - 12px); height: calc(100% - 12px); overflow: visible; }
+.office .board__legs::before,
+.office .board__legs::after {
   content: "";
   position: absolute;
   bottom: 0;
@@ -282,9 +290,9 @@
   background: var(--o-board-frame);
   border-radius: 2px;
 }
-.board__legs::before { left: 18%; }
-.board__legs::after { right: 18%; }
-.board__tray {
+.office .board__legs::before { left: 18%; }
+.office .board__legs::after { right: 18%; }
+.office .board__tray {
   position: absolute;
   left: 8%;
   right: 8%;
@@ -292,7 +300,7 @@
   border-radius: 2px;
   background: var(--o-board-frame);
 }
-.ink {
+.office .ink {
   fill: none;
   stroke: var(--o-ink);
   stroke-width: 2.4;
@@ -302,13 +310,13 @@
   stroke-dashoffset: 1;
   transition: stroke-dashoffset 1.3s ease-in-out, opacity 500ms ease;
 }
-.ink--2 { stroke: var(--o-ink-2); }
-.ink--3 { stroke: var(--o-ink-3); }
-.ink.is-drawn { stroke-dashoffset: 0; }
-.ink.is-wiped { opacity: 0; }
+.office .ink--2 { stroke: var(--o-ink-2); }
+.office .ink--3 { stroke: var(--o-ink-3); }
+.office .ink.is-drawn { stroke-dashoffset: 0; }
+.office .ink.is-wiped { opacity: 0; }
 
 /* The coffee corner. */
-.counter {
+.office .counter {
   position: absolute;
   bottom: 0;
   left: 0;
@@ -319,7 +327,7 @@
   box-shadow: inset 0 2px 0 var(--o-desk-top);
   z-index: 3;
 }
-.machine {
+.office .machine {
   position: absolute;
   bottom: 44px;
   left: 12px;
@@ -330,7 +338,7 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   z-index: 3;
 }
-.machine::after {
+.office .machine::after {
   content: "";
   position: absolute;
   top: 8px;
@@ -341,7 +349,7 @@
   background: var(--agent-5);
   box-shadow: 0 0 6px var(--agent-5);
 }
-.steam {
+.office .steam {
   position: absolute;
   bottom: 84px;
   left: 22px;
@@ -350,8 +358,8 @@
   z-index: 3;
   opacity: 0;
 }
-.is-live .steam { animation: steam 3.4s ease-in-out infinite; }
-.steam::before {
+.office.is-live .steam { animation: steam 3.4s ease-in-out infinite; }
+.office .steam::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -364,21 +372,21 @@
   100% { opacity: 0; transform: translateY(-10px) scaleY(1.1); }
 }
 
-.plant {
+.office .plant {
   position: absolute;
   bottom: 0;
   width: 40px;
   height: 78px;
   z-index: 3;
 }
-.plant svg { width: 100%; height: 100%; overflow: visible; }
-.is-live .plant__leaves { transform-origin: 20px 58px; animation: sway 6s ease-in-out infinite; }
+.office .plant svg { width: 100%; height: 100%; overflow: visible; }
+.office.is-live .plant__leaves { transform-origin: 20px 58px; animation: sway 6s ease-in-out infinite; }
 @keyframes sway {
   0%, 100% { transform: rotate(-1.5deg); }
   50% { transform: rotate(1.5deg); }
 }
 
-.mug {
+.office .mug {
   position: absolute;
   width: 10px;
   height: 11px;
@@ -387,7 +395,7 @@
   opacity: 0;
   transition: opacity 200ms ease;
 }
-.mug::after {
+.office .mug::after {
   content: "";
   position: absolute;
   right: -4px;
@@ -398,18 +406,18 @@
   border-left: 0;
   border-radius: 0 3px 3px 0;
 }
-.mug.is-on { opacity: 1; }
+.office .mug.is-on { opacity: 1; }
 
 /* A walker lives in the front lane, in front of every desk. */
-.walker {
+.office .walker {
   position: absolute;
   bottom: calc(var(--floor) - 12px);
   left: 0;
   z-index: 6;
   will-change: transform;
 }
-.walker .bot-host { position: relative; }
-.walker .mug { left: 50%; bottom: 26px; margin-left: 20px; }
+.office .walker .bot-host { position: relative; }
+.office .walker .mug { left: 50%; bottom: 26px; margin-left: 20px; }
 
 /* Stations that only fit on a wide screen. */
 @media (max-width: 700px) {

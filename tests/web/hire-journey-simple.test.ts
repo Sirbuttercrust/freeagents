@@ -862,4 +862,82 @@ describe('laid out right at 1280 and 320, in every state a page opens', () => {
       }
     }, BROWSER_TIMEOUT_MS);
   }
+
+  // The office scene's stylesheet loads on every journey page. Its .clock
+  // rule was unscoped, and the staged and pull-request pages have a .clock
+  // pane of their own: at 390 the pane collapsed to a 32px absolute box
+  // with "7 days to decide" stacked one word per line over the facts.
+  // Found by the V1c capture sweep.
+  it.each([
+    ['staged', '/staged?job=s1-staged'],
+    ['pullrequest', '/pullrequest?job=s1-submitted'],
+  ])('390px: the review clock is a full-width pane, not the office wall clock, %s', async (_label, path) => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for the journey layout sweep; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: 390, height: 844 });
+    try {
+      await browser.send('Page.addScriptToEvaluateOnNewDocument', {
+        source: `window.sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(buyerSession))});`,
+      });
+      await browser.goto(`${baseUrl}${path}`, 1200);
+      const got = await browser.evaluate<{ pane: number; main: number; position: string; days: number; lines: number; sceneClock: number }>(`(function () {
+        var pane = document.querySelector('main .clock');
+        var days = document.getElementById('clock-days');
+        var lh = parseFloat(getComputedStyle(days).lineHeight);
+        var sc = document.querySelector('.office .clock');
+        return {
+          pane: pane.getBoundingClientRect().width,
+          main: document.querySelector('main .wrap, main').getBoundingClientRect().width,
+          position: getComputedStyle(pane).position,
+          days: days.getBoundingClientRect().width,
+          lines: Math.round(days.getBoundingClientRect().height / lh),
+          sceneClock: sc ? sc.getBoundingClientRect().width : -1
+        };
+      })()`);
+      expect(got.position, 'the pane took the office clock position').not.toBe('absolute');
+      expect(got.pane, 'the pane is narrower than the column').toBeGreaterThan(got.main * 0.8);
+      expect(got.lines, `"${_label}" clock text wraps to ${got.lines} lines at ${Math.round(got.days)}px`).toBeLessThanOrEqual(3);
+      // The scene's own clock, when the scene draws one, keeps its size.
+      if (got.sceneClock !== -1) expect(Math.round(got.sceneClock)).toBe(32);
+    } finally {
+      await browser.close();
+    }
+  }, BROWSER_TIMEOUT_MS);
+
+  // Same collision, the coffee counter: a bare .counter lifted the hire
+  // page's "0 / 2000" out of its row to the page's bottom-left corner, on
+  // top of "Length is a guide, not a limit."
+  it('390px: the brief counter stays in its row beside the hint, hire', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for the journey layout sweep; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: 390, height: 844 });
+    try {
+      await browser.send('Page.addScriptToEvaluateOnNewDocument', {
+        source: `window.sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(buyerSession))});`,
+      });
+      await browser.goto(`${baseUrl}/hire?agent=${encodeURIComponent(AGENT_DID)}`, 1200);
+      const got = await browser.evaluate<{ position: string; text: string; overlap: boolean; inRow: boolean }>(`(function () {
+        var c = document.getElementById('c-brief');
+        var row = c.parentElement.getBoundingClientRect();
+        var h = c.parentElement.querySelector('.hint').getBoundingClientRect();
+        var r = c.getBoundingClientRect();
+        return {
+          position: getComputedStyle(c).position,
+          text: c.textContent,
+          overlap: r.left < h.right && h.left < r.right && r.top < h.bottom && h.top < r.bottom,
+          inRow: r.top >= row.top - 1 && r.bottom <= row.bottom + 1
+        };
+      })()`);
+      expect(got.text).toBe('0 / 2000');
+      expect(got.position, 'the counter took the office coffee counter position').not.toBe('absolute');
+      expect(got.overlap, 'the counter sits on top of the hint').toBe(false);
+      expect(got.inRow, 'the counter left its row').toBe(true);
+    } finally {
+      await browser.close();
+    }
+  }, BROWSER_TIMEOUT_MS);
 });
