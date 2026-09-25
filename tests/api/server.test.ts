@@ -16,12 +16,17 @@
 // other capability here already refuses to: caught and logged as its own
 // line, not thrown.
 //
-// ISS1 (bugs.md B30): the configuration report now carries the derived
-// issuer DID on its credentials line, resolved once through
-// platformIssuerFromEnv (the same value the running app signs credentials
-// with, never a second derivation). That resolution is async, so the
-// config-report log line moves behind one await; the port-binding call
-// below it stays synchronous and unaffected.
+// ISS1 (bugs.md B30, review round 1): the configuration report now
+// carries the derived issuer DID on its credentials line, read from
+// ONE credentials adapter this file builds itself and hands into
+// createApp -- never a second, independent call to platformIssuerFromEnv.
+// That is what this file's own mocks below now prove: createCredentialsAdapter
+// and createCredentialRepository are each called exactly once, the SAME
+// adapter instance's describeIssuer() feeds the report line, and that
+// same instance (plus the same repository) is the sixth and eighth
+// argument createApp receives -- so a test double standing in for
+// "the app" cannot hide two separate derivations the way mocking
+// platformIssuerFromEnv directly used to.
 import { describe, expect, it, vi } from 'vitest';
 
 const mock = vi.hoisted(() => ({
@@ -34,8 +39,17 @@ const mock = vi.hoisted(() => ({
   formatConfigReport: vi.fn(() => 'configuration report:\n  database: configured'),
   probeGithubTokenScope: vi.fn(async () => ({ requiredScope: 'repo', scopesHeader: 'repo', hasRequiredScope: true })),
   formatGithubScopeLine: vi.fn(() => '  githubTokenScope: has repo'),
-  platformIssuerFromEnv: vi.fn(async () => ({ did: 'did:abt:zServerTestDerivedDid', seed: new Uint8Array(32) })),
+  describeIssuer: vi.fn(async () => ({
+    issuer: 'did:abt:zServerTestDerivedDid',
+    verificationMethod: 'did:abt:zServerTestDerivedDid#zKey',
+    publicKeyMultibase: 'zKey',
+  })),
+  credentialRepoSentinel: { __brand: 'credentialRepoSentinel' },
 }));
+
+const credentialsAdapterSentinel = { describeIssuer: mock.describeIssuer, __brand: 'credentialsAdapterSentinel' };
+const createCredentialsAdapter = vi.fn(() => credentialsAdapterSentinel);
+const createCredentialRepository = vi.fn(() => mock.credentialRepoSentinel);
 
 mock.createApp.mockImplementation(() => ({ listen: mock.listen }));
 
@@ -48,7 +62,10 @@ vi.mock('../../src/adapters/config/report.js', () => ({
   formatGithubScopeLine: mock.formatGithubScopeLine,
 }));
 vi.mock('../../src/adapters/credentials/credentials.js', () => ({
-  platformIssuerFromEnv: mock.platformIssuerFromEnv,
+  createCredentialsAdapter,
+}));
+vi.mock('../../src/adapters/storage/storage.js', () => ({
+  createCredentialRepository,
 }));
 
 const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -68,8 +85,27 @@ describe('src/api/server.ts', () => {
     expect(mock.listen).toHaveBeenCalledWith(4242, expect.any(Function));
   });
 
-  it('builds and logs the configuration report exactly once at startup, carrying the derived issuer DID', () => {
-    expect(mock.platformIssuerFromEnv).toHaveBeenCalledTimes(1);
+  it('builds exactly one credentials adapter over exactly one credential repository', () => {
+    expect(createCredentialRepository).toHaveBeenCalledTimes(1);
+    expect(createCredentialsAdapter).toHaveBeenCalledTimes(1);
+    expect(createCredentialsAdapter).toHaveBeenCalledWith(undefined, mock.credentialRepoSentinel);
+  });
+
+  it('hands that SAME credentials adapter and repository into createApp, never a second construction', () => {
+    expect(mock.createApp).toHaveBeenCalledWith(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      credentialsAdapterSentinel,
+      undefined,
+      mock.credentialRepoSentinel,
+    );
+  });
+
+  it('builds and logs the configuration report exactly once at startup, carrying the SAME adapter\'s derived issuer DID', () => {
+    expect(mock.describeIssuer).toHaveBeenCalledTimes(1);
     expect(mock.buildConfigReport).toHaveBeenCalledTimes(1);
     expect(mock.formatConfigReport).toHaveBeenCalledTimes(1);
     expect(mock.formatConfigReport).toHaveBeenCalledWith(expect.anything(), 'did:abt:zServerTestDerivedDid');
