@@ -366,18 +366,24 @@ async function render(path: string): Promise<{ document: Document; close: () => 
     else dom.window.addEventListener('load', () => resolve());
   });
   const doc = dom.window.document;
+  // The first wait is on signals both the old and the new page set. The
+  // second is best-effort: the operator line and the receipt's agent name
+  // fill from one more read, and an older page that has neither must fail
+  // on the assertions below, not on this helper.
+  const later = async (ok: (d: Document) => boolean): Promise<void> => {
+    const deadline = Date.now() + 2500;
+    while (!ok(doc) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
+  };
+  const shown = (id: string): boolean => {
+    const el = doc.getElementById(id) as HTMLElement | null;
+    return el !== null && !el.hidden;
+  };
   if (path.startsWith('/agents/')) {
     await settled(doc, agentPageReady, path);
-    // The operator line fills from a second read after the record.
-    await settled(doc, (d) => !(d.getElementById('operated-by') as HTMLElement).hidden || !(d.getElementById('load-error') as HTMLElement).hidden, `${path} operator line`);
+    await later(() => shown('operated-by') || shown('load-error'));
   } else {
     await settled(doc, receiptPageReady, path);
-    // The agent's name and the dispute marker arrive from two more reads.
-    await settled(
-      doc,
-      (d) => !(d.getElementById('load-error') as HTMLElement).hidden || d.getElementById('fact-agent')?.textContent === AGENT_NAME,
-      `${path} agent name`,
-    );
+    await later(() => shown('load-error') || doc.getElementById('fact-agent')?.textContent === AGENT_NAME);
   }
   await new Promise((resolve) => setTimeout(resolve, 150));
   const real = failures.filter((m) => !m.includes('Not implemented'));
@@ -487,6 +493,7 @@ describe('invariant 2: every exact term is still reachable, copyable, behind one
       ];
       for (const [id, value] of rows) {
         const cell = d.getElementById(id)!;
+        expect(cell, `#${id} is not on the page`).not.toBeNull();
         expect(cell.closest('.detail'), `#${id} is not behind "Show technical details"`).not.toBeNull();
         expect(cell.textContent).toBe(value);
         expect(d.getElementById(`${id}-copy`)?.getAttribute('data-copy'), `#${id}-copy copies something else`).toBe(value);
@@ -496,8 +503,9 @@ describe('invariant 2: every exact term is still reachable, copyable, behind one
       expect(creds.status).toBe(200);
       // The keys named by the two key lists, in full, one click away.
       const keys = d.getElementById('tech-keys')!;
+      expect(keys, '#tech-keys is not on the page').not.toBeNull();
       expect(keys.closest('.detail')).not.toBeNull();
-      expect((d.getElementById('tech-keys-wrap') as HTMLElement).hidden).toBe(false);
+      expect((d.getElementById('tech-keys-wrap') as HTMLElement | null)?.hidden).toBe(false);
       expect(keys.textContent).toContain(`${SIGNING_KEY} \u2192 ${NEXT_KEY}`);
       expect(keys.textContent).toContain(`Reported compromised: ${SIGNING_KEY}`);
       // The header names the operator in words and links to their page.
@@ -515,7 +523,7 @@ describe('invariant 2: every exact term is still reachable, copyable, behind one
       expect(squash(d.getElementById('operated-by')?.textContent)).toBe('See who runs this agent');
       expect(d.getElementById('operator-link')?.getAttribute('href')).toBe(`/accounts/${encodeURIComponent(COLD_OPERATOR_DID)}`);
       expect(d.getElementById('tech-operator')?.textContent).toBe(COLD_OPERATOR_DID);
-      expect((d.getElementById('tech-keys-wrap') as HTMLElement).hidden, 'a key row with no keys').toBe(true);
+      expect((d.getElementById('tech-keys-wrap') as HTMLElement | null)?.hidden, 'a key row with no keys').toBe(true);
     } finally {
       page.close();
     }
@@ -537,6 +545,7 @@ describe('invariant 2: every exact term is still reachable, copyable, behind one
       ];
       for (const [id, value] of rows) {
         const cell = d.getElementById(id)!;
+        expect(cell, `#${id} is not on the page`).not.toBeNull();
         expect(cell.closest('.detail'), `#${id} is not in the technical half`).not.toBeNull();
         expect(cell.textContent).toBe(value);
         expect(d.getElementById(`${id}-copy`)?.getAttribute('data-copy')).toBe(value);
@@ -591,7 +600,7 @@ describe('(d) the record leads, and the evidence rules hold (MISSION invariants 
       const headings = ['tier-hire-heading', 'tier-prior-heading', 'tier-claim-heading'].map((id) => d.getElementById(id)!);
       expect(before(headings[0]!, headings[1]!) && before(headings[1]!, headings[2]!)).toBe(true);
       expect(d.getElementById('history')?.children.length).toBe(2);
-      expect((d.getElementById('prior-work-empty') as HTMLElement).hidden).toBe(false);
+      expect((d.getElementById('prior-work-empty') as HTMLElement | null)?.hidden).toBe(false);
       expect(d.getElementById('portfolio')?.children.length).toBe(1);
 
       // Verified rows link to their receipt; the self-hire row says so.
@@ -629,6 +638,7 @@ describe('(d) the record leads, and the evidence rules hold (MISSION invariants 
       // The freshness dates stay reachable (R-37).
       for (const id of ['tech-created', 'tech-record-changed', 'tech-last-hire']) {
         const cell = d.getElementById(id)!;
+        expect(cell, `#${id} is not on the page`).not.toBeNull();
         expect(cell.closest('.detail')).not.toBeNull();
         expect(cell.textContent, `#${id}`).not.toBe('');
         expect(cell.textContent, `#${id}`).not.toBe('not recorded');
@@ -657,11 +667,12 @@ describe('(d) the record leads, and the evidence rules hold (MISSION invariants 
       ];
       for (const [id, words] of empties) {
         const el = d.getElementById(id) as HTMLElement;
+        expect(el, `#${id} is not on the page`).not.toBeNull();
         expect(el.hidden, `#${id} is hidden`).toBe(false);
         expect(squash(el.textContent), `#${id}`).toContain(words);
       }
-      expect((d.getElementById('selfhires') as HTMLElement).hidden).toBe(true);
-      expect((d.getElementById('compromise-wrap') as HTMLElement).hidden).toBe(true);
+      expect((d.getElementById('selfhires') as HTMLElement | null)?.hidden).toBe(true);
+      expect((d.getElementById('compromise-wrap') as HTMLElement | null)?.hidden).toBe(true);
       expect(d.getElementById('tech-last-hire')?.textContent).toBe('not recorded');
     } finally {
       page.close();
@@ -742,6 +753,7 @@ describe('(e) exactly one primary button in every loaded state, none on a not-fo
     const page = await render(path);
     try {
       const d = page.document;
+      expect(d.querySelector('main'), 'no <main>').not.toBeNull();
       const views: string[] = d.getElementById('tab-portfolio') ? TABS : ['page'];
       for (const view of views) {
         if (view !== 'page') {
@@ -749,7 +761,9 @@ describe('(e) exactly one primary button in every loaded state, none on a not-fo
           (d.querySelector(`[aria-controls="${view}"]`) as HTMLElement).click();
           expect((d.getElementById(view) as HTMLElement).hidden, `${view} did not open`).toBe(false);
         }
-        const primaries = Array.from(d.querySelectorAll('main .btn-primary')).filter(reachable);
+        // Every primary on the page outside the shared nav and footer, not
+        // only inside <main>: a primary left outside it still competes.
+        const primaries = Array.from(d.querySelectorAll('.btn-primary')).filter((b) => reachable(b) && b.closest('nav, footer') === null);
         expect(primaries.map((b) => squash(b.textContent)), `${view}: primary buttons`).toHaveLength(expected);
         for (const p of primaries) expect(p.getAttribute('href'), `${view}: a primary with no destination`).toBeTruthy();
       }
