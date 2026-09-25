@@ -13,9 +13,11 @@ import type {
   PaymentRail,
   PaymentRef,
   PaymentRequest,
+  Rail,
   UsdcTransferIntent,
   WalletResponseInput,
 } from './types.js';
+import { LAPSE_AT_STAGED_STATUSES, type JobStatus } from '../../domain/job.js';
 
 // The route-safe leg name. 'remainder', never 'balance': see the header
 // comment above and src/domain/payment.ts's identically-named
@@ -28,6 +30,38 @@ function toRailLeg(leg: RouteLeg): CreateRequestInput['leg'] {
 
 function toRouteLeg(leg: CreateRequestInput['leg']): RouteLeg {
   return leg === 'balance' ? 'remainder' : 'deposit';
+}
+
+// B23 (bug ledger, C1 rehearsal s7): each leg is only ever eligible while
+// the job is in the status that leg belongs to. Shared here, in the
+// exempted payment directory, so every door onto the payment surface --
+// both rails' /start routes, the USDC wallet-response route, the ABT
+// session-mint door (app.ts's requireBuyerToMintAbtSession) and the ABT
+// wallet-response callback (abt-did-connect.ts's onAuth) -- applies the
+// SAME eligibility rule, rather than each door growing its own copy that
+// can silently drift out of sync with the others (Proof round 1, D1 and
+// D2 on this card: the token-mint door and onAuth each had their own gate
+// missing entirely, because the check lived only in app.ts where those
+// two doors could not reach it). The deposit leg settles before confirm
+// (confirm's own gate reads it), so it is eligible only at 'proposed';
+// the remainder leg settles while the work sits staged and unpaid, the
+// exact fact LAPSE_AT_STAGED_STATUSES already names, so it shares that
+// set.
+const DEPOSIT_ELIGIBLE_STATUSES: ReadonlySet<JobStatus> = new Set(['proposed']);
+export function legStatusEligible(leg: RouteLeg, status: JobStatus): boolean {
+  return leg === 'deposit' ? DEPOSIT_ELIGIBLE_STATUSES.has(status) : LAPSE_AT_STAGED_STATUSES.has(status);
+}
+export function legStatusConflictMessage(leg: RouteLeg, status: JobStatus): string {
+  const eligible = leg === 'deposit' ? '"proposed"' : '"staged" or "redo_requested"';
+  return `the ${leg} leg is not payable while this job is in status "${status}"; it is only payable while the job is ${eligible}`;
+}
+
+// B25 (bug ledger, C1 rehearsal s8): each rail's routes refuse a job
+// priced on the OTHER rail, in both directions. Shared for the identical
+// reason legStatusEligible above is: every door onto the payment surface
+// must apply the same rule.
+export function legRailMismatchMessage(routeRail: Rail, jobRail: Rail | null): string {
+  return `this job is priced on the "${jobRail}" rail; the "${routeRail}" payment routes refuse it`;
 }
 
 // Wraps rail.createRequest so the route layer supplies 'deposit' |

@@ -363,7 +363,7 @@ function toAgent(
     name: string;
     skills: string[];
     githubLogin: string | null;
-    proofStatus: 'unverified' | 'pending' | 'verified';
+    proofStatus: 'unverified' | 'verified';
     createdAt: Date;
     // The generated client lags the schema (see JobRow's comment below):
     // a worktree generated before this column exists types the Agent row

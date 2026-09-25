@@ -33,7 +33,7 @@ import { depositUsd, remainderUsd } from '../../domain/payment.js';
 import type { AccountRepository, AgentRepository, JobRepository } from '../storage/types.js';
 import type { SettlementRepository } from '../storage/types.js';
 import type { AbtPaymentRail } from './abt.js';
-import { confirmPayment, processWalletResponse, requestPayment, type RouteLeg } from './route-support.js';
+import { confirmPayment, legRailMismatchMessage, legStatusConflictMessage, legStatusEligible, processWalletResponse, requestPayment, type RouteLeg } from './route-support.js';
 import { createDidConnectSessionStorage } from './session-storage.js';
 import type { DidConnectSessionStorage } from './session-storage-types.js';
 
@@ -235,6 +235,23 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       const job = await options.jobRepo.findById(jobId);
       if (job === null) {
         return { confirmed: false, error: 'job not found' };
+      }
+      // B23 (bug ledger, C1 rehearsal s7, Proof round 1 D2): a session can
+      // be minted while the job is eligible and completed later, after the
+      // buyer has walked away or the job has otherwise moved past the leg
+      // it was minted for -- the exact gap /start, the token-mint door and
+      // the USDC wallet-response route all already close. This is the ABT
+      // rail's own wallet-response leg, so it needs the identical guard:
+      // a hash observed after the job left the eligible window is refused
+      // the same way a fresh start call would be, never treated as a
+      // late-but-honoured payment.
+      if (!legStatusEligible(leg, job.status)) {
+        return { confirmed: false, error: legStatusConflictMessage(leg, job.status) };
+      }
+      // B25: the job's own agreed rail must match the rail this callback
+      // belongs to, the same check /start and the token-mint door apply.
+      if (job.rail !== null && job.rail !== 'abt') {
+        return { confirmed: false, error: legRailMismatchMessage('abt', job.rail) };
       }
       // RULE (S3, P8c): the expected operator address is resolved from
       // the hired agent's operator, the identical derivation prepareTx

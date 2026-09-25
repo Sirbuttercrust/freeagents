@@ -345,7 +345,6 @@ the buyer BEFORE they pay the balance and before any code is visible.
 | `changedPaths[]` | staged commit | **every path, in full** |
 | `testsDeleted` | diff of test files | a count, plus paths |
 | `testsNewlySkipped` | diff of skip annotations | a count, plus paths |
-| `pathsOutsideAgreement` | changed paths against the agreed paths | a count |
 | `commitsSignedByAgent` | signature check against the agent DID | `4 of 4`, a fraction never a percentage |
 | `lineShareByCategory` | classifier over changed paths | source, test, lockfile, generated, vendored. Behind the disclosure |
 | `diffHash` | staged commit | behind the disclosure |

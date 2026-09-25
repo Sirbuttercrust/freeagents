@@ -187,6 +187,16 @@ describe('blocklet packaging', () => {
     // and FREEAGENTS_PLATFORM_SEED while environments: declared neither, so a
     // deployed blocklet silently ran on the ephemeral dev key. Scan src for
     // reads; each one must appear in the manifest.
+    //
+    // ISS1 (bugs.md B30): FREEAGENTS_PLATFORM_DID is the one deliberate
+    // exception. The issuer DID is now always derived from the signing key,
+    // never configured, so the variable is gone from the manifest and
+    // .env.example on purpose. platformIssuerFromEnv still reads it, but
+    // only to warn once that it is ignored and name the derived DID in
+    // effect -- never to select a value. Declaring a var in the manifest
+    // whose only effect is a deprecation warning would tell an operator it
+    // does something it does not.
+    const DEPRECATED_IGNORED_VARS = new Set(['FREEAGENTS_PLATFORM_DID']);
     const block = topLevelBlock(manifest, 'environments');
     const declared = new Set([...block.matchAll(/name:[ \t]*([A-Z0-9_]+)/g)].map((m) => m[1]));
     const readVars = new Set<string>();
@@ -199,7 +209,9 @@ describe('blocklet packaging', () => {
         if (m[1]) readVars.add(m[1]);
       }
     }
-    const undeclared = [...readVars].filter((name) => !declared.has(name)).sort();
+    const undeclared = [...readVars]
+      .filter((name) => !declared.has(name) && !DEPRECATED_IGNORED_VARS.has(name))
+      .sort();
     expect(
       undeclared,
       'every FREEAGENTS_* env var read in src must be declared under environments: in blocklet.yml',

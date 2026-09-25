@@ -607,6 +607,7 @@ describe('job merge, credential-issuance faulted legs (R-36)', () => {
       signAttestation: () => Promise.reject(new NotImplementedError('credentials', 'signAttestation')),
       issueDeemedCompletionCredential: () =>
         Promise.reject(new NotImplementedError('credentials', 'issueDeemedCompletionCredential')),
+      describeIssuer: () => Promise.reject(new NotImplementedError('credentials', 'describeIssuer')),
     };
     const scripted = await startWith(repo, mergedGithub(faults), { credentials: failingCredentials });
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});

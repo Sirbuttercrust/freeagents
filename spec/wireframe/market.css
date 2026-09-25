@@ -38,7 +38,7 @@
      single category shouts louder than another. All five clear 4.5:1 on the
      page background, measured rather than eyeballed. */
   --cat-frontend:  #6EA8FF;
-  --cat-backend:   #52C8A0;
+  --cat-backend:   #A7D84A;
   --cat-infra:     #E0A24E;
   --cat-data:      #C48BE8;
   --cat-testing:   #E4757F;
@@ -196,7 +196,7 @@
 /* The evidence line. Accent only on the verified-hire count, which is the
    one number on this card that means we watched something happen. */
 .acard-ev { display: flex; align-items: center; gap: 12px; font-size: 12.5px; color: var(--fg-3); }
-.acard-ev .hires { color: var(--accent); font-weight: 550; display: inline-flex; align-items: center; gap: 5px; }
+.acard-ev .hires { color: var(--check); font-weight: 550; display: inline-flex; align-items: center; gap: 5px; }
 .acard-ev .hires .ico { width: 13px; height: 13px; }
 
 /* THE SEPARATOR IS A RULE, SO IT IS DRAWN AS ONE.
@@ -239,7 +239,7 @@
     box-shadow: 0 12px 34px rgba(0,0,0,0.4);
   }
 }
-.acard:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.acard:focus-visible { outline: 2px solid var(--action); outline-offset: 3px; }
 
 /* ====================================================== PROFILE HEADER */
 
@@ -358,12 +358,12 @@
    The operator, 2026-08-27: the badge is translucent and feels unimportant.
    People should glance and know this agent has verified work behind it.
 
-   It was a 12% accent wash with accent text, which measured 4.94:1 and read
-   as a hint. A SOLID accent fill with dark ink measures 5.79:1 and reads as a
+   It was a 12% wash with text in the old purple accent, which read
+   as a hint. A SOLID --check fill with --check-fg ink measures 7.19:1 and reads as a
    stamp. Higher contrast and more presence at the same time, which is the
    rare case where louder is also more accessible.
 
-   This is squarely inside DESIGN.md 2.2: the accent is permitted on a
+   This is squarely inside DESIGN.md 2.2: --check is permitted on a
    verified hire and its count, and this badge is exactly that. It is not
    permitted anywhere else, which is why the unverified badge below takes a
    different colour rather than a paler version of this one. */
@@ -372,15 +372,15 @@
   display: inline-flex; align-items: center; gap: 7px;
   font-size: 13px; font-weight: 600;
   letter-spacing: -0.005em;
-  color: var(--accent-fg);
-  background: var(--accent);
-  border: 1px solid var(--accent);
+  color: var(--check-fg);
+  background: var(--check);
+  border: 1px solid var(--check);
   padding: 5px 12px 5px 10px;
   border-radius: 999px;
   white-space: nowrap;
   /* A soft throw of the accent, so the badge sits ON the page rather than in
      it. Small enough that it never competes with the name beside it. */
-  box-shadow: 0 2px 14px rgba(124,124,255,0.34);
+  box-shadow: 0 2px 14px var(--check-dim);
 }
 .pverified .ico { width: 15px; height: 15px; }
 
@@ -452,8 +452,10 @@
   font-size: 12px; color: var(--fg-3); margin-bottom: 5px;
 }
 .pstat .v { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; font-family: var(--mono); }
-.pstat.is-hire .v { color: var(--accent); }
-.pstat.is-hire .k .ico { color: var(--accent); }
+.pstat.is-hire .v { color: var(--check); }
+.pstat.is-hire .k .ico { color: var(--check); }
+.pstat.is-hire.is-zero .v,
+.pstat.is-hire.is-zero .k .ico { color: var(--fg-3); }
 .pstat .sub2 { font-size: 12px; color: var(--fg-3); margin-top: 3px; }
 
 /* ======================================================= TWO COLUMN */
@@ -548,7 +550,7 @@
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   .swatch:hover { transform: translateY(-2px); }
 }
-.swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.swatch:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
 
 .swatch-lbl { font-size: 12px; color: var(--fg-3); margin-top: 6px; text-align: center; display: block; }
 

@@ -116,9 +116,9 @@
 .who .r a { color: var(--fg-2); }
 .who .r a:hover { color: var(--fg); }
 
-/* The verified hire count beside a name. This IS witnessed work, so it is one
-   of the four places the accent is allowed. */
-.who .hires { color: var(--accent); font-size: 13px; font-weight: 550; }
+/* The verified hire count beside a name, in words. No tick sits beside it,
+   so it is plain supporting text and not jade (DESIGN.md 2.2). */
+.who .hires { color: var(--fg-2); font-size: 13px; font-weight: 550; }
 
 @media (max-width: 420px) {
   .who { flex-wrap: wrap; }
@@ -306,7 +306,7 @@
    pressable. A person cannot sign on someone else's behalf, so there is no
    markup on this page that would let them try. */
 button.mark { padding: 0; font: inherit; cursor: pointer; }
-button.mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+button.mark:focus-visible { outline: 2px solid var(--action); outline-offset: 3px; }
 
 /* The whole mark cell is the touch target, not the 22px disc. A signable mark
    is a real control, so the BUTTON has to carry the floor rather than the cell
@@ -331,7 +331,7 @@ button.mark-off::before {
   border: 2px dashed var(--fg-3); box-sizing: border-box;
 }
 button.mark-off:hover::before { border-color: var(--fg-2); }
-button.mark:focus-visible { outline: 2px solid var(--accent); outline-offset: -8px; border-radius: 50%; }
+button.mark:focus-visible { outline: 2px solid var(--action); outline-offset: -8px; border-radius: 50%; }
 
 /* -------------------------------------------------- the edit blast radius
    Hovering or focusing an edit control marks the two marks that edit would
@@ -481,7 +481,7 @@ button.mark:focus-visible { outline: 2px solid var(--accent); outline-offset: -8
 .railopt { position: relative; }
 .railopt input {
   position: absolute; top: 18px; left: 16px; width: 20px; height: 20px;
-  accent-color: var(--accent); margin: 0;
+  accent-color: var(--action); margin: 0;
 }
 .railopt label {
   display: grid; grid-template-columns: 1fr auto; gap: 4px 16px;
@@ -490,8 +490,8 @@ button.mark:focus-visible { outline: 2px solid var(--accent); outline-offset: -8
   cursor: pointer;
 }
 .railopt label:hover { border-color: var(--fg-3); }
-.railopt input:checked + label { border-color: var(--accent); background: var(--accent-dim); }
-.railopt input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 2px; }
+.railopt input:checked + label { border-color: var(--action); background: var(--action-dim); }
+.railopt input:focus-visible + label { outline: 2px solid var(--action); outline-offset: 2px; }
 .railopt .rname { font-size: 15px; font-weight: 550; }
 .railopt .ramt { font-family: var(--mono); font-size: 14px; text-align: right; }
 .railopt .rwhy { grid-column: 1 / -1; font-size: 13px; color: var(--fg-2); }
@@ -587,7 +587,7 @@ body:has(#rail-usdc:checked) .amt-usdc { display: inline; }
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 24px 60px -12px rgba(0,0,0,0.8);
   color: var(--fg); overflow: auto;
 }
-.sheet::backdrop { background: rgba(4,4,6,0.72); }
+.sheet::backdrop { background: rgba(11,10,18,0.72); }
 .sheet .shead {
   display: flex; align-items: flex-start; gap: 12px;
   padding: 20px 20px 0;
@@ -666,7 +666,7 @@ body:has(#rail-usdc:checked) .amt-usdc { display: inline; }
   padding: 13px 0; min-height: 44px; align-items: start; cursor: pointer;
   font-size: 14px; line-height: 1.5;
 }
-.picker input { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
+.picker input { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--action); }
 .picker label:hover { color: var(--fg); }
 
 /* WHY A ROW CAN BE ABSENT FROM A PICKER.

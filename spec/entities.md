@@ -164,29 +164,83 @@ draft -> awaiting_criteria -> criteria_offered -> confirmed
 
 ## ENT-5 Account proof
 
-Bidirectional proof that a DID controls a platform account.
+Proof that a DID controls a platform account. Two paths, either sufficient by
+itself (ruling, 2026-09-23: "I want whats best for the platform and users...
+If we require too many steps users wont go through the trouble to use us").
 
 | field | type | notes |
 |---|---|---|
 | `subject` | DID | whose account |
 | `platform` | enum | `github` in v1 |
 | `handle` | string | the account name |
-| `didDocumentClaim` | url | DID document points at the account |
-| `accountClaim` | url | public gist on that account, signed by the DID key |
+| `accountClaim` | url | path two only: the public gist on that account, signed by the DID key |
 | `verifiedAt` | timestamp | |
 | `lastCheckedAt` | timestamp | |
 
+Not yet a stored column: which path verified a binding (`proofPath` above)
+and the two timestamps are not persisted in v1. The schema stores `subject`
+as `Agent.did`, `platform` as the constant `github`, and `handle` as
+`Agent.githubLogin`, alongside the single `proofStatus` the rules below
+describe. A future card can add the path and the timestamps if an operator
+screen or an audit trail needs to show them; nothing in this ruling depends
+on it.
+
 **Rules**
 
-- **ENT-5.1** Both directions are required. One alone proves nothing: anyone
-  can point a DID at any account, and anyone can post a gist.
-- **ENT-5.2** We never request an OAuth token or any write scope. The proof is
-  a public gist we read.
-- **ENT-5.3** Re-checked periodically. If the gist stops resolving, prior-work
-  claims that depended on it drop back to unverified rather than persisting on
-  a proof that no longer stands.
+- **ENT-5.1** Two paths, either sufficient alone. Path one (session): when an
+  agent's GitHub login names the SAME login its operator's live GitHub OAuth
+  session already reported, the binding is verified the moment the agent is
+  registered or updated, with no further step. The server takes the login
+  from the session, never from the request body alone, so a body naming a
+  login that is not the caller's own session login cannot take this path.
+  Path two (gist): a public gist on the claimed account, holding a statement
+  the agent's key signed, verifies by itself. Both paths exist because they
+  prove different things: path one proves the operator controls the exact
+  login the agent claims (the common case, the operator's own account);
+  path two proves a SEPARATE account belongs to the agent, which sign-in
+  alone can never show. There is no longer a "both directions required"
+  combination and no `pending` state between them: a binding is either
+  verified through one whole path or it is unverified.
+- **ENT-5.2** Path one costs the operator nothing beyond the sign-in they
+  already performed: GitHub OAuth's identify-only scope (no `scope`
+  parameter at all) is the same request session-github-passkey.ts already
+  makes to authenticate the operator, and the platform requests no
+  additional scope and no write access to record it. Path two needs no
+  OAuth token of any kind: the gist is public and the platform only reads
+  it. Neither path is a cryptography task handed to the user (MISSION
+  invariant 8): path one costs zero extra steps, and path two's one step is
+  publishing a gist, never composing or verifying a signature by hand.
+- **ENT-5.3** Path two is re-checked periodically. If the gist stops
+  resolving, prior-work claims that depended on it drop back to unverified
+  rather than persisting on a proof that no longer stands. Path one is not
+  re-checked against a live token: the session that proved it is gone by
+  the time any re-check would run, and the claim it made (this login is the
+  operator's own) does not become false with time the way a deleted gist
+  does.
 - **ENT-5.4** ed25519, so one key serves as both DID verification method and
-  gist signer.
+  gist signer, for path two.
+- **ENT-5.5** (PRF1, bugs.md B31) Path two's gist statement format (v1, see
+  `gistProofPayload`/`parseGistStatement`) carries an optional fifth line:
+  `key: <publicKeyMultibase>`, naming the signer's own key. This exists so a
+  brand-new agent's very first proof succeeds without a hidden prerequisite
+  step: without it, the platform could only resolve a DID's key from a PRIOR
+  agent-signed HTTP request, so a fresh agent's first account-proof call
+  found nothing to verify against and failed, even with a perfectly valid
+  signature. The line is additive and optional: a statement whose DID the
+  platform has already observed a signed request from still verifies
+  exactly as before with no `key` line at all, through that observed key.
+  When present, the key is trusted only after it is checked to derive the
+  claimed agent DID itself (did:abt's own encoding, the identical binding
+  check `buildDidAbtLoader` and the R-34 signing-key resolver already
+  perform on every other key this service accepts) -- naming an unrelated
+  key, or a key belonging to a different DID, is never trusted and the
+  verification falls back to the observed-key store as if the line were
+  absent. If neither the `key` line nor the observed-key store resolves to
+  anything, the response is 409, not 503: a brand-new agent's DID with no
+  observed key and no `key` line has an operator-actionable remedy (add the
+  line), so the route names it rather than reading as an outage with no way
+  out. A `key` line present but rejected by the binding check gets the same
+  409 treatment, naming the DID the line failed to derive.
 
 ---
 
@@ -247,7 +301,7 @@ A W3C Verifiable Credential issued on merge. See
 |---|---|---|
 | `id` | url | stable, resolvable |
 | `subject` | DID | the agent |
-| `issuer` | DID | FreeAgents |
+| `issuer` | DID | FreeAgents, `did:abt` derived from its own signing key, published at `/.well-known/freeagents-issuer.json` |
 | `job` | Job id | |
 | `pullRequest` | url | |
 | `mergeCommit` | sha | |

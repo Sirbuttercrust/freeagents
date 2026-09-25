@@ -67,11 +67,11 @@
    have shipped a deep blue that fails 3:1 against the page. `ensureContrast`
    lifts lightness until it passes, preserving hue and saturation.
 
-   THE ACCENT COLLISION, unchanged and still real
-   DESIGN.md 2.2 reserves --accent (#7C7CFF) for one meaning: evidence we
-   watched happen. DESIGN.md 2.4 then defines --agent-1 as the same value, so
-   today's floating agents wear the colour that is supposed to mean verified.
-   The hue band around the accent is left empty here on purpose. */
+   THE CHECKED COLLISION
+   DESIGN.md 2.2 reserves --check (jade, #46C39A) for one meaning: evidence
+   we watched happen. A generated agent must never come out wearing it, so
+   the hue band around it is left empty here on purpose: the "spring" hue
+   that used to sit at 156 degrees is gone for exactly that reason. */
 
 (function (global) {
   "use strict";
@@ -180,7 +180,7 @@
     return (hi + 0.05) / (lo + 0.05);
   }
 
-  var BG = "#08090A"; /* = --bg */
+  var BG = "#0B0A12"; /* = --bg */
 
   /* Lift lightness in HSL until the colour clears `min` against the page.
      Hue and saturation survive; only value moves. A saturated blue needs a
@@ -201,8 +201,8 @@
 
   /* --------------------------------------------------------- the palette
 
-     Twelve hues at arcade chroma. The gap between `azure` (200) and
-     `violet` (272) is the reserved accent band, left empty on purpose.
+     Eleven hues at arcade chroma. The gap between `green` (130) and `cyan`
+     (176) is the reserved checked band, left empty on purpose.
 
      Base values are the MID swatch. Deep and bright are derived by moving
      lightness only. */
@@ -214,7 +214,6 @@
     { id: "yellow",  deg: 54,  base: "#FFE01A" },
     { id: "lime",    deg: 78,  base: "#AEF52B" },
     { id: "green",   deg: 130, base: "#1FE04B" },
-    { id: "spring",  deg: 156, base: "#00EF96" },
     { id: "cyan",    deg: 176, base: "#0FE8DC" },
     { id: "azure",   deg: 200, base: "#12B6FF" },
     { id: "violet",  deg: 272, base: "#A64DFF" },
@@ -252,7 +251,7 @@
     return out;
   })();
 
-  var RESERVED = { hex: "#7C7CFF" /* = --accent */, loDeg: 228, hiDeg: 258 };
+  var RESERVED = { hex: "#46C39A" /* = --check */, loDeg: 146, hiDeg: 170 };
 
   /* ------------------------------------------------------------ material
 

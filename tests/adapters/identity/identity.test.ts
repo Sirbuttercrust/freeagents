@@ -12,7 +12,7 @@ import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-
 import { fromRandom } from '@ocap/wallet';
 import { fromPublicKey } from '@arcblock/did';
 
-import { createIdentityAdapter } from '../../../src/adapters/identity/identity.js';
+import { createIdentityAdapter, CandidateKeyRejectedError, DidNotResolvableError } from '../../../src/adapters/identity/identity.js';
 import { createKnownKeyStore } from '../../../src/adapters/identity/did-abt-resolver.js';
 import { MemoryObservedKeyRepository } from '../../../src/adapters/storage/memory.js';
 import { signingIdentityFromWallet } from '../../helpers/sign-request.js';
@@ -120,6 +120,127 @@ describe('createIdentityAdapter, verify (real, local-only)', () => {
     const signature = nodeCrypto.sign(null, Buffer.from(payload, 'utf8'), impostorSigning.privateKey).toString('base64');
 
     await expect(identity.verify({ payload, signature, signerDid: signing.did })).resolves.toBe(false);
+  });
+});
+
+// PRF1 (bugs.md B31): a brand-new agent's first proof must not depend on a
+// prior agent-signed request having taught the platform its key. The gist
+// statement may name the signer's own key directly; verify() accepts it as
+// a CANDIDATE only after checking it derives the claimed signerDid itself
+// (the identical binding check buildDidAbtLoader and the R-34 signing-key
+// resolver already perform), never as a trusted value on its own.
+describe('createIdentityAdapter, verify with a candidate key (PRF1, bugs.md B31)', () => {
+  it('verifies a genuine signature against a candidate key that derives the claimed DID, with NO prior observation at all', async () => {
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const wallet = fromRandom();
+    const signing = await signingIdentityFromWallet(wallet);
+    const candidateKeyMultibase = signing.keyid.slice(signing.keyid.indexOf('#') + 1);
+
+    const payload = 'freeagents identity verify candidate-key payload';
+    const signature = nodeCrypto.sign(null, Buffer.from(payload, 'utf8'), signing.privateKey).toString('base64');
+
+    await expect(
+      identity.verify({ payload, signature, signerDid: signing.did, candidateKeyMultibase }),
+    ).resolves.toBe(true);
+  });
+
+  it('MUTATION PROOF: a candidate key that does not derive the claimed DID is never trusted, and an unobserved DID still throws CandidateKeyRejectedError', async () => {
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const wallet = fromRandom();
+    const signing = await signingIdentityFromWallet(wallet);
+    const attacker = fromRandom();
+    const attackerSigning = await signingIdentityFromWallet(attacker);
+    const wrongCandidateKey = attackerSigning.keyid.slice(attackerSigning.keyid.indexOf('#') + 1);
+
+    const payload = 'freeagents identity verify candidate-key payload';
+    // Signed by the attacker's own key, but claiming the victim's DID: if the
+    // candidate key were trusted without the binding check, this would
+    // wrongly verify as the victim.
+    const signature = nodeCrypto.sign(null, Buffer.from(payload, 'utf8'), attackerSigning.privateKey).toString('base64');
+
+    await expect(
+      identity.verify({ payload, signature, signerDid: signing.did, candidateKeyMultibase: wrongCandidateKey }),
+    ).rejects.toThrow(CandidateKeyRejectedError);
+  });
+
+  // PRF1 r1 (defect 2): the two failure shapes must stay distinguishable, so
+  // the route can answer each with its own 409 remedy: fix the existing
+  // `key` line for a rejected candidate, or add one for an unobserved DID.
+  it('throws CandidateKeyRejectedError (not DidNotResolvableError) when a candidate was offered but rejected', async () => {
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const wallet = fromRandom();
+    const signing = await signingIdentityFromWallet(wallet);
+
+    await expect(
+      identity.verify({
+        payload: 'x',
+        signature: 'AAAA',
+        signerDid: signing.did,
+        candidateKeyMultibase: 'not-a-real-fingerprint',
+      }),
+    ).rejects.toThrow(CandidateKeyRejectedError);
+  });
+
+  it('throws DidNotResolvableError, not CandidateKeyRejectedError, when no candidate was offered at all', async () => {
+    const identity = createIdentityAdapter(createKnownKeyStore());
+
+    await expect(
+      identity.verify({ payload: 'x', signature: 'AAAA', signerDid: 'did:abt:zNeverObserved' }),
+    ).rejects.toThrow(DidNotResolvableError);
+  });
+
+  it('a candidate key that derives the DID but does not match the signature bytes is a false, never a throw', async () => {
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const wallet = fromRandom();
+    const signing = await signingIdentityFromWallet(wallet);
+    const candidateKeyMultibase = signing.keyid.slice(signing.keyid.indexOf('#') + 1);
+
+    const otherWallet = fromRandom();
+    const otherSigning = await signingIdentityFromWallet(otherWallet);
+    const payload = 'freeagents identity verify candidate-key payload';
+    // Signed by a DIFFERENT key than the candidate names: the candidate
+    // derives the right DID, but the bytes are not that key's signature.
+    const signature = nodeCrypto.sign(null, Buffer.from(payload, 'utf8'), otherSigning.privateKey).toString('base64');
+
+    await expect(
+      identity.verify({ payload, signature, signerDid: signing.did, candidateKeyMultibase }),
+    ).resolves.toBe(false);
+  });
+
+  it('a malformed candidate key value is ignored, falling back to the observed-key store', async () => {
+    const knownKeys = createKnownKeyStore();
+    const identity = createIdentityAdapter(knownKeys);
+    const wallet = fromRandom();
+    const signing = await signingIdentityFromWallet(wallet);
+    knownKeys.record(signing.did, signing.keyid);
+
+    const payload = 'freeagents identity verify candidate-key payload';
+    const signature = nodeCrypto.sign(null, Buffer.from(payload, 'utf8'), signing.privateKey).toString('base64');
+
+    await expect(
+      identity.verify({ payload, signature, signerDid: signing.did, candidateKeyMultibase: 'not-a-real-fingerprint' }),
+    ).resolves.toBe(true);
+  });
+
+  it('an empty candidate key value is treated the same as no candidate at all', async () => {
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    await expect(
+      identity.verify({ payload: 'x', signature: 'AAAA', signerDid: 'did:abt:zNeverObserved', candidateKeyMultibase: '' }),
+    ).rejects.toThrow();
+  });
+
+  it('the candidate key path never returns a different verdict than a signature made by the SAME candidate key over a tampered payload', async () => {
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const wallet = fromRandom();
+    const signing = await signingIdentityFromWallet(wallet);
+    const candidateKeyMultibase = signing.keyid.slice(signing.keyid.indexOf('#') + 1);
+
+    const payload = 'freeagents identity verify candidate-key payload';
+    const signature = nodeCrypto.sign(null, Buffer.from(payload, 'utf8'), signing.privateKey).toString('base64');
+
+    await expect(
+      identity.verify({ payload: 'a tampered payload', signature, signerDid: signing.did, candidateKeyMultibase }),
+    ).resolves.toBe(false);
   });
 });
 

@@ -62,9 +62,10 @@ describe('AVATAR_COLOURS', () => {
       const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x) as [number, number];
       return (hi + 0.05) / (lo + 0.05);
     };
-    // --bg, --bg-1, --bg-2 (src/web/public/css/tokens.css), and --pane-fill-2
-    // (white at 0.055) composited over --bg-2, the lightest card surface.
-    const surfaces = ['#08090A', '#0E0F11', '#141517', '#212224'];
+    // --bg, --bg-1, --bg-2 (src/web/public/css/tokens.css, direction B), and
+    // --pane-fill-2 (white at 0.055) composited over --bg-2, the lightest
+    // card surface.
+    const surfaces = ['#0B0A12', '#13111D', '#1B1829', '#282535'];
     for (const value of values) {
       expect(value).toMatch(/^#[0-9A-F]{6}$/);
       for (const surface of surfaces) {
@@ -76,6 +77,29 @@ describe('AVATAR_COLOURS', () => {
   it('names every colour for the picker, one name per key', () => {
     expect(Object.keys(AVATAR_COLOUR_NAMES)).toEqual(Object.keys(AVATAR_COLOURS));
     expect(new Set(Object.values(AVATAR_COLOUR_NAMES)).size).toBe(12);
+  });
+
+  // DESIGN.md 2.2 and 2.4: jade (#46C39A, --check) means a job somebody
+  // checked, so no avatar may wear it or anything a person would read as
+  // it. c2 held it until direction B; the key stays and the value moved.
+  it('no colour is jade, or within delta-E 30 of it, and c2 keeps its key', () => {
+    const lab = (hex: string): [number, number, number] => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+        .map((x) => (x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4)) as [number, number, number];
+      const X = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047;
+      const Y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const Z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883;
+      const f = (v: number): number => (v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116);
+      return [116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))];
+    };
+    const jade = lab('#46C39A');
+    for (const [key, value] of Object.entries(AVATAR_COLOURS)) {
+      const [l, a, b] = lab(value);
+      const d = Math.hypot(l - jade[0], a - jade[1], b - jade[2]);
+      expect(d, `${key} ${value} sits ${d.toFixed(1)} from jade`).toBeGreaterThanOrEqual(30);
+    }
+    expect(AVATAR_COLOURS.c2).toBe('#FF2E88');
+    expect(AVATAR_COLOUR_NAMES.c2).toBe('Pink');
   });
 
   // Twelve colours only help if a person can tell them apart on a 24px

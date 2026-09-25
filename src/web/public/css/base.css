@@ -58,8 +58,8 @@ a { color: inherit; text-decoration: none; }
 
 /* Generous and CONSISTENT vertical rhythm. Every major block is separated by
    the same distance, so the eye learns the spacing once. */
-.section { padding: 56px 0; }
-.section-sm { padding: 34px 0; }
+.section { padding-top: 56px; padding-bottom: 56px; }
+.section-sm { padding-top: 34px; padding-bottom: 34px; }
 
 h1 {
   font-size: 28px; line-height: 1.15; letter-spacing: -0.03em;
@@ -137,8 +137,8 @@ p:last-child { margin-bottom: 0; }
   white-space: nowrap;
 }
 .btn:hover { background: var(--bg-1); border-color: var(--fg-3); }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 560; }
-.btn-primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+.btn-primary { background: var(--action); border-color: var(--action); color: var(--action-fg); font-weight: 560; }
+.btn-primary:hover { background: var(--action-hi); border-color: var(--action-hi); }
 .btn-sm { min-height: 32px; padding: 0 12px; font-size: 13px; }
 .btn-block { width: 100%; }
 @media (prefers-reduced-motion: no-preference) {
@@ -155,7 +155,7 @@ p:last-child { margin-bottom: 0; }
   color: var(--fg); font-family: var(--font); font-size: 15px;
 }
 .input::placeholder { color: var(--fg-3); }
-.input:focus { outline: none; border-color: var(--accent); }
+.input:focus { outline: none; border-color: var(--action); }
 .field { margin-bottom: 18px; }
 .field label { display: block; font-size: 13px; color: var(--fg-2); margin-bottom: 6px; }
 
@@ -193,7 +193,7 @@ p:last-child { margin-bottom: 0; }
   cursor: pointer; white-space: nowrap; font-family: var(--font);
 }
 .chip:hover { color: var(--fg); border-color: var(--line-2); }
-.chip[aria-pressed="true"] { background: var(--accent-dim); border-color: var(--accent); color: var(--fg); }
+.chip[aria-pressed="true"] { background: var(--action-dim); border-color: var(--action); color: var(--fg); }
 
 /* ---------------------------------------------------------------- lists
    One hairline between rows. The hairline earns its place here because rows
@@ -295,7 +295,7 @@ p:last-child { margin-bottom: 0; }
    and this product does not award anything (DESIGN 9). */
 .state { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; }
 .state .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
-.state-live { color: var(--accent); }
+.state-live { color: var(--action); }
 .state-done { color: var(--fg-2); }
 .state-none { color: var(--fg-3); }
 
@@ -374,7 +374,7 @@ p:last-child { margin-bottom: 0; }
 @media (hover: hover) and (prefers-reduced-motion: reduce) {
   .pane-lift:hover { background: linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.04)); }
 }
-.pane-lift:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pane-lift:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
 
 /* ------------------------------------------------------------- .glow
    One soft radial behind a hero heading, at most once per page. Bounded to
@@ -387,7 +387,7 @@ p:last-child { margin-bottom: 0; }
   position: absolute;
   left: -10%; top: -60%;
   width: 70%; height: 220%;
-  background: radial-gradient(closest-side, var(--accent-dim), transparent 70%);
+  background: radial-gradient(closest-side, var(--action-dim), transparent 70%);
   filter: blur(30px);
   pointer-events: none;
   z-index: 0;
@@ -431,7 +431,7 @@ p:last-child { margin-bottom: 0; }
 /* Focus is visible on every interactive element, and it is the accent, one
    of the four things the accent is allowed to be (DESIGN 2.2). */
 a:focus-visible, button:focus-visible, .chip:focus-visible, .disclose:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--action);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -452,7 +452,7 @@ a:focus-visible, button:focus-visible, .chip:focus-visible, .disclose:focus-visi
 
 @media (max-width: 760px) {
   .wrap { padding: 0 20px; }
-  .section { padding: 40px 0; }
+  .section { padding-top: 40px; padding-bottom: 40px; }
   .nav .links { gap: 16px; font-size: 13px; }
 }
 

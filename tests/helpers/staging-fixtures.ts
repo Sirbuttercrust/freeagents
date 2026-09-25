@@ -17,7 +17,6 @@ const FIXED_OBSERVATION: StagingObservation = {
   lineShareByCategory: { source: 1, test: 0, lockfile: 0, generated: 0, vendored: 0 },
   testsDeleted: [],
   testsSkipAdded: [],
-  outOfCriteriaPathCount: 0,
   commitSigners: [{ matchesAgentDid: true }],
 };
 

@@ -141,6 +141,10 @@ const firstProposal = [
 ];
 const revisedProposal = [
   { text: 'One sharper criterion', proposedBy: 'agent' },
+  // B26: proposedBy is derived from the signer, not this field. This
+  // entry deliberately claims 'buyer' while the request itself is signed
+  // by the agent (see the postSigned call below), pinning that the
+  // mismatched claim is ignored rather than trusted.
   { text: 'Deploy notes updated', proposedBy: 'buyer' },
 ];
 
@@ -261,7 +265,9 @@ describe('job criteria exchange (R-8)', () => {
     expect(againBody.status).toBe('proposed');
     expect(againBody.criteria).toEqual([
       { text: 'One sharper criterion', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
-      { text: 'Deploy notes updated', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false },
+      // B26: the body's own 'buyer' claim on this line is ignored; the
+      // request is signed by the agent, so proposedBy is 'agent' here too.
+      { text: 'Deploy notes updated', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
     ]);
 
     // 5. Read-back: every identity field is the draft's own - same id, same
@@ -330,6 +336,35 @@ describe('job criteria exchange (R-8)', () => {
     expect(emptyList.status).toBe(400);
     const body = (await emptyList.json()) as { error: string };
     expect(body.error).toBe('a proposal needs at least one acceptance criterion');
+  });
+
+  // B26 (bug ledger, C1 rehearsal s9): proposedBy names who WROTE a
+  // criterion line, and that fact belongs to the signer, not to a string
+  // the request body can claim. The buyer's own request body labelling a
+  // line "agent" must not be trusted; the server derives proposedBy from
+  // the caller's own resolved seat on this job, the same seat
+  // resolveJobActingParty already establishes for the caller-identity gate.
+  it('derives proposedBy from the signer, ignoring a mismatched body claim (B26)', async () => {
+    const seed = await postSigned('/jobs', {
+      agentDid: agent.did,
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    }, buyer);
+    const jobId = String(((await seed.json()) as Record<string, unknown>).id);
+
+    // The buyer signs this request, but the body claims the line was
+    // proposed by the agent. The stored criterion must say "buyer": that
+    // is who actually signed and sent it.
+    const proposed = await postSigned(
+      `/jobs/${jobId}/criteria`,
+      { criteria: [{ text: 'Buyer-authored line mislabeled as agent', proposedBy: 'agent' }] },
+      buyer,
+    );
+    expect(proposed.status).toBe(200);
+    const proposedBody = (await proposed.json()) as Record<string, unknown>;
+    expect(proposedBody.criteria).toEqual([
+      { text: 'Buyer-authored line mislabeled as agent', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false },
+    ]);
   });
 
   it('answers 503 with a session but no platform seed configured, and 403 for a signed stranger', async () => {

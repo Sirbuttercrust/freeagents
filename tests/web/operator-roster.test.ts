@@ -295,6 +295,71 @@ function captureNavigations(): { calls: string[]; restore: () => void } {
   };
 }
 
+// D-CI3: whether the gallery's own async chain (below) has a signal to
+// wait on at all. /browse (rendered once in this file, line ~568) has no
+// #gallery/#gallery-empty pair, so this page type falls to
+// hasBrowseSignal/browseSettled below instead.
+function hasGallerySignal(doc: Document): boolean {
+  return doc.getElementById('gallery-empty') !== null && doc.getElementById('gallery') !== null;
+}
+
+// D-CI3 (operator.js:561-577, W12): loadGallery fires one GET per roster
+// agent and calls paintRosterAvatar synchronously inside EACH read's own
+// .then, before Promise.all(reads) resolves. So the instant Promise.all
+// settles and calls renderGallery/renderGalleryEmpty, every paintRosterAvatar
+// call for this page has already run. #gallery-empty starts `hidden` in the
+// served markup and #gallery starts with no children, so neither reads true
+// before that point: unhidden empty, or a populated gallery, are both proof
+// the chain finished, with no window for a false positive.
+function gallerySettled(doc: Document): boolean {
+  const galleryEmpty = doc.getElementById('gallery-empty') as HTMLElement | null;
+  const gallery = doc.getElementById('gallery');
+  if (!galleryEmpty || !gallery) return true;
+  return !galleryEmpty.hidden || gallery.children.length > 0;
+}
+
+// D-CI3 round 2 (Proof r1, comment 549): render()'s /browse branch used to
+// fall back to a fixed 400ms sleep, the SAME teardown race the gallery fix
+// above closes, just on browse.js's own chain instead of operator.js's.
+// cardFor (browse.js:359-403) puts a card in the DOM and calls loadAvatar
+// (browse.js:415-421) for it; loadAvatar's own GET /agents/:did read calls
+// window.FABots.mount in its .then, AFTER the card already has a DOM
+// parent. render() used to return, the test asserted and closed the
+// window, and a per-card avatar read that settled only after that landed
+// in bots.js's mount() (src/web/public/js/bots.js:398,
+// document.createElement("canvas")) with a torn-down document: the same
+// "Cannot read properties of undefined (reading 'createElement')" shape
+// QA's mutation reproduced at bots.js:398 <- browse.js:419.
+function hasBrowseSignal(doc: Document): boolean {
+  return doc.getElementById('zero-host') !== null && doc.getElementById('rows') !== null;
+}
+
+// #zero-host starts `hidden` in the served markup (browse.html:435) and
+// #rows starts with no children (browse.html:404), so neither reads
+// "settled" before the initial GET /agents listing read has resolved and
+// renderAll has run. Once #rows holds cards, EVERY card's avatar host is
+// checked for the one DOM fact only a completed mount() call produces: a
+// <canvas> child (bots.js:398-405, appended inside mount() after a
+// successful read). A host with no canvas yet is still awaiting its read,
+// so this can only read true once every per-card GET /agents/:did loadAvatar
+// fired has actually settled and mounted, closing the same window the
+// gallery signal above closes. The genuine zero-results state (#zero-host
+// unhidden) is settled on its own: it carries no cards and so no avatar
+// read was ever fired for it.
+function browseSettled(doc: Document): boolean {
+  const zeroHost = doc.getElementById('zero-host') as HTMLElement | null;
+  const rows = doc.getElementById('rows');
+  if (!zeroHost || !rows) return true;
+  if (!zeroHost.hidden) return true;
+  if (rows.children.length === 0) return false;
+  const cards = Array.from(rows.querySelectorAll('[data-agent-card]'));
+  return cards.every((card) => {
+    const avatarHost = card.querySelector('.acard-av');
+    if (!avatarHost) return true;
+    return avatarHost.querySelector('canvas') !== null;
+  });
+}
+
 async function render(path: string): Promise<Rendered> {
   const virtualConsole = new VirtualConsole();
   const failures: string[] = [];
@@ -306,6 +371,10 @@ async function render(path: string): Promise<Rendered> {
   expect(response.status, `unexpected status for ${path}`).toBe(200);
   const markup = await response.text();
 
+  // Every read the page makes goes through here, so the count of reads
+  // still in flight (body included) is a settle signal that holds whatever
+  // markup the page draws. render() waits on it after the DOM signals.
+  let inFlight = 0;
   const dom = new JSDOM(markup, {
     url: `${baseUrl}${path}`,
     runScripts: 'dangerously',
@@ -315,7 +384,16 @@ async function render(path: string): Promise<Rendered> {
     beforeParse(window) {
       Object.defineProperty(window, 'fetch', {
         writable: true,
-        value: (input: string, init?: RequestInit) => fetch(new URL(input, baseUrl), init),
+        value: async (input: string, init?: RequestInit) => {
+          inFlight += 1;
+          try {
+            const res = await fetch(new URL(input, baseUrl), init);
+            const body = await res.arrayBuffer();
+            return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+          } finally {
+            inFlight -= 1;
+          }
+        },
       });
     },
   });
@@ -324,13 +402,60 @@ async function render(path: string): Promise<Rendered> {
     if (dom.window.document.readyState === 'complete') resolve();
     else dom.window.addEventListener('load', () => resolve());
   });
-  // 250ms comfortably covered the original two-fetch chain (the operator
-  // record, then the roster). W12 added a third level after the roster
-  // resolves: the gallery's per-agent reads (Promise.all over the roster,
-  // GET /agents/:agentDid), which only fire once renderRoster has already
-  // run. 400ms gives that extra round trip room under test-suite load
-  // without slowing every other page's tests, which finish well inside it.
-  await new Promise((resolve) => setTimeout(resolve, 400));
+
+  // D-CI3 (CI3 card, run 35907083987): the fixed 400ms wait this used to be
+  // was a guess at the three-fetch chain's (operator record, roster,
+  // per-agent gallery reads) worst case, not a real signal. Under
+  // test-suite load the gallery's Promise.all(reads) can still be pending
+  // past 400ms. render() returned anyway, the test asserted and closed the
+  // window (dom.window.close(), which jsdom nulls document out on), and a
+  // gallery read that finished only after that landed in paintRosterAvatar
+  // with a torn-down document: "Cannot read properties of undefined
+  // (reading 'querySelector')" at operator.js:588, exactly the run's
+  // unhandled rejection. Polling for the real signal above closes that
+  // window instead of widening it.
+  //
+  // D-CI3 round 2 (Proof r1, comment 549): /browse carried the identical
+  // race on its own async chain (browse.js's loadAvatar into bots.js's
+  // mount()), still behind the fixed 400ms wait this replaces below with
+  // browseSettled, the same closed-window shape as the gallery branch.
+  if (hasGallerySignal(dom.window.document)) {
+    const deadline = Date.now() + 4000;
+    while (!gallerySettled(dom.window.document) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    if (!gallerySettled(dom.window.document)) {
+      throw new Error(`page at ${path} never reached its settled gallery signal within 4000ms`);
+    }
+  } else if (hasBrowseSignal(dom.window.document)) {
+    const deadline = Date.now() + 4000;
+    while (!browseSettled(dom.window.document) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    if (!browseSettled(dom.window.document)) {
+      throw new Error(`page at ${path} never reached its settled browse signal within 4000ms`);
+    }
+  } else {
+    throw new Error(`page at ${path} carries neither a gallery nor a browse settle signal`);
+  }
+
+  // The league look's player card (pcard.js) mounts its bot canvas the
+  // moment the card is built, before browse.js's per-card GET /agents/:did
+  // avatar read has gone out, and it has no .acard-av. So browseSettled
+  // reads true while those reads are still pending, and one that lands
+  // after close() calls bots.js's mount() on a torn-down document: CI run
+  // 36162157231, "Cannot read properties of undefined (reading
+  // 'createElement')" at bots.js:398 <- browse.js:388, on node 22 and 24.
+  // No DOM fact tells a first mount from the avatar read's mount, so wait
+  // on the reads themselves: none in flight for three polls in a row,
+  // which also covers the .then that runs after the last body is read.
+  let quiet = 0;
+  const quietDeadline = Date.now() + 4000;
+  while (quiet < 3 && Date.now() < quietDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    quiet = inFlight === 0 ? quiet + 1 : 0;
+  }
+  if (quiet < 3) throw new Error(`page at ${path} still had ${inFlight} read(s) in flight after 4000ms`);
 
   if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
 

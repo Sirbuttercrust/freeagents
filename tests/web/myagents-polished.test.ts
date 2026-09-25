@@ -247,7 +247,10 @@ describe('1. the page wears the wireframe\u2019s visual system', () => {
     // tokens.css is this repo's split of the wireframe's token block and is
     // first on every rebuilt page; the rest is the wireframe's list in the
     // wireframe's order, which is also the order market.css:3 depends on.
-    expect(served).toEqual(['tokens.css', 'base.css', 'polish.css', 'market.css']);
+    // office.css and league.css close every page (the league look,
+    // DESIGN.md 2): the office footer, then the shared layer that has to
+    // win over every sheet before it.
+    expect(served).toEqual(['tokens.css', 'base.css', 'polish.css', 'market.css', 'office.css', 'league.css']);
   });
 
   it('loads the polished script set in the order the avatar-carrying pages settled', async () => {
@@ -257,6 +260,7 @@ describe('1. the page wears the wireframe\u2019s visual system', () => {
       '/js/pages/nav.js',
       '/js/vendor/bot-avatars/bot-avatars.js',
       '/js/bots.js',
+      '/js/office.js',
       '/js/icons.js',
       '/js/polish.js',
       '/js/pages/myagents.js',

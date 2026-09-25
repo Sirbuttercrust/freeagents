@@ -22,6 +22,8 @@
 <link rel="stylesheet" href="/css/polish.css">
 <link rel="stylesheet" href="/css/flow.css">
 <link rel="stylesheet" href="/css/stepflow.css">
+<link rel="stylesheet" href="/css/office.css">
+<link rel="stylesheet" href="/css/league.css">
 <style>
   /* W-pullrequest: PULL REQUEST OPEN (SITEMAP P-14), rebuilt on
      spec/wireframe/pullrequest.html and spec/wireframe/flow.css. Structure,
@@ -171,7 +173,7 @@
      table. That divergence is a finding for the design source, not an edit
      a page card may make. */
   .prlink { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-family: var(--mono); font-size: 16px; }
-  .prlink a { text-decoration: underline; text-underline-offset: 4px; } .prlink a:hover { color: var(--accent-hi); }
+  .prlink a { text-decoration: underline; text-underline-offset: 4px; } .prlink a:hover { color: var(--action-hi); }
   .prlink .diff { color: var(--fg-2); font-size: 13px; }
   /* S1: the repository link stands alone on its line (the diff beside it is
      an element, not sentence text), so it takes the 44px floor rather than
@@ -349,6 +351,7 @@
   </div>
 </dialog>
 <footer class="foot">
+  <div class="site-office" data-office aria-hidden="true"></div>
   <div class="wrap inner">
     <a href="/how">How it works</a>
     <a href="/verify">Verify a credential</a>
@@ -359,6 +362,7 @@
 <script src="/js/pages/nav.js"></script>
 <script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
 <script src="/js/bots.js"></script>
+<script src="/js/office.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/stepflow.js"></script>
 <script src="/js/pages/pullrequest.js"></script>

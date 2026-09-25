@@ -28,8 +28,9 @@ describe('DID-signed requests (RFC 9421)', () => {
 
     const result = await verify(req, resolver);
 
-    expect(result).not.toBeNull();
-    expect(result?.did).toBe(identity.did);
+    expect(result).not.toBe('invalid');
+    expect(result).not.toBe('unknown-key');
+    expect((result as { did: string }).did).toBe(identity.did);
   });
 
   it('rejects a signature whose covered components omit @method or @target-uri', async () => {
@@ -40,11 +41,16 @@ describe('DID-signed requests (RFC 9421)', () => {
     const onlyTarget = signRequest(identity, 'POST', targetUri, { components: ['@target-uri'] });
     const onlyMethod = signRequest(identity, 'POST', targetUri, { components: ['@method'] });
 
-    expect(await verify({ method: 'POST', targetUri, headers: onlyTarget }, resolver)).toBeNull();
-    expect(await verify({ method: 'POST', targetUri, headers: onlyMethod }, resolver)).toBeNull();
+    expect(await verify({ method: 'POST', targetUri, headers: onlyTarget }, resolver)).toBe('invalid');
+    expect(await verify({ method: 'POST', targetUri, headers: onlyMethod }, resolver)).toBe('invalid');
   });
 
-  it('rejects when keyResolver returns null for the claimed did', async () => {
+  // B29: a well-formed, cryptographically genuine signature naming a DID
+  // the resolver has never heard of (unregistered, or a binding check
+  // failure) is a DIFFERENT fact from a signature whose bytes do not
+  // verify at all. verify() now distinguishes the two so the route layer
+  // can answer "unknown key" rather than "invalid signature" for this case.
+  it('answers "unknown-key" when keyResolver returns null for the claimed did', async () => {
     const identity = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
     const resolver: SigningKeyResolver = async () => null;
     const targetUri = 'http://127.0.0.1:41234/jobs';
@@ -52,7 +58,32 @@ describe('DID-signed requests (RFC 9421)', () => {
 
     const result = await verify({ method: 'POST', targetUri, headers }, resolver);
 
-    expect(result).toBeNull();
+    expect(result).toBe('unknown-key');
+  });
+
+  // The sibling case: the key resolves (the DID is registered, the
+  // binding check passes) but the signature bytes themselves are wrong.
+  // This stays 'invalid', never 'unknown-key' -- the key is known, the
+  // signature over it is not genuine.
+  it('answers "invalid" when the resolved key does not verify the signature bytes', async () => {
+    const victim = await signingIdentityFromSeed(new Uint8Array(32).fill(7));
+    const attacker = await signingIdentityFromSeed(new Uint8Array(32).fill(9));
+    const resolver = createDidAbtSigningKeyResolver(async () => true);
+    const targetUri = 'http://127.0.0.1:41234/jobs';
+    // Signed with the attacker's key but presenting the victim's own
+    // genuine keyid: the binding check on the KEYID passes (it really is
+    // the victim's fingerprint), so the resolver hands back a real key,
+    // and only the ed25519 check over these particular bytes fails.
+    const forgedIdentity: SigningIdentity = {
+      did: victim.did,
+      keyid: victim.keyid,
+      privateKey: attacker.privateKey,
+    };
+    const headers = signRequest(forgedIdentity, 'POST', targetUri, { components: ['@method', '@target-uri'] });
+
+    const result = await verify({ method: 'POST', targetUri, headers }, resolver);
+
+    expect(result).toBe('invalid');
   });
 
   it('rejects a signature whose base was signed over a different target-uri', async () => {
@@ -64,7 +95,7 @@ describe('DID-signed requests (RFC 9421)', () => {
 
     const result = await verify({ method: 'POST', targetUri: presentedUri, headers }, resolver);
 
-    expect(result).toBeNull();
+    expect(result).toBe('invalid');
   });
 
   it('rejects a created timestamp outside the freshness window', async () => {
@@ -86,7 +117,7 @@ describe('DID-signed requests (RFC 9421)', () => {
     const staleResult = await verify({ method: 'POST', targetUri, headers: staleHeaders }, resolver, { now });
     const freshResult = await verify({ method: 'POST', targetUri, headers: freshHeaders }, resolver, { now });
 
-    expect(staleResult).toBeNull();
+    expect(staleResult).toBe('invalid');
     expect(freshResult).toEqual({ did: identity.did });
   });
 
@@ -105,7 +136,7 @@ describe('DID-signed requests (RFC 9421)', () => {
 
     const futureResult = await verify({ method: 'POST', targetUri, headers: futureHeaders }, resolver, { now });
 
-    expect(futureResult).toBeNull();
+    expect(futureResult).toBe('invalid');
   });
 
   // S6: the freshness check used to be Math.abs(now - created) > MAX_AGE, so
@@ -127,7 +158,7 @@ describe('DID-signed requests (RFC 9421)', () => {
 
     const result = await verify({ method: 'POST', targetUri, headers }, resolver, { now });
 
-    expect(result).toBeNull();
+    expect(result).toBe('invalid');
   });
 
   // S6: clocks differ by a few seconds between two ordinary machines, and a
@@ -174,7 +205,7 @@ describe('DID-signed requests (RFC 9421)', () => {
     const justOutside = await verify({ method: 'POST', targetUri, headers: justOutsideHeaders }, resolver, { now });
 
     expect(justInside).toEqual({ did: identity.did });
-    expect(justOutside).toBeNull();
+    expect(justOutside).toBe('invalid');
   });
 
   it('rejects a signature whose declared alg is not ed25519, even though the bytes verify', async () => {
@@ -188,7 +219,7 @@ describe('DID-signed requests (RFC 9421)', () => {
 
     const result = await verify({ method: 'POST', targetUri, headers }, resolver);
 
-    expect(result).toBeNull();
+    expect(result).toBe('invalid');
   });
 
   it('accepts a signature whose Signature-Input omits the alg parameter entirely', async () => {
@@ -385,7 +416,7 @@ describe('DID-signed requests (RFC 9421)', () => {
 
     const result = await verify({ method: 'POST', targetUri, headers }, resolver);
 
-    expect(result).toBeNull();
+    expect(result).toBe('invalid');
     expect(await observedKeys.get(victim.did)).toBeNull();
   });
 
@@ -406,7 +437,7 @@ describe('DID-signed requests (RFC 9421)', () => {
     const second = await verify({ method: 'POST', targetUri, headers }, resolver, { spendStorage });
 
     expect(first).toEqual({ did: identity.did });
-    expect(second).toBeNull();
+    expect(second).toBe('invalid');
   });
 
   // S5 mutation proof 6: the spend key is scoped by keyid, so two different
@@ -461,7 +492,7 @@ describe('DID-signed requests (RFC 9421)', () => {
 
     const result = await verify({ method: 'POST', targetUri, headers }, resolver, { spendStorage });
 
-    expect(result).toBeNull();
+    expect(result).toBe('invalid');
     expect(recordSpy).not.toHaveBeenCalled();
   });
 
@@ -483,7 +514,7 @@ describe('DID-signed requests (RFC 9421)', () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const result = await verify({ method: 'POST', targetUri, headers }, resolver, { spendStorage: throwingSpendStorage });
-      expect(result).toBeNull();
+      expect(result).toBe('invalid');
     } finally {
       errorLog.mockRestore();
     }

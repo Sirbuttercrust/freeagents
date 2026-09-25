@@ -1,0 +1,427 @@
+/* THE LEAGUE: the shared layer every page loads last (DESIGN.md 2, 3.1, 6.1).
+
+   Direction B from the design board, chosen 2026-09-23. It changes how every
+   page looks without rewriting any of them: the stadium behind the page, the
+   display face on titles and numbers, the one button system, the nav and its
+   phone menu, the player card for any agent shown as a tile, and the frame
+   the office footer sits in. It defines no colour of its own; every value is
+   a token from tokens.css (DESIGN.md 2.1).
+
+   Loaded after the page's other sheets, so it wins over them at equal
+   specificity, and before a page's own <style> block, which still wins over
+   it. A page that needs to differ says so in its own block. */
+
+/* ------------------------------------------------------------------ fonts
+   Both faces ship from this site (SIL OFL 1.1, licences beside the files),
+   so no page asks another server for anything. Bricolage is subset to Latin
+   and pinned to its display optical size; it is for titles and numbers only
+   (DESIGN.md 3.1). */
+@font-face {
+  font-family: "Geist";
+  src: url("/assets/fonts/Geist-latin.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bricolage";
+  src: url("/assets/fonts/Bricolage-latin.woff2") format("woff2");
+  font-weight: 600 800;
+  font-stretch: 75% 100%;
+  font-display: swap;
+}
+
+/* ---------------------------------------------------------------- stadium
+   A floodlight above the top of the page and the pitch's chalk lines far
+   behind everything. Painted on the root so body can stay transparent: a
+   body background would cover a negative z-index layer, and the chalk lines
+   live on one. Both are faint alphas over --bg (DESIGN.md 2.6), fixed below
+   every layer of content, and they never sit behind body text at a strength
+   that moves a contrast ratio. */
+html {
+  background:
+    radial-gradient(1100px 420px at 50% -160px, var(--flood), transparent 70%),
+    var(--bg);
+  background-color: var(--bg);
+}
+body { background: transparent; }
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent calc(50% - 0.5px), var(--chalk) calc(50% - 0.5px), var(--chalk) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    radial-gradient(circle at 50% 46%, transparent 179px, var(--chalk) 180px, var(--chalk) 181px, transparent 182px);
+}
+
+/* ---------------------------------------------------------------- display
+   Page titles in the league's voice: Bricolage, condensed, heavy, capitals.
+   One h1 per page, so this is one line of type per screen. Body text,
+   labels and buttons stay in Geist (DESIGN.md 3.1). */
+h1 {
+  font-family: var(--display);
+  font-stretch: 78%;
+  font-weight: 800;
+  font-size: 40px;
+  text-transform: uppercase;
+  letter-spacing: -0.005em;
+  line-height: 1;
+}
+@media (max-width: 760px) { h1 { font-size: 32px; } }
+/* The landing hero is the one title that is a poster rather than a label. */
+#hero h1 { font-size: clamp(40px, 5.6vw, 68px); line-height: 0.95; }
+
+/* ---------------------------------------------------------------- buttons
+   One system for the whole site (DESIGN.md 5): a quiet button on a raised
+   fill, and the one primary per page in the logo's blue standing on a
+   darker base, so it reads as a key you press. */
+.btn {
+  border-radius: var(--r);
+  background: var(--bg-1);
+  border-color: var(--line-2);
+  font-weight: 600;
+}
+.btn:hover { background: var(--bg-2); border-color: var(--line-2); }
+.btn-primary {
+  background: var(--action);
+  border-color: transparent;
+  color: var(--action-fg);
+  box-shadow: 0 4px 0 var(--action-base);
+  margin-bottom: 4px;
+}
+.btn-primary:hover { background: var(--action-hi); border-color: transparent; color: var(--action-fg); }
+@media (prefers-reduced-motion: no-preference) {
+  .btn-primary:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--action-base); }
+}
+.btn-block.btn-primary { margin-bottom: 4px; }
+
+/* Tabs. The wireframe kept its tab rule inline on the agent page, so the
+   built page shipped polish.css's moving underline over bare browser
+   buttons: grey, outset, 13px. This is the league board's underline tab
+   (look/b), and polish.css's .tabline slides under the selected one. */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 26px; }
+.tabs button {
+  min-height: 44px; padding: 0 16px;
+  border: 0; border-radius: 0; background: transparent;
+  color: var(--fg-2); font-family: var(--font); font-size: 15px; font-weight: 600;
+  cursor: pointer;
+}
+.tabs button:hover { color: var(--fg); }
+.tabs button[aria-selected="true"] { color: var(--fg); }
+.tabs-line .tabline { opacity: 1; }
+
+/* One row at every width. base.css wrapped .tabs below 761px, and a wrapped
+   tablist put .tabline (one absolutely placed bar at the list's bottom) a
+   whole row under the selected tab. So the row never wraps: when the four
+   tabs are wider than the column, the tablist scrolls sideways inside
+   itself. The bar is a child of the scroller, so it scrolls with the tab it
+   marks, and polish.js scrolls the selected tab into view. The page itself
+   never gets wider than the screen. */
+.tabs {
+  flex-wrap: nowrap;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button { flex: none; white-space: nowrap; }
+/* The scroller clips anything drawn outside it, and base.css draws the focus
+   ring 2px outside the button, so a focused tab showed only two side bars.
+   Here the ring sits inside the tab instead: 2px in from each edge, clear of
+   the scroller's edge at any width and of the 2px .tabline along the bottom.
+   Only the selected tab takes focus (roving tabindex in polish.js), and
+   reveal() keeps that tab out of the edge fades, so the ring is never masked. */
+.tabs button:focus-visible { outline-offset: -4px; }
+@media (max-width: 760px) {
+  .tabs { gap: 0; }
+  .tabs button { padding: 0 12px; }
+}
+/* With no scrollbar, a clipped tab needs another cue that the row goes on.
+   polish.js sets these while there is more row past an edge, and the edge
+   fades. It never fades the selected tab: reveal() keeps that one clear of
+   the fade, and at either end of the row the class is off. */
+.tabs.is-more-r { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+.tabs.is-more-l { -webkit-mask-image: linear-gradient(270deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(270deg, #000 calc(100% - 28px), transparent); }
+.tabs.is-more-l.is-more-r { -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
+
+/* A link a person follows is the action colour; prose keeps its colour and
+   takes the underline, so a sentence does not turn blue. */
+:focus-visible { outline-color: var(--action); }
+
+/* -------------------------------------------------------------------- nav
+   The bar every page carries. Below 761px the links fold into a menu that
+   is a real disclosure (nav.js): a button with aria-expanded and
+   aria-controls, Escape closes it and returns focus, and when open the links
+   sit in the bar's own flow under it, so the page is pushed down rather than
+   covered. Without the script the links stay visible and wrap, as before. */
+.nav {
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  border-bottom-color: var(--line);
+}
+.nav .links a { transition: color var(--dur-1, .14s) var(--ease); }
+.nav .links a[aria-current="page"] { color: var(--fg); }
+.nav .menu {
+  display: none;
+  width: 44px; height: 44px; flex: none;
+  align-items: center; justify-content: center;
+  border-radius: var(--r);
+  border: 1px solid var(--line-2);
+  background: var(--bg-1);
+  color: var(--fg);
+  cursor: pointer;
+  padding: 0;
+}
+.nav .menu svg { width: 20px; height: 20px; display: block; }
+.nav .menu .ico-close { display: none; }
+.nav.is-open .menu .ico-open { display: none; }
+.nav.is-open .menu .ico-close { display: block; }
+
+@media (max-width: 760px) {
+  .nav.has-menu { height: auto; min-height: 60px; }
+  .nav.has-menu .inner { flex-wrap: wrap; row-gap: 0; padding-top: 8px; padding-bottom: 8px; min-height: 60px; }
+  .nav.has-menu .menu { display: inline-flex; order: 2; }
+  .nav.has-menu .spacer { order: 1; }
+  .nav.has-menu .inner > .btn,
+  .nav.has-menu .inner > .row { order: 1; }
+  /* Closed: the links are gone from the bar and from the tab order. */
+  .nav.has-menu:not(.is-open) .links { display: none; }
+  /* Open: a full-width list under the bar, one link per row, each a 48px
+     target, pushing the page down. */
+  .nav.has-menu.is-open .links {
+    display: flex; flex-direction: column; align-items: stretch;
+    order: 3; width: 100%;
+    gap: 0; margin: 8px 0 4px;
+    border-top: 1px solid var(--line);
+    font-size: 17px;
+  }
+  .nav.has-menu.is-open .links a {
+    display: flex; align-items: center; justify-content: flex-start;
+    min-height: 48px; padding: 0 4px;
+    border-bottom: 1px solid var(--line);
+    color: var(--fg);
+    white-space: normal;
+  }
+}
+
+/* ------------------------------------------------------------ player card
+   Anything that represents an agent as a tile (DESIGN.md 2.6). The field is
+   the agent's own avatar colour (--c, set by pcard.js from the renderer's
+   palette) mixed into --bg: strongest at the top, and at most about 30%
+   behind the bot, where a dark floor pools under it, so every avatar colour
+   keeps its 3:1 against its own field (DESIGN.md 2.4). */
+.pcard {
+  --c: var(--agent-2);
+  position: relative;
+  display: flex; flex-direction: column;
+  border-radius: 18px;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  color: var(--fg);
+  text-decoration: none;
+  min-width: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pcard { transition: transform 240ms var(--ease), box-shadow 240ms var(--ease); }
+  .pcard:hover { transform: translateY(-4px); }
+}
+.pcard:hover { box-shadow: 0 24px 50px -24px color-mix(in srgb, var(--c) 60%, transparent); }
+.pcard:focus-within { outline: 2px solid var(--action); outline-offset: 3px; }
+.pcard .pc-field {
+  position: relative;
+  height: 150px;
+  background:
+    radial-gradient(70% 55% at 50% 100%, var(--bg) 0%, transparent 100%),
+    linear-gradient(160deg,
+      color-mix(in srgb, var(--c) 46%, var(--bg)),
+      color-mix(in srgb, var(--c) 14%, var(--bg)));
+}
+.pcard .pc-field::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(115deg, rgba(255,255,255,0.045) 0 14px, transparent 14px 28px);
+  pointer-events: none;
+}
+.pcard .pc-bot {
+  position: absolute; left: 50%; bottom: -8px;
+  width: 124px; height: 124px; margin-left: -62px;
+  z-index: 1;
+  display: block;
+}
+.pcard .pc-skill {
+  position: absolute; top: 12px; left: 12px; z-index: 2;
+  max-width: calc(100% - 24px);
+  padding: 3px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 600;
+  background: rgba(11,10,18,0.62);
+  color: var(--fg);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* A skill that names one of market.css's five disciplines keeps its tint
+   (DESIGN.md 2.4) as a dot before the word; any other skill is plain. The
+   tints are market.css tokens, so pages without that sheet show no dot. */
+.pcard .pc-skill[class*="cat-"]::before {
+  content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  margin-right: 6px; vertical-align: 1px; background: var(--cat, transparent);
+}
+.pcard .pc-body { padding: 16px 18px 18px; display: flex; flex-direction: column; flex: 1; }
+.pcard .pc-name {
+  margin: 0;
+  font-family: var(--display); font-stretch: 78%; font-weight: 750;
+  font-size: 24px; line-height: 1.05; letter-spacing: -0.005em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+/* The name is the card's one link, stretched over the whole card so the
+   entire surface opens the agent's page. */
+.pcard .pc-name a { color: inherit; text-decoration: none; }
+.pcard .pc-name a::after { content: ""; position: absolute; inset: 0; z-index: 3; border-radius: inherit; }
+.pcard .pc-name a:focus-visible { outline: none; }
+.pcard .pc-does { margin: 6px 0 0; color: var(--fg-2); font-size: 14px; }
+.pcard .pc-stats { margin-top: auto; padding-top: 12px; }
+.pcard .pc-body > .pc-name + .pc-stats,
+.pcard .pc-does + .pc-stats { margin-top: 14px; }
+.pcard .pc-stats { border-top: 1px solid var(--line); }
+.pcard .pc-head { display: flex; align-items: baseline; gap: 7px; }
+.pcard .pc-head svg { width: 16px; height: 16px; align-self: center; flex: none; color: var(--check); }
+.pcard .pc-head b {
+  font-family: var(--display); font-stretch: 80%; font-weight: 750;
+  font-size: 30px; line-height: 1;
+}
+.pcard .pc-head span { font-size: 13px; color: var(--fg-2); white-space: nowrap; }
+.pcard .pc-head.is-ok b { color: var(--check); }
+.pcard .pc-head.is-zero b { color: var(--fg-3); }
+.pcard .pc-sub { margin-top: 6px; font-size: 13px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* "Your agent", the empty card in the sign-in fan: dashed, no colour, zeros. */
+.pcard.is-you { border: 2px dashed var(--line-2); background: var(--bg); }
+.pcard.is-you .pc-field { background: repeating-linear-gradient(115deg, rgba(255,255,255,0.04) 0 14px, transparent 14px 28px); }
+.pcard.is-you .pc-name { color: var(--fg-2); }
+
+/* The roster grid a list of cards sits in. */
+.roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 18px; }
+@media (max-width: 760px) {
+  .roster { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .roster .pcard .pc-field { height: 118px; }
+  .roster .pcard .pc-bot { width: 100px; height: 100px; margin-left: -50px; }
+  .roster .pcard .pc-name { font-size: 18px; }
+  .roster .pcard .pc-body { padding: 12px; }
+  .roster .pcard .pc-head b { font-size: 22px; }
+  .roster .pcard .pc-head span,
+  .roster .pcard .pc-sub { font-size: 12px; }
+  .roster .pcard .pc-skill { font-size: 11.5px; }
+}
+@media (max-width: 360px) {
+  .roster { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ----------------------------------------------------------- the lineup
+   The landing's listed agents as a row of player cards, fanned like a
+   team photo (the board's direction B). As wide as its cards, centred, so
+   the flock's perch beside it lands clear the way it did beside the zero
+   sentence it replaces. Clipped so a tilt can never widen the page. */
+.lineup { display: flex; justify-content: center; gap: 18px; width: fit-content; max-width: 100%; margin: 0 auto; padding: 18px 8px 8px; overflow-x: clip; }
+.lineup .pcard { width: 230px; flex: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .lineup .pcard:nth-child(1) { transform: rotate(-3deg) translateY(10px); }
+  .lineup .pcard:nth-child(3) { transform: rotate(3deg) translateY(10px); }
+  .lineup .pcard:hover { transform: translateY(-6px); }
+}
+@media (max-width: 760px) {
+  .lineup { gap: 10px; }
+  .lineup .pcard { width: calc(50% - 5px); min-width: 0; flex: 0 1 168px; }
+  .lineup .pcard:nth-child(3) { display: none; }
+  .lineup .pcard .pc-field { height: 112px; }
+  .lineup .pcard .pc-bot { width: 96px; height: 96px; margin-left: -48px; }
+  .lineup .pcard .pc-name { font-size: 18px; }
+  .lineup .pcard .pc-head b { font-size: 22px; }
+  .lineup .pcard .pc-sub { font-size: 12px; }
+}
+
+/* ------------------------------------------------------- the sign-in fan
+   Two listed agents either side of "your agent" (DESIGN.md 2.6), beside the
+   sign-in column on a wide screen and under it on a phone, so the buttons
+   stay the first thing in reach. Decoration: aria-hidden, cards are divs,
+   nothing in it takes a pointer or focus. Clipped, so a tilted card can
+   never widen the page (DESIGN.md 5.4). */
+.signin-stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 34px; align-items: center; }
+.pcard-fan { position: relative; height: 420px; overflow: clip; pointer-events: none; }
+.pcard-fan .pcard { position: absolute; left: 50%; top: 40px; width: 220px; margin-left: -110px; }
+.pcard-fan .pcard .pc-bot { width: 110px; height: 110px; margin-left: -55px; }
+.pcard-fan .pcard:nth-child(1):not(.is-you) { transform: rotate(-11deg) translateX(-118px); }
+.pcard-fan .pcard:nth-child(2):not(.is-you) { transform: rotate(9deg) translateX(118px); }
+.pcard-fan .pcard.is-you { transform: translateY(-10px); }
+@media (max-width: 760px) {
+  .signin-stage { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .pcard-fan { height: 330px; }
+  .pcard-fan .pcard { width: 168px; margin-left: -84px; top: 26px; }
+  .pcard-fan .pcard .pc-field { height: 112px; }
+  .pcard-fan .pcard .pc-bot { width: 96px; height: 96px; margin-left: -48px; }
+  .pcard-fan .pcard .pc-name { font-size: 19px; }
+  .pcard-fan .pcard .pc-head b { font-size: 22px; }
+  .pcard-fan .pcard .pc-sub { font-size: 12px; }
+  .pcard-fan .pcard:nth-child(1):not(.is-you) { transform: rotate(-11deg) translateX(-84px); }
+  .pcard-fan .pcard:nth-child(2):not(.is-you) { transform: rotate(9deg) translateX(84px); }
+}
+/* A phone: the three cards get smaller and closer, so the whole fan sits
+   inside the column rather than relying on the clip. */
+@media (max-width: 420px) {
+  .pcard-fan { height: 280px; }
+  .pcard-fan .pcard { width: 128px; margin-left: -64px; top: 22px; }
+  .pcard-fan .pcard .pc-field { height: 90px; }
+  .pcard-fan .pcard .pc-bot { width: 76px; height: 76px; margin-left: -38px; }
+  .pcard-fan .pcard .pc-name { font-size: 16px; }
+  .pcard-fan .pcard .pc-head b { font-size: 18px; }
+  .pcard-fan .pcard .pc-sub { font-size: 11px; }
+  .pcard-fan .pcard:nth-child(1):not(.is-you) { transform: rotate(-8deg) translateX(-58px); }
+  .pcard-fan .pcard:nth-child(2):not(.is-you) { transform: rotate(7deg) translateX(58px); }
+}
+
+/* ----------------------------------------------------------- stat numbers
+   A number a person reads as a record is set in the display face too
+   (DESIGN.md 3.1). */
+.pstat .v { font-family: var(--display); font-stretch: 80%; font-weight: 750; font-size: 26px; letter-spacing: 0; }
+
+/* ----------------------------------------------------------------- footer
+   The office sits at the very foot of the page, and the footer's links sit
+   on its floor, so the room reads as the ground the site stands on.
+
+   The footer is the last thing on every page. A short page (hire, deposit,
+   settings) used to end with the footer halfway up the screen and a band of
+   empty page under it, so the body is a column the height of the viewport
+   and the footer takes the space that is left. Body children fill the
+   width they did as blocks: a flex item with auto side margins otherwise
+   shrinks to its content. */
+body { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+body > * { flex-shrink: 0; width: 100%; }
+body > .foot, body > .foot:has(> .site-office) { margin-top: auto; }
+
+.site-office { display: block; margin-top: 34px; }
+/* The room's height before office.js builds it (on pages that fetch the bot
+   engine lazily, that is when the footer nears the screen). Each rule is
+   the composition office.js will pick at that width, at the height it will
+   set, so the footer holds its size from first paint and the page does not
+   jump when the room arrives. office.js sets the exact height inline. */
+.site-office:not(.office) { aspect-ratio: 1180 / 250; max-height: 250px; }
+@media (max-width: 899px) { .site-office:not(.office) { aspect-ratio: 760 / 250; } }
+@media (max-width: 559px) { .site-office:not(.office) { aspect-ratio: 420 / 226; max-height: 226px; } }
+.foot:has(> .site-office) { border-top: 0; padding-top: 0; padding-bottom: 0; }
+/* The links are one thin bar on the office floor, edge to edge, and it ends
+   the page: no block of floor under them, no page padding below. */
+.foot > .site-office + .inner,
+.foot > .site-office + .wrap {
+  background: var(--o-floor);
+  max-width: none; min-height: 0;
+  padding: 6px max(32px, calc((100% - var(--w)) / 2 + 32px));
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 22px;
+}
+.foot > .site-office + .wrap > .links { gap: 4px 22px; }
+@media (max-width: 760px) {
+  .site-office { margin-top: 22px; }
+  .foot > .site-office + .inner,
+  .foot > .site-office + .wrap { padding: 4px 16px; gap: 0 6px; }
+}

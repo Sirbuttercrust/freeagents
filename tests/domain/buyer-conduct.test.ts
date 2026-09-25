@@ -53,10 +53,15 @@ describe('buyerConductRecord', () => {
     expect(result.walkedAfterConfirm).toBe(0);
   });
 
-  it('expired_unstaged counts as both confirmed and walkedAfterConfirm', () => {
+  // DEP1 (B24 ruling, 2026-09-23): expired_unstaged is the AGENT's
+  // lapse (it never staged the paid work), not the buyer walking away --
+  // that fact now lands on the operator's walkedAfterDeposit instead (see
+  // operatorConductRecord below). Still counts confirmed: the job reached
+  // confirmed before it lapsed.
+  it('expired_unstaged counts confirmed, but no longer walkedAfterConfirm (DEP1, staging is the agent\'s move)', () => {
     const result = buyerConductRecord([job({ status: 'expired_unstaged', confirmedAt: '2026-06-01T00:00:00.000Z' })]);
     expect(result.confirmed).toBe(1);
-    expect(result.walkedAfterConfirm).toBe(1);
+    expect(result.walkedAfterConfirm).toBe(0);
   });
 
   it('staged_declined counts confirmed and stagedDeclined, not walkedAfterConfirm', () => {
@@ -210,11 +215,13 @@ describe('buyerConductRecord', () => {
   // Ruling 2 (P8s): walkedAway is DATA-CONTRACT.md:405's "staged_declined
   // plus closed_unpaid" -- work that was delivered and then declined or
   // gone quiet on. It is a DIFFERENT count from walkedAfterConfirm, which
-  // is expired_unstaged plus withdrawn-after-confirm: walking away with
-  // NOTHING delivered. This fixture makes the two counts differ (one
-  // stagedDeclined, one closedUnpaid, one expired_unstaged) so a version
-  // of the code that bound "walked away" to walkedAfterConfirm reddens
-  // here (mutation proof 1).
+  // (DEP1, B24 ruling) is now withdrawn-after-confirm ALONE:
+  // expired_unstaged moved to the operator's walkedAfterDeposit, since
+  // staging is the agent's move, not the buyer's. This fixture makes the
+  // two counts differ (one stagedDeclined, one closedUnpaid, one
+  // expired_unstaged that now counts on NEITHER buyer field) so a version
+  // of the code that bound "walked away" to walkedAfterConfirm, or that
+  // still counted expired_unstaged there, reddens here (mutation proof 1).
   it('walkedAway equals stagedDeclined plus closedUnpaid, and differs from walkedAfterConfirm', () => {
     const result = buyerConductRecord([
       job({ status: 'staged_declined' }),
@@ -223,7 +230,7 @@ describe('buyerConductRecord', () => {
     ]);
     expect(result.stagedDeclined).toBe(1);
     expect(result.closedUnpaid).toBe(1);
-    expect(result.walkedAfterConfirm).toBe(1);
+    expect(result.walkedAfterConfirm).toBe(0);
     expect(result.walkedAway).toBe(2);
     expect(result.walkedAway).not.toBe(result.walkedAfterConfirm);
   });
@@ -366,25 +373,42 @@ describe('operatorConductRecord', () => {
     expect(result.redosRefused).toBe(0);
   });
 
-  it('empty input gives all-zero counts', () => {
-    expect(operatorConductRecord([])).toEqual({ deliveredNeverPaid: 0, redosRefused: 0 });
+  // DEP1 (B24 ruling, 2026-09-23): expired_unstaged is the
+  // operator's own lapse count now -- the agent walked away from a job
+  // whose deposit had already settled (every confirmed job's deposit has,
+  // since confirm refuses without one). A plain count, the same stance
+  // deliveredNeverPaid and redosRefused already take.
+  it('an expired_unstaged job counts walkedAfterDeposit', () => {
+    const result = operatorConductRecord([operatorJob({ status: 'expired_unstaged' })]);
+    expect(result.walkedAfterDeposit).toBe(1);
   });
 
-  it('exports exactly the two documented counts, never merged with a buyer field', () => {
+  // Mutation proof: a status that is neither expired_unstaged nor one of
+  // the deliveredNeverPaid pair must not count on walkedAfterDeposit.
+  it('a staged_declined job does not count walkedAfterDeposit: only expired_unstaged does', () => {
+    const result = operatorConductRecord([operatorJob({ status: 'staged_declined' })]);
+    expect(result.walkedAfterDeposit).toBe(0);
+  });
+
+  it('empty input gives all-zero counts', () => {
+    expect(operatorConductRecord([])).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0 });
+  });
+
+  it('exports exactly the three documented counts, never merged with a buyer field', () => {
     const result = operatorConductRecord([operatorJob()]);
-    expect(Object.keys(result).sort()).toEqual(['deliveredNeverPaid', 'redosRefused'].sort());
+    expect(Object.keys(result).sort()).toEqual(['deliveredNeverPaid', 'redosRefused', 'walkedAfterDeposit'].sort());
   });
 
   it('is total: a non-array input is treated as no jobs, not thrown', () => {
     const notAnArray = { length: 3 } as unknown as readonly OperatorJobFacts[];
     expect(() => operatorConductRecord(notAnArray)).not.toThrow();
-    expect(operatorConductRecord(notAnArray)).toEqual({ deliveredNeverPaid: 0, redosRefused: 0 });
+    expect(operatorConductRecord(notAnArray)).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0 });
   });
 
   it('is total: a null or undefined row does not throw and contributes nothing', () => {
     const malformed = [null, undefined] as unknown as readonly OperatorJobFacts[];
     expect(() => operatorConductRecord(malformed)).not.toThrow();
-    expect(operatorConductRecord(malformed)).toEqual({ deliveredNeverPaid: 0, redosRefused: 0 });
+    expect(operatorConductRecord(malformed)).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0 });
   });
 
   it('is total: a row missing status contributes nothing to deliveredNeverPaid, never throws', () => {

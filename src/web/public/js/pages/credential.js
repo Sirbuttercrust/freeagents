@@ -91,7 +91,7 @@
       var link = document.createElement("a");
       link.setAttribute("href", hire.pullRequest);
       link.setAttribute("rel", "noreferrer");
-      link.style.color = "var(--accent)";
+      link.style.color = "var(--action)";
       link.textContent = repository !== "" ? repository : hire.pullRequest;
       where.textContent = "";
       where.appendChild(link);

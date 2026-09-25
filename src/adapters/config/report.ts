@@ -177,10 +177,25 @@ export function buildConfigReport(env: Record<string, string | undefined> = proc
 // only, never a value: each line is "<capability>: configured" or
 // "<capability>: not configured (missing FOO, BAR)". Callers must not
 // concatenate this with anything containing a live env var value.
-export function formatConfigReport(report: ConfigReport): string {
+//
+// ISS1 (bugs.md B30): derivedIssuerDid is the platform's own issuer DID,
+// resolved once by the caller through platformIssuerFromEnv (the exact
+// value the running process signs credentials with), never recomputed or
+// guessed here. FREEAGENTS_PLATFORM_DID is gone as a configuration knob,
+// so this is the only place an operator can read at boot which DID this
+// deployment actually is -- printed on the credentials line specifically,
+// since that is the capability it describes. Omitted (undefined) prints
+// the line exactly as before, so a caller that has not resolved the
+// issuer yet (or a test with no interest in it) sees no behaviour change.
+export function formatConfigReport(report: ConfigReport, derivedIssuerDid?: string): string {
   const lines = report.capabilities.map((cap) => {
-    if (cap.configured) return `  ${cap.capability}: configured`;
-    return `  ${cap.capability}: not configured (missing ${cap.missing.join(', ')})`;
+    const base = cap.configured
+      ? `  ${cap.capability}: configured`
+      : `  ${cap.capability}: not configured (missing ${cap.missing.join(', ')})`;
+    if (cap.capability === 'credentials' && derivedIssuerDid !== undefined) {
+      return `${base}, issuer ${derivedIssuerDid}`;
+    }
+    return base;
   });
   return ['configuration report:', ...lines].join('\n');
 }
