@@ -803,4 +803,64 @@ describe('laid out right at 1280 and 320, in every state a page opens', () => {
       await browser.close();
     }
   }, BROWSER_TIMEOUT_MS);
+
+  // V1c. The operator, 2026-09-25: "the current state of where things are
+  // on the flow chart needs to be more clear, maybe a colored highlight on
+  // the current step of the flow?" The current step's rim is the logo blue as
+  // the browser resolves it, no other step's is, and a hire with every step
+  // done has no blue step at all. The blue is read from a probe painted
+  // with var(--action), so a change to the token moves both sides.
+  const LIT: ReadonlyArray<readonly [string, string, number | 'done']> = [
+    ['hire', `/hire?agent=${encodeURIComponent(AGENT_DID)}`, 2],
+    ['staged', '/staged?job=s1-staged', 4],
+    ['job, completed', '/jobs/s1-completed', 'done'],
+  ];
+  for (const width of [390, 1280]) {
+    it.each(LIT)(`${width}px: only the current step is in the action blue, %s`, async (_label, path, step) => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for the journey layout sweep; skipping (see CHROME_BIN)');
+        return;
+      }
+      const browser = await RealBrowser.launch({ width, height: 900 });
+      try {
+        await browser.send('Page.addScriptToEvaluateOnNewDocument', {
+          source: `window.sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(buyerSession))});`,
+        });
+        await browser.goto(`${baseUrl}${path}`, 1200);
+        const got = await browser.evaluate<{ action: string; rims: string[]; icons: string[]; classes: string[]; capStep: string }>(`(function () {
+          var probe = document.createElement('i');
+          probe.style.color = 'var(--action)';
+          document.body.appendChild(probe);
+          var action = getComputedStyle(probe).color;
+          probe.remove();
+          var steps = [].slice.call(document.querySelectorAll('.sf-where .sf-step'));
+          var cap = document.querySelector('.sf-where .sf-caption-step');
+          return {
+            action: action,
+            rims: steps.map(function (s) { return getComputedStyle(s.querySelector('.sf-node')).borderTopColor; }),
+            icons: steps.map(function (s) { return getComputedStyle(s.querySelector('.sf-node')).color; }),
+            classes: steps.map(function (s) { return (s.className.match(/sf-(past|now|ahead)/) || [''])[0]; }),
+            capStep: cap ? getComputedStyle(cap).color : 'none'
+          };
+        })()`);
+        expect(got.action, 'the probe did not resolve --action').toMatch(/^rgb/);
+        expect(got.rims).toHaveLength(5);
+        got.classes.forEach((cls, i) => {
+          const blue = cls === 'sf-now';
+          expect(got.rims[i] === got.action, `step ${i + 1} (${cls}) rim ${got.rims[i]}`).toBe(blue);
+          expect(got.icons[i] === got.action, `step ${i + 1} (${cls}) icon ${got.icons[i]}`).toBe(blue);
+        });
+        if (step === 'done') {
+          expect(got.classes.includes('sf-now'), 'a finished hire still has a current step').toBe(false);
+          expect(got.rims.filter((c) => c === got.action), 'a step is blue on a finished hire').toEqual([]);
+          expect(got.capStep, 'a finished hire colours a step number').toBe('none');
+        } else {
+          expect(got.classes.indexOf('sf-now') + 1).toBe(step);
+          expect(got.capStep, 'the caption step number is not the lit plate blue').toBe(got.action);
+        }
+      } finally {
+        await browser.close();
+      }
+    }, BROWSER_TIMEOUT_MS);
+  }
 });

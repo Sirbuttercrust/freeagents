@@ -230,9 +230,18 @@
     setCurrent(ol, value);
     var caption = host.querySelector(".sf-caption");
     if (caption) {
-      caption.textContent = n > HIRE_STEPS.length
-        ? "All " + HIRE_STEPS.length + " steps done"
-        : "Step " + n + " of " + HIRE_STEPS.length + ": " + HIRE_STEPS[n - 1].label;
+      /* The words stay one sentence (textContent reads the same); the
+         step number is wrapped so it can take the lit plate's blue. */
+      caption.textContent = "";
+      if (n > HIRE_STEPS.length) {
+        caption.textContent = "All " + HIRE_STEPS.length + " steps done";
+      } else {
+        var num = document.createElement("span");
+        num.className = "sf-caption-step";
+        num.textContent = "Step " + n + " of " + HIRE_STEPS.length;
+        caption.appendChild(num);
+        caption.appendChild(document.createTextNode(": " + HIRE_STEPS[n - 1].label));
+      }
     }
     host.hidden = false;
     return ol;

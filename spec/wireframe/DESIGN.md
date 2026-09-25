@@ -225,6 +225,15 @@ job.
 - a link a person follows
 - a focus ring
 - a selected control: a pressed chip, a chosen rail, a checked radio
+- the current step in a step diagram: the lit plate of the small hire
+  journey diagram, and the step number in its phone caption. The operator,
+  2026-09-25, on the hire-journey screens: "This looks good but the current
+  state of where things are on the flow chart needs to be more clear, maybe
+  a colored highlight on the current step of the flow?" It is "you are
+  here", which is navigation, so it is the blue and never jade. Only the
+  current step takes it: steps done stay grey, and when every step is done
+  no step is blue. The large diagram on the landing page takes none,
+  because it describes a hire and does not track one.
 
 It is forbidden on any count, any evidence, any tier, and any decoration.
 
