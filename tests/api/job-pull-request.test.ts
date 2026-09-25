@@ -352,6 +352,7 @@ describe('job pull-request, the P4 anchor and the five 409 facts (STG2)', () => 
       name: 'scout',
       skills: ['triage'],
       githubLogin: AGENT_GITHUB_LOGIN,
+      negotiatesOnOwnersBehalf: true,
     });
     await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
     const operatorRepo = new MemoryAccountRepository();

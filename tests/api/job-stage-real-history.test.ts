@@ -73,6 +73,7 @@ async function startApp(): Promise<Started> {
     name: 'scout',
     skills: ['triage'],
     githubLogin: 'scout-real-history',
+    negotiatesOnOwnersBehalf: true,
   });
   await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-real-history', status: 'verified' });
   const jobRepo = new MemoryJobRepository();
