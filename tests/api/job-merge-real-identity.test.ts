@@ -39,23 +39,30 @@ const PR_NUMBER = 11;
 const MERGE_SHA = 'h1-real-identity-merge-sha';
 const MERGED_AT = new Date('2026-08-30T10:00:00Z');
 
-function fakeGithub(): GithubAdapter {
+function fakeGithub(agentLogin: string, jobId: () => string, prState: () => 'open' | 'merged'): GithubAdapter {
   const { github: staging } = createStagingLifecycleGithubFake();
   return {
     ...staging,
-    getPullRequest: (ref: PullRequestRef) =>
-      Promise.resolve({
+    getPullRequest: (ref: PullRequestRef) => {
+      const state = prState();
+      return Promise.resolve({
         ref,
-        state: 'merged',
-        mergeCommitSha: MERGE_SHA,
-        mergedAt: MERGED_AT,
-        headSha: 'h1-head-sha',
+        state,
+        mergeCommitSha: state === 'merged' ? MERGE_SHA : null,
+        mergedAt: state === 'merged' ? MERGED_AT : null,
+        headSha: 'commit-sha-1',
         additions: 20,
         deletions: 4,
         filesChanged: 2,
         repositoryPublic: true,
-      }),
-    openStagedPullRequest: () => Promise.resolve({ owner: FORK_OWNER, repo: FORK_REPO, number: PR_NUMBER }),
+        headRepoOwner: agentLogin,
+        headRepoFullName: `${agentLogin}/${FORK_REPO}`,
+        headRepoIsFork: true,
+        baseRepoFullName: `${FORK_OWNER}/${FORK_REPO}`,
+        authorLogin: agentLogin,
+        body: `Job: ${jobId()}\n`,
+      });
+    },
   };
 }
 
@@ -104,6 +111,8 @@ async function startApp(): Promise<{
   baseUrl: string;
   agentIdentity: SigningIdentity;
   buyerIdentity: SigningIdentity;
+  setJobId: (id: string) => void;
+  setMerged: () => void;
 }> {
   const agentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(101));
   const buyerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(102));
@@ -128,13 +137,16 @@ async function startApp(): Promise<{
     credentialRepo,
   );
 
+  let jobId = '';
+  let prState: 'open' | 'merged' = 'open';
+
   // identity is left undefined: createApp wires the REAL adapter (no test
   // wrapper) sharing one KnownKeyStore with the R-34 signing-key resolver.
   const app = createApp(
     operatorRepo,
     agentRepo,
     undefined,
-    fakeGithub(),
+    fakeGithub('scout-h1-real-identity', () => jobId, () => prState),
     new MemoryJobRepository(),
     credentials,
     undefined,
@@ -153,7 +165,18 @@ async function startApp(): Promise<{
   if (address === null || typeof address === 'string') {
     throw new Error('expected server to listen on a port');
   }
-  return { server, baseUrl: `http://127.0.0.1:${address.port}`, agentIdentity, buyerIdentity };
+  return {
+    server,
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    agentIdentity,
+    buyerIdentity,
+    setJobId: (id: string) => {
+      jobId = id;
+    },
+    setMerged: () => {
+      prState = 'merged';
+    },
+  };
 }
 
 describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake github only', () => {
@@ -166,7 +189,7 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
   it('completes the job and issues a credential whose signedBy names the key the agent actually holds', async () => {
     const started = await startApp();
     server = started.server;
-    const { baseUrl, agentIdentity, buyerIdentity } = started;
+    const { baseUrl, agentIdentity, buyerIdentity, setJobId, setMerged } = started;
 
     // The H1 walk: brief, criteria, both accept, confirm, fork+PR, merge.
     const draft = await postSigned(baseUrl, '/jobs', {
@@ -176,6 +199,7 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
     }, buyerIdentity);
     expect(draft.status).toBe(201);
     const jobId = String(((await draft.json()) as Record<string, unknown>).id);
+    setJobId(jobId);
 
     // This is the step that teaches the shared KnownKeyStore the agent's
     // verification method: didSignature verifies this request against
@@ -197,8 +221,9 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
     expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agentIdentity)).status).toBe(200);
-    expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, { pullRequestUrl: `https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/${PR_NUMBER}` }, agentIdentity)).status).toBe(200);
 
+    setMerged();
     const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, buyerIdentity);
     expect(merge.status).toBe(200);
     const mergeBody = (await merge.json()) as Record<string, unknown>;
@@ -246,6 +271,9 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
       credentialRepo,
     );
 
+    let jobIdRef = '';
+    let mergedRef = false;
+
     // The mutated adapter: resolveDid names the WRONG key's verification
     // method for the agent DID, the exact defect this test exists to catch.
     const brokenIdentity: IdentityAdapter = {
@@ -262,7 +290,7 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
       operatorRepo,
       agentRepo,
       brokenIdentity,
-      fakeGithub(),
+      fakeGithub('scout-h1-mutation', () => jobIdRef, () => (mergedRef ? 'merged' : 'open')),
       new MemoryJobRepository(),
       credentials,
       undefined,
@@ -291,6 +319,7 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
       }, buyerIdentity);
       expect(draft.status).toBe(201);
       const jobId = String(((await draft.json()) as Record<string, unknown>).id);
+      jobIdRef = jobId;
 
       expect(
         (
@@ -312,8 +341,9 @@ describe('POST /jobs/:jobId/merge, the real identity adapter, H1 chain, fake git
       expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
       expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
       expect((await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agentIdentity)).status).toBe(200);
-      expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity)).status).toBe(200);
+      expect((await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, { pullRequestUrl: `https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/${PR_NUMBER}` }, agentIdentity)).status).toBe(200);
 
+      mergedRef = true;
       const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, buyerIdentity);
       expect(merge.status).toBe(200);
       const mergeBody = (await merge.json()) as Record<string, unknown>;

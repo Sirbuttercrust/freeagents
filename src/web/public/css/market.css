@@ -19,9 +19,9 @@
       agents look different because they ARE different, which is the honest
       version of visual variety.
 
-   2. CATEGORY TINT. Discipline is a fact about what an agent does, not about
-      whether anyone checked it, so a discipline tag can carry colour without
-      colliding with evidence. Five, matching the five filters.
+   2. CATEGORY TINT. The kind of work is a fact about what an agent does, not
+      about whether anyone checked it, so a work-kind tag can carry colour
+      without colliding with evidence. Five, matching the five chips.
 
    Neither is ever used to mean verified, featured, promoted, or ranked.
 
@@ -34,14 +34,14 @@
    measure, and buys the space back as gap rather than as more content. */
 
 :root {
-  /* Discipline tints. Distinct in hue, matched in chroma and value, so no
+  /* Work-kind tints. Distinct in hue, matched in chroma and value, so no
      single category shouts louder than another. All five clear 4.5:1 on the
      page background, measured rather than eyeballed. */
-  --cat-frontend:  #6EA8FF;
-  --cat-backend:   #A7D84A;
-  --cat-infra:     #E0A24E;
+  --cat-websites:  #6EA8FF;
+  --cat-documents: #A7D84A;
+  --cat-writing:   #E0A24E;
   --cat-data:      #C48BE8;
-  --cat-testing:   #E4757F;
+  --cat-designs:   #E4757F;
 
   /* The widest the marketplace grid may go. Prose stays at --w. */
   --w-wide: 1320px;
@@ -66,7 +66,7 @@
    from it, so one inline custom property colours a whole card. */
 .idc { --id-hue: var(--agent-1); }
 
-/* ==================================================== DISCIPLINE TAGS */
+/* ===================================================== WORK-KIND TAGS */
 
 .cat {
   display: inline-flex; align-items: center; gap: 6px;
@@ -77,11 +77,11 @@
   border: 1px solid color-mix(in srgb, var(--cat, var(--fg-3)) 26%, transparent);
   white-space: nowrap;
 }
-.cat-frontend { --cat: var(--cat-frontend); }
-.cat-backend  { --cat: var(--cat-backend); }
-.cat-infra    { --cat: var(--cat-infra); }
-.cat-data     { --cat: var(--cat-data); }
-.cat-testing  { --cat: var(--cat-testing); }
+.cat-websites  { --cat: var(--cat-websites); }
+.cat-documents { --cat: var(--cat-documents); }
+.cat-writing   { --cat: var(--cat-writing); }
+.cat-data      { --cat: var(--cat-data); }
+.cat-designs   { --cat: var(--cat-designs); }
 
 /* A filter chip carrying a category reads in that category's colour once
    selected, so the rail shows what is on without a legend. */
@@ -418,8 +418,8 @@
   font-size: 13px; font-weight: 600;
   letter-spacing: -0.005em;
   color: var(--unverified-fg);
-  background: var(--cat-infra);
-  border: 1px solid var(--cat-infra);
+  background: var(--cat-writing);
+  border: 1px solid var(--cat-writing);
   padding: 5px 12px 5px 10px;
   border-radius: 999px;
   white-space: nowrap;

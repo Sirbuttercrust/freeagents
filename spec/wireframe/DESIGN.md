@@ -106,6 +106,7 @@ some of this audience will absolutely want it.
 | account proof, bidirectional | "GitHub account confirmed" | proof detail, both directions shown |
 | `specHash` | "what you both agreed to" | job detail, technical section |
 | merge commit | "the change that shipped" | linked to GitHub |
+| staged commit (`stagedCommit`), the delivered code | "the work", "the files"; the buyer's repository is "your repository", or "your files" on the landing page, which keeps "repository" off | job detail, technical section |
 | `ENT-*`, `R-*` ids | **never shown to a user at all** | builder notes only, wireframe only |
 | Ed25519, JSON-LD, proof suite | **never on a primary path** | verify view, under "how this is checked" |
 
@@ -437,21 +438,26 @@ an agent is listed as a tile, it is a player card, and nothing else is.
 - It lifts a few pixels on hover, under `prefers-reduced-motion: no-preference`
   only.
 
-### 2.7 Discipline tints
+### 2.7 Work-kind tints
 
-Five hues in `market.css`, one per filter, for the discipline tag on an agent
-card. What an agent does is a fact about the work, not about whether anyone
-checked it, so a discipline can carry colour as long as it stays clear of the
-two reserved ones. Backend was a green one step from jade, so it moved to lime
-when jade became the checked mark.
+Five hues in `market.css`, one per browse chip, for the work-kind tag on an
+agent card. The chips are kinds of work delivered as files, taken from
+MISSION.md's own list. What an agent does is a fact about the work, not about
+whether anyone checked it, so a kind can carry colour as long as it stays clear
+of the two reserved ones. The lime was a green one step from jade once, so it
+moved when jade became the checked mark.
 
-| token | value | discipline | on `--bg` |
+The five hues kept their measured values when the chips changed from developer
+disciplines to kinds of work; only the names moved. Code has no chip and no
+tint, so it is found by search like any other skill outside this table.
+
+| token | value | kind of work | on `--bg` |
 |---|---|---|---|
-| `--cat-frontend` | `#6EA8FF` | frontend | 8.17 |
-| `--cat-backend` | `#A7D84A` | backend | 11.78 |
-| `--cat-infra` | `#E0A24E` | infrastructure | 8.86 |
+| `--cat-websites` | `#6EA8FF` | websites | 8.17 |
+| `--cat-documents` | `#A7D84A` | documents | 11.78 |
+| `--cat-writing` | `#E0A24E` | writing | 8.86 |
 | `--cat-data` | `#C48BE8` | data | 7.69 |
-| `--cat-testing` | `#E4757F` | testing | 6.70 |
+| `--cat-designs` | `#E4757F` | designs | 6.70 |
 
 Distinct in hue, matched in chroma and value, so no category shouts louder
 than another. The ratios are recomputed on every run like the ones in 2.5.
@@ -470,13 +476,13 @@ could see them at all.
 | `--unverified-fg` | `#1A1206` | dark ink on the solid amber "not verified" badge. A near black warmed toward the amber under it, so the chip reads as one object rather than a hole |
 | `--bad` | `#E4757F` | a field that fails validation, and a character count that is over |
 
-`--unverified-fg` on `--cat-infra` measures **8.34:1**, and `--bad` on `--bg`
+`--unverified-fg` on `--cat-writing` measures **8.34:1**, and `--bad` on `--bg`
 measures **6.70:1**. Both are recomputed on every run like the tints above,
 which is the only reason they are written here at all.
 
-`--bad` holds the same value as `--cat-testing` and must not read it. A tint is
+`--bad` holds the same value as `--cat-designs` and must not read it. A tint is
 a label saying what an agent does; `--bad` is a state saying something is
-wrong. Repainting the testing discipline must not repaint every form error,
+wrong. Repainting the designs tint must not repaint every form error,
 which is what one shared literal would have done.
 
 **The unsigned amber** lives with the agreement matrix rather than with the
@@ -487,7 +493,7 @@ tints, because it is a state and they are labels.
 | `--sig-open` | `#E0A24E` | a line signed by one party and waiting on the other | 8.86 |
 | `--sig-open-wash` | `rgba(224, 162, 78, 0.12)` | the row fill behind that state | n/a |
 
-It holds the same value as `--cat-infra` by coincidence, not by relation.
+It holds the same value as `--cat-writing` by coincidence, not by relation.
 Neither reads the other, and moving one must not move the other.
 
 ### 2.8 Illustration

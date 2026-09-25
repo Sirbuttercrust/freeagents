@@ -111,6 +111,7 @@ import {
   JobTransitionError,
   LAPSE_AT_STAGED_STATUSES,
   proposeCriteria,
+  pullRequestTemplate,
   recordCitedClose,
   recordClosedUnmerged,
   recordStale,
@@ -186,6 +187,21 @@ import { createWebSurface, prefersHtml, type WebSurface } from '../web/static.js
 // below; every route before it in the loop already did.
 function notImplemented(_req: Request, res: Response): void {
   res.status(501).json({ error: 'not implemented' });
+}
+
+// QA round 1, defect 1 (HIGH): GitHub reports a repository owner, a repo
+// name, a user login and a commit sha in ITS OWN canonical case, regardless
+// of the spelling a caller typed when the fact was first stored (POST
+// /jobs's repository, account-proof's githubLogin, stage's stagedCommit).
+// GitHub itself treats all four identifiers case-insensitively -- the same
+// stance account-proof's own gist-owner check already takes (app.ts:2238,
+// 2292). Comparing any of them with a bare !== refuses an honest, fully
+// paid pull request forever whenever the stored spelling and GitHub's
+// reported spelling merely differ in case. Every chain-identifier compare
+// in the pull-request and merge routes goes through this one function.
+function chainIdentifiersMatch(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.toLowerCase() === b.toLowerCase();
 }
 
 // The Account record projection is the whole response. Exactly these six
@@ -420,6 +436,12 @@ function jobProjection(row: Job): Record<string, unknown> {
     row.stagedCommit !== null && row.stagedAt !== null
       ? { stagedCommit: row.stagedCommit, stagedAt: row.stagedAt.toISOString() }
       : {};
+  // STG2: the pull-request template rides alongside the staging facts --
+  // once a commit is staged, the agent needs the title and body to open
+  // the real PR from its own fork, and there is nothing to template
+  // before a commit exists to attest.
+  const prTemplate =
+    row.stagedCommit !== null && row.stagedAt !== null ? { pullRequestTemplate: pullRequestTemplate(row) } : {};
   // P6: the redo record joins the projection only once a redo has ever
   // been requested (redoRequestedAt !== null survives both an operator
   // refusal and an eventual acceptance, so this rides beside staging
@@ -486,6 +508,7 @@ function jobProjection(row: Job): Record<string, unknown> {
     ...confirmation,
     ...stagingRepoFacts,
     ...staging,
+    ...prTemplate,
     ...redo,
     ...submission,
     ...completion,
@@ -4497,13 +4520,14 @@ export function createApp(
     }),
   );
 
-  // R-10 (ENT-4.3, ENT-4.5), B14a: opens the pull request from the
-  // staging repository at the attested SHA (job.stagedCommit), never
-  // from a fork or an assumed branch tip. The route owns only what the
-  // domain cannot know: splitting the stored owner/name pair, formatting
-  // the public artifacts (branch, title, body), and sequencing - the
-  // adapter fires BEFORE anything persists, because a pull request is an
-  // external side effect no storage rollback can undo.
+  // R-10 (ENT-4.3, ENT-4.5), STG2: the agent, holding its own GitHub
+  // credentials, pushes stagedCommit to a branch on ITS OWN fork of the
+  // buyer repository and opens the pull request itself -- outside this
+  // service. This route only ever READS that PR back (github.getPullRequest)
+  // and records `submitted` when every one of five checked facts holds;
+  // otherwise it answers 409 naming the one fact that failed. The platform
+  // never opens anything and never writes a byte against the buyer's
+  // repository or the agent's fork (invariant 1, refined 2026-09-25).
   app.post(
     '/jobs/:jobId/pull-request',
     didSignature,
@@ -4511,22 +4535,36 @@ export function createApp(
     forwarded(async (req: Request, res: Response) => {
       const jobId = String(req.params.jobId);
 
-      // Only the agent submits its own work (B7): the branch creation and
-      // pull request are public side effects under the platform account,
-      // so the party check sits before the state machine and before
-      // GitHub.
+      // Only the agent submits its own work (B7): reading a stranger's PR
+      // and recording it as this job's submission is exactly the kind of
+      // write the party check exists to gate.
       const gate = await requireSignedParty('POST /jobs/:jobId/pull-request', jobId, req, res, ['agent']);
       if (gate === null) return;
       const current: Job = gate.job;
 
-      // P4 anchor: the pull request cannot open until the balance is
-      // settled. This check sits in FRONT of both the state machine check
-      // and the branch/PR calls below, because opening a branch on a
-      // repository under the platform account and opening the PR are
-      // public acts -- unlike confirm, where the money question is the
-      // LAST agreement gate, here it is the FIRST side-effect gate:
-      // nothing publicly visible may happen before the money is verified,
-      // whatever the job's status turns out to be.
+      const body = (req.body ?? {}) as { pullRequestUrl?: unknown };
+      if (typeof body.pullRequestUrl !== 'string' || body.pullRequestUrl.trim() === '') {
+        res.status(400).json({ error: 'body must be { pullRequestUrl: string }: the URL of the PR the agent opened from its own fork' });
+        return;
+      }
+      const pullRequestUrl = body.pullRequestUrl;
+      const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/.exec(pullRequestUrl);
+      if (match === null) {
+        res.status(400).json({ error: 'pullRequestUrl must look like https://github.com/<owner>/<repo>/pull/<n>' });
+        return;
+      }
+      const [, prOwner, prRepo, prNumberText] = match;
+      if (prOwner === undefined || prRepo === undefined || prNumberText === undefined) {
+        res.status(400).json({ error: 'pullRequestUrl must look like https://github.com/<owner>/<repo>/pull/<n>' });
+        return;
+      }
+      const ref: PullRequestRef = { owner: prOwner, repo: prRepo, number: Number(prNumberText) };
+
+      // P4 anchor: recording a submission cannot happen until the balance
+      // is settled. This check sits in FRONT of both the state machine
+      // check and the github read below -- unchanged in position and
+      // intent from before this card, even though the route no longer
+      // performs any write of its own.
       let remainderIsSettled: boolean;
       try {
         remainderIsSettled = await remainderSettled(settlementGate, jobId);
@@ -4543,13 +4581,9 @@ export function createApp(
         return;
       }
 
-      // Opening a PR is a public external side effect, so the state machine
-      // is consulted before it can fire at all: a draft or proposed job gets
-      // its 409 without one adapter call. validateJobTransition is pure and
-      // submitPullRequest re-checks, so this duplicates no rule - it only
-      // keeps the side effect on the right side of the gate. Only
-      // JobTransitionError can escape the validator; anything else is a fault
-      // nobody mapped, so it rethrows to the terminal handler as a 500.
+      // Recording `submitted` is a state transition like any other: the
+      // state machine is consulted before github is ever asked, so a
+      // draft or proposed job gets its 409 without one adapter call.
       try {
         validateJobTransition(current.status, 'submitted');
       } catch (err) {
@@ -4560,62 +4594,74 @@ export function createApp(
         return;
       }
 
-      // B14a: the PR opens from the staging repository at the attested
-      // commit. A staged job always carries both (stageWork's own
-      // one-writer pairing, confirmed before this by the state machine
-      // check above); a job missing either here is a fault this route
-      // cannot recover from.
-      if (current.stagingRepo === null || current.stagedCommit === null) {
-        console.error(`POST /jobs/:jobId/pull-request: job ${jobId} has no staging repository or staged commit`);
-        res.status(503).json({ error: 'github unavailable' });
+      // The five facts this route checks all name the agent's own
+      // verified GitHub login (agent.githubLogin, proofStatus ===
+      // 'verified') -- the same bar confirm already required before it
+      // would grant push on the staging repository, re-read here because
+      // it could in principle have changed since.
+      let agent: Agent | null;
+      try {
+        agent = await agentRepo.findByDid(current.agentDid);
+      } catch (err) {
+        console.error('POST /jobs/:jobId/pull-request: storage failed reading agent', err);
+        res.status(503).json({ error: 'storage unavailable' });
         return;
       }
-      const stagingRepo = current.stagingRepo;
-      const stagedCommit = current.stagedCommit;
-
-      // repository was regex-checked to exactly one slash at POST /jobs time,
-      // so slicing around the single separator always yields both parts -
-      // no array destructuring, whose undefined members strict mode would
-      // otherwise demand a guard for.
-      const slashAt = current.repository.indexOf('/');
-      const sourceOwner = current.repository.slice(0, slashAt);
-      const sourceRepo = current.repository.slice(slashAt + 1);
-      // The title carries the job id where triage sees it first (ENT-4.5),
-      // and the body carries the same hashes the API projects, so anyone
-      // holding the public PR alone can tie it to job and agreed spec
-      // without calling this service (invariant 2) - plus the factual line
-      // about write access, because invariant 1 is part of the claim.
-      const title = `FreeAgents job ${jobId}`;
-      const body = [
-        `Job: ${jobId}`,
-        `Repository: ${current.repository}`,
-        `Brief hash: ${current.briefHash}`,
-        `Spec hash: ${String(current.confirmedSpecHash)}`,
-        '',
-        'This pull request was opened by FreeAgents from a staging repository it controls, at the attested commit; the platform holds no write access to the source repository.',
-      ].join('\n');
-
-      // Any failure here is platform-side unavailability, not caller error:
-      // 503 with the cause logged, nothing recorded - mirroring the
-      // account-proof github leg, so both github-facing routes answer alike.
-      let ref: PullRequestRef;
-      try {
-        ref = await github.openStagedPullRequest({
-          stagingOwner: stagingRepo.owner,
-          stagingRepo: stagingRepo.repo,
-          stagedCommit,
-          sourceOwner,
-          sourceRepo,
-          branch: `freeagents/${jobId}`,
-          title,
-          body,
+      if (agent === null || agent.githubLogin === null || agent.proofStatus !== 'verified') {
+        res.status(409).json({
+          error: 'pull-request needs the agent to have a verified GitHub login; none is on record for this agent',
         });
+        return;
+      }
+      const verifiedGithubLogin = agent.githubLogin;
+
+      let summary: PullRequestSummary;
+      try {
+        summary = await github.getPullRequest(ref);
       } catch (err) {
         console.error('POST /jobs/:jobId/pull-request: github unavailable', err);
         res.status(503).json({ error: 'github unavailable' });
         return;
       }
-      const pullRequestUrl = `https://github.com/${ref.owner}/${ref.repo}/pull/${ref.number}`;
+
+      // The five facts, checked in order, each naming itself in its own
+      // 409 so the agent knows exactly what to fix (card brief: "else
+      // answers 409 naming the one fact that failed"). No fact here is
+      // ever asserted by either party -- every one comes straight off
+      // what GitHub itself reports on the PR object.
+      if (!chainIdentifiersMatch(summary.baseRepoFullName, current.repository)) {
+        res.status(409).json({
+          error: `the pull request's base repository (${summary.baseRepoFullName}) does not match this job's repository (${current.repository})`,
+        });
+        return;
+      }
+      if (!chainIdentifiersMatch(summary.headRepoOwner, verifiedGithubLogin) || !summary.headRepoIsFork) {
+        res.status(409).json({
+          error: `the pull request's head repository must be a fork owned by the agent's verified GitHub login (${verifiedGithubLogin})`,
+        });
+        return;
+      }
+      if (!chainIdentifiersMatch(summary.authorLogin, verifiedGithubLogin)) {
+        res.status(409).json({
+          error: `the pull request's author (${String(summary.authorLogin)}) must be the agent's verified GitHub login (${verifiedGithubLogin})`,
+        });
+        return;
+      }
+      if (!chainIdentifiersMatch(summary.headSha, current.stagedCommit)) {
+        res.status(409).json({
+          error: `the pull request's head sha (${summary.headSha}) does not match the attested commit (${String(current.stagedCommit)})`,
+        });
+        return;
+      }
+      if (summary.state !== 'open') {
+        res.status(409).json({ error: `the pull request must be open; github reports it as ${summary.state}` });
+        return;
+      }
+      // Invariant 2: anyone holding the PR alone can tie it to the job.
+      if (!summary.body.includes(`Job: ${jobId}`)) {
+        res.status(409).json({ error: `the pull request body must contain the line "Job: ${jobId}"` });
+        return;
+      }
 
       // The domain applies its rule and the shared skeleton persists it:
       // JobError->400, transition->409, vanished row->404, dead storage->503,
@@ -5221,6 +5267,24 @@ export function createApp(
       } catch (err) {
         console.error('POST /jobs/:jobId/merge: github unavailable', err);
         res.status(503).json({ error: 'github unavailable' });
+        return;
+      }
+
+      // STG2: the attested-commit check, before ANY outcome is recorded --
+      // open, closed or merged alike. The agent forked the buyer's
+      // repository itself and holds push on that fork, so nothing stops
+      // it from resetting the branch after the platform attested a
+      // commit; this is the check that catches that. An open PR can be
+      // fixed by the agent resetting the branch back to the attested
+      // commit; a closed or merged PR whose head moved records nothing
+      // either, since a mismatch here means this was never the work the
+      // platform attested to.
+      if (!chainIdentifiersMatch(summary.headSha, current.stagedCommit)) {
+        res.status(409).json({
+          error: 'the pull request head moved off the attested commit',
+          attested: current.stagedCommit,
+          head: summary.headSha,
+        });
         return;
       }
 

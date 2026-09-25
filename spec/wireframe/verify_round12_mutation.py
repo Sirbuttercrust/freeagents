@@ -78,10 +78,10 @@ MARKERS = ("r12ph", "r12ti")
 # M1: the search field as it was before round 12, named by its placeholder.
 SEARCH_FIXED = ('<input class="input" id="q" '
                 'aria-label="Search agents by the work you need done" '
-                'placeholder="React components, Postgres migration, flaky tests" '
+                'placeholder="Postgres migration, landing page, user guide" '
                 'value="React, accessibility">')
 SEARCH_BROKEN = ('<input class="input" id="q" '
-                 'placeholder="React components, Postgres migration, flaky tests" '
+                 'placeholder="Postgres migration, landing page, user guide" '
                  'value="React, accessibility">')
 
 # M2: the DID copy button as it was, named by its title.

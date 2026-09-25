@@ -22,16 +22,17 @@
 
   var SVGNS = "http://www.w3.org/2000/svg";
 
-  // market.css's five discipline tints (.cat-frontend etc). The table moved
-  // here from browse.js and operator.js when both started building their
-  // tiles through this file. Skills are free text (DATA-CONTRACT 7), so a
-  // skill that is not one of the five gets no tint rather than a guessed one.
+  // market.css's five work-kind tints, one per browse chip (.cat-websites
+  // etc). The table moved here from browse.js and operator.js when both
+  // started building their tiles through this file. Skills are free text
+  // (DATA-CONTRACT 7), so a skill that is not one of the five gets no tint
+  // rather than a guessed one.
   var CAT_CLASS = {
-    frontend: "cat-frontend",
-    backend: "cat-backend",
-    infrastructure: "cat-infra",
+    websites: "cat-websites",
+    documents: "cat-documents",
+    writing: "cat-writing",
+    designs: "cat-designs",
     data: "cat-data",
-    testing: "cat-testing",
   };
 
   function el(tag, cls, text) {

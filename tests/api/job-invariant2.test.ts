@@ -262,8 +262,17 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
   const FORK_REPO = 'target-repo';
 
   // The PR state is scripted per leg: the outcome comes from github's own
-  // report, exactly as the merge route requires (ENT-7.1).
+  // report, exactly as the merge route requires (ENT-7.1). headSha is
+  // fixed at 'commit-sha-1' throughout this suite, matching every job's
+  // own stagedCommit, so the merge route's head-moved check (STG2) never
+  // fires as a false positive in a test whose purpose is the outcome
+  // observation, not the attested-commit check.
   let prState: PullRequestSummary['state'];
+  // Body carries the Job: <id> trailer the pull-request route's fifth
+  // fact requires; walkToSubmitted sets this to the job under test right
+  // before opening the PR.
+  let scriptedPrBody = 'Job: placeholder\n';
+  const AGENT_GITHUB_LOGIN = 'scout-outcome-inv2';
   const { github: stagingGithub } = createStagingLifecycleGithubFake();
   const github: GithubAdapter = {
     ...stagingGithub,
@@ -273,11 +282,17 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
         state: prState,
         mergeCommitSha: null,
         mergedAt: null,
-        headSha: 'head-sha-1',
+        headSha: 'commit-sha-1',
         additions: 0,
         deletions: 0,
         filesChanged: 0,
         repositoryPublic: true,
+        headRepoOwner: AGENT_GITHUB_LOGIN,
+        headRepoFullName: `${AGENT_GITHUB_LOGIN}/target-repo`,
+        headRepoIsFork: true,
+        baseRepoFullName: 'buyer/target-repo',
+        authorLogin: AGENT_GITHUB_LOGIN,
+        body: scriptedPrBody,
       }),
   };
 
@@ -355,7 +370,9 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, operatorIdentity)).status).toBe(200);
     expect((await postSigned(baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-1' }, agentIdentity)).status).toBe(200);
 
-    const pr = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, {}, agentIdentity);
+    prState = 'open';
+    scriptedPrBody = `Job: ${jobId}\n`;
+    const pr = await postSigned(baseUrl, `/jobs/${jobId}/pull-request`, { pullRequestUrl: `https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/1` }, agentIdentity);
     expect(pr.status).toBe(200);
     const prBody = (await pr.json()) as Record<string, unknown>;
     expect(prBody.status).toBe('submitted');
@@ -429,6 +446,8 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
       pullRequestUrl: `https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/1`,
       submittedAt,
       deadline: new Date(Date.now() - 86_400_000),
+      stagedCommit: 'commit-sha-1',
+      stagedAt: new Date(submittedAt.getTime() - 3600_000),
     };
     class PlantedJobRepository implements JobRepository {
       async create(): Promise<never> {

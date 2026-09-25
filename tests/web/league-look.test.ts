@@ -96,7 +96,7 @@ beforeAll(async () => {
   const credentialRepo = new MemoryCredentialRepository();
   await agentRepo.create({
     did: HIRED_DID, operatorDid: OPERATOR_DID, delegation: delegation(HIRED_DID),
-    name: 'League Hired Agent', skills: ['frontend'], githubLogin: null,
+    name: 'League Hired Agent', skills: ['websites'], githubLogin: null,
   });
   await agentRepo.create({
     did: COLD_DID, operatorDid: OPERATOR_DID, delegation: delegation(COLD_DID),
@@ -285,8 +285,8 @@ describe('the player card on browse', () => {
       expect(cold.head).toBe('0 checked jobs');
       expect(cold.badges, 'a card with nothing checked carries no badge of any kind (ENT-2.4)').toBe(0);
 
-      // A skill that names a discipline keeps its tint; free text does not.
-      expect(hired.skillClass).toContain('cat-frontend');
+      // A skill that names a work kind keeps its tint; free text does not.
+      expect(hired.skillClass).toContain('cat-websites');
       expect(cold.skillClass).toBe('pc-skill');
     } finally {
       await b.close();

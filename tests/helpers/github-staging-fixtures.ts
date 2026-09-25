@@ -1,18 +1,26 @@
-// B14a: a shared, working fake GithubAdapter for API-level tests that walk
-// a job through confirm -> stage -> pull-request without themselves being
-// about the staging repository mechanics (those are covered exactly and
-// strictly by tests/adapters/github/github-staging.test.ts's unit suite,
-// and by tests/api/job-confirm-staging.test.ts / job-stage-repo.test.ts /
-// job-pull-request.test.ts at the route level). This fixture is
-// deliberately generous by default, the same stance anyCommitStagingObserver
-// already takes in tests/helpers/staging-fixtures.ts: any commit sha an
-// agent posts to a staging repo THIS fixture created is accepted as a fresh
-// child of the base commit, so tests that only care about "the job
-// reached submitted" do not have to fabricate a real git history.
-// job-stage-repo.test.ts opts into strict mode (see
-// CreateStagingLifecycleGithubFakeOptions below) precisely because it
-// needs the opposite: a fixture that refuses a sha nobody registered, so
-// the route's own existence check and ancestry walk are actually exercised.
+// B14a, STG2: a shared, working fake GithubAdapter for API-level tests
+// that walk a job through confirm -> stage -> pull-request without
+// themselves being about the staging repository mechanics (those are
+// covered exactly and strictly by
+// tests/adapters/github/github-staging.test.ts's unit suite, and by
+// tests/api/job-confirm-staging.test.ts / job-stage-repo.test.ts /
+// job-pull-request.test.ts at the route level).
+//
+// STG2 refined shape: the platform never opens a pull request itself.
+// createStagingRepository returns an EMPTY repository (this fixture
+// plants baseCommit as the sole known commit, mirroring the real
+// adapter's contract that baseCommit exists once the agent seeds it --
+// this fake never actually performs a clone/push, so it starts the
+// staging repo's commit set with exactly that one entry). Every other
+// commit an agent posts to a staging repo THIS fixture created is
+// accepted as a fresh child of the base commit in GENEROUS mode (the
+// same deliberately permissive stance as before), or refused if nobody
+// registered it, in STRICT mode.
+//
+// getPullRequest is scriptable per test via setPullRequest -- the
+// pull-request and merge routes now read a PR the agent opened OUTSIDE
+// this adapter, so a route-level test scripts what github reports for a
+// given ref rather than asserting what this fixture wrote.
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import {
   type CommitInfo,
@@ -22,8 +30,8 @@ import {
   type GetCommitInput,
   type GithubAdapter,
   type GrantPushInput,
-  type OpenStagedPullRequestInput,
   type PullRequestRef,
+  type PullRequestSummary,
   type StagingRepoRef,
 } from '../../src/adapters/github/types.js';
 
@@ -39,7 +47,7 @@ export interface StagingLifecycleCalls {
   readonly grantPush: GrantPushInput[];
   readonly getCommit: GetCommitInput[];
   readonly getDefaultBranchHead: StagingRepoRef[];
-  readonly openStagedPullRequest: OpenStagedPullRequestInput[];
+  readonly getPullRequest: PullRequestRef[];
 }
 
 export interface StagingLifecycleFixture {
@@ -57,14 +65,19 @@ export interface StagingLifecycleFixture {
   // getCommit never needs a planted commit because it mints one on
   // first sight.
   registerCommit(owner: string, repo: string, sha: string, parents: readonly string[]): void;
+  // STG2: scripts what github.getPullRequest answers for a given ref, by
+  // owner/repo/number. A test that never calls this gets NotImplementedError,
+  // the same honest-about-the-gap stub every other uncalled capability here
+  // uses.
+  setPullRequest(ref: PullRequestRef, summary: Omit<PullRequestSummary, 'ref'>): void;
 }
 
 export interface CreateStagingLifecycleGithubFakeOptions {
   // Generous (default, false): a sha getCommit has never seen before is
   // minted as a fresh child of the repo's base commit, the same
-  // deliberately permissive stance anyCommitStagingObserver takes -- for
-  // tests that only care about a job reaching `submitted`, not about
-  // pinning the stage route's own verification.
+  // deliberately permissive stance anyCommitStagingObserver already
+  // takes -- for tests that only care about a job reaching `submitted`,
+  // not about pinning the stage route's own verification.
   //
   // Strict (true): getCommit throws on a sha nobody registered, the same
   // shape the real adapter's 404 takes. Route-level tests that pin B14a's
@@ -79,6 +92,10 @@ function defaultHeadFor(owner: string, repo: string): DefaultBranchHead {
   return { defaultBranch: 'main', sha: `${owner}-${repo}-head-sha` };
 }
 
+function prKey(ref: PullRequestRef): string {
+  return `${ref.owner}/${ref.repo}#${String(ref.number)}`;
+}
+
 // Every capability this GithubAdapter does not implement for real throws
 // NotImplementedError, the same shape the real adapter's own unbuilt
 // method (getMergeCommitSignature) throws -- callers layer getPullRequest
@@ -89,24 +106,38 @@ export function createStagingLifecycleGithubFake(
   const strict = options.strict ?? false;
   const sourceHeads = new Map<string, DefaultBranchHead>();
   const repos = new Map<string, RepoState>();
+  const pullRequests = new Map<string, PullRequestSummary>();
   const calls: StagingLifecycleCalls = {
     createStagingRepository: [],
     grantPush: [],
     getCommit: [],
     getDefaultBranchHead: [],
-    openStagedPullRequest: [],
+    getPullRequest: [],
   };
-  let nextPrNumber = 1;
 
   function repoKey(owner: string, repo: string): string {
     return `${owner}/${repo}`;
   }
 
   const github: GithubAdapter = {
-    getPullRequest: () => Promise.reject(new NotImplementedError('github', 'getPullRequest')),
+    getPullRequest: (ref: PullRequestRef) => {
+      calls.getPullRequest.push(ref);
+      const found = pullRequests.get(prKey(ref));
+      if (found === undefined) {
+        return Promise.reject(new NotImplementedError('github', 'getPullRequest'));
+      }
+      return Promise.resolve({ ...found, ref });
+    },
     getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
     getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),
 
+    // STG2: an EMPTY repository -- no seeded commits at all. baseCommit
+    // is recorded as the fixture's own notion of "what the agent will
+    // have seeded staging with", so getCommit's generous/strict modes
+    // below have a base to walk ancestry from, mirroring the real
+    // contract (the agent clones and pushes outside this adapter, so
+    // baseCommit ends up existing in staging with its true SHA) without
+    // this fake actually performing a clone/push.
     async createStagingRepository(input: CreateStagingRepositoryInput): Promise<CreateStagingRepositoryResult> {
       calls.createStagingRepository.push(input);
       const owner = PLATFORM_LOGIN;
@@ -154,16 +185,6 @@ export function createStagingLifecycleGithubFake(
       return sourceHeads.get(repoKey(ref.owner, ref.repo)) ?? defaultHeadFor(ref.owner, ref.repo);
     },
 
-    async openStagedPullRequest(input: OpenStagedPullRequestInput): Promise<PullRequestRef> {
-      calls.openStagedPullRequest.push(input);
-      if (input.stagingOwner !== PLATFORM_LOGIN) {
-        throw new Error(`fake github: refusing openStagedPullRequest against non-platform staging owner ${input.stagingOwner}`);
-      }
-      const number = nextPrNumber;
-      nextPrNumber += 1;
-      return { owner: input.sourceOwner, repo: input.sourceRepo, number };
-    },
-
     // B14b: this fixture's own tests all inject a MemoryStagingObserver
     // directly (tests/helpers/staging-fixtures.ts) rather than exercising
     // the real GitHub-backed observer, so compareCommits is never called
@@ -185,5 +206,56 @@ export function createStagingLifecycleGithubFake(
       }
       state.commits.set(sha, { parents });
     },
+    setPullRequest(ref: PullRequestRef, summary: Omit<PullRequestSummary, 'ref'>): void {
+      pullRequests.set(prKey(ref), { ...summary, ref });
+    },
   };
+}
+
+// STG2: the common case across route-level tests that walk a job all the
+// way to `submitted` -- construct the PR URL the agent's own fork would
+// carry, script github.getPullRequest to answer with every one of the
+// five facts the route checks satisfied, and hand back the URL to POST.
+// Individual facts are overridable so a test can deliberately break one.
+export interface AgentForkPullRequestInput {
+  readonly repository: string;
+  readonly jobId: string;
+  readonly stagedCommit: string;
+  readonly agentLogin: string;
+  readonly number?: number;
+  readonly state?: PullRequestSummary['state'];
+  readonly headSha?: string;
+  readonly headRepoOwner?: string | null;
+  readonly headRepoIsFork?: boolean;
+  readonly authorLogin?: string | null;
+  readonly bodyOverride?: string;
+}
+
+export function registerAgentForkPullRequest(
+  fixture: StagingLifecycleFixture,
+  input: AgentForkPullRequestInput,
+): { readonly url: string; readonly ref: PullRequestRef } {
+  const slashAt = input.repository.indexOf('/');
+  const sourceOwner = input.repository.slice(0, slashAt);
+  const sourceRepo = input.repository.slice(slashAt + 1);
+  const number = input.number ?? 1;
+  const ref: PullRequestRef = { owner: sourceOwner, repo: sourceRepo, number };
+  const url = `https://github.com/${sourceOwner}/${sourceRepo}/pull/${String(number)}`;
+  fixture.setPullRequest(ref, {
+    state: input.state ?? 'open',
+    mergeCommitSha: null,
+    mergedAt: null,
+    headSha: input.headSha ?? input.stagedCommit,
+    additions: 1,
+    deletions: 0,
+    filesChanged: 1,
+    repositoryPublic: true,
+    headRepoOwner: input.headRepoOwner === undefined ? input.agentLogin : input.headRepoOwner,
+    headRepoFullName: `${input.agentLogin}/${sourceRepo}`,
+    headRepoIsFork: input.headRepoIsFork ?? true,
+    baseRepoFullName: input.repository,
+    authorLogin: input.authorLogin === undefined ? input.agentLogin : input.authorLogin,
+    body: input.bodyOverride ?? `Job: ${input.jobId}\n`,
+  });
+  return { url, ref };
 }

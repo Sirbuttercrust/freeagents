@@ -190,7 +190,7 @@
       var depositPercent = typeof price.depositPercent === "number" ? price.depositPercent : 25;
       depositLine = ", and the " + money(roundHalfUpCents((parseFloat(price.priceUsd) * depositPercent) / 100)) + " deposit stays with the operator";
     }
-    A.setTextById("clock-then", "If you have not decided by then, the job closes and the code never reaches your repository" + depositLine + ". Nothing further is charged.");
+    A.setTextById("clock-then", "If you have not decided by then, the job closes and the work never reaches your repository" + depositLine + ". Nothing further is charged.");
   }
 
   function factRow(label, valueText, listItems) {
@@ -288,7 +288,7 @@
         ? "Already used on this hire. Pay or decline."
         : "Pick the line it missed. The deadline moves " + A.plural(REDO_LAPSE_EXTENSION_DAYS, "day", "days") + ". The operator can say no, and then you are back here."));
     host.appendChild(choiceRow("Decline", "free and final",
-      "You owe nothing more, the code stays in staging, and the deposit stays with the operator. Your record shows one declined hire, with no reason."));
+      "You owe nothing more, the work stays in staging, and the deposit stays with the operator. Your record shows one declined hire, with no reason."));
     currentFigures = figures;
     var payBtn = A.el("pay-btn");
     if (payBtn) {
@@ -368,7 +368,7 @@
     [
       ["You pay", "nothing more"],
       ["The deposit", depositText],
-      ["The code", "never leaves staging"],
+      ["The work", "never leaves staging"],
       ["Your record", "gains one declined hire"],
     ].forEach(function (row) {
       var li = document.createElement("li");

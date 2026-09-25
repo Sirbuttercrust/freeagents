@@ -133,8 +133,8 @@ describe('createGithubAdapter, getPublicGist (R-4)', () => {
   });
 });
 
-describe('createGithubAdapter, getPullRequest (R-11 observation, R-17 repositoryPublic)', () => {
-  const ref: PullRequestRef = { owner: 'freeagents-platform', repo: 'target-repo', number: 3 };
+describe('createGithubAdapter, getPullRequest (R-11 observation, R-17 repositoryPublic, STG2 fork-delivery facts)', () => {
+  const ref: PullRequestRef = { owner: 'buyer', repo: 'target-repo', number: 3 };
 
   function pullResponse(overrides: Record<string, unknown> = {}): Response {
     return jsonResponse(200, {
@@ -142,11 +142,16 @@ describe('createGithubAdapter, getPullRequest (R-11 observation, R-17 repository
       merged: true,
       merge_commit_sha: 'deadbeef',
       merged_at: '2026-08-25T09:00:00Z',
-      head: { sha: 'headsha123' },
+      head: {
+        sha: 'headsha123',
+        repo: { owner: { login: 'scout-agent' }, full_name: 'scout-agent/target-repo', fork: true },
+      },
       additions: 55,
       deletions: 6,
       changed_files: 3,
-      base: { repo: { private: false } },
+      base: { repo: { private: false, full_name: 'buyer/target-repo' } },
+      user: { login: 'scout-agent' },
+      body: 'Job: j-1\n',
       ...overrides,
     });
   }
@@ -158,7 +163,7 @@ describe('createGithubAdapter, getPullRequest (R-11 observation, R-17 repository
     const summary = await adapter.getPullRequest(ref);
 
     expect(calls).toEqual([
-      { url: 'https://api.github.com/repos/freeagents-platform/target-repo/pulls/3', method: 'GET', body: undefined },
+      { url: 'https://api.github.com/repos/buyer/target-repo/pulls/3', method: 'GET', body: undefined },
     ]);
     expect(summary).toEqual({
       ref,
@@ -170,6 +175,12 @@ describe('createGithubAdapter, getPullRequest (R-11 observation, R-17 repository
       deletions: 6,
       filesChanged: 3,
       repositoryPublic: true,
+      headRepoOwner: 'scout-agent',
+      headRepoFullName: 'scout-agent/target-repo',
+      headRepoIsFork: true,
+      baseRepoFullName: 'buyer/target-repo',
+      authorLogin: 'scout-agent',
+      body: 'Job: j-1\n',
     });
   });
 
@@ -195,6 +206,41 @@ describe('createGithubAdapter, getPullRequest (R-11 observation, R-17 repository
     expect(summary.state).toBe('closed');
   });
 
+  // STG2: head.repo is null when GitHub reports the head repository gone
+  // (e.g. a deleted fork) -- projected as null throughout, never guessed
+  // at (headRepoIsFork falls back to false, the only sane default for "no
+  // repository to be a fork of").
+  it('a head repository GitHub reports as gone (deleted fork) projects as null, never guessed', async () => {
+    const { fetchImpl } = scriptedFetch([pullResponse({ head: { sha: 'headsha123', repo: null } })]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
+
+    const summary = await adapter.getPullRequest(ref);
+    expect(summary.headRepoOwner).toBeNull();
+    expect(summary.headRepoFullName).toBeNull();
+    expect(summary.headRepoIsFork).toBe(false);
+  });
+
+  // STG2: a PR GitHub reports with no author (a deleted account) projects
+  // authorLogin as null, the same "never guessed" stance as head.repo.
+  it('a pull request with no reported author projects authorLogin as null', async () => {
+    const { fetchImpl } = scriptedFetch([pullResponse({ user: null })]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
+
+    const summary = await adapter.getPullRequest(ref);
+    expect(summary.authorLogin).toBeNull();
+  });
+
+  // STG2: GitHub reports body: null for a PR opened with no description at
+  // all; this adapter normalises that to an empty string so every caller
+  // can search it for the Job: <id> trailer without a null check.
+  it('a pull request with no body at all projects body as an empty string', async () => {
+    const { fetchImpl } = scriptedFetch([pullResponse({ body: null })]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
+
+    const summary = await adapter.getPullRequest(ref);
+    expect(summary.body).toBe('');
+  });
+
   // MUTATION PROOF (R-17): repositoryPublic is base.repo.private inverted,
   // never passed through. Both directions are pinned so a dropped `!`
   // (private true landing as public true, or the reverse) goes red either
@@ -203,7 +249,7 @@ describe('createGithubAdapter, getPullRequest (R-11 observation, R-17 repository
     [true, false],
     [false, true],
   ])('base.repo.private=%s becomes repositoryPublic=%s (inverted, never passed through)', async (isPrivate, expectedPublic) => {
-    const { fetchImpl } = scriptedFetch([pullResponse({ base: { repo: { private: isPrivate } } })]);
+    const { fetchImpl } = scriptedFetch([pullResponse({ base: { repo: { private: isPrivate, full_name: 'buyer/target-repo' } } })]);
     const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
 
     const summary = await adapter.getPullRequest(ref);
@@ -219,11 +265,13 @@ describe('createGithubAdapter, getPullRequest (R-11 observation, R-17 repository
 });
 
 // forkAndOpenPullRequest's own coverage moved to
-// tests/adapters/github/github-staging.test.ts's openStagedPullRequest
-// suite (B14a): the fork mechanism this adapter used is gone -- a
-// private repository under the platform account IS the platform's copy
-// now, so there is no fork step left to fork, read a fork ref for, or
-// branch on.
+// tests/adapters/github/github-staging.test.ts (B14a, then STG2): the fork
+// mechanism this adapter used is gone -- a private repository under the
+// platform account IS the platform's staging copy, and since STG2 the
+// platform never opens a pull request at all (the agent opens it from its
+// own fork, outside this adapter), so there is no fork step left to fork,
+// read a fork ref for, or branch on -- the adapter's write surface for
+// pull requests is gone entirely.
 
 describe('createGithubAdapter, FREEAGENTS_GITHUB_API_BASE override (B4)', () => {
   it('honours the env override for every call the adapter makes', async () => {
