@@ -2315,16 +2315,16 @@ export function createApp(
       });
     } catch (err) {
       // PRF1 r1 (Proof review round 1, defect 1 and 2): an unresolvable DID
-      // has two different remedies, and only one of them is the operator's
-      // to fix. CandidateKeyRejectedError means a `key` line was present but
+      // has two different remedies, both the operator's to fix, and they
+      // differ. CandidateKeyRejectedError means a `key` line was present but
       // named a key that does not derive this agent's own DID: the gist is
       // public and operator-authored, so this is a 409 naming the fix, not
       // an outage. DidNotResolvableError (per identity.ts's own contract,
       // now only ever thrown when NO candidate was offered at all) is the
       // original B31 gap: the platform genuinely has no key for this DID
-      // yet, and the fix is the same one-line addition, so this is also a
-      // 409 naming it, never a message that reads like a platform failure
-      // with no visible way out. Every other thrown error (the identity
+      // yet, and the fix is to add the `key` line, so this is also a 409
+      // naming it, never a message that reads like a platform failure with
+      // no visible way out. Every other thrown error (the identity
       // subsystem itself failing, as the dedicated verifier-down test
       // simulates) is a real platform fault and stays a 503.
       if (err instanceof CandidateKeyRejectedError) {
