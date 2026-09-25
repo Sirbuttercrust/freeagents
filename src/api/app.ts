@@ -2298,12 +2298,20 @@ export function createApp(
     // The signature covers the canonical bytes built from the DID and the
     // account URL, not the statement text as written: a third party
     // reconstructs the same bytes from the gist alone (invariant 2).
+    //
+    // PRF1 (bugs.md B31): the statement's optional `key` line is passed
+    // through as a candidate. identityAdapter.verify only trusts it after
+    // checking it derives this agent's own DID (the same binding check
+    // buildDidAbtLoader already applies), so this is never a bypass, only
+    // a second source for a key the platform would otherwise need a prior
+    // agent-signed request to have already observed.
     let checksOut: boolean;
     try {
       checksOut = await identityAdapter.verify({
         payload: gistProofPayload(did, githubAccountUrl(handle)),
         signature: statement.signature,
         signerDid: did,
+        ...(statement.key !== undefined ? { candidateKeyMultibase: statement.key } : {}),
       });
     } catch (err) {
       console.error('POST /agents/:agentDid/account-proof: identity verification failed', err);

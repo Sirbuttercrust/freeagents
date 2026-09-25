@@ -185,8 +185,33 @@ export function createIdentityAdapter(
     // false, matching verifyDelegation's stance); only an unresolvable
     // signerDid throws, the same "no data to work from" case resolveDid
     // above throws on.
+    //
+    // PRF1 (bugs.md B31): a caller may also pass candidateKeyMultibase --
+    // the gist statement's own optional key line -- naming a key it
+    // believes is signerDid's. This closes the defect where a brand-new
+    // agent's first proof answered 503 because resolveVerificationMethod
+    // only ever learns a key from a PRIOR signed request from that same
+    // key (the onVerified path in http-signature.ts): a fresh agent that
+    // has never sent one had nothing to resolve, even with a perfectly
+    // valid signature in hand. The candidate is trusted only after the
+    // SAME binding check buildDidAbtLoader and the R-34 signing-key
+    // resolver already apply to every other key this service accepts: the
+    // public key must itself derive signerDid via did:abt's own encoding
+    // (fromPublicKey), never taken on the caller's word. A candidate that
+    // fails that check (malformed, or derives some other DID) is silently
+    // ignored, falling back to the observed-key store exactly as before --
+    // so an attacker cannot use a bad candidate to force a different
+    // failure mode than an absent one, and a well-behaved caller who
+    // simply omits the field sees no change at all.
     async verify(signed: SignedPayload): Promise<boolean> {
-      const verificationMethod = await resolveVerificationMethod(signed.signerDid);
+      const candidate = signed.candidateKeyMultibase;
+      let verificationMethod: string | null = null;
+      if (typeof candidate === 'string' && candidate.length > 0) {
+        verificationMethod = await candidateVerificationMethod(signed.signerDid, candidate);
+      }
+      if (verificationMethod === null) {
+        verificationMethod = await resolveVerificationMethod(signed.signerDid);
+      }
       if (verificationMethod === null) {
         throw new DidNotResolvableError(signed.signerDid);
       }
@@ -212,4 +237,24 @@ export function createIdentityAdapter(
       }
     },
   };
+}
+
+// PRF1 (bugs.md B31): the binding check a candidate key must pass before
+// verify() above will use it -- does the key's OWN derived DID equal the
+// DID the caller claims it belongs to? Identical in substance to
+// buildDidAbtLoader's binding check (did-abt-resolver.ts) and the R-34
+// signing-key resolver's own fromPublicKey comparison: never a new rule,
+// the same one this service already applies to every other key it accepts.
+// Total: any malformed fingerprint or non-matching derivation is null, the
+// caller's cue to fall back to the observed-key store, never a throw.
+async function candidateVerificationMethod(did: string, candidateKeyMultibase: string): Promise<string | null> {
+  try {
+    const key = await Ed25519VerificationKey2020.fromFingerprint({ fingerprint: candidateKeyMultibase });
+    const raw = (key as unknown as { _publicKeyBuffer: Uint8Array })._publicKeyBuffer;
+    if (raw.length !== 32) return null;
+    if (fromPublicKey(raw) !== did.replace(/^did:abt:/, '')) return null;
+    return `${did}#${candidateKeyMultibase}`;
+  } catch {
+    return null;
+  }
 }

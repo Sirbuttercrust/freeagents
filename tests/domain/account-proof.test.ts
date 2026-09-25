@@ -313,6 +313,32 @@ describe('parseGistStatement', () => {
     expect(parseGistStatement('')).toBeNull();
     expect(parseGistStatement(42 as unknown as string)).toBeNull();
   });
+
+  // PRF1 (bugs.md B31): the statement may optionally name the signer's own
+  // key, so a brand new agent's first proof does not depend on a prior
+  // agent-signed request having taught the platform its key. Additive: the
+  // four required fields and the version marker are unchanged.
+  it('parses the optional key line when present, alongside the four required fields', () => {
+    const withKey = `${base}\nkey: z6MkFixtureKeyMultibase`;
+    expect(parseGistStatement(withKey)).toEqual({
+      did: 'did:abt:zAgentKeyHash',
+      github: 'https://github.com/scout-agent',
+      signature: 'c2lnbmF0dXJl',
+      key: 'z6MkFixtureKeyMultibase',
+    });
+  });
+
+  it('leaves key undefined when the line is absent, the same statement old callers publish', () => {
+    const parsed = parseGistStatement(base);
+    expect(parsed?.key).toBeUndefined();
+  });
+
+  it('treats an empty key value as absent rather than a malformed statement', () => {
+    const emptyKey = `${base}\nkey:   `;
+    const parsed = parseGistStatement(emptyKey);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.key).toBeUndefined();
+  });
 });
 
 describe('statementBindsBinding', () => {
