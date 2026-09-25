@@ -16,7 +16,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { createGithubAdapter } from '../../../src/adapters/github/github.js';
-import { NotPlatformOwnerError, UnverifiedGithubLoginError, type CreateStagingRepositoryInput } from '../../../src/adapters/github/types.js';
+import {
+  NotPlatformOwnerError,
+  RepositoryNotAccessibleError,
+  UnverifiedGithubLoginError,
+  type CreateStagingRepositoryInput,
+} from '../../../src/adapters/github/types.js';
 
 const TOKEN = 'ghp_test_token_not_real';
 const PLATFORM_LOGIN = 'freeagents-platform';
@@ -247,6 +252,49 @@ describe('createGithubAdapter, getDefaultBranchHead (B14a)', () => {
     const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
 
     await expect(adapter.getDefaultBranchHead({ owner: 'buyer', repo: 'gone' })).rejects.toThrow();
+  });
+
+  // ORG1: a 404 on the repository read means the platform cannot see the
+  // buyer's repository at all (private, not shared with the platform's
+  // account) -- distinct from a real GitHub outage. The confirm route
+  // maps this to a 409 a buyer can act on, never the 503 an unreachable
+  // API gets.
+  it('throws RepositoryNotAccessibleError, not a bare Error, on a 404 reading the repository', async () => {
+    const { fetchImpl } = scriptedFetch([jsonResponse(404, { message: 'Not Found' })]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    await expect(adapter.getDefaultBranchHead({ owner: 'buyer', repo: 'gone' })).rejects.toBeInstanceOf(
+      RepositoryNotAccessibleError,
+    );
+  });
+
+  // A private repository the platform's account was never invited to
+  // reports 403, not 404, on some GitHub configurations -- both mean
+  // the same thing to confirm (cannot see it), so both throw the same
+  // typed error.
+  it('throws RepositoryNotAccessibleError, not a bare Error, on a 403 reading the repository', async () => {
+    const { fetchImpl } = scriptedFetch([jsonResponse(403, { message: 'Forbidden' })]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    await expect(adapter.getDefaultBranchHead({ owner: 'buyer', repo: 'private-repo' })).rejects.toBeInstanceOf(
+      RepositoryNotAccessibleError,
+    );
+  });
+
+  // A real outage (500) must NOT be mistaken for an inaccessible
+  // repository -- it stays a bare Error, which confirm maps to 503.
+  it('does not throw RepositoryNotAccessibleError on a 500 (a real outage stays a generic failure)', async () => {
+    const { fetchImpl } = scriptedFetch([jsonResponse(500, { message: 'Internal Server Error' })]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    let caught: unknown;
+    try {
+      await adapter.getDefaultBranchHead({ owner: 'buyer', repo: 'target-repo' });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).not.toBeInstanceOf(RepositoryNotAccessibleError);
+    expect(caught).toBeInstanceOf(Error);
   });
 });
 

@@ -2,6 +2,7 @@ import { NotImplementedError } from '../not-implemented.js';
 import {
   GistNotFoundError,
   NotPlatformOwnerError,
+  RepositoryNotAccessibleError,
   StagingComparisonTruncatedError,
   UnverifiedGithubLoginError,
   type CommitInfo,
@@ -330,9 +331,25 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
     // B14a: reads the buyer's repository's own default branch name and
     // its current head sha -- the confirm route pins this as baseCommit
     // before creating the staging repository. Read-only.
+    //
+    // ORG1: a 404 or 403 reading the repository itself means the
+    // platform's account cannot see it at all -- most commonly a
+    // personal-account private repository, where GitHub offers no
+    // read-only role (docs.github.com, permission levels for a personal
+    // account repository). That is a fact about the repository, not a
+    // transient failure, so it throws the typed
+    // RepositoryNotAccessibleError rather than the generic Error every
+    // other non-2xx response here throws; the confirm route maps it to
+    // 409 with an actionable message instead of 503. The SECOND request
+    // (the branch ref) is not specially handled: if the repository read
+    // above succeeded, the platform can see the repository, so a failure
+    // reading its ref is a real anomaly, not an access question.
     async getDefaultBranchHead(ref: StagingRepoRef): Promise<DefaultBranchHead> {
       const tok = requireToken();
       const repoResponse = await githubRequest(fetchImpl, apiBase, tok, `/repos/${ref.owner}/${ref.repo}`);
+      if (repoResponse.status === 404 || repoResponse.status === 403) {
+        throw new RepositoryNotAccessibleError(ref.owner, ref.repo, repoResponse.status);
+      }
       await requireOk(repoResponse, 'read repository');
       const repo = (await repoResponse.json()) as { readonly default_branch: string };
       const refResponse = await githubRequest(

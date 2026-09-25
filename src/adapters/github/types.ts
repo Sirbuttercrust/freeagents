@@ -152,6 +152,21 @@ export class NotPlatformOwnerError extends Error {
   }
 }
 
+// ORG1: thrown by getDefaultBranchHead when the platform's own token
+// cannot read the buyer's repository (404, or 403 on some GitHub
+// configurations for a repository the account was never invited to).
+// Distinct from every other failure this adapter can raise: a real
+// outage (5xx, network) stays a bare Error, which the confirm route
+// still maps to 503; this one names a fact about the repository itself
+// (private, and the platform's account has no role on it), which the
+// route maps to 409 with an actionable message instead.
+export class RepositoryNotAccessibleError extends Error {
+  constructor(owner: string, repo: string, status: number) {
+    super(`repository ${owner}/${repo} is not accessible to the platform's GitHub account (status ${String(status)})`);
+    this.name = 'RepositoryNotAccessibleError';
+  }
+}
+
 // A public gist, as far as the account-proof flow cares about it: the id, the
 // GitHub login of its author, and the contents of its files by name.
 export interface Gist {

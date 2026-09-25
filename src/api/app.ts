@@ -15,6 +15,7 @@ import {
 import { createGithubAdapter } from '../adapters/github/github.js';
 import {
   GistNotFoundError,
+  RepositoryNotAccessibleError,
   StagingComparisonTruncatedError,
   type Gist,
   type GithubAdapter,
@@ -515,6 +516,36 @@ function jobProjection(row: Job): Record<string, unknown> {
     ...citedClose,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+// ORG1 (done-means item 2): the one key naming the GitHub read access a
+// private-repo hire needs and the account that needs it. Computed here,
+// not inline at each call site, so both the buyer's own POST /jobs
+// response and the operator's live read (GET /jobs/:jobId) name it the
+// same way. Present only:
+// - once the agent has a VERIFIED GitHub login (the same gate confirm's
+//   own grantPush guard reads, B14a) -- an unverified or absent login
+//   names nothing, because there is no account yet to point the buyer
+//   at; and
+// - before a staging repository exists (row.stagingRepo === null): once
+//   confirm has succeeded, the platform already proved it CAN read the
+//   buyer's repository (that is what getDefaultBranchHead's own success
+//   means), so the access question this field answers is already
+//   settled, and every merge/outcome row carrying the field forever
+//   would grow the fixed projection every downstream test pins against
+//   for no fact still in question.
+// Never asserts whether the named repository actually IS private; that
+// fact surfaces only when confirm's own RepositoryNotAccessibleError
+// check runs.
+function githubAccessNeededFor(
+  agent: Agent | null,
+  row: Pick<Job, 'stagingRepo'>,
+): { readonly githubAccessNeeded: { readonly agentGithubLogin: string } } | Record<string, never> {
+  if (row.stagingRepo !== null) return {};
+  if (agent === null || agent.githubLogin === null || agent.proofStatus !== 'verified') {
+    return {};
+  }
+  return { githubAccessNeeded: { agentGithubLogin: agent.githubLogin } };
 }
 
 // The body carries the W3C Verifiable Credential exactly as produced.
@@ -3029,7 +3060,7 @@ export function createApp(
     }
     try {
       const row = await jobRepo.create(job);
-      res.status(201).json(jobProjection(row));
+      res.status(201).json({ ...jobProjection(row), ...githubAccessNeededFor(agentRow, row) });
     } catch (err) {
       // A duplicate id needs 64 bits of collision to fire and the id was
       // drawn this request, so this branch is unreachable in practice; it is
@@ -3059,6 +3090,18 @@ export function createApp(
     const lapsed = await applyLiveLapses('GET /jobs/:jobId', row, res);
     if (lapsed === null) return;
     row = lapsed;
+    // ORG1: the same one field POST /jobs carries, read fresh here so a
+    // live GET reflects the agent's CURRENT verified login, never a
+    // stale one captured at job creation.
+    let jobAgent: Agent | null;
+    try {
+      jobAgent = await agentRepo.findByDid(row.agentDid);
+    } catch (err) {
+      console.error('GET /jobs/:jobId: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    const accessNeeded = githubAccessNeededFor(jobAgent, row);
     // Only a completed or deemed-completed job can carry a credential, so
     // every other row never pays for the lookup. P6 widens this guard:
     // deemed_completed carries a distinct credential type but no
@@ -3066,7 +3109,7 @@ export function createApp(
     // observed), so the mergeCommit-only guard from before this card
     // would silently skip the lookup for every deemed-completed job.
     if (row.mergeCommit === null && row.status !== 'deemed_completed') {
-      res.status(200).json(jobProjection(row));
+      res.status(200).json({ ...jobProjection(row), ...accessNeeded });
       return;
     }
     let credential: IssuedCredentialDocument | null;
@@ -3084,7 +3127,11 @@ export function createApp(
     // credential", where a null would read as "issued, and empty".
     res
       .status(200)
-      .json(credential === null ? jobProjection(row) : { ...jobProjection(row), credential });
+      .json(
+        credential === null
+          ? { ...jobProjection(row), ...accessNeeded }
+          : { ...jobProjection(row), ...accessNeeded, credential },
+      );
   });
 
   // Express 4 does not route a rejected promise from an async handler to
@@ -3888,6 +3935,22 @@ export function createApp(
           stagingRepo.baseCommit,
         );
       } catch (err) {
+        // ORG1: a 404/403 reading the buyer's repository names a fact
+        // about the repository (the platform's account cannot see it --
+        // typically a personal-account private repository, which GitHub
+        // gives no read-only role), never a transient outage. Before
+        // this, EVERY failure here fell into the 503 branch below, so a
+        // repository the platform will never be able to read looked
+        // exactly like GitHub being briefly down. This is a state
+        // conflict the buyer can act on, so it is 409, checked before
+        // the generic 503 catch-all so it never falls through to it.
+        if (err instanceof RepositoryNotAccessibleError) {
+          res.status(409).json({
+            error:
+              'the platform cannot see this repository; for a private repository it must live in a GitHub organization that gives the agent\'s GitHub account read access',
+          });
+          return;
+        }
         // Fails closed: nothing persists, so the row stays at whatever
         // status it was already stored at (proposed) -- see this route's
         // own header comment.
