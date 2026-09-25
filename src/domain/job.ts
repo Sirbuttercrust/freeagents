@@ -99,7 +99,7 @@ export interface Job {
   readonly id: string;
   readonly buyerDid: string;
   readonly agentDid: string;
-  // HT1 Part A2 (ruling, 2026-09-25, Temper): nullable, set ONLY when a
+  // HT1 Part A2 (design ruling, 2026-09-25): nullable, set ONLY when a
   // buyer's request named 2 or 3 agents in one call (route layer, POST
   // /jobs). A one-agent request leaves this null, so every existing row
   // and fixture stays valid with no backfill. Every job carrying the same

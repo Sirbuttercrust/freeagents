@@ -3083,7 +3083,7 @@ export function createApp(
     }
 
     // HT1 Part A2: requestId is set only when this request actually named
-    // 2 or 3 agents (Temper's ruling). A single agentDids entry -- and the
+    // 2 or 3 agents (the design ruling on this seam). A single agentDids entry -- and the
     // pre-existing agentDid shape, always -- leaves it null, the same
     // meaning every pre-A2 row already carries.
     const requestId = agentDids.length > 1 ? 'req-' + randomBytes(8).toString('hex') : null;
@@ -3133,7 +3133,7 @@ export function createApp(
     }
 
     if (agentDids.length > 1) {
-      // HT1 Part A2 (Temper's ruling 2): the buyer is a party to every
+      // HT1 Part A2 (design ruling, sibling privacy is structural): the buyer is a party to every
       // sibling it just opened, so its own creation reply may name all of
       // them -- this is the one place besides the buyer's own
       // /accounts/:did/jobs list where that is true. jobProjection() itself
@@ -3893,7 +3893,7 @@ export function createApp(
       // HT1: confirm is a negotiation route too (the brief's own list).
       if (!(await requireNegotiationAllowed(label, res, current, confirmGate.did, confirmGate.party))) return;
 
-      // HT1 Part A2 (ruling, 2026-09-25, Temper): a job that carries a
+      // HT1 Part A2 (design ruling, 2026-09-25): a job that carries a
       // requestId has siblings opened by the same brief. Fail closed if
       // storage cannot look them up (no silent skip: a one-agent job
       // never reaches this branch at all, so the hand-rolled JobRepository

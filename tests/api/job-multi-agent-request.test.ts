@@ -1,10 +1,10 @@
-// HT1 Part A2 (ruling, 2026-09-25, Temper): one brief to up to three
+// HT1 Part A2 (design ruling, 2026-09-25): one brief to up to three
 // agents. A buyer can send one brief to 1 to 3 agents in one request,
 // each agent gets its own job row, and every row sharing one request
 // carries a shared requestId (nullable, set only for a request that
 // actually named 2 or 3 agents). Confirming one job withdraws every
 // sibling still in draft or proposed. Sibling privacy is structural
-// (Temper's ruling on the A2 design fork): GET /jobs/:jobId stays fully
+// (the ruling on the A2 design fork): GET /jobs/:jobId stays fully
 // public for every job (invariant 2), and no response reachable by an
 // owner who is not a sibling's own operator ever names that sibling's
 // id, agent, or price.
@@ -422,7 +422,7 @@ describe('HT1 Part A2: one brief to up to three agents', () => {
         });
       }
 
-      // POSITIVE CONTROL (Temper's ruling 3): plant job A's id into a
+      // POSITIVE CONTROL (ruling item 3): plant job A's id into a
       // fabricated response body and confirm the assertion actually
       // catches it, before trusting it to catch anything real.
       expect(() => assertNoLeak('planted control', JSON.stringify({ note: jobIdA }))).toThrow();

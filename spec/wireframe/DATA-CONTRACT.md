@@ -299,7 +299,7 @@ unchanged: the agent does that work regardless of the flag.
 
 ### 8.0a One brief to up to three agents
 
-HT1 Part A2 (ruling, 2026-09-25, Temper): a buyer can send one brief to 1 to
+HT1 Part A2 (design ruling, 2026-09-25): a buyer can send one brief to 1 to
 3 agents in one request. Each agent gets its own job row, sharing one
 `requestId` field.
 
