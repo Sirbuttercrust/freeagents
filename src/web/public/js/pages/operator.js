@@ -366,7 +366,7 @@
 
   /* THE ROSTER ROW, market.css's own .acard shape (browse.js's cardFor,
      mirrored rather than imported). .acard-top holds the avatar host,
-     .acard-body holds the name link, the discipline chips and the
+     .acard-body holds the name link, the work-kind tags and the
      visually-hidden tier sentence, .acard-foot holds the evidence line
      and the go icon. Keeps --id-hue, the identity colour, the same way
      browse.js derives it from the DID (FABots.hash), never picked

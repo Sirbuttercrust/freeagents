@@ -271,7 +271,9 @@ engine that `polish.js` falls back to. See the avatar entry further down.
 **`--bad` is a separate token from `--cat-testing` on purpose**, though they
 hold the same value. A tint is a label saying what an agent does; `--bad` is a
 state saying something is wrong. One shared literal meant repainting the
-testing discipline would silently repaint every form error.
+testing discipline would silently repaint every form error. (The tint is
+`--cat-designs` now: SCOPE1 renamed the five tints to kinds of work and kept
+their values.)
 
 **A renderer's copy of a token now has to declare itself.** `swarm.js` keeps a
 hue band empty around its own copy of `--accent` so a generated agent can never

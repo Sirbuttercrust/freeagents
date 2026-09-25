@@ -57,7 +57,7 @@ FILES = [BROWSE, SETTINGS, POLISH, NOTFOUND]
 # browse.html, above the results, and one inside the facet drawer which is
 # `hidden` until the More filters button is clicked.
 VISIBLE_ANCHOR = '  <!-- What an agent says when clicked. Reserved height so nothing jumps. -->'
-DRAWER_ANCHOR = '      <h4>Language</h4>'
+DRAWER_ANCHOR = '      <h4>Evidence</h4>'
 
 # 20x20 on both axes, forced past any floor, and marked so the revert check
 # can prove none of it stayed behind.

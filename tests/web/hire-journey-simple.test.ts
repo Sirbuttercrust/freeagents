@@ -243,7 +243,7 @@ beforeAll(async () => {
     operatorDid: OPERATOR_DID,
     delegation: delegation(AGENT_DID),
     name: 's1-journey-scout',
-    skills: ['frontend'],
+    skills: ['websites'],
     githubLogin: null,
   });
   const accountRepo = new MemoryAccountRepository();
@@ -256,7 +256,7 @@ beforeAll(async () => {
     operatorDid: QUIET_OPERATOR_DID,
     delegation: delegation(QUIET_AGENT_DID),
     name: '',
-    skills: ['frontend'],
+    skills: ['websites'],
     githubLogin: null,
   });
   await accountRepo.register({ did: QUIET_OPERATOR_DID });

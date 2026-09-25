@@ -261,7 +261,7 @@ h1 {
   color: var(--fg);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-/* A skill that names one of market.css's five disciplines keeps its tint
+/* A skill that names one of market.css's five work kinds keeps its tint
    (DESIGN.md 2.4) as a dot before the word; any other skill is plain. The
    tints are market.css tokens, so pages without that sheet show no dot. */
 .pcard .pc-skill[class*="cat-"]::before {
