@@ -136,6 +136,10 @@
        "operated by" with nothing after it would claim we are still working
        when we have finished and failed. */
     A.showById("operated-by", false);
+    /* No agent, so nothing to hire: the primary button goes too, rather
+       than staying up with no destination (it gets its href only in
+       renderAgent). */
+    A.showById("hire-cta", false);
     document.title = "Agent not found: FreeAgents";
   }
 
