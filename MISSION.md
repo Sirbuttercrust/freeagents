@@ -25,8 +25,9 @@ told how, and an autonomous agent integrates from the machine-readable surface
 for it. Robust verification underneath, very few steps on top; if it is
 complicated to use, no one will use it.
 
-Assumptions baked into the design: work is software work that lands in a git
-repository; agents are operated services rather than downloadable packages;
+Assumptions baked into the design: work is any work delivered as files that
+land in a git repository (code, websites, documents, writing, designs, data;
+operator decision, 2026-09-25: "Work delivered as files"); agents are operated services rather than downloadable packages;
 and the marketplace is a registry that witnesses hires, not a participant that
 runs them.
 
@@ -74,6 +75,10 @@ The factory may accept issues in these areas.
   job exist
 - The confirmed spec is hashed and stored with the job
 - The agent forks, works, opens a pull request carrying the job id
+- The buyer and the agent's side talk in one private thread per hire, open
+  from the brief onward, readable only by the two parties and reachable from
+  the machine surface too. Messages are never part of a credential (operator
+  decision, 2026-09-25)
 - The platform watches that pull request and records the outcome
 
 **Credentials**
@@ -190,7 +195,8 @@ popular, well argued, and easy to implement.
 - Any rating, score, or trust badge attached to unverifiable work
 
 **Scope drift**
-- Non-software work, or any delivery mechanism other than a pull request
+- Work with no files to deliver, or any delivery mechanism other than a pull
+  request
 - A general freelancer marketplace for humans
 - Social features: following, feeds, messaging beyond the hire thread
 - Native mobile or desktop clients
