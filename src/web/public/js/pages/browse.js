@@ -12,10 +12,10 @@
    the page stays bookmarkable and the API stays the single source of truth
    for what "verified-hires descending" means.
 
-   SKILLS ARE SELF-ASSERTED (ENT-2.2). The five discipline chips and the
-   five Language checkboxes all set the one ?skill= parameter the route
-   accepts; pressing one replaces whatever was pressed before, because the
-   route takes exactly one skill.
+   SKILLS ARE SELF-ASSERTED (ENT-2.2). The five work-kind chips and the
+   search box all set the one ?skill= parameter the route accepts; pressing
+   a chip replaces whatever was pressed before, because the route takes
+   exactly one skill.
 
    "HAS VERIFIED HIRES" AND "HAS VERIFIED PRIOR WORK" ARE CLIENT SIDE. The
    payload already carries verifiedHireCount and verifiedPriorWorkCount per
@@ -140,15 +140,6 @@
         navigate({ hires: !state.hires, page: 1 });
       });
     }
-
-    var langBoxes = document.querySelectorAll(".drawer input[type=checkbox][data-skill]");
-    Array.prototype.forEach.call(langBoxes, function (box) {
-      var skill = box.getAttribute("data-skill");
-      box.checked = state.skill.toLowerCase() === skill;
-      box.addEventListener("change", function () {
-        navigate({ skill: box.checked ? skill : "", page: 1 });
-      });
-    });
 
     var priorBox = A.el("ev-prior");
     if (priorBox) {

@@ -29,11 +29,11 @@
   --dur-3: .38s;
 
   /* A FIELD THAT IS WRONG, AND A COUNT THAT IS OVER.
-     Its own token, not `--cat-testing`, though they hold the same value
-     today. The tint means "this agent does testing work", a LABEL, and
+     Its own token, not `--cat-designs`, though they hold the same value
+     today. The tint means "this agent does design work", a LABEL, and
      DESIGN.md 2.7 says a tint never means a state and lives on the tag and
      nowhere else. It was the literal #E4757F in three declarations here, so
-     the two meanings were one string: repaint the testing discipline and
+     the two meanings were one string: repaint the designs tint and
      every form error moves with it, silently.
 
      Two names for one value is cheaper than one name for two meanings, which

@@ -91,8 +91,8 @@ def mut_css_reverts_lift():
 
 # ---- C. a new token shipped and never documented --------------------------
 def mut_undocumented_token():
-    sub(MARKET, "  --cat-frontend:  #6EA8FF;",
-        "  --cat-frontend:  #6EA8FF;\n  --cat-mobile:    #FF8A4C;")
+    sub(MARKET, "  --cat-websites:  #6EA8FF;",
+        "  --cat-websites:  #6EA8FF;\n  --cat-mobile:    #FF8A4C;")
 
 
 # ---- D. a documented token no stylesheet defines ---------------------------
@@ -123,8 +123,8 @@ def mut_table_ratio():
 
 # ---- G. a stale ratio in the TINT table's last column ----------------------
 def mut_tint_ratio():
-    sub(DOC, "| `--cat-testing` | `#E4757F` | testing | 6.78 |",
-        "| `--cat-testing` | `#E4757F` | testing | 4.10 |")
+    sub(DOC, "| `--cat-designs` | `#E4757F` | designs | 6.70 |",
+        "| `--cat-designs` | `#E4757F` | designs | 4.10 |")
 
 
 # ---- H. a script named as available that is not on disk -------------------
@@ -183,7 +183,7 @@ MUTATIONS = [
     ("F  a stale ratio in a TABLE cell, not in prose", mut_table_ratio,
      "--fg-3", "measures 5.15:1"),
     ("G  a stale ratio in the tint table's last column", mut_tint_ratio,
-     "--cat-testing", "measures 6.78:1"),
+     "--cat-designs", "measures 6.70:1"),
     ("H  a script named as available that is not on disk", mut_phantom_script,
      "measure_density.py", "not in this directory"),
     ("I  a stale HISTORICAL ratio, against a literal hex", mut_historical_ratio,

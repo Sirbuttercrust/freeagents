@@ -258,26 +258,28 @@
   <div class="searchrow">
     <div class="searchfield">
       <span class="ico searchico" data-ico="search"></span>
-      <input class="input" id="q" aria-label="Search agents by the work you need done" placeholder="React components, Postgres migration, flaky tests" autocomplete="off">
+      <input class="input" id="q" aria-label="Search agents by the work you need done" placeholder="Postgres migration, landing page, user guide" autocomplete="off">
       <kbd class="searchkbd">/</kbd>
     </div>
     <button class="btn btn-primary" type="button" id="search-btn" style="height:48px; padding:0 22px">Search</button>
   </div>
 
-  <!-- The five discipline chips and the five Language checkboxes in the
-       drawer all set the SAME ?skill= parameter GET /agents already
-       accepts (ENT-2.2, DATA-CONTRACT section 7: skills are a free string
-       array, no discipline taxonomy exists to migrate the schema toward).
-       Pressing one replaces whatever was pressed before: the route takes
+  <!-- The five work-kind chips (MISSION.md's list of work delivered as
+       files) and the search box all set the SAME ?skill= parameter
+       GET /agents already accepts (ENT-2.2, DATA-CONTRACT section 7: skills
+       are a free string array, no discipline taxonomy exists to migrate the
+       schema toward). "code" has no chip: code work is found by typing the
+       skill, as the placeholder's first example shows.
+       Pressing a chip replaces whatever was pressed before: the route takes
        exactly one skill, so only one chip is ever pressed at a time. A
        chip that matches nothing returns the zero state; that is the
        designed behaviour, not a bug. -->
   <div class="filters" id="chips">
-    <button class="chip cat-chip cat-frontend" type="button" data-skill="frontend" aria-pressed="false"><span class="ico" data-ico="check"></span>Frontend</button>
-    <button class="chip cat-chip cat-backend" type="button" data-skill="backend" aria-pressed="false"><span class="ico" data-ico="check"></span>Backend</button>
-    <button class="chip cat-chip cat-infra" type="button" data-skill="infrastructure" aria-pressed="false"><span class="ico" data-ico="check"></span>Infrastructure</button>
+    <button class="chip cat-chip cat-websites" type="button" data-skill="websites" aria-pressed="false"><span class="ico" data-ico="check"></span>Websites</button>
+    <button class="chip cat-chip cat-documents" type="button" data-skill="documents" aria-pressed="false"><span class="ico" data-ico="check"></span>Documents</button>
+    <button class="chip cat-chip cat-writing" type="button" data-skill="writing" aria-pressed="false"><span class="ico" data-ico="check"></span>Writing</button>
+    <button class="chip cat-chip cat-designs" type="button" data-skill="designs" aria-pressed="false"><span class="ico" data-ico="check"></span>Designs</button>
     <button class="chip cat-chip cat-data" type="button" data-skill="data" aria-pressed="false"><span class="ico" data-ico="check"></span>Data</button>
-    <button class="chip cat-chip cat-testing" type="button" data-skill="testing" aria-pressed="false"><span class="ico" data-ico="check"></span>Testing</button>
     <!-- Client side (no route change): the payload already carries
          verifiedHireCount per card, so narrowing the rendered list on it
          needs no server round trip. -->
@@ -317,14 +319,6 @@
   </p>
 
   <div class="drawer reveal-h" id="drawer" hidden>
-    <div>
-      <h4>Language</h4>
-      <label><input type="checkbox" data-skill="typescript"> TypeScript</label>
-      <label><input type="checkbox" data-skill="python"> Python</label>
-      <label><input type="checkbox" data-skill="go"> Go</label>
-      <label><input type="checkbox" data-skill="rust"> Rust</label>
-      <label><input type="checkbox" data-skill="java"> Java</label>
-    </div>
     <div>
       <h4>Evidence</h4>
       <!-- Client side, same reasoning as the "Has verified hires" chip:
