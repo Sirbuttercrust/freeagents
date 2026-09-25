@@ -1182,6 +1182,27 @@ export function createApp(
     });
   });
 
+  // ISS1 (bugs.md B30): the one place a third party learns which DID is
+  // FreeAgents' own issuer -- published outside any credential, so a
+  // credential cannot forge it. Public, unauthenticated, cacheable: the
+  // identity changes only when the deployment's signing key changes, so a
+  // caller (or an intermediate cache) may hold this response for a while
+  // without missing anything. The data comes from the SAME
+  // credentialsAdapter every issuance route already shares, never a
+  // second key.
+  app.get('/.well-known/freeagents-issuer.json', async (_req: Request, res: Response) => {
+    try {
+      const description = await credentialsAdapter.describeIssuer();
+      res
+        .status(200)
+        .set('Cache-Control', 'public, max-age=3600')
+        .json(description);
+    } catch (err) {
+      console.error('GET /.well-known/freeagents-issuer.json: failed to describe the issuer', err);
+      res.status(503).json({ error: 'issuer identity unavailable' });
+    }
+  });
+
   // P8b: wires the existing SessionAdapter to HTTP. The adapter itself
   // (src/adapters/identity/session-github-passkey.ts) already mints the
   // state, exchanges the callback, and issues the Session; this route is
