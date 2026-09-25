@@ -20,6 +20,8 @@ import type { Gist, GithubAdapter } from '../../src/adapters/github/types.js';
 import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import type { AgentRepository } from '../../src/adapters/storage/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
+import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
+import { createKnownKeyStore } from '../../src/adapters/identity/did-abt-resolver.js';
 import type { DidDocument, IdentityAdapter, SignedPayload } from '../../src/adapters/identity/types.js';
 import { gistProofPayload } from '../../src/domain/account-proof.js';
 import type { Agent, Delegation, ProofStatus } from '../../src/domain/agent.js';
@@ -211,6 +213,205 @@ describe('POST /agents/:agentDid/account-proof (G1 path two: the signed gist alo
     expect(read.status).toBe(200);
     const readBody = (await read.json()) as Record<string, unknown>;
     expect(readBody.proofStatus).toBe('verified');
+  });
+
+  // PRF1 (bugs.md B31): the defect this card fixes, reproduced exactly. A
+  // brand-new agent whose key the platform has NEVER seen in a prior
+  // signed HTTP request (identityAdapter here is the REAL adapter with a
+  // fresh, empty knownKeys store, the same one createApp wires by default,
+  // not the test's usual verify-by-public-key fake) still verifies on its
+  // very first account-proof call, because the gist statement carries the
+  // agent's own key and identity.verify's binding check accepts it.
+  it('200 (PRF1, bugs.md B31): a brand-new agent verifies on its first proof, no prior agent-signed request', async () => {
+    const realIdentity = createIdentityAdapter(createKnownKeyStore());
+    const realRepo = new MemoryAccountRepository();
+    const realAgentRepo = new MemoryAgentRepository();
+    const realGists = new Map<string, Gist | null>();
+    await realRepo.register({ did: operator.did, githubLogin: 'account-proof-b31-operator' });
+
+    const app = createApp(realRepo, realAgentRepo, realIdentity, fakeGithub(realGists));
+    const server = app.listen(0, '127.0.0.1');
+    try {
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const address = server.address();
+      if (address === null || typeof address === 'string') throw new Error('expected a port');
+      const url = `http://127.0.0.1:${address.port}`;
+
+      // A fresh agent identity this process has never observed a signed
+      // request from -- the exact precondition B31 names.
+      const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(250));
+      await realAgentRepo.create({
+        did: agent.did,
+        operatorDid: operator.did,
+        delegation: delegationFor(agent.did, operator.did),
+        name: 'scout',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+
+      const accountUrl = 'https://github.com/scout-agent-b31';
+      const agentKeyMultibase = agent.keyid.slice(agent.keyid.indexOf('#') + 1);
+      const payload = gistProofPayload(agent.did, accountUrl);
+      const signature = nodeCrypto.sign(null, Buffer.from(payload, 'utf8'), agent.privateKey).toString('base64');
+      const statement = [
+        'FreeAgents GitHub proof',
+        'version: 1',
+        `did: ${agent.did}`,
+        `github: ${accountUrl}`,
+        `signature: ${signature}`,
+        `key: ${agentKeyMultibase}`,
+      ].join('\n');
+      realGists.set('b31-gist', { id: 'b31-gist', owner: 'scout-agent-b31', files: { 'proof.txt': statement } });
+
+      const res = await postSigned(url, `/agents/${agent.did}/account-proof`, {
+        handle: 'scout-agent-b31',
+        gist: 'https://gist.github.com/scout-agent-b31/b31-gist',
+      }, operator);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.proofStatus).toBe('verified');
+      expect(body.githubLogin).toBe('scout-agent-b31');
+
+      const stored = await realAgentRepo.findByDid(agent.did);
+      expect(stored?.proofStatus).toBe('verified');
+    } finally {
+      server.close();
+    }
+  });
+
+  // PRF1 r1 (Proof review round 1, defect 1): a brand-new agent whose gist
+  // follows today's documented v1 format -- no `key` line at all -- still
+  // has no key this process has ever observed, since nothing taught the
+  // platform this DID's key through a prior agent-signed request. That must
+  // not read as a platform outage: the response names the exact remedy (add
+  // a `key: <publicKeyMultibase>` line naming the agent's own key), so
+  // closing B31 never trades one hidden step for another.
+  it('409 (PRF1 r1): a brand-new agent with no key line is told to add one, not told the platform is down', async () => {
+    const realIdentity = createIdentityAdapter(createKnownKeyStore());
+    const realRepo = new MemoryAccountRepository();
+    const realAgentRepo = new MemoryAgentRepository();
+    const realGists = new Map<string, Gist | null>();
+    await realRepo.register({ did: operator.did, githubLogin: 'account-proof-b31-nokeyline-operator' });
+
+    const app = createApp(realRepo, realAgentRepo, realIdentity, fakeGithub(realGists));
+    const server = app.listen(0, '127.0.0.1');
+    try {
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const address = server.address();
+      if (address === null || typeof address === 'string') throw new Error('expected a port');
+      const url = `http://127.0.0.1:${address.port}`;
+
+      // A fresh agent identity, no key line: exactly the format every
+      // existing example (smoke.test.ts, the rehearsal lib) published
+      // before this card.
+      const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(253));
+      await realAgentRepo.create({
+        did: agent.did,
+        operatorDid: operator.did,
+        delegation: delegationFor(agent.did, operator.did),
+        name: 'scout',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+
+      const accountUrl = 'https://github.com/scout-agent-b31-nokeyline';
+      const payload = gistProofPayload(agent.did, accountUrl);
+      const signature = nodeCrypto.sign(null, Buffer.from(payload, 'utf8'), agent.privateKey).toString('base64');
+      const statement = [
+        'version: 1',
+        `did: ${agent.did}`,
+        `github: ${accountUrl}`,
+        `signature: ${signature}`,
+      ].join('\n');
+      realGists.set('b31-nokeyline-gist', {
+        id: 'b31-nokeyline-gist',
+        owner: 'scout-agent-b31-nokeyline',
+        files: { 'proof.txt': statement },
+      });
+
+      const res = await postSigned(url, `/agents/${agent.did}/account-proof`, {
+        handle: 'scout-agent-b31-nokeyline',
+        gist: 'https://gist.github.com/scout-agent-b31-nokeyline/b31-nokeyline-gist',
+      }, operator);
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(String(body.error)).toContain('key:');
+      expect(String(body.error)).toContain('publicKeyMultibase');
+
+      const stored = await realAgentRepo.findByDid(agent.did);
+      expect(stored?.proofStatus).toBe('unverified');
+    } finally {
+      server.close();
+    }
+  });
+
+  // PRF1 r1 (defect 2): the statement's key line names a key that does NOT
+  // derive the claimed agent DID (an attacker's own key, signing over the
+  // same bytes). identity.verify's binding check must reject the candidate
+  // outright; with no fallback observed key either, this is an
+  // operator-fixable conflict (409, naming the bad key line), never a 503
+  // that reads as a platform outage the operator cannot act on.
+  it('409 (PRF1 r1): a key line naming a key that does not derive the agent DID is never trusted', async () => {
+    const realIdentity = createIdentityAdapter(createKnownKeyStore());
+    const realRepo = new MemoryAccountRepository();
+    const realAgentRepo = new MemoryAgentRepository();
+    const realGists = new Map<string, Gist | null>();
+    await realRepo.register({ did: operator.did, githubLogin: 'account-proof-b31-neg-operator' });
+
+    const app = createApp(realRepo, realAgentRepo, realIdentity, fakeGithub(realGists));
+    const server = app.listen(0, '127.0.0.1');
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const address = server.address();
+      if (address === null || typeof address === 'string') throw new Error('expected a port');
+      const url = `http://127.0.0.1:${address.port}`;
+
+      const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(251));
+      const attacker = await signingIdentityFromSeed(new Uint8Array(32).fill(252));
+      await realAgentRepo.create({
+        did: agent.did,
+        operatorDid: operator.did,
+        delegation: delegationFor(agent.did, operator.did),
+        name: 'scout',
+        skills: ['triage'],
+        githubLogin: null,
+      });
+
+      const accountUrl = 'https://github.com/scout-agent-b31-neg';
+      const attackerKeyMultibase = attacker.keyid.slice(attacker.keyid.indexOf('#') + 1);
+      // Signed by the attacker's own key, over the bytes naming the VICTIM's
+      // DID: a genuine signature, just not one the victim's own key made.
+      const payload = gistProofPayload(agent.did, accountUrl);
+      const signature = nodeCrypto.sign(null, Buffer.from(payload, 'utf8'), attacker.privateKey).toString('base64');
+      const statement = [
+        'version: 1',
+        `did: ${agent.did}`,
+        `github: ${accountUrl}`,
+        `signature: ${signature}`,
+        `key: ${attackerKeyMultibase}`,
+      ].join('\n');
+      realGists.set('b31-neg-gist', {
+        id: 'b31-neg-gist',
+        owner: 'scout-agent-b31-neg',
+        files: { 'proof.txt': statement },
+      });
+
+      const res = await postSigned(url, `/agents/${agent.did}/account-proof`, {
+        handle: 'scout-agent-b31-neg',
+        gist: 'https://gist.github.com/scout-agent-b31-neg/b31-neg-gist',
+      }, operator);
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(String(body.error)).toContain('key line');
+      expect(String(body.error)).toContain(agent.did);
+
+      const stored = await realAgentRepo.findByDid(agent.did);
+      expect(stored?.proofStatus).toBe('unverified');
+    } finally {
+      errSpy.mockRestore();
+      server.close();
+    }
   });
 
   it('400: malformed handles, unsigned: body shape is checked before authentication', async () => {
