@@ -12,7 +12,7 @@ import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-
 import { fromRandom } from '@ocap/wallet';
 import { fromPublicKey } from '@arcblock/did';
 
-import { createIdentityAdapter } from '../../../src/adapters/identity/identity.js';
+import { createIdentityAdapter, CandidateKeyRejectedError, DidNotResolvableError } from '../../../src/adapters/identity/identity.js';
 import { createKnownKeyStore } from '../../../src/adapters/identity/did-abt-resolver.js';
 import { MemoryObservedKeyRepository } from '../../../src/adapters/storage/memory.js';
 import { signingIdentityFromWallet } from '../../helpers/sign-request.js';
@@ -144,7 +144,7 @@ describe('createIdentityAdapter, verify with a candidate key (PRF1, bugs.md B31)
     ).resolves.toBe(true);
   });
 
-  it('MUTATION PROOF: a candidate key that does not derive the claimed DID is never trusted, and an unobserved DID still throws', async () => {
+  it('MUTATION PROOF: a candidate key that does not derive the claimed DID is never trusted, and an unobserved DID still throws CandidateKeyRejectedError', async () => {
     const identity = createIdentityAdapter(createKnownKeyStore());
     const wallet = fromRandom();
     const signing = await signingIdentityFromWallet(wallet);
@@ -160,7 +160,33 @@ describe('createIdentityAdapter, verify with a candidate key (PRF1, bugs.md B31)
 
     await expect(
       identity.verify({ payload, signature, signerDid: signing.did, candidateKeyMultibase: wrongCandidateKey }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(CandidateKeyRejectedError);
+  });
+
+  // PRF1 r1 (defect 2): the two failure shapes must stay distinguishable, so
+  // the route can answer with an operator-fixable 409 for one and an honest
+  // 503 for the other.
+  it('throws CandidateKeyRejectedError (not DidNotResolvableError) when a candidate was offered but rejected', async () => {
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const wallet = fromRandom();
+    const signing = await signingIdentityFromWallet(wallet);
+
+    await expect(
+      identity.verify({
+        payload: 'x',
+        signature: 'AAAA',
+        signerDid: signing.did,
+        candidateKeyMultibase: 'not-a-real-fingerprint',
+      }),
+    ).rejects.toThrow(CandidateKeyRejectedError);
+  });
+
+  it('throws DidNotResolvableError, not CandidateKeyRejectedError, when no candidate was offered at all', async () => {
+    const identity = createIdentityAdapter(createKnownKeyStore());
+
+    await expect(
+      identity.verify({ payload: 'x', signature: 'AAAA', signerDid: 'did:abt:zNeverObserved' }),
+    ).rejects.toThrow(DidNotResolvableError);
   });
 
   it('a candidate key that derives the DID but does not match the signature bytes is a false, never a throw', async () => {

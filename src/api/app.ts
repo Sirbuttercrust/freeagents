@@ -23,7 +23,7 @@ import {
 } from '../adapters/github/types.js';
 import { createDidAbtSigningKeyResolver, createKnownKeyStore } from '../adapters/identity/did-abt-resolver.js';
 import { verify as verifySignature } from '../adapters/identity/http-signature.js';
-import { createIdentityAdapter } from '../adapters/identity/identity.js';
+import { CandidateKeyRejectedError, createIdentityAdapter, DidNotResolvableError } from '../adapters/identity/identity.js';
 import type { IdentityAdapter } from '../adapters/identity/types.js';
 import { createRateLimiter, type RateLimiter } from '../adapters/identity/verify-rate-limit.js';
 import { createSignatureSpendStorage } from '../adapters/identity/signature-spend-storage.js';
@@ -2314,6 +2314,33 @@ export function createApp(
         ...(statement.key !== undefined ? { candidateKeyMultibase: statement.key } : {}),
       });
     } catch (err) {
+      // PRF1 r1 (Proof review round 1, defect 1 and 2): an unresolvable DID
+      // has two different remedies, and only one of them is the operator's
+      // to fix. CandidateKeyRejectedError means a `key` line was present but
+      // named a key that does not derive this agent's own DID: the gist is
+      // public and operator-authored, so this is a 409 naming the fix, not
+      // an outage. DidNotResolvableError (per identity.ts's own contract,
+      // now only ever thrown when NO candidate was offered at all) is the
+      // original B31 gap: the platform genuinely has no key for this DID
+      // yet, and the fix is the same one-line addition, so this is also a
+      // 409 naming it, never a message that reads like a platform failure
+      // with no visible way out. Every other thrown error (the identity
+      // subsystem itself failing, as the dedicated verifier-down test
+      // simulates) is a real platform fault and stays a 503.
+      if (err instanceof CandidateKeyRejectedError) {
+        console.error('POST /agents/:agentDid/account-proof: candidate key rejected', err);
+        res.status(409).json({
+          error: `direction two (signed gist): the key line does not derive ${did}; check the publicKeyMultibase on the key line matches this agent's own key`,
+        });
+        return;
+      }
+      if (err instanceof DidNotResolvableError) {
+        console.error('POST /agents/:agentDid/account-proof: identity verification failed', err);
+        res.status(409).json({
+          error: 'direction two (signed gist): this agent has no key on record yet; add a `key: <publicKeyMultibase>` line to the gist statement naming the agent\'s own key',
+        });
+        return;
+      }
       console.error('POST /agents/:agentDid/account-proof: identity verification failed', err);
       res.status(503).json({ error: 'identity verification unavailable' });
       return;

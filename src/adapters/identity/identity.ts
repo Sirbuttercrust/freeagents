@@ -46,6 +46,21 @@ export class DidNotResolvableError extends Error {
   }
 }
 
+// PRF1 r1 (Proof review round 1, defect 1 and 2): verify() throws this,
+// distinct from DidNotResolvableError, exactly when a caller offered a
+// candidate key and the binding check rejected it (malformed, or it derives
+// some other DID) and the observed-key store had nothing to fall back on
+// either. The account-proof route needs the two apart because only one has
+// an operator-actionable remedy: a rejected candidate names a fixable gist
+// line, while an absent candidate on an unobserved DID means "no key at
+// all was offered" (DidNotResolvableError keeps that meaning unchanged).
+export class CandidateKeyRejectedError extends Error {
+  constructor(did: string) {
+    super(`the candidate key offered for ${did} does not derive that DID, and no other key has been observed for it`);
+    this.name = 'CandidateKeyRejectedError';
+  }
+}
+
 // Real implementation is @arcblock/did behind this factory. verifyDelegation
 // uses W3C Ed25519Signature2020 suite for third-party verifiability (invariant 2):
 // the verification uses only the credential itself, no DID resolution and no
@@ -198,21 +213,34 @@ export function createIdentityAdapter(
     // resolver already apply to every other key this service accepts: the
     // public key must itself derive signerDid via did:abt's own encoding
     // (fromPublicKey), never taken on the caller's word. A candidate that
-    // fails that check (malformed, or derives some other DID) is silently
-    // ignored, falling back to the observed-key store exactly as before --
-    // so an attacker cannot use a bad candidate to force a different
-    // failure mode than an absent one, and a well-behaved caller who
-    // simply omits the field sees no change at all.
+    // fails that check (malformed, or derives some other DID) falls back
+    // to the observed-key store exactly as before, so a well-behaved
+    // caller who simply omits the field sees no change at all.
+    //
+    // PRF1 r1 (Proof review round 1, defect 2): when the fallback ALSO has
+    // nothing, the two ways of getting here are told apart. A caller who
+    // offered a candidate and had it rejected gets CandidateKeyRejectedError:
+    // the gist is public and operator-authored, so naming the bad line back
+    // is an operator-fixable conflict, not a platform outage. A caller who
+    // offered no candidate at all keeps the original DidNotResolvableError.
+    // Neither path is a security downgrade: the rejection already happened
+    // inside candidateVerificationMethod's binding check before this branch
+    // runs, so nothing here lets an unbound key through.
     async verify(signed: SignedPayload): Promise<boolean> {
       const candidate = signed.candidateKeyMultibase;
+      const candidateOffered = typeof candidate === 'string' && candidate.length > 0;
       let verificationMethod: string | null = null;
-      if (typeof candidate === 'string' && candidate.length > 0) {
+      if (candidateOffered) {
         verificationMethod = await candidateVerificationMethod(signed.signerDid, candidate);
       }
+      const candidateRejected = candidateOffered && verificationMethod === null;
       if (verificationMethod === null) {
         verificationMethod = await resolveVerificationMethod(signed.signerDid);
       }
       if (verificationMethod === null) {
+        if (candidateRejected) {
+          throw new CandidateKeyRejectedError(signed.signerDid);
+        }
         throw new DidNotResolvableError(signed.signerDid);
       }
       const fragment = verificationMethod.slice(verificationMethod.indexOf('#') + 1);
