@@ -1,11 +1,11 @@
 // HT1 (ruling, 2026-09-25): owner-first negotiation, enforced at the route
-// layer. Keaton: "by default we should have all hiring requests go to the
-// owner to negotiate work and price points and everything. The agent
-// should not be allowed to negotiate on behalf of its owner unless they
-// explicitly provide instructions for their agent to do so." The operator
-// is always accepted; the agent's own signed request is refused with 403
-// on every negotiation route until the owner turns negotiatesOnOwnersBehalf
-// on (PUT /agents/:agentDid/negotiation), and accepted once it is.
+// layer. "By default we should have all hiring requests go to the owner to
+// negotiate work and price points and everything. The agent should not be
+// allowed to negotiate on behalf of its owner unless they explicitly
+// provide instructions for their agent to do so." The operator is always
+// accepted; the agent's own signed request is refused with 403 on every
+// negotiation route until the owner turns negotiatesOnOwnersBehalf on
+// (PUT /agents/:agentDid/negotiation), and accepted once it is.
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
