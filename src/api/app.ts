@@ -43,6 +43,7 @@ import {
   AccountAlreadyExistsError,
   ReviewAlreadyExistsError,
   type AgentRepository,
+  type UpdateListingInput,
   type AttestationRepository,
   type StoredAttestation,
   type CompromiseRepository,
@@ -3983,6 +3984,87 @@ export function createApp(
       res.status(200).json(agentProjection(updated));
     } catch (err) {
       console.error('PUT /agents/:agentDid/webhook: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // FIX-B41b: the owner's edit of an already-listed agent. Body may name
+  // any of { name, description, skills, floorPriceUsd }, validated
+  // exactly as POST /agents validates them (app.ts :3120-3132 above);
+  // description and floorPriceUsd may be null (clears them), name and
+  // skills may not. Naming none of the four is 400. Any other field in
+  // the body (did, delegation, githubLogin, proofStatus, operatorDid...)
+  // changes nothing: UpdateListingInput has no field for it, so it never
+  // reaches the storage write regardless of what this function does with
+  // the rest of the body. Order matches the negotiation route's own
+  // (app.ts :3933-3957): the body's shape first (400), then
+  // requireCallerIsAgentOperator, which carries unsigned 401, registered
+  // stranger 403 and unknown agent 404 in one call, then the write.
+  function editListingBodyError(body: Record<string, unknown>): string | null {
+    const { name, description, skills, floorPriceUsd } = body;
+    if (name === undefined && description === undefined && skills === undefined && floorPriceUsd === undefined) {
+      return 'body must name at least one of { name, description, skills, floorPriceUsd }';
+    }
+    if (name !== undefined && (typeof name !== 'string' || name.length === 0)) {
+      return 'name must be a non-empty string';
+    }
+    if (!descriptionWellFormed(description)) {
+      return 'description (if present) must be null or one line 1 to 160 characters trimmed with no line break';
+    }
+    if (
+      skills !== undefined &&
+      (!Array.isArray(skills) || skills.length === 0 || skills.some((s) => typeof s !== 'string' || s.length === 0))
+    ) {
+      return 'skills (if present) must be a non-empty list of non-empty strings';
+    }
+    if (
+      floorPriceUsd !== undefined && floorPriceUsd !== null &&
+      (typeof floorPriceUsd !== 'string' || !/^\d+\.\d{2}$/.test(floorPriceUsd))
+    ) {
+      return 'floorPriceUsd (if present) must be null or a decimal string with exactly two places';
+    }
+    return null;
+  }
+
+  app.patch('/agents/:agentDid', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const bodyError = editListingBodyError(body);
+    if (bodyError !== null) {
+      res.status(400).json({ error: bodyError });
+      return;
+    }
+
+    const gated = await requireCallerIsAgentOperator('PATCH /agents/:agentDid', req, res, did);
+    if (gated === null) return;
+
+    // Only the four validated fields are ever forwarded to storage, each
+    // via `in` (not `!== undefined`) so an OMITTED key leaves the stored
+    // value untouched while an explicit `null` on description or
+    // floorPriceUsd clears it -- the same three-state distinction
+    // UpdateListingInput documents.
+    const input: UpdateListingInput = {
+      ...('name' in body ? { name: body.name as string } : {}),
+      ...('description' in body ? { description: body.description as string | null } : {}),
+      ...('skills' in body ? { skills: body.skills as readonly string[] } : {}),
+      ...('floorPriceUsd' in body ? { floorPriceUsd: body.floorPriceUsd as string | null } : {}),
+    };
+
+    if (typeof agentRepo.updateListing !== 'function') {
+      console.error('PATCH /agents/:agentDid: storage does not support updateListing');
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+
+    try {
+      const updated = await agentRepo.updateListing(did, input);
+      if (updated === null) {
+        res.status(404).json({ error: `agent ${did} is not registered` });
+        return;
+      }
+      res.status(200).json(agentProjection(updated));
+    } catch (err) {
+      console.error('PATCH /agents/:agentDid: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });

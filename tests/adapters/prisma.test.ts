@@ -766,6 +766,118 @@ describe('PrismaAgentRepository', () => {
     expect(err).toBe(original);
   });
 
+  // FIX-B41b: updateListing sends only the four fields UpdateListingInput
+  // can carry to the client, and maps the row back through toAgent (the
+  // driver's own re-fetch through agentWithRotations, the same pattern
+  // updateGithubBinding above uses).
+  it('updateListing: sends only the four validated fields to the client and maps the row back through toAgent', async () => {
+    const createdAt = new Date('2026-09-25T05:00:00.000Z');
+    const updatedRow = {
+      did: 'did:abt:agent-edit-1',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout-renamed',
+      description: 'Now with a bio.',
+      skills: ['coding'],
+      githubLogin: null,
+      proofStatus: 'unverified' as const,
+      createdAt,
+      floorPriceUsd: '10.00',
+    };
+    vi.mocked(mock.agentUpdate).mockResolvedValue(updatedRow);
+    vi.mocked(mock.agentFindUnique).mockResolvedValue(updatedRow);
+    vi.mocked(mock.keyRotationFindMany).mockResolvedValue([]);
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.updateListing('did:abt:agent-edit-1', {
+      name: 'scout-renamed',
+      description: 'Now with a bio.',
+      skills: ['coding'],
+      floorPriceUsd: '10.00',
+    });
+
+    expect(mock.agentUpdate).toHaveBeenCalledWith({
+      where: { did: 'did:abt:agent-edit-1' },
+      data: { name: 'scout-renamed', description: 'Now with a bio.', skills: ['coding'], floorPriceUsd: '10.00' },
+    });
+    expect(row?.name).toBe('scout-renamed');
+    expect(row?.description).toBe('Now with a bio.');
+    expect(row?.skills).toEqual(['coding']);
+    expect(row?.floorPriceUsd).toBe('10.00');
+  });
+
+  it('updateListing: an omitted field is never sent to the client, only the present ones', async () => {
+    const createdAt = new Date('2026-09-25T05:00:00.000Z');
+    const updatedRow = {
+      did: 'did:abt:agent-edit-2',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout-renamed-only',
+      description: null,
+      skills: ['triage'],
+      githubLogin: null,
+      proofStatus: 'unverified' as const,
+      createdAt,
+    };
+    vi.mocked(mock.agentUpdate).mockResolvedValue(updatedRow);
+    vi.mocked(mock.agentFindUnique).mockResolvedValue(updatedRow);
+    vi.mocked(mock.keyRotationFindMany).mockResolvedValue([]);
+
+    const repo = new PrismaAgentRepository();
+    await repo.updateListing('did:abt:agent-edit-2', { name: 'scout-renamed-only' });
+
+    expect(mock.agentUpdate).toHaveBeenCalledWith({
+      where: { did: 'did:abt:agent-edit-2' },
+      data: { name: 'scout-renamed-only' },
+    });
+  });
+
+  it('updateListing: description null clears it (sent as null, not omitted)', async () => {
+    const createdAt = new Date('2026-09-25T05:00:00.000Z');
+    const updatedRow = {
+      did: 'did:abt:agent-edit-3',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      description: null,
+      skills: ['triage'],
+      githubLogin: null,
+      proofStatus: 'unverified' as const,
+      createdAt,
+    };
+    vi.mocked(mock.agentUpdate).mockResolvedValue(updatedRow);
+    vi.mocked(mock.agentFindUnique).mockResolvedValue(updatedRow);
+    vi.mocked(mock.keyRotationFindMany).mockResolvedValue([]);
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.updateListing('did:abt:agent-edit-3', { description: null });
+
+    expect(mock.agentUpdate).toHaveBeenCalledWith({
+      where: { did: 'did:abt:agent-edit-3' },
+      data: { description: null },
+    });
+    expect(row?.description).toBeNull();
+  });
+
+  it('updateListing: a P2025 not-found comes back as null, not an error', async () => {
+    vi.mocked(mock.agentUpdate).mockRejectedValue(p2025('did:abt:agent-none'));
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.updateListing('did:abt:agent-none', { name: 'renamed' });
+
+    expect(row).toBeNull();
+  });
+
+  it('updateListing: a non-Prisma error is rethrown untouched', async () => {
+    const original = new Error('disk full');
+    vi.mocked(mock.agentUpdate).mockRejectedValue(original);
+
+    const repo = new PrismaAgentRepository();
+    const err = await repo.updateListing('did:abt:agent-edit-4', { name: 'renamed' }).catch((e: unknown) => e);
+
+    expect(err).toBe(original);
+  });
+
   it('findByDid: rotation rows are projected in the order the database returns them', async () => {
     const createdAt = new Date('2026-08-20T05:00:00.000Z');
     const first = new Date('2026-08-21T01:00:00.000Z');

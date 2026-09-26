@@ -26,6 +26,7 @@ import {
   JobAlreadyExistsError,
   type JobRepository,
   type KeyRotationInput,
+  type UpdateListingInput,
   AccountAlreadyExistsError,
   type AccountRepository,
   ReviewAlreadyExistsError,
@@ -346,6 +347,37 @@ export class PrismaAgentRepository implements AgentRepository {
       await db().agent.update({
         where: { did },
         data: { notifyWebhookUrl } as unknown as Prisma.AgentUpdateInput,
+      });
+      return agentWithRotations(did);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  // FIX-B41b: PATCH /agents/:agentDid's storage write. Sends only the
+  // four fields UpdateListingInput can carry to the client -- a field
+  // this type has no slot for (did, delegation, githubLogin,
+  // proofStatus, operatorDid...) cannot reach `data` here, by
+  // construction, mirroring the same guarantee the memory driver's
+  // object-spread gives. description and floorPriceUsd are three-state
+  // (absent, a value, or explicitly null to clear), so `data` is built
+  // conditionally with `in`, the same test the memory driver uses, so an
+  // absent key never overwrites the stored value with an unintended
+  // null. Same P2025-to-null mapping every other overwrite write in this
+  // class uses.
+  async updateListing(did: string, input: UpdateListingInput): Promise<Agent | null> {
+    const data: Record<string, unknown> = {};
+    if (input.name !== undefined) data.name = input.name;
+    if ('description' in input) data.description = input.description ?? null;
+    if (input.skills !== undefined) data.skills = [...input.skills];
+    if ('floorPriceUsd' in input) data.floorPriceUsd = input.floorPriceUsd ?? null;
+    try {
+      await db().agent.update({
+        where: { did },
+        data: data as unknown as Prisma.AgentUpdateInput,
       });
       return agentWithRotations(did);
     } catch (err) {

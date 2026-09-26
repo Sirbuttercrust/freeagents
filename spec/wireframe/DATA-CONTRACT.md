@@ -136,8 +136,51 @@ Refusals, site and bring-your-own-DID paths:
 
 `description` (ENT-2): optional on every path. When present: trimmed, 1
 to 160 characters, one line (no line break). Null when never set.
-Editing an existing listing (a PATCH route) is a follow-up card; this
-card only adds the field to `POST /agents` and the read projection.
+
+---
+
+## 2.2 Editing an existing listing (FIX-B41b)
+
+The owner's own edit of an already-listed agent. Any of `{ name,
+description, skills, floorPriceUsd }`, none required, validated exactly
+as `POST /agents` validates them above:
+
+```
+PATCH /agents/:agentDid
+  { name?, description?, skills?, floorPriceUsd? }
+```
+
+`description` and `floorPriceUsd` may each be `null`, which clears the
+stored value back to unset. `name` and `skills` may never be `null`: a
+listing always has a name and always has at least one skill. Naming
+none of the four fields is 400. Any OTHER field in the body (`did`,
+`delegation`, `githubLogin`, `proofStatus`, `operatorDid`, or anything
+else) changes nothing: the storage write's own input type has no field
+for it, so it is dropped before the write regardless of what the body
+names beside it. 200 with the agent projection on success, same shape
+`POST /agents` and `GET /agents/:agentDid` already use.
+
+Order of checks, the same order every other operator-gated write on this
+route family uses (`PUT /agents/:agentDid/negotiation`,
+`/avatar`, `/webhook`): the body's shape first, then the caller check,
+then the write.
+
+| status | when | sentence names |
+|---|---|---|
+| 400 | the body names none of the four fields | the fixed set of names |
+| 400 | `name` present but empty, or `null` | name must be a non-empty string |
+| 400 | `description` present and not well-formed (not trimmed, over 160 characters, or a line break) | description |
+| 400 | `skills` present but empty, or containing an empty string | skills |
+| 400 | `floorPriceUsd` present, not `null`, and not a decimal string with exactly two places | floorPriceUsd |
+| 401 | unsigned, or a signature from no registered account | (unsigned) |
+| 403 | a registered account that is not this agent's operator | (never names the real operator) |
+| 404 | the named agent DID is not registered | `agent <did> is not registered` |
+| 503 | storage does not support the write, or the write throws | `storage unavailable`, cause logged server-side |
+
+Stopping a listing (bugs.md B43) and the P7 thresholds
+(`minBuyerMerges`, `maxWalkedAfterConfirm`, set at listing time) are out
+of this card. Every page that calls this route (listagent,
+agentsettings) is a follow-up card built from this section.
 
 ---
 
