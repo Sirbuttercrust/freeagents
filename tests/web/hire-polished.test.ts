@@ -426,11 +426,16 @@ describe('4. the wireframe\u2019s builder notes are not rendered as copy', () =>
         'Our design tokens are duplicated across three packages',
       );
 
-      // Two controls, no others: the agent quotes price and delivery from the
-      // brief, so a field for either here would be the buyer negotiating
-      // against themselves before the agent has read anything.
+      // Two REQUIRED controls, no others outside a disclosure: the agent
+      // quotes price and delivery from the brief, so a field for either
+      // here would be the buyer negotiating against themselves before
+      // the agent has read anything. HT1 Part A2 adds two OPTIONAL agent
+      // fields behind "Add up to two more agents" (agent-2, agent-3): a
+      // buyer who never opens that disclosure sends the brief to one
+      // agent exactly as before, so the field count itself is now four,
+      // not two, but only two are load-bearing on the primary path.
       const fields = Array.from(page.document.querySelectorAll('#hire-form input, #hire-form textarea, #hire-form select'));
-      expect(fields.map((el) => el.id).sort(), 'this page carries exactly two controls').toEqual(['brief', 'repo']);
+      expect(fields.map((el) => el.id).sort(), 'this page carries exactly four controls (two required, two optional behind a disclosure)').toEqual(['agent-2', 'agent-3', 'brief', 'repo']);
       expect(
         Array.from(page.document.querySelectorAll('#hire-form select')).length,
         'a <select> here can only be populated with repositories nothing serves',

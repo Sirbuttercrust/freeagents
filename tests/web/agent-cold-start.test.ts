@@ -89,6 +89,7 @@ function credentialDoc(
 function jobFixture(overrides: Partial<Job> & { id: string; agentDid: string }): Job {
   return {
     buyerDid: 'did:example:r18-buyer',
+    requestId: null,
     repository: 'buyer/r18-repo',
     brief: 'Fix the checkout flow',
     briefHash: 'sha256:brief',

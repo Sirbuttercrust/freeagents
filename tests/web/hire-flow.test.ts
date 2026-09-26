@@ -28,6 +28,9 @@ import type { SessionAdapter } from '../../src/adapters/identity/session.js';
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 
 const AGENT_DID = 'did:abt:hire-page-agent';
+// HT1 Part A2: a second agent, registered up front, for the "add up to
+// two more agents" disclosure tests below.
+const SECOND_AGENT_DID = 'did:abt:hire-page-second-agent';
 
 function delegationFixture(did: string, operatorDid: string): Delegation {
   return {
@@ -141,6 +144,14 @@ describe('the hire screen, driven end to end against the real app', () => {
       operatorDid: 'did:abt:hire-page-operator',
       delegation: delegationFixture(AGENT_DID, 'did:abt:hire-page-operator'),
       name: 'hire-page-scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    await agentRepo.create({
+      did: SECOND_AGENT_DID,
+      operatorDid: 'did:abt:hire-page-second-operator',
+      delegation: delegationFixture(SECOND_AGENT_DID, 'did:abt:hire-page-second-operator'),
+      name: 'hire-page-second-scout',
       skills: ['triage'],
       githubLogin: null,
     });
@@ -280,6 +291,111 @@ describe('the hire screen, driven end to end against the real app', () => {
         expect(body.repository).toBe('buyer/target-repo');
         expect(body.agentDid).toBe(AGENT_DID);
         expect(body.id).toBe(jobId);
+      } finally {
+        nav.restore();
+        page.close();
+      }
+    });
+  });
+
+  // HT1 Part A2: "add up to two more agents". A buyer who fills the two
+  // optional fields behind that disclosure sends agentDids, not agentDid,
+  // and every resulting job is readable at its own /jobs/<id>.
+  describe('a signed-in buyer opens the "add up to two more agents" disclosure', () => {
+    it('filling the second agent sends agentDids and opens two jobs, landing on the first', async () => {
+      const brief = 'A brief sent to two agents from the disclosure panel.';
+      const page = await renderHire(baseUrl, `/hire?agent=${encodeURIComponent(AGENT_DID)}`, { token });
+      const nav = captureNavigations();
+      try {
+        const disclose = page.document.querySelector('[data-disclose="more-agents"]') as HTMLButtonElement | null;
+        expect(disclose).not.toBeNull();
+        disclose!.click();
+
+        const agent2Input = page.document.getElementById('agent-2') as HTMLInputElement | null;
+        expect(agent2Input).not.toBeNull();
+        agent2Input!.value = SECOND_AGENT_DID;
+
+        const repoInput = page.document.getElementById('repo') as HTMLInputElement | null;
+        const briefInput = page.document.getElementById('brief') as HTMLTextAreaElement | null;
+        repoInput!.value = 'buyer/target-repo';
+        briefInput!.value = brief;
+
+        (page.document.getElementById('btn-send') as HTMLButtonElement).click();
+
+        await new Promise<void>((resolve) => {
+          const check = (): void => {
+            if (nav.calls.some((v) => v.startsWith('/jobs/'))) {
+              resolve();
+              return;
+            }
+            setTimeout(check, 25);
+          };
+          check();
+        });
+
+        const destination = nav.calls.find((v) => v.startsWith('/jobs/')) ?? '';
+        const firstJobId = destination.replace('/jobs/', '');
+        expect(firstJobId).not.toBe('');
+
+        // The first job (the agent the buyer arrived at this page to hire)
+        // is readable, carries the brief, and its agentDid is the FIRST
+        // one in the agentDids array the buyer's form built -- never the
+        // second agent, so landing on "the first job" is deterministic.
+        const readBack = await fetch(`${baseUrl}/jobs/${firstJobId}`, { headers: { Accept: 'application/json' } });
+        expect(readBack.status).toBe(200);
+        const body = (await readBack.json()) as Record<string, unknown>;
+        expect(body.brief).toBe(brief);
+        expect(body.agentDid).toBe(AGENT_DID);
+
+        // And a sibling job for the second agent actually exists too (the
+        // buyer really did send one brief to two agents, not one silently
+        // dropped) -- read via the second agent's own account, since the
+        // route never lets a bare page navigation reveal it.
+        const secondAgentJobs = await jobRepo.findByAgentDid?.(SECOND_AGENT_DID);
+        expect(secondAgentJobs?.length).toBe(1);
+        expect(secondAgentJobs?.[0]?.brief).toBe(brief);
+      } finally {
+        nav.restore();
+        page.close();
+      }
+    });
+
+    it('leaving both extra fields empty sends the pre-A2 single-agentDid body, unchanged', async () => {
+      const brief = 'A brief where the disclosure was opened, then left empty.';
+      const page = await renderHire(baseUrl, `/hire?agent=${encodeURIComponent(AGENT_DID)}`, { token });
+      const nav = captureNavigations();
+      try {
+        const disclose = page.document.querySelector('[data-disclose="more-agents"]') as HTMLButtonElement | null;
+        disclose!.click();
+        // Opened, but neither field is touched.
+
+        const repoInput = page.document.getElementById('repo') as HTMLInputElement | null;
+        const briefInput = page.document.getElementById('brief') as HTMLTextAreaElement | null;
+        repoInput!.value = 'buyer/target-repo';
+        briefInput!.value = brief;
+
+        (page.document.getElementById('btn-send') as HTMLButtonElement).click();
+
+        await new Promise<void>((resolve) => {
+          const check = (): void => {
+            if (nav.calls.some((v) => v.startsWith('/jobs/'))) {
+              resolve();
+              return;
+            }
+            setTimeout(check, 25);
+          };
+          check();
+        });
+
+        const destination = nav.calls.find((v) => v.startsWith('/jobs/')) ?? '';
+        const jobId = destination.replace('/jobs/', '');
+        const readBack = await fetch(`${baseUrl}/jobs/${jobId}`, { headers: { Accept: 'application/json' } });
+        const body = (await readBack.json()) as Record<string, unknown>;
+        // The single-agent shape, no requestId key at all: opening the
+        // disclosure and leaving it empty must not silently switch the
+        // wire shape.
+        expect(Object.prototype.hasOwnProperty.call(body, 'requestId')).toBe(false);
+        expect(body.agentDid).toBe(AGENT_DID);
       } finally {
         nav.restore();
         page.close();

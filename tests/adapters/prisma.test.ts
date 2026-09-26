@@ -88,6 +88,7 @@ const jobFixture = {
   id: 'job_1',
   buyerDid: 'did:example:buyer',
   agentDid: 'did:example:agent',
+  requestId: null,
   repository: 'buyer/target-repo',
   brief: 'Fix the login bug on the checkout page',
   briefHash: 'sha256:brief',
@@ -909,6 +910,7 @@ describe('PrismaJobRepository', () => {
         'mergedAt',
         'pullRequestUrl',
         'repository',
+        'requestId',
         'status',
         'submittedAt',
         'deadline',
@@ -986,6 +988,7 @@ describe('PrismaJobRepository', () => {
       data: {
         buyerDid: updated.buyerDid,
         agentDid: updated.agentDid,
+        requestId: updated.requestId,
         repository: updated.repository,
         brief: updated.brief,
         briefHash: updated.briefHash,
@@ -1209,6 +1212,7 @@ describe('PrismaJobRepository', () => {
       data: {
         buyerDid: completedFixture.buyerDid,
         agentDid: completedFixture.agentDid,
+        requestId: completedFixture.requestId,
         repository: completedFixture.repository,
         brief: completedFixture.brief,
         briefHash: completedFixture.briefHash,

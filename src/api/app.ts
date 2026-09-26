@@ -2959,25 +2959,84 @@ export function createApp(
     const body = (req.body ?? {}) as Record<string, unknown>;
     const claimedBuyerDid = body.buyerDid;
     const agentDid = body.agentDid;
+    const agentDidsRaw = body.agentDids;
     const repository = body.repository;
     const brief = body.brief;
 
+    // HT1 Part A2: `agentDids` is the multi-agent shape (1 to 3 agents in
+    // one request, per the brief). `agentDid` is the pre-existing
+    // single-agent shape and stays completely unchanged in both its body
+    // and its 201 response, so no existing test that posts a single
+    // agentDid is touched. The two are mutually exclusive on the wire:
+    // naming both is a 400, not a guess at which one wins.
+    if (agentDidsRaw !== undefined && agentDid !== undefined) {
+      res.status(400).json({
+        error: 'body must name agentDid or agentDids, not both',
+      });
+      return;
+    }
+
+    let agentDids: string[];
+    const isMultiAgentRequest = agentDidsRaw !== undefined;
+    if (isMultiAgentRequest) {
+      if (
+        !Array.isArray(agentDidsRaw) ||
+        agentDidsRaw.length === 0 ||
+        !agentDidsRaw.every((value) => typeof value === 'string' && value.length > 0)
+      ) {
+        res.status(400).json({
+          error: 'agentDids must be a non-empty array of non-empty agent DID strings',
+        });
+        return;
+      }
+      if (agentDidsRaw.length > 3) {
+        res.status(400).json({
+          error: 'a brief may go to at most 3 agents in one request',
+        });
+        return;
+      }
+      if (new Set(agentDidsRaw).size !== agentDidsRaw.length) {
+        res.status(400).json({
+          error: 'agentDids must not name the same agent twice',
+        });
+        return;
+      }
+      agentDids = agentDidsRaw as string[];
+    } else {
+      if (
+        (claimedBuyerDid !== undefined && typeof claimedBuyerDid !== 'string') ||
+        typeof agentDid !== 'string' || agentDid.length === 0 ||
+        typeof repository !== 'string' || repository.length === 0 ||
+        typeof brief !== 'string' || brief.length === 0
+      ) {
+        res.status(400).json({
+          error: 'body must be { agentDid, repository, brief, buyerDid? }; agentDid, repository, brief non-empty strings, buyerDid (if present) a string',
+        });
+        return;
+      }
+      agentDids = [agentDid];
+    }
+
     if (
       (claimedBuyerDid !== undefined && typeof claimedBuyerDid !== 'string') ||
-      typeof agentDid !== 'string' || agentDid.length === 0 ||
       typeof repository !== 'string' || repository.length === 0 ||
       typeof brief !== 'string' || brief.length === 0
     ) {
       res.status(400).json({
-        error: 'body must be { agentDid, repository, brief, buyerDid? }; agentDid, repository, brief non-empty strings, buyerDid (if present) a string',
+        error: isMultiAgentRequest
+          ? 'body must be { agentDids, repository, brief, buyerDid? }; repository, brief non-empty strings, buyerDid (if present) a string'
+          : 'body must be { agentDid, repository, brief, buyerDid? }; agentDid, repository, brief non-empty strings, buyerDid (if present) a string',
       });
       return;
     }
-    if (!isValidOperatorDid(agentDid)) {
-      res.status(400).json({
-        error: 'agentDid must look like did:abt:<suffix>, non-empty suffix, no whitespace',
-      });
-      return;
+
+    for (const candidateDid of agentDids) {
+      if (!isValidOperatorDid(candidateDid)) {
+        res.status(400).json({
+          error: 'agentDid must look like did:abt:<suffix>, non-empty suffix, no whitespace',
+        });
+        return;
+      }
     }
     // owner/name on GitHub (ENT-4), syntactic only: this issue makes no
     // GitHub calls, so a repo that does not exist surfaces when the PR
@@ -3010,35 +3069,46 @@ export function createApp(
       return;
     }
 
-    let agentRow: Agent | null;
-    try {
-      agentRow = await agentRepo.findByDid(agentDid);
-    } catch (err) {
-      console.error('POST /jobs: storage failed', err);
-      res.status(503).json({ error: 'storage unavailable' });
-      return;
-    }
-    if (agentRow === null) {
-      res.status(404).json({
-        error: `agent ${agentDid} is not registered; delegate an agent on this DID before opening a job for it`,
-      });
-      return;
-    }
-
-    // P7: the operator's own listing filters on buyer conduct. Enforced
-    // here, after the acting party resolves and after the agent row
-    // loads, so a caller sees the earlier failures (unresolved party,
-    // unregistered agent) first. Null means no filter: skip the read
-    // entirely when the operator set neither threshold, so an honest
-    // agent with no filters never pays for a lookup it never asked for.
-    if (agentRow.minBuyerMerges !== null || agentRow.maxWalkedAfterConfirm !== null) {
-      let buyerCounts: BuyerConduct | null;
+    // HT1 Part A2: every named agent is validated (existence, then the
+    // buyer-conduct threshold gate) BEFORE any job row is written, so a
+    // request naming 3 agents where the third is unregistered or refuses
+    // the buyer's conduct record creates zero jobs, not two orphaned ones.
+    const agentRows: Agent[] = [];
+    for (const candidateDid of agentDids) {
+      let agentRow: Agent | null;
       try {
-        buyerCounts = await buyerConductForDid(buyerDid, repo, jobRepo);
+        agentRow = await agentRepo.findByDid(candidateDid);
       } catch (err) {
         console.error('POST /jobs: storage failed', err);
         res.status(503).json({ error: 'storage unavailable' });
         return;
+      }
+      if (agentRow === null) {
+        res.status(404).json({
+          error: `agent ${candidateDid} is not registered; delegate an agent on this DID before opening a job for it`,
+        });
+        return;
+      }
+      agentRows.push(agentRow);
+    }
+
+    // P7: the operator's own listing filters on buyer conduct. Enforced
+    // here, after the acting party resolves and after every agent row
+    // loads, so a caller sees the earlier failures (unresolved party,
+    // unregistered agent) first. Null means no filter: skip the read
+    // entirely when the operator set neither threshold, so an honest
+    // agent with no filters never pays for a lookup it never asked for.
+    let buyerCounts: BuyerConduct | null | undefined;
+    for (const agentRow of agentRows) {
+      if (agentRow.minBuyerMerges === null && agentRow.maxWalkedAfterConfirm === null) continue;
+      if (buyerCounts === undefined) {
+        try {
+          buyerCounts = await buyerConductForDid(buyerDid, repo, jobRepo);
+        } catch (err) {
+          console.error('POST /jobs: storage failed', err);
+          res.status(503).json({ error: 'storage unavailable' });
+          return;
+        }
       }
       const failure = buyerConductThresholdFailure(buyerCounts, {
         minBuyerMerges: agentRow.minBuyerMerges,
@@ -3050,35 +3120,79 @@ export function createApp(
       }
     }
 
-    const id = 'j-' + randomBytes(8).toString('hex');
+    // HT1 Part A2: requestId is set only when this request actually named
+    // 2 or 3 agents (the design ruling on this seam). A single agentDids entry -- and the
+    // pre-existing agentDid shape, always -- leaves it null, the same
+    // meaning every pre-A2 row already carries.
+    const requestId = agentDids.length > 1 ? 'req-' + randomBytes(8).toString('hex') : null;
+
     // The domain owns the brief rule (createJob rejects a brief that is
     // empty or whitespace-only): the route maps the thrown JobError to 400
     // and passes its message through, so there is one wording of the rule,
-    // not two.
-    let job: Job;
-    try {
-      job = createJob({ id, buyerDid, agentDid, repository, brief }, new Date());
-    } catch (err) {
-      if (err instanceof JobError) {
-        res.status(400).json({ error: err.message });
-        return;
+    // not two. Checked once, against the shared brief, before any row is
+    // written: an empty brief refuses the whole request, not just one job.
+    const jobsToCreate: Job[] = [];
+    for (const candidateDid of agentDids) {
+      const id = 'j-' + randomBytes(8).toString('hex');
+      let job: Job;
+      try {
+        job = createJob({ id, buyerDid, agentDid: candidateDid, repository, brief, requestId }, new Date());
+      } catch (err) {
+        if (err instanceof JobError) {
+          res.status(400).json({ error: err.message });
+          return;
+        }
+        throw err;
       }
-      throw err;
+      jobsToCreate.push(job);
     }
+
+    const createdRows: Job[] = [];
     try {
-      const row = await jobRepo.create(job);
-      res.status(201).json({ ...jobProjection(row), ...githubAccessNeededFor(agentRow, row, github.platformLogin) });
+      for (const job of jobsToCreate) {
+        createdRows.push(await jobRepo.create(job));
+      }
     } catch (err) {
       // A duplicate id needs 64 bits of collision to fire and the id was
-      // drawn this request, so this branch is unreachable in practice; it is
-      // kept so the mapping is deterministic should entropy ever shrink.
+      // drawn this request, so this branch is unreachable in practice; it
+      // is kept so the mapping is deterministic should entropy ever
+      // shrink. The message names the id THIS ROUTE drew and passed to
+      // create(), not whatever the thrown error's own message says (a
+      // scripted stand-in may report a different id than it was asked to
+      // create), matching every other id-naming refusal in this file.
       if (err instanceof JobAlreadyExistsError) {
-        res.status(409).json({ error: `job ${id} already exists` });
+        const failedJob = jobsToCreate[createdRows.length];
+        res.status(409).json({ error: `job ${failedJob?.id ?? ''} already exists` });
         return;
       }
       console.error('POST /jobs: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
+      return;
     }
+
+    if (agentDids.length > 1) {
+      // HT1 Part A2 (design ruling, sibling privacy is structural): the buyer is a party to every
+      // sibling it just opened, so its own creation reply may name all of
+      // them -- this is the one place besides the buyer's own
+      // /accounts/:did/jobs list where that is true. jobProjection() itself
+      // still never carries requestId or a sibling's facts to anyone else.
+      // A request that named exactly one agent -- whether through the
+      // legacy agentDid field or through agentDids with one entry -- gets
+      // the bare single-job shape below: "the single-agent POST /jobs
+      // shape... is one agent in a list of one" (the card's own wording).
+      res.status(201).json({
+        requestId,
+        jobs: createdRows.map((row, i) => ({
+          ...jobProjection(row),
+          ...githubAccessNeededFor(agentRows[i] ?? null, row, github.platformLogin),
+        })),
+      });
+      return;
+    }
+    res.status(201).json({
+      ...jobProjection(createdRows[0]!),
+      ...githubAccessNeededFor(agentRows[0] ?? null, createdRows[0]!, github.platformLogin),
+    });
   });
 
   app.get('/jobs/:jobId', async (req: Request, res: Response) => {
@@ -3842,6 +3956,40 @@ export function createApp(
       // HT1: confirm is a negotiation route too (the brief's own list).
       if (!(await requireNegotiationAllowed(label, res, current, confirmGate.did, confirmGate.party))) return;
 
+      // HT1 Part A2 (design ruling, 2026-09-25): a job that carries a
+      // requestId has siblings opened by the same brief. Fail closed if
+      // storage cannot look them up (no silent skip: a one-agent job
+      // never reaches this branch at all, so the hand-rolled JobRepository
+      // stand-ins in the pre-existing confirm test files are untouched).
+      // Confirming a job whose sibling has already been confirmed is a
+      // state conflict (409): the buyer already chose a different agent
+      // for this brief. confirmedAt is the durable marker (set once by
+      // confirmSpec and never cleared), so it is checked here rather than
+      // recomputing which statuses count as "already chosen".
+      let siblingsExcludingSelf: readonly Job[] = [];
+      if (current.requestId !== null) {
+        if (typeof jobRepo.findByRequestId !== 'function') {
+          console.error(`${label}: storage does not support findByRequestId`);
+          res.status(503).json({ error: 'storage unavailable' });
+          return;
+        }
+        let siblings: readonly Job[];
+        try {
+          siblings = await jobRepo.findByRequestId(current.requestId);
+        } catch (err) {
+          console.error(`${label}: storage failed reading siblings`, err);
+          res.status(503).json({ error: 'storage unavailable' });
+          return;
+        }
+        siblingsExcludingSelf = siblings.filter((sibling) => sibling.id !== current.id);
+        if (siblingsExcludingSelf.some((sibling) => sibling.confirmedAt !== null)) {
+          res.status(409).json({
+            error: 'a sibling job from the same brief has already been confirmed; this job can no longer be confirmed',
+          });
+          return;
+        }
+      }
+
       let confirmed: Job;
       try {
         confirmed = confirmSpec(current, new Date());
@@ -3971,6 +4119,28 @@ export function createApp(
         if (row === null) {
           res.status(404).json({ error: 'not found' });
           return;
+        }
+        // HT1 Part A2: every sibling from the same brief still in draft or
+        // proposed moves to withdrawn now that the buyer has confirmed a
+        // different agent. Best-effort (logged, never turns an otherwise
+        // successful confirm into a 503): the confirm itself has already
+        // persisted by this point, and a sibling this platform cannot
+        // write to is a fact for the next read to reconcile, not a reason
+        // to tell the buyer their own confirm failed.
+        //
+        // TODO(HT1 item 4, messages/notifications follow-up card): this is
+        // exactly where the "your brief went to another agent" notice
+        // hooks in once that delivery infrastructure exists. The notice
+        // must name only that the buyer went elsewhere, never who: do not
+        // pass row.agentDid or any agent name into that call when it
+        // lands.
+        for (const sibling of siblingsExcludingSelf) {
+          if (sibling.status !== 'draft' && sibling.status !== 'proposed') continue;
+          try {
+            await jobRepo.update(recordWithdrawn(sibling));
+          } catch (err) {
+            console.error(`${label}: failed to withdraw sibling ${sibling.id}`, err);
+          }
         }
         res.status(200).json(jobProjection(row));
       } catch (err) {
