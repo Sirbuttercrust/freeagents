@@ -107,6 +107,7 @@ function fakeIdentity(
 // generically, so the route's github-unavailable branch is reachable.
 function fakeGithub(gists: Map<string, Gist | null>): GithubAdapter {
   return {
+    platformLogin: 'freeagents-platform',
     getPullRequest: () => Promise.reject(new NotImplementedError('github', 'getPullRequest')),
     getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
     getPublicGist: (ref) => {

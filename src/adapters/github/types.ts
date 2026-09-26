@@ -152,6 +152,21 @@ export class NotPlatformOwnerError extends Error {
   }
 }
 
+// ORG1: thrown by getDefaultBranchHead when the platform's own token
+// cannot read the buyer's repository (404, or 403 on some GitHub
+// configurations for a repository the account was never invited to).
+// Distinct from every other failure this adapter can raise: a real
+// outage (5xx, network) stays a bare Error, which the confirm route
+// still maps to 503; this one names a fact about the repository itself
+// (private, and the platform's account has no role on it), which the
+// route maps to 409 with an actionable message instead.
+export class RepositoryNotAccessibleError extends Error {
+  constructor(owner: string, repo: string, status: number) {
+    super(`repository ${owner}/${repo} is not accessible to the platform's GitHub account (status ${String(status)})`);
+    this.name = 'RepositoryNotAccessibleError';
+  }
+}
+
 // A public gist, as far as the account-proof flow cares about it: the id, the
 // GitHub login of its author, and the contents of its files by name.
 export interface Gist {
@@ -231,6 +246,13 @@ export class StagingComparisonTruncatedError extends Error {
 }
 
 export interface GithubAdapter {
+  // ORG1 r2 fix: the platform's own configured GitHub login, read-only.
+  // Every method that runs on the platform's single token (getPullRequest,
+  // getDefaultBranchHead) does so as this account, so a caller naming
+  // "the account that needs read access" to a buyer must name this one,
+  // not the agent's. '' when unconfigured, matching the adapter's other
+  // env-derived defaults.
+  readonly platformLogin: string;
   getPullRequest(ref: PullRequestRef): Promise<PullRequestSummary>;
   getMergeCommitSignature(ref: PullRequestRef): Promise<CommitSignatureStatus>;
   // R-4: a public gist by id. No authentication: the statement is public by
