@@ -139,6 +139,14 @@ describe('classifyRoute: exemptions, named individually', () => {
       expect(classifyRoute('GET', path)).toBe('exempt');
     }
   });
+
+  // The private-repositories walkthrough page (src/web/pages/private-repos.html)
+  // is a plain page shell like its neighbours: it reads GET /jobs/:jobId
+  // itself, through the API, when opened with ?job=. Named on its own so
+  // dropping it from the list turns this red, not only the router walk.
+  it('exempts GET /private-repos, the private-repositories walkthrough page shell', () => {
+    expect(classifyRoute('GET', '/private-repos')).toBe('exempt');
+  });
 });
 
 describe('classifyRoute: an unrecognised route (defence in depth, never silently open)', () => {

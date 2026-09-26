@@ -157,10 +157,11 @@ export const ROOT_ICON_PATHS: readonly string[] = [
 
 // The web page shells (src/web/static.ts's mountPages): static markup with
 // no storage read of its own -- the real reads a page needs are separate,
-// already-classified API calls. Never a page an API route also negotiates
-// (those four -- /agents/:agentDid, /accounts/:did, /v1/credentials/:id,
-// /jobs/:jobId -- are named ONCE in ROUTE_TABLE above and answer HTML or
-// JSON off the SAME bucket, since they are the same request either way).
+// already-classified API calls. Never a page an API route also negotiates:
+// those four (/agents/:agentDid, /accounts/:did, /v1/credentials/:id,
+// /jobs/:jobId) are named ONCE in ROUTE_TABLE above for their JSON reads,
+// and NEGOTIATED_PAGE_SHELL_PATTERNS below exempts only their html page
+// paint, so a JSON reader of the same path still spends its bucket.
 export const EXEMPT_WEB_PAGE_PATHS: readonly string[] = [
   '/',
   '/how',
@@ -181,6 +182,7 @@ export const EXEMPT_WEB_PAGE_PATHS: readonly string[] = [
   '/operatorjob',
   '/settings',
   '/notifications',
+  '/private-repos',
 ];
 
 // FIX-S7 round 2 (qa proof r1, defect 1): the four GET routes src/web/
@@ -199,12 +201,11 @@ const NEGOTIATED_PAGE_SHELL_PATTERNS: readonly string[] = [
 // Copy of src/web/static.ts's own prefersHtml, deliberately not imported:
 // this module's own header comment states it does its own path matching
 // rather than depending on the web surface (src/api/app.ts may construct
-// this module before the web surface in some call orders), and
-// tests/architecture/rate-limit-enforcement.test.ts already cross-checks
-// ROOT_ICON_PATHS against static.ts's own export the same way, by value
-// rather than by import, so a real drift between the two copies is still
-// caught.
-function prefersHtmlAccept(accept: string | undefined): boolean {
+// this module before the web surface in some call orders). The two copies
+// are held in agreement by tests/architecture/rate-limit-enforcement.test.ts,
+// which runs both over the same set of Accept headers and requires the same
+// answer from each, so a drift between them turns that test red.
+export function prefersHtmlAccept(accept: string | undefined): boolean {
   if (typeof accept !== 'string') return false;
   return accept.split(',').some((part) => (part.split(';')[0] ?? '').trim().toLowerCase() === 'text/html');
 }
