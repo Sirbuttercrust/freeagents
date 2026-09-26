@@ -766,30 +766,38 @@ describe('(e) live, without a reload', () => {
   // A live region is read out whenever something is added inside it. The
   // thread is redrawn whole on every change, so if it were one, every
   // typing ping, reaction and receipt would read the conversation out
-  // again. This watches every node added inside any live region (aria-live
-  // or a live role) and holds what a screen reader would be handed.
+  // again. This watches every node added inside a live region (aria-live
+  // or a live role), and every live region a redraw adds with something
+  // already in it, and holds what a screen reader would be handed.
   it('a screen reader hears the other person start typing and each new row, and nothing when a ping, a reaction or a receipt redraws the thread', async () => {
     const page = await render(thread(OPEN), world.buyer);
     const heard: string[] = [];
     let redraws = 0;
-    const liveRoles = new Set(['status', 'log', 'alert', 'marquee', 'timer']);
+    const LIVE = '[aria-live]:not([aria-live="off"]), [role="status"], [role="log"], [role="alert"], [role="marquee"], [role="timer"]';
     const inLive = (node: Node | null): boolean => {
       for (let n = node; n !== null; n = n.parentNode) {
-        if (n.nodeType !== 1) continue;
-        const e = n as Element;
-        const polite = e.getAttribute('aria-live');
-        if ((polite !== null && polite !== 'off') || liveRoles.has(e.getAttribute('role') ?? '')) return true;
+        if (n.nodeType === 1 && (n as Element).matches(LIVE)) return true;
       }
       return false;
     };
     const threadEl = page.$('[data-thread]')!;
     const words = (n: Node): string => (n.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const said = (e: Element): string => words(e) || (e.getAttribute('aria-label') ?? '').trim();
     const observer = new page.window.MutationObserver((records) => {
       for (const r of records) {
         if (threadEl.contains(r.target)) redraws += 1;
-        if (!inLive(r.target)) continue;
-        if (r.type === 'characterData') heard.push(words(r.target));
-        r.addedNodes.forEach((n) => { if (words(n)) heard.push(words(n)); });
+        if (inLive(r.target)) {
+          if (r.type === 'characterData') heard.push(words(r.target));
+          r.addedNodes.forEach((n) => { if (words(n)) heard.push(words(n)); });
+          continue;
+        }
+        r.addedNodes.forEach((n) => {
+          if (n.nodeType !== 1) return;
+          const e = n as Element;
+          [...(e.matches(LIVE) ? [e] : []), ...Array.from(e.querySelectorAll(LIVE))].forEach((region) => {
+            if (said(region)) heard.push(said(region));
+          });
+        });
       }
     });
     observer.observe(page.document.body, { childList: true, subtree: true, characterData: true });

@@ -374,8 +374,11 @@ ink it carries: `--fg` on `--bubble-mine` measures **4.92:1**, and on
 `--bubble-theirs` **14.09:1**. Mine is the deeper blue for exactly this reason:
 `--fg` on `--action` would fall under the 4.5 floor. It also leaves no room to
 dim: the small text inside my bubble (the brief's label, a PDF's size line)
-stays full `--fg`, because at 85% opacity on `--bubble-mine` it measures about
-4.0 and fails. Those lines are set apart by size and weight instead.
+stays full `--fg`. The board drew those two at 86% and 85% opacity, which on
+`--bubble-mine` measured 4.07 and 4.01 in Chrome, under the floor. Those lines
+are set apart by size and weight instead, and a real-Chrome test in
+`tests/web/messages.test.ts` measures every piece of text inside my own
+bubbles, so the next dimmed line fails it.
 
 `--fg-3` is the token that has had to move, twice. It was `#666B73` until
 2026-08-27, which failed AA at 12 and 13px on the old neutral surfaces, and it
