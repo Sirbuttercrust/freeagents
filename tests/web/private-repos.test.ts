@@ -2,15 +2,15 @@
 // places a buyer meets the problem it solves.
 //
 // A GitHub personal account gives a collaborator write access or nothing,
-// so a private repository there cannot be shared read-only. ORG1's live
-// probe proved the way through: an organization repository, forking of
-// private repositories turned on, and a Read role for two outside
-// collaborators (the agent's account, and the platform's). This file pins:
+// so a private repository there cannot be shared read-only. The way
+// through is an organization repository with forking of private
+// repositories turned on and the Read role for two outside collaborators
+// (the agent's account, and the platform's). This file pins:
 //
 //   (a) /private-repos answers 200, one <main>, at most 120 words by S1's
 //       counter (ported, with its tripwire);
 //   (b) the four steps, in order, each with GitHub's own page, the five
-//       links exactly the URLs the probe's handoff named;
+//       links exactly these URLs;
 //   (c) opened for a job whose record carries githubAccessNeeded, step 4
 //       names both accounts; with no job, an unknown job, or a job past
 //       staging it says the same thing without names, and the four steps
@@ -19,19 +19,21 @@
 //       own file so the copy cannot drift);
 //   (e) the hire page links it beside the repository field, inside S1's
 //       ceiling;
-//   (f) the deposit page, on confirm's REAL repository 409, says so in
-//       words and links the page for this job; the next press, once the
-//       repository is visible, confirms; a different 409 keeps today's
-//       sentence;
+//   (f) the deposit page, on the REAL routes: Pay's four repository
+//       refusals (f1, f2) and confirm's (f3) each say so in words, the
+//       three about sharing link the page for this job, and once the
+//       buyer has done what the page says (the repository moved into an
+//       organization and shared, which the platform then reads under its
+//       new name from the old path) the same press goes through; every
+//       other 409 keeps today's sentence (f4);
 //   (g) the page in real Chrome at 320 and 1280, with and without a job:
 //       no sideways scroll, every control 44px or more, and the reveal
-//       finished and still under reduced motion. Also the deposit sheet
-//       at both widths with the new sentence showing.
+//       finished and still under reduced motion. Also the deposit page at
+//       both widths with a Pay refusal and with confirm's refusal showing.
 //
 // Set ORG1B_CAPTURE_DIR to a directory to have (g) save a screenshot of
 // each state it measures. Off by default.
 import type { Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,11 +44,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import { MemoryAccountRepository, MemoryAgentRepository, MemoryJobRepository } from '../../src/adapters/storage/memory.js';
-import type { GithubAdapter, StagingRepoRef } from '../../src/adapters/github/types.js';
-import { RepositoryNotAccessibleError } from '../../src/adapters/github/types.js';
+import type { GithubAdapter, RepositoryFacts, StagingRepoRef } from '../../src/adapters/github/types.js';
+import { RepositoryEmptyError, RepositoryNotAccessibleError } from '../../src/adapters/github/types.js';
+import { createAbtPaymentRail } from '../../src/adapters/payment/abt.js';
 import type { Session } from '../../src/adapters/identity/session.js';
-import type { Delegation } from '../../src/domain/agent.js';
+import { didSuffix, type Delegation } from '../../src/domain/agent.js';
 import { createJob, type Job } from '../../src/domain/job.js';
+import { abtEnv, fakeAbtChainClient, fromRandom, reservePort, withEnv } from '../helpers/abt-fixtures.js';
 import { createStagingLifecycleGithubFake, PLATFORM_LOGIN } from '../helpers/github-staging-fixtures.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSession } from '../helpers/session-fixtures.js';
 import { unsettledGate } from '../helpers/settlement-fixtures.js';
@@ -148,19 +152,39 @@ function agreed(id: string, repository: string, agentDid = AGENT_DID): Job {
   };
 }
 
-// The repositories the platform's account cannot see, right now. A test
-// "shares" one by deleting it from the set, which is the buyer doing the
-// four steps; confirm itself is not touched.
-const hiddenRepos = new Set<string>();
+// What GitHub answers the platform's account for a repository path, right
+// now. A path with no entry reads as the staging fake's default, a ready
+// repository. 'hidden' is the 404 GitHub gives an account that cannot see
+// a private repository; 'empty' is a repository with no commits.
+type RepoAnswer = 'hidden' | 'empty' | RepositoryFacts;
+const world = new Map<string, RepoAnswer>();
 
-function hidingGithub(github: GithubAdapter): GithubAdapter {
+function worldGithub(github: GithubAdapter): GithubAdapter {
   return {
     ...github,
-    readRepository: (ref: StagingRepoRef) =>
-      hiddenRepos.has(`${ref.owner}/${ref.repo}`)
-        ? Promise.reject(new RepositoryNotAccessibleError(ref.owner, ref.repo, 404))
-        : github.readRepository(ref),
+    readRepository: (ref: StagingRepoRef) => {
+      const answer = world.get(`${ref.owner}/${ref.repo}`);
+      if (answer === 'hidden') return Promise.reject(new RepositoryNotAccessibleError(ref.owner, ref.repo, 404));
+      if (answer === 'empty') return Promise.reject(new RepositoryEmptyError(ref.owner, ref.repo));
+      return answer === undefined ? github.readRepository(ref) : Promise.resolve(answer);
+    },
   };
+}
+
+// The buyer does the page's four steps on GitHub: a new organization, the
+// repository moved into it, forking of private repositories turned on, and
+// Read for both accounts. What the platform then reads is the moved
+// repository, under its new name, from the OLD path too: GitHub follows
+// its redirect once the platform's account can read the repository. The
+// job itself is never edited here; it keeps the name it was briefed with.
+const NEW_ORG = 'org1b-buyer-org';
+function followThePage(path: string): string {
+  const name = path.slice(path.indexOf('/') + 1);
+  const moved = `${NEW_ORG}/${name}`;
+  const facts: RepositoryFacts = { fullName: moved, private: true, ownerIsOrganization: true, allowForking: true, defaultBranch: 'main', sha: `${name}-head-sha` };
+  world.set(path, facts);
+  world.set(moved, facts);
+  return moved;
 }
 
 let server: Server;
@@ -196,7 +220,10 @@ beforeAll(async () => {
 
   jobRepo = new MemoryJobRepository();
   const settlementGate = unsettledGate();
-  const fixtures: Job[] = [
+  // Confirm runs only once the deposit has settled, so the jobs confirm is
+  // pressed on start settled. The Pay jobs start unsettled: Pay is the
+  // press before any money has moved.
+  const settled: Job[] = [
     agreed('org1b-proposed', 'buyer/org1b-named'),
     { ...agreed('org1b-staged', 'buyer/org1b-staged'), status: 'staged', confirmedAt: RECENT, confirmedSpecHash: 'sha256:org1b', stagedAt: RECENT, stagedCommit: 'org1bstaged', stagingRepo: { owner: PLATFORM_LOGIN, repo: 'org1b-staged' } },
     agreed('org1b-hidden', 'buyer/org1b-hidden'),
@@ -204,34 +231,81 @@ beforeAll(async () => {
     agreed('org1b-shot-320', 'buyer/org1b-shot-320'),
     agreed('org1b-shot-1280', 'buyer/org1b-shot-1280'),
   ];
-  for (const f of fixtures) {
+  const unpaid: Job[] = [
+    agreed('org1b-pay-hidden', 'buyer/org1b-pay-hidden'),
+    agreed('org1b-pay-personal', 'buyer/org1b-pay-personal'),
+    agreed('org1b-pay-forking-off', `${NEW_ORG}/org1b-pay-forking-off`),
+    agreed('org1b-pay-empty', 'buyer/org1b-pay-empty'),
+    // Agreed on USDC: the ABT start door answers a DIFFERENT 409 (the
+    // rail), the one Pay must keep today's sentence for.
+    { ...agreed('org1b-pay-other-rail', 'buyer/org1b-pay-other-rail'), rail: 'usdc' },
+    agreed('org1b-payshot-320', 'buyer/org1b-payshot-320'),
+    agreed('org1b-payshot-1280', 'buyer/org1b-payshot-1280'),
+  ];
+  for (const f of settled) {
     await jobRepo.create(f);
     settlementGate.markDepositSettled(f.id);
   }
-  hiddenRepos.add('buyer/org1b-hidden');
-  hiddenRepos.add('buyer/org1b-shot-320');
-  hiddenRepos.add('buyer/org1b-shot-1280');
+  for (const f of unpaid) await jobRepo.create(f);
+
+  // Briefed as buyer/<name>: a private repository the platform's account
+  // cannot see (GitHub answers 404), as it is before the page's steps.
+  for (const path of ['buyer/org1b-hidden', 'buyer/org1b-shot-320', 'buyer/org1b-shot-1280', 'buyer/org1b-pay-hidden', 'buyer/org1b-payshot-320', 'buyer/org1b-payshot-1280']) {
+    world.set(path, 'hidden');
+  }
+  // Private on a personal account, which the platform's account can see
+  // only as a collaborator with write access.
+  world.set('buyer/org1b-pay-personal', { fullName: 'buyer/org1b-pay-personal', private: true, ownerIsOrganization: false, allowForking: true, defaultBranch: 'main', sha: 'personal-head-sha' });
+  // In an organization already, with forking of private repositories off
+  // (GitHub's default for a new organization).
+  world.set(`${NEW_ORG}/org1b-pay-forking-off`, { fullName: `${NEW_ORG}/org1b-pay-forking-off`, private: true, ownerIsOrganization: true, allowForking: false, defaultBranch: 'main', sha: 'forking-off-head-sha' });
+  world.set('buyer/org1b-pay-empty', 'empty');
+
+  // The ABT rail, set up as tests/web/deposit.test.ts sets it up: the
+  // recipient resolves from the agent's operator, and the public base URL
+  // is baked in when the rail is built, so the port is reserved first.
+  await accountRepo.setOperatorAddressAbt(OPERATOR_DID, didSuffix(AGENT_DID));
+  const port = await reservePort();
+  baseUrl = `http://127.0.0.1:${port}`;
+  const railEnv = abtEnv(baseUrl, fromRandom(), fromRandom().address, fromRandom().address);
+  const abtRail = await withEnv(railEnv, async () =>
+    createAbtPaymentRail({
+      chainClient: fakeAbtChainClient().client,
+      rateSource: async () => '1',
+      spentTransferStorage: {
+        async record(): Promise<void> {},
+        async findByHash(): Promise<null> {
+          return null;
+        },
+      },
+    }),
+  );
 
   const sessionAdapter = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: 'org1b-buyer', id: 9611 }) });
   const { github } = createStagingLifecycleGithubFake();
-  server = createApp(
-    accountRepo,
-    agentRepo,
-    undefined,
-    hidingGithub(github),
-    jobRepo,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    sessionAdapter,
-    undefined,
-    settlementGate,
-  ).listen(0, '127.0.0.1');
+  const app = await withEnv(railEnv, async () =>
+    createApp(
+      accountRepo,
+      agentRepo,
+      undefined,
+      worldGithub(github),
+      jobRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+      undefined,
+      settlementGate,
+      undefined,
+      undefined,
+      abtRail,
+    ),
+  );
+  server = app.listen(port, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   session = await mintSession(sessionAdapter);
 }, 30_000);
 
@@ -549,8 +623,15 @@ describe('(e) the hire page links it beside the repository field', () => {
 });
 
 // ---------------------------------------------------------------- (f)
+//
+// Every case below runs the REAL routes: POST .../abt/start on a real ABT
+// rail and POST .../confirm against the settlement gate. The repository
+// becomes readable only by the state the page's steps produce
+// (followThePage above): the job keeps the name it was briefed with, and
+// GitHub answers that old path with the moved repository's new name.
 
 const FINISH_SIGNING = 'Finish signing the agreement';
+const NO_AGREED_PRICE = 'There is no agreed price to pay against yet';
 
 const depositReady = (d: Document): boolean => {
   const body = d.getElementById('deposit-body') as HTMLElement | null;
@@ -567,9 +648,117 @@ async function pressApproved(page: Rendered, settledWhen: (d: Document) => boole
   }
 }
 
-describe('(f) the deposit page on confirm\u2019s real repository 409', () => {
-  it('says so in words, links the page for this job, never says finish signing, and the next press confirms', async () => {
-    const page = await render('/deposit?job=org1b-hidden', depositReady, 'the deposit page', true);
+const scanOpen = (d: Document): boolean => (d.getElementById('scan') as HTMLElement).hasAttribute('open');
+const payRefused = (d: Document): boolean => !(d.getElementById('pay-error') as HTMLElement).hidden;
+
+// One press of Pay, waited on until the page has answered it either way:
+// the scan opened, or the refusal box showed. Never a fixed sleep, and
+// never a blank result: a press that does neither fails here.
+async function pressPay(page: Rendered, what: string): Promise<{ text: string; link: HTMLAnchorElement | null; scan: boolean }> {
+  const payBtn = page.document.getElementById('pay-btn') as HTMLButtonElement;
+  expect(payBtn.disabled, 'Pay is not pressable').toBe(false);
+  payBtn.click();
+  const deadline = Date.now() + 8000;
+  while (!scanOpen(page.document) && !payRefused(page.document)) {
+    if (Date.now() > deadline) throw new Error(`${what}: Pay did nothing within 8000ms`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  const detail = page.document.getElementById('pay-error-detail')!;
+  return {
+    text: payRefused(page.document) ? (detail.textContent ?? '').replace(/\s+/g, ' ').trim() : '',
+    link: payRefused(page.document) ? (detail.querySelector('a') as HTMLAnchorElement | null) : null,
+    scan: scanOpen(page.document),
+  };
+}
+
+async function expectWalkthroughLink(link: HTMLAnchorElement | null, jobId: string): Promise<void> {
+  expect(link, 'no link to the walkthrough').not.toBeNull();
+  expect(link!.getAttribute('href')).toBe(`/private-repos?job=${jobId}`);
+  expect(link!.classList.contains('sf-more')).toBe(true);
+  expect((link!.textContent ?? '').trim().length, 'a link with no words').toBeGreaterThan(0);
+  // The link lands on something that exists.
+  expect((await fetch(`${baseUrl}${link!.getAttribute('href')}`, { headers: { Accept: HTML } })).status).toBe(200);
+}
+
+describe('(f1) Pay on a repository the platform cannot see', () => {
+  it('says so in words with the page for this job, never "no agreed price"; after the page\u2019s steps, Pay starts the deposit', async () => {
+    const jobId = 'org1b-pay-hidden';
+    const page = await render(`/deposit?job=${jobId}`, depositReady, 'the deposit page', true);
+    try {
+      expect((page.document.getElementById('deposit-body') as HTMLElement).hidden, 'the deposit screen did not render').toBe(false);
+      const first = await pressPay(page, 'the first press');
+      expect(first.scan, 'the scan opened on a repository nobody can read').toBe(false);
+      expect(first.text).toContain("can't see this repository");
+      expect(first.text).toMatch(/press Pay again/);
+      expect(first.text).not.toContain(NO_AGREED_PRICE);
+      expect(machineWords(first.text, [AGENT_DID, OPERATOR_DID, BUYER_DID])).toEqual([]);
+      await expectWalkthroughLink(first.link, jobId);
+
+      // The buyer follows the page. The job is untouched: it still names
+      // the path it was briefed with.
+      followThePage('buyer/org1b-pay-hidden');
+      expect((await jobRepo.findById(jobId))?.repository).toBe('buyer/org1b-pay-hidden');
+      const second = await pressPay(page, 'the press after the move');
+      expect(second.scan, `Pay did not start the deposit after the move: ${second.text}`).toBe(true);
+      expect(payRefused(page.document), 'the refusal stayed up beside the scan').toBe(false);
+    } finally {
+      page.close();
+    }
+  });
+});
+
+describe('(f2) Pay on the other three repository refusals', () => {
+  it('a private repository on a personal account: says move it into an organization, with the page', async () => {
+    const jobId = 'org1b-pay-personal';
+    const page = await render(`/deposit?job=${jobId}`, depositReady, 'the deposit page', true);
+    try {
+      const got = await pressPay(page, 'Pay on a personal account');
+      expect(got.scan).toBe(false);
+      expect(got.text).toMatch(/personal account/);
+      expect(got.text).toMatch(/organization/);
+      expect(got.text).not.toContain(NO_AGREED_PRICE);
+      expect(machineWords(got.text, [AGENT_DID, OPERATOR_DID, BUYER_DID])).toEqual([]);
+      await expectWalkthroughLink(got.link, jobId);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('forking of private repositories off: says so and where it is turned on, with the page', async () => {
+    const jobId = 'org1b-pay-forking-off';
+    const page = await render(`/deposit?job=${jobId}`, depositReady, 'the deposit page', true);
+    try {
+      const got = await pressPay(page, 'Pay with forking off');
+      expect(got.scan).toBe(false);
+      expect(got.text).toMatch(/[Ff]orking of private repositories is off/);
+      expect(got.text).toMatch(/Settings/);
+      expect(got.text).not.toContain(NO_AGREED_PRICE);
+      await expectWalkthroughLink(got.link, jobId);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('an empty repository: says to add a first commit, and links nothing', async () => {
+    const jobId = 'org1b-pay-empty';
+    const page = await render(`/deposit?job=${jobId}`, depositReady, 'the deposit page', true);
+    try {
+      const got = await pressPay(page, 'Pay on an empty repository');
+      expect(got.scan).toBe(false);
+      expect(got.text).toMatch(/no commits/);
+      expect(got.text).toMatch(/first commit/);
+      expect(got.text).not.toContain(NO_AGREED_PRICE);
+      expect(got.link, 'sharing is not the fix here').toBeNull();
+    } finally {
+      page.close();
+    }
+  });
+});
+
+describe('(f3) confirm on a repository the platform cannot see', () => {
+  it('says so in words with the page for this job, never "finish signing"; after the page\u2019s steps, the next press confirms under the new name', async () => {
+    const jobId = 'org1b-hidden';
+    const page = await render(`/deposit?job=${jobId}`, depositReady, 'the deposit page', true);
     try {
       expect((page.document.getElementById('deposit-body') as HTMLElement).hidden, 'the deposit screen did not render').toBe(false);
       const errorBox = page.document.getElementById('confirm-error') as HTMLElement;
@@ -580,43 +769,59 @@ describe('(f) the deposit page on confirm\u2019s real repository 409', () => {
       expect(text).toContain("can't see this repository");
       expect(text).toMatch(/press this again/);
       expect(text).not.toContain(FINISH_SIGNING);
-      const link = detail.querySelector('a') as HTMLAnchorElement | null;
-      expect(link, 'no link to the walkthrough').not.toBeNull();
-      expect(link!.getAttribute('href')).toBe('/private-repos?job=org1b-hidden');
-      expect(link!.classList.contains('sf-more')).toBe(true);
       expect(machineWords(text, [AGENT_DID, OPERATOR_DID, BUYER_DID])).toEqual([]);
-      // The link lands on something that exists.
-      expect((await fetch(`${baseUrl}${link!.getAttribute('href')}`, { headers: { Accept: HTML } })).status).toBe(200);
+      await expectWalkthroughLink(detail.querySelector('a'), jobId);
 
       // The 409 persisted nothing.
-      const after409 = await jobRepo.findById('org1b-hidden');
+      const after409 = await jobRepo.findById(jobId);
       expect(after409?.status).toBe('proposed');
       expect(after409?.stagingRepo).toBeNull();
+      expect(after409?.repository).toBe('buyer/org1b-hidden');
 
-      // The buyer shares the repository; the same press on the same page
-      // now confirms.
-      hiddenRepos.delete('buyer/org1b-hidden');
+      // The buyer follows the page; the same press on the same page now
+      // confirms, and the job carries the repository's new name.
+      const moved = followThePage('buyer/org1b-hidden');
       const deadline = Date.now() + 8000;
       (page.document.getElementById('approved-btn') as HTMLButtonElement).click();
-      let stored = await jobRepo.findById('org1b-hidden');
+      let stored = await jobRepo.findById(jobId);
       while (stored?.status !== 'confirmed' && Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 25));
-        stored = await jobRepo.findById('org1b-hidden');
+        stored = await jobRepo.findById(jobId);
       }
       expect(stored?.status, 'the second press did not confirm').toBe('confirmed');
       expect(stored?.stagingRepo).not.toBeNull();
+      expect(stored?.repository).toBe(moved);
+    } finally {
+      page.close();
+    }
+  });
+});
+
+describe('(f4) every other 409 keeps today\u2019s sentence', () => {
+  it('a different start 409 (the rail) keeps "no agreed price" and gets no link', async () => {
+    const page = await render('/deposit?job=org1b-pay-other-rail', depositReady, 'the deposit page', true);
+    try {
+      // The page only pays with ABT; the job was agreed on USDC, so the
+      // ABT start door answers its rail 409.
+      (page.document.getElementById('rail-abt') as HTMLInputElement).click();
+      const got = await pressPay(page, 'Pay against the wrong rail');
+      expect(got.scan).toBe(false);
+      expect(got.text).toContain(NO_AGREED_PRICE);
+      expect(got.text).not.toMatch(/repository/);
+      expect(got.link).toBeNull();
     } finally {
       page.close();
     }
   });
 
-  it('a different 409 from the same route keeps today\u2019s sentence and gets no link', async () => {
+  it('a different confirm 409 keeps "finish signing" and gets no link', async () => {
     const page = await render('/deposit?job=org1b-unverified', depositReady, 'the deposit page', true);
     try {
       const errorBox = page.document.getElementById('confirm-error') as HTMLElement;
       await pressApproved(page, () => !errorBox.hidden, 'the refusal');
       const detail = page.document.getElementById('confirm-error-detail')!;
       expect(detail.textContent ?? '').toContain(FINISH_SIGNING);
+      expect(detail.textContent ?? '').not.toMatch(/repository/);
       expect(detail.querySelector('a')).toBeNull();
       expect((await jobRepo.findById('org1b-unverified'))?.status).toBe('proposed');
     } finally {
@@ -767,6 +972,45 @@ describe('(g) laid out right in real Chrome', () => {
         const small = got.small.filter((s) => s.includes('confirm-private-repos-link'));
         expect(small, `the walkthrough link in the sheet at ${width}`).toEqual([]);
         if (width === 320) expect(got.small, `the sheet at ${width}: under 44px`).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    }, BROWSER_TIMEOUT_MS);
+
+    it(`${width}px: a Pay refusal with its link fits, and every control near it is 44px or more`, async () => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for the ORG1b layout sweep; skipping (see CHROME_BIN)');
+        return;
+      }
+      const jobId = `org1b-payshot-${width}`;
+      const browser = await launch(width);
+      try {
+        await browser.send('Page.addScriptToEvaluateOnNewDocument', {
+          source: `window.sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(session))});`,
+        });
+        await browser.goto(`${baseUrl}/deposit?job=${jobId}`, 1500);
+        await browser.evaluate(`document.getElementById('pay-btn').click()`);
+        const deadline = Date.now() + 8000;
+        let link = '';
+        while (Date.now() < deadline) {
+          link = await browser.evaluate<string>(`(function () { var a = document.querySelector('#pay-error:not([hidden]) #pay-error-detail a'); return a ? a.getAttribute('href') : ''; })()`);
+          if (link !== '') break;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        expect(link).toBe(`/private-repos?job=${jobId}`);
+        expect(await browser.evaluate<boolean>(`document.getElementById('scan').hasAttribute('open')`), 'the scan opened on a refusal').toBe(false);
+        await browser.evaluate(`document.getElementById('pay-error').scrollIntoView({ block: 'center' })`);
+        await new Promise((r) => setTimeout(r, 300));
+        await capture(browser, `deposit-pay-repository-409-${width}`, false);
+        const got = await browser.evaluate<Sweep>(sweep('#pay-error a[href], #pay-btn, #back-to-agreement'));
+        expect(got.measured, 'nothing to measure near the refusal').toBe(3);
+        expect(got.past, `the page at ${width}: past the right edge`).toEqual([]);
+        expect(got.scrollWidth, `the page at ${width}: sideways scroll`).toBe(got.clientWidth);
+        // The walkthrough link at both widths. The two buttons take the
+        // site's own button height: 44px on touch (320), 40px on a fine
+        // pointer (1280), the same split the confirm sheet test above uses.
+        expect(got.small.filter((s) => s.includes('pay-private-repos-link')), `the walkthrough link at ${width}`).toEqual([]);
+        if (width === 320) expect(got.small, `the refusal at ${width}: under 44px`).toEqual([]);
       } finally {
         await browser.close();
       }
