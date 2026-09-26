@@ -97,6 +97,7 @@ import {
 } from '../domain/avatar-spec.js';
 import { jobListBucketOf, jobListDateOf } from '../domain/job-list.js';
 import { waitingOnOf } from '../domain/incoming.js';
+import { lastMessageOf, lastActivityAtOf, threadUnreadCount } from '../domain/thread-list.js';
 import type { Account } from '../domain/account.js';
 import {
   acceptCriterion,
@@ -205,6 +206,7 @@ import {
   advanceReadState,
   type Message,
   type MessageAttachmentRef,
+  type ThreadReadState,
 } from '../domain/message.js';
 import {
   createNotification,
@@ -212,7 +214,7 @@ import {
   type Notification,
   type NotificationEventType,
 } from '../domain/notification.js';
-import { assertAttachmentAllowed, AttachmentError, isImageKind, type Attachment } from '../domain/attachment.js';
+import { assertAttachmentAllowed, AttachmentError, isImageKind, contentTypeFor, type Attachment } from '../domain/attachment.js';
 import {
   createMessageRepository,
   createThreadReadStateRepository,
@@ -1802,9 +1804,14 @@ export function createApp(
         return;
       }
       const body = (req.body ?? {}) as { body?: unknown; replyToId?: unknown; attachmentIds?: unknown };
-      if (!messageBodyWellFormed(body.body)) {
+      // Shape only: a string, no longer than the cap. Whether an EMPTY
+      // body is allowed depends on attachmentIds (checked below and
+      // resolved by createMessage itself, MSG1a make item 5) -- this
+      // check does not duplicate that content rule, only the type and
+      // length every body must satisfy regardless.
+      if (typeof body.body !== 'string' || body.body.length > MESSAGE_BODY_MAX_LENGTH) {
         res.status(400).json({
-          error: `body must be { body, replyToId?, attachmentIds? }; body a non-empty string up to ${MESSAGE_BODY_MAX_LENGTH} characters`,
+          error: `body must be { body, replyToId?, attachmentIds? }; body a string up to ${MESSAGE_BODY_MAX_LENGTH} characters, empty only when attachmentIds names at least one qualifying attachment`,
         });
         return;
       }
@@ -2435,10 +2442,58 @@ export function createApp(
         id: attachment.id,
         jobId: attachment.jobId,
         kind: attachment.kind,
+        contentType: contentTypeFor(attachment.kind),
         originalFilename: attachment.originalFilename,
         sizeBytes: attachment.sizeBytes,
         createdAt: attachment.createdAt.toISOString(),
       });
+    }),
+  );
+
+  // GET /jobs/:jobId/attachments (MSG1a, Make item 2): the sent-
+  // attachments list -- so the other party can name a file ("roadmap.pdf,
+  // PDF, 2.1 MB") without downloading every upload first. Gated by
+  // requireThreadParty, the same gate every other route in this block
+  // uses. Only attachments a message in this thread actually references
+  // are listed: an upload nobody has sent yet stays invisible, because
+  // AttachmentRepository.listByJobId returns every upload (sent or not)
+  // and this route is what narrows that down against the thread's own
+  // messages. Oldest first, matching listByJobId's own convention.
+  app.get(
+    '/jobs/:jobId/attachments',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'GET /jobs/:jobId/attachments';
+      const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
+      if (gate === null) return;
+      try {
+        const [messages, attachments] = await Promise.all([
+          messageRepo.listByJobId(gate.job.id),
+          attachmentRepo.listByJobId(gate.job.id),
+        ]);
+        const messageIdByAttachmentId = new Map<string, string>();
+        for (const message of messages) {
+          for (const ref of message.attachments) {
+            messageIdByAttachmentId.set(ref.attachmentId, message.id);
+          }
+        }
+        const sent = attachments
+          .filter((attachment) => messageIdByAttachmentId.has(attachment.id))
+          .map((attachment) => ({
+            id: attachment.id,
+            messageId: messageIdByAttachmentId.get(attachment.id)!,
+            kind: attachment.kind,
+            contentType: contentTypeFor(attachment.kind),
+            originalFilename: attachment.originalFilename,
+            sizeBytes: attachment.sizeBytes,
+            createdAt: attachment.createdAt.toISOString(),
+          }));
+        res.status(200).json({ attachments: sent });
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+      }
     }),
   );
 
@@ -2447,7 +2502,13 @@ export function createApp(
   // route in this block uses. Content-Disposition: attachment for a PDF
   // (attachments STEER: "PDFs are served as downloads... never opened
   // inline"), X-Content-Type-Options: nosniff and a restrictive CSP on
-  // every response, image or PDF alike.
+  // every response, image or PDF alike. MSG1a (Make item 4): the
+  // full-size content-type is contentTypeFor(attachment.kind) -- what
+  // the bytes actually are (every image kind re-encodes to JPEG on
+  // upload, src/adapters/attachments/image.ts) -- never the uploaded
+  // `kind` itself, so a PNG or HEIC upload is never served as
+  // image/png or image/heic over JPEG bytes. The thumbnail path is
+  // always a JPEG (reencodeImage's own thumbnail output), unchanged.
   app.get(
     '/jobs/:jobId/attachments/:attachmentId',
     didSignature,
@@ -2480,13 +2541,185 @@ export function createApp(
       }
       res.setHeader('x-content-type-options', 'nosniff');
       res.setHeader('content-security-policy', "default-src 'none'; sandbox");
-      res.setHeader('content-type', wantsThumbnail && attachment.thumbnailPath !== null ? 'image/jpeg' : attachment.kind);
+      res.setHeader('content-type', wantsThumbnail && attachment.thumbnailPath !== null ? 'image/jpeg' : contentTypeFor(attachment.kind));
       if (attachment.kind === 'application/pdf') {
         res.setHeader('content-disposition', `attachment; filename="${encodeURIComponent(attachment.originalFilename)}"`);
       }
       res.status(200).send(bytes);
     }),
   );
+
+  // MSG1a (Make item 1): GET /accounts/:did/threads, the conversation
+  // list for BOTH seats -- the buyer's own hires (GET
+  // /accounts/:did/jobs, every status, unlike that route which excludes
+  // draft/proposed) and the owner's agents' hires (GET
+  // /accounts/:did/incoming's roster, but every status, not only
+  // draft/proposed). Built from the same parts in the same order as
+  // both of those routes: resolveActingParty, then a 403 that never
+  // says whether :did is a registered account or how many threads it
+  // has.
+  //
+  // A job where the account is both buyer and owner (a self-hire)
+  // appears once, as the buyer -- partyForDid's own resolution order
+  // (buyer checked before agent) is mirrored here by building the
+  // buyer set first and excluding any job id already claimed by it from
+  // the agent-seat set.
+  app.get('/accounts/:did/threads', requireSessionOrSignature, async (req: Request, res: Response) => {
+    const did = String(req.params.did);
+    let actingParty: string | null;
+    try {
+      actingParty = await resolveActingParty(req, repo, identityAdapter);
+    } catch (err) {
+      console.error('GET /accounts/:did/threads: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    // Neither a stranger nor an unresolved caller ever learns whether
+    // :did is a registered account or how many threads it has: the
+    // refusal is identical whether or not the account exists.
+    if (actingParty === null || actingParty !== did) {
+      res.status(403).json({ error: 'an account may only read its own thread list' });
+      return;
+    }
+
+    if (typeof jobRepo.findByBuyerDid !== 'function') {
+      console.error('GET /accounts/:did/threads: storage does not support findByBuyerDid');
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (typeof jobRepo.findByAgentDid !== 'function') {
+      console.error('GET /accounts/:did/threads: storage does not support findByAgentDid');
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (typeof agentRepo.listAll !== 'function') {
+      console.error('GET /accounts/:did/threads: storage does not support listAll');
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+
+    try {
+      const buyerJobs = await jobRepo.findByBuyerDid(did);
+      const buyerJobIds = new Set(buyerJobs.map((job) => job.id));
+
+      // The exact `row.operatorDid === did` comparison GET
+      // /accounts/:did/incoming already uses, never isAgentOperator's
+      // didSuffix match: one account's roster must mean the same thing
+      // on every route, and a caller whose DID shares a suffix with the
+      // real operator must never inherit that operator's roster
+      // (mutation-proof test: hire-thread-list.test.ts's
+      // roster-collision case).
+      const agentRows = await agentRepo.listAll();
+      const ownAgents = agentRows.filter((row) => row.operatorDid === did);
+      const findByAgentDid = jobRepo.findByAgentDid.bind(jobRepo);
+      const perAgentJobs = await Promise.all(ownAgents.map((row) => findByAgentDid(row.did)));
+      // A self-hire (this account is both buyer and agent's operator)
+      // appears once, as the buyer: any job already in the buyer set is
+      // excluded here, mirroring partyForDid's own buyer-first order.
+      const agentSeatJobs = perAgentJobs.flat().filter((job) => !buyerJobIds.has(job.id));
+
+      const rows: Array<{ readonly job: Job; readonly seat: Party }> = [
+        ...buyerJobs.map((job) => ({ job, seat: 'buyer' as const })),
+        ...agentSeatJobs.map((job) => ({ job, seat: 'agent' as const })),
+      ];
+
+      // One agent/message/read-state lookup per DISTINCT job, not
+      // recomputed per row (the same per-distinct-key caching every
+      // other list route in this file already uses).
+      const distinctAgentDids = [...new Set(rows.map((r) => r.job.agentDid))];
+      const agentByDid = new Map<string, Agent | null>();
+      await Promise.all(
+        distinctAgentDids.map(async (agentDid) => {
+          agentByDid.set(agentDid, await agentRepo.findByDid(agentDid));
+        }),
+      );
+      const distinctBuyerDids = [...new Set(rows.map((r) => r.job.buyerDid))];
+      const accountByDid = new Map<string, Account | null>();
+      await Promise.all(
+        distinctBuyerDids.map(async (buyerDid) => {
+          accountByDid.set(buyerDid, await repo.findByDid(buyerDid));
+        }),
+      );
+      // The counterpart account for a BUYER seat is the agent's own
+      // operator (never the buyer's own account, which is the caller
+      // here) -- a second, distinct set of lookups keyed by operatorDid,
+      // resolved once per distinct operator, not once per row.
+      const distinctOperatorDids = [
+        ...new Set(distinctAgentDids.map((agentDid) => agentByDid.get(agentDid)?.operatorDid).filter((d): d is string => d !== undefined)),
+      ];
+      await Promise.all(
+        distinctOperatorDids.map(async (operatorDid) => {
+          if (!accountByDid.has(operatorDid)) {
+            accountByDid.set(operatorDid, await repo.findByDid(operatorDid));
+          }
+        }),
+      );
+
+      const messagesByJobId = new Map<string, readonly Message[]>();
+      const readStateByJobId = new Map<string, ThreadReadState | null>();
+      await Promise.all(
+        rows.map(async (r) => {
+          const [messages, readState] = await Promise.all([
+            messageRepo.listByJobId(r.job.id),
+            threadReadStateRepo.findByJobAndParty(r.job.id, r.seat),
+          ]);
+          messagesByJobId.set(r.job.id, messages);
+          readStateByJobId.set(r.job.id, readState);
+        }),
+      );
+
+      const threads = rows.map((r) => {
+        const { job, seat } = r;
+        const messages = messagesByJobId.get(job.id) ?? [];
+        const readState = readStateByJobId.get(job.id) ?? null;
+        const agentRow = agentByDid.get(job.agentDid) ?? null;
+        // The counterpart is the OTHER side: the agent's operator for a
+        // buyer, the buyer for an owner. The login is null when that
+        // account has none (a passkey-only account) or is unregistered.
+        const counterpartDid = seat === 'buyer' ? (agentRow?.operatorDid ?? job.agentDid) : job.buyerDid;
+        const counterpartGithubLogin = accountByDid.get(counterpartDid)?.githubLogin ?? null;
+        return {
+          jobId: job.id,
+          status: job.status,
+          writable: threadIsWritable(job.status),
+          seat,
+          brief: job.brief,
+          createdAt: job.createdAt.toISOString(),
+          agentDid: job.agentDid,
+          agentName: agentRow?.name ?? job.agentDid,
+          avatarSpec: resolveAvatar(agentRow?.avatarSpec ?? null, job.agentDid),
+          counterpartDid,
+          counterpartGithubLogin,
+          lastActivityAt: lastActivityAtOf(job.createdAt, messages).toISOString(),
+          lastMessage: (() => {
+            const lm = lastMessageOf(messages);
+            if (lm === null) return null;
+            return {
+              authorParty: lm.authorParty,
+              authorKind: lm.authorKind,
+              bodyPreview: lm.bodyPreview,
+              attachmentCount: lm.attachmentCount,
+              systemEventType: lm.systemEventType,
+              createdAt: lm.createdAt.toISOString(),
+            };
+          })(),
+          unreadCount: threadUnreadCount(seat, messages, readState === null ? null : readState.lastReadAt),
+        };
+      });
+
+      threads.sort((a, b) => {
+        const diff = new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime();
+        if (diff !== 0) return diff;
+        return a.jobId < b.jobId ? -1 : a.jobId > b.jobId ? 1 : 0;
+      });
+
+      const unreadTotal = threads.reduce((sum, t) => sum + t.unreadCount, 0);
+      res.status(200).json({ threads, unreadTotal });
+    } catch (err) {
+      console.error('GET /accounts/:did/threads: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
 
   // R-19 (D4, ENT-1.2): the operator roster. ANCHOR: an operator page is the
   // sum of who they run, never a score for the operator. Widens the same
@@ -5380,14 +5613,13 @@ export function createApp(
         // conflict the buyer can act on, so it is 409, checked before
         // the generic 503 catch-all so it never falls through to it.
         if (err instanceof RepositoryNotAccessibleError) {
-          // FIX-B36: this message is now shared with the three
-          // deposit-start doors (route-support.ts's
-          // repositoryNotAccessibleMessage) so the buyer sees the
-          // identical wording whichever route answers -- the phrase
-          // "cannot see this repository" is kept exactly, which
-          // deposit.js tells the case apart by. The walkthrough page
-          // (card t_1aa4b834, waiting on this PR) is the page the URL
-          // points at.
+          // FIX-B36: this message is shared with the three deposit-start
+          // doors (route-support.ts's repositoryNotAccessibleMessage), so
+          // the buyer sees the same wording whichever route answers. It
+          // ends with the address of the walkthrough page for this job
+          // (/private-repos, src/web/pages/private-repos.html). deposit.js
+          // tells this case apart by the phrase "cannot see this
+          // repository" and links that page itself.
           res.status(409).json({
             error: repositoryNotAccessibleMessage(agent.githubLogin, github.platformLogin, current.id),
           });

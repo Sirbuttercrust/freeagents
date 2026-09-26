@@ -181,6 +181,31 @@ describe('POST /jobs/:jobId/confirm: a repository the platform cannot see (ORG1)
     }
   });
 
+  it('the 409 message ends with the walkthrough page address for this job, on the deployment\'s public origin', async () => {
+    const { github } = createStagingLifecycleGithubFake();
+    active = await startApp(
+      rejectingOnReadRepository(github, new RepositoryNotAccessibleError('buyer', 'private-repo', 404)),
+    );
+    const jobId = await walkToPriceAccepted(active.baseUrl, 'buyer/private-repo');
+
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const previous = process.env.FREEAGENTS_PUBLIC_BASE_URL;
+    // A trailing slash on purpose: the address is built by
+    // publicBaseUrlFromEnv, which strips it, so a hand-rolled join would
+    // show up here as a double slash.
+    process.env.FREEAGENTS_PUBLIC_BASE_URL = 'https://org1b.example/';
+    try {
+      const confirm = await postSigned(active.baseUrl, `/jobs/${jobId}/confirm`, {}, buyer);
+      expect(confirm.status).toBe(409);
+      const body = (await confirm.json()) as { error: string };
+      expect(body.error.endsWith(`https://org1b.example/private-repos?job=${encodeURIComponent(jobId)}`), body.error).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.FREEAGENTS_PUBLIC_BASE_URL;
+      else process.env.FREEAGENTS_PUBLIC_BASE_URL = previous;
+      errorLog.mockRestore();
+    }
+  });
+
   it('answers 409 the same way on a 403 (an org repository never shared with the platform account)', async () => {
     const { github } = createStagingLifecycleGithubFake();
     active = await startApp(

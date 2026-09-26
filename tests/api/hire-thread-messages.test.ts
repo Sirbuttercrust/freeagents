@@ -189,6 +189,19 @@ describe('HT1 Part B: hire thread messages', () => {
     expect(res.status).toBe(400);
   });
 
+  // Review r2, not-blocking note: PATCH (edit) is unchanged by MSG1a --
+  // an edit still needs words, even though a new POST may now be
+  // attachment-only. The route's body check and editMessage each refuse
+  // an empty body, so this test turns red only when BOTH are loosened;
+  // the domain half is pinned on its own in tests/domain/message.test.ts.
+  it('PATCH with an empty body is refused with 400, unlike a new attachment-only POST', async () => {
+    const jobId = await openDraft();
+    const posted = await req('POST', `/jobs/${jobId}/messages`, { body: 'to be edited' }, buyer);
+    const messageId = String((await posted.json() as Record<string, unknown>).id);
+    const res = await req('PATCH', `/jobs/${jobId}/messages/${messageId}`, { body: '' }, buyer);
+    expect(res.status).toBe(400);
+  });
+
   it('edit within the window succeeds, keeps history, and refuses a stranger to the message', async () => {
     const jobId = await openDraft();
     const posted = await req('POST', `/jobs/${jobId}/messages`, { body: 'oops typo' }, buyer);
@@ -404,6 +417,38 @@ describe('HT1 Part B: hire thread messages', () => {
     // A second message cannot re-claim the same attachment.
     const reused = await req('POST', `/jobs/${jobId}/messages`, { body: 'reuse', attachmentIds: [attachmentId] }, buyer);
     expect(reused.status).toBe(400);
+  });
+
+  // MSG1a (Make item 5): "a photo cannot be sent without words" (iMessage
+  // sends a bare photo). An attachment-only message posts with an empty
+  // body, and reads back with an empty body; an empty body with no
+  // attachments is still refused exactly as before.
+  it('an attachment-only message posts with an empty body and reads back with an empty body', async () => {
+    const jobId = await openDraft();
+    const pngBytes = await sharp({ create: { width: 3, height: 3, channels: 3, background: { r: 9, g: 9, b: 9 } } }).png().toBuffer();
+    const upload = await req('POST', `/jobs/${jobId}/attachments`, {
+      filename: 'bare.png',
+      dataBase64: pngBytes.toString('base64'),
+    }, buyer);
+    expect(upload.status).toBe(201);
+    const attachmentId = String((await upload.json() as Record<string, unknown>).id);
+
+    const post = await req('POST', `/jobs/${jobId}/messages`, { body: '', attachmentIds: [attachmentId] }, buyer);
+    expect(post.status).toBe(201);
+    const posted = (await post.json()) as { body: string; attachments: Array<{ attachmentId: string }> };
+    expect(posted.body).toBe('');
+    expect(posted.attachments).toEqual([{ attachmentId }]);
+
+    const read = await req('GET', `/jobs/${jobId}/messages`, undefined, operator);
+    const readBody = (await read.json()) as { messages: Array<{ id: string; body: string }> };
+    const row = readBody.messages.find((m) => m.id === (posted as unknown as { id: string }).id);
+    expect(row?.body).toBe('');
+  });
+
+  it('an empty body with no attachments is still refused with 400', async () => {
+    const jobId = await openDraft();
+    const res = await req('POST', `/jobs/${jobId}/messages`, { body: '' }, buyer);
+    expect(res.status).toBe(400);
   });
 
   it('the thread becomes read-only once the job reaches a terminal status', async () => {

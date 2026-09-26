@@ -211,11 +211,13 @@ export type RepositoryReadinessResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly status: 409 | 503; readonly message: string };
 
-// The exact phrase deposit.js tells this case apart by (brief, Make item
-// 2): kept byte-identical to confirm's own RepositoryNotAccessibleError
-// message (app.ts:5278) plus the page address, since the private-repos
-// walkthrough page (card t_1aa4b834, waiting on this PR) is the fix a
-// buyer follows before paying, not after.
+// The not-visible message, used by all three deposit-start doors and by
+// confirm (app.ts's RepositoryNotAccessibleError branch calls this same
+// function). deposit.js tells it apart by the phrase "cannot see this
+// repository". It ends with the address of the walkthrough page for this
+// job (/private-repos, src/web/pages/private-repos.html), which a buyer
+// can follow before the deposit starts, or at confirm if access changed
+// after it.
 //
 // Proof r3: agentGithubLogin is null when the agent has no VERIFIED
 // GitHub login yet (domain/agent.ts's verifiedGithubLogin -- an absent

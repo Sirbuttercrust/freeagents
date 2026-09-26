@@ -88,6 +88,21 @@ export function isImageKind(kind: AllowedAttachmentKind): boolean {
   return kind !== 'application/pdf';
 }
 
+// MSG1a (Make item 3, defect line: "the full-size image is served under
+// the wrong type"): every image kind is re-encoded to JPEG on upload
+// (reencodeImage, src/adapters/attachments/image.ts), but the bytes
+// route used to answer with the UPLOADED kind, so a PNG or HEIC upload
+// was served as image/png or image/heic over JPEG bytes. This is the
+// single source of what the bytes route actually serves for a full-size
+// file: the upload reply and the attachment list route both read it, so
+// the two responses can never disagree with each other or with the
+// bytes. `kind` itself keeps its existing meaning (the type detected
+// from the uploaded bytes) everywhere it already appears; this function
+// only answers a second, distinct question.
+export function contentTypeFor(kind: AllowedAttachmentKind): 'image/jpeg' | 'application/pdf' {
+  return isImageKind(kind) ? 'image/jpeg' : 'application/pdf';
+}
+
 // One stored attachment record. `path` and `thumbnailPath` are random
 // file ids under the configurable storage directory (never the
 // original filename, never a caller-guessable path) -- see

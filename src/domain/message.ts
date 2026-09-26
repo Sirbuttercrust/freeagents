@@ -20,8 +20,8 @@
 // function here can reach either of those call sites even by accident,
 // because nothing in this file is ever passed to them. The invariant is
 // therefore structural (nothing here is on the path), not merely
-// asserted; tests/domain/message.test.ts's own digest test proves it by
-// computation, not by review.
+// asserted; tests/domain/message-invariant3.test.ts's own digest test
+// proves it by computation, not by review.
 import { isTerminal, type JobStatus, type Party } from './job.js';
 import { agentMayNegotiate } from './agent.js';
 
@@ -247,6 +247,21 @@ export function messageBodyWellFormed(body: unknown): body is string {
   return typeof body === 'string' && body.length > 0 && body.length <= MESSAGE_BODY_MAX_LENGTH;
 }
 
+// MSG1a (Make item 5): an empty body is allowed only when attachmentIds
+// names at least one qualifying attachment (iMessage sends a bare
+// photo). This is the single source of that content rule -- createMessage
+// below is its only caller. The route's own shape check (POST
+// /jobs/:jobId/messages, app.ts) does not call this function: it checks
+// only that the body is a string within the length cap, a narrower,
+// attachment-independent check, and leaves the empty-body-needs-an-
+// attachment decision to createMessage so the two can never diverge on
+// what counts as a well-formed message.
+export function messageWellFormedFor(body: unknown, hasAttachments: boolean): body is string {
+  if (typeof body !== 'string' || body.length > MESSAGE_BODY_MAX_LENGTH) return false;
+  if (body.length === 0) return hasAttachments;
+  return true;
+}
+
 // Builds a new party-authored row. Pure: the caller supplies id and now
 // (the same pattern createJob takes), and replyToId is validated against
 // the set of ids ALREADY in the thread -- a reply to a message that does
@@ -263,9 +278,12 @@ export function createMessage(input: {
   readonly existingMessageIds: ReadonlySet<string>;
   readonly attachments?: readonly MessageAttachmentRef[];
 }, now: Date): Message {
-  if (!messageBodyWellFormed(input.body)) {
+  const hasAttachments = (input.attachments ?? []).length > 0;
+  if (!messageWellFormedFor(input.body, hasAttachments)) {
     throw new MessageError(
-      `a message body must be 1 to ${MESSAGE_BODY_MAX_LENGTH} characters`,
+      hasAttachments
+        ? `a message body must be up to ${MESSAGE_BODY_MAX_LENGTH} characters`
+        : `a message body must be 1 to ${MESSAGE_BODY_MAX_LENGTH} characters (or carry at least one attachment)`,
     );
   }
   const replyToId = input.replyToId ?? null;

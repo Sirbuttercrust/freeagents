@@ -244,7 +244,13 @@
         var status = result.value.status;
         var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
         if (status !== 200) {
-          showError("pay-error", refusalSentence(status, typeof body.error === "string" ? body.error : "", "Your session has expired. Sign in again to pay the deposit.", "There is no agreed price to pay against yet. Reload the page to see the latest state."));
+          var serverMessage = typeof body.error === "string" ? body.error : "";
+          var repository = status === 409 ? repositoryRefusal(serverMessage) : null;
+          if (repository !== null) {
+            showRepositoryRefusal("pay", repository);
+            return;
+          }
+          showError("pay-error", refusalSentence(status, serverMessage, "Your session has expired. Sign in again to pay the deposit.", "There is no agreed price to pay against yet. Reload the page to see the latest state."));
           return;
         }
         openScan(typeof body.url === "string" ? body.url : "");
@@ -301,9 +307,63 @@
           showError("confirm-waiting", "The chain has not confirmed your payment yet. Wait a moment and press this again to check.");
           return;
         }
-        showError("confirm-error", refusalSentence(status, typeof body.error === "string" ? body.error : "", "Your session has expired. Sign in again to finish this hire.", "Finish signing the agreement before the deposit can lock it. Reload the page to see the latest state."));
+        var serverMessage = typeof body.error === "string" ? body.error : "";
+        var repository = status === 409 ? repositoryRefusal(serverMessage) : null;
+        if (repository !== null && repository.key === "hidden") {
+          showRepositoryRefusal("confirm", { key: "hidden", sentence: "We can't see this repository yet. If it's private, share it first, then press this again.", link: true });
+          return;
+        }
+        showError("confirm-error", refusalSentence(status, serverMessage, "Your session has expired. Sign in again to finish this hire.", "Finish signing the agreement before the deposit can lock it. Reload the page to see the latest state."));
       });
     });
+  }
+  // ORG1b: the platform reads the buyer's repository before a deposit
+  // starts (every start door) and again at confirm, and refuses with 409
+  // when it is not ready. Each case gets its own plain sentence, told apart
+  // by the server's own phrase (pinned by tests/api/job-deposit-repository-
+  // check.test.ts and tests/adapters/payment/route-support.test.ts). The
+  // three that are about sharing link the walkthrough page for this job;
+  // an empty repository needs a first commit, not sharing, so it has no
+  // link. Pay can meet all four; confirm only answers the first. Either
+  // refusal persists nothing, so the same press works once the buyer has
+  // done what it says: GitHub answers the job's old repository path with
+  // the moved repository once it is shared, and confirm stores the new
+  // name. Any other 409 keeps its route's own sentence.
+  var REPOSITORY_REFUSALS = [
+    { key: "personal", phrase: "owned by a personal account", link: true,
+      sentence: "This private repository is on a personal account. Move it into an organization and share it, then press Pay again." },
+    { key: "forking", phrase: "forking of private repositories is off", link: true,
+      sentence: "Forking of private repositories is off in this organization's Settings. Turn it on, or ask an owner to, then press Pay again." },
+    { key: "empty", phrase: "has no commits yet", link: false,
+      sentence: "This repository has no commits yet. Add a first commit, then press Pay again." },
+    { key: "hidden", phrase: "cannot see this repository", link: true,
+      sentence: "We can't see this repository yet. If it's private, share it first, then press Pay again." }
+  ];
+  function repositoryRefusal(serverMessage) {
+    var lower = serverMessage.toLowerCase();
+    for (var i = 0; i < REPOSITORY_REFUSALS.length; i += 1) {
+      if (lower.indexOf(REPOSITORY_REFUSALS[i].phrase) !== -1) return REPOSITORY_REFUSALS[i];
+    }
+    return null;
+  }
+  // prefix is "pay" or "confirm": the refusal box beside that press.
+  function showRepositoryRefusal(prefix, refusal) {
+    var detail = A.el(prefix + "-error-detail");
+    if (!detail) return;
+    detail.textContent = refusal.sentence;
+    if (refusal.link) {
+      var line = document.createElement("span");
+      line.className = "sf-mores";
+      line.style.marginTop = "6px";
+      var link = document.createElement("a");
+      link.className = "sf-more";
+      link.id = prefix + "-private-repos-link";
+      link.setAttribute("href", "/private-repos?job=" + encodeURIComponent(jobId));
+      link.textContent = "How to share a private repository";
+      line.appendChild(link);
+      detail.appendChild(line);
+    }
+    A.showById(prefix + "-error", true);
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();

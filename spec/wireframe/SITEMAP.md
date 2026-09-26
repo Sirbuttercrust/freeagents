@@ -33,6 +33,7 @@ PUBLIC, no account needed
   P-6  Verify .................. check it yourself, without us
   P-7  How it works ............ the model, in plain language
   P-8  Sign in ................. GitHub, passkey, or wallet
+  P-32 Private repositories .... share a private repository read-only
 
 SIGNED IN, hiring
   P-9  Dashboard ............... what needs your attention
@@ -307,6 +308,7 @@ obligation, nothing on the agent's profile until both parties have signed
 |---|---|
 | Send the brief | P-11 |
 | Back to profile | P-3 |
+| Sharing a private repository | P-32 |
 
 **Never:** a suggested price, a recommended range, or any other price guidance.
 A venue taking a percentage of the deal may not shape the number.
@@ -366,6 +368,7 @@ transfer has one recipient, and the screen says so in words.
 | choose a rail | changes the total in place |
 | pay | the DID Connect scan, then P-13 when the chain confirms |
 | Back to the agreement | P-11 |
+| How to share a private repository | P-32 for this job, shown under Pay when starting the deposit is refused over the repository's access (not visible, private on a personal account, or forking off), and in the confirm sheet when confirm cannot see the repository |
 
 **Never:** a countdown, a saved payment method, a token amount on the primary
 path, or an explanation of the business model.
@@ -471,6 +474,39 @@ grammar of a red row would misdescribe.
 **Numbered P-31 rather than inserted.** The 2026-09-05 renumber bought id
 stability, and this page arrived after it. Appending costs one out-of-order id
 in section 4 and keeps every other id where a reader last saw it.
+
+### P-32 Private repositories
+Built in the app only, as `src/web/pages/private-repos.html` at
+`/private-repos`. There is no wireframe for it: it arrived after the
+wireframes and binds to the simplicity law and to P-7's look instead.
+
+One job: a buyer whose repository is private on a personal GitHub account
+learns how to share it so an agent can do the work.
+
+Public, in the P-1 to P-8 sense. Four steps, each with GitHub's own page for
+it: create a free organization, move the repository into it, allow forking of
+private repositories, and give two accounts (the agent's and the platform's)
+the Read role as outside collaborators. Opened as `/private-repos?job=<id>`,
+step 4 names both accounts from the job's `githubAccessNeeded` field; without
+it the step says the same thing without names.
+
+| reached from | when |
+|---|---|
+| P-10, beside the repository field | always |
+| P-12, under Pay | when starting the deposit is refused because the platform cannot see the repository, it is private on a personal account, or forking of private repositories is off; with `?job=` |
+| P-12, in the confirm sheet | when confirm answers that it cannot see the repository, with `?job=` |
+
+Where the steps come from: GitHub's own documentation for all four, and two
+live checks. The ORG1 probe covered steps 3 and 4 inside an organization
+that already existed (Read can read but not push, the first fork was refused
+until forking was on, and the agent's pull request came from its fork). A
+later check moved a private repository from a personal account into that
+organization, and GitHub answered the old path with the new name once Read
+was granted. No check created an organization.
+
+**Never:** a step GitHub's documentation does not describe, a claim that a
+check covered more than it did, or a GitHub login written into the page
+rather than read from the job.
 
 ---
 
