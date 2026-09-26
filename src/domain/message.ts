@@ -106,7 +106,7 @@ export interface QuoteSentEvent {
   readonly criteriaCount: number;
 }
 
-// Temper's STEER (bugs.md B19): a settlement leg observed on chain
+// STEER (bugs.md B19): a settlement leg observed on chain
 // becomes a row in the thread the instant it is recorded, so a buyer who
 // has paid can see it. leg names which of the two legs settled; the
 // amount is always in USD (never a token amount) and the rail names
@@ -121,7 +121,7 @@ export interface DepositPaidEvent {
   readonly rail: 'abt' | 'usdc';
 }
 
-// Temper's STEER (bugs.md B19): the remainder leg's sibling event, named
+// STEER (bugs.md B19): the remainder leg's sibling event, named
 // 'remainder_paid' rather than 'balance_paid' -- 'remainder' is this
 // codebase's own established name for the second payment leg (RouteLeg,
 // src/adapters/payment/route-support.ts; remainderUsd,

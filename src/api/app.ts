@@ -4567,7 +4567,7 @@ export function createApp(
     for (const subscriber of subscribers) sseSend(subscriber, 'notification', notificationProjection(row));
   }
 
-  // Temper's STEER (bugs.md B19, 2026-09-25): "when the platform observes
+  // STEER (bugs.md B19, 2026-09-25): "when the platform observes
   // a deposit or a balance leg settle... it writes a `deposit paid` or
   // `balance paid` system row into the hire thread, readable by both
   // parties. The row carries the leg, the amount in USD and the rail,
