@@ -64,11 +64,18 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   { method: 'POST', pattern: '/accounts/:did/push-subscriptions', classification: 'write' },
   { method: 'DELETE', pattern: '/accounts/:did/push-subscriptions', classification: 'write' },
   { method: 'POST', pattern: '/jobs/:jobId/attachments', classification: 'write' },
+  // The list of sent attachments (names, sizes, types) the conversation
+  // screen reads so the other party can name a file without downloading it.
+  // A party-gated storage read with no upstream call.
+  { method: 'GET', pattern: '/jobs/:jobId/attachments', classification: 'read' },
   { method: 'GET', pattern: '/jobs/:jobId/attachments/:attachmentId', classification: 'read' },
   { method: 'GET', pattern: '/accounts/:did/agents', classification: 'read' },
   { method: 'GET', pattern: '/accounts/:did/jobs', classification: 'read' },
   { method: 'GET', pattern: '/accounts/:did/incoming', classification: 'read' },
   { method: 'GET', pattern: '/accounts/:did/pending', classification: 'read' },
+  // Every conversation the account is in, both seats, with unread counts:
+  // the messages list and the nav badge. A storage read with no upstream call.
+  { method: 'GET', pattern: '/accounts/:did/threads', classification: 'read' },
   { method: 'POST', pattern: '/agents', classification: 'write' },
   { method: 'GET', pattern: '/agents', classification: 'read' },
   // FIX-S7 round 3 (the round-3 ruling on the verify-vs-honest-user

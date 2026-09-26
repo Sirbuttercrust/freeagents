@@ -110,6 +110,19 @@ describe('classifyRoute: read (every other GET)', () => {
   it('classifies GET /accounts/:did (not one of the 3 verify routes) as read', () => {
     expect(classifyRoute('GET', '/accounts/did:abt:zOperator')).toBe('read');
   });
+
+  // The two reads the conversation screen makes on every open (the
+  // messages list with its unread counts, and the names and sizes of a
+  // thread's files). Pinned on their own so dropping either entry turns
+  // this red, not only the router walk: without an entry each falls to
+  // the upstream fallback, 20 per minute, and the screen would 429.
+  it('classifies GET /accounts/:did/threads (the messages list) as read', () => {
+    expect(classifyRoute('GET', '/accounts/did:abt:zOperator/threads')).toBe('read');
+  });
+
+  it('classifies GET /jobs/:jobId/attachments (the sent-attachments list) as read', () => {
+    expect(classifyRoute('GET', '/jobs/j-1/attachments')).toBe('read');
+  });
 });
 
 describe('classifyRoute: exemptions, named individually', () => {
