@@ -8,24 +8,41 @@
 //
 // DEFAULTS TABLE. Every number below is set at several times the measured
 // burst of the busiest real page load this card checked (real headless
-// Chrome against a local server, tests/helpers/real-browser.ts's own
-// driver, no synthetic estimate):
+// Chrome, driven by tests/helpers/real-browser.ts's own CDP driver,
+// against a real createApp server; the measurement script is
+// tests/web/rate-limit-burst-measurement.test.ts and is run, not typed by
+// hand -- run it yourself with `npx vitest run
+// tests/web/rate-limit-burst-measurement.test.ts` and its console.log
+// lines print these same counts). FIX-S7 round 2 (qa proof r1, defect 3):
+// round 1's numbers left out the signed-in job page and measured deposit
+// signed-out only; both are measured signed in below, closing that gap.
 //   - browse page, 10 cards (PAGE_SIZE, browse.js): 1 GET /agents (a
 //     `read`) + 10 GET /agents/:agentDid (a `verify`, browse.js:376's
-//     per-card avatar read) = 11 reads/verifies in one page load.
-//   - job page (signed-out): 1 GET /jobs/:jobId (`read`) + 1 GET
-//     /agents/:agentDid (`verify`, job.js's identity strip) + 1 GET
-//     /accounts/:did (`read`, the operator link) = 2 reads + 1 verify.
-//   - deposit page's own pre-session reads: GET /jobs/:jobId (`read`) +
-//     GET /jobs/:jobId/attestations (`read`) = 2 reads, before the page
-//     ever checks whether a session exists.
+//     per-card avatar read) = 1 read + 10 verify in one page load. The
+//     page shell itself (/browse, Accept: html) is exempt and consumes
+//     neither bucket (rate-limit-classes.ts's EXEMPT_WEB_PAGE_PATHS).
+//   - job page, SIGNED IN: 1 GET /jobs/:jobId (`read`, the primary
+//     record) + 1 GET /agents/:agentDid (`verify`, job.js's identity
+//     strip) + nav.js's own signed-in reads (GET /accounts/me and GET
+//     /accounts/:did/notifications, both `read`) = up to 3 read + 1
+//     verify measured; the page shell for /jobs/:jobId itself is also
+//     exempt (Accept: html, rate-limit-classes.ts's negotiated-page-shell
+//     rule), so it consumes neither bucket either.
+//   - deposit page, SIGNED IN: GET /jobs/:jobId (`read`) + GET
+//     /jobs/:jobId/attestations (`read`, authed party probe) + GET
+//     /agents/:agentDid (`verify`, renderWho) + GET
+//     /agents/:agentDid/hires (`read`) + nav.js's signed-in reads (GET
+//     /accounts/me, GET /accounts/:did/notifications, both `read`) = up
+//     to 6 read + 1 verify measured.
 // The busiest measured burst for any one class in one page load is 10
-// (`verify`, the browse page's 10 avatar reads). Defaults below sit at
-// several times that: `verify` keeps its pre-existing 60/60s (6x);
-// `read` and `write` get generous per-minute budgets scaled the same way;
-// `upstream` (GitHub/chain calls, never seen in a page load a browser
-// itself drives) is deliberately the tightest, since each request there
-// costs a real external call.
+// (`verify`, the browse page's 10 avatar reads) and 6 (`read`, the
+// signed-in deposit page). Defaults below sit at several times both:
+// `verify` keeps its pre-existing 60/60s (6x the browse burst); `read`
+// and `write` get generous per-minute budgets scaled the same way (50x
+// and more the signed-in deposit page's read burst); `upstream`
+// (GitHub/chain calls, never seen in a page load a browser itself
+// drives) is deliberately the tightest, since each request there costs a
+// real external call.
 import type { NextFunction, Request, Response } from 'express';
 import { createRateLimiter, type RateLimiter } from '../adapters/identity/verify-rate-limit.js';
 import { classifyRoute, type RouteClass } from './rate-limit-classes.js';
@@ -69,12 +86,14 @@ export const CLASS_DEFAULTS: Readonly<Record<RouteClass, ClassDefault>> = {
     reason: 'no measured page load fires more than a few writes per visit; well above any real burst',
   },
   // Every other GET. The busiest measured `read`-class burst across
-  // browse/job/deposit page loads was 2; 300/minute is many times any real
-  // read burst, including a buyer with several tabs open.
+  // browse/job/deposit page loads (real Chrome, signed in, see the
+  // DEFAULTS TABLE header comment above) was 6, the signed-in deposit
+  // page; 300/minute is 50 times that, many times any real read burst,
+  // including a buyer with several tabs open.
   read: {
     envVar: 'FREEAGENTS_RATE_LIMIT_READ',
     limit: 300,
-    reason: 'several times the busiest measured page-load read burst (browse, job, deposit pages)',
+    reason: 'fifty times the busiest measured signed-in page-load read burst (deposit page, 6 reads)',
   },
   // The 4 pre-existing routes (S7's original limiter): unchanged, kept at
   // today's exact 60/minute so behaviour for these routes does not shift.
@@ -130,7 +149,7 @@ export function createClassRateLimitMiddleware(
   limiters: Record<RouteClass, RateLimiter>,
 ): (req: Request, res: Response, next: NextFunction) => void {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const classification = classifyRoute(req.method, req.path);
+    const classification = classifyRoute(req.method, req.path, req.headers?.accept);
     if (classification === 'exempt') {
       next();
       return;

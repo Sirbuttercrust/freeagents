@@ -170,6 +170,32 @@ export const EXEMPT_WEB_PAGE_PATHS: readonly string[] = [
   '/notifications',
 ];
 
+// FIX-S7 round 2 (qa proof r1, defect 1): the four GET routes src/web/
+// static.ts negotiates by Accept (its own `negotiated()`): a page shell
+// paint (Accept: text/html) never touches a bucket, but the identical path
+// asked for as JSON is a real, already-classified API read (verify/read
+// per ROUTE_TABLE above) and stays rate limited exactly as before. Method
+// is always GET; a page shell is never a write.
+const NEGOTIATED_PAGE_SHELL_PATTERNS: readonly string[] = [
+  '/agents/:agentDid',
+  '/accounts/:did',
+  '/v1/credentials/:credentialId',
+  '/jobs/:jobId',
+];
+
+// Copy of src/web/static.ts's own prefersHtml, deliberately not imported:
+// this module's own header comment states it does its own path matching
+// rather than depending on the web surface (src/api/app.ts may construct
+// this module before the web surface in some call orders), and
+// tests/architecture/rate-limit-enforcement.test.ts already cross-checks
+// ROOT_ICON_PATHS against static.ts's own export the same way, by value
+// rather than by import, so a real drift between the two copies is still
+// caught.
+function prefersHtmlAccept(accept: string | undefined): boolean {
+  if (typeof accept !== 'string') return false;
+  return accept.split(',').some((part) => (part.split(';')[0] ?? '').trim().toLowerCase() === 'text/html');
+}
+
 // Segment-for-segment comparison: a `:name` segment in the pattern matches
 // any single path segment, a literal segment must match exactly. No
 // pattern in this table uses a wildcard or an optional segment, so this is
@@ -188,19 +214,67 @@ function matchesPattern(pattern: string, path: string): boolean {
 // silently unlimited (missing-enforcement, defect class #9): a route this
 // table forgot degrades a caller's experience on that one route rather
 // than opening a hole.
-export function classifyRoute(method: string, path: string): RouteClassification {
-  if (path.startsWith(UPSTREAM_PREFIX)) return 'upstream';
+//
+// FIX-S7 round 2 (qa proof r1, defect 1): four GET routes are NEGOTIATED
+// page shells (src/web/static.ts's own `negotiated()`) -- /agents/:did,
+// /accounts/:did, /v1/credentials/:id, /jobs/:jobId. Before round 2 this
+// function classified them by path alone, so a browser painting the page
+// (Accept: text/html) shared the SAME bucket as that page's own later JSON
+// reads to the identical path, which is a regression from main: there, the
+// page-shell handler answered before the rate limiter even existed
+// (web.mountPages ran, and the limiter did not), so a paint never touched
+// any bucket at all. `accept` is optional and defaults to undefined (no
+// header, or a caller this function's own callers never pass one for --
+// see rate-limit-middleware.ts, which always passes req.headers.accept):
+// undefined never matches prefersHtml, so every existing caller's
+// behaviour (JSON reads, and every route that is not one of these four)
+// is exactly what it was before this parameter existed.
+export function classifyRoute(method: string, path: string, accept?: string): RouteClassification {
+  return classifyRouteWithReason(method, path, accept).classification;
+}
+
+export type ClassificationReason =
+  | 'upstream-prefix'
+  | 'exempt-static-prefix'
+  | 'exempt-root-icon'
+  | 'exempt-web-page'
+  | 'exempt-page-shell'
+  | 'route-table'
+  | 'fallback-unclassified';
+
+export interface Classified {
+  readonly classification: RouteClassification;
+  readonly reason: ClassificationReason;
+}
+
+// FIX-S7 round 2 (qa proof r1, defect 5a): named by REASON as well as by
+// class, so a mutation that deletes the explicit /api/did/pay/ prefix
+// check is observable even where it lands on the same class the generic
+// fallback would have picked anyway (both are 'upstream'; only the reason
+// differs). classifyRoute above is the class-only view every existing
+// caller keeps using unchanged; classificationReason (below) is the new,
+// separately-tested surface a mutation-proof test reads.
+function classifyRouteWithReason(method: string, path: string, accept?: string): Classified {
+  if (path.startsWith(UPSTREAM_PREFIX)) return { classification: 'upstream', reason: 'upstream-prefix' };
   for (const prefix of EXEMPT_STATIC_PREFIXES) {
-    if (path.startsWith(prefix)) return 'exempt';
+    if (path.startsWith(prefix)) return { classification: 'exempt', reason: 'exempt-static-prefix' };
   }
-  if (ROOT_ICON_PATHS.includes(path)) return 'exempt';
-  if (EXEMPT_WEB_PAGE_PATHS.includes(path)) return 'exempt';
+  if (ROOT_ICON_PATHS.includes(path)) return { classification: 'exempt', reason: 'exempt-root-icon' };
+  if (EXEMPT_WEB_PAGE_PATHS.includes(path)) return { classification: 'exempt', reason: 'exempt-web-page' };
 
   const upperMethod = method.toUpperCase();
+  if (upperMethod === 'GET' && prefersHtmlAccept(accept) && NEGOTIATED_PAGE_SHELL_PATTERNS.some((pattern) => matchesPattern(pattern, path))) {
+    return { classification: 'exempt', reason: 'exempt-page-shell' };
+  }
+
   for (const entry of ROUTE_TABLE) {
     if (entry.method === upperMethod && matchesPattern(entry.pattern, path)) {
-      return entry.classification;
+      return { classification: entry.classification, reason: 'route-table' };
     }
   }
-  return 'upstream';
+  return { classification: 'upstream', reason: 'fallback-unclassified' };
+}
+
+export function classificationReason(method: string, path: string, accept?: string): ClassificationReason {
+  return classifyRouteWithReason(method, path, accept).reason;
 }

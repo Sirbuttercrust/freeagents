@@ -3057,11 +3057,16 @@ export function createApp(
     }
   });
 
-  // #30 addendum: the two verification routes (VERIFICATION_CAPABILITY_IDS
-  // in src/domain/access.ts), and only those, carry the anonymous rate
-  // limit. Everything else that is public (capabilities, operator browse)
-  // is left alone -- the brief names verify routes specifically, not every
-  // public GET.
+  // #30 addendum's original stance (this route's own single anonymous
+  // limiter, before FIX-S7): the two verification routes, and only those,
+  // carried the anonymous rate limit. FIX-S7 (security sweep S7+S11)
+  // superseded that: EVERY route now carries a class-limiter bucket
+  // (src/api/rate-limit-classes.ts's ROUTE_TABLE names every one, walked
+  // by tests/architecture/rate-limit-enforcement.test.ts), not just these
+  // two. This route stays in the `verify` class (unchanged 60/minute), and
+  // GET /accounts/:did and GET /capabilities are in `read` -- rate limited
+  // too, just at the read class's own, more generous budget, never
+  // "left alone" as this comment used to claim.
   app.get('/agents/:agentDid', async (req: Request, res: Response) => {
     const did = String(req.params.agentDid);
     try {

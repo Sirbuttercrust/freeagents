@@ -131,6 +131,42 @@ describe('createRateLimiter (anonymous verify routes, #30)', () => {
     expect(headers['Retry-After']).toBe('6');
   });
 
+  // FIX-S7 round 2 (qa proof r1, defect 5b): the boundary case above
+  // (elapsed exactly 4000ms of a 10000ms window) lands on a whole-second
+  // remainder (6000ms / 1000 = 6 exactly), so Math.ceil and Math.floor
+  // agree and a mutant that swaps one for the other survives. This case
+  // elapses a MID-second amount (4300ms of 10000ms, a 5700ms remainder)
+  // where ceil(5.7) = 6 and floor(5.7) = 5 disagree, so the mutant is
+  // caught here even though it slipped past the case above.
+  it('rounds Retry-After UP for a mid-second remainder, never down (a caller must never retry a moment early)', () => {
+    let clock = 0;
+    const limiter = createRateLimiter({ limit: 1, windowMs: 10_000, now: () => clock });
+    let nextCalls = 0;
+    const next: NextFunction = () => {
+      nextCalls += 1;
+    };
+    const headers: Record<string, string> = {};
+    const res = {
+      status(_code: number) {
+        return res;
+      },
+      json(_body: unknown) {
+        return res;
+      },
+      set(name: string, value: string) {
+        headers[name] = value;
+        return res;
+      },
+    } as unknown as Response;
+
+    limiter.middleware(fakeReq('198.51.100.10'), res, next);
+    clock = 4300; // 4.3s of the 10s window elapsed; a 5.7s remainder
+    limiter.middleware(fakeReq('198.51.100.10'), res, next);
+
+    expect(nextCalls).toBe(1);
+    expect(headers['Retry-After']).toBe('6');
+  });
+
 
   it('different callers get independent budgets', () => {
     const clock = 0;

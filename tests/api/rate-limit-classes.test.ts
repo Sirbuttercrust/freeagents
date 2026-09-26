@@ -5,7 +5,15 @@
 // real route (this middleware is mounted BEFORE any route is registered,
 // so it does its own pattern match against req.method/req.path).
 import { describe, expect, it } from 'vitest';
-import { classifyRoute, EXEMPT_WEB_PAGE_PATHS, ROOT_ICON_PATHS } from '../../src/api/rate-limit-classes.js';
+import {
+  classifyRoute,
+  classificationReason,
+  EXEMPT_WEB_PAGE_PATHS,
+  ROOT_ICON_PATHS,
+} from '../../src/api/rate-limit-classes.js';
+
+const HTML_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+const JSON_ACCEPT = 'application/json';
 
 describe('classifyRoute: the four verify-class routes (today\'s 60/minute limiter)', () => {
   it('classifies GET /agents/:agentDid as verify', () => {
@@ -133,5 +141,83 @@ describe('classifyRoute: exemptions, named individually', () => {
 describe('classifyRoute: an unrecognised route (defence in depth, never silently open)', () => {
   it('falls back to the tightest class (upstream) rather than exempt or unlimited', () => {
     expect(classifyRoute('POST', '/some/route/nobody/registered')).toBe('upstream');
+  });
+});
+
+// FIX-S7 round 2 (qa proof r1, defect 1): the four page paths that collide
+// with a real API route (/agents/:agentDid, /accounts/:did,
+// /v1/credentials/:credentialId, /jobs/:jobId) are negotiated by Accept the
+// same way src/web/static.ts negotiates them: a browser painting the page
+// shell asks for text/html, and that request carries no storage read of its
+// own (the reads a page needs are separate, already-classified API calls).
+// Before this round the class-limiter middleware ran ahead of
+// web.mountPages(app), so a page-shell paint silently started consuming the
+// SAME bucket its own JSON reads consume, regressing what mount order used
+// to give for free on main (the page handler answered before the limiter
+// even existed). Classifying by Accept restores that: a page paint never
+// touches a bucket, but a JSON reader hitting the identical path still does.
+describe('classifyRoute: the four negotiated page shells are exempt ONLY when Accept prefers html', () => {
+  it('exempts GET /agents/:agentDid when Accept prefers html (the agent profile page shell)', () => {
+    expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent', HTML_ACCEPT)).toBe('exempt');
+  });
+
+  it('still classifies GET /agents/:agentDid as verify when Accept is JSON (a real API read, not a page paint)', () => {
+    expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent', JSON_ACCEPT)).toBe('verify');
+  });
+
+  it('still classifies GET /agents/:agentDid as verify when no Accept header is present at all', () => {
+    expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent')).toBe('verify');
+  });
+
+  it('exempts GET /accounts/:did when Accept prefers html (the operator profile page shell)', () => {
+    expect(classifyRoute('GET', '/accounts/did:abt:zOperator', HTML_ACCEPT)).toBe('exempt');
+  });
+
+  it('still classifies GET /accounts/:did as read when Accept is JSON', () => {
+    expect(classifyRoute('GET', '/accounts/did:abt:zOperator', JSON_ACCEPT)).toBe('read');
+  });
+
+  it('exempts GET /v1/credentials/:credentialId when Accept prefers html (the credential page shell)', () => {
+    expect(classifyRoute('GET', '/v1/credentials/abc-123', HTML_ACCEPT)).toBe('exempt');
+  });
+
+  it('exempts GET /jobs/:jobId when Accept prefers html (the job page shell)', () => {
+    expect(classifyRoute('GET', '/jobs/j-1', HTML_ACCEPT)).toBe('exempt');
+  });
+
+  it('never exempts a POST to one of these paths, even with Accept: html (a page shell is a GET only)', () => {
+    expect(classifyRoute('POST', '/jobs/j-1/confirm', HTML_ACCEPT)).toBe('upstream');
+  });
+
+  it('never exempts an unrelated GET route just because Accept prefers html', () => {
+    expect(classifyRoute('GET', '/agents', HTML_ACCEPT)).toBe('read');
+  });
+});
+
+// FIX-S7 round 2 (qa proof r1, defect 5a): classifyRoute's returned
+// CLASSIFICATION for an unmatched /api/did/pay/ path is 'upstream' whether
+// the explicit UPSTREAM_PREFIX check runs or the generic fallback catches
+// it (no ROUTE_TABLE entry names a did-connect leaf, so the two paths are
+// indistinguishable by return value alone, which is why the mutation that
+// deletes the explicit check survived: same class either way). This
+// classifies by REASON as well as by class, so a mutation that deletes the
+// explicit prefix check is observable even though the class it lands on is
+// unchanged.
+describe('classificationReason: names WHY a route landed where it did, not just where', () => {
+  it('the /api/did/pay/ mount is matched by its own explicit prefix rule, not by falling through to the fallback', () => {
+    expect(classificationReason('GET', '/api/did/pay/token')).toBe('upstream-prefix');
+    expect(classificationReason('POST', '/api/did/pay/auth/submit')).toBe('upstream-prefix');
+  });
+
+  it('a genuinely unrecognised route reaches the fallback reason, never the prefix reason', () => {
+    expect(classificationReason('POST', '/some/route/nobody/registered')).toBe('fallback-unclassified');
+  });
+
+  it('a real ROUTE_TABLE entry reports its reason as route-table', () => {
+    expect(classificationReason('GET', '/agents')).toBe('route-table');
+  });
+
+  it('a page shell paint reports its reason as exempt-page-shell', () => {
+    expect(classificationReason('GET', '/jobs/j-1', HTML_ACCEPT)).toBe('exempt-page-shell');
   });
 });

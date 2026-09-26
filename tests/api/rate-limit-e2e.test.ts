@@ -165,3 +165,102 @@ describe('class rate limits, end to end over real HTTP (S7)', () => {
     expect(second.status).toBe(429);
   });
 });
+
+// FIX-S7 round 2 (qa proof r1, defect 1): a page shell paint on one of the
+// four negotiated paths (/agents/:agentDid, /accounts/:did,
+// /v1/credentials/:credentialId, /jobs/:jobId) never touches the class
+// bucket that path's OWN json reads consume. Reproduces the exact repro
+// qa's proof gave: exhaust the verify bucket with real JSON reads to
+// GET /agents/:agentDid, then confirm the page shell for the SAME did still
+// answers 200 html rather than the JSON 429 body qa found.
+describe('class rate limits: negotiated page shells never share a bucket with their own JSON reads (FIX-S7 round 2)', () => {
+  const HTML_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+
+  it('GET /agents/:agentDid as an html page shell is never 429, even after the verify bucket is exhausted by json reads to the same path', async () => {
+    const agentRepo = new MemoryAgentRepository();
+    const agentDid = 'did:abt:zPageShellVerifyAgent';
+    await agentRepo.create({
+      did: agentDid,
+      operatorDid: 'did:abt:op-page-shell-e2e',
+      delegation: delegationFixture(agentDid),
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    const app = createApp(undefined, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, {
+      verify: 1,
+      read: 100,
+      write: 100,
+      upstream: 100,
+    });
+    const baseUrl = await listen(app);
+
+    // Exhaust the verify bucket: first json read succeeds, second trips 429.
+    const firstJson = await fetch(`${baseUrl}/agents/${agentDid}`, { headers: { Accept: 'application/json' } });
+    expect(firstJson.status).toBe(200);
+    const secondJson = await fetch(`${baseUrl}/agents/${agentDid}`, { headers: { Accept: 'application/json' } });
+    expect(secondJson.status).toBe(429);
+
+    // The page shell for the SAME did, asked for as html, is unaffected:
+    // it never touched the verify bucket in the first place.
+    const pageShell = await fetch(`${baseUrl}/agents/${agentDid}`, { headers: { Accept: HTML_ACCEPT } });
+    expect(pageShell.status).toBe(200);
+    expect(pageShell.headers.get('content-type')).toContain('text/html');
+  });
+
+  it('an honest multi-page browse session (page shells only, no json) never trips the verify bucket at the default limit', async () => {
+    // Reproduces qa's own repro at default limits: paging browse
+    // 1,2,3,1,2,3 then opening an agent profile is 7 page-shell paints on
+    // /browse (exempt by EXEMPT_WEB_PAGE_PATHS already) plus one page-shell
+    // paint on /agents/:agentDid -- none of which may consume the verify
+    // bucket now that page shells are classified by Accept.
+    const agentRepo = new MemoryAgentRepository();
+    const agentDid = 'did:abt:zPageShellSessionAgent';
+    await agentRepo.create({
+      did: agentDid,
+      operatorDid: 'did:abt:op-page-shell-session',
+      delegation: delegationFixture(agentDid),
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    // Defaults: no override at all, proving the REAL production limits
+    // (not a generous test override) survive this session.
+    const app = createApp(undefined, agentRepo);
+    const baseUrl = await listen(app);
+
+    for (let i = 0; i < 20; i += 1) {
+      const res = await fetch(`${baseUrl}/browse`, { headers: { Accept: HTML_ACCEPT } });
+      expect(res.status).toBe(200);
+    }
+    const agentPage = await fetch(`${baseUrl}/agents/${agentDid}`, { headers: { Accept: HTML_ACCEPT } });
+    expect(agentPage.status).toBe(200);
+    expect(agentPage.headers.get('content-type')).toContain('text/html');
+  });
+});
+
+// FIX-S7 round 2 (qa proof r1, defect 5a): pins the /api/did/pay/ prefix
+// check by REASON, at the e2e layer, so a mutant that deletes
+// classifyRoute's explicit UPSTREAM_PREFIX branch is caught even though
+// classifyRoute's own generic fallback lands the same request on the same
+// class ('upstream' either way -- see rate-limit-classes.test.ts's
+// classificationReason describe block for the unit-level version of this
+// same proof).
+describe('class rate limits: the /api/did/pay/ mount is upstream by its own explicit rule (FIX-S7 round 2, defect 5a)', () => {
+  it('an unconfigured deployment (no ABT rail mounted) still classifies /api/did/pay/token as upstream, not the generic fallback', async () => {
+    const app = createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, { upstream: 1 });
+    const baseUrl = await listen(app);
+
+    // No ABT rail is configured in this test env, so did-connect-js never
+    // mounts a real handler here; the class limiter still runs FIRST
+    // (app.ts:1043), ahead of every route registration, so the request is
+    // classified and rate limited before Express ever gets to answer
+    // "no route" -- the class the request receives is the whole point of
+    // this test, not the eventual 404/503 body.
+    const first = await fetch(`${baseUrl}/api/did/pay/token`);
+    const second = await fetch(`${baseUrl}/api/did/pay/token`);
+    expect(first.status).not.toBe(429);
+    expect(second.status).toBe(429);
+    expect(second.headers.get('Retry-After')).not.toBeNull();
+  });
+});
