@@ -14,7 +14,6 @@ import { createApp } from '../../src/api/app.js';
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
 import { createUsdcPaymentRail, type UsdcChainClient } from '../../src/adapters/payment/usdc.js';
 import { createAbtPaymentRail, type AbtChainClient } from '../../src/adapters/payment/abt.js';
-import { didSuffix } from '../../src/domain/agent.js';
 import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from '../../src/adapters/payment/usdc-spent-transfer-storage-types.js';
 import { MemorySettlementRepository, MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';

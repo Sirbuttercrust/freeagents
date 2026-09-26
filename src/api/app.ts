@@ -146,7 +146,6 @@ import {
   checkRailDoorEligible,
   confirmPayment,
   checkRepositoryReady,
-  legRailMismatchMessage,
   legStatusConflictMessage,
   legStatusEligible,
   processWalletResponse,

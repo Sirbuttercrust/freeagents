@@ -24,6 +24,7 @@ import { createAbtPaymentRail, type AbtChainClient } from '../../src/adapters/pa
 import { didSuffix } from '../../src/domain/agent.js';
 import { MemorySettlementRepository } from '../../src/adapters/storage/memory.js';
 import { MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
+import type { AccountRepository } from '../../src/adapters/storage/types.js';
 import { signingIdentityFromWallet, type SigningIdentity } from '../helpers/sign-request.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
@@ -856,32 +857,21 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
     });
 
     try {
-      const { sessionToken, authCallbackUrl } = await startAbtSession(started13.baseUrl, started13.buyer, {
-        jobId: started13.jobId,
-        leg: 'deposit',
-      });
-      const authPath = new URL(authCallbackUrl).pathname;
-      const step0Res = await fetch(authCallbackUrl);
-      const step0Body = (await step0Res.json()) as DidConnectClaimResponse;
-      const step0 = decodeClaimBody(step0Body);
-      // Advancing past authPrincipal is the step that signs the NEXT
-      // claim (prepareTx), which is where operatorAddressForJob is
-      // called; a null operator address throws before signing, so the
-      // response here is the raw { error } shape, never a signed JWT.
-      const step0SubmitRes = await fetch(`${started13.baseUrl}${authPath}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          _t_: sessionToken,
-          userPk: started13.buyerWallet.publicKey,
-          userInfo: await walletResponseJwt(started13.buyerWallet, step0.challenge, [{ type: 'authPrincipal' }]),
-        }),
-      });
-      const finalBody = (await step0SubmitRes.json()) as { appPk: string; authInfo: string };
-      const decoded = jwtDecode(finalBody.authInfo) as unknown as Record<string, unknown>;
-      const errorMessage = decoded.errorMessage as string | undefined;
-      expect(typeof errorMessage).toBe('string');
-      expect(errorMessage).toContain('operator-address');
+      // FIX-B39 (Ruling, run 792): rule 5 moves this refusal to the
+      // /start door itself, so the buyer learns before a session is
+      // even minted, rather than after advancing through the wallet
+      // protocol as far as prepareTx. checkRailDoorEligible answers
+      // this before startAbtSession's own /start call ever succeeds, so
+      // the assertion is now on the raw route response.
+      const startRes = await postSigned(
+        started13.baseUrl,
+        `/jobs/${started13.jobId}/payments/deposit/abt/start`,
+        {},
+        started13.buyer,
+      );
+      expect(startRes.status).toBe(409);
+      const body = (await startRes.json()) as { error: string };
+      expect(body.error).toContain('operator-address');
       expect(await started13.settlementRepo.findByJobAndLeg(started13.jobId, 'deposit')).toBeNull();
     } finally {
       started13.server.close();
@@ -986,6 +976,149 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
       expect(row?.operatorAddress).not.toBe(didSuffix('did:abt:op-abt-set'));
     } finally {
       started14.server.close();
+    }
+  });
+
+  it('the address vanishing between a successful /start and the wallet advancing past authPrincipal still refuses, naming the PATCH route, and settles nothing (defence in depth)', async () => {
+    // Ruling (run 792): checkRailDoorEligible's /start-time read is the
+    // FRONT gate a buyer sees first, but abt-did-connect.ts's own
+    // operatorAddressForJob (inside prepareTx) is kept as a second,
+    // independent read at the moment the recipient is actually signed
+    // into the transaction. This test proves that second read still
+    // fires on its own: the address is present for the /start door's
+    // check, then gone by the time the wallet completes authPrincipal
+    // and the server resolves the recipient for prepareTx. Removing
+    // abt-did-connect.ts's own guard (not app.ts's) is what turns this
+    // test red.
+    const fakeChain14b = fakeAbtChainClient(true);
+    const port = await reservePort();
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const started14b = await withEnv(testAbtEnv(baseUrl), async () => {
+      const buyerWallet = fromRandom();
+      const agentWallet = fromRandom();
+      const spentTransferStorage = {
+        async record(): Promise<void> {},
+        async findByHash() {
+          return null;
+        },
+      };
+      const abtRail = createAbtPaymentRail({ chainClient: fakeChain14b.client, rateSource: async () => '1', spentTransferStorage });
+
+      const buyer = await signingIdentityFromWallet(buyerWallet);
+      const agent = await signingIdentityFromWallet(agentWallet);
+
+      const innerOperatorRepo = new MemoryAccountRepository();
+      await innerOperatorRepo.register({ did: buyer.did, githubLogin: 'buyer-abt-vanish' });
+      const agentRepo = new MemoryAgentRepository();
+      const operatorDid = 'did:abt:op-abt-vanish';
+      await agentRepo.create({
+        did: agent.did,
+        operatorDid,
+        delegation: { fixture: true } as never,
+        name: 'scout',
+        skills: ['triage'],
+        githubLogin: null,
+        negotiatesOnOwnersBehalf: true,
+      });
+      await innerOperatorRepo.register({ did: operatorDid, githubLogin: 'operator-abt-vanish' });
+      await innerOperatorRepo.setOperatorAddressAbt(operatorDid, 'z6MkVanishingAddress');
+
+      // Wraps findByDid so the operator's own row answers the address
+      // exactly once (the /start route's own checkRailDoorEligible read),
+      // then null on every call after (the read prepareTx makes when the
+      // wallet advances past authPrincipal), reproducing an address that
+      // was present when the buyer pressed pay and gone by the time the
+      // wallet finished the first claim.
+      let operatorReads = 0;
+      const vanishingOperatorRepo: AccountRepository = {
+        register: innerOperatorRepo.register.bind(innerOperatorRepo),
+        findByGithubLogin: innerOperatorRepo.findByGithubLogin.bind(innerOperatorRepo),
+        findByPasskeySubject: innerOperatorRepo.findByPasskeySubject.bind(innerOperatorRepo),
+        setOperatorAddressEvm: innerOperatorRepo.setOperatorAddressEvm.bind(innerOperatorRepo),
+        setOperatorAddressAbt: innerOperatorRepo.setOperatorAddressAbt.bind(innerOperatorRepo),
+        findByDid: async (did: string) => {
+          const row = await innerOperatorRepo.findByDid(did);
+          if (did !== operatorDid) return row;
+          operatorReads += 1;
+          return operatorReads === 1 ? row : row === null ? null : { ...row, operatorAddressAbt: null };
+        },
+      };
+
+      const jobRepo = new MemoryJobRepository();
+      const settlementRepo = new MemorySettlementRepository();
+      const gate = new PrismaSettlementGate(settlementRepo);
+      const { github } = createStagingLifecycleGithubFake();
+
+      const app = createApp(
+        vanishingOperatorRepo,
+        agentRepo,
+        undefined,
+        github,
+        jobRepo,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        gate,
+        anyCommitStagingObserver(),
+        undefined,
+        abtRail,
+        null,
+        settlementRepo,
+        pureTxEncoder,
+      );
+      const server = app.listen(port, '127.0.0.1');
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+
+      const created = await postSigned(baseUrl, '/jobs', {
+        buyerDid: buyer.did,
+        agentDid: agent.did,
+        repository: 'buyer/target-repo',
+        brief: 'Fix the login bug',
+      }, buyer);
+      const job = (await created.json()) as Record<string, unknown>;
+      const jobId = String(job.id);
+      await postSigned(baseUrl, `/jobs/${jobId}/criteria`, { criteria: proposal, priceUsd: '400.00', rail: 'abt' }, agent);
+      await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agent);
+      await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agent);
+      await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyer);
+      await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agent);
+
+      return { server, baseUrl, buyer, buyerWallet, settlementRepo, jobId };
+    });
+
+    try {
+      const { sessionToken, authCallbackUrl } = await startAbtSession(started14b.baseUrl, started14b.buyer, {
+        jobId: started14b.jobId,
+        leg: 'deposit',
+      });
+      const authPath = new URL(authCallbackUrl).pathname;
+      const step0Res = await fetch(authCallbackUrl);
+      const step0Body = (await step0Res.json()) as DidConnectClaimResponse;
+      const step0 = decodeClaimBody(step0Body);
+      const step0SubmitRes = await fetch(`${started14b.baseUrl}${authPath}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          _t_: sessionToken,
+          userPk: started14b.buyerWallet.publicKey,
+          userInfo: await walletResponseJwt(started14b.buyerWallet, step0.challenge, [{ type: 'authPrincipal' }]),
+        }),
+      });
+      const finalBody = (await step0SubmitRes.json()) as { appPk: string; authInfo: string };
+      const decoded = jwtDecode(finalBody.authInfo) as unknown as Record<string, unknown>;
+      const errorMessage = decoded.errorMessage as string | undefined;
+      expect(typeof errorMessage).toBe('string');
+      expect(errorMessage).toContain('operator-address');
+      expect(await started14b.settlementRepo.findByJobAndLeg(started14b.jobId, 'deposit')).toBeNull();
+    } finally {
+      started14b.server.close();
     }
   });
 });
