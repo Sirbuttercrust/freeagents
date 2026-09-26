@@ -23,7 +23,7 @@ function fakeGithub(overrides: Partial<GithubAdapter> = {}): GithubAdapter {
     createStagingRepository: () => Promise.reject(new NotImplementedError('github', 'createStagingRepository')),
     grantPush: () => Promise.reject(new NotImplementedError('github', 'grantPush')),
     getCommit: () => Promise.reject(new NotImplementedError('github', 'getCommit')),
-    getDefaultBranchHead: () => Promise.reject(new NotImplementedError('github', 'getDefaultBranchHead')),
+    readRepository: () => Promise.reject(new NotImplementedError('github', 'readRepository')),
     compareCommits: () => Promise.reject(new NotImplementedError('github', 'compareCommits')),
     ...overrides,
   };

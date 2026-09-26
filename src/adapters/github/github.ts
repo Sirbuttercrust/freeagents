@@ -2,6 +2,7 @@ import { NotImplementedError } from '../not-implemented.js';
 import {
   GistNotFoundError,
   NotPlatformOwnerError,
+  RepositoryEmptyError,
   RepositoryNotAccessibleError,
   StagingComparisonTruncatedError,
   UnverifiedGithubLoginError,
@@ -11,7 +12,7 @@ import {
   type CompareCommitsResult,
   type CreateStagingRepositoryInput,
   type CreateStagingRepositoryResult,
-  type DefaultBranchHead,
+  type RepositoryFacts,
   type Gist,
   type GetCommitInput,
   type GithubAdapter,
@@ -332,9 +333,13 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
       };
     },
 
-    // B14a: reads the buyer's repository's own default branch name and
-    // its current head sha -- the confirm route pins this as baseCommit
-    // before creating the staging repository. Read-only.
+    // B14a, FIX-B36: reads the buyer's repository's own facts -- full
+    // name (follows a move: GitHub answers 301 to the repository's new
+    // location on the id-stable /repositories/<id> path, and this
+    // adapter's fetchImpl follows redirects by default, so full_name on
+    // the parsed body is already the CURRENT name), private,
+    // allow_forking, the owner's type, and the default branch and its
+    // current head sha from the ref read that follows.
     //
     // ORG1: a 404 or 403 reading the repository itself means the
     // platform's account cannot see it at all -- most commonly a
@@ -343,28 +348,52 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
     // account repository). That is a fact about the repository, not a
     // transient failure, so it throws the typed
     // RepositoryNotAccessibleError rather than the generic Error every
-    // other non-2xx response here throws; the confirm route maps it to
-    // 409 with an actionable message instead of 503. The SECOND request
-    // (the branch ref) is not specially handled: if the repository read
-    // above succeeded, the platform can see the repository, so a failure
-    // reading its ref is a real anomaly, not an access question.
-    async getDefaultBranchHead(ref: StagingRepoRef): Promise<DefaultBranchHead> {
+    // other non-2xx response here throws; the confirm route and the
+    // deposit-start doors map it to 409 with an actionable message
+    // instead of 503.
+    //
+    // FIX-B36: the SECOND request (the branch ref) is not specially
+    // handled the same way for most statuses -- if the repository read
+    // above succeeded, the platform can see the repository, so a
+    // non-409 failure reading its ref is a real anomaly, not an access
+    // question. A 409 on the ref read is GitHub's own documented answer
+    // for a repository with no commits ("Git Repository is empty."),
+    // which is a fact about the repository (no pull request can ever
+    // open into it), not an outage, so it throws the typed
+    // RepositoryEmptyError.
+    async readRepository(ref: StagingRepoRef): Promise<RepositoryFacts> {
       const tok = requireToken();
       const repoResponse = await githubRequest(fetchImpl, apiBase, tok, `/repos/${ref.owner}/${ref.repo}`);
       if (repoResponse.status === 404 || repoResponse.status === 403) {
         throw new RepositoryNotAccessibleError(ref.owner, ref.repo, repoResponse.status);
       }
       await requireOk(repoResponse, 'read repository');
-      const repo = (await repoResponse.json()) as { readonly default_branch: string };
+      const repo = (await repoResponse.json()) as {
+        readonly full_name: string;
+        readonly private: boolean;
+        readonly allow_forking: boolean;
+        readonly default_branch: string;
+        readonly owner: { readonly type: string };
+      };
       const refResponse = await githubRequest(
         fetchImpl,
         apiBase,
         tok,
         `/repos/${ref.owner}/${ref.repo}/git/ref/heads/${repo.default_branch}`,
       );
+      if (refResponse.status === 409) {
+        throw new RepositoryEmptyError(ref.owner, ref.repo);
+      }
       await requireOk(refResponse, 'read default branch head');
       const headRef = (await refResponse.json()) as { readonly object: { readonly sha: string } };
-      return { defaultBranch: repo.default_branch, sha: headRef.object.sha };
+      return {
+        fullName: repo.full_name,
+        private: repo.private,
+        allowForking: repo.allow_forking,
+        ownerIsOrganization: repo.owner.type === 'Organization',
+        defaultBranch: repo.default_branch,
+        sha: headRef.object.sha,
+      };
     },
 
     // B14b: compares two commits within one repository (the staging
