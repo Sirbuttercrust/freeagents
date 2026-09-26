@@ -105,7 +105,7 @@ describe('class rate limits, end to end over real HTTP (S7)', () => {
   });
 
   it('exhausting the verify class (GET /v1/credentials/:credentialId) never throttles the read class (GET /agents/:agentDid) for the same caller', async () => {
-    // FIX-S7 round 3 (Temper's ruling): GET /agents/:agentDid moved from
+    // FIX-S7 round 3 (round 3's ruling): GET /agents/:agentDid moved from
     // `verify` to `read`, so this test now exercises the verify class
     // through GET /v1/credentials/:credentialId instead (still verify,
     // answers 404 for an unknown id rather than needing a real credential
@@ -171,12 +171,12 @@ describe('class rate limits, end to end over real HTTP (S7)', () => {
   });
 });
 
-// FIX-S7 round 2 (qa proof r1, defect 1) + round 3 (Temper's ruling): a
+// FIX-S7 round 2 (qa proof r1, defect 1) + round 3 (round 3's ruling): a
 // page shell paint on one of the four negotiated paths (/agents/:agentDid,
 // /accounts/:did, /v1/credentials/:credentialId, /jobs/:jobId) never
 // touches the class bucket that path's OWN json reads consume. Reproduces
 // the exact repro qa's proof gave: exhaust the bucket GET /agents/:agentDid
-// now belongs to (`read`, since Temper's ruling) with real JSON reads,
+// now belongs to (`read`, since round 3's ruling) with real JSON reads,
 // then confirm the page shell for the SAME did still answers 200 html
 // rather than a JSON 429 body.
 describe('class rate limits: negotiated page shells never share a bucket with their own JSON reads (FIX-S7 round 2)', () => {
@@ -202,7 +202,7 @@ describe('class rate limits: negotiated page shells never share a bucket with th
     const baseUrl = await listen(app);
 
     // Exhaust the read bucket (GET /agents/:agentDid's own class, since
-    // Temper's ruling): first json read succeeds, second trips 429.
+    // round 3's ruling): first json read succeeds, second trips 429.
     const firstJson = await fetch(`${baseUrl}/agents/${agentDid}`, { headers: { Accept: 'application/json' } });
     expect(firstJson.status).toBe(200);
     const secondJson = await fetch(`${baseUrl}/agents/${agentDid}`, { headers: { Accept: 'application/json' } });
@@ -249,7 +249,7 @@ describe('class rate limits: negotiated page shells never share a bucket with th
   });
 });
 
-// FIX-S7 round 3 (Temper's ruling; qa proof r2's HIGH defect, "the verify
+// FIX-S7 round 3 (round 3's ruling; qa proof r2's HIGH defect, "the verify
 // budget must also hold up across an honest multi-page session"). qa's own
 // repro: the page-shell-only e2e test above passes whether or not a real
 // session works, because Node fetch runs no page script and so never fires
@@ -257,7 +257,7 @@ describe('class rate limits: negotiated page shells never share a bucket with th
 // replays those JSON reads directly (the same counts
 // tests/web/rate-limit-burst-measurement.test.ts measures in real Chrome:
 // 1 GET /agents + 10 GET /agents/:agentDid per browse page), at DEFAULT
-// limits, and asserts every one succeeds. Before Temper's ruling moved GET
+// limits, and asserts every one succeeds. Before round 3's ruling moved GET
 // /agents/:agentDid to `read`, six browse pages (60 avatar reads) plus the
 // agent page's own read (61st) tripped the pre-existing 60/minute verify
 // bucket exactly as qa's real-Chrome repro found; this test fails the same

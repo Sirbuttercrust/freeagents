@@ -91,7 +91,7 @@ describe('FREEAGENTS_TRUST_PROXY: per-caller buckets behind a proxy (S11)', () =
     originalEnv = process.env[TRUST_PROXY_ENV_VAR];
     setTrustProxyEnv('1');
 
-    // FIX-S7 round 3 (Temper's ruling): GET /agents/:agentDid moved from
+    // FIX-S7 round 3 (round 3's ruling): GET /agents/:agentDid moved from
     // `verify` to `read`, so the override here targets the `read` class
     // rather than passing a bare RateLimiter (which would only override
     // `verify`, a bucket this route no longer uses).
@@ -126,7 +126,7 @@ describe('FREEAGENTS_TRUST_PROXY: per-caller buckets behind a proxy (S11)', () =
     originalEnv = process.env[TRUST_PROXY_ENV_VAR];
     setTrustProxyEnv(undefined);
 
-    // FIX-S7 round 3 (Temper's ruling): same repointing to a `read`
+    // FIX-S7 round 3 (round 3's ruling): same repointing to a `read`
     // override as the ON case above.
     const agentRepo = new MemoryAgentRepository();
     const agentDid = 'did:abt:trust-proxy-off-agent';

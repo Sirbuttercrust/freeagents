@@ -31,7 +31,7 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   { method: 'GET', pattern: '/sign-in-methods', classification: 'read' },
   { method: 'GET', pattern: '/.well-known/freeagents-issuer.json', classification: 'read' },
   { method: 'GET', pattern: '/auth/github/start', classification: 'read' },
-  // FIX-S7 round 3 (Temper's ruling): the `verify` bucket keeps exactly
+  // FIX-S7 round 3: the `verify` bucket keeps exactly
   // the 3 routes a stranger or a script uses to PROVE something (a
   // sign-in callback, a passkey assertion, an issued credential lookup),
   // never the site's own ordinary reads. GET /agents/:agentDid moved out
@@ -71,7 +71,7 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   { method: 'GET', pattern: '/accounts/:did/pending', classification: 'read' },
   { method: 'POST', pattern: '/agents', classification: 'write' },
   { method: 'GET', pattern: '/agents', classification: 'read' },
-  // FIX-S7 round 3 (Temper's ruling on the verify-vs-honest-user
+  // FIX-S7 round 3 (the round-3 ruling on the verify-vs-honest-user
   // conflict qa's proof r2 raised): this is the site's own ordinary
   // agent-record read, not a stranger's or a script's verification.
   // Twelve page scripts read it for the agent strip (browse.js once per

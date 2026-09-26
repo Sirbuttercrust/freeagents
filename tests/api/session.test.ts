@@ -466,7 +466,7 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
     // anonymous hits on a verify route eventually answer 429; a session
     // does not lift the product boundary, only the limit bucket.
     //
-    // FIX-S7 round 3 (Temper's ruling): GET /agents/:agentDid moved from
+    // FIX-S7 round 3 (round 3's ruling): GET /agents/:agentDid moved from
     // `verify` to `read` (it is the site's own ordinary agent-record read,
     // fetched by twelve page scripts, not a stranger's or a script's
     // verification), so this test no longer exercises that route's

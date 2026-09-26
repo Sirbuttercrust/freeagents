@@ -3066,7 +3066,7 @@ export function createApp(
   // superseded that: EVERY route now carries a class-limiter bucket
   // (src/api/rate-limit-classes.ts's ROUTE_TABLE names every one, walked
   // by tests/architecture/rate-limit-enforcement.test.ts), not just these
-  // two. FIX-S7 round 3 (Temper's ruling on the verify-vs-honest-user
+  // two. FIX-S7 round 3 (the round-3 ruling on the verify-vs-honest-user
   // conflict qa's proof r2 raised): this route is now in the `read` class
   // (300/minute), not `verify` -- it is the site's own ordinary
   // agent-record read (twelve page scripts fetch it for the agent strip),

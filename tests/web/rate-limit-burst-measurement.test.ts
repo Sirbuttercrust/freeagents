@@ -220,7 +220,7 @@ describe('FIX-S7 Make item 2: real-browser burst measurement, reproducible (roun
   });
 
   it(
-    'measures the browse page (10 cards) burst: 11 read, 0 verify (Temper\'s ruling, round 3), several times under CLASS_DEFAULTS',
+    "measures the browse page (10 cards) burst: 11 read, 0 verify (round 3's ruling), several times under CLASS_DEFAULTS",
     async () => {
       if (!hasRealBrowser()) {
         console.warn('no Chrome found for real-browser burst measurement; skipping (see CHROME_BIN)');
@@ -231,7 +231,7 @@ describe('FIX-S7 Make item 2: real-browser burst measurement, reproducible (roun
         await browser.send('Network.enable');
         const counts = await measurePageLoad(browser, `${baseUrl}/browse`, HTML_ACCEPT);
         console.log('[FIX-S7 burst measurement] browse page (10 cards):', counts);
-        // FIX-S7 round 3 (Temper's ruling): GET /agents/:agentDid moved
+        // FIX-S7 round 3 (round 3's ruling): GET /agents/:agentDid moved
         // from `verify` to `read`, so both the listing read and the ten
         // per-card avatar reads land in the same, single `read` bucket.
         expect(counts.read, 'the listing read plus ten per-card avatar reads').toBe(11);
@@ -266,7 +266,7 @@ describe('FIX-S7 Make item 2: real-browser burst measurement, reproducible (roun
 
         const counts = await measurePageLoad(browser, `${baseUrl}/jobs/burst-measure-job`, HTML_ACCEPT);
         console.log('[FIX-S7 burst measurement] signed-in job page:', counts);
-        // FIX-S7 round 3 (Temper's ruling): GET /agents/:agentDid (job.js's
+        // FIX-S7 round 3 (round 3's ruling): GET /agents/:agentDid (job.js's
         // identity strip) is now `read`, same class as GET /jobs/:jobId
         // (the primary record) and nav.js's signed-in reads (GET
         // /accounts/me, GET /accounts/:did/notifications). No page load
@@ -297,7 +297,7 @@ describe('FIX-S7 Make item 2: real-browser burst measurement, reproducible (roun
 
         const counts = await measurePageLoad(browser, `${baseUrl}/deposit?job=burst-measure-deposit-job`, HTML_ACCEPT);
         console.log('[FIX-S7 burst measurement] signed-in deposit page:', counts);
-        // FIX-S7 round 3 (Temper's ruling): deposit.js's GET
+        // FIX-S7 round 3 (round 3's ruling): deposit.js's GET
         // /agents/:agentDid (renderWho) is now `read`, the same class as
         // GET /jobs/:jobId, GET /jobs/:jobId/attestations, GET
         // /agents/:agentDid/hires, and nav.js's signed-in reads. No page

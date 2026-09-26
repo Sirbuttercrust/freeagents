@@ -92,10 +92,10 @@ describe('classifyRoute: read (every other GET)', () => {
     expect(classifyRoute('GET', '/agents')).toBe('read');
   });
 
-  // FIX-S7 round 3 (Temper's ruling): moved out of `verify` because it is
+  // FIX-S7 round 3 (round 3's ruling): moved out of `verify` because it is
   // the site's own ordinary agent-record read (twelve page scripts fetch
   // it for the agent strip), not a stranger's or a script's verification.
-  it('classifies GET /agents/:agentDid as read (Temper\'s ruling, round 3)', () => {
+  it("classifies GET /agents/:agentDid as read (round 3's ruling)", () => {
     expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent')).toBe('read');
   });
 
@@ -164,11 +164,11 @@ describe('classifyRoute: the four negotiated page shells are exempt ONLY when Ac
     expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent', HTML_ACCEPT)).toBe('exempt');
   });
 
-  it('still classifies GET /agents/:agentDid as read when Accept is JSON (a real API read, not a page paint; Temper\'s ruling, round 3)', () => {
+  it("still classifies GET /agents/:agentDid as read when Accept is JSON (a real API read, not a page paint; round 3's ruling)", () => {
     expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent', JSON_ACCEPT)).toBe('read');
   });
 
-  it('still classifies GET /agents/:agentDid as read when no Accept header is present at all (Temper\'s ruling, round 3)', () => {
+  it("still classifies GET /agents/:agentDid as read when no Accept header is present at all (round 3's ruling)", () => {
     expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent')).toBe('read');
   });
 

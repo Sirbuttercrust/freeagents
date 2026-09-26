@@ -13,8 +13,8 @@
 // tests/web/rate-limit-burst-measurement.test.ts and is run, not typed by
 // hand -- run it yourself with `npx vitest run
 // tests/web/rate-limit-burst-measurement.test.ts` and its console.log
-// lines print these same counts). FIX-S7 round 3 (Temper's ruling on the
-// verify-vs-honest-user conflict qa's proof r2 raised): GET
+// lines print these same counts). FIX-S7 round 3 (the round-3 ruling on
+// the verify-vs-honest-user conflict qa's proof r2 raised): GET
 // /agents/:agentDid moved from `verify` to `read` (rate-limit-classes.ts),
 // so every count below that used to name a `verify` reading from that
 // route now counts it as `read` instead; the browse page's own per-card
@@ -93,7 +93,7 @@ export const CLASS_DEFAULTS: Readonly<Record<RouteClass, ClassDefault>> = {
   // browse/job/deposit page loads (real Chrome, signed in, see the
   // DEFAULTS TABLE header comment above) was 11, the browse page's own
   // listing plus its ten per-card avatar reads (GET /agents/:agentDid is
-  // `read`, Temper's ruling, round 3); 300/minute is well above that,
+  // `read`, round 3); 300/minute is well above that,
   // many times any real read burst, including a buyer with several tabs
   // open.
   read: {
@@ -105,8 +105,8 @@ export const CLASS_DEFAULTS: Readonly<Record<RouteClass, ClassDefault>> = {
   // something (a sign-in callback, a passkey assertion, an issued
   // credential lookup): unchanged, kept at today's exact 60/minute so
   // behaviour for these routes does not shift. No page load a browser
-  // itself drives touches this bucket at all (Temper's ruling, round 3,
-  // moved GET /agents/:agentDid to `read`).
+  // itself drives touches this bucket at all (round 3 moved GET
+  // /agents/:agentDid to `read`).
   verify: {
     envVar: 'FREEAGENTS_RATE_LIMIT_VERIFY',
     limit: 60,
