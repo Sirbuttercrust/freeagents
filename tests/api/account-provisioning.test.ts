@@ -21,6 +21,7 @@ import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
 import { createAbtPaymentRail } from '../../src/adapters/payment/abt.js';
 import { signingIdentityFromWallet, type SigningIdentity } from '../helpers/sign-request.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import {
   abtEnv,
@@ -305,12 +306,13 @@ async function setupAbtJobWithProvisionedOperator(
         rateSource: async () => '1',
         spentTransferStorage,
       });
+      const { github } = createStagingLifecycleGithubFake();
 
       const app = createApp(
         accountRepo,
         agentRepo,
         undefined,
-        undefined,
+        github,
         jobRepo,
         undefined,
         undefined,

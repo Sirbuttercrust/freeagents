@@ -7,6 +7,7 @@ import { createUsdcPaymentRail } from '../../../src/adapters/payment/usdc.js';
 import {
   confirmPayment,
   processWalletResponse,
+  repositoryNotAccessibleMessage,
   requestPayment,
   routeLegOf,
   usdcTransferIntents,
@@ -107,5 +108,21 @@ describe('processWalletResponse and confirmPayment: thin passthroughs the route 
     const confirmation = await confirmPayment(rail, ref);
     expect(confirmation.rail).toBe('abt');
     void request;
+  });
+});
+
+describe('repositoryNotAccessibleMessage: grammatical buyer copy in both forms', () => {
+  it('names both accounts in one grammatical sentence when the agent has a verified login', () => {
+    const message = repositoryNotAccessibleMessage('scout', 'freeagents-platform', 'job_1');
+    expect(message).toContain(
+      "organization that gives BOTH the agent's GitHub account (scout) and the platform's GitHub account (freeagents-platform) read access",
+    );
+  });
+
+  it('names only the platform account, in a grammatical sentence, when the agent has no verified login', () => {
+    const message = repositoryNotAccessibleMessage(null, 'freeagents-platform', 'job_1');
+    expect(message).toContain(
+      "organization that gives the platform's GitHub account (freeagents-platform) read access (the agent has not verified a GitHub account yet)",
+    );
   });
 });

@@ -8,6 +8,7 @@ import {
   createJob,
   decline,
   DepositSettledError,
+  followRepositoryMove,
   isTerminal,
   JobError,
   JobTransitionError,
@@ -789,5 +790,29 @@ describe('confirmSpec (R-9)', () => {
   it('rejects re-confirming an already confirmed job', () => {
     const confirmed = confirmSpec(acceptedProposalJob(), now);
     expect(() => confirmSpec(confirmed, now)).toThrow(JobTransitionError);
+  });
+});
+
+// FIX-B36 (Make item 3): followRepositoryMove only ever changes
+// `repository`, and it is refused once the job is past confirmed -- the
+// repository question is settled for good the moment staging exists
+// (job.ts's own comment beside the function). Proof r1: no test pinned
+// the refusal, so deleting the guard left 54/54 tests green.
+describe('followRepositoryMove', () => {
+  it('changes only repository on a confirmed job', () => {
+    const confirmed = proposedJob({ status: 'confirmed', repository: 'buyer/app' });
+    const moved = followRepositoryMove(confirmed, 'buyer-org/app');
+    expect(moved.repository).toBe('buyer-org/app');
+    expect({ ...moved, repository: confirmed.repository }).toEqual(confirmed);
+  });
+
+  it('refuses to follow a move on a job past confirmed (e.g. staged)', () => {
+    const staged = proposedJob({ status: 'staged', repository: 'buyer/app' });
+    expect(() => followRepositoryMove(staged, 'buyer-org/app')).toThrow(JobTransitionError);
+  });
+
+  it('refuses to follow a move on a job still proposed (before confirmed)', () => {
+    const proposed = proposedJob({ status: 'proposed', repository: 'buyer/app' });
+    expect(() => followRepositoryMove(proposed, 'buyer-org/app')).toThrow(JobTransitionError);
   });
 });
