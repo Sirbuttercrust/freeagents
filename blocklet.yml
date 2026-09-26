@@ -148,3 +148,28 @@ environments:
     required: false
     secure: false
     default: ''
+  - name: FREEAGENTS_TRUST_PROXY
+    description: Express's own trust proxy setting (https://expressjs.com/en/guide/behind-proxies.html), read as true/false, a hop count, or a comma-separated list of trusted addresses/subnets. Controls whether req.ip and req.protocol honour X-Forwarded-For/X-Forwarded-Proto. Unset means false, a directly exposed server; set to 1 when this deployment sits behind exactly one reverse proxy.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_RATE_LIMIT_UPSTREAM
+    description: Requests per minute, per caller, for routes that call GitHub or a payment chain (the tightest class -- each request costs a real external call). Unset means 20.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_RATE_LIMIT_WRITE
+    description: Requests per minute, per caller, for every POST/PUT/PATCH/DELETE route not in the upstream or verify classes. Unset means 120.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_RATE_LIMIT_READ
+    description: Requests per minute, per caller, for every GET route not in the upstream or verify classes. Unset means 300.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_RATE_LIMIT_VERIFY
+    description: Requests per minute, per caller, for the 4 anonymous verify routes (GET /agents/:agentDid, GET /v1/credentials/:credentialId, GET /auth/github/callback, POST /auth/passkey/verify). Unset means 60, unchanged from the pre-existing limiter.
+    required: false
+    secure: false
+    default: ''

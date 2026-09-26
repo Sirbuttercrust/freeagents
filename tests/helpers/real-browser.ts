@@ -196,6 +196,14 @@ export class RealBrowser {
   private port = 0;
   private nextId = 1;
   private pending = new Map<number, { resolve: (v: CdpMessage) => void; reject: (e: Error) => void }>();
+  // Burst-measurement support (FIX-S7 round 2, qa proof r1 defect 3): CDP
+  // pushes events with no `id` field (Network.requestWillBeSent among
+  // them), which the message handler used to just drop on the floor since
+  // nothing here ever needed to observe them. `onEvent` lets a caller
+  // subscribe to a named event stream for the burst-count measurement
+  // scripts in tests/web/*-burst.test.ts; every existing caller that never
+  // calls onEvent sees no behaviour change at all.
+  private eventListeners = new Map<string, Array<(params: unknown) => void>>();
 
   private constructor(profile: string) {
     this.profile = profile;
@@ -284,6 +292,15 @@ export class RealBrowser {
           if (msg.error) waiter.reject(new Error(msg.error.message ?? 'CDP error'));
           else waiter.resolve(msg);
         }
+        return;
+      }
+      // An event push (no id): Network.requestWillBeSent among them, the
+      // burst-count measurement's only interest.
+      if (msg.method !== undefined) {
+        const listeners = browser.eventListeners.get(msg.method);
+        if (listeners) {
+          for (const listener of listeners) listener(msg.params);
+        }
       }
     });
 
@@ -318,6 +335,24 @@ export class RealBrowser {
     });
     this.ws.send(JSON.stringify({ id, method, params }));
     return promise;
+  }
+
+  // Burst-measurement support (FIX-S7 round 2, qa proof r1 defect 3):
+  // subscribes to one CDP event stream (e.g. 'Network.requestWillBeSent').
+  // Returns an unsubscribe function so a caller's own measurement window
+  // is exact (subscribe, act, unsubscribe, count), never a running total
+  // that leaks past the page load it was measuring.
+  onEvent(method: string, listener: (params: unknown) => void): () => void {
+    const existing = this.eventListeners.get(method) ?? [];
+    existing.push(listener);
+    this.eventListeners.set(method, existing);
+    return () => {
+      const current = this.eventListeners.get(method) ?? [];
+      this.eventListeners.set(
+        method,
+        current.filter((l) => l !== listener),
+      );
+    };
   }
 
   async setViewport(width: number, height: number): Promise<void> {
