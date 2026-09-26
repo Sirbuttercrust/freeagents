@@ -115,12 +115,26 @@ export interface CommitInfo {
   readonly signed: boolean;
 }
 
-// B14a: what the confirm route reads to learn WHAT to pin as baseCommit
+// B14a, FIX-B36: what confirm reads to learn WHAT to pin as baseCommit
 // before it ever calls createStagingRepository -- "the base the platform
-// pinned" (the card's own anchor) has to come from somewhere, and this is
-// the one read this adapter makes against the buyer's own default
-// branch, never a write.
-export interface DefaultBranchHead {
+// pinned" (the card's own anchor) has to come from somewhere -- and, since
+// FIX-B36, the same facts the three deposit-start doors need to refuse a
+// repository that is not ready before the deposit moves (the deposit goes
+// buyer to owner and never comes back, MISSION invariant 12). fullName is
+// GitHub's own canonical owner/repo, which follows a move (GitHub answers
+// 301 to the repository's new location and this adapter's fetch follows
+// it); private, allowForking and defaultBranch come from the same
+// repository read; ownerIsOrganization is owner.type === 'Organization'
+// (STEER 2026-09-26: a personal account's private repository has no
+// read-only role on GitHub, so if the platform can see one at all,
+// someone was given collaborator access, which carries write --
+// MISSION invariant 1 forbids an agent holding write); sha is the
+// default branch's current head, from the ref read that follows.
+export interface RepositoryFacts {
+  readonly fullName: string;
+  readonly private: boolean;
+  readonly allowForking: boolean;
+  readonly ownerIsOrganization: boolean;
   readonly defaultBranch: string;
   readonly sha: string;
 }
@@ -152,18 +166,34 @@ export class NotPlatformOwnerError extends Error {
   }
 }
 
-// ORG1: thrown by getDefaultBranchHead when the platform's own token
+// ORG1, FIX-B36: thrown by readRepository when the platform's own token
 // cannot read the buyer's repository (404, or 403 on some GitHub
 // configurations for a repository the account was never invited to).
 // Distinct from every other failure this adapter can raise: a real
 // outage (5xx, network) stays a bare Error, which the confirm route
-// still maps to 503; this one names a fact about the repository itself
-// (private, and the platform's account has no role on it), which the
-// route maps to 409 with an actionable message instead.
+// and the deposit-start doors still map to 503; this one names a fact
+// about the repository itself (private, and the platform's account has
+// no role on it), which those routes map to 409 with an actionable
+// message instead.
 export class RepositoryNotAccessibleError extends Error {
   constructor(owner: string, repo: string, status: number) {
     super(`repository ${owner}/${repo} is not accessible to the platform's GitHub account (status ${String(status)})`);
     this.name = 'RepositoryNotAccessibleError';
+  }
+}
+
+// FIX-B36: thrown by readRepository when the buyer's repository has no
+// commits at all -- the ref read (GET .../git/ref/heads/<default branch>)
+// answers 409 "Git Repository is empty." on a repository with no root
+// commit (measured 2026-09-26 against a real public empty repository).
+// GitHub cannot open a pull request into a repository with no commits, so
+// this is a fact about the repository, never a transient outage: the
+// deposit-start doors map it to 409 with a message naming the fix
+// (one starting commit) before any money moves.
+export class RepositoryEmptyError extends Error {
+  constructor(owner: string, repo: string) {
+    super(`repository ${owner}/${repo} has no commits yet; a pull request cannot be opened into it`);
+    this.name = 'RepositoryEmptyError';
   }
 }
 
@@ -246,12 +276,14 @@ export class StagingComparisonTruncatedError extends Error {
 }
 
 export interface GithubAdapter {
-  // ORG1 r2 fix: the platform's own configured GitHub login, read-only.
-  // Every method that runs on the platform's single token (getPullRequest,
-  // getDefaultBranchHead) does so as this account, so a caller naming
-  // "the account that needs read access" to a buyer must name this one,
-  // not the agent's. '' when unconfigured, matching the adapter's other
-  // env-derived defaults.
+  // ORG1 r2 fix: exposes the resolved value directly, not the raw env
+  // var, so a caller sees exactly what requirePlatformOwner compares
+  // against (including the options.platformLogin override tests use).
+  // Every method that runs on the platform's single token
+  // (getPullRequest, readRepository) does so as this account, so a
+  // caller naming "the account that needs read access" to a buyer must
+  // name this one, not the agent's. '' when unconfigured, matching the
+  // adapter's other env-derived defaults.
   readonly platformLogin: string;
   getPullRequest(ref: PullRequestRef): Promise<PullRequestSummary>;
   getMergeCommitSignature(ref: PullRequestRef): Promise<CommitSignatureStatus>;
@@ -275,10 +307,16 @@ export interface GithubAdapter {
   // stage route can prove a SHA exists and descends from baseCommit.
   // Read-only: never subject to the owner check.
   getCommit(input: GetCommitInput): Promise<CommitInfo>;
-  // B14a: reads the buyer's repository's own default branch and its
-  // current head sha -- the fact the confirm route pins as baseCommit
-  // before creating the staging repository. Read-only.
-  getDefaultBranchHead(ref: StagingRepoRef): Promise<DefaultBranchHead>;
+  // B14a, FIX-B36: reads the buyer's repository -- full name (follows a
+  // move), private, allowForking, ownerIsOrganization, default branch and
+  // its current head sha -- the facts confirm pins as baseCommit before
+  // creating the staging repository, and the facts the three deposit-start
+  // doors read before a deposit leg starts (FIX-B36 Make item 2). Read-only.
+  // Throws RepositoryNotAccessibleError on a 404/403 reading the repository
+  // itself, and RepositoryEmptyError on a 409 reading the default branch's
+  // ref (an empty repository: no commits, so no pull request can ever open
+  // into it).
+  readRepository(ref: StagingRepoRef): Promise<RepositoryFacts>;
   // B14b: compares two commits in the SAME repository and returns the
   // changed files (path, status, additions, deletions, patch) and the
   // commits between them (sha, author login, verification verdict).

@@ -18,6 +18,13 @@ import type {
   WalletResponseInput,
 } from './types.js';
 import { LAPSE_AT_STAGED_STATUSES, type JobStatus } from '../../domain/job.js';
+import { publicBaseUrlFromEnv } from '../credentials/credentials.js';
+import {
+  RepositoryEmptyError,
+  RepositoryNotAccessibleError,
+  type GithubAdapter,
+  type RepositoryFacts,
+} from '../github/types.js';
 
 // The route-safe leg name. 'remainder', never 'balance': see the header
 // comment above and src/domain/payment.ts's identically-named
@@ -122,4 +129,112 @@ export function usdcTransferIntents(
 // ones.
 export async function confirmPayment(rail: PaymentRail, ref: PaymentRef): Promise<Confirmation> {
   return rail.confirm(ref);
+}
+
+// FIX-B36 (Make item 2): the deposit goes buyer to owner and never comes
+// back (MISSION invariant 12; deposit.js:215), so the platform reads the
+// job's repository BEFORE a deposit leg starts, on all three doors, and
+// refuses (409, nothing started) a repository that is not ready. Shared
+// here, in the exempted payment directory, the same reason
+// legStatusEligible above is shared: every door onto the payment surface
+// must apply the same rule, never each growing its own copy.
+export type RepositoryReadinessResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly status: 409 | 503; readonly message: string };
+
+// The exact phrase deposit.js tells this case apart by (brief, Make item
+// 2): kept byte-identical to confirm's own RepositoryNotAccessibleError
+// message (app.ts:5278) plus the page address, since the private-repos
+// walkthrough page (card t_1aa4b834, waiting on this PR) is the fix a
+// buyer follows before paying, not after.
+export function repositoryNotAccessibleMessage(
+  agentGithubLogin: string,
+  platformGithubLogin: string,
+  jobId: string,
+): string {
+  return (
+    `the platform cannot see this repository; for a private repository it must live in a GitHub organization ` +
+    `that gives BOTH the agent's GitHub account (${agentGithubLogin}) and the platform's GitHub account ` +
+    `(${platformGithubLogin}) read access; how to share it: ${publicBaseUrlFromEnv()}/private-repos?job=${jobId}`
+  );
+}
+
+// STEER 2026-09-26: a private repository owned by a personal account has
+// no read-only role on GitHub, so a platform account that can see one at
+// all was given collaborator access, which carries write -- MISSION
+// invariant 1 forbids an agent holding write, and the ruling on file for
+// this case is the organization route. A public repository on a personal
+// account is unaffected (only the private branch reaches this check).
+export function repositoryPersonalAccountMessage(jobId: string): string {
+  return (
+    `this repository is private and owned by a personal account; a private repository must live in a GitHub ` +
+    `organization, where agents get a read-only role: ${publicBaseUrlFromEnv()}/private-repos?job=${jobId}`
+  );
+}
+
+// A private repository already in an organization, but the organization's
+// own setting refuses forking of private repositories (measured
+// 2026-09-26: the pull-only reader sees allow_forking follow the
+// organization's setting a few seconds late). Names the fix directly: a
+// setting the organization owner controls, not a repository the buyer
+// has to move again.
+export function repositoryForkingOffMessage(jobId: string): string {
+  return (
+    `this repository is private and forking of private repositories is off in the organization's settings; ` +
+    `ask the organization owner to turn it on, or share access another way: ${publicBaseUrlFromEnv()}/private-repos?job=${jobId}`
+  );
+}
+
+// GitHub cannot open a pull request into a repository with no commits
+// (RepositoryEmptyError, measured 2026-09-26 against a real public empty
+// repository: 409 "Git Repository is empty."). No page address: the fix
+// has nothing to do with sharing access.
+export function repositoryEmptyMessage(): string {
+  return 'this repository has no commits yet; it needs one starting commit before work can land in it';
+}
+
+// Reads the job's repository through the shared adapter and maps every
+// outcome the three deposit-start doors and confirm both care about.
+// agentGithubLogin is the caller's own resolved value (the agent's
+// verified GitHub login when it has one, or a placeholder when it does
+// not -- the deposit leg is eligible while the job is still 'proposed',
+// before confirm's own verified-GitHub gate runs, so the agent may not
+// have completed GitHub proof yet at this point in the loop). A 5xx or
+// network failure from the adapter is any error that is neither typed
+// error above, mapped to 503 "github unavailable", the same wording
+// confirm's own catch-all already uses.
+export async function checkRepositoryReady(
+  github: GithubAdapter,
+  input: {
+    readonly repository: string;
+    readonly jobId: string;
+    readonly agentGithubLogin: string;
+  },
+): Promise<RepositoryReadinessResult> {
+  const slashAt = input.repository.indexOf('/');
+  const owner = input.repository.slice(0, slashAt);
+  const repo = input.repository.slice(slashAt + 1);
+  let facts: RepositoryFacts;
+  try {
+    facts = await github.readRepository({ owner, repo });
+  } catch (err) {
+    if (err instanceof RepositoryNotAccessibleError) {
+      return {
+        ok: false,
+        status: 409,
+        message: repositoryNotAccessibleMessage(input.agentGithubLogin, github.platformLogin, input.jobId),
+      };
+    }
+    if (err instanceof RepositoryEmptyError) {
+      return { ok: false, status: 409, message: repositoryEmptyMessage() };
+    }
+    return { ok: false, status: 503, message: 'github unavailable' };
+  }
+  if (facts.private && !facts.ownerIsOrganization) {
+    return { ok: false, status: 409, message: repositoryPersonalAccountMessage(input.jobId) };
+  }
+  if (facts.private && !facts.allowForking) {
+    return { ok: false, status: 409, message: repositoryForkingOffMessage(input.jobId) };
+  }
+  return { ok: true };
 }

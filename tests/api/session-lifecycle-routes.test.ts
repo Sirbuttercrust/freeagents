@@ -868,12 +868,13 @@ describe('P8a: the payment start routes accept a session for the buyer, still re
       const sessionAdapter = passkeyAdapter();
       const jobRepo = new MemoryJobRepository();
       const settlementRepo = new MemorySettlementRepository();
+      const { github } = createStagingLifecycleGithubFake();
 
       const { server, baseUrl } = await bootServer(
         repo,
         agentRepo,
         undefined,
-        undefined,
+        github,
         jobRepo,
         undefined,
         undefined,
