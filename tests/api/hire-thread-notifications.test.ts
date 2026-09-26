@@ -441,6 +441,29 @@ describe('HT1 Part B (STEER item 4): the webhook gate stays closed unless BOTH c
     return String(body.id);
   }
 
+  // Registers a real push subscription through the actual route (not a
+  // storage-layer shortcut), so the hang test below exercises the real
+  // subscriptions.length > 0 path inside notify()'s push loop instead of
+  // an empty list that would pass trivially regardless of await/no-await.
+  async function subscribeForPush(base: string, accountId: SigningIdentity, endpoint: string): Promise<void> {
+    const bodyText = JSON.stringify({ endpoint, keys: { p256dh: 'fixture-p256dh', auth: 'fixture-auth' } });
+    const targetUri = `${base}/accounts/${accountId.did}/push-subscriptions`;
+    const signed = signRequest(accountId, 'POST', targetUri, { body: bodyText });
+    const res = await fetch(targetUri, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'signature-input': signed['signature-input'],
+        signature: signed.signature,
+        'content-digest': signed['content-digest'],
+      },
+      body: bodyText,
+    });
+    if (res.status !== 201) {
+      throw new Error(`subscribeForPush: expected 201, got ${res.status}`);
+    }
+  }
+
   it('negotiatesOnOwnersBehalf on, but no webhook URL set: zero sends', async () => {
     const started = await startWithAgent({ notifyWebhookUrl: null, negotiatesOnOwnersBehalf: true });
     try {
@@ -476,7 +499,12 @@ describe('HT1 Part B (STEER item 4): the webhook gate stays closed unless BOTH c
   // injects a webhook sender AND a push sender that each hang for
   // several seconds, then asserts the job-creation response comes back
   // in well under that time -- the response must never wait on either
-  // send. A mutation that puts `await` back in front of either call in
+  // send. The operator subscribes for push through the real route
+  // first (Proof r3, defect 1: without a registered subscription,
+  // notify()'s push loop iterates zero times and the hanging push
+  // sender is never called at all, so this test would pass even if the
+  // `await` in front of pushSender.send were restored). A mutation
+  // that puts `await` back in front of either call in
   // notifyJobParties/notify (src/api/app.ts) makes this test time out
   // against its own assertion, since the response would then take the
   // full hang duration.
@@ -485,20 +513,31 @@ describe('HT1 Part B (STEER item 4): the webhook gate stays closed unless BOTH c
     const hangingWebhookSender: WebhookSender = {
       send: () => new Promise((resolve) => setTimeout(resolve, HANG_MS)),
     };
+    let pushCalls = 0;
     const hangingPushSender: PushSender = {
       publicKey: null,
-      send: () => new Promise((resolve) => setTimeout(resolve, HANG_MS)),
+      send: () => {
+        pushCalls += 1;
+        return new Promise((resolve) => setTimeout(resolve, HANG_MS));
+      },
     };
     const started = await startWithAgent(
       { notifyWebhookUrl: 'https://operator.example/webhook', negotiatesOnOwnersBehalf: true },
       { webhookSender: hangingWebhookSender, pushSender: hangingPushSender },
     );
     try {
+      await subscribeForPush(started.baseUrl, started.operator, 'https://push.example/endpoint/hang-operator');
       const startedAt = Date.now();
       const jobId = await postDraft(started.baseUrl, started.buyer, started.agent);
       const elapsedMs = Date.now() - startedAt;
       expect(jobId).not.toBe('undefined');
       expect(elapsedMs).toBeLessThan(HANG_MS / 2);
+      // Give the fire-and-forget push loop a moment to actually start
+      // (it is kicked off asynchronously inside notify()), then confirm
+      // the hanging sender really was invoked -- otherwise a green test
+      // here would prove nothing about the push half of the claim.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(pushCalls).toBeGreaterThan(0);
     } finally {
       started.server.close();
     }
