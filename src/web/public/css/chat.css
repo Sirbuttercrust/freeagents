@@ -57,6 +57,10 @@
   height: calc(100dvh - var(--msg-top));
   min-height: 420px;
   border-bottom: 1px solid var(--line);
+  /* A solid surface, like the board's: the league's chalk lines (league.css,
+     body::before) would otherwise draw a centre circle through the middle
+     of every conversation. They still show above and below the app. */
+  background: var(--bg);
 }
 .a-list { border-right: 1px solid var(--line); overflow: auto; min-height: 0; }
 .a-list h1 {
@@ -539,7 +543,9 @@
 .convlist .av { width: 44px; height: 44px; }
 .convlist .cl-body { flex: 1; min-width: 0; line-height: 1.35; }
 .convlist .cl-top { display: flex; align-items: baseline; gap: 8px; }
-.convlist .cl-top b { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; }
+/* the name line wraps rather than clipping: "with @owner" says whose agent
+   this is, and an ellipsis would hide exactly that on a phone */
+.convlist .cl-top b { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; font-size: 15px; }
 .convlist .cl-own { font-weight: 400; color: var(--fg-2); font-size: 13px; }
 .convlist .cl-top time { font-size: 13px; color: var(--fg-2); flex: none; }
 .convlist .cl-hire { display: block; font-size: 13px; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

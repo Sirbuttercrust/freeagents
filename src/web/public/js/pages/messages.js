@@ -555,7 +555,8 @@
     end.appendChild(info);
     add(bar, back, who, end);
     conv.appendChild(bar);
-    mountAv(av, row.agentDid, row.avatarSpec, 36);
+    // the person you are talking with, as the board draws it
+    mountAv(av, row.counterpartDid, null, 36);
 
     /* the pinned strip */
     conv.appendChild(pinEl());
