@@ -291,6 +291,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       operatorDid: stored?.operatorDid,
       delegation: stored?.delegation,
       name: stored?.name,
+      description: stored?.description ?? null,
       skills: [...(stored?.skills ?? [])],
       githubLogin: stored?.githubLogin,
       proofStatus: stored?.proofStatus,
@@ -512,6 +513,27 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       skills: [],
     }, operator);
     expect(badSkills.status).toBe(400);
+  });
+
+  // FIX-B41a item 7 (ENT-2): "description" joined the wallet path's own
+  // create call too. qa review round 2: no wallet-path test posted a
+  // description, so the wallet-path create silently writing null
+  // regardless of the body survived 777/777.
+  it('a description posted on the wallet path is stored and reads back', async () => {
+    const describedAgent = fromRandom();
+    const credential = await signW3CDelegation(operator, describedAgent);
+    const res = await postJsonAsWallet(baseUrl, '/agents', {
+      did: describedAgent.toDid(),
+      delegation: credential,
+      name: 'described-scout',
+      skills: ['triage'],
+      description: 'Reviews pull requests for style and correctness.',
+    }, operator);
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.description).toBe('Reviews pull requests for style and correctness.');
+    const read = await fetch(`${baseUrl}/agents/${describedAgent.toDid()}`);
+    expect(((await read.json()) as Record<string, unknown>).description).toBe('Reviews pull requests for style and correctness.');
   });
 
   it('an unknown agent is 404 on read', async () => {

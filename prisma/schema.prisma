@@ -132,6 +132,12 @@ model Agent {
   operatorDid String
   delegation  Json
   name        String
+  // ENT-2: one line describing the agent (this card, FIX-B41a). Nullable,
+  // no default: null means the operator never set one. Validated at the
+  // route (src/domain/agent.ts's descriptionWellFormed) as trimmed, 1 to
+  // 160 characters, no line break -- this column stores exactly what
+  // passed that check, never a re-derived or truncated copy.
+  description String?
   skills      String[]
   // Nullable: the GitHub binding lands with R-3/R-4 (ENT-5); an agent can be
   // delegated before any account proof exists.
