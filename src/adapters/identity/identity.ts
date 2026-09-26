@@ -9,6 +9,7 @@ import { isValidPlatformSeedHex } from '../credentials/credentials.js';
 import type { ObservedKeyRepository } from '../storage/types.js';
 import { deriveDidFromSeed } from './did-from-seed.js';
 import { buildDidAbtLoader, createKnownKeyStore, type KnownKeyStore } from './did-abt-resolver.js';
+import { issueAgentDelegation } from './w3c-credentials.js';
 import type { DidDocument, DidKeyPair, IdentityAdapter, SignedPayload } from './types.js';
 
 const CAPABILITY = 'identity';
@@ -31,6 +32,13 @@ export class PlatformSeedUnavailableError extends Error {
 // anything else), or a collision between two unrelated derivations
 // becomes possible in principle.
 const OPERATOR_DID_HKDF_INFO = 'freeagents:operator-did:v1';
+// FIX-B41a: createAgentDid's OWN HKDF info string, distinct from the
+// operator's above by construction (a literal string, not something either
+// derivation could accidentally reuse) -- an agent DID and an operator DID
+// derived from the same owner subject can therefore never collide, because
+// HKDF's info parameter is exactly what keeps two different derivations
+// from the same seed apart.
+const AGENT_DID_HKDF_INFO = 'freeagents:agent-did:v1';
 const ED25519_SEED_LENGTH = 32;
 
 // Thrown by resolveDid and verify when a DID's key has never been observed
@@ -71,12 +79,23 @@ export class CandidateKeyRejectedError extends Error {
 // discipline (R-3 + R-4 completion, B5): a DID's verification method is
 // derived from key material this process has itself independently checked
 // (the R-34 signing-key resolver's binding check, recorded into knownKeys),
-// never fetched over a network and never guessed. createOperatorDid is a
-// real implementation as of P8d (auto-provisioning at first sign-in needs
-// it); createAgentDid and sign stay NotImplementedError: nothing on main
-// calls them (grep src/api/app.ts -- neither identity.createAgentDid nor
-// identity.sign appears there), so building them ahead of need would
-// violate FACTORY_RULES.md 2.5.
+// never fetched over a network and never guessed. createOperatorDid,
+// createAgentDid and issueSiteDelegation are real implementations as of
+// FIX-B41a; sign stays NotImplementedError: nothing on main calls it.
+//
+// FIX-B41a: the platform-seed read and the HKDF call are the same three
+// lines createOperatorDid always ran; factored out here so
+// issueSiteDelegation re-derives the OWNER's key through the identical
+// call rather than a second, only-superficially-similar one.
+function operatorSeedBytes(subject: string): Uint8Array {
+  const hex = process.env.FREEAGENTS_PLATFORM_SEED;
+  if (hex === undefined || !isValidPlatformSeedHex(hex)) {
+    throw new PlatformSeedUnavailableError();
+  }
+  const seedBytes = Buffer.from(hex.replace(/^0x/i, ''), 'hex');
+  return new Uint8Array(hkdfSync('sha256', seedBytes, '', `${OPERATOR_DID_HKDF_INFO}:${subject}`, ED25519_SEED_LENGTH));
+}
+
 export function createIdentityAdapter(
   knownKeys: KnownKeyStore = createKnownKeyStore(),
   observedKeys?: ObservedKeyRepository,
@@ -104,13 +123,8 @@ export function createIdentityAdapter(
     // public key and DID are returned, and the secret stays
     // re-derivable from the seed and the subject alone.
     async createOperatorDid(subject: string): Promise<DidKeyPair> {
-      const hex = process.env.FREEAGENTS_PLATFORM_SEED;
-      if (hex === undefined || !isValidPlatformSeedHex(hex)) {
-        throw new PlatformSeedUnavailableError();
-      }
-      const seedBytes = Buffer.from(hex.replace(/^0x/i, ''), 'hex');
-      const derived = hkdfSync('sha256', seedBytes, '', `${OPERATOR_DID_HKDF_INFO}:${subject}`, ED25519_SEED_LENGTH);
-      const { did, publicKeyMultibase } = await deriveDidFromSeed(new Uint8Array(derived));
+      const seed = operatorSeedBytes(subject);
+      const { did, publicKeyMultibase } = await deriveDidFromSeed(seed);
       return { did, publicKeyMultibase };
     },
     // Verify a W3C Verifiable Credential with Ed25519Signature2020 proof.
@@ -150,8 +164,32 @@ export function createIdentityAdapter(
         return false;
       }
     },
-    createAgentDid(_operatorDid: string): Promise<DidKeyPair> {
-      throw new NotImplementedError(CAPABILITY, 'createAgentDid');
+    // FIX-B41a: derives a fresh, re-derivable agent DID for the site
+    // listing path -- the platform seed, the OWNER'S OWN DID (not the
+    // subject: an owner may hold several login subjects across a
+    // restart of the mapping, but the DID is the one durable value both
+    // this call and re-derivation always have on hand) and the fresh
+    // credentialId the caller generated for this listing. Its own HKDF
+    // info string (AGENT_DID_HKDF_INFO) keeps this derivation from ever
+    // landing on the same output as createOperatorDid's, even for the
+    // same owner. Deterministic: given the stored agent's own delegation
+    // (which carries credentialId as its own `id`) plus the seed, this
+    // same DID re-derives with nothing else stored.
+    async createAgentDid(operatorDid: string, credentialId: string): Promise<DidKeyPair> {
+      const hex = process.env.FREEAGENTS_PLATFORM_SEED;
+      if (hex === undefined || !isValidPlatformSeedHex(hex)) {
+        throw new PlatformSeedUnavailableError();
+      }
+      const seedBytes = Buffer.from(hex.replace(/^0x/i, ''), 'hex');
+      const derived = hkdfSync(
+        'sha256',
+        seedBytes,
+        '',
+        `${AGENT_DID_HKDF_INFO}:${operatorDid}:${credentialId}`,
+        ED25519_SEED_LENGTH,
+      );
+      const { did, publicKeyMultibase } = await deriveDidFromSeed(new Uint8Array(derived));
+      return { did, publicKeyMultibase };
     },
     // R-3 completion (B5): construct the DID document locally from the
     // ONE verification method this process has itself independently
@@ -256,6 +294,20 @@ export function createIdentityAdapter(
         // upstream -- never a 503 for garbage input.
         return false;
       }
+    },
+    // FIX-B41a: the site-listing path. Re-derives the OWNER's own seed
+    // through the identical call createOperatorDid makes (operatorSeedBytes),
+    // then signs the AgentDelegation with it via w3c-credentials.ts's
+    // issueAgentDelegation -- the owner never sees a signing prompt, exactly
+    // P-19's "the person is never asked to sign anything". The returned
+    // owner DID is not re-derived by the caller a second time: the route
+    // checks it against the session's own account DID before ever reaching
+    // this call, so by the time this runs the two are already known equal.
+    async issueSiteDelegation(input): Promise<Delegation> {
+      const seed = operatorSeedBytes(input.ownerSubject);
+      const { did: ownerDid } = await deriveDidFromSeed(seed);
+      const credential = await issueAgentDelegation(ownerDid, seed, input.agentDid, input.credentialId);
+      return credential as unknown as Delegation;
     },
   };
 }

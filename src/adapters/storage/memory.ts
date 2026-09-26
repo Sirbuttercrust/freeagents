@@ -153,6 +153,7 @@ export class MemoryAgentRepository implements AgentRepository {
       operatorDid: input.operatorDid,
       delegation: input.delegation,
       name: input.name,
+      description: input.description ?? null,
       skills: [...input.skills],
       githubLogin: input.githubLogin,
       proofStatus: 'unverified',

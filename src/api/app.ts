@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 
@@ -25,7 +25,8 @@ import {
 import { createDidAbtSigningKeyResolver, createKnownKeyStore } from '../adapters/identity/did-abt-resolver.js';
 import { verify as verifySignature } from '../adapters/identity/http-signature.js';
 import { CandidateKeyRejectedError, createIdentityAdapter, DidNotResolvableError } from '../adapters/identity/identity.js';
-import type { IdentityAdapter } from '../adapters/identity/types.js';
+import { PlatformSeedUnavailableError } from '../adapters/identity/identity.js';
+import type { IdentityAdapter, DidKeyPair } from '../adapters/identity/types.js';
 import { type RateLimiter } from '../adapters/identity/verify-rate-limit.js';
 import { InvalidTrustProxyError, trustProxySettingFromEnv, TRUST_PROXY_ENV_VAR } from '../adapters/config/trust-proxy.js';
 import { createClassRateLimiters, createClassRateLimitMiddleware, type ClassLimits } from './rate-limit-middleware.js';
@@ -61,7 +62,7 @@ import {
   createReviewRepository,
   createObservedKeyRepository,
 } from '../adapters/storage/storage.js';
-import { delegationConsistent, isAgentOperator, agentMayNegotiate, verifiedGithubLogin, type Agent, type Delegation } from '../domain/agent.js';
+import { delegationConsistent, isAgentOperator, agentMayNegotiate, descriptionWellFormed, didSuffix, verifiedGithubLogin, type Agent, type Delegation } from '../domain/agent.js';
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
 import { buildAttestation, AttestationError } from '../domain/attestation.js';
 import { lastHireCompletedAt, recordLastChangedAt } from '../domain/freshness.js';
@@ -323,6 +324,11 @@ function agentProjection(row: Agent): Record<string, unknown> {
     operatorDid: row.operatorDid,
     delegation: row.delegation,
     name: row.name,
+    // ENT-2: one line describing the agent. Null when the operator never
+    // set one, the same "every agent has the field, not every agent has a
+    // value" stance floorPriceUsd and every other optional field below
+    // already take.
+    description: row.description,
     skills: [...row.skills],
     githubLogin: row.githubLogin,
     proofStatus: row.proofStatus,
@@ -3077,11 +3083,22 @@ export function createApp(
   // and refused on mismatch; it is never itself the value the delegation
   // binds to, so naming a different account in the body can only be
   // refused, never honoured.
+  //
+  // FIX-B41a: `did` and `delegation` are BOTH now optional, together.
+  // Their absence is the site path (P-19, 2026-08-17 ruling: "the person
+  // is never asked to sign anything"): a signed-in owner names no key at
+  // all and the platform derives the agent DID and signs its own
+  // delegation with the owner's own platform-derived key. `delegation`
+  // present is the wallet path, unchanged. `did` present with no
+  // `delegation` but with `agentProof` is the third shape: the owner
+  // brings an agent DID of its own choosing and proves control of its key
+  // with one signature, so the delegation still needs no wallet prompt.
   app.post('/agents', requireSessionOrSignature, async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const did = body.did;
     const claimedOperator = body.operator;
     const name = body.name;
+    const description = body.description;
     const skills = body.skills;
     const githubLogin = body.githubLogin;
     const floorPriceUsd = body.floorPriceUsd;
@@ -3091,6 +3108,8 @@ export function createApp(
     // other opt-in flag on this route takes), so a caller that omits it
     // gets the owner-first behavior with no extra step.
     const negotiatesOnOwnersBehalf = body.negotiatesOnOwnersBehalf;
+    const delegationField = body.delegation;
+    const agentProof = body.agentProof;
 
     // P7: both thresholds validate as non-negative integers when present.
     // Omitted or explicitly null means no filter, the same stance
@@ -3099,9 +3118,10 @@ export function createApp(
       value === undefined || value === null || (typeof value === 'number' && Number.isInteger(value) && value >= 0);
 
     if (
-      typeof did !== 'string' || did.length === 0 ||
+      (did !== undefined && (typeof did !== 'string' || did.length === 0)) ||
       (claimedOperator !== undefined && typeof claimedOperator !== 'string') ||
       typeof name !== 'string' || name.length === 0 ||
+      !descriptionWellFormed(description) ||
       !Array.isArray(skills) || skills.length === 0 ||
       skills.some((s) => typeof s !== 'string' || s.length === 0) ||
       (githubLogin !== undefined && (typeof githubLogin !== 'string' || githubLogin.length === 0)) ||
@@ -3112,7 +3132,201 @@ export function createApp(
       (negotiatesOnOwnersBehalf !== undefined && typeof negotiatesOnOwnersBehalf !== 'boolean')
     ) {
       res.status(400).json({
-        error: 'body must be { did, delegation, name, skills, operator?, githubLogin?, floorPriceUsd?, minBuyerMerges?, maxWalkedAfterConfirm?, negotiatesOnOwnersBehalf? }; did, name non-empty strings, skills non-empty list of strings, operator (if present) a string, floorPriceUsd (if present) a decimal string with exactly two places, minBuyerMerges and maxWalkedAfterConfirm (if present) non-negative integers, negotiatesOnOwnersBehalf (if present) a boolean',
+        error: 'body must be { name, skills, description?, did?, delegation?, agentProof?, operator?, githubLogin?, floorPriceUsd?, minBuyerMerges?, maxWalkedAfterConfirm?, negotiatesOnOwnersBehalf? }; name a non-empty string, description (if present) one line 1 to 160 characters trimmed with no line break, skills a non-empty list of strings, did (if present) a non-empty string, operator (if present) a string, floorPriceUsd (if present) a decimal string with exactly two places, minBuyerMerges and maxWalkedAfterConfirm (if present) non-negative integers, negotiatesOnOwnersBehalf (if present) a boolean',
+      });
+      return;
+    }
+
+    if (delegationField === undefined) {
+      // FIX-B41a: the site path. No delegation was supplied at all, so
+      // this can only be a signed-in owner's own session: a bare R-34
+      // signature proves a key, but this route needs an owner SUBJECT
+      // (the session's own login) to derive the signing key behind the
+      // scenes, which a signature alone never carries.
+      const sessioned = req as SessionedRequest;
+      if (typeof sessioned.sessionSubject !== 'string' || sessioned.sessionMethod === undefined) {
+        res.status(400).json({
+          error: 'delegation is required when authenticating by request signature alone; sign in with GitHub or a passkey to list without one, or supply a delegation your own key signs',
+        });
+        return;
+      }
+
+      let operator: string | null;
+      try {
+        operator = await resolveActingParty(req, repo, identityAdapter);
+      } catch (err) {
+        console.error('POST /agents (site path): storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (operator === null) {
+        res.status(403).json({
+          error: 'no registered account resolves from your session or signature; register an account before listing an agent',
+        });
+        return;
+      }
+      if (typeof claimedOperator === 'string' && claimedOperator.length > 0 && claimedOperator !== operator) {
+        res.status(403).json({ error: 'operator does not match the authenticated party' });
+        return;
+      }
+
+      // FIX-B41a item 3: the route checks that the derived owner DID
+      // equals the session's account DID FIRST, before anything else the
+      // site path does. An account whose DID a wallet key produced
+      // (registered through POST /accounts before P8d) has no
+      // platform-held key this route can sign with at all.
+      let ownerDerived: DidKeyPair;
+      try {
+        ownerDerived = await identityAdapter.createOperatorDid(sessioned.sessionSubject);
+      } catch (err) {
+        if (err instanceof PlatformSeedUnavailableError) {
+          console.error('POST /agents (site path): FREEAGENTS_PLATFORM_SEED is not set; cannot derive the owner key', err);
+          res.status(503).json({ error: 'storage unavailable' });
+          return;
+        }
+        throw err;
+      }
+      if (didSuffix(ownerDerived.did) !== didSuffix(operator)) {
+        res.status(409).json({
+          error: `account ${operator} was not derived by the platform; list this agent with a delegation your own key signs (the wallet path) instead`,
+        });
+        return;
+      }
+
+      let agentDid: string;
+      const credentialId = `urn:uuid:${randomUUID()}`;
+      if (typeof did === 'string') {
+        // FIX-B41a item 5: the owner brings its own agent DID. The
+        // agentProof must be a real ed25519 signature, by the AGENT's own
+        // key, over the exact string below -- never trusted from the
+        // body alone.
+        if (!isValidOperatorDid(did)) {
+          res.status(400).json({
+            error: 'did must look like did:abt:<suffix>, non-empty suffix, no whitespace',
+          });
+          return;
+        }
+        const proofBody = (typeof agentProof === 'object' && agentProof !== null) ? agentProof as Record<string, unknown> : null;
+        const signature = proofBody?.signature;
+        const publicKeyMultibase = proofBody?.publicKeyMultibase;
+        const expectedPayload = `freeagents:list-agent:v1:${did}:${operator}`;
+        if (
+          typeof signature !== 'string' || signature.length === 0 ||
+          typeof publicKeyMultibase !== 'string' || publicKeyMultibase.length === 0
+        ) {
+          res.status(400).json({
+            error: `agentProof must be { signature, publicKeyMultibase }: sign the exact string "${expectedPayload}" with the agent's own key (ed25519, base64) and name that key's publicKeyMultibase`,
+          });
+          return;
+        }
+        let signatureVerified: boolean;
+        try {
+          signatureVerified = await identityAdapter.verify({
+            payload: expectedPayload,
+            signature,
+            signerDid: did,
+            candidateKeyMultibase: publicKeyMultibase,
+          });
+        } catch (err) {
+          if (err instanceof CandidateKeyRejectedError || err instanceof DidNotResolvableError) {
+            res.status(400).json({
+              error: `agentProof does not check out: sign the exact string "${expectedPayload}" with the agent's own key (ed25519, base64) and name that key's publicKeyMultibase`,
+            });
+            return;
+          }
+          throw err;
+        }
+        if (!signatureVerified) {
+          res.status(400).json({
+            error: `agentProof does not check out: sign the exact string "${expectedPayload}" with the agent's own key (ed25519, base64) and name that key's publicKeyMultibase`,
+          });
+          return;
+        }
+        agentDid = did;
+      } else {
+        // FIX-B41a item 1: nothing to sign at all. A fresh agent DID,
+        // re-derivable later from the seed, the owner DID and this same
+        // credentialId (stored only inside the delegation's own `id`).
+        const derived = await identityAdapter.createAgentDid(operator, credentialId);
+        agentDid = derived.did;
+      }
+
+      let siteDidAlreadyAnAccount: boolean;
+      try {
+        siteDidAlreadyAnAccount = (await repo.findByDid(agentDid)) !== null;
+      } catch (err) {
+        console.error('POST /agents (site path): storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (siteDidAlreadyAnAccount) {
+        res.status(409).json({
+          error: `${agentDid} is already registered as an account; an account's own DID cannot be delegated as an agent`,
+        });
+        return;
+      }
+
+      if (typeof identityAdapter.issueSiteDelegation !== 'function') {
+        console.error('POST /agents (site path): identity adapter does not support issueSiteDelegation');
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      let siteDelegation: Delegation;
+      try {
+        siteDelegation = await identityAdapter.issueSiteDelegation({
+          ownerSubject: sessioned.sessionSubject,
+          agentDid,
+          credentialId,
+        });
+      } catch (err) {
+        if (err instanceof PlatformSeedUnavailableError) {
+          console.error('POST /agents (site path): FREEAGENTS_PLATFORM_SEED is not set; cannot sign the delegation', err);
+          res.status(503).json({ error: 'storage unavailable' });
+          return;
+        }
+        throw err;
+      }
+
+      try {
+        let row = await agentRepo.create({
+          did: agentDid,
+          operatorDid: operator,
+          delegation: siteDelegation,
+          name,
+          description: (description as string | undefined) ?? null,
+          skills,
+          githubLogin: githubLogin ?? null,
+          floorPriceUsd: (floorPriceUsd as string | undefined) ?? null,
+          minBuyerMerges: (minBuyerMerges as number | undefined) ?? null,
+          maxWalkedAfterConfirm: (maxWalkedAfterConfirm as number | undefined) ?? null,
+          negotiatesOnOwnersBehalf: (negotiatesOnOwnersBehalf as boolean | undefined) ?? false,
+        });
+        // G1 path one, same rule as the wallet path below: a GitHub
+        // OAuth session naming its own login records verified immediately.
+        if (
+          typeof githubLogin === 'string' &&
+          sessioned.sessionMethod === 'github-oauth' &&
+          sessioned.sessionSubject.toLowerCase() === githubLogin.toLowerCase()
+        ) {
+          const verifiedRow = await agentRepo.updateGithubBinding(agentDid, { handle: githubLogin, status: 'verified' });
+          if (verifiedRow !== null) row = verifiedRow;
+        }
+        res.status(201).json(agentProjection(row));
+      } catch (err) {
+        if (err instanceof AgentAlreadyExistsError) {
+          res.status(409).json({ error: `agent ${agentDid} is already delegated` });
+          return;
+        }
+        console.error('POST /agents (site path): storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+      }
+      return;
+    }
+
+    // The wallet path, unchanged from before this card except description.
+    if (typeof did !== 'string' || did.length === 0) {
+      res.status(400).json({
+        error: 'did is required when delegation is present: body must be { did, delegation, name, skills, ... }',
       });
       return;
     }
@@ -3173,7 +3387,7 @@ export function createApp(
       res.status(403).json({ error: 'operator does not match the authenticated party' });
       return;
     }
-    const proof = delegationShape(body.delegation);
+    const proof = delegationShape(delegationField);
     if (proof === null) {
       res.status(400).json({
         error: 'delegation must be a W3C Verifiable Credential: object with @context, id, type, issuer (string), credentialSubject { id }, proof { type: Ed25519Signature2020, proofValue }, issuanceDate',
@@ -3219,6 +3433,7 @@ export function createApp(
         operatorDid: operator,
         delegation: proof,
         name,
+        description: (description as string | undefined) ?? null,
         skills,
         githubLogin: githubLogin ?? null,
         floorPriceUsd: (floorPriceUsd as string | undefined) ?? null,
