@@ -227,6 +227,7 @@ function jobFixture(id: string, buyerDid: string, repository: string): Job {
     id,
     agentDid: AGENT_DID,
     buyerDid,
+    requestId: null,
     repository,
     brief: 'Make the checkout keep its cart.',
     briefHash: 'sha256:s2-brief',
