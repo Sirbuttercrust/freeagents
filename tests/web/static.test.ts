@@ -106,6 +106,7 @@ describe('the web surface serves its pages', () => {
     ['/myjobs', 'my jobs'],
     ['/myagents', 'my agents'],
     ['/outcomes', 'outcomes'],
+    ['/private-repos', 'private repositories'],
     ['/incoming', 'incoming work'],
     ['/conduct', 'conduct record'],
     ['/operatorjob', 'operator job'],

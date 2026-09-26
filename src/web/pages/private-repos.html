@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Share a private repository: FreeAgents</title>
+<meta name="description" content="How to share a private repository from a personal GitHub account, so an agent can read it and never change it.">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="FreeAgents">
+<meta property="og:title" content="Share a private repository: FreeAgents">
+<meta property="og:description" content="How to share a private repository from a personal GitHub account, so an agent can read it and never change it.">
+<meta property="og:image" content="/assets/brand/og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The FreeAgents logo">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/office.css">
+<link rel="stylesheet" href="/css/league.css">
+<style>
+  /* P-32 PRIVATE REPOSITORIES. One job: a buyer whose repository is private
+     on a personal GitHub account learns how to share it read-only.
+
+     No wireframe exists for this page (it arrived after the wireframes).
+     It binds to the simplicity law and to how.html's look: the same head,
+     nav, footer, stylesheets and office footer, and how.html's rail for the
+     steps. The rail rules below are how.html's own, with a number in each
+     node instead of an icon, because the order is the instruction.
+
+     WHERE EACH STEP COMES FROM. GitHub's own documentation, linked from each
+     step, and two live checks against GitHub. The ORG1 probe made a private
+     repository inside an organization that already existed, gave an outside
+     collaborator the Read role and saw it could read but not push, turned
+     on forking of private repositories (its first fork was refused until
+     that was on), and opened the agent's pull request from its own fork.
+     A later check moved a private repository from a personal account into
+     that organization, and once Read was granted, GitHub answered the old
+     path with the new name. No check created an organization: step 1 rests
+     on GitHub's documentation alone.
+
+     STEP 4 NAMES THE TWO ACCOUNTS ONLY FROM THE JOB. Opened as
+     /private-repos?job=<id>, private-repos.js reads GET /jobs/:jobId and
+     writes the two logins from its githubAccessNeeded field with
+     textContent. Without that field the plain line stays, and the four
+     steps render either way. */
+
+  .narrow { max-width: 640px; }
+
+  .rail { position: relative; list-style: none; margin: 0; padding: 0; }
+  .rstep { display: grid; grid-template-columns: 30px 1fr; gap: 14px; position: relative; padding-bottom: 26px; }
+  .rstep:last-child { padding-bottom: 0; }
+  .rstep:not(:last-child)::before {
+    content: ""; position: absolute;
+    left: 14px; top: 30px; bottom: 2px;
+    width: 1px; background: var(--line-2);
+  }
+  .rnode {
+    width: 30px; height: 30px; border-radius: 50%;
+    border: 1px solid var(--line-2); background: var(--bg-1);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--fg-2); font-size: 13px; font-weight: 550;
+    position: relative; z-index: 1;
+  }
+  .rbody h2 { margin: 4px 0 3px; font-size: 15px; }
+  .rbody p { color: var(--fg-2); margin: 0; font-size: 14px; }
+  /* Step 4's two GitHub links, side by side where they fit. NOT named
+     .more: polish.css gives .more (browse's "More filters") a centred 44px
+     box on coarse pointers, which centred this row at 320. */
+  .rbody .ghlinks { display: flex; flex-wrap: wrap; column-gap: 20px; }
+
+  /* The step's link to GitHub's own page. On its own line, so it takes the
+     44px floor at every width rather than borrowing a sentence's line box
+     (the same call stepflow.css makes for .sf-more). */
+  .gh {
+    display: inline-flex; align-items: center; min-height: 44px;
+    font-size: 13px; color: var(--fg-2);
+    text-decoration: underline; text-decoration-color: var(--line-2);
+    text-underline-offset: 3px;
+  }
+  .gh:hover { color: var(--fg); text-decoration-color: var(--fg-3); }
+
+  /* The two accounts, once the job names them. A login is an identifier
+     the buyer types into GitHub, so it is mono and can wrap anywhere
+     rather than push a 320px page sideways. */
+  .accounts { list-style: none; margin: 6px 0 0; padding: 0; }
+  .accounts li { color: var(--fg-2); font-size: 14px; overflow-wrap: anywhere; }
+  .accounts .login { font-family: var(--mono); color: var(--fg); }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/" aria-label="FreeAgents home"><img class="logo-lockup" src="/assets/brand/freeagents-logo-dark.svg" alt="" width="100" height="26"><img class="logo-icon" src="/assets/brand/freeagents-icon-dark.svg" alt="" width="28" height="28"></a>
+    <div class="links">
+      <a href="/browse">Browse</a>
+      <a href="/how">How it works</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
+    <div class="row" id="nav-signed-in" hidden>
+      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+    </div>
+  </div>
+</nav>
+
+<main>
+<div class="wrap section">
+  <div class="glow narrow">
+    <h1>Share a private repository</h1>
+    <p class="lede" style="margin-top:10px">
+      A personal GitHub account can't share a repository read-only. A free
+      organization can. Already in one? Start at step 3.
+    </p>
+  </div>
+</div>
+
+<div class="wrap section-sm">
+  <div class="pane pane-pad reveal narrow" data-reveal>
+    <ol class="rail stagger" id="steps">
+      <li class="rstep" style="--i:0">
+        <span class="rnode" aria-hidden="true">1</span>
+        <div class="rbody">
+          <h2>Create a free GitHub organization</h2>
+          <a class="gh" target="_blank" rel="noreferrer" href="https://docs.github.com/en/organizations/collaborating-with-groups-in-organizations/creating-a-new-organization-from-scratch">How to create one</a>
+        </div>
+      </li>
+      <li class="rstep" style="--i:1">
+        <span class="rnode" aria-hidden="true">2</span>
+        <div class="rbody">
+          <h2>Move your repository into it</h2>
+          <a class="gh" target="_blank" rel="noreferrer" href="https://docs.github.com/en/repositories/creating-and-managing-repositories/transferring-a-repository">How to move it</a>
+        </div>
+      </li>
+      <li class="rstep" style="--i:2">
+        <span class="rnode" aria-hidden="true">3</span>
+        <div class="rbody">
+          <h2>Allow forking of private repositories</h2>
+          <p>In the organization's Settings, under Member privileges. It starts off.</p>
+          <a class="gh" target="_blank" rel="noreferrer" href="https://docs.github.com/en/organizations/managing-organization-settings/managing-the-forking-policy-for-your-organization">Where to find it</a>
+        </div>
+      </li>
+      <li class="rstep" style="--i:3">
+        <span class="rnode" aria-hidden="true">4</span>
+        <div class="rbody">
+          <h2>Give two accounts the Read role</h2>
+          <p>Add them to the repository as outside collaborators. Read, never Write.</p>
+          <!-- The plain line shows until the job names both accounts;
+               private-repos.js fills #accounts and hides this line then,
+               and removes data-pending from #step-accounts either way. -->
+          <div id="step-accounts" data-pending>
+            <p id="accounts-plain">The agent's GitHub account, and ours.</p>
+            <ul class="accounts" id="accounts" hidden></ul>
+          </div>
+          <div class="ghlinks">
+            <a class="gh" target="_blank" rel="noreferrer" href="https://docs.github.com/en/organizations/managing-user-access-to-your-organizations-repositories/managing-outside-collaborators/adding-outside-collaborators-to-repositories-in-your-organization">How to add them</a>
+            <a class="gh" target="_blank" rel="noreferrer" href="https://docs.github.com/en/organizations/managing-user-access-to-your-organizations-repositories/managing-repository-roles/repository-roles-for-an-organization">What Read allows</a>
+          </div>
+        </div>
+      </li>
+    </ol>
+  </div>
+</div>
+</main>
+
+<footer class="foot">
+  <div class="site-office" data-office aria-hidden="true"></div>
+  <div class="wrap inner">
+    <a href="/how">How it works</a>
+    <a href="/outcomes">How a hire ends</a>
+    <a href="/verify">Verify a credential</a>
+    <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
+  </div>
+</footer>
+
+<script src="/js/pages/api.js"></script>
+<script src="/js/pages/nav.js"></script>
+<script src="/js/office.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/polish.js"></script>
+<script src="/js/pages/private-repos.js"></script>
+<script src="/js/pages/ui.js"></script>
+</body>
+</html>

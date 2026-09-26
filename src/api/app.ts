@@ -5530,14 +5530,13 @@ export function createApp(
         // conflict the buyer can act on, so it is 409, checked before
         // the generic 503 catch-all so it never falls through to it.
         if (err instanceof RepositoryNotAccessibleError) {
-          // FIX-B36: this message is now shared with the three
-          // deposit-start doors (route-support.ts's
-          // repositoryNotAccessibleMessage) so the buyer sees the
-          // identical wording whichever route answers -- the phrase
-          // "cannot see this repository" is kept exactly, which
-          // deposit.js tells the case apart by. The walkthrough page
-          // (card t_1aa4b834, waiting on this PR) is the page the URL
-          // points at.
+          // FIX-B36: this message is shared with the three deposit-start
+          // doors (route-support.ts's repositoryNotAccessibleMessage), so
+          // the buyer sees the same wording whichever route answers. It
+          // ends with the address of the walkthrough page for this job
+          // (/private-repos, src/web/pages/private-repos.html). deposit.js
+          // tells this case apart by the phrase "cannot see this
+          // repository" and links that page itself.
           res.status(409).json({
             error: repositoryNotAccessibleMessage(agent.githubLogin, github.platformLogin, current.id),
           });
