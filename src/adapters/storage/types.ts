@@ -85,6 +85,9 @@ export interface AgentInput {
   readonly operatorDid: string;
   readonly delegation: Delegation;
   readonly name: string;
+  // ENT-2: optional, one line (src/domain/agent.ts's descriptionWellFormed).
+  // Omitted (or explicitly null) means the operator never set one.
+  readonly description?: string | null;
   readonly skills: readonly string[];
   readonly githubLogin: string | null;
   // P1, scope item 5: optional, decimal string, never caller-suggested by
@@ -150,6 +153,27 @@ export interface AgentRepository {
   // URL, or clears it back to null. Same overwrite-or-clear shape
   // setAvatarSpec already takes; null when the DID is not stored.
   setNotifyWebhookUrl(did: string, notifyWebhookUrl: string | null): Promise<Agent | null>;
+  // PATCH /agents/:agentDid (FIX-B41a): overwrites name, description,
+  // skills or floorPriceUsd, whichever the caller named. Optional, the
+  // same `listAll?` pattern this interface already uses for browse: a
+  // hand-rolled AgentRepository stand-in in an unrelated route's tests may
+  // omit it, and the route treats an omitting driver as storage-unavailable
+  // (503), the same fail-closed stance browse and hires already take for
+  // an optional method their own route needs. Null when the DID is not
+  // stored, mirroring setAvatarSpec's own stance, so the route maps it to
+  // 404 without a second lookup. Never touches did, delegation, githubLogin
+  // or proofStatus: a caller naming any of those in the PATCH body has no
+  // effect, by construction, since this method's own input shape has no
+  // field for them.
+  updateListing?(
+    did: string,
+    input: {
+      readonly name?: string;
+      readonly description?: string | null;
+      readonly skills?: readonly string[];
+      readonly floorPriceUsd?: string | null;
+    },
+  ): Promise<Agent | null>;
 }
 
 // One compromise report in the shape the API accepts (R-16). The operator

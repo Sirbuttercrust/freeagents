@@ -291,6 +291,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       operatorDid: stored?.operatorDid,
       delegation: stored?.delegation,
       name: stored?.name,
+      description: stored?.description ?? null,
       skills: [...(stored?.skills ?? [])],
       githubLogin: stored?.githubLogin,
       proofStatus: stored?.proofStatus,

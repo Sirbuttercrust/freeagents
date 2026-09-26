@@ -218,6 +218,7 @@ export class PrismaAgentRepository implements AgentRepository {
           // the object that verified, so the stored bytes stay verifiable.
           delegation: input.delegation as unknown as Prisma.InputJsonValue,
           name: input.name,
+          description: input.description ?? null,
           skills: [...input.skills],
           githubLogin: input.githubLogin,
           floorPriceUsd: input.floorPriceUsd ?? null,
@@ -354,6 +355,38 @@ export class PrismaAgentRepository implements AgentRepository {
       throw err;
     }
   }
+
+  // PATCH /agents/:agentDid (FIX-B41a): overwrites only the fields the
+  // caller named, the same P2025-to-null mapping every other overwrite
+  // write in this class uses. A field the caller omitted is simply
+  // absent from `data`, so Prisma leaves the stored value untouched.
+  async updateListing(
+    did: string,
+    input: {
+      readonly name?: string;
+      readonly description?: string | null;
+      readonly skills?: readonly string[];
+      readonly floorPriceUsd?: string | null;
+    },
+  ): Promise<Agent | null> {
+    try {
+      await db().agent.update({
+        where: { did },
+        data: {
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.description !== undefined ? { description: input.description } : {}),
+          ...(input.skills !== undefined ? { skills: [...input.skills] } : {}),
+          ...(input.floorPriceUsd !== undefined ? { floorPriceUsd: input.floorPriceUsd } : {}),
+        } as unknown as Prisma.AgentUpdateInput,
+      });
+      return agentWithRotations(did);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        return null;
+      }
+      throw err;
+    }
+  }
 }
 
 // R-16 (ENT-8.4): a compromise report, addressed structurally for the same
@@ -407,6 +440,11 @@ function toAgent(
     operatorDid: string;
     delegation: unknown;
     name: string;
+    // The generated client lags the schema, the same reasoning every other
+    // optional field on this row already carries (see floorPriceUsd's own
+    // comment below): a worktree generated before this column exists types
+    // the row without it, and an absent column means "no description set".
+    description?: string | null;
     skills: string[];
     githubLogin: string | null;
     proofStatus: 'unverified' | 'verified';
@@ -446,6 +484,7 @@ function toAgent(
     operatorDid: row.operatorDid,
     delegation: row.delegation as Delegation,
     name: row.name,
+    description: row.description ?? null,
     skills: [...row.skills],
     githubLogin: row.githubLogin,
     proofStatus: row.proofStatus,

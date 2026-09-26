@@ -13,6 +13,7 @@ import { fromRandom } from '@ocap/wallet';
 import { fromPublicKey } from '@arcblock/did';
 
 import { createIdentityAdapter, CandidateKeyRejectedError, DidNotResolvableError } from '../../../src/adapters/identity/identity.js';
+import type { Delegation } from '../../../src/domain/agent.js';
 import { createKnownKeyStore } from '../../../src/adapters/identity/did-abt-resolver.js';
 import { MemoryObservedKeyRepository } from '../../../src/adapters/storage/memory.js';
 import { signingIdentityFromWallet } from '../../helpers/sign-request.js';
@@ -377,5 +378,147 @@ describe('createIdentityAdapter, createOperatorDid (P8d)', () => {
 
     const pair = await identity.createOperatorDid('subject-no-secret');
     expect(Object.keys(pair).sort()).toEqual(['did', 'publicKeyMultibase']);
+  });
+});
+
+// FIX-B41a item 2: createAgentDid is the real derivation the site-listing
+// path needs: deterministic from the platform seed, the owner's own DID
+// and the fresh delegation credential id, so the agent row plus the seed
+// re-derives the agent's key with nothing new stored.
+describe('createIdentityAdapter, createAgentDid (FIX-B41a)', () => {
+  const ORIGINAL_SEED = process.env.FREEAGENTS_PLATFORM_SEED;
+
+  afterEach(() => {
+    if (ORIGINAL_SEED === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
+    else process.env.FREEAGENTS_PLATFORM_SEED = ORIGINAL_SEED;
+  });
+
+  it('is deterministic: the same owner DID and credential id derive the identical agent DID every call', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = 'f'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+
+    const first = await identity.createAgentDid('did:abt:zOwner', 'urn:uuid:repeat-me');
+    const second = await identity.createAgentDid('did:abt:zOwner', 'urn:uuid:repeat-me');
+
+    expect(first.did).toBe(second.did);
+    expect(first.publicKeyMultibase).toBe(second.publicKeyMultibase);
+    expect(first.did.startsWith('did:abt:')).toBe(true);
+  });
+
+  it('a different credential id derives a different agent DID, for the identical owner', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = '1'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+
+    const a = await identity.createAgentDid('did:abt:zOwner', 'urn:uuid:aaaa');
+    const b = await identity.createAgentDid('did:abt:zOwner', 'urn:uuid:bbbb');
+
+    expect(a.did).not.toBe(b.did);
+  });
+
+  it('the agent DID info string differs from the operator DID info string: the same subject/owner and same freshness input never collide', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = '2'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+
+    const operator = await identity.createOperatorDid('same-value');
+    const agent = await identity.createAgentDid('did:abt:zSomeOwner', 'same-value');
+
+    expect(agent.did).not.toBe(operator.did);
+  });
+
+  it('fails closed, naming FREEAGENTS_PLATFORM_SEED, when the seed is unset', async () => {
+    delete process.env.FREEAGENTS_PLATFORM_SEED;
+    const identity = createIdentityAdapter(createKnownKeyStore());
+
+    await expect(identity.createAgentDid('did:abt:zOwner', 'urn:uuid:no-seed')).rejects.toThrow(
+      /FREEAGENTS_PLATFORM_SEED/,
+    );
+  });
+
+  it('never stores or returns a private key: the projection carries only did and publicKeyMultibase', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = '3'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+
+    const pair = await identity.createAgentDid('did:abt:zOwner', 'urn:uuid:no-secret');
+    expect(Object.keys(pair).sort()).toEqual(['did', 'publicKeyMultibase']);
+  });
+});
+
+// FIX-B41a items 1, 3 and 4: the site-listing path signs the delegation
+// with the OWNER'S OWN derived key, never asking the owner to sign
+// anything (P-19). issueSiteDelegation is the one adapter seam the route
+// calls to make that true.
+describe('createIdentityAdapter, issueSiteDelegation (FIX-B41a)', () => {
+  const ORIGINAL_SEED = process.env.FREEAGENTS_PLATFORM_SEED;
+
+  afterEach(() => {
+    if (ORIGINAL_SEED === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
+    else process.env.FREEAGENTS_PLATFORM_SEED = ORIGINAL_SEED;
+  });
+
+  it('issues a delegation whose issuer is the owner\'s own derived DID and whose subject is the named agent DID', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = '4'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const owner = await identity.createOperatorDid('site-owner-subject');
+    const { did: agentDid } = await identity.createAgentDid(owner.did, 'urn:uuid:site-delegation-1');
+
+    const delegation = await identity.issueSiteDelegation?.({
+      ownerSubject: 'site-owner-subject',
+      agentDid,
+      credentialId: 'urn:uuid:site-delegation-1',
+    });
+
+    expect(delegation?.issuer).toBe(owner.did);
+    expect(delegation?.credentialSubject.id).toBe(agentDid);
+  });
+
+  it('marks the delegation delegationSignedBy: "platform"', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = '5'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const owner = await identity.createOperatorDid('site-owner-subject-2');
+    const { did: agentDid } = await identity.createAgentDid(owner.did, 'urn:uuid:site-delegation-2');
+
+    const delegation = await identity.issueSiteDelegation?.({
+      ownerSubject: 'site-owner-subject-2',
+      agentDid,
+      credentialId: 'urn:uuid:site-delegation-2',
+    });
+
+    expect(delegation?.credentialSubject.delegationSignedBy).toBe('platform');
+  });
+
+  it('the delegation verifies with the real verifyDelegation against the owner and agent DIDs', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = '6'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const owner = await identity.createOperatorDid('site-owner-subject-3');
+    const { did: agentDid } = await identity.createAgentDid(owner.did, 'urn:uuid:site-delegation-3');
+
+    const delegation = await identity.issueSiteDelegation?.({
+      ownerSubject: 'site-owner-subject-3',
+      agentDid,
+      credentialId: 'urn:uuid:site-delegation-3',
+    });
+    if (delegation === undefined) throw new Error('expected a delegation');
+
+    await expect(identity.verifyDelegation(delegation, agentDid, owner.did)).resolves.toBe(true);
+  });
+
+  it('MUTATION PROOF: a tampered delegation fails verifyDelegation', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = '7'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const owner = await identity.createOperatorDid('site-owner-subject-4');
+    const { did: agentDid } = await identity.createAgentDid(owner.did, 'urn:uuid:site-delegation-4');
+
+    const delegation = await identity.issueSiteDelegation?.({
+      ownerSubject: 'site-owner-subject-4',
+      agentDid,
+      credentialId: 'urn:uuid:site-delegation-4',
+    });
+    if (delegation === undefined) throw new Error('expected a delegation');
+
+    const tampered: Delegation = {
+      ...delegation,
+      credentialSubject: { ...delegation.credentialSubject, id: 'did:abt:zTamperedAgent' },
+    };
+    await expect(identity.verifyDelegation(tampered, 'did:abt:zTamperedAgent', owner.did)).resolves.toBe(false);
   });
 });
