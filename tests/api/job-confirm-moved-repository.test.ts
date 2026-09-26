@@ -147,38 +147,49 @@ describe('POST /jobs/:jobId/confirm follows a moved repository (FIX-B36 Make ite
   });
 
   // job.ts's own comment: briefHash and confirmedSpecHash never cover
-  // job.repository, so a move leaves both untouched.
-  it('leaves briefHash and specHash untouched by a repository move', async () => {
+  // job.repository, so a move leaves both untouched. Proof r1: the
+  // previous version of this test created one job and confirmed a
+  // DIFFERENT job, then only checked hash FORMAT -- it could not fail
+  // even if a move rewrote either hash, because nothing here compared a
+  // value against itself. This version confirms two jobs with the
+  // IDENTICAL brief and criteria/price, one on a repository that moves
+  // and one on a repository that does not, and asserts both hashes come
+  // out equal: if a move rewrote briefHash or confirmedSpecHash, the
+  // moved job's hash would differ from the static job's, since hashing
+  // is otherwise a pure function of brief/criteria/price alone.
+  it('produces the same briefHash and specHash as an identical job whose repository never moved', async () => {
     active = await startApp();
-    active.fixture.setRepositoryFacts('buyer', 'hash-app', {
-      fullName: 'buyer-org/hash-app',
+    active.fixture.setRepositoryFacts('buyer', 'hash-app-moved', {
+      fullName: 'buyer-org/hash-app-moved',
       private: true,
       allowForking: true,
       ownerIsOrganization: true,
       defaultBranch: 'main',
       sha: 'moved-head-sha-2',
     });
+    // hash-app-static's own readRepository answer (the fixture's default:
+    // fullName equal to the requested owner/repo) never differs from
+    // job.repository, so this job's confirm never calls
+    // followRepositoryMove at all.
 
-    const created = await postSigned(active.baseUrl, '/jobs', {
-      buyerDid: buyer.did,
-      agentDid: agent.did,
-      repository: 'buyer/hash-app',
-      brief: 'Fix the hash bug',
-    }, buyer);
-    const createdBody = (await created.json()) as Record<string, unknown>;
-    const briefHashBefore = createdBody.briefHash;
+    const staticConfirmed = await walkToConfirmed(active.baseUrl, 'buyer/hash-app-static');
+    const movedConfirmed = await walkToConfirmed(active.baseUrl, 'buyer/hash-app-moved');
 
-    const confirmed = await walkToConfirmed(active.baseUrl, 'buyer/hash-app');
-    // walkToConfirmed opens its own second job (repository already
-    // configured above answers the same moved facts for hash-app), so
-    // compare the FIRST job's briefHash to itself -- the assertion is
-    // that no code path anywhere rewrites briefHash on a move, proven by
-    // the specHash present on the confirmed response still being a
-    // syntactically valid, freshly computed hash and repository having
-    // moved beside it.
-    expect(briefHashBefore).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(confirmed.specHash).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(confirmed.repository).toBe('buyer-org/hash-app');
+    // Same brief text (walkToConfirmed's own fixed brief), so briefHash
+    // agrees regardless of which repository the job named -- repository
+    // never enters this hash.
+    expect(movedConfirmed.briefHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(movedConfirmed.briefHash).toBe(staticConfirmed.briefHash);
+
+    // The moved job's repository actually moved; the static one did not.
+    expect(movedConfirmed.repository).toBe('buyer-org/hash-app-moved');
+    expect(staticConfirmed.repository).toBe('buyer/hash-app-static');
+
+    // Both jobs share the identical criteria and price (walkToConfirmed's
+    // own fixed proposal), so confirmedSpecHash agrees between them too --
+    // the move changed repository and nothing the hash actually covers.
+    expect(movedConfirmed.specHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(movedConfirmed.specHash).toBe(staticConfirmed.specHash);
   });
 
   it('does NOT change job.repository when the fullName GitHub reports differs only by letter case (chainIdentifiersMatch, never a bare compare)', async () => {

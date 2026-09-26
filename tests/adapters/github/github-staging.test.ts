@@ -334,6 +334,29 @@ describe('createGithubAdapter, readRepository (B14a, FIX-B36)', () => {
     expect(facts.ownerIsOrganization).toBe(false);
   });
 
+  // Make item 2's forking-off case: the pull-only reader sees
+  // allow_forking follow the organization's own setting (measured
+  // 2026-09-26: false a few seconds after the owner turned forking off).
+  // Proof r1: every scripted response in this file sent allow_forking
+  // true, so hardcoding allowForking to true left the whole file green.
+  it('projects allowForking false when the response body sends allow_forking false', async () => {
+    const { fetchImpl } = scriptedFetch([
+      jsonResponse(200, {
+        full_name: 'buyer-org/target-repo',
+        private: true,
+        allow_forking: false,
+        default_branch: 'main',
+        owner: { type: 'Organization' },
+      }),
+      jsonResponse(200, { object: { sha: 'sha' } }),
+    ]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    const facts = await adapter.readRepository({ owner: 'buyer-org', repo: 'target-repo' });
+
+    expect(facts.allowForking).toBe(false);
+  });
+
   it('a non-2xx response reading the repository rejects rather than returning a half-built result', async () => {
     const { fetchImpl } = scriptedFetch([jsonResponse(404, { message: 'Not Found' })]);
     const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
