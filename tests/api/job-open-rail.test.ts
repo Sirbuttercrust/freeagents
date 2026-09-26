@@ -58,25 +58,15 @@ describe('payableRails: a pinned quote reports only the pinned currency, even wi
 });
 
 describe('payableRails: filtered by which payout address the owner actually has', () => {
-  it('answers ["abt"] when only operatorAddressAbt is set', async () => {
-    active = await startOpenRailApp({ abt: 'z1OperatorAbt' });
+  it.each([
+    [{ abt: 'z1OperatorAbt' }, ['abt']],
+    [{ evm: '0xOperatorEvm00000000000000000000000000' }, ['usdc']],
+    [{}, []],
+  ] as const)('answers %j for addresses %j', async (addresses, expected) => {
+    active = await startOpenRailApp(addresses);
     const jobId = await openDraft(active);
     await proposeOneCriterionPrice(active, jobId);
-    expect((await payableRailsOf(active.baseUrl, jobId)).payableRails).toEqual(['abt']);
-  });
-
-  it('answers ["usdc"] when only operatorAddressEvm is set', async () => {
-    active = await startOpenRailApp({ evm: '0xOperatorEvm00000000000000000000000000' });
-    const jobId = await openDraft(active);
-    await proposeOneCriterionPrice(active, jobId);
-    expect((await payableRailsOf(active.baseUrl, jobId)).payableRails).toEqual(['usdc']);
-  });
-
-  it('answers [] when neither address is set', async () => {
-    active = await startOpenRailApp({});
-    const jobId = await openDraft(active);
-    await proposeOneCriterionPrice(active, jobId);
-    expect((await payableRailsOf(active.baseUrl, jobId)).payableRails).toEqual([]);
+    expect((await payableRailsOf(active.baseUrl, jobId)).payableRails).toEqual(expected);
   });
 });
 
@@ -183,21 +173,7 @@ describe('confirm on a PINNED quote keeps its existing order and answers exactly
     // before it can happen; this only proves confirm's own backfill is
     // conditional on job.rail being null.
     active = await startOpenRailApp();
-    const jobId = await openDraft(active);
-    await postSigned(active.baseUrl, `/jobs/${jobId}/criteria`, {
-      criteria: [
-        { text: 'The login bug is fixed', proposedBy: 'agent' },
-        { text: 'Checkout e2e test passes', proposedBy: 'agent' },
-      ],
-      priceUsd: '500.00',
-      rail: 'usdc',
-    }, active.agent);
-    await postSigned(active.baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, active.buyer);
-    await postSigned(active.baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, active.agent);
-    await postSigned(active.baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, active.buyer);
-    await postSigned(active.baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, active.agent);
-    await postSigned(active.baseUrl, `/jobs/${jobId}/price/accept`, {}, active.buyer);
-    await postSigned(active.baseUrl, `/jobs/${jobId}/price/accept`, {}, active.agent);
+    const jobId = await walkToOpenQuoteAccepted(active, { rail: 'usdc' });
     await recordDeposit(active, jobId, 'abt');
     const confirmed = await postSigned(active.baseUrl, `/jobs/${jobId}/confirm`, {}, active.buyer);
     expect(confirmed.status).toBe(200);

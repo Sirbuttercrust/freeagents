@@ -187,9 +187,9 @@ export async function openDraft(app: Pick<OpenRailApp, 'baseUrl' | 'buyer' | 'ag
   return String(((await created.json()) as Record<string, unknown>).id);
 }
 
-// A single-criterion open (or pinned, if rail is passed) price proposal,
-// with no criteria acceptance walked: the payableRails describe blocks
-// in tests/api/job-open-rail.test.ts only ever need the job at
+// A single-criterion price proposal (open, or pinned if rail is
+// passed), with no criteria acceptance walked: the payableRails describe
+// blocks in tests/api/job-open-rail.test.ts only ever need the job at
 // 'proposed' with a price, never all the way to both-accepted.
 export async function proposeOneCriterionPrice(
   app: Pick<OpenRailApp, 'baseUrl' | 'agent'>,
@@ -237,15 +237,19 @@ const OPEN_QUOTE_CRITERIA = [
   { text: 'Checkout e2e test passes', proposedBy: 'agent' },
 ];
 
-// Open quote (no rail named): proposes a price with no `rail`, both
-// parties accept every criterion, both accept the price. The job ends
-// 'proposed', priceUsd set, rail still null.
+// Proposes a price (open, or pinned if rail is passed), both parties
+// accept every criterion, both accept the price. The job ends
+// 'proposed', priceUsd set, rail null unless pinned.
 export async function walkToOpenQuoteAccepted(
   app: Pick<OpenRailApp, 'baseUrl' | 'buyer' | 'agent'>,
-  priceUsd = '500.00',
+  opts: { readonly priceUsd?: string; readonly rail?: 'abt' | 'usdc' } = {},
 ): Promise<string> {
   const jobId = await openDraft(app);
-  await postSigned(app.baseUrl, `/jobs/${jobId}/criteria`, { criteria: OPEN_QUOTE_CRITERIA, priceUsd }, app.agent);
+  await postSigned(app.baseUrl, `/jobs/${jobId}/criteria`, {
+    criteria: OPEN_QUOTE_CRITERIA,
+    priceUsd: opts.priceUsd ?? '500.00',
+    ...(opts.rail !== undefined ? { rail: opts.rail } : {}),
+  }, app.agent);
   await postSigned(app.baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, app.buyer);
   await postSigned(app.baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, app.agent);
   await postSigned(app.baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, app.buyer);
