@@ -189,6 +189,18 @@ describe('HT1 Part B: hire thread messages', () => {
     expect(res.status).toBe(400);
   });
 
+  // Proof r2, not-blocking note: PATCH (edit) is unchanged by MSG1a --
+  // an edit still needs words, even though a new POST may now be
+  // attachment-only. Pinned so a loosened editMessage or route check
+  // (accepting an empty PATCH body) turns this red.
+  it('PATCH with an empty body is refused with 400, unlike a new attachment-only POST', async () => {
+    const jobId = await openDraft();
+    const posted = await req('POST', `/jobs/${jobId}/messages`, { body: 'to be edited' }, buyer);
+    const messageId = String((await posted.json() as Record<string, unknown>).id);
+    const res = await req('PATCH', `/jobs/${jobId}/messages/${messageId}`, { body: '' }, buyer);
+    expect(res.status).toBe(400);
+  });
+
   it('edit within the window succeeds, keeps history, and refuses a stranger to the message', async () => {
     const jobId = await openDraft();
     const posted = await req('POST', `/jobs/${jobId}/messages`, { body: 'oops typo' }, buyer);

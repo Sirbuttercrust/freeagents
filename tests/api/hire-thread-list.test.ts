@@ -16,6 +16,7 @@ import {
 } from '../../src/adapters/storage/memory.js';
 import { createJob, type Job } from '../../src/domain/job.js';
 import { createMessage, createSystemMessage, advanceReadState, type Message } from '../../src/domain/message.js';
+import { resolveAvatar } from '../../src/domain/avatar-spec.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSessionToken } from '../helpers/session-fixtures.js';
 
@@ -446,15 +447,27 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
       for (const t of body.threads) expect(t.seat).toBe('buyer');
       const declined = body.threads.find((t) => t.jobId === 'job-declined')!;
       expect(declined.writable).toBe(false);
+      // Proof r2, defect 2: pin the row's own status field (not just
+      // writable) against every one of the four distinct statuses seeded
+      // above, so a mutant that hardcodes or drops the status key is caught.
+      expect(declined.status).toBe('declined');
       const draft = body.threads.find((t) => t.jobId === 'job-draft')!;
       expect(draft.writable).toBe(true);
+      expect(draft.status).toBe('draft');
+      const proposed = body.threads.find((t) => t.jobId === 'job-proposed')!;
+      expect(proposed.status).toBe('proposed');
+      const confirmed = body.threads.find((t) => t.jobId === 'job-confirmed')!;
+      expect(confirmed.status).toBe('confirmed');
       expect(draft.agentDid).toBe(agent.did);
       expect(draft.agentName).toBe('shape-scout');
       expect(draft.counterpartDid).toBe(owner.did);
       expect(draft.counterpartGithubLogin).toBe('threads-shape-owner');
       expect(draft.brief).toBe('Fix the login bug');
       expect(typeof draft.createdAt).toBe('string');
-      expect(draft.avatarSpec).toBeTruthy();
+      // Proof r2, defect 2: pin avatarSpec's real resolved value (the agent
+      // has no stored override, so it is the DID-derived default), not
+      // merely truthy, so a mutant resolving another DID's spec is caught.
+      expect(draft.avatarSpec).toEqual(resolveAvatar(null, agent.did));
     } finally {
       built.server.close();
     }
