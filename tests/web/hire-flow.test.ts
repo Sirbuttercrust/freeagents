@@ -599,6 +599,9 @@ class VanishingAfterFirstReadAgentRepository implements AgentRepository {
   async setNegotiatesOnOwnersBehalf(): Promise<Agent | null> {
     return null;
   }
+  async setNotifyWebhookUrl(): Promise<Agent | null> {
+    return null;
+  }
 }
 
 // A JobRepository whose create() always throws, everything else
@@ -706,6 +709,7 @@ describe('every refusal POST /jobs can return renders its own distinct sentence'
       maxWalkedAfterConfirm: null,
       avatarSpec: null,
       negotiatesOnOwnersBehalf: false,
+      notifyWebhookUrl: null,
     };
     const vanishingAgentRepo = new VanishingAfterFirstReadAgentRepository(realAgent);
     const sessionAdapter = createSessionAdapter({

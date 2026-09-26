@@ -5,10 +5,13 @@
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import type { AvatarSpec } from '../../domain/avatar-spec.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
-import type { CompletedJob, Job } from '../../domain/job.js';
+import type { CompletedJob, Job, Party } from '../../domain/job.js';
 import type { Attestation } from '../../domain/attestation.js';
 import type { Account } from '../../domain/account.js';
 import type { Review } from '../../domain/review.js';
+import type { Message, ThreadReadState } from '../../domain/message.js';
+import type { Notification, PushSubscription } from '../../domain/notification.js';
+import type { Attachment } from '../../domain/attachment.js';
 import type { SignedAttestation, IssuedCredentialDocument } from '../credentials/types.js';
 
 // Thrown by register when the DID already exists, so the API layer can map
@@ -91,10 +94,14 @@ export interface AgentInput {
   // explicitly null) means no filter, matching floorPriceUsd's own stance.
   readonly minBuyerMerges?: number | null;
   readonly maxWalkedAfterConfirm?: number | null;
-  // HT1 (ruling, 2026-09-25): omitted (or explicitly false) means the
+  // HT1 (ruling, 2026-09-25): omitted (or explicitly null) means the
   // owner has not allowed this agent to negotiate on its own signature,
   // the fail-closed default matching floorPriceUsd's own stance.
   readonly negotiatesOnOwnersBehalf?: boolean;
+  // HT1 Part B (STEER item 4, 2026-09-25): omitted (or explicitly null)
+  // means no webhook is set, the same fail-closed stance
+  // negotiatesOnOwnersBehalf already takes.
+  readonly notifyWebhookUrl?: string | null;
 }
 
 // One rotation record, in the shape the API accepts (R-30). Carries only
@@ -139,6 +146,10 @@ export interface AgentRepository {
   // the DID is not stored, so the route maps it to 404 without a second
   // lookup.
   setNegotiatesOnOwnersBehalf(did: string, negotiatesOnOwnersBehalf: boolean): Promise<Agent | null>;
+  // HT1 Part B (STEER item 4, 2026-09-25): overwrites the stored webhook
+  // URL, or clears it back to null. Same overwrite-or-clear shape
+  // setAvatarSpec already takes; null when the DID is not stored.
+  setNotifyWebhookUrl(did: string, notifyWebhookUrl: string | null): Promise<Agent | null>;
 }
 
 // One compromise report in the shape the API accepts (R-16). The operator
@@ -444,4 +455,56 @@ export interface ObservedSettlementRecord {
 export interface SettlementRepository {
   record(input: ObservedSettlementRecord): Promise<void>;
   findByJobAndLeg(jobId: string, leg: 'deposit' | 'remainder'): Promise<ObservedSettlementRecord | null>;
+}
+
+// HT1 Part B: the hire thread's message store. Append-only (edits are a
+// full-row overwrite of body/editedAt/editHistory, never a delete or an
+// unsend -- src/domain/message.ts's own header comment): no method here
+// removes a row. Ordered oldest-first on every list, mirroring every
+// other listing repository's own convention.
+export interface MessageRepository {
+  create(message: Message): Promise<Message>;
+  // Null when the id is not stored, mirroring every other repository's
+  // update-on-unknown-id stance in this file.
+  update(message: Message): Promise<Message | null>;
+  findById(id: string): Promise<Message | null>;
+  listByJobId(jobId: string): Promise<readonly Message[]>;
+}
+
+// HT1 Part B: read receipts, one row per (jobId, party). upsert-shaped:
+// advanceReadState (src/domain/message.ts) already enforces monotonicity
+// in the domain layer, so this repository's write always overwrites --
+// never conditionally, since a caller that read a STALE current state
+// and advanced it correctly must not be second-guessed by the driver.
+export interface ThreadReadStateRepository {
+  record(state: ThreadReadState): Promise<void>;
+  findByJobAndParty(jobId: string, party: Party): Promise<ThreadReadState | null>;
+}
+
+// HT1 Part B (STEER item 4): the stored per-account notification list.
+export interface NotificationRepository {
+  create(notification: Notification): Promise<Notification>;
+  // Null when the id is not stored, or when it does not belong to
+  // accountDid -- both cases the route treats identically (a caller may
+  // only mark its OWN notification read).
+  markRead(id: string, accountDid: string, now: Date): Promise<Notification | null>;
+  listByAccountDid(accountDid: string): Promise<readonly Notification[]>;
+}
+
+// HT1 Part B (attachments STEER): one stored attachment per uploaded
+// file. No update method: an attachment, once stored, is immutable (the
+// same stance AttestationRepository already takes on its own rows).
+export interface AttachmentRepository {
+  create(attachment: Attachment): Promise<Attachment>;
+  findById(id: string): Promise<Attachment | null>;
+}
+
+// HT1 Part B (STEER item 4): one row per browser Push API subscription.
+// Upsert-by-endpoint: a browser resubscribing with the SAME endpoint
+// (a rare but real event, e.g. after clearing site data) replaces the
+// prior key material rather than accumulating a stale duplicate.
+export interface PushSubscriptionRepository {
+  upsert(subscription: PushSubscription): Promise<PushSubscription>;
+  listByAccountDid(accountDid: string): Promise<readonly PushSubscription[]>;
+  removeByEndpoint(endpoint: string): Promise<void>;
 }

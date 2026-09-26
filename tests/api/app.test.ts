@@ -578,6 +578,9 @@ describe('app, job storage failures', () => {
     async setNegotiatesOnOwnersBehalf(): Promise<never> {
       throw failure;
     }
+    async setNotifyWebhookUrl(): Promise<never> {
+      throw failure;
+    }
   }
 
   class FailingJobRepository implements JobRepository {

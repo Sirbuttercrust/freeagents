@@ -218,6 +218,7 @@ describe('GET /agents/:agentDid/credentials, storage branches', () => {
       recordKeyRotation: (did, input) => baseAgents.recordKeyRotation(did, input),
       setAvatarSpec: (did, avatarSpec) => baseAgents.setAvatarSpec(did, avatarSpec),
       setNegotiatesOnOwnersBehalf: (did, flag) => baseAgents.setNegotiatesOnOwnersBehalf(did, flag),
+      setNotifyWebhookUrl: (did, url) => baseAgents.setNotifyWebhookUrl(did, url),
     };
     return createApp(
       new MemoryAccountRepository(),

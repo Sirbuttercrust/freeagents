@@ -517,6 +517,7 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       recordKeyRotation: (did, input) => base.recordKeyRotation(did, input),
       setAvatarSpec: (did, avatarSpec) => base.setAvatarSpec(did, avatarSpec),
       setNegotiatesOnOwnersBehalf: (did, flag) => base.setNegotiatesOnOwnersBehalf(did, flag),
+      setNotifyWebhookUrl: (did, url) => base.setNotifyWebhookUrl(did, url),
     };
     const app = createApp(accountRepo, repo);
     await withApp(app, async (url) => {
@@ -551,6 +552,7 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       recordKeyRotation: () => Promise.reject(new Error('db down')),
       setAvatarSpec: (did, avatarSpec) => base.setAvatarSpec(did, avatarSpec),
       setNegotiatesOnOwnersBehalf: (did, flag) => base.setNegotiatesOnOwnersBehalf(did, flag),
+      setNotifyWebhookUrl: (did, url) => base.setNotifyWebhookUrl(did, url),
     };
     const app = createApp(accountRepo, repo);
     await withApp(app, async (url) => {
@@ -591,6 +593,7 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       recordKeyRotation: () => Promise.resolve(null),
       setAvatarSpec: (did, avatarSpec) => base.setAvatarSpec(did, avatarSpec),
       setNegotiatesOnOwnersBehalf: (did, flag) => base.setNegotiatesOnOwnersBehalf(did, flag),
+      setNotifyWebhookUrl: (did, url) => base.setNotifyWebhookUrl(did, url),
     };
     const app = createApp(accountRepo, repo);
     await withApp(app, async (url) => {

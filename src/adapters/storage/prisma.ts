@@ -5,13 +5,16 @@ import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import { isValidAvatarSpec, type AvatarSpec } from '../../domain/avatar-spec.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
 import type { IssuedCredentialDocument } from '../credentials/types.js';
-import type { CompletedJob, Criterion, Job, JobStatus } from '../../domain/job.js';
+import type { CompletedJob, Criterion, Job, JobStatus, Party } from '../../domain/job.js';
 import { DEPOSIT_PERCENT, REDO_ALLOWANCE } from '../../domain/job.js';
 import type { Attestation } from '../../domain/attestation.js';
 import type { Account } from '../../domain/account.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
 import type { Review } from '../../domain/review.js';
 import type { SignedAttestation } from '../credentials/types.js';
+import type { AuthorKind, AuthorParty, EditRecord, Message, MessageAttachmentRef, Reactions, SystemEvent, ThreadReadState } from '../../domain/message.js';
+import type { Notification, NotificationEventType, PushSubscription } from '../../domain/notification.js';
+import type { AllowedAttachmentKind, Attachment } from '../../domain/attachment.js';
 import {
   AgentAlreadyExistsError,
   type AgentInput,
@@ -34,6 +37,11 @@ import {
   type StoredAttestation,
   type ObservedSettlementRecord,
   type SettlementRepository,
+  type MessageRepository,
+  type ThreadReadStateRepository,
+  type NotificationRepository,
+  type AttachmentRepository,
+  type PushSubscriptionRepository,
   credentialLookupKey,
 } from './types.js';
 
@@ -216,6 +224,7 @@ export class PrismaAgentRepository implements AgentRepository {
           minBuyerMerges: input.minBuyerMerges ?? null,
           maxWalkedAfterConfirm: input.maxWalkedAfterConfirm ?? null,
           negotiatesOnOwnersBehalf: input.negotiatesOnOwnersBehalf ?? false,
+          notifyWebhookUrl: input.notifyWebhookUrl ?? null,
         } as unknown as Prisma.AgentCreateInput,
       });
       // A fresh agent has no rotation history; do not add a nested create.
@@ -327,6 +336,24 @@ export class PrismaAgentRepository implements AgentRepository {
       throw err;
     }
   }
+
+  // HT1 Part B (STEER item 4, 2026-09-25): overwrites the stored webhook
+  // URL, or clears it back to null, the same P2025-to-null mapping every
+  // other overwrite write in this class uses.
+  async setNotifyWebhookUrl(did: string, notifyWebhookUrl: string | null): Promise<Agent | null> {
+    try {
+      await db().agent.update({
+        where: { did },
+        data: { notifyWebhookUrl } as unknown as Prisma.AgentUpdateInput,
+      });
+      return agentWithRotations(did);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        return null;
+      }
+      throw err;
+    }
+  }
 }
 
 // R-16 (ENT-8.4): a compromise report, addressed structurally for the same
@@ -406,6 +433,11 @@ function toAgent(
     // absent column means "the owner has not allowed this agent to
     // negotiate", the fail-closed default a stored false already carries.
     negotiatesOnOwnersBehalf?: boolean;
+    // HT1 Part B: same reasoning as floorPriceUsd above -- a worktree
+    // generated before this column exists types the Agent row without
+    // it, and an absent column means "no webhook set", the same meaning
+    // a stored null already carries.
+    notifyWebhookUrl?: string | null;
   },
   keyRotations: readonly KeyRotation[],
 ): Agent {
@@ -429,6 +461,7 @@ function toAgent(
     // resolveAvatar itself applies at the wire boundary.
     avatarSpec: isValidAvatarSpec(row.avatarSpec) ? row.avatarSpec : null,
     negotiatesOnOwnersBehalf: row.negotiatesOnOwnersBehalf ?? false,
+    notifyWebhookUrl: row.notifyWebhookUrl ?? null,
   };
 }
 
@@ -1078,5 +1111,294 @@ export class PrismaSettlementRepository implements SettlementRepository {
       amountUsd: row.amountUsd,
       observedAt: row.observedAt,
     };
+  }
+}
+
+// HT1 Part B: the hire thread's message store. editHistory, reactions
+// and attachmentIds/systemEvent all round-trip through Json/native-array
+// columns and are reassembled here into the domain shape exactly once,
+// mirroring PrismaAttestationRepository's own "the bytes that verified
+// are the bytes served back" stance for Json columns.
+function toMessage(row: {
+  id: string;
+  jobId: string;
+  authorDid: string | null;
+  authorParty: string;
+  authorKind: string;
+  body: string;
+  replyToId: string | null;
+  createdAt: Date;
+  editedAt: Date | null;
+  editHistory: unknown;
+  reactionBuyer: string | null;
+  reactionAgent: string | null;
+  attachmentIds: string[];
+  systemEvent: unknown;
+}): Message {
+  const reactions: Reactions = { buyer: row.reactionBuyer, agent: row.reactionAgent };
+  const editHistory = Array.isArray(row.editHistory)
+    ? (row.editHistory as Array<{ body: string; editedAt: string }>).map(
+        (e): EditRecord => ({ body: e.body, editedAt: new Date(e.editedAt) }),
+      )
+    : [];
+  return {
+    id: row.id,
+    jobId: row.jobId,
+    authorDid: row.authorDid,
+    authorParty: row.authorParty as AuthorParty,
+    authorKind: row.authorKind as AuthorKind,
+    body: row.body,
+    replyToId: row.replyToId,
+    createdAt: row.createdAt,
+    editedAt: row.editedAt,
+    editHistory,
+    reactions,
+    attachments: row.attachmentIds.map((attachmentId): MessageAttachmentRef => ({ attachmentId })),
+    systemEvent: (row.systemEvent as SystemEvent | null) ?? null,
+  };
+}
+
+export class PrismaMessageRepository implements MessageRepository {
+  async create(message: Message): Promise<Message> {
+    const row = await db().message.create({
+      data: {
+        id: message.id,
+        jobId: message.jobId,
+        authorDid: message.authorDid,
+        authorParty: message.authorParty,
+        authorKind: message.authorKind,
+        body: message.body,
+        replyToId: message.replyToId,
+        createdAt: message.createdAt,
+        editedAt: message.editedAt,
+        editHistory: message.editHistory as unknown as Prisma.InputJsonValue,
+        reactionBuyer: message.reactions.buyer,
+        reactionAgent: message.reactions.agent,
+        attachmentIds: message.attachments.map((a) => a.attachmentId),
+        systemEvent: (message.systemEvent as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+      },
+    });
+    return toMessage(row);
+  }
+
+  async update(message: Message): Promise<Message | null> {
+    try {
+      const row = await db().message.update({
+        where: { id: message.id },
+        data: {
+          body: message.body,
+          editedAt: message.editedAt,
+          editHistory: message.editHistory as unknown as Prisma.InputJsonValue,
+          reactionBuyer: message.reactions.buyer,
+          reactionAgent: message.reactions.agent,
+          attachmentIds: message.attachments.map((a) => a.attachmentId),
+        },
+      });
+      return toMessage(row);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  async findById(id: string): Promise<Message | null> {
+    const row = await db().message.findUnique({ where: { id } });
+    return row === null ? null : toMessage(row);
+  }
+
+  async listByJobId(jobId: string): Promise<readonly Message[]> {
+    const rows = await db().message.findMany({ where: { jobId }, orderBy: { createdAt: 'asc' } });
+    return rows.map(toMessage);
+  }
+}
+
+// HT1 Part B: read receipts, one row per (jobId, party). upsert on the
+// (jobId, party) primary key, matching the interface's own "always
+// overwrites" stance.
+export class PrismaThreadReadStateRepository implements ThreadReadStateRepository {
+  async record(state: ThreadReadState): Promise<void> {
+    await db().threadReadState.upsert({
+      where: { jobId_party: { jobId: state.jobId, party: state.party } },
+      create: { jobId: state.jobId, party: state.party, lastReadAt: state.lastReadAt },
+      update: { lastReadAt: state.lastReadAt },
+    });
+  }
+
+  async findByJobAndParty(jobId: string, party: Party): Promise<ThreadReadState | null> {
+    const row = await db().threadReadState.findUnique({ where: { jobId_party: { jobId, party } } });
+    if (row === null) return null;
+    return { jobId: row.jobId, party: row.party as Party, lastReadAt: row.lastReadAt };
+  }
+}
+
+// HT1 Part B (STEER item 4): the per-account notification store.
+export class PrismaNotificationRepository implements NotificationRepository {
+  async create(notification: Notification): Promise<Notification> {
+    const row = await db().notification.create({
+      data: {
+        id: notification.id,
+        accountDid: notification.accountDid,
+        jobId: notification.jobId,
+        eventType: notification.eventType,
+        createdAt: notification.createdAt,
+        readAt: notification.readAt,
+      },
+    });
+    return {
+      id: row.id,
+      accountDid: row.accountDid,
+      jobId: row.jobId,
+      eventType: row.eventType as NotificationEventType,
+      createdAt: row.createdAt,
+      readAt: row.readAt,
+    };
+  }
+
+  async markRead(id: string, accountDid: string, now: Date): Promise<Notification | null> {
+    // updateMany rather than update: the (id, accountDid) pair is not the
+    // primary key, so a plain update would throw P2025 for "wrong
+    // account" and "unknown id" alike, and this repository's own contract
+    // (types.ts) requires telling neither apart from the caller's own
+    // route -- both simply answer null.
+    const result = await db().notification.updateMany({
+      where: { id, accountDid, readAt: null },
+      data: { readAt: now },
+    });
+    if (result.count === 0) {
+      // Either the id/account pair does not exist, or it was already
+      // read (idempotent: markNotificationRead in the domain layer
+      // never regresses a read timestamp). Distinguish only far enough
+      // to return the current row when it exists and belongs to this
+      // account, so a caller re-marking an already-read notification
+      // still gets its row back rather than a false null.
+      const existing = await db().notification.findUnique({ where: { id } });
+      if (existing === null || existing.accountDid !== accountDid) return null;
+      return {
+        id: existing.id,
+        accountDid: existing.accountDid,
+        jobId: existing.jobId,
+        eventType: existing.eventType as NotificationEventType,
+        createdAt: existing.createdAt,
+        readAt: existing.readAt,
+      };
+    }
+    const row = await db().notification.findUniqueOrThrow({ where: { id } });
+    return {
+      id: row.id,
+      accountDid: row.accountDid,
+      jobId: row.jobId,
+      eventType: row.eventType as NotificationEventType,
+      createdAt: row.createdAt,
+      readAt: row.readAt,
+    };
+  }
+
+  async listByAccountDid(accountDid: string): Promise<readonly Notification[]> {
+    const rows = await db().notification.findMany({ where: { accountDid }, orderBy: { createdAt: 'asc' } });
+    return rows.map((row) => ({
+      id: row.id,
+      accountDid: row.accountDid,
+      jobId: row.jobId,
+      eventType: row.eventType as NotificationEventType,
+      createdAt: row.createdAt,
+      readAt: row.readAt,
+    }));
+  }
+}
+
+// HT1 Part B (attachments STEER): one stored attachment per uploaded
+// file. No update method (the row is immutable once written).
+export class PrismaAttachmentRepository implements AttachmentRepository {
+  async create(attachment: Attachment): Promise<Attachment> {
+    const row = await db().attachment.create({
+      data: {
+        id: attachment.id,
+        jobId: attachment.jobId,
+        uploaderDid: attachment.uploaderDid,
+        kind: attachment.kind,
+        originalFilename: attachment.originalFilename,
+        sizeBytes: attachment.sizeBytes,
+        path: attachment.path,
+        thumbnailPath: attachment.thumbnailPath,
+        createdAt: attachment.createdAt,
+      },
+    });
+    return {
+      id: row.id,
+      jobId: row.jobId,
+      uploaderDid: row.uploaderDid,
+      kind: row.kind as AllowedAttachmentKind,
+      originalFilename: row.originalFilename,
+      sizeBytes: row.sizeBytes,
+      path: row.path,
+      thumbnailPath: row.thumbnailPath,
+      createdAt: row.createdAt,
+    };
+  }
+
+  async findById(id: string): Promise<Attachment | null> {
+    const row = await db().attachment.findUnique({ where: { id } });
+    if (row === null) return null;
+    return {
+      id: row.id,
+      jobId: row.jobId,
+      uploaderDid: row.uploaderDid,
+      kind: row.kind as AllowedAttachmentKind,
+      originalFilename: row.originalFilename,
+      sizeBytes: row.sizeBytes,
+      path: row.path,
+      thumbnailPath: row.thumbnailPath,
+      createdAt: row.createdAt,
+    };
+  }
+}
+
+// HT1 Part B (STEER item 4): browser Push API subscriptions, upserted
+// by the unique endpoint column (the interface's own upsert-by-endpoint
+// stance).
+export class PrismaPushSubscriptionRepository implements PushSubscriptionRepository {
+  async upsert(subscription: PushSubscription): Promise<PushSubscription> {
+    const row = await db().pushSubscription.upsert({
+      where: { endpoint: subscription.endpoint },
+      create: {
+        id: subscription.id,
+        accountDid: subscription.accountDid,
+        endpoint: subscription.endpoint,
+        p256dh: subscription.p256dh,
+        auth: subscription.auth,
+        createdAt: subscription.createdAt,
+      },
+      update: {
+        accountDid: subscription.accountDid,
+        p256dh: subscription.p256dh,
+        auth: subscription.auth,
+      },
+    });
+    return {
+      id: row.id,
+      accountDid: row.accountDid,
+      endpoint: row.endpoint,
+      p256dh: row.p256dh,
+      auth: row.auth,
+      createdAt: row.createdAt,
+    };
+  }
+
+  async listByAccountDid(accountDid: string): Promise<readonly PushSubscription[]> {
+    const rows = await db().pushSubscription.findMany({ where: { accountDid } });
+    return rows.map((row) => ({
+      id: row.id,
+      accountDid: row.accountDid,
+      endpoint: row.endpoint,
+      p256dh: row.p256dh,
+      auth: row.auth,
+      createdAt: row.createdAt,
+    }));
+  }
+
+  async removeByEndpoint(endpoint: string): Promise<void> {
+    await db().pushSubscription.deleteMany({ where: { endpoint } });
   }
 }
