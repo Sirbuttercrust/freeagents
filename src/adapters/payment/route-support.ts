@@ -19,6 +19,7 @@ import type {
 } from './types.js';
 import { LAPSE_AT_STAGED_STATUSES, type JobStatus } from '../../domain/job.js';
 import { publicBaseUrlFromEnv } from '../credentials/credentials.js';
+import type { SettlementRepository } from '../storage/types.js';
 import {
   RepositoryEmptyError,
   RepositoryNotAccessibleError,
@@ -69,6 +70,78 @@ export function legStatusConflictMessage(leg: RouteLeg, status: JobStatus): stri
 // must apply the same rule.
 export function legRailMismatchMessage(routeRail: Rail, jobRail: Rail | null): string {
   return `this job is priced on the "${jobRail}" rail; the "${routeRail}" payment routes refuse it`;
+}
+
+// FIX-B39 (bugs.md B39), rule 5: the message a door answers when the
+// SETTLED DEPOSIT, not the job's own quote pin, disagrees with the rail
+// this door belongs to. A buyer can act on this: pay the leg on the rail
+// that already settled.
+export function depositRailMismatchMessage(routeRail: Rail, depositRail: Rail): string {
+  return `the deposit for this job was paid in "${depositRail}"; the "${routeRail}" payment routes refuse it`;
+}
+
+// FIX-B39, rule 5: the message every door answers when the hired agent's
+// operator has no payout address on record for this rail. Byte-identical
+// to the wording every existing per-rail 409 already used (S3/P8c), so
+// tests/api/job-payment-usdc.test.ts's pre-existing "operator address"
+// assertion keeps passing unedited. The ABT sibling assertion
+// (tests/api/job-payment-abt.test.ts P8c) and the account-provisioning
+// custody fence test were both EDITED on this card, per the rule-5
+// ruling: they used to assert /start succeeded with no address set, and
+// now assert this same 409, since rule 5 moves that refusal to /start.
+// tests/architecture/no-custody.test.ts bans custody words including
+// "payout" on any code line inside src/adapters/payment (this file), so
+// this comment (a comment line, exempt) is the only place that word may
+// appear near this function; the string itself says "operator address".
+export function operatorAddressNotSetMessage(rail: Rail): string {
+  const article = rail === 'abt' ? 'an ABT' : 'a USDC';
+  return `the hired agent's operator has not set ${article} operator address; PATCH /accounts/:did/operator-address first`;
+}
+
+// FIX-B39, rule 5: ONE shared eligibility check, in place of B25's
+// job-rail-only check, called by every payment door (both /start routes,
+// the token door, the USDC wallet-response route, and the ABT wallet
+// callback). Checked in this order, matching the brief's own reading
+// order for a buyer's refusal:
+//   1. the job is pinned to the OTHER currency (a quote named one);
+//   2. the deposit already SETTLED in the other currency (rule 3: once a
+//      deposit has settled, only that deposit's currency is payable,
+//      independent of whether the job itself ever got pinned to it --
+//      confirm has not necessarily run yet);
+//   3. the hired agent's operator has no payout address on record for
+//      this currency at all.
+// A caller passes operatorAddressOk (already resolved by the door's own
+// existing per-rail address lookup) rather than this function reaching
+// into AccountRepository itself, so it stays usable from both the route
+// layer (src/api/app.ts, which owns usdcOperatorAddressForJob) and
+// abt-did-connect.ts (which owns its own ABT equivalent) without a second
+// address-resolution path.
+export interface RailDoorEligibilityResult {
+  readonly ok: true;
+}
+export interface RailDoorEligibilityRefusal {
+  readonly ok: false;
+  readonly status: 409;
+  readonly message: string;
+}
+export async function checkRailDoorEligible(input: {
+  readonly jobId: string;
+  readonly routeRail: Rail;
+  readonly jobRail: Rail | null;
+  readonly settlementRepo: SettlementRepository;
+  readonly operatorAddressOk: boolean;
+}): Promise<RailDoorEligibilityResult | RailDoorEligibilityRefusal> {
+  if (input.jobRail !== null && input.jobRail !== input.routeRail) {
+    return { ok: false, status: 409, message: legRailMismatchMessage(input.routeRail, input.jobRail) };
+  }
+  const settledDeposit = await input.settlementRepo.findByJobAndLeg(input.jobId, 'deposit');
+  if (settledDeposit !== null && settledDeposit.rail !== input.routeRail) {
+    return { ok: false, status: 409, message: depositRailMismatchMessage(input.routeRail, settledDeposit.rail) };
+  }
+  if (!input.operatorAddressOk) {
+    return { ok: false, status: 409, message: operatorAddressNotSetMessage(input.routeRail) };
+  }
+  return { ok: true };
 }
 
 // Wraps rail.createRequest so the route layer supplies 'deposit' |

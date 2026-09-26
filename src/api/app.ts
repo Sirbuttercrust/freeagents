@@ -136,6 +136,7 @@ import {
   type JobStatus,
   type Party,
   type PriceProposal,
+  type Rail,
 } from '../domain/job.js';
 import { depositUsd, remainderUsd } from '../domain/payment.js';
 import { createSettlementGate, remainderSettled, type SettlementGate } from '../adapters/payment/gate.js';
@@ -145,9 +146,9 @@ import { createAbtPaymentRailOrNull, createUsdcPaymentRailOrNull } from '../adap
 import { attachAbtPaymentHandlers, type AbtTxEncoder } from '../adapters/payment/abt-did-connect.js';
 import { createTxEncoder as createAbtTxEncoder } from '@ocap/client/encode';
 import {
+  checkRailDoorEligible,
   confirmPayment,
   checkRepositoryReady,
-  legRailMismatchMessage,
   legStatusConflictMessage,
   legStatusEligible,
   processWalletResponse,
@@ -573,6 +574,30 @@ function jobProjection(row: Job): Record<string, unknown> {
     ...citedClose,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+// FIX-B39 (bugs.md B39), rule 2: the job's payable currencies. The pinned
+// one if a quote pinned it; otherwise every currency the hired agent's
+// owner has a payout address for. Rule 3 (settlement fixes the
+// currency): once a deposit has settled, only that deposit's currency,
+// independent of whether the job's own quote ever named one and
+// independent of whether confirm has run yet.
+async function payableRailsFor(
+  job: Job,
+  jobAgent: Agent | null,
+  accountRepo: AccountRepository,
+  settlementRepo: SettlementRepository,
+): Promise<readonly Rail[]> {
+  const settledDeposit = await settlementRepo.findByJobAndLeg(job.id, 'deposit');
+  if (settledDeposit !== null) return [settledDeposit.rail];
+  if (job.rail !== null) return [job.rail];
+  if (jobAgent === null) return [];
+  const account = await accountRepo.findByDid(jobAgent.operatorDid);
+  if (account === null) return [];
+  const rails: Rail[] = [];
+  if (account.operatorAddressAbt !== null) rails.push('abt');
+  if (account.operatorAddressEvm !== null) rails.push('usdc');
+  return rails;
 }
 
 // ORG1 (done-means item 2): the one key naming the GitHub read access a
@@ -4376,6 +4401,21 @@ export function createApp(
       return;
     }
     const accessNeeded = githubAccessNeededFor(jobAgent, row, github.platformLogin);
+    // FIX-B39 (bugs.md B39), rule 6: payableRails rides GET /jobs/:jobId
+    // only, and only while the job is still 'proposed' and carries a
+    // price -- the same conditional stance githubAccessNeeded takes on
+    // this route. After confirm, price.rail is the one currency; there
+    // is nothing left for this key to add.
+    let payableRails: { readonly payableRails: readonly Rail[] } | Record<string, never> = {};
+    if (row.status === 'proposed' && row.priceUsd !== null) {
+      try {
+        payableRails = { payableRails: await payableRailsFor(row, jobAgent, repo, settlementRepo) };
+      } catch (err) {
+        console.error('GET /jobs/:jobId: storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+    }
     // Only a completed or deemed-completed job can carry a credential, so
     // every other row never pays for the lookup. P6 widens this guard:
     // deemed_completed carries a distinct credential type but no
@@ -4383,7 +4423,7 @@ export function createApp(
     // observed), so the mergeCommit-only guard from before this card
     // would silently skip the lookup for every deemed-completed job.
     if (row.mergeCommit === null && row.status !== 'deemed_completed') {
-      res.status(200).json({ ...jobProjection(row), ...accessNeeded });
+      res.status(200).json({ ...jobProjection(row), ...accessNeeded, ...payableRails });
       return;
     }
     let credential: IssuedCredentialDocument | null;
@@ -5188,13 +5228,16 @@ export function createApp(
       if (priceNamed) {
         if (
           typeof priceUsd !== 'string' ||
-          (rail !== 'abt' && rail !== 'usdc') ||
+          // FIX-B39, rule 1: rail is OPTIONAL on a price proposal (the ABT
+          // ruling, 2026-09-15: "the buyer pays in whatever they came
+          // with"). A proposal that names one still pins the job to it.
+          (rail !== undefined && rail !== 'abt' && rail !== 'usdc') ||
           (deliveryWindowDays !== undefined &&
             (typeof deliveryWindowDays !== 'number' || !Number.isInteger(deliveryWindowDays) || deliveryWindowDays <= 0))
         ) {
           res.status(400).json({
             error:
-              'a proposed price must be { priceUsd, rail, deliveryWindowDays? }; priceUsd a decimal string, rail "abt" or "usdc", deliveryWindowDays (if present) a positive integer',
+              'a proposed price must be { priceUsd, rail?, deliveryWindowDays? }; priceUsd a decimal string, rail (if present) "abt" or "usdc", deliveryWindowDays (if present) a positive integer',
           });
           return;
         }
@@ -5219,8 +5262,10 @@ export function createApp(
       let priceProposal: PriceProposal | undefined;
       if (priceNamed) {
         // Well-formed by the guard above; re-narrow so the domain call
-        // below is typed without a cast.
-        const rawRail = rail as 'abt' | 'usdc';
+        // below is typed without a cast. FIX-B39: rail may be absent
+        // entirely (an open quote), so this stays undefined rather than
+        // being forced to 'abt' | 'usdc'.
+        const rawRail = rail as 'abt' | 'usdc' | undefined;
         const rawWindow = deliveryWindowDays as number | undefined;
         // MAP.md, scope item 5: refused at propose time, before the
         // domain ever sees it, naming the floor. Only fires when the job's
@@ -5245,10 +5290,11 @@ export function createApp(
           }
           throw err;
         }
-        priceProposal =
-          rawWindow === undefined
-            ? { priceUsd: priceUsd as string, rail: rawRail }
-            : { priceUsd: priceUsd as string, rail: rawRail, deliveryWindowDays: rawWindow };
+        priceProposal = {
+          priceUsd: priceUsd as string,
+          ...(rawRail === undefined ? {} : { rail: rawRail }),
+          ...(rawWindow === undefined ? {} : { deliveryWindowDays: rawWindow }),
+        };
       }
 
       // B26 (bug ledger, C1 rehearsal s9): proposedBy names who WROTE the
@@ -5288,7 +5334,7 @@ export function createApp(
                       systemEvent: {
                         type: 'quote_sent',
                         priceUsd: priceProposal!.priceUsd,
-                        rail: priceProposal!.rail,
+                        rail: priceProposal!.rail ?? null,
                         deliveryWindowDays: priceProposal!.deliveryWindowDays ?? null,
                         criteriaCount: persisted.criteria.length,
                       },
@@ -5452,9 +5498,31 @@ export function createApp(
         }
       }
 
+      // FIX-B39 (bugs.md B39), rule 3: a job whose quote left the
+      // currency open gets one from the settled DEPOSIT, backfilled
+      // BEFORE confirmSpec runs. specHash still carries rail:<currency>
+      // in the same position (confirmSpec itself is unchanged) so
+      // tests/api/job-confirm.test.ts's recomputation holds. A pinned
+      // job (current.rail already set) is untouched: this only fills a
+      // null. An open-quote job whose deposit has not settled yet
+      // reaches confirmSpec with rail still null; confirmSpec throws
+      // its existing JobPriceError, and the catch block below turns
+      // that into this route's ordinary 402 (deposit not yet settled),
+      // UNLESS the settlement gate itself already reports the deposit
+      // settled with no record to read a currency from, in which case
+      // the catch answers 409 naming the missing record rather than
+      // guessing at a currency, since priceUsd on this job is not
+      // actually missing.
+      let jobForConfirm = current;
+      if (current.rail === null) {
+        const settledDeposit = await settlementRepo.findByJobAndLeg(current.id, 'deposit');
+        if (settledDeposit !== null) {
+          jobForConfirm = { ...current, rail: settledDeposit.rail };
+        }
+      }
       let confirmed: Job;
       try {
-        confirmed = confirmSpec(current, new Date());
+        confirmed = confirmSpec(jobForConfirm, new Date());
       } catch (err) {
         // B27 (bug ledger, C1 rehearsal s1): confirmSpec only ever throws
         // JobError here for a criteria-readiness gap (no criteria at all,
@@ -5469,6 +5537,44 @@ export function createApp(
           return;
         }
         if (err instanceof JobPriceError) {
+          // FIX-B39, rule 3: this branch also carries the pre-existing
+          // "no price has been proposed" case (JobPriceError with
+          // priceUsd null), unrelated to a currency at all -- that falls
+          // straight through to the generic err.message answer below,
+          // unchanged from before this card. The new branch here is
+          // narrower: an open-quote job that DOES have a price
+          // (priceUsd set, rail still null after the backfill above
+          // found no settled deposit row) fails confirmSpec's price gate
+          // for the sole reason that rail is missing, pending the
+          // deposit that will supply it. Before answering the ordinary
+          // "the deposit has not settled yet" 402 every other job gets
+          // here, ask the settlement gate directly: if it reports the
+          // deposit ALREADY settled (a state the repo lookup above could
+          // not corroborate with a row), guessing a currency would be
+          // wrong, so this refuses with 409 naming the missing record
+          // instead.
+          if (current.priceUsd !== null && current.rail === null) {
+            let gateSaysSettledWithNoRecord = false;
+            try {
+              gateSaysSettledWithNoRecord = await settlementGate.depositSettled(current.id);
+            } catch (gateErr) {
+              console.error(`${label}: settlement gate failed`, gateErr);
+              res.status(503).json({ error: 'storage unavailable' });
+              return;
+            }
+            if (gateSaysSettledWithNoRecord) {
+              res.status(409).json({
+                error:
+                  'the settlement gate reports this deposit settled, but no settlement record names its currency; confirm cannot proceed without one',
+              });
+              return;
+            }
+            res.status(402).json({
+              error: 'the deposit has not settled; this job cannot confirm until it does',
+              depositUsd: depositUsd(current.priceUsd, current.depositPercent),
+            });
+            return;
+          }
           res.status(409).json({ error: err.message });
           return;
         }
@@ -6331,6 +6437,23 @@ export function createApp(
     return { ok: true, operatorAddress: account.operatorAddressEvm };
   }
 
+  // FIX-B39 (bugs.md B39), rule 5: whether the hired agent's operator has
+  // an ABT payout address on record, resolved the same way
+  // usdcOperatorAddressForJob resolves the USDC sibling, so
+  // checkRailDoorEligible's operatorAddressOk input never has to reach
+  // into AccountRepository itself. abt-did-connect.ts's own
+  // operatorAddressForJob answers the identical question from inside the
+  // exempted payment directory (used to build the actual recipient); this
+  // is the route layer's own boolean-only read of the same fact, for the
+  // three doors app.ts owns.
+  async function abtOperatorAddressOk(agentDid: string): Promise<boolean> {
+    const agent = await agentRepo.findByDid(agentDid);
+    if (agent === null) return false;
+    const account = await repo.findByDid(agent.operatorDid);
+    if (account === null) return false;
+    return account.operatorAddressAbt !== null;
+  }
+
   // Review round 1, D2: did-connect-js's own attachExpress mounts
   // `{prefix}/{action}/token` (here, /api/did/pay/token) with NO
   // middleware at all (node_modules/@arcblock/did-connect-js/dist/
@@ -6390,8 +6513,20 @@ export function createApp(
         res.status(400).json({ error: 'leg must be "deposit" or "remainder"' });
         return;
       }
-      if (gate.job.rail !== null && gate.job.rail !== 'abt') {
-        res.status(409).json({ error: legRailMismatchMessage('abt', gate.job.rail) });
+      // FIX-B39 (bugs.md B39), rule 5: ONE shared check, in place of
+      // B25's job-rail-only check, in this order: the job's pinned
+      // currency, the settled deposit's currency, then the operator
+      // address for this rail. This door mints only ABT sessions
+      // (attachAbtPaymentHandlers mounts here), so routeRail is fixed.
+      const tokenDoorEligibility = await checkRailDoorEligible({
+        jobId: gate.job.id,
+        routeRail: 'abt',
+        jobRail: gate.job.rail,
+        settlementRepo,
+        operatorAddressOk: await abtOperatorAddressOk(gate.job.agentDid),
+      });
+      if (!tokenDoorEligibility.ok) {
+        res.status(tokenDoorEligibility.status).json({ error: tokenDoorEligibility.message });
         return;
       }
       if (!legStatusEligible(leg, gate.job.status)) {
@@ -6500,10 +6635,19 @@ export function createApp(
         res.status(409).json({ error: 'this job has no agreed price to pay against' });
         return;
       }
-      // B25: the job's own agreed rail must match the route it was
-      // reached through.
-      if (gate.job.rail !== null && gate.job.rail !== 'abt') {
-        res.status(409).json({ error: legRailMismatchMessage('abt', gate.job.rail) });
+      // FIX-B39 (bugs.md B39), rule 5: ONE shared check, in place of
+      // B25's job-rail-only check, in this order: the job's pinned
+      // currency, the settled deposit's currency, then the operator
+      // address for this rail.
+      const abtEligibility = await checkRailDoorEligible({
+        jobId: gate.job.id,
+        routeRail: 'abt',
+        jobRail: gate.job.rail,
+        settlementRepo,
+        operatorAddressOk: await abtOperatorAddressOk(gate.job.agentDid),
+      });
+      if (!abtEligibility.ok) {
+        res.status(abtEligibility.status).json({ error: abtEligibility.message });
         return;
       }
       // B23: the leg must belong to the job's CURRENT status.
@@ -6600,10 +6744,23 @@ export function createApp(
         res.status(409).json({ error: 'this job has no agreed price to pay against' });
         return;
       }
-      // B25: the job's own agreed rail must match the route it was
-      // reached through.
-      if (gate.job.rail !== null && gate.job.rail !== 'usdc') {
-        res.status(409).json({ error: legRailMismatchMessage('usdc', gate.job.rail) });
+      // S3, Ruling 5: resolved once, reused both for the shared
+      // eligibility check below (rule 5) and for the actual recipient
+      // address the rail needs to quote against.
+      const operatorAddressResult = await usdcOperatorAddressForJob(gate.job.agentDid);
+      // FIX-B39 (bugs.md B39), rule 5: ONE shared check, in place of
+      // B25's job-rail-only check, in this order: the job's pinned
+      // currency, the settled deposit's currency, then the operator
+      // address for this rail.
+      const usdcEligibility = await checkRailDoorEligible({
+        jobId: gate.job.id,
+        routeRail: 'usdc',
+        jobRail: gate.job.rail,
+        settlementRepo,
+        operatorAddressOk: operatorAddressResult.ok,
+      });
+      if (!usdcEligibility.ok) {
+        res.status(usdcEligibility.status).json({ error: usdcEligibility.message });
         return;
       }
       // B23: the leg must belong to the job's CURRENT status.
@@ -6626,10 +6783,13 @@ export function createApp(
           return;
         }
       }
-      // S3, Ruling 5: no address on record is a 409, fail closed -- a
-      // payment that cannot name a real recipient must not begin.
-      const operatorAddressResult = await usdcOperatorAddressForJob(gate.job.agentDid);
+      // operatorAddressResult was already checked ok above (rule 5's own
+      // eligibility gate); this narrows it back to the address string
+      // for the rail call below without a second lookup.
       if (!operatorAddressResult.ok) {
+        // Unreachable: checkRailDoorEligible already refused when this
+        // was false. Kept only so TypeScript can narrow the union below
+        // without a cast.
         res.status(409).json({
           error: "the hired agent's operator has not set a USDC operator address; PATCH /accounts/:did/operator-address first",
         });
@@ -6723,10 +6883,19 @@ export function createApp(
         normalizeUsdcTxHash(alreadyRecorded.hash) === normalizeUsdcTxHash(priceTxHashForIdempotencyCheck) &&
         incomingFeeHashNormalized === recordedFeeHashNormalized;
       if (!isIdempotentReplay) {
-        // B25: the job's own agreed rail must match the route it was
-        // reached through.
-        if (gate.job.rail !== null && gate.job.rail !== 'usdc') {
-          res.status(409).json({ error: legRailMismatchMessage('usdc', gate.job.rail) });
+        // FIX-B39 (bugs.md B39), rule 5: ONE shared check, in place of
+        // B25's job-rail-only check, in this order: the job's pinned
+        // currency, the settled deposit's currency, then the operator
+        // address for this rail.
+        const usdcResponseEligibility = await checkRailDoorEligible({
+          jobId: gate.job.id,
+          routeRail: 'usdc',
+          jobRail: gate.job.rail,
+          settlementRepo,
+          operatorAddressOk: (await usdcOperatorAddressForJob(gate.job.agentDid)).ok,
+        });
+        if (!usdcResponseEligibility.ok) {
+          res.status(usdcResponseEligibility.status).json({ error: usdcResponseEligibility.message });
           return;
         }
         // B23: the leg must belong to the job's CURRENT status. A hash

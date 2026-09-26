@@ -976,9 +976,13 @@ function isDecimalUsd(value: string): boolean {
   return /^\d+\.\d{2}$/.test(value);
 }
 
+// FIX-B39 (bugs.md B39), rule 1: rail is OPTIONAL. A quote may leave the
+// currency open (the ABT ruling, 2026-09-15: "the buyer pays in whatever
+// they came with"); a proposal that names one still pins the job to it,
+// exactly as before this card.
 export interface PriceProposal {
   readonly priceUsd: string;
-  readonly rail: Rail;
+  readonly rail?: Rail;
   readonly deliveryWindowDays?: number;
 }
 
@@ -1057,17 +1061,22 @@ export function proposeCriteria(
     if (typeof price.priceUsd !== 'string' || !isDecimalUsd(price.priceUsd)) {
       throw new JobError('priceUsd must be a decimal string with exactly two places, e.g. "500.00"');
     }
-    if (price.rail !== 'abt' && price.rail !== 'usdc') {
+    if (price.rail !== undefined && price.rail !== 'abt' && price.rail !== 'usdc') {
       throw new JobError('rail must be "abt" or "usdc"');
     }
+    // FIX-B39, rule 1: a proposal that names a rail pins the job to it; one
+    // that omits it leaves whatever the job already carries untouched (null
+    // if the currency has never been pinned, the pinned value otherwise).
+    // Recording no currency is never itself a currency CHANGE.
+    const resolvedRail: Rail | null = price.rail !== undefined ? price.rail : job.rail;
     const deliveryWindowDays = price.deliveryWindowDays ?? DEFAULT_DELIVERY_WINDOW_DAYS;
     const unchanged =
       job.priceUsd === price.priceUsd &&
-      job.rail === price.rail &&
+      job.rail === resolvedRail &&
       job.deliveryWindowDays === deliveryWindowDays;
     priceFields = {
       priceUsd: price.priceUsd,
-      rail: price.rail,
+      rail: resolvedRail,
       deliveryWindowDays,
       priceAcceptedByBuyer: unchanged ? job.priceAcceptedByBuyer : false,
       priceAcceptedByAgent: unchanged ? job.priceAcceptedByAgent : false,
@@ -1133,11 +1142,15 @@ export function acceptCriterion(job: Job, index: number, party: Party): Job {
 // of the other party's flag. Refuses when no price has been proposed yet --
 // there is nothing to accept -- the same way acceptCriterion refuses an
 // out-of-range index.
+//
+// FIX-B39, rule 4: an open quote (priceUsd set, rail still null) is
+// acceptable. Recording the currency is not a price term either party is
+// agreeing to; only priceUsd, deliveryWindowDays and the criteria are.
 export function acceptPrice(job: Job, party: Party): Job {
   if (job.status !== 'proposed') {
     throw new JobTransitionError(job.status, 'accept the price on');
   }
-  if (job.priceUsd === null || job.rail === null) {
+  if (job.priceUsd === null) {
     throw new JobError('no price has been proposed for this job yet');
   }
   return party === 'buyer'
