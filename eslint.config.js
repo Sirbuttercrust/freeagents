@@ -195,8 +195,8 @@ export default tseslint.config(
   // number a *different*, unrelated process already holds fixed to
   // 127.0.0.1, and the test's own `fetch('http://127.0.0.1:<port>/...')`
   // then silently reaches that foreign process instead of the test's own
-  // server. Proof measured 5 mismatches / 4000 cycles bare vs 0 / 4000 with
-  // the host pinned, confirmed via lsof that the collisions were real
+  // server. The review measured 5 mismatches / 4000 cycles bare vs 0 / 4000
+  // with the host pinned, confirmed via lsof that the collisions were real
   // foreign listeners. Nothing stopped a new test file from reintroducing
   // the bare form, so it is enforced here instead of re-discovered by hand.
   //

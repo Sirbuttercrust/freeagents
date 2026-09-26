@@ -134,7 +134,7 @@
   // the account is in, both seats), after resolving the signed-in DID via
   // GET /accounts/me the same way My jobs and My agents do.
   var MESSAGES_LINK_ID = "nav-messages";
-  // Proof r1, defect 10 (on the old Notifications link): a bare number
+  // The review's defect 10 (on the old Notifications link): a bare number
   // appended inside the link made its accessible name read "Messages12"
   // with no "unread" text anywhere. An aria-label on the LINK itself (not
   // the badge span) states the count in words; the badge's visible text

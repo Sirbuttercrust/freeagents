@@ -177,7 +177,7 @@ describe('classifyRoute: an unrecognised route (defence in depth, never silently
   });
 });
 
-// FIX-S7 round 2 (qa proof r1, defect 1): the four page paths that collide
+// FIX-S7 round 2 (review round 1, defect 1): the four page paths that collide
 // with a real API route (/agents/:agentDid, /accounts/:did,
 // /v1/credentials/:credentialId, /jobs/:jobId) are negotiated by Accept the
 // same way src/web/static.ts negotiates them: a browser painting the page
@@ -227,7 +227,7 @@ describe('classifyRoute: the four negotiated page shells are exempt ONLY when Ac
   });
 });
 
-// FIX-S7 round 2 (qa proof r1, defect 5a): classifyRoute's returned
+// FIX-S7 round 2 (review round 1, defect 5a): classifyRoute's returned
 // CLASSIFICATION for an unmatched /api/did/pay/ path is 'upstream' whether
 // the explicit UPSTREAM_PREFIX check runs or the generic fallback catches
 // it (no ROUTE_TABLE entry names a did-connect leaf, so the two paths are
