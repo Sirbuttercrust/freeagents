@@ -287,19 +287,29 @@ describe('the dashboard screen, driven end to end against the real app', () => {
       if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
       const paths = requested.map((r) => new URL(r, baseUrl).pathname);
       expect(paths).toContain('/accounts/me');
-      const jobsCount = paths.filter((p) => p.endsWith('/jobs')).length;
-      const pendingCount = paths.filter((p) => p.endsWith('/pending')).length;
-      const incomingCount = paths.filter((p) => p.endsWith('/incoming')).length;
-      const rosterCount = paths.filter((p) => p.endsWith('/agents')).length;
+      // HT1 Part B: the shared nav script's own background reads (a
+      // second /accounts/me plus one /accounts/:did/notifications, for
+      // the unread badge) are filtered out below; this test's own count
+      // is dashboard.js's reads, unchanged by the nav.
+      const ownPaths = paths.filter((p) => !p.endsWith('/notifications'));
+      const jobsCount = ownPaths.filter((p) => p.endsWith('/jobs')).length;
+      const pendingCount = ownPaths.filter((p) => p.endsWith('/pending')).length;
+      const incomingCount = ownPaths.filter((p) => p.endsWith('/incoming')).length;
+      const rosterCount = ownPaths.filter((p) => p.endsWith('/agents')).length;
       expect(jobsCount).toBe(1);
       expect(pendingCount).toBe(1);
       expect(incomingCount).toBe(1);
       expect(rosterCount).toBe(1);
-      // Exactly five reads total: me + jobs + pending + incoming + roster.
-      // The roster read is unconditional (W5 ruling): accountProjection
-      // carries no operated-agent count, so the page cannot know whether
-      // this buyer operates anything without asking.
-      expect(paths.length).toBe(5);
+      // Exactly five OWN reads total: me + jobs + pending + incoming +
+      // roster. The roster read is unconditional (W5 ruling):
+      // accountProjection carries no operated-agent count, so the page
+      // cannot know whether this buyer operates anything without asking.
+      // The nav's own background /accounts/me plus /notifications read
+      // is excluded above (it is the shared nav script's read, not
+      // dashboard.js's).
+      const meCount = ownPaths.filter((p) => p === '/accounts/me').length;
+      expect(meCount).toBe(2);
+      expect(ownPaths.length).toBe(6);
       // No per-agent read: this buyer's roster is empty, so
       // /agents/:agentDid never appears. This is the assertion that
       // proves per-agent reads are scoped to rows the roster actually
@@ -388,7 +398,11 @@ describe('the dashboard screen, driven end to end against the real app', () => {
           [`/agents/${encodeURIComponent(rosterAgentA)}`, `/agents/${encodeURIComponent(rosterAgentB)}`].sort(),
         );
         // The same five, plus exactly N (2) per-agent reads: 7 total.
-        expect(paths.length).toBe(7);
+        // HT1 Part B: the shared nav script's own background reads (a
+        // second /accounts/me plus one /accounts/:did/notifications)
+        // are excluded, same as the test above.
+        const ownPaths = paths.filter((p) => !p.endsWith('/notifications'));
+        expect(ownPaths.length).toBe(8);
       } finally {
         dom.window.close();
       }

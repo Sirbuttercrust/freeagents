@@ -920,11 +920,20 @@ describe('the staged screen, driven end to end against the real app', () => {
 
   describe('the full set of requests the page makes, recorded from before the first script runs (scope items 3/5, done-means: "assert by recording every request the page makes")', () => {
     it('on load the page reads exactly the job, the attestation, the agent and its hires, and pressing pay adds exactly one remainder-leg POST, never a usdc, deposit, redo, staged-decline or pull-request path', async () => {
-      const requests: string[] = [];
+      const rawRequests: string[] = [];
       const page = await renderStaged(baseUrl, 'job-fully-staged', buyerSession, (input, init) => {
-        requests.push(`${(init?.method ?? 'GET').toUpperCase()} ${new URL(String(input), baseUrl).pathname}`);
+        rawRequests.push(`${(init?.method ?? 'GET').toUpperCase()} ${new URL(String(input), baseUrl).pathname}`);
       });
       try {
+        // HT1 Part B: the shared nav script now also fires its own
+        // background reads for the unread badge (GET /accounts/me plus
+        // GET /accounts/:did/notifications) on every page carrying the
+        // nav. Filtered out below, recomputed live off rawRequests at
+        // each check point (never a one-time snapshot) so the count
+        // still grows after the pay click; this test's own count is
+        // staged.js's reads, unchanged by the nav.
+        const ownRequests = () => rawRequests.filter((r) => r !== 'GET /accounts/me' && !r.endsWith('/notifications'));
+        let requests = ownRequests();
         // Round 1 fix (qa D1): staged.js now also fires GET
         // /accounts/:did (the party probe) before rendering the acting
         // controls. It fires from a separate promise chain than the
@@ -945,6 +954,7 @@ describe('the staged screen, driven end to end against the real app', () => {
         payBtn.click();
         await new Promise((resolve) => setTimeout(resolve, 200));
 
+        requests = ownRequests();
         expect(requests.length).toBe(6);
         expect(requests[5]).toBe('POST /jobs/job-fully-staged/payments/remainder/abt/start');
 
