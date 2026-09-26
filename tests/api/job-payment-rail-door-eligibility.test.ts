@@ -44,7 +44,11 @@ describe('rule 5: the deposit that settled in the other currency refuses every s
     await recordDeposit(active, jobId, settledRail);
     const res = await call(active.baseUrl, jobId, active.buyer);
     expect(res.status).toBe(409);
-    expect((await res.json() as { error: string }).error).toContain(settledRail);
+    // The literal cause sentence, never the helper: a check built from
+    // the helper stays green if the helper answers the wrong cause.
+    expect((await res.json() as { error: string }).error).toBe(
+      `the deposit for this job was paid in "${settledRail}"; the "${_routeRail}" payment routes refuse it`,
+    );
   });
 
   it('the token-mint door refuses naming the deposit currency, once a usdc deposit has settled', async () => {
@@ -53,7 +57,7 @@ describe('rule 5: the deposit that settled in the other currency refuses every s
     await recordDeposit(active, jobId, 'usdc');
     const res = await getSigned(active.baseUrl, `/api/did/pay/token?jobId=${jobId}&leg=deposit`, active.buyer);
     expect(res.status).toBe(409);
-    expect((await res.json() as { error: string }).error).toContain('usdc');
+    expect((await res.json() as { error: string }).error).toContain('paid in "usdc"');
   });
 
   it('usdc wallet-response refuses and records no settlement, once an abt deposit has settled', async () => {
@@ -67,6 +71,7 @@ describe('rule 5: the deposit that settled in the other currency refuses every s
       active.buyer,
     );
     expect(res.status).toBe(409);
+    expect((await res.json() as { error: string }).error).toContain('paid in "abt"');
     // Only the earlier abt settlement is on record; this call recorded
     // nothing new for the usdc rail check to have overwritten.
     expect((await active.settlementRepo.findByJobAndLeg(jobId, 'deposit'))?.rail).toBe('abt');
@@ -98,7 +103,7 @@ describe('rule 5: the deposit that settled in the other currency refuses every s
     if (encodedCallbackUrl === null) throw new Error('expected a wallet callback url');
     const result = await continueAbtWalletProtocol(active.baseUrl, startBody.token, decodeURIComponent(encodedCallbackUrl), buyerWallet);
     expect(result.confirmed).toBe(false);
-    expect(result.error).toContain('usdc');
+    expect(result.error).toContain('paid in "usdc"');
     expect((await active.settlementRepo.findByJobAndLeg(jobId, 'deposit'))?.rail).toBe('usdc');
   });
 });
@@ -163,6 +168,11 @@ describe('rule 5: after confirm, the ABT remainder start refuses once the deposi
     expect(confirmed.status).toBe(200);
     const remainderStart = await postSigned(active.baseUrl, `/jobs/${jobId}/payments/remainder/abt/start`, {}, active.buyer);
     expect(remainderStart.status).toBe(409);
-    expect((await remainderStart.json() as { error: string }).error).toContain('usdc');
+    // After confirm the job itself is pinned to usdc, so the pin is the
+    // real cause here: assert its whole sentence, not a substring the
+    // deposit sentence also contains.
+    expect((await remainderStart.json() as { error: string }).error).toBe(
+      'this job is priced on the "usdc" rail; the "abt" payment routes refuse it',
+    );
   });
 });

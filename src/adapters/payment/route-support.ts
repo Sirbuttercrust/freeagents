@@ -116,7 +116,8 @@ export function operatorAddressNotSetMessage(rail: Rail): string {
 // to import the other's address-resolution logic. That input is not
 // always a passthrough of an existing lookup: usdcOperatorAddressForJob
 // (app.ts) already resolved the address for its OWN recipient-quoting
-// purpose before this card, so its two call sites reuse that result, but
+// purpose before this card, so usdc/start reuses that result (wallet-
+// response resolves it again inside its own check), but
 // the ABT /start and token-mint doors added a SECOND resolution path
 // here (abtOperatorAddressOk, app.ts) specifically because neither door
 // had any prior reason to look up the ABT address before this card --
