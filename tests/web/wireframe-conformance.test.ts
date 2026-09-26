@@ -39,6 +39,12 @@ const WIREFRAME_FOR: Record<string, string | null> = {
   landing: null,
   'auth-callback-error': null,
   'auth-callback-success': null,
+  // HT1 Part B: this card's own scope limit is "build only the
+  // operator's unread badge and a plain notification list on the site,
+  // nothing more elaborate"; the conversation screen AND its design
+  // board (MSG0, assignee burnish) are a separate card. No wireframe
+  // exists yet for this deliberately plain page.
+  notifications: null,
 };
 
 // Justified departures, per page, each with the reason. A heading or control

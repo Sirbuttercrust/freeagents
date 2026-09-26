@@ -125,6 +125,59 @@
     links.appendChild(a);
   }
 
+  // HT1 Part B: the Notifications entry, the same injected-and-removed
+  // shape as the three links above, appended after Settings. Carries the
+  // unread badge (the card's own scope limit: "the operator's unread
+  // badge... on the site header"), refreshed from
+  // GET /accounts/:did/notifications the same way My jobs/My agents
+  // resolve the signed-in DID via GET /accounts/me.
+  var NOTIFICATIONS_LINK_ID = "nav-notifications";
+  function renderNotificationsBadge(count) {
+    var link = document.getElementById(NOTIFICATIONS_LINK_ID);
+    if (!link) return;
+    var existing = link.querySelector(".badge");
+    if (count > 0) {
+      if (!existing) {
+        existing = document.createElement("span");
+        existing.className = "badge";
+        link.appendChild(existing);
+      }
+      existing.textContent = String(count);
+    } else if (existing && existing.parentNode) {
+      existing.parentNode.removeChild(existing);
+    }
+  }
+  function renderNotificationsLink(isSignedIn) {
+    var links = document.querySelector(".links");
+    if (!links) return;
+    var existing = document.getElementById(NOTIFICATIONS_LINK_ID);
+    if (!isSignedIn) {
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      return;
+    }
+    if (existing) return;
+    var a = document.createElement("a");
+    a.id = NOTIFICATIONS_LINK_ID;
+    a.href = "/notifications";
+    a.textContent = "Notifications";
+    links.appendChild(a);
+
+    var session = A.getStoredSession();
+    if (!session) return;
+    A.getAuthed("/accounts/me", session.token).then(function (meResult) {
+      if (meResult.state !== "ok" || meResult.value.status !== 200) return;
+      var me = meResult.value.body && typeof meResult.value.body === "object" ? meResult.value.body : {};
+      var did = typeof me.did === "string" ? me.did : "";
+      if (did === "") return;
+      A.getAuthed("/accounts/" + encodeURIComponent(did) + "/notifications", session.token).then(function (result) {
+        if (result.state !== "ok" || result.value.status !== 200) return;
+        var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
+        var count = typeof body.unreadCount === "number" ? body.unreadCount : 0;
+        renderNotificationsBadge(count);
+      });
+    });
+  }
+
   function render() {
     var session = A.getStoredSession();
     var signin = document.getElementById("nav-signin");
@@ -134,6 +187,7 @@
     renderMyAgentsLink(isSignedIn);
     renderDashboardLink(isSignedIn);
     renderSettingsLink(isSignedIn);
+    renderNotificationsLink(isSignedIn);
 
     /* W6 round 2, D1: signin.js's "Once signed in" section is gated by
        this exact session rule (S1), so it clears here too, wherever the

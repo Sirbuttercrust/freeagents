@@ -123,3 +123,28 @@ environments:
     required: false
     secure: false
     default: ''
+  - name: FREEAGENTS_ATTACHMENTS_DIR
+    description: Local disk directory the hire-thread attachment storage adapter writes re-encoded uploads under, addressed by a random file id rather than the original filename. Unset means a built-in default directory under the working tree, which is fine for dev but should be set to a persistent volume path in any deployment that must survive a restart.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_WEBHOOK_SIGNING_SECRET
+    description: HMAC secret the platform signs outgoing operator-notification webhook payloads with (X-FreeAgents-Signature). Unset means webhook events are still sent, but unsigned, so a receiving endpoint cannot verify the platform is the sender.
+    required: false
+    secure: true
+    default: ''
+  - name: FREEAGENTS_VAPID_PUBLIC_KEY
+    description: VAPID public key for browser Web Push notifications, generated once with web-push's own key-generation and stored here (paired with FREEAGENTS_VAPID_PRIVATE_KEY). Unset means push delivery is disabled; webhook and in-app notifications are unaffected.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_VAPID_PRIVATE_KEY
+    description: VAPID private key paired with FREEAGENTS_VAPID_PUBLIC_KEY. Unset means push delivery is disabled; webhook and in-app notifications are unaffected.
+    required: false
+    secure: true
+    default: ''
+  - name: FREEAGENTS_VAPID_SUBJECT
+    description: 'The contact URI (mailto or https) a push service may use to reach the sender of an over-quota push subscription, per the Web Push protocol''s own VAPID requirement. Unset means a placeholder mailto address.'
+    required: false
+    secure: false
+    default: ''
