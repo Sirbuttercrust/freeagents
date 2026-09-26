@@ -170,3 +170,55 @@ describe('RealBrowser.launch: a launch that never opens its port gives up within
     }
   }, 30_000);
 });
+
+// FIX-S7 round 2 (qa proof r1, defect 3): the burst-measurement scripts
+// need to COUNT real network requests a page load fires, per class, so the
+// PR body's own numbers are reproducible rather than typed by hand. CDP's
+// Network.requestWillBeSent event names the exact request (method, url)
+// as it happens; onEvent is the plumbing that gets one of these pushes out
+// of the raw websocket handler and into a caller's own counter.
+describe('RealBrowser.onEvent: subscribes to a raw CDP event push (burst-measurement plumbing)', () => {
+  it('fires the listener once per matching CDP event, with the event\'s own params', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: 1280, height: 900 });
+    try {
+      await browser.send('Network.enable');
+      const seen: string[] = [];
+      const unsubscribe = browser.onEvent('Network.requestWillBeSent', (params) => {
+        const url = (params as { request?: { url?: string } }).request?.url;
+        if (typeof url === 'string') seen.push(url);
+      });
+      await browser.goto('data:text/html,<!doctype html><html><body>hello</body></html>');
+      expect(seen.length, 'a navigation fires at least one Network.requestWillBeSent event').toBeGreaterThan(0);
+      unsubscribe();
+    } finally {
+      await browser.close();
+    }
+  }, 20_000);
+
+  it('the unsubscribe function stops further delivery to that listener', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: 1280, height: 900 });
+    try {
+      await browser.send('Network.enable');
+      let count = 0;
+      const unsubscribe = browser.onEvent('Network.requestWillBeSent', () => {
+        count += 1;
+      });
+      await browser.goto('data:text/html,<!doctype html><html><body>one</body></html>');
+      unsubscribe();
+      const afterUnsubscribe = count;
+      expect(afterUnsubscribe).toBeGreaterThan(0);
+      await browser.goto('data:text/html,<!doctype html><html><body>two</body></html>');
+      expect(count, 'no further events reach a listener after unsubscribe').toBe(afterUnsubscribe);
+    } finally {
+      await browser.close();
+    }
+  }, 20_000);
+});

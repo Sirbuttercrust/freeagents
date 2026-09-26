@@ -342,7 +342,12 @@ beforeAll(async () => {
     undefined,
     undefined,
     credentialRepo,
-    undefined,
+    // FIX-S7: this suite drives many real-Chrome page loads against ONE
+    // shared app across the whole file (dozens of read-class GETs from
+    // agent pages, plus credential pages' own verify-class GET), well
+    // past the tighter default budgets. A generous override, per Make
+    // item 3, never a raised default.
+    { verify: 10_000, read: 10_000, write: 10_000, upstream: 10_000 },
     undefined,
     undefined,
     sessionAdapter,

@@ -312,7 +312,13 @@ beforeAll(async () => {
     credentials,
     undefined,
     credentialRepo,
-    undefined,
+    // FIX-S7 round 3: this suite drives ~86 real-Chrome page loads
+    // against ONE shared app across the whole file (every hire, job,
+    // staged, and pullrequest page load fires a read-class GET
+    // /agents/:agentDid for the identity strip), well past the tighter
+    // default read budget within one 60s window. A generous override,
+    // per Make item 3, never a raised default.
+    { verify: 10_000, read: 10_000, write: 10_000, upstream: 10_000 },
     undefined,
     undefined,
     sessionAdapter,

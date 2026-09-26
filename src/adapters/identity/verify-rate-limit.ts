@@ -1,15 +1,17 @@
-// In-memory rate limiting for anonymous verify routes (operator decision,
-// issue #30, 2026-08-26): browse and verify stay public with no session and
-// no account, but repeated anonymous hits on a verify route are not free
-// forever. A session lifts nothing here -- the limit bucket is per caller
-// identifier, not per credential, so signing in never raises it.
+// Fixed-window rate limiting, shared by every rate-limit class this app
+// mounts (verify, upstream, write, read -- src/api/rate-limit-classes.ts
+// names the classes, src/api/app.ts wires one bucket per class). One
+// caller identifier (req.ip -- Express's own best-effort address, honest
+// about a proxy only once FREEAGENTS_TRUST_PROXY says so, see
+// src/adapters/config/trust-proxy.ts), one Map the process already owns,
+// no new infrastructure service.
 //
-// Fixed window per key, kept honest and minimal per the brief: no new
-// infrastructure service, just a Map the process already owns. The window
-// resets on the wall clock, not on a sliding count, so the worst case is a
-// caller getting `limit` requests at the very start and end of adjacent
-// windows -- an acceptable trade against real infrastructure for a v1 that
-// exists to stop casual scraping, not a determined attacker.
+// Fixed window per key: the window resets on the wall clock, not on a
+// sliding count, so the worst case is a caller getting `limit` requests at
+// the very start and end of adjacent windows -- an acceptable trade
+// against real infrastructure for a v1 that exists to stop casual scraping
+// and to bound each route CLASS's own upstream/storage load, not to
+// resist a determined, distributed attacker.
 import type { NextFunction, Request, Response } from 'express';
 
 export interface RateLimiterOptions {
@@ -37,7 +39,9 @@ export function createRateLimiter(options: RateLimiterOptions): RateLimiter {
     middleware(req: Request, res: Response, next: NextFunction): void {
       // req.ip is Express's own best-effort caller identifier. No account
       // or session backs an anonymous request, so this is the only handle
-      // available -- exactly the boundary the #30 decision describes.
+      // available for the verify class, and the same handle every other
+      // class uses too, so a class boundary is never crossed by identity
+      // alone -- only by which bucket the request's own route class picked.
       const key = req.ip ?? 'unknown';
       const t = now();
       const existing = buckets.get(key);
@@ -49,6 +53,15 @@ export function createRateLimiter(options: RateLimiterOptions): RateLimiter {
       }
 
       if (existing.count >= limit) {
+        // FIX-S7 Make item 4: "The 429 a person can act on." Retry-After
+        // is the window's remainder in whole seconds, rounded UP so a
+        // client that waits exactly this long never retries a moment too
+        // early (a caller arriving mid-second still needs the rest of
+        // that second, not the truncated part of it).
+        const elapsedMs = t - existing.windowStart;
+        const remainderMs = Math.max(0, windowMs - elapsedMs);
+        const retryAfterSeconds = Math.ceil(remainderMs / 1000);
+        res.set('Retry-After', String(retryAfterSeconds));
         res.status(429).json({ error: 'too many requests' });
         return;
       }
