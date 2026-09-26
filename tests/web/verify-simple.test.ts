@@ -718,8 +718,10 @@ function arrivalText(main: Element): string {
 
 // ------------------------------------------------------------- laid out right
 
-// Every control a person can reach in <main>, at the width under test. A
-// link inside a sentence is exempt (WCAG 2.5.8), the rule S1 and S2 use.
+// Every control a person can reach in <main>, at the width under test:
+// links, buttons and every field a person types into or picks from (the
+// lookup field included). A link inside a sentence is exempt (WCAG 2.5.8),
+// the rule S1 and S2 use.
 // The floor carries 0.05px of slack for float noise; the planted control
 // below proves 43px and 43.9px are still caught.
 const TAP_FLOOR = 43.95;
@@ -731,7 +733,7 @@ const SWEEP = `
       });
     }
     var doc = document.documentElement;
-    var all = [].filter.call(document.querySelectorAll('main a[href], main button'), function (el) {
+    var all = [].filter.call(document.querySelectorAll('main a[href], main button, main input:not([type="hidden"]), main select, main textarea'), function (el) {
       var r = el.getBoundingClientRect();
       return r.width > 0 && r.height > 0;
     });
@@ -883,10 +885,11 @@ describe('(h) laid out right at 1280 and 320, in each state, each disclosure ope
     }
   }, BROWSER_TIMEOUT_MS);
 
-  // The gate's own control: three buttons planted in the real page at 320
-  // with touch on. 43px and 43.9px must be named, 44px must not, and nothing
-  // else on the page may be named.
-  it('the 44px sweep names a planted 43px and 43.9px control and passes a planted 44px one', async () => {
+  // The gate's own control: three buttons and two text fields planted in the
+  // real page at 320 with touch on. 43px, 43.9px and a 40px field must be
+  // named, the 44px button and the 44px field must not, and nothing else on
+  // the page may be named.
+  it('the 44px sweep names a planted 43px and 43.9px button and a 40px field, and passes 44px ones', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for the 44px sweep control; skipping (see CHROME_BIN)');
       return;
@@ -902,9 +905,16 @@ describe('(h) laid out right at 1280 and 320, in each state, each disclosure ope
           b.style.cssText = 'all: unset; display: block; box-sizing: border-box; width: 100px; height: ' + p[1] + 'px;';
           main.appendChild(b);
         });
+        [['plant-field-40', 40], ['plant-field-44', 44]].forEach(function (p) {
+          var i = document.createElement('input');
+          i.id = p[0];
+          i.type = 'text';
+          i.style.cssText = 'all: unset; display: block; box-sizing: border-box; width: 200px; height: ' + p[1] + 'px;';
+          main.appendChild(i);
+        });
       })()`);
       const s = await browser.evaluate<Sweep>(SWEEP);
-      expect(s.small.map((line) => line.split(' ')[0])).toEqual(['plant-43', 'plant-43-9']);
+      expect(s.small.map((line) => line.split(' ')[0])).toEqual(['plant-43', 'plant-43-9', 'plant-field-40']);
     } finally {
       await browser.close();
     }

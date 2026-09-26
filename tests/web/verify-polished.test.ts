@@ -251,7 +251,7 @@ describe('2. the hero is the wireframe\u2019s pane, with the live pill', () => {
         'the live pill does not precede the heading',
       ).toBeTruthy();
 
-      // The three checked facts wear the wireframe's .checked, not the built
+      // The three checks wear the wireframe's .checked, not the built
       // page's retired .checks with its .n number chip.
       const checked = page.document.querySelectorAll('.checked > div');
       expect(checked.length, 'the wireframe\u2019s .checked block is missing or empty').toBe(3);
@@ -373,7 +373,7 @@ describe('4. not one of the wireframe\u2019s four builder notes is rendered', ()
 
 describe('5. every real control on the page clears 44px, at 1280 and at 320', () => {
   // The page has two states and each hides controls the other shows: with no
-  // receipt asked for, the lookup form and its submit button; with one loaded,
+  // receipt asked for, the lookup form, its field and its submit button; with one loaded,
   // the three action anchors and Download JSON. Measuring one state leaves the
   // other unmeasured, which is how a 32px control ships.
   //
@@ -393,7 +393,7 @@ describe('5. every real control on the page clears 44px, at 1280 and at 320', ()
         var b = document.querySelector('[data-disclose="' + id + '"]');
         if (b) b.click();
       });
-      var all = [].filter.call(document.querySelectorAll('button, a[href], a[id]'), function (el) {
+      var all = [].filter.call(document.querySelectorAll('button, a[href], a[id], input:not([type="hidden"]), select, textarea'), function (el) {
         if (el.closest('nav')) return false;
         var r = el.getBoundingClientRect();
         return r.width > 0 && r.height > 0;   // a hidden control is measured in its own state
@@ -430,6 +430,7 @@ describe('5. every real control on the page clears 44px, at 1280 and at 320', ()
         'the lookup state offered no control to measure: this sweep would pass vacuously',
       ).toBeGreaterThan(8);
       expect(lookup.measured, 'the lookup form\u2019s submit button was not reached').toContain('btn btn-primary');
+      expect(lookup.measured, 'the lookup field was not reached').toContain('credential-id');
       expect(lookup.under, `under the floor at ${width}px (lookup state): ${JSON.stringify(lookup.under)}`).toEqual([]);
 
       // State two: a receipt loaded. The action row and Download JSON appear.

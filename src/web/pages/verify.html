@@ -67,7 +67,7 @@
 
      THE THREE DEPARTURES FROM THE WIREFRAME, each named where it happens:
      the h1 size (see .checked's neighbour below), the four builder notes
-     (see the bottom of this block), and where the three checked facts sit
+     (see the bottom of this block), and where the three checks sit
      (see the .checked rule). */
 
   /* The claim, restated in plain language. Filled by verify.js from the
@@ -76,7 +76,7 @@
   .claim { font-size: 20px; line-height: 1.45; letter-spacing: -0.01em; max-width: 36ch; }
   .claim b { font-weight: 550; }
 
-  /* THE THREE CHECKED FACTS (wireframe .checked, wireframe verify.html:94).
+  /* THE THREE CHECKS (wireframe .checked, wireframe verify.html:97).
      Plain statements with a dot before each heading, not a numbered list:
      this is a short list of things a person can go and confirm, so it
      reads like three short statements rather than a dataset.
@@ -90,23 +90,18 @@
      affordance for a verified hire accent-coloured by name.
 
      WHERE THE BLOCK SITS, which is the one structural departure. The
-     wireframe puts .checked inside the hero pane, above the fold, as
-     three facts that are simply true of its sample receipt, and repeats
-     the mechanics as three disclosures in the section below. The built
-     page cannot state those as facts in the hero: it has checked nothing,
-     and a receipt may not have loaded at all. So the block stays in the
-     section headed "How to check it yourself", where each statement is
-     the name of a check a person runs and carries that check's own
-     disclosure, and the hero carries the claim and the action row the
-     wireframe put beside it. All three of the wireframe's headings ship
-     word for word. Its three .d sentences do not: each one states that a
-     check has already passed (signed with the key on file and that key
-     never reported compromised, the pull request present on GitHub and
-     merged, the merge commit signed by that same key), and this page has
-     checked none of it. S3 replaced each with one plain line saying what
-     the check proves ("Proves ..."), with the command or the values it
-     needs behind that check's own disclosure, which is what this section
-     is for.
+     wireframe puts .checked inside the hero pane, above the fold, and
+     repeats the mechanics as three disclosures in the section below. The
+     built page keeps the block in the section headed "How to check it
+     yourself", where each item is the name of a check a person runs and
+     carries that check's own disclosure, and the hero carries the claim
+     and the action row the wireframe put beside it. The three headings
+     and the three .d lines ship word for word as the wireframe has them:
+     each .d line says what its check proves ("Proves ..."), never that
+     the check has passed, because this page has checked nothing and a
+     receipt may not have loaded at all. The command or the values each
+     check needs sit behind that check's own disclosure, which is what
+     this section is for.
 
      THE GAP. The wireframe's own value is 16px, for items that are one
      heading and one line each. These items carry a heading, a line,
@@ -140,18 +135,22 @@
      base.css:541 raises both to 44 only inside
      @media (max-width: 760px), (pointer: coarse). Measured on this page at
      1280px before this rule: the three action anchors 264x40, 139x40 and
-     130x40, all six copy buttons 58x32, Download JSON 125x32. A desktop
+     130x40, all six copy buttons 58x32, Download JSON 125x32, and the
+     lookup field #credential-id 592x40 (base.css:558 raises .input to 44
+     only inside that same media query). A desktop
      screenshot at either width looks identical, which is why the floor is
      declared here and measured in a real browser at 1280 and at 320 by
-     tests/web/verify-polished.test.ts rather than trusted.
+     tests/web/verify-polished.test.ts and tests/web/verify-simple.test.ts
+     rather than trusted.
 
      [data-copy] rather than six ids: that is the selector ui.js itself
      sweeps, so a seventh copy control added later inherits the floor
      instead of quietly shipping at 32px. .disclose already carries an
      unconditional 44px in base.css:230 and is restated here at the same
      value so this page's floor does not depend on a rule it does not own.
-     tap-target-under-44px has 5 strikes in the ledger. */
+     tap-target-under-44px is a repeat line in the defect ledger. */
   #lookup button[type="submit"],
+  #credential-id,
   #pr-link, #receipt-link, #verify-agent-link,
   #sig-download-link,
   .disclose,
