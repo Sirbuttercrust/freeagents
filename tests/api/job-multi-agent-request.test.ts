@@ -275,6 +275,37 @@ describe('HT1 Part A2: one brief to up to three agents', () => {
       body.jobs.forEach((j) => expect(j.status).toBe('draft'));
     });
 
+    // Proof r2 (MEDIUM, guard-without-a-test): pairing agentRows[i] with
+    // createdRows[i] in POST /jobs's multi-agent branch (src/api/app.ts,
+    // the githubAccessNeededFor call inside jobs.map) has to line up each
+    // row with the SAME index's agent, not agent A's login copied onto
+    // every job. The two tests above only pinned Object.keys or the
+    // agentDid field, so a mutation that hardcodes index 0 (agentRows[0]
+    // instead of agentRows[i]) left every prior assertion green. Each
+    // agent here carries a distinctly-named, verified login, so this
+    // needle is real: a wrong pairing sends the buyer to grant GitHub read
+    // to the wrong agent's account for two of the three jobs.
+    it('each job in a multi-agent reply names the GitHub login of the agent IT was opened for, not a sibling\'s', async () => {
+      const res = await postSigned(baseUrl, '/jobs', {
+        agentDids: [agentA.did, agentB.did, agentC.did],
+        repository: 'buyer/target-repo',
+        brief: 'Fix the login bug, three quotes for the access-needed pairing check',
+      }, buyer);
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as {
+        jobs: Array<{ agentDid: string; githubAccessNeeded?: { agentGithubLogin: string } }>;
+      };
+      const loginByAgentDid: Record<string, string> = {
+        [agentA.did]: 'agent-alpha-multi-agent',
+        [agentB.did]: 'agent-bravo-multi-agent',
+        [agentC.did]: 'agent-charlie-multi-agent',
+      };
+      expect(body.jobs).toHaveLength(3);
+      body.jobs.forEach((job) => {
+        expect(job.githubAccessNeeded?.agentGithubLogin).toBe(loginByAgentDid[job.agentDid]);
+      });
+    });
+
     it('a fourth agent named in the same request is refused with 400, and creates nothing', async () => {
       const distinctiveBrief = 'DISTINCTIVE-BRIEF-fourth-agent-refused-creates-nothing';
       const res = await postSigned(baseUrl, '/jobs', {
