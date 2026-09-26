@@ -125,27 +125,29 @@
     links.appendChild(a);
   }
 
-  // HT1 Part B: the Notifications entry, the same injected-and-removed
-  // shape as the three links above, appended after Settings. Carries the
-  // unread badge (the card's own scope limit: "the operator's unread
-  // badge... on the site header"), refreshed from
-  // GET /accounts/:did/notifications the same way My jobs/My agents
-  // resolve the signed-in DID via GET /accounts/me.
-  var NOTIFICATIONS_LINK_ID = "nav-notifications";
-  // Proof r1, defect 10: the badge was a bare number appended inside the
-  // link, so the link's accessible name read "Notifications12" with no
-  // "unread" text anywhere. An aria-label on the LINK itself (not the
-  // badge span) states the count in words; the badge's visible text
+  // MSG1b: the Messages entry, the same injected-and-removed shape as the
+  // four links above, appended after Settings, going to /messages (the
+  // hire conversations). It replaced HT1's Notifications link in the same
+  // slot; /notifications is still served, and nothing new links to it.
+  // Carries the unread badge: the unreadTotal of
+  // GET /accounts/:did/threads (every unread message across every thread
+  // the account is in, both seats), after resolving the signed-in DID via
+  // GET /accounts/me the same way My jobs and My agents do.
+  var MESSAGES_LINK_ID = "nav-messages";
+  // Proof r1, defect 10 (on the old Notifications link): a bare number
+  // appended inside the link made its accessible name read "Messages12"
+  // with no "unread" text anywhere. An aria-label on the LINK itself (not
+  // the badge span) states the count in words; the badge's visible text
   // stays just the digit for a sighted user.
-  function renderNotificationsBadge(count) {
+  function renderMessagesBadge(count) {
     // Guarded: this runs at the end of a fire-and-forget fetch chain
-    // (renderNotificationsLink below), so the page may already have
+    // (refreshMessagesBadge below), so the page may already have
     // navigated away or torn itself down by the time the response
     // lands (a test's own JSDOM window closing before the request
     // resolves is the same shape a real navigation would take). A
     // stale-page throw here must never become an unhandled rejection.
     try {
-      var link = document.getElementById(NOTIFICATIONS_LINK_ID);
+      var link = document.getElementById(MESSAGES_LINK_ID);
       if (!link) return;
       var existing = link.querySelector(".badge");
       if (count > 0) {
@@ -155,7 +157,7 @@
           link.appendChild(existing);
         }
         existing.textContent = String(count);
-        link.setAttribute("aria-label", "Notifications, " + count + " unread");
+        link.setAttribute("aria-label", "Messages, " + count + " unread");
       } else {
         if (existing && existing.parentNode) {
           existing.parentNode.removeChild(existing);
@@ -166,21 +168,10 @@
       /* the page tore down before this async update landed; nothing to render */
     }
   }
-  function renderNotificationsLink(isSignedIn) {
-    var links = document.querySelector(".links");
-    if (!links) return;
-    var existing = document.getElementById(NOTIFICATIONS_LINK_ID);
-    if (!isSignedIn) {
-      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
-      return;
-    }
-    if (existing) return;
-    var a = document.createElement("a");
-    a.id = NOTIFICATIONS_LINK_ID;
-    a.href = "/notifications";
-    a.textContent = "Notifications";
-    links.appendChild(a);
-
+  // Reads the count again. Called once when the link is built, and by
+  // /messages itself (through window.FANav.refreshMessages) after it marks
+  // a thread read, so the badge drops without a reload.
+  function refreshMessagesBadge() {
     var session = A.getStoredSession();
     if (!session) return;
     A.getAuthed("/accounts/me", session.token).then(function (meResult) {
@@ -188,17 +179,33 @@
       var me = meResult.value.body && typeof meResult.value.body === "object" ? meResult.value.body : {};
       var did = typeof me.did === "string" ? me.did : "";
       if (did === "") return;
-      A.getAuthed("/accounts/" + encodeURIComponent(did) + "/notifications", session.token).then(function (result) {
+      return A.getAuthed("/accounts/" + encodeURIComponent(did) + "/threads", session.token).then(function (result) {
         if (result.state !== "ok" || result.value.status !== 200) return;
         var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
-        var count = typeof body.unreadCount === "number" ? body.unreadCount : 0;
-        renderNotificationsBadge(count);
+        var count = typeof body.unreadTotal === "number" ? body.unreadTotal : 0;
+        renderMessagesBadge(count);
       });
     }).catch(function () {
       /* fire-and-forget: a failed badge refresh must never surface as an
-         unhandled rejection, the same reasoning as renderNotificationsBadge's
+         unhandled rejection, the same reasoning as renderMessagesBadge's
          own try/catch above */
     });
+  }
+  function renderMessagesLink(isSignedIn) {
+    var links = document.querySelector(".links");
+    if (!links) return;
+    var existing = document.getElementById(MESSAGES_LINK_ID);
+    if (!isSignedIn) {
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      return;
+    }
+    if (existing) return;
+    var a = document.createElement("a");
+    a.id = MESSAGES_LINK_ID;
+    a.href = "/messages";
+    a.textContent = "Messages";
+    links.appendChild(a);
+    refreshMessagesBadge();
   }
 
   function render() {
@@ -210,7 +217,7 @@
     renderMyAgentsLink(isSignedIn);
     renderDashboardLink(isSignedIn);
     renderSettingsLink(isSignedIn);
-    renderNotificationsLink(isSignedIn);
+    renderMessagesLink(isSignedIn);
 
     /* W6 round 2, D1: signin.js's "Once signed in" section is gated by
        this exact session rule (S1), so it clears here too, wherever the
@@ -337,6 +344,7 @@
      anywhere -- has a way to ask this same rule to run again instead of
      copying it. window.FANav.refresh() re-reads fa_session and updates
      the same two elements render() already owns; nothing here invents a
-     second copy of the rule. */
-  window.FANav = { refresh: render };
+     second copy of the rule. refreshMessages re-reads the Messages badge
+     the same way, for /messages after it marks a thread read. */
+  window.FANav = { refresh: render, refreshMessages: refreshMessagesBadge };
 })();

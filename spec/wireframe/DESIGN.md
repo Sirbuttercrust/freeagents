@@ -155,6 +155,15 @@ simple purple buttons."
 | `--check` | `#46C39A` | **we watched this happen.** Jade, always beside a tick. See 2.2 |
 | `--check-fg` | `#05281C` | ink on a jade fill, and the tick drawn on a jade disc |
 | `--check-dim` | `rgba(70,195,154,0.14)` | jade wash, behind a checked stamp only |
+| `--bubble-mine` | `#1B66D2` | my message bubble in a hire's conversation. A deeper step of the logo blue, so a bubble is not mistaken for a button |
+| `--bubble-theirs` | `#252233` | the other person's message bubble, a violet grey one step above `--bg-2` |
+| `--scrim` | `rgba(5,4,10,0.72)` | the dim layer under a conversation's menus, sheets and image viewer |
+
+**The conversation's three are for `/messages` and nothing else.** Adopted
+2026-09-26 from the message board's direction A. Nothing in a conversation is
+a checked count, so jade never appears there: a hire's events are neutral grey
+lines with an icon, and blue is kept for my bubbles, my reaction, links, the
+unread badge, the one primary button and the current step.
 
 **Dark only.** There is no light theme in v1 and no token reserved for one.
 Adding it later is a token-layer change, not a rewrite, because no screen
@@ -359,6 +368,11 @@ filled control is measured against its own fill: `--action-fg` on `--action`
 measures **5.91:1**, and `--check-fg` on `--check` measures **7.19:1**. White
 on the action blue would measure only 3.33, which is why the primary button's
 label is dark.
+
+A message is text on its bubble, so each bubble colour is measured against the
+ink it carries: `--fg` on `--bubble-mine` measures **4.92:1**, and on
+`--bubble-theirs` **14.09:1**. Mine is the deeper blue for exactly this reason:
+`--fg` on `--action` would fall under the 4.5 floor.
 
 `--fg-3` is the token that has had to move, twice. It was `#666B73` until
 2026-08-27, which failed AA at 12 and 13px on the old neutral surfaces, and it

@@ -65,6 +65,12 @@
   --check-fg:   #05281C;
   --check-dim:  rgba(70,195,154,0.14);
 
+  /* The conversation's three (DESIGN 2.1), copied from the site's
+     tokens.css so this table and the site agree. Used by /messages only. */
+  --bubble-mine:   #1B66D2;
+  --bubble-theirs: #252233;
+  --scrim:         rgba(5,4,10,0.72);
+
   /* The three evidence tiers (DESIGN 2.3). Not a grading scale: these are
      different KINDS of evidence, and a claim is unproven rather than bad. */
   --t-hire:     #46C39A;
