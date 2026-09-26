@@ -25,20 +25,15 @@ import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixt
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import {
   abtEnv,
-  decodeClaimBody,
   driveAbtPayment,
   fakeAbtChainClient,
   fromRandom,
   postSigned,
   pureTxEncoder,
   reservePort,
-  startAbtSession,
-  walletResponseJwt,
   withEnv,
-  type DidConnectClaimResponse,
   type WalletObject,
 } from '../helpers/abt-fixtures.js';
-import { decode as jwtDecode } from '@arcblock/jwt';
 
 const PLATFORM_SEED = 'f'.repeat(64);
 
@@ -566,28 +561,19 @@ describe('P8d: signing in gives you an account, no POST /accounts call anywhere'
       expect(account?.operatorAddressAbt).toBeNull();
       expect(account?.operatorAddressEvm).toBeNull();
 
-      const { sessionToken, authCallbackUrl } = await startAbtSession(started.baseUrl, started.buyer, {
-        jobId: started.jobId,
-        leg: 'deposit',
-      });
-      const authPath = new URL(authCallbackUrl).pathname;
-      const step0Res = await fetch(authCallbackUrl);
-      const step0Body = (await step0Res.json()) as DidConnectClaimResponse;
-      const step0 = decodeClaimBody(step0Body);
-      const step0SubmitRes = await fetch(`${started.baseUrl}${authPath}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          _t_: sessionToken,
-          userPk: started.buyerWallet.publicKey,
-          userInfo: await walletResponseJwt(started.buyerWallet, step0.challenge, [{ type: 'authPrincipal' }]),
-        }),
-      });
-      const finalBody = (await step0SubmitRes.json()) as { appPk: string; authInfo: string };
-      const decoded = jwtDecode(finalBody.authInfo) as unknown as Record<string, unknown>;
-      const errorMessage = decoded.errorMessage as string | undefined;
-      expect(typeof errorMessage).toBe('string');
-      expect(errorMessage).toContain('operator-address');
+      // FIX-B39 (Ruling, run 792): rule 5 moves this refusal to the
+      // /start door itself, so the custody fence answers before a
+      // session is even minted, rather than after advancing through
+      // the wallet protocol as far as prepareTx.
+      const startRes = await postSigned(
+        started.baseUrl,
+        `/jobs/${started.jobId}/payments/deposit/abt/start`,
+        {},
+        started.buyer,
+      );
+      expect(startRes.status).toBe(409);
+      const body = (await startRes.json()) as { error: string };
+      expect(body.error).toContain('operator-address');
       expect(await started.settlementRepo.findByJobAndLeg(started.jobId, 'deposit')).toBeNull();
     } finally {
       started.server.close();

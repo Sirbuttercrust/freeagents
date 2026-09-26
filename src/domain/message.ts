@@ -98,10 +98,14 @@ export const NO_REACTIONS: Reactions = { buyer: null, agent: null };
 // criteria count so a client can render a summary card without a second
 // call"). Written when the exchange proposes a price alongside criteria
 // (POST /jobs/:jobId/criteria with a price named).
+//
+// FIX-B39, rule 1: a quote may leave the currency open (null) until a
+// deposit settles one; a card naming a rail keeps naming it exactly as
+// before.
 export interface QuoteSentEvent {
   readonly type: 'quote_sent';
   readonly priceUsd: string;
-  readonly rail: 'abt' | 'usdc';
+  readonly rail: 'abt' | 'usdc' | null;
   readonly deliveryWindowDays: number | null;
   readonly criteriaCount: number;
 }
