@@ -300,21 +300,21 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // worked example on this page. It does not ship as a section here,
     // and the state is not missing from the product: a receipt exists
     // only for work that shipped, so this address has nothing to render,
-    // and credential.js's failLoad (47-60) already holds that exact state
+    // and credential.js's failLoad already holds that exact state
     // with the wireframe's own reasoning ("A receipt is only issued when
     // work actually ships"), hiding the facts and the action row rather
     // than painting dead controls. The job's own record of a non-merge
     // lives on the job page (STATE_SENTENCES.closed_unmerged, job.js:43).
     // Same call W4 already made and Proof already passed for "If the job
     // does not ship".
-    'Job did not ship': 'the wireframe draws this as a second worked example on the same page; a receipt exists only for shipped work, so this address renders failLoad (credential.js:47-60) and the non-merge fact lives on the job page (job.js STATE_SENTENCES.closed_unmerged)',
+    'Job did not ship': 'the wireframe draws this as a second worked example on the same page; a receipt exists only for shipped work, so this address renders failLoad (credential.js) and the non-merge fact lives on the job page (job.js STATE_SENTENCES.closed_unmerged)',
     // Wireframe sample data. SAMPLE's own regex covers vercel/commerce#\d+,
     // but clean() never unescapes &#35;, so the escaped form in the
     // wireframe's markup slips past it. The built page renders the real
-    // repository from the signed document (credential.js:89-100).
+    // repository from the signed document (credential.js render, the fact-where cell).
     // clean() and SAMPLE are untouched here: loosening the instrument
     // mid phase would move the goalposts under four merged cards.
-    'vercel/commerce&#35;4471': "wireframe sample data (SAMPLE covers the unescaped form vercel/commerce#4471, not this HTML-escaped one); the built page renders the real repository from the signed document (credential.js:89-100)",
+    'vercel/commerce&#35;4471': "wireframe sample data (SAMPLE covers the unescaped form vercel/commerce#4471, not this HTML-escaped one); the built page renders the real repository from the signed document (credential.js render, the fact-where cell)",
   },
   incoming: {
     // The three row actions ship (W7b), but each is built by

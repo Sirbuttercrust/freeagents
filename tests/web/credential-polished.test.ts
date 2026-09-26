@@ -38,7 +38,7 @@ const JOB_ID = 'w-credential-polished-job';
 
 // Every optional field the page draws a row for is present, so the sweeps
 // below meet the full control population. A document missing specHash hides
-// one row (credential.js:160-164), which would make a six-control assertion
+// one row (credential.js render, the specHash branch), which would make a six-control assertion
 // pass with five shipped.
 function credentialDoc(): VerifiableCredential {
   return {
@@ -385,9 +385,9 @@ describe('2. every copy control carries the wireframe\u2019s glyph structure', (
 // --------------------------------------------------- 3. the ids the script needs
 
 describe('3. the polished markup did not move what credential.js reaches for', () => {
-  // credential.js's setPair (200-214) finds each control as id + "-copy" and
+  // credential.js's setPair finds each control as id + "-copy" and
   // either sets data-copy on it or hides it. Both operations are on the
-  // button element, so the polished subtree survives them, and this card
+  // button element, so the polished subtree survives them, and the polish card
   // edited no line of that file. Asserted rather than assumed: renaming an id
   // to match a new class vocabulary is the obvious next tidy-up and it would
   // silently unwire every value on the page.

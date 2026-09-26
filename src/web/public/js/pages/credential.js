@@ -1,9 +1,12 @@
 /* P-5 credential: read one receipt and render it.
 
-   TWO PUBLIC ROUTES, no session:
+   TWO PUBLIC ROUTES for the receipt, no session:
 
      GET /v1/credentials/:id          the signed document, verbatim
      GET /v1/credentials/:id/status   whether a compromise window covers it
+
+   and one for the words: GET /agents/:did, the agent's public record, read
+   only for its name (S2), so the page never names the agent by its DID.
 
    WHY THE STATUS IS A SECOND REQUEST AND NOT A FIELD. The bytes served at
    the credential's own address are the bytes that verified, unchanged by a
@@ -65,14 +68,17 @@
     var agentDid = typeof subject.id === "string" ? subject.id : "";
 
     /* THE PLAIN SENTENCE. Outcome first, mechanism second, identifier last
-       (DESIGN 7.1). The repository and the date are what a person came for;
-       the identity is behind a disclosure below. */
+       (DESIGN 7.1). The repository and the date are what a person came for.
+       S2: the agent is named in words, never by its DID. The sentence is
+       drawn at once with "This agent" (A.UNNAMED_AGENT) and the name is
+       filled in when GET /agents/:did answers (nameAgent below); the exact
+       identity is under "Show identities". */
     var claim = A.el("claim");
     claim.textContent = "";
     var when = A.readableDate(hire.mergedAt);
     var repository = typeof hire.repository === "string" ? hire.repository : "";
 
-    appendBold(claim, A.shortDid(agentDid));
+    var claimName = appendBold(claim, A.UNNAMED_AGENT);
     claim.appendChild(document.createTextNode(" shipped work to "));
     appendBold(claim, repository !== "" ? repository : "a repository");
     claim.appendChild(document.createTextNode(
@@ -82,8 +88,8 @@
 
     document.title = "Receipt for work on " + (repository !== "" ? repository : "a repository") + ": FreeAgents";
 
-    /* The four facts. Every one comes from the signed document; a field the
-       document does not carry is left out rather than filled in. */
+    /* The three facts. Every one comes from the signed document; a field
+       the document does not carry is left out rather than filled in. */
     A.showById("facts", true);
 
     var where = A.el("fact-where");
@@ -112,21 +118,25 @@
     A.setTextById("fact-diff", diff);
 
     var agentCell = A.el("fact-agent");
+    var agentLink = null;
     if (agentDid !== "") {
-      var agentLink = document.createElement("a");
+      agentLink = document.createElement("a");
       agentLink.setAttribute("href", "/agents/" + encodeURIComponent(agentDid));
       agentLink.style.textDecoration = "underline";
       agentLink.style.textUnderlineOffset = "2px";
-      agentLink.textContent = A.shortDid(agentDid);
+      agentLink.textContent = A.UNNAMED_AGENT;
       agentCell.textContent = "";
       agentCell.appendChild(agentLink);
       agentCell.removeAttribute("data-pending");
+      nameAgent(agentDid, [claimName, agentLink]);
     } else {
       A.setText(agentCell, "not recorded");
     }
 
+    /* S2: the buyer is not a surface fact. The document carries only the
+       buyer's DID, an exact term (DESIGN.md 1.3), so it lives in the
+       technical half ("Buyer", under "Show identities"). */
     var buyer = typeof hire.buyer === "string" ? hire.buyer : "";
-    A.setTextById("fact-buyer", buyer !== "" ? A.shortDid(buyer) : "not recorded");
 
     /* Actions. "Check this yourself" carries the credential id, so the
        verify page reads the same document rather than asking for it again
@@ -190,6 +200,19 @@
     var b = document.createElement("b");
     b.textContent = text;
     node.appendChild(b);
+    return b;
+  }
+
+  /* S2: the agent's name, from its public record (GET /agents/:did, the
+     same read the agent page makes). A.agentName gives the record's name
+     or "This agent", so an unnamed agent or a failed read leaves the plain
+     words already drawn. Never blocks the receipt: it renders first. */
+  function nameAgent(agentDid, nodes) {
+    A.get("/agents/" + encodeURIComponent(agentDid)).then(function (result) {
+      if (result.state !== "ok") return;
+      var name = A.agentName(result.value);
+      nodes.forEach(function (node) { if (node) node.textContent = name; });
+    });
   }
 
   function setHref(id, href) {

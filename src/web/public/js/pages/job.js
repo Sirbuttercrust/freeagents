@@ -7,7 +7,7 @@
    rendered as an empty record.
 
    ONE SECONDARY READ: GET /agents/:agentDid, for the identity strip's
-   name and operator link (agent.js:139 is the working precedent for the
+   name and operator link (agent.js's renderAgent is the working precedent for the
    same read). It never fires when the job carries no agentDid, and it
    never blocks or delays the primary render: the primary record renders
    first, and the identity strip degrades to the shortened DID with no
