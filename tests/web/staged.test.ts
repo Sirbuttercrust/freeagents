@@ -925,14 +925,14 @@ describe('the staged screen, driven end to end against the real app', () => {
         rawRequests.push(`${(init?.method ?? 'GET').toUpperCase()} ${new URL(String(input), baseUrl).pathname}`);
       });
       try {
-        // HT1 Part B: the shared nav script now also fires its own
-        // background reads for the unread badge (GET /accounts/me plus
-        // GET /accounts/:did/notifications) on every page carrying the
+        // MSG1b: the shared nav script also fires its own background
+        // reads for the Messages badge (GET /accounts/me plus
+        // GET /accounts/:did/threads) on every page carrying the
         // nav. Filtered out below, recomputed live off rawRequests at
         // each check point (never a one-time snapshot) so the count
         // still grows after the pay click; this test's own count is
         // staged.js's reads, unchanged by the nav.
-        const ownRequests = () => rawRequests.filter((r) => r !== 'GET /accounts/me' && !r.endsWith('/notifications'));
+        const ownRequests = () => rawRequests.filter((r) => r !== 'GET /accounts/me' && !r.endsWith('/threads'));
         let requests = ownRequests();
         // Round 1 fix (qa D1): staged.js now also fires GET
         // /accounts/:did (the party probe) before rendering the acting

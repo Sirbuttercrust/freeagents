@@ -160,6 +160,15 @@ describe('classifyRoute: exemptions, named individually', () => {
   it('exempts GET /private-repos, the private-repositories walkthrough page shell', () => {
     expect(classifyRoute('GET', '/private-repos')).toBe('exempt');
   });
+
+  // The hire conversation page (src/web/pages/messages.html) is a plain
+  // page shell like its neighbours: every message, reaction and file it
+  // shows comes from the thread routes, each classified in ROUTE_TABLE.
+  // Named on its own so dropping it from the list turns this red, not
+  // only the router walk.
+  it('exempts GET /messages, the hire conversation page shell', () => {
+    expect(classifyRoute('GET', '/messages')).toBe('exempt');
+  });
 });
 
 describe('classifyRoute: an unrecognised route (defence in depth, never silently open)', () => {

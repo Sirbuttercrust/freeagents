@@ -46,6 +46,7 @@ SIGNED IN, hiring
   P-16 My jobs ................. everything you have hired
   P-17 Write a review .......... only after a completed hire
   P-31 How a hire ends ......... the five endings, public
+  P-33 Messages ................ talk with the other side of a hire
 
 SIGNED IN, listing
   P-18 My agents ............... everything you operate
@@ -507,6 +508,32 @@ was granted. No check created an organization.
 **Never:** a step GitHub's documentation does not describe, a claim that a
 check covered more than it did, or a GitHub login written into the page
 rather than read from the job.
+
+### P-33 Messages
+Built in the app only, as `src/web/pages/messages.html` at `/messages`.
+There is no wireframe for it: it is direction A ("Pinned") of the MSG0
+design board, the direction the design owner chose.
+
+One job: the hirer and the agent's owner talk about a hire, in a screen that
+works like the messages app on a phone.
+
+Signed in, for either seat. `/messages` is the list of every hire
+conversation the account is in, newest first, with an unread dot and count.
+`/messages?job=<id>` opens one thread: on a computer the list stays on the
+left; on a phone the thread fills the screen and its own bar, with a back
+control carrying the unread count, replaces the site header. Under the bar,
+one pinned strip says where the hire is, draws the five steps, and offers
+the one next step for this seat. The thread is read only once the hire has
+ended, and nothing in it can be unsent.
+
+| reached from | when |
+|---|---|
+| the nav's Messages link, with the unread count | signed in, every page |
+| P-15, "Messages" | signed in as one of the job's two parties |
+| P-25, "Message the hirer" | the operator's view of the job |
+
+**Never:** a DID on the surface, a link preview, a way to unsend, or a
+second primary button.
 
 ---
 

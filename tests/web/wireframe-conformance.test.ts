@@ -44,12 +44,15 @@ const WIREFRAME_FOR: Record<string, string | null> = {
   // (same head, nav, footer, stylesheets and office footer), and
   // tests/web/private-repos.test.ts measures it.
   'private-repos': null,
-  // HT1 Part B: this card's own scope limit is "build only the
-  // operator's unread badge and a plain notification list on the site,
-  // nothing more elaborate"; the conversation screen AND its design
-  // board (MSG0, assignee burnish) are a separate card. No wireframe
-  // exists yet for this deliberately plain page.
+  // HT1 Part B built this plain list of events. No wireframe exists for
+  // it. MSG1b moved the nav's link from here to /messages (the hire
+  // conversation, see below); this page is still served and nothing new
+  // links to it.
   notifications: null,
+  // MSG1b: the hire conversation. Built from the MSG0 design board's
+  // direction A ("Pinned"), which Proof passed and the design owner chose,
+  // not from a spec/wireframe file; tests/web/messages.test.ts measures it.
+  messages: null,
 };
 
 // Justified departures, per page, each with the reason. A heading or control

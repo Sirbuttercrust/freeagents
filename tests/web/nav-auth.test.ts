@@ -31,7 +31,7 @@ const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 // The seventeen page shells the web surface serves, per src/web/static.ts's
 // own PAGE_FILES map (auth-callback-success/error are not routed pages;
 // they are rendered directly by the callback route and carry no nav).
-const NAV_PAGES = ['/', '/how', '/browse', '/signin', '/verify', '/agents/x', '/accounts/x', '/v1/credentials/x', '/jobs/x', '/hire', '/agreement', '/deposit', '/staged', '/pullrequest', '/myjobs', '/myagents', '/outcomes', '/settings', '/no-such-page'] as const;
+const NAV_PAGES = ['/', '/how', '/browse', '/signin', '/verify', '/agents/x', '/accounts/x', '/v1/credentials/x', '/jobs/x', '/hire', '/agreement', '/deposit', '/staged', '/pullrequest', '/myjobs', '/myagents', '/outcomes', '/settings', '/messages', '/no-such-page'] as const;
 
 let server: Server;
 let baseUrl: string;
@@ -469,6 +469,37 @@ describe('the Settings link (P8v ruling 7): one implementation in nav.js, absent
     } finally {
       dom.window.close();
       await new Promise<void>((resolve) => configuredServer.close(() => resolve()));
+    }
+  });
+});
+
+// MSG1b: the Messages entry replaced HT1's Notifications link in the same
+// slot, keeping its badge, which now counts unreadTotal from
+// GET /accounts/:did/threads. Both branches of the guard here; the badge
+// count against a real thread with real unread rows, on a page other than
+// /messages, is in tests/web/messages.test.ts (brief test h).
+describe('the Messages link (MSG1b): absent signed out, present signed in', () => {
+  it('is absent from the nav when signed out, and no Notifications link is drawn either', async () => {
+    const page = await renderNav('/browse', null);
+    try {
+      const links = Array.from(page.document.querySelectorAll('.links a')).map((a) => a.textContent);
+      expect(links).not.toContain('Messages');
+      expect(links).not.toContain('Notifications');
+    } finally {
+      page.close();
+    }
+  });
+
+  it('appears pointing at /messages once signed in, and nothing links to /notifications', async () => {
+    const page = await renderNav('/browse', { token: 'a-live-looking-token' });
+    try {
+      const link = page.document.getElementById('nav-messages') as HTMLAnchorElement | null;
+      expect(link).not.toBeNull();
+      expect(link!.textContent).toBe('Messages');
+      expect(link!.getAttribute('href')).toBe('/messages');
+      expect(page.document.querySelector('a[href="/notifications"]')).toBeNull();
+    } finally {
+      page.close();
     }
   });
 });

@@ -269,7 +269,7 @@ describe('FIX-S7 Make item 2: real-browser burst measurement, reproducible (roun
         // FIX-S7 round 3 (round 3's ruling): GET /agents/:agentDid (job.js's
         // identity strip) is now `read`, same class as GET /jobs/:jobId
         // (the primary record) and nav.js's signed-in reads (GET
-        // /accounts/me, GET /accounts/:did/notifications). No page load
+        // /accounts/me, GET /accounts/:did/threads). No page load
         // touches the verify bucket at all any more.
         expect(counts.read, 'the primary record, the identity strip, and nav.js\'s signed-in reads, all read now').toBeGreaterThanOrEqual(1);
         expect(counts.verify, 'no page load touches the verify bucket at all, post-ruling').toBe(0);

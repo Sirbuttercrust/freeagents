@@ -1,0 +1,570 @@
+/* THE HIRE CONVERSATION (MSG1b): /messages, direction A "Pinned" from the
+   MSG0 board (its shared/chat.css plus a.html's own block, ported here).
+
+   The conversation is its own screen, like Messages: a list of
+   conversations on the left on a computer, the thread filling the rest, and
+   on a phone the thread's own bar replacing the site header. The hire rides
+   along as one pinned strip under that bar: where it is, the five steps,
+   and the one thing to do next.
+
+   Loaded after league.css, so it wins over the shared layer at equal
+   specificity. Every colour is a token (DESIGN.md 2.1): the three the
+   conversation added (--bubble-mine, --bubble-theirs, --scrim) and the site
+   set. Jade appears nowhere, because nothing in a conversation is a checked
+   count. Blue is for my bubbles, my reaction, links, the unread badge and
+   dot, the one primary button and the current step.
+
+   The iMessage proportions this file holds to: 17px text on a phone, an
+   18px bubble radius with a tail on the last bubble of a run only, 2px
+   between grouped bubbles, no shadow on a bubble, one avatar per run of the
+   other side.
+
+   Class names follow the board. Where one collides with a rule in the
+   shared sheets (.field and .sub in base.css), the collision is undone
+   below with a selector that outranks it, and a comment says which.
+
+   Motion is written inverted (DESIGN.md 6.1): the plain rules are the
+   finished still state, and every @keyframes use sits inside
+   prefers-reduced-motion: no-preference at the foot of this file. */
+
+:root {
+  /* the conversation's own measures, not colours */
+  --msg-size: 15px;
+  --msg-lh: 20px;
+  --radius: 17px;
+  --msg-top: 61px;
+  --spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+@media (max-width: 700px) {
+  :root { --msg-size: 17px; --msg-lh: 22px; --radius: 18px; }
+}
+
+/* A zero-specificity reset for the conversation's own buttons, so every
+   class rule below beats it and .btn (the site's one button system) is
+   never touched. */
+:where(.a-app, .ovl) :where(button:not(.btn)) {
+  font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer;
+}
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ------------------------------------------------------------ the page
+   The app fills the screen under the site bar. The site footer (the
+   office) sits below it, past the fold; inside a thread on a phone it goes
+   with the header. --msg-top is the bar's measured height (messages.js). */
+.msg-page main { flex: none; }
+.a-app {
+  display: grid; grid-template-columns: 340px minmax(0, 1fr);
+  height: calc(100dvh - var(--msg-top));
+  min-height: 420px;
+  border-bottom: 1px solid var(--line);
+}
+.a-list { border-right: 1px solid var(--line); overflow: auto; min-height: 0; }
+.a-list h1 {
+  font: 800 28px/32px var(--display); font-stretch: 78%;
+  text-transform: uppercase; letter-spacing: -0.005em;
+  margin: 18px 16px 10px;
+}
+.a-list .list-empty { margin: 6px 16px; color: var(--fg-2); font-size: 14px; }
+.a-conv { display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
+.a-bar {
+  flex: none; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+  min-height: 64px; padding: 6px 8px; border-bottom: 1px solid var(--line);
+}
+.a-bar .back {
+  grid-column: 1; justify-self: start; display: none; align-items: center; gap: 2px;
+  min-height: 44px; min-width: 44px; padding: 0 6px 0 0;
+  color: var(--action); font-size: 17px; text-decoration: none;
+}
+.a-bar .back svg { width: 26px; height: 26px; }
+.a-bar .back .badge { margin-left: 2px; }
+.a-bar .who-c {
+  grid-column: 2; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  text-align: center; min-height: 44px; justify-content: center; text-decoration: none; color: var(--fg);
+  min-width: 0;
+}
+.a-bar .who-c .av { width: 36px; height: 36px; }
+.a-bar .who-c b {
+  font-size: 13px; font-weight: 560; line-height: 16px;
+  display: inline-flex; align-items: center; gap: 2px; max-width: 100%;
+}
+.a-bar .who-c b .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.a-bar .who-c b small { color: var(--fg-2); font-weight: 400; font-size: 12px; white-space: nowrap; }
+.a-bar .who-c svg { width: 12px; height: 12px; color: var(--fg-2); flex: none; }
+.a-bar .end { grid-column: 3; justify-self: end; }
+.a-bar .end a {
+  display: inline-flex; min-height: 44px; min-width: 44px; justify-content: center; align-items: center;
+  padding: 0 10px; font-size: 14px; color: var(--action); text-decoration: none;
+}
+.a-bar .end a svg { width: 20px; height: 20px; }
+
+/* the unread badge on the back control: blue, something you can act on */
+.a-bar .badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
+  background: var(--action); color: var(--action-fg);
+  font-size: 12px; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums;
+}
+
+/* the pinned strip: the hire, in one line, above the thread */
+.a-pin {
+  flex: none; display: flex; align-items: center; gap: 12px;
+  padding: 8px 12px 8px 16px; border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--pane-fill-2), var(--pane-fill));
+}
+.a-pin .pin-t { flex: 1; min-width: 0; }
+.a-pin .pin-hire { font-size: 12px; line-height: 16px; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.a-pin .pin-now { font-size: 14px; line-height: 19px; font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.a-pin .pip-row { display: flex; gap: 3px; margin-top: 5px; }
+.a-pin .pip-row i { width: 22px; height: 3px; border-radius: 2px; background: var(--line-2); }
+.a-pin .pip-row i.done { background: var(--fg-2); }
+.a-pin .pip-row i.now { background: var(--action); }
+.a-pin .btn { flex: none; min-height: 44px; font-size: 14px; padding: 0 14px; margin-bottom: 0; }
+.a-pin .btn-primary { margin-bottom: 4px; }
+
+.a-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.a-scroll .thread { max-width: 760px; margin: 0 auto; min-height: 100%; justify-content: flex-end; padding-bottom: 16px; }
+/* .a-cmp holds the reply or notice bar and the composer (or the read-only
+   line), so the script can swap them as one piece */
+.a-cmp { flex: none; }
+.a-conv .composer, .a-conv .closedline, .a-conv .replybar, .a-conv .notice { flex: none; }
+.a-conv .composer { max-width: 760px; width: 100%; margin: 0 auto; border-top: 0; }
+.a-conv .replybar, .a-conv .notice { max-width: 760px; width: 100%; margin: 0 auto; border-top: 0; }
+.a-none {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; color: var(--fg-2); padding: 24px; text-align: center;
+}
+.a-none img { width: 44px; height: 44px; opacity: 0.6; }
+.a-none p { margin: 0; max-width: 40ch; }
+.a-conv.is-none > :not(.a-none) { display: none; }
+.a-conv:not(.is-none) > .a-none { display: none; }
+.msg-state { margin: 40px auto; max-width: 56ch; padding: 0 20px; }
+.msg-state .sub { margin-top: 8px; }
+.msg-state .row { margin-top: 14px; }
+
+@media (max-width: 700px) {
+  .a-app { grid-template-columns: minmax(0, 1fr); }
+  .a-list { display: none; border-right: 0; }
+  body.show-list .a-list { display: block; }
+  body.show-list .a-conv { display: none; }
+  body.in-thread .nav, body.in-thread > .foot { display: none; }
+  .a-bar .back { display: inline-flex; }
+  .a-bar .end a .lbl { display: none; }
+  .a-pin { padding-left: 12px; }
+}
+
+/* ------------------------------------------------------------ avatars */
+.a-app .av, .ovl .av { display: inline-block; width: 28px; height: 28px; flex: none; }
+.a-app .av canvas, .ovl .av canvas { display: block; }
+
+/* ------------------------------------------------------------ the thread */
+.thread {
+  position: relative;
+  padding: 12px 16px 8px;
+  display: flex; flex-direction: column;
+  font-size: var(--msg-size); line-height: var(--msg-lh);
+}
+.thread > * { flex: none; }
+
+/* day line and time gap: centred, iMessage's bold day then the time */
+.stamp { align-self: center; text-align: center; font-size: 12px; line-height: 16px; color: var(--fg-2); margin: 16px 0 8px; }
+.stamp b { font-weight: 600; color: var(--fg-2); }
+
+/* a run of messages from one sender */
+.run { display: flex; flex-direction: column; margin-top: 8px; }
+.run.me { align-items: flex-end; }
+.run.them { align-items: flex-start; padding-left: 36px; position: relative; }
+.run .who { font-size: 12px; line-height: 16px; color: var(--fg-2); margin: 0 0 3px 12px; }
+.run .who .agent-tag { color: var(--fg-3); }
+.run.them > .av { position: absolute; left: 0; bottom: 0; }
+.run.them.has-meta > .av { bottom: 20px; }
+
+.msg { position: relative; max-width: min(75%, 480px); margin-top: 2px; display: flex; flex-direction: column; }
+.run.me .msg { align-items: flex-end; }
+.run .msg:first-of-type, .run .who + .msg { margin-top: 0; }
+.msg.has-react { margin-top: 18px; }
+
+.bubble {
+  position: relative;
+  padding: 7px 12px 8px;
+  border-radius: var(--radius);
+  background: var(--bubble-theirs);
+  color: var(--fg);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  cursor: default;
+  -webkit-user-select: text; user-select: text;
+  -webkit-touch-callout: none;
+}
+.run.me .bubble { background: var(--bubble-mine); }
+.bubble a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.bubble .txt { position: relative; z-index: 1; }
+
+/* the tail, only on the last bubble of a run: one SVG path that overlaps
+   the bubble's squared corner, so it needs no cut-out colour and survives
+   being lifted over the scrim */
+.tailsvg { position: absolute; bottom: 0; width: 12px; height: 20px; fill: var(--bubble-theirs); left: -6px; }
+.run.me .tailsvg { fill: var(--bubble-mine); left: auto; right: -6px; transform: scaleX(-1); }
+.run.them .msg.tail .bubble { border-bottom-left-radius: 4px; }
+.run.me .msg.tail .bubble { border-bottom-right-radius: 4px; }
+
+/* a bubble sits in a row with its react button (a computer's route to the
+   tapbacks; long press does it on a phone, right click or double click too) */
+.brow { position: relative; display: flex; max-width: 100%; }
+/* a message that carries a file and words draws them as two bubbles, 2px
+   apart like any other pair in a run */
+.msg .brow + .brow { margin-top: 2px; }
+.run.me .brow { justify-content: flex-end; }
+.brow > .bubble, .brow > .cardwrap { min-width: 0; }
+.reactbtn {
+  position: absolute; top: 50%; left: calc(100% + 2px); transform: translateY(-50%);
+  width: 44px; height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--fg-2); border-radius: 50%; opacity: 0;
+}
+.run.me .reactbtn { left: auto; right: calc(100% + 2px); }
+.reactbtn svg { width: 18px; height: 18px; }
+.msg:hover .reactbtn, .reactbtn:focus-visible, .msg:focus-within .reactbtn { opacity: 1; }
+@media (pointer: coarse) { .reactbtn { display: none; } }
+.cardwrap { border-radius: 18px; }
+
+/* the start of a conversation: who you're talking to, and what's marked */
+.intro { align-self: center; text-align: center; max-width: 340px; margin: 8px auto 4px; display: flex; flex-direction: column; align-items: center; }
+.intro .av-lg { width: 56px; height: 56px; }
+.intro b { font-size: 15px; font-weight: 600; margin-top: 6px; line-height: 20px; }
+.intro p { margin: 4px 0 0; font-size: 13px; line-height: 18px; color: var(--fg-2); }
+
+/* the brief, sent as the first bubble */
+.bubble.brief .lbl { display: block; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.02em; opacity: 0.86; margin-bottom: 2px; }
+.bubble.brief .more {
+  display: inline-flex; align-items: center; min-height: 44px; margin: -8px 0 -10px;
+  font-weight: 600; text-decoration: none;
+}
+
+/* the quiet line under a bubble: Delivered, Read, Edited, Sent by the agent */
+.meta { font-size: 12px; line-height: 16px; color: var(--fg-2); margin: 3px 4px 0; display: flex; gap: 8px; align-items: center; }
+.run.me > .meta { justify-content: flex-end; }
+.meta .rd b { font-weight: 600; }
+.meta button.edited {
+  color: var(--fg-2); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 2px;
+  min-height: 44px; margin: -14px -6px; padding: 0 6px;
+}
+.meta .auto { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-2); }
+.meta .auto svg { width: 12px; height: 12px; }
+
+/* reply: a quote of the message it answers, inside the bubble */
+.quote {
+  display: block; width: calc(100% + 8px); text-align: left;
+  margin: -1px -4px 6px; padding: 5px 8px 6px 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg) 28%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--fg) 55%, transparent);
+  font-size: 13px; line-height: 17px; color: var(--fg);
+  min-height: 44px; white-space: normal;
+}
+.run.them .quote { background: color-mix(in srgb, var(--fg) 6%, transparent); border-left-color: var(--fg-3); }
+.quote b { display: block; font-weight: 600; }
+.quote span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; opacity: 0.92; }
+
+/* tapbacks: on the top corner away from the tail, blue if I reacted. The
+   button is the 44px target; the 30px disc inside it is what shows, so the
+   marks overlap by 8px the way the board draws them. */
+.reacts { position: absolute; top: -25px; z-index: 2; display: flex; flex-direction: row-reverse; }
+.run.them .reacts { right: -21px; }
+.run.me .reacts { left: -21px; flex-direction: row; }
+.react {
+  position: relative;
+  width: 44px; height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.react .rx {
+  width: 30px; height: 30px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--bubble-theirs);
+  box-shadow: 0 0 0 2px var(--bg);
+  font-size: 15px; line-height: 1;
+}
+.react + .react { margin-right: -22px; }
+.run.me .react + .react { margin-right: 0; margin-left: -22px; }
+.react.mine .rx { background: var(--bubble-mine); }
+
+/* the quote card: the price argument happens right under it */
+.quotecard {
+  width: min(300px, 100%);
+  border-radius: 18px;
+  background: var(--bg-1);
+  border: 1px solid var(--pane-rim);
+  overflow: hidden;
+  font-size: 15px; line-height: 20px;
+  white-space: normal;
+}
+.quotecard.replaced { opacity: 0.72; }
+.quotecard .qc-top { padding: 12px 14px 10px; background: linear-gradient(180deg, var(--pane-fill-2), var(--pane-fill)); border-bottom: 1px solid var(--line); }
+.quotecard .qc-lbl { font-size: 12px; line-height: 16px; color: var(--fg-2); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.quotecard .qc-price { font-family: var(--display); font-stretch: 78%; font-weight: 800; font-size: 40px; line-height: 44px; letter-spacing: -0.005em; }
+.quotecard .qc-was { font-size: 13px; color: var(--fg-2); }
+.quotecard dl { margin: 0; padding: 8px 14px 4px; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 14px; }
+.quotecard dt { color: var(--fg-2); }
+.quotecard dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.quotecard .qc-act { padding: 8px 12px 12px; }
+.quotecard .qc-act .btn { margin-bottom: 0; }
+.quotecard .qc-note { margin: 0; padding: 4px 14px 12px; font-size: 13px; color: var(--fg-2); }
+
+/* the hire's own events: small centred lines, never jade (nothing here is
+   a checked count), each with its own neutral glyph */
+.event {
+  align-self: center; display: inline-flex; align-items: center; gap: 7px;
+  margin: 12px 0 4px; max-width: 92%;
+  font-size: 13px; line-height: 18px; color: var(--fg-2); text-align: center;
+}
+.event svg { width: 14px; height: 14px; flex: none; color: var(--fg-2); }
+.event b { color: var(--fg); font-weight: 560; }
+.event a {
+  color: var(--action);
+  min-height: 44px; min-width: 44px; justify-content: center; display: inline-flex; align-items: center;
+  margin: -13px -8px; padding: 0 8px;
+}
+
+/* typing: iMessage's three dots in their own bubble */
+.typing .bubble { padding: 11px 13px; display: inline-flex; gap: 4px; align-items: center; }
+.typing i { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-2); opacity: 0.7; display: block; }
+
+/* files */
+.bubble.img { padding: 0; overflow: hidden; background: var(--bg-2); line-height: 0; }
+.bubble.img .imgopen { display: block; line-height: 0; min-width: 120px; min-height: 90px; }
+.bubble.img img { display: block; width: 240px; max-width: 100%; height: auto; }
+.bubble.img .ph { display: block; width: 240px; max-width: 100%; aspect-ratio: 4 / 3; }
+.prog {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--scrim); line-height: 1; border-radius: inherit;
+}
+.prog svg { width: 44px; height: 44px; }
+.cancel { width: 44px; height: 44px; display: block; line-height: 0; }
+.filecard {
+  display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--fg);
+  padding: 10px 14px 10px 10px; min-height: 60px; width: min(260px, 100%); text-align: left;
+}
+.bubble.file { padding: 0; white-space: normal; }
+.filecard .fi {
+  width: 36px; height: 44px; border-radius: 6px; flex: none; position: relative;
+  background: var(--fg); color: var(--bg); font-size: 9px; font-weight: 800; letter-spacing: 0.04em;
+  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 5px; line-height: 1;
+}
+.filecard .fi::before { content: ""; position: absolute; top: 0; right: 0; border-width: 0 10px 10px 0; border-style: solid; border-color: transparent var(--bubble-mine) transparent transparent; }
+.run.them .filecard .fi::before { border-right-color: var(--bubble-theirs); }
+.filecard .fn { min-width: 0; }
+.filecard b { display: block; font-weight: 560; font-size: 15px; line-height: 20px; overflow-wrap: anywhere; }
+.filecard small { display: block; font-size: 13px; line-height: 17px; color: var(--fg); opacity: 0.85; }
+
+/* ------------------------------------------------------------ composer */
+.composer {
+  display: flex; align-items: flex-end; gap: 6px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--line);
+}
+.composer .cbtn {
+  width: 44px; height: 44px; flex: none; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; color: var(--fg-2);
+}
+.composer .cbtn .disc { width: 32px; height: 32px; border-radius: 50%; background: var(--bg-2); display: inline-flex; align-items: center; justify-content: center; }
+.composer .cbtn svg { width: 18px; height: 18px; }
+/* .field is also base.css's form-row class (margin-bottom 18px, a block
+   label); this undoes it for the composer's pill */
+.composer .field {
+  flex: 1; min-width: 0; display: flex; align-items: flex-end;
+  min-height: 44px; border-radius: 22px; margin: 0;
+  border: 1px solid var(--line-2); background: transparent;
+}
+.composer textarea {
+  flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--fg);
+  font: var(--msg-size)/var(--msg-lh) var(--font);
+  padding: 11px 4px 11px 14px; max-height: 132px; height: 44px; margin: 0;
+}
+@media (max-width: 760px), (pointer: coarse) { .composer textarea { font-size: max(16px, var(--msg-size)); } }
+/* the two hidden pickers the attach menu opens; the site's field floor
+   measures every input, shown or not */
+.composer input[type="file"] { font-size: 16px; }
+.composer textarea::placeholder { color: var(--fg-3); }
+.composer .emoji { width: 44px; height: 44px; margin: -1px 0; color: var(--fg-2); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.composer .emoji svg { width: 20px; height: 20px; }
+.composer .send { width: 44px; height: 44px; margin: -1px 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.composer .send span { width: 30px; height: 30px; border-radius: 50%; background: var(--action); color: var(--action-fg); display: inline-flex; align-items: center; justify-content: center; }
+.composer .send svg { width: 16px; height: 16px; }
+@media (pointer: coarse), (max-width: 700px) { .composer .emoji { display: none; } }
+
+.replybar, .notice {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 6px 6px 14px; border-top: 1px solid var(--line);
+  font-size: 13px; line-height: 17px; color: var(--fg-2);
+}
+.replybar .rb-txt { flex: 1; min-width: 0; border-left: 3px solid var(--action); padding-left: 8px; }
+.replybar b { color: var(--fg); font-weight: 600; display: block; }
+.replybar .rb-txt span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.replybar .x, .notice .x { width: 44px; height: 44px; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--fg-2); }
+.x svg { width: 20px; height: 20px; }
+.notice { color: var(--fg); align-items: flex-start; padding-top: 10px; }
+.notice .nt { flex: 1; padding-top: 3px; min-width: 0; overflow-wrap: anywhere; }
+.notice .nt b { font-weight: 600; }
+.notice svg.warn { width: 16px; height: 16px; flex: none; margin-top: 4px; color: var(--bad); }
+
+/* the thread once the hire has ended */
+.closedline {
+  display: flex; gap: 8px; align-items: center; justify-content: center;
+  padding: 16px; text-align: center; border-top: 1px solid var(--line);
+  font-size: 13px; line-height: 18px; color: var(--fg-2);
+}
+.closedline svg.lk, .am-foot svg.lk { width: 14px; height: 14px; flex: none; color: var(--fg-2); }
+
+/* ------------------------------------------------------------ overlays */
+.scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 60; }
+.cloneholder { position: fixed; inset: 0; z-index: 70; pointer-events: none; }
+.liftclone { box-shadow: none; }
+.liftclone .reacts { display: none; }
+.tbmenu { position: fixed; z-index: 80; }
+.tbmenu .tb-row {
+  display: flex; gap: 0; padding: 4px; border-radius: 26px;
+  background: var(--bg-2); border: 1px solid var(--line-2);
+  max-width: calc(100vw - 16px); overflow-x: auto; scrollbar-width: none;
+}
+.tbmenu .tb-row::-webkit-scrollbar { display: none; }
+.tbmenu .tb-row button {
+  flex: none; width: 44px; height: 44px; border-radius: 50%; font-size: 24px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.tbmenu .tb-row button[aria-pressed="true"] { background: var(--action-dim); box-shadow: inset 0 0 0 1.5px var(--action); }
+.tbmenu .tb-row button.more { font-size: 20px; color: var(--fg-2); }
+.tbmenu .tb-row button.more svg { width: 22px; height: 22px; }
+.tbmenu .tb-acts {
+  min-width: 200px; max-width: calc(100vw - 16px);
+  border-radius: 14px; background: var(--bg-2); border: 1px solid var(--line-2); overflow: hidden;
+}
+.tbmenu .tb-acts button {
+  display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 18px;
+  min-height: 44px; padding: 0 16px; font-size: 15px; text-align: left;
+}
+.tbmenu .tb-acts button + button { border-top: 1px solid var(--line); }
+.tbmenu .tb-acts svg { width: 18px; height: 18px; color: var(--fg-2); }
+.tb-foot, .am-foot { margin: 0; padding: 10px 16px 12px; font-size: 12px; line-height: 16px; color: var(--fg-2); border-top: 1px solid var(--line); max-width: 260px; }
+.am-foot { display: flex; gap: 8px; align-items: center; }
+
+/* a sheet: bottom on a phone, a centred card on a computer */
+.sheet {
+  position: fixed; z-index: 85; left: 0; right: 0; bottom: 0;
+  max-height: 80vh; overflow: auto;
+  background: var(--bg-1); border-top: 1px solid var(--line-2);
+  border-radius: 16px 16px 0 0;
+  padding: 8px 16px 20px;
+  font-size: 15px; line-height: 1.45;
+}
+.sheet .grab { width: 36px; height: 5px; border-radius: 3px; background: var(--line-2); margin: 0 auto 8px; }
+.sheet h2 { font-size: 17px; line-height: 22px; font-weight: 600; letter-spacing: 0; margin: 4px 0 10px; }
+.sheet .sh-head { display: flex; align-items: center; justify-content: space-between; }
+.sheet .sh-head .x { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; color: var(--fg-2); margin-right: -10px; }
+@media (min-width: 701px) {
+  .sheet { left: 50%; right: auto; bottom: auto; top: 50%; transform: translate(-50%, -50%); width: 400px; border-radius: 16px; border: 1px solid var(--line-2); padding: 12px 20px 20px; }
+  .sheet .grab { display: none; }
+}
+.sh-note { margin: 0; padding: 12px 0 0; font-size: 12px; line-height: 16px; color: var(--fg-2); }
+.who-list { list-style: none; margin: 0; padding: 0; }
+.who-list li { display: flex; align-items: center; gap: 12px; min-height: 52px; border-top: 1px solid var(--line); }
+.who-list li:first-child { border-top: 0; }
+.who-list .e { font-size: 22px; width: 30px; text-align: center; }
+.who-list .nm { flex: 1; min-width: 0; }
+.who-list .btn { margin-bottom: 0; }
+
+.emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 2px; }
+.emoji-grid button { height: 44px; font-size: 26px; border-radius: 10px; }
+.emoji-grid button:hover { background: var(--bg-2); }
+.sheet .search {
+  display: block; width: 100%; min-height: 44px; margin: 0 0 12px; border-radius: 10px;
+  border: 1px solid var(--line-2); background: var(--bg-2); color: var(--fg);
+  font: 15px var(--font); padding: 0 12px;
+}
+@media (max-width: 760px), (pointer: coarse) { .sheet .search { font-size: 16px; } }
+/* .sub is also base.css's supporting-text class (13px, 62ch); this undoes
+   the width and sets the board's small caps label */
+.sheet .sub {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--fg-2); margin: 6px 0; max-width: none;
+}
+.sheet .none { color: var(--fg-2); font-size: 14px; margin: 0; }
+
+.history { list-style: none; margin: 0; padding: 0; font-size: var(--msg-size); line-height: var(--msg-lh); }
+.history li { padding: 10px 0 12px; border-top: 1px solid var(--line); }
+.history li:first-child { border-top: 0; }
+.history .h-when { font-size: 13px; line-height: 18px; color: var(--fg-2); margin-bottom: 6px; }
+.history .h-when b { color: var(--fg); font-weight: 600; }
+.history .bubble { display: inline-block; max-width: 100%; }
+.history .run { margin-top: 0; }
+.history-note { font-size: 13px; line-height: 18px; color: var(--fg-2); margin: 12px 0 0; }
+
+.attachmenu { position: fixed; z-index: 80; border-radius: 14px; background: var(--bg-2); border: 1px solid var(--line-2); overflow: hidden; min-width: 220px; max-width: calc(100vw - 16px); }
+.attachmenu button { display: flex; width: 100%; align-items: center; gap: 12px; min-height: 48px; padding: 0 16px; font-size: 15px; text-align: left; }
+.attachmenu button + button { border-top: 1px solid var(--line); }
+.attachmenu svg { width: 20px; height: 20px; color: var(--fg-2); flex: none; }
+.attachmenu small { display: block; color: var(--fg-2); font-size: 12px; line-height: 15px; }
+
+/* full-size image viewer */
+.viewer { position: fixed; inset: 0; z-index: 95; background: var(--bg); display: flex; flex-direction: column; }
+.viewer .vw-bar { display: flex; align-items: center; gap: 8px; height: 56px; padding: 0 6px 0 16px; border-bottom: 1px solid var(--line); flex: none; }
+.viewer .vw-bar .t { flex: 1; min-width: 0; font-size: 15px; font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 20px; }
+.viewer .vw-bar .t small { display: block; font-size: 12px; line-height: 16px; color: var(--fg-2); font-weight: 400; overflow: hidden; text-overflow: ellipsis; }
+.viewer .vw-bar a, .viewer .vw-bar button {
+  min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--fg); border-radius: 8px; text-decoration: none; font-size: 14px; padding: 0 10px; flex: none;
+}
+.viewer .vw-bar svg { width: 20px; height: 20px; }
+.viewer .vw-img { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.viewer .vw-img img { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block; }
+
+/* ------------------------------------------------------------ conversation list */
+.convlist { list-style: none; margin: 0; padding: 0; }
+.convlist a {
+  display: flex; gap: 12px; align-items: center; padding: 10px 16px 10px 8px;
+  text-decoration: none; color: var(--fg); min-height: 72px; position: relative;
+}
+.convlist li + li a::before { content: ""; position: absolute; top: 0; left: 72px; right: 0; border-top: 1px solid var(--line); }
+.convlist .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: transparent; }
+.convlist .unread .dot { background: var(--action); }
+.convlist .av { width: 44px; height: 44px; }
+.convlist .cl-body { flex: 1; min-width: 0; line-height: 1.35; }
+.convlist .cl-top { display: flex; align-items: baseline; gap: 8px; }
+.convlist .cl-top b { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; }
+.convlist .cl-own { font-weight: 400; color: var(--fg-2); font-size: 13px; }
+.convlist .cl-top time { font-size: 13px; color: var(--fg-2); flex: none; }
+.convlist .cl-hire { display: block; font-size: 13px; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.convlist .cl-last { font-size: 14px; line-height: 19px; color: var(--fg-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.convlist .unread .cl-last { color: var(--fg); }
+.convlist a[aria-current="true"] { background: var(--action-dim); }
+.convlist li.sel + li a::before, .convlist li.sel a::before { display: none; }
+
+/* ------------------------------------------------------------ motion
+   Everything above is the still end state. The movement lives here only. */
+@media (prefers-reduced-motion: no-preference) {
+  .msg.arrive { animation: msg-arrive 240ms var(--ease) both; }
+  .run.me .msg.arrive { transform-origin: 100% 100%; }
+  .run.them .msg.arrive { transform-origin: 0 100%; }
+  @keyframes msg-arrive { from { opacity: 0; transform: translateY(10px) scale(0.94); } }
+
+  .react.pop .rx { animation: react-pop 320ms var(--spring) both; }
+  @keyframes react-pop { from { transform: scale(0.2); opacity: 0; } }
+
+  .typing i { animation: typing 1.3s ease-in-out infinite; }
+  .typing i:nth-child(2) { animation-delay: 0.16s; }
+  .typing i:nth-child(3) { animation-delay: 0.32s; }
+  @keyframes typing { 0%, 60%, 100% { opacity: 0.35; transform: translateY(0); } 30% { opacity: 0.95; transform: translateY(-3px); } }
+
+  .tbmenu.open .tb-row { animation: menu-in 220ms var(--spring) both; transform-origin: 20% 100%; }
+  .tbmenu.open .tb-acts { animation: menu-in 220ms var(--ease) both; transform-origin: 20% 0; }
+  @keyframes menu-in { from { opacity: 0; transform: scale(0.85); } }
+
+  .scrim.open { animation: fade 200ms var(--ease) both; }
+  @keyframes fade { from { opacity: 0; } }
+  .sheet.open { animation: sheet-up 280ms var(--ease) both; }
+  @keyframes sheet-up { from { transform: translateY(100%); } }
+  @media (min-width: 701px) {
+    .sheet.open { animation: sheet-pop 220ms var(--ease) both; }
+    @keyframes sheet-pop { from { opacity: 0; transform: translate(-50%, -48%) scale(0.97); } }
+  }
+  .flash .bubble { animation: flash 900ms var(--ease); }
+  @keyframes flash { 30% { filter: brightness(1.45); } }
+}
