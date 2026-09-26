@@ -20,7 +20,7 @@ import {
   MemoryAccountRepository,
   MemoryJobRepository,
 } from '../../src/adapters/storage/memory.js';
-import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
+import { createStagingLifecycleGithubFake, PLATFORM_LOGIN } from '../helpers/github-staging-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
@@ -152,6 +152,30 @@ describe('POST /jobs/:jobId/confirm: a repository the platform cannot see (ORG1)
       const stored = await active.jobRepo.findById(jobId);
       expect(stored?.status).toBe('proposed');
       expect(stored?.stagingRepo).toBeNull();
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
+  // ORG1 r2 fix (QA defect 1): confirm's own read of the buyer's
+  // repository runs on the platform's token, not the agent's, so the
+  // message a buyer acts on has to name the platform's own GitHub login
+  // as well as the agent's -- naming only the agent sends the buyer to
+  // grant read to an account that was never going to make confirm work.
+  it('the 409 message names BOTH the agent account and the platform account that need read', async () => {
+    const { github } = createStagingLifecycleGithubFake();
+    active = await startApp(
+      rejectingOnGetDefaultBranchHead(github, new RepositoryNotAccessibleError('buyer', 'private-repo', 404)),
+    );
+    const jobId = await walkToPriceAccepted(active.baseUrl, 'buyer/private-repo');
+
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const confirm = await postSigned(active.baseUrl, `/jobs/${jobId}/confirm`, {}, buyer);
+      expect(confirm.status).toBe(409);
+      const body = (await confirm.json()) as { error: string };
+      expect(body.error).toContain('scout-confirm-repo-inaccessible');
+      expect(body.error).toContain(PLATFORM_LOGIN);
     } finally {
       errorLog.mockRestore();
     }

@@ -519,7 +519,7 @@ function jobProjection(row: Job): Record<string, unknown> {
 }
 
 // ORG1 (done-means item 2): the one key naming the GitHub read access a
-// private-repo hire needs and the account that needs it. Computed here,
+// private-repo hire needs and the accounts that need it. Computed here,
 // not inline at each call site, so both the buyer's own POST /jobs
 // response and the operator's live read (GET /jobs/:jobId) name it the
 // same way. Present only:
@@ -534,18 +534,25 @@ function jobProjection(row: Job): Record<string, unknown> {
 //   settled, and every merge/outcome row carrying the field forever
 //   would grow the fixed projection every downstream test pins against
 //   for no fact still in question.
+// ORG1 r2 fix (QA defect 1): confirm's own read of the buyer's
+// repository and the pull-request route's read of the PR both run on
+// the platform's single token, never the agent's, so a buyer who grants
+// read ONLY to the agent's account is still stuck at 409 forever. Both
+// accounts need read; this carries both under the same key so downstream
+// readers keep pinning one projection shape rather than two.
 // Never asserts whether the named repository actually IS private; that
 // fact surfaces only when confirm's own RepositoryNotAccessibleError
 // check runs.
 function githubAccessNeededFor(
   agent: Agent | null,
   row: Pick<Job, 'stagingRepo'>,
-): { readonly githubAccessNeeded: { readonly agentGithubLogin: string } } | Record<string, never> {
+  platformGithubLogin: string,
+): { readonly githubAccessNeeded: { readonly agentGithubLogin: string; readonly platformGithubLogin: string } } | Record<string, never> {
   if (row.stagingRepo !== null) return {};
   if (agent === null || agent.githubLogin === null || agent.proofStatus !== 'verified') {
     return {};
   }
-  return { githubAccessNeeded: { agentGithubLogin: agent.githubLogin } };
+  return { githubAccessNeeded: { agentGithubLogin: agent.githubLogin, platformGithubLogin } };
 }
 
 // The body carries the W3C Verifiable Credential exactly as produced.
@@ -3060,7 +3067,7 @@ export function createApp(
     }
     try {
       const row = await jobRepo.create(job);
-      res.status(201).json({ ...jobProjection(row), ...githubAccessNeededFor(agentRow, row) });
+      res.status(201).json({ ...jobProjection(row), ...githubAccessNeededFor(agentRow, row, github.platformLogin) });
     } catch (err) {
       // A duplicate id needs 64 bits of collision to fire and the id was
       // drawn this request, so this branch is unreachable in practice; it is
@@ -3101,7 +3108,7 @@ export function createApp(
       res.status(503).json({ error: 'storage unavailable' });
       return;
     }
-    const accessNeeded = githubAccessNeededFor(jobAgent, row);
+    const accessNeeded = githubAccessNeededFor(jobAgent, row, github.platformLogin);
     // Only a completed or deemed-completed job can carry a credential, so
     // every other row never pays for the lookup. P6 widens this guard:
     // deemed_completed carries a distinct credential type but no
@@ -3947,7 +3954,7 @@ export function createApp(
         if (err instanceof RepositoryNotAccessibleError) {
           res.status(409).json({
             error:
-              'the platform cannot see this repository; for a private repository it must live in a GitHub organization that gives the agent\'s GitHub account read access',
+              `the platform cannot see this repository; for a private repository it must live in a GitHub organization that gives BOTH the agent's GitHub account (${agent.githubLogin}) and the platform's GitHub account (${github.platformLogin}) read access`,
           });
           return;
         }

@@ -985,6 +985,12 @@ describe('pull-request, invariant 1 and Gate 2 (R-10, STG2)', () => {
         'getPublicGist',
         'getPullRequest',
         'grantPush',
+        // ORG1 r2 fix: platformLogin is a read-only string, not a
+        // capability -- it names the account every read-only method
+        // above already runs as, so a caller (app.ts) can put that
+        // account in a message without re-deriving it from the
+        // environment a second time. It grants nothing new.
+        'platformLogin',
       ]);
       // getMergeCommitSignature has no caller on main yet (this card's own
       // scope: "may stay NotImplementedError if nothing on main calls it

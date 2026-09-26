@@ -202,6 +202,10 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
   }
 
   return {
+    // ORG1 r2 fix: exposes the resolved value directly, not the raw env
+    // var, so a caller sees exactly what requirePlatformOwner compares
+    // against (including the options.platformLogin override tests use).
+    platformLogin,
     async getPullRequest(ref: PullRequestRef): Promise<PullRequestSummary> {
       const tok = requireToken();
       const response = await githubRequest(fetchImpl, apiBase, tok, `/repos/${ref.owner}/${ref.repo}/pulls/${String(ref.number)}`);

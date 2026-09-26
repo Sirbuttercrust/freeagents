@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
 import { MemoryAgentRepository, MemoryAccountRepository, MemoryJobRepository } from '../../src/adapters/storage/memory.js';
-import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
+import { createStagingLifecycleGithubFake, PLATFORM_LOGIN } from '../helpers/github-staging-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
@@ -101,6 +101,41 @@ describe('job data names the GitHub read access needed and the account (ORG1)', 
     }
   });
 
+  // ORG1 r2 fix, defect 1: confirm's own read of the buyer's repository
+  // (getDefaultBranchHead) and the pull-request route's read of the PR
+  // (getPullRequest) both run on the PLATFORM's single token -- never the
+  // agent's. A buyer who grants read ONLY to the agent's account still
+  // gets a platform account that cannot see the repository, so this
+  // field has to name both accounts that need read, not just the
+  // agent's. Same key (githubAccessNeeded), a second field on it.
+  it('POST /jobs response also carries githubAccessNeeded.platformGithubLogin, the account confirm itself reads as', async () => {
+    const agentRepo = new MemoryAgentRepository();
+    await agentRepo.create({
+      did: agent.did,
+      operatorDid: 'did:abt:op-access-needed-platform',
+      delegation: { fixture: true } as never,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: 'scout-access-needed-platform',
+      negotiatesOnOwnersBehalf: true,
+    });
+    await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-access-needed-platform', status: 'verified' });
+    const { server, baseUrl } = await startApp(agentRepo);
+    try {
+      const created = await postSigned(baseUrl, '/jobs', {
+        buyerDid: buyer.did,
+        agentDid: agent.did,
+        repository: 'buyer/access-needed-repo-platform',
+        brief: 'Fix the login bug',
+      }, buyer);
+      const body = (await created.json()) as Record<string, unknown>;
+      const access = body.githubAccessNeeded as Record<string, unknown>;
+      expect(access.platformGithubLogin).toBe(PLATFORM_LOGIN);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it('GET /jobs/:jobId carries the same field on a live read', async () => {
     const agentRepo = new MemoryAgentRepository();
     await agentRepo.create({
@@ -155,6 +190,50 @@ describe('job data names the GitHub read access needed and the account (ORG1)', 
       expect(created.status).toBe(201);
       const body = (await created.json()) as Record<string, unknown>;
       expect(body.githubAccessNeeded).toBeUndefined();
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  // QA r1 defect 3 (guard-without-a-test): the earlier suite only ever
+  // exercised githubLogin === null for "nothing to name yet". A login
+  // that IS present but whose binding was never verified (created, no
+  // updateGithubBinding call -- MemoryAgentRepository.create always
+  // starts a row at proofStatus 'unverified') is a different case: this
+  // pins that the proofStatus gate, not just the null check, is what
+  // withholds the field. Removing `agent.proofStatus !== 'verified'`
+  // from githubAccessNeededFor leaves this red (the field would appear
+  // with an unverified login), which the null-only test above cannot
+  // catch since it never sets a login at all.
+  it('omits githubAccessNeeded when the agent has a GitHub login that is not yet verified', async () => {
+    const agentRepo = new MemoryAgentRepository();
+    await agentRepo.create({
+      did: agent.did,
+      operatorDid: 'did:abt:op-access-needed-unverified',
+      delegation: { fixture: true } as never,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: 'scout-access-needed-unverified',
+      negotiatesOnOwnersBehalf: true,
+    });
+    // Deliberately no updateGithubBinding call: the login is present but
+    // proofStatus stays at its create-time default, 'unverified'.
+    const { server, baseUrl } = await startApp(agentRepo);
+    try {
+      const created = await postSigned(baseUrl, '/jobs', {
+        buyerDid: buyer.did,
+        agentDid: agent.did,
+        repository: 'buyer/access-needed-repo-unverified',
+        brief: 'Fix the login bug',
+      }, buyer);
+      expect(created.status).toBe(201);
+      const body = (await created.json()) as Record<string, unknown>;
+      expect(body.githubAccessNeeded).toBeUndefined();
+
+      const jobId = String((body as { id: unknown }).id);
+      const read = await fetch(`${baseUrl}/jobs/${jobId}`);
+      const readBody = (await read.json()) as Record<string, unknown>;
+      expect(readBody.githubAccessNeeded).toBeUndefined();
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }

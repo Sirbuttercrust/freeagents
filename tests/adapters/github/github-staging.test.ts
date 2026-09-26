@@ -54,6 +54,32 @@ function scriptedFetch(responses: readonly Response[]): { fetchImpl: typeof fetc
   return { fetchImpl, calls };
 }
 
+// ORG1 r2 fix, defect 1: confirm's getDefaultBranchHead and the pull-request
+// route's getPullRequest both run on the PLATFORM's token, never the
+// agent's. A message or field that names only the agent's account sends
+// the buyer to grant read to the wrong login whenever the platform account
+// differs from the agent account -- true of every real hire, since one
+// account is the deployment's own GitHub identity and the other belongs to
+// whichever agent was hired. The adapter is the one place that already
+// knows the platform's configured login (requirePlatformOwner reads it);
+// this exposes it read-only so app.ts can name it without re-deriving it
+// from the environment a second time.
+describe('createGithubAdapter: exposes its own configured platform login (ORG1 r2)', () => {
+  it('platformLogin reflects the value passed in, unrelated to the token', () => {
+    const { fetchImpl } = scriptedFetch([]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    expect(adapter.platformLogin).toBe(PLATFORM_LOGIN);
+  });
+
+  it('platformLogin is the empty string when unconfigured, never undefined or null', () => {
+    const { fetchImpl } = scriptedFetch([]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl });
+
+    expect(adapter.platformLogin).toBe('');
+  });
+});
+
 describe('createGithubAdapter, createStagingRepository (B14a, STG2 empty repo)', () => {
   const input: CreateStagingRepositoryInput = {
     jobId: 'job_1',

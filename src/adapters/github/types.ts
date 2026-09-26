@@ -246,6 +246,13 @@ export class StagingComparisonTruncatedError extends Error {
 }
 
 export interface GithubAdapter {
+  // ORG1 r2 fix: the platform's own configured GitHub login, read-only.
+  // Every method that runs on the platform's single token (getPullRequest,
+  // getDefaultBranchHead) does so as this account, so a caller naming
+  // "the account that needs read access" to a buyer must name this one,
+  // not the agent's. '' when unconfigured, matching the adapter's other
+  // env-derived defaults.
+  readonly platformLogin: string;
   getPullRequest(ref: PullRequestRef): Promise<PullRequestSummary>;
   getMergeCommitSignature(ref: PullRequestRef): Promise<CommitSignatureStatus>;
   // R-4: a public gist by id. No authentication: the statement is public by
