@@ -459,4 +459,36 @@ describe('the remainder leg is not checked by the repository-readiness guard', (
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
+
+  // Proof r2, gap 2: the exemption above pinned usdc/start only. Changing
+  // abt/start's `leg === 'deposit'` guard (app.ts:6239) or the token-mint
+  // door's (app.ts:6130) to check every leg left 102/102 green, because
+  // nothing drove a staged, abt-rail job through either of those two
+  // doors on the remainder leg. These two mirror the usdc case above, one
+  // per door, both on the abt rail (the only rail those two doors accept).
+  it('abt remainder/start succeeds on a STAGED job even though the repository has gone unreadable since confirm', async () => {
+    const { github, breakNow } = githubBreakableAfterConfirm();
+    const { server, baseUrl, settlementRepo } = await startApp(github);
+    try {
+      const jobId = await walkToStaged(baseUrl, 'buyer/repo-check', settlementRepo, 'abt');
+      breakNow(new RepositoryNotAccessibleError('buyer', 'repo-check', 404));
+      const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/remainder/abt/start`, {}, buyer);
+      expect(res.status).toBe(200);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('the token-mint door remainder leg succeeds on a STAGED job even though the repository has gone unreadable since confirm', async () => {
+    const { github, breakNow } = githubBreakableAfterConfirm();
+    const { server, baseUrl, settlementRepo } = await startApp(github);
+    try {
+      const jobId = await walkToStaged(baseUrl, 'buyer/repo-check', settlementRepo, 'abt');
+      breakNow(new RepositoryNotAccessibleError('buyer', 'repo-check', 404));
+      const res = await getSigned(baseUrl, `/api/did/pay/token?jobId=${jobId}&leg=remainder`, buyer);
+      expect(res.status).toBe(200);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
 });

@@ -287,6 +287,49 @@ describe('createGithubAdapter, readRepository (B14a, FIX-B36)', () => {
     });
   });
 
+  // Proof r2, gap 1: every scripted response in this file that sends
+  // `private: true` asserted something else (fullName, ownerIsOrganization,
+  // allowForking) and never asserted `facts.private` itself. Hardcoding
+  // `private: false` in the adapter (turning off both the personal-account
+  // and forking-off refusals, since checkRepositoryReady's private branch
+  // never runs) left all 59 tests across this file and the route tests
+  // green. This pins the field directly, in both directions.
+  it('projects private true when the response body sends private true', async () => {
+    const { fetchImpl } = scriptedFetch([
+      jsonResponse(200, {
+        full_name: 'buyer-org/target-repo',
+        private: true,
+        allow_forking: true,
+        default_branch: 'main',
+        owner: { type: 'Organization' },
+      }),
+      jsonResponse(200, { object: { sha: 'sha' } }),
+    ]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    const facts = await adapter.readRepository({ owner: 'buyer-org', repo: 'target-repo' });
+
+    expect(facts.private).toBe(true);
+  });
+
+  it('projects private false when the response body sends private false', async () => {
+    const { fetchImpl } = scriptedFetch([
+      jsonResponse(200, {
+        full_name: 'buyer/target-repo',
+        private: false,
+        allow_forking: true,
+        default_branch: 'main',
+        owner: { type: 'Organization' },
+      }),
+      jsonResponse(200, { object: { sha: 'sha' } }),
+    ]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    const facts = await adapter.readRepository({ owner: 'buyer', repo: 'target-repo' });
+
+    expect(facts.private).toBe(false);
+  });
+
   // FIX-B36 Make item 1: fullName is GitHub's own canonical owner/repo,
   // which follows a move -- the repository read answers a 301 to the
   // repository's id-stable path and this adapter's fetchImpl (the real
