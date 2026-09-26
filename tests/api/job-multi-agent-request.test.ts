@@ -446,7 +446,16 @@ describe('HT1 Part A2: one brief to up to three agents', () => {
       const proposeRes = await postSigned(baseUrl, `/jobs/${jobIdB}/criteria`, { criteria: [{ text: 'Bravo scope', proposedBy: 'agent' }], priceUsd: '777.00', rail: 'abt' }, ownerB);
       expect(proposeRes.status).toBe(200);
 
-      const forbidden = [jobIdA, jobIdC, requestId, agentA.did, agentC.did, 'agent-alpha', 'agent-charlie'];
+      // Proof r2 (MEDIUM, vacuous-privacy-gate): give siblings A and C
+      // distinctive prices too, so a leak of sibling PRICES alone (with
+      // no id/name/requestId attached) still has a real needle to catch.
+      // Without this, ruling item 3's "any sibling price" clause and the
+      // card's "quotes" clause are untested: a route that echoed only
+      // otherQuotes: [111.11, 333.33] would pass every assertion below.
+      expect((await postSigned(baseUrl, `/jobs/${jobIdA}/criteria`, { criteria: [{ text: 'Alpha scope', proposedBy: 'agent' }], priceUsd: '111.11', rail: 'abt' }, agentA)).status).toBe(200);
+      expect((await postSigned(baseUrl, `/jobs/${jobIdC}/criteria`, { criteria: [{ text: 'Charlie scope', proposedBy: 'agent' }], priceUsd: '333.33', rail: 'abt' }, agentC)).status).toBe(200);
+
+      const forbidden = [jobIdA, jobIdC, requestId, agentA.did, agentC.did, 'agent-alpha', 'agent-charlie', '111.11', '333.33'];
 
       function assertNoLeak(label: string, bodyText: string): void {
         forbidden.forEach((needle) => {
@@ -541,7 +550,7 @@ describe('HT1 Part A2: one brief to up to three agents', () => {
       const readA = await fetch(`${baseUrl}/jobs/${jobIdA}`);
       expect(readA.status).toBe(200);
       const readAText = await readA.text();
-      [jobIdB, jobIdC, requestId, agentB.did, agentC.did].forEach((needle) => {
+      [jobIdB, jobIdC, requestId, agentB.did, agentC.did, '777.00', '333.33'].forEach((needle) => {
         expect(readAText, `GET /jobs/:jobId (job A, public) leaked "${needle}"`).not.toContain(needle);
       });
     });
