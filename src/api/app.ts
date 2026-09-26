@@ -5512,7 +5512,7 @@ export function createApp(
       // backfilled, in which case any JobPriceError confirmSpec throws
       // next has nothing to do with rail at all -- it is the ordinary
       // criteria or price-acceptance gate, and must answer with its own
-      // message, not the missing-record one (Proof r2, defect 1: a
+      // message, not the missing-record one (review r2, defect 1: a
       // re-proposed price resets acceptance on an open quote whose
       // deposit already settled, and the old check here read
       // current.rail, which stays null even after a successful
