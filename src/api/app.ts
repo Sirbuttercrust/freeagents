@@ -200,6 +200,7 @@ import {
   ThreadReadOnlyError,
   advanceReadState,
   type Message,
+  type MessageAttachmentRef,
 } from '../domain/message.js';
 import {
   createNotification,
@@ -1769,10 +1770,10 @@ export function createApp(
         res.status(409).json({ error: new ThreadReadOnlyError(gate.job.id).message });
         return;
       }
-      const body = (req.body ?? {}) as { body?: unknown; replyToId?: unknown };
+      const body = (req.body ?? {}) as { body?: unknown; replyToId?: unknown; attachmentIds?: unknown };
       if (!messageBodyWellFormed(body.body)) {
         res.status(400).json({
-          error: `body must be { body, replyToId? }; body a non-empty string up to ${MESSAGE_BODY_MAX_LENGTH} characters`,
+          error: `body must be { body, replyToId?, attachmentIds? }; body a non-empty string up to ${MESSAGE_BODY_MAX_LENGTH} characters`,
         });
         return;
       }
@@ -1780,6 +1781,21 @@ export function createApp(
         res.status(400).json({ error: 'replyToId, if present, must be a string or null' });
         return;
       }
+      // Proof r1, defect 2: attachmentIds names attachments this SAME
+      // caller already uploaded to this SAME job (POST
+      // /jobs/:jobId/attachments, above), and not already attached to
+      // an earlier message -- an attachment is a one-time reference, so
+      // a caller cannot replay someone else's upload id onto their own
+      // message, and a message cannot silently absorb an attachment
+      // twice.
+      if (
+        body.attachmentIds !== undefined &&
+        (!Array.isArray(body.attachmentIds) || body.attachmentIds.some((id) => typeof id !== 'string'))
+      ) {
+        res.status(400).json({ error: 'attachmentIds, if present, must be an array of strings' });
+        return;
+      }
+      const attachmentIds = (body.attachmentIds as string[] | undefined) ?? [];
       let existing: readonly Message[];
       try {
         existing = await messageRepo.listByJobId(gate.job.id);
@@ -1787,6 +1803,32 @@ export function createApp(
         console.error(`${label}: storage failed`, err);
         res.status(503).json({ error: 'storage unavailable' });
         return;
+      }
+      const attachmentRefs: MessageAttachmentRef[] = [];
+      if (attachmentIds.length > 0) {
+        const alreadyAttached = new Set(existing.flatMap((row) => row.attachments.map((a) => a.attachmentId)));
+        for (const attachmentId of attachmentIds) {
+          let attachment: Attachment | null;
+          try {
+            attachment = await attachmentRepo.findById(attachmentId);
+          } catch (err) {
+            console.error(`${label}: storage failed`, err);
+            res.status(503).json({ error: 'storage unavailable' });
+            return;
+          }
+          if (
+            attachment === null ||
+            attachment.jobId !== gate.job.id ||
+            attachment.uploaderDid !== gate.did ||
+            alreadyAttached.has(attachmentId)
+          ) {
+            res.status(400).json({
+              error: `attachmentIds must name attachments the caller already uploaded to this job and not yet attached to another message: ${attachmentId} does not qualify`,
+            });
+            return;
+          }
+          attachmentRefs.push({ attachmentId });
+        }
       }
       const authorKind = authorKindFor(gate.party, gate.party === 'agent' && gate.did === gate.job.agentDid);
       let message: Message;
@@ -1801,6 +1843,7 @@ export function createApp(
             body: body.body,
             replyToId: (body.replyToId as string | null | undefined) ?? null,
             existingMessageIds: new Set(existing.map((row) => row.id)),
+            attachments: attachmentRefs,
           },
           new Date(),
         );
@@ -1902,6 +1945,10 @@ export function createApp(
       const label = 'POST /jobs/:jobId/messages/:messageId/reactions';
       const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
       if (gate === null) return;
+      if (!threadIsWritable(gate.job.status)) {
+        res.status(409).json({ error: new ThreadReadOnlyError(gate.job.id).message });
+        return;
+      }
       const body = (req.body ?? {}) as { emoji?: unknown };
       if (!isSingleEmoji(body.emoji)) {
         res.status(400).json({ error: 'body must be { emoji }; a single emoji character' });
@@ -1952,6 +1999,10 @@ export function createApp(
       const label = 'DELETE /jobs/:jobId/messages/:messageId/reactions';
       const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
       if (gate === null) return;
+      if (!threadIsWritable(gate.job.status)) {
+        res.status(409).json({ error: new ThreadReadOnlyError(gate.job.id).message });
+        return;
+      }
       let existing: Message | null;
       try {
         existing = await messageRepo.findById(String(req.params.messageId));
@@ -1979,6 +2030,38 @@ export function createApp(
     }),
   );
 
+  // GET /jobs/:jobId/messages/read-state: both parties' lastReadAt
+  // (Proof r1, defect 3: read receipts were write-only -- POST recorded
+  // a mark, but nothing ever showed the OTHER party's position, so a
+  // client could never render "Read 2:14 PM"). Available to either
+  // party regardless of which one's receipt is being asked about: the
+  // brief's own words, "read receipts: per-party lastReadAt," readable
+  // by both parties like every other thread fact.
+  app.get(
+    '/jobs/:jobId/messages/read-state',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'GET /jobs/:jobId/messages/read-state';
+      const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
+      if (gate === null) return;
+      try {
+        const [buyerState, agentState] = await Promise.all([
+          threadReadStateRepo.findByJobAndParty(gate.job.id, 'buyer'),
+          threadReadStateRepo.findByJobAndParty(gate.job.id, 'agent'),
+        ]);
+        res.status(200).json({
+          jobId: gate.job.id,
+          buyer: { lastReadAt: buyerState === null ? null : buyerState.lastReadAt.toISOString() },
+          agent: { lastReadAt: agentState === null ? null : agentState.lastReadAt.toISOString() },
+        });
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+      }
+    }),
+  );
+
   // POST /jobs/:jobId/messages/read: read receipts, per-party lastReadAt,
   // monotonic (advanceReadState never regresses it). Available on a
   // read-only thread too: marking read is not a write to the CONVERSATION,
@@ -1995,7 +2078,12 @@ export function createApp(
         const current = await threadReadStateRepo.findByJobAndParty(gate.job.id, gate.party);
         const advanced = advanceReadState(current, gate.job.id, gate.party, new Date());
         await threadReadStateRepo.record(advanced);
-        res.status(200).json({ jobId: advanced.jobId, party: advanced.party, lastReadAt: advanced.lastReadAt.toISOString() });
+        const projected = { jobId: advanced.jobId, party: advanced.party, lastReadAt: advanced.lastReadAt.toISOString() };
+        // Proof r1, defect 3 (the SSE half): the other party's live
+        // connection learns of this read the same way it learns of a
+        // new message, rather than needing to poll read-state.
+        broadcastThreadEvent(gate.job.id, 'read-state', projected);
+        res.status(200).json(projected);
       } catch (err) {
         console.error(`${label}: storage failed`, err);
         res.status(503).json({ error: 'storage unavailable' });
@@ -2016,6 +2104,10 @@ export function createApp(
       const label = 'POST /jobs/:jobId/typing';
       const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
       if (gate === null) return;
+      if (!threadIsWritable(gate.job.status)) {
+        res.status(409).json({ error: new ThreadReadOnlyError(gate.job.id).message });
+        return;
+      }
       broadcastThreadEvent(gate.job.id, 'typing', { party: gate.party });
       res.status(204).end();
     }),
@@ -2273,9 +2365,10 @@ export function createApp(
       if (isImageKind(kind)) {
         let reencoded;
         try {
-          reencoded = await reencodeImage(bytes);
+          reencoded = await reencodeImage(bytes, kind === 'image/heic');
         } catch (err) {
           if (err instanceof ImageReencodeError) {
+            console.error(`${label}: image re-encode failed`, err.detail);
             res.status(400).json({ error: err.message });
             return;
           }
@@ -4543,19 +4636,28 @@ export function createApp(
       // authored this particular event (excludeDid names the operator's
       // exclusion from the notify() call above, not the webhook's own
       // audience).
+      //
+      // Proof r1, defect 6: this call is NOT awaited. The brief's own
+      // words are "fire-and-forget with a short timeout" -- an operator
+      // endpoint that is slow or down must never delay the job action
+      // (POST /jobs, a message, a criteria change) that triggered this
+      // notification. WebhookSender.send is already total (it never
+      // rejects past its own boundary, per webhook.ts's own header
+      // comment), so the .catch here is a defensive backstop, not the
+      // primary error path.
       if (jobAgent.notifyWebhookUrl !== null && jobAgent.negotiatesOnOwnersBehalf) {
-        try {
-          await webhookSender.send(jobAgent.notifyWebhookUrl, {
+        void webhookSender
+          .send(jobAgent.notifyWebhookUrl, {
             id: 'w-' + randomBytes(8).toString('hex'),
             accountDid: jobAgent.did,
             jobId: job.id,
             eventType,
             createdAt: new Date(),
             readAt: null,
+          })
+          .catch((err: unknown) => {
+            console.error('notifyJobParties: webhook delivery failed', err);
           });
-        } catch (err) {
-          console.error('notifyJobParties: webhook delivery failed', err);
-        }
       }
     }
     if (job.buyerDid !== excludeDid) {
@@ -4566,7 +4668,12 @@ export function createApp(
   // The stored notification row plus its delivery side effects (push and
   // the live notification stream). Never the webhook: the webhook is a
   // per-agent, per-DID concern only notifyJobParties resolves, since it
-  // needs the job's own agent row to find the URL.
+  // needs the job's own agent row to find the URL. The notification ROW
+  // write and the live SSE broadcast are awaited (a caller reading the
+  // notification list right after this call must see the row); the push
+  // deliveries are NOT (Proof r1, defect 6: a caller's own request must
+  // never wait on a third-party push service, and PushSender.send is
+  // already total per push.ts's own header comment).
   async function notify(accountDid: string, jobId: string, eventType: NotificationEventType): Promise<void> {
     let row: Notification;
     try {
@@ -4576,14 +4683,16 @@ export function createApp(
       return;
     }
     broadcastNotification(accountDid, row);
-    try {
-      const subscriptions = await pushSubscriptionRepo.listByAccountDid(accountDid);
-      for (const subscription of subscriptions) {
-        await pushSender.send(subscription, { title: 'FreeAgents', body: pushBodyFor(eventType) });
-      }
-    } catch (err) {
-      console.error('notify: push delivery failed', err);
-    }
+    pushSubscriptionRepo
+      .listByAccountDid(accountDid)
+      .then((subscriptions) => {
+        for (const subscription of subscriptions) {
+          void pushSender.send(subscription, { title: 'FreeAgents', body: pushBodyFor(eventType) });
+        }
+      })
+      .catch((err: unknown) => {
+        console.error('notify: push delivery failed', err);
+      });
   }
 
   function pushBodyFor(eventType: NotificationEventType): string {
@@ -4648,7 +4757,7 @@ export function createApp(
     readonly amountUsd: string;
   }): Promise<void> {
     try {
-      await messageRepo.create(
+      const row = await messageRepo.create(
         createSystemMessage(
           {
             id: 'm-' + randomBytes(8).toString('hex'),
@@ -4662,7 +4771,11 @@ export function createApp(
           new Date(),
         ),
       );
-      broadcastThreadEvent(input.jobId, 'message', {});
+      // Proof r1, defect 4: every system row's SSE broadcast carries the
+      // full projection, not an empty object, so a live client renders
+      // the row (here, the settlement amount and rail) with no second
+      // call.
+      broadcastThreadEvent(input.jobId, 'message', messageProjection(row));
     } catch (err) {
       console.error('recordSettlementSystemEvent: failed to write the settlement system row', err);
     }
@@ -4883,7 +4996,7 @@ export function createApp(
           ? undefined
           : async (persisted) => {
               try {
-                await messageRepo.create(
+                const row = await messageRepo.create(
                   createSystemMessage(
                     {
                       id: 'm-' + randomBytes(8).toString('hex'),
@@ -4900,7 +5013,7 @@ export function createApp(
                     new Date(),
                   ),
                 );
-                broadcastThreadEvent(persisted.id, 'message', {});
+                broadcastThreadEvent(persisted.id, 'message', messageProjection(row));
               } catch (err) {
                 console.error('POST /jobs/:jobId/criteria: failed to write the quote_sent system row', err);
               }
@@ -5490,13 +5603,13 @@ export function createApp(
         // PR opened, completed) are rows in the same thread."
         // Best-effort, logged, never turns a successful stage into a 503.
         try {
-          await messageRepo.create(
+          const systemRow = await messageRepo.create(
             createSystemMessage(
               { id: 'm-' + randomBytes(8).toString('hex'), jobId: row.id, body: 'Staged', systemEvent: { type: 'staged' } },
               new Date(),
             ),
           );
-          broadcastThreadEvent(row.id, 'message', {});
+          broadcastThreadEvent(row.id, 'message', messageProjection(systemRow));
         } catch (err) {
           console.error(`${label}: failed to write the staged system row`, err);
         }
@@ -5842,7 +5955,7 @@ export function createApp(
         // submit into a 503.
         async (persisted) => {
           try {
-            await messageRepo.create(
+            const row = await messageRepo.create(
               createSystemMessage(
                 {
                   id: 'm-' + randomBytes(8).toString('hex'),
@@ -5853,7 +5966,7 @@ export function createApp(
                 new Date(),
               ),
             );
-            broadcastThreadEvent(persisted.id, 'message', {});
+            broadcastThreadEvent(persisted.id, 'message', messageProjection(row));
           } catch (err) {
             console.error('POST /jobs/:jobId/pull-request: failed to write the pr_opened system row', err);
           }
@@ -6656,7 +6769,7 @@ export function createApp(
       // into a 503: the credential is already durably issued by this
       // point, and a message write failing here must not undo that.
       try {
-        await messageRepo.create(
+        const systemRow = await messageRepo.create(
           createSystemMessage(
             {
               id: 'm-' + randomBytes(8).toString('hex'),
@@ -6667,7 +6780,7 @@ export function createApp(
             new Date(),
           ),
         );
-        broadcastThreadEvent(row.id, 'message', {});
+        broadcastThreadEvent(row.id, 'message', messageProjection(systemRow));
       } catch (err) {
         console.error('POST /jobs/:jobId/merge: failed to write the completed system row', err);
       }

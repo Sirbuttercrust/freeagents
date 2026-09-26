@@ -3,6 +3,9 @@
 // confirmed gone after upload, a stranger refused the download route,
 // and an attachment never entering a credential/attestation/spec hash.
 import type { Server } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -11,6 +14,8 @@ import { MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } f
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { testSessionAdapter } from '../helpers/session-fixtures.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 function delegationFixture(agentDid: string, operatorDid: string): Record<string, unknown> {
   return {
@@ -214,5 +219,58 @@ describe('HT1 Part B: message attachments', () => {
 
     const download = await req('GET', `/jobs/${jobId}/attachments/${uploaded.id as string}`, undefined, operator);
     expect(download.headers.get('content-disposition')).toContain('attachment');
+  });
+
+  // Proof r1, defect 1: a real HEIC file (produced by macOS sips from a
+  // source PNG, the exact reproduction the review used) must actually
+  // upload and download, not fail with the underlying libvips text
+  // leaking to the client.
+  it('a real HEIC file uploads, decodes, and downloads as a re-encoded JPEG', async () => {
+    const jobId = await openDraft();
+    const heicBytes = readFileSync(join(here, '../fixtures/attachments/sample.heic'));
+    const upload = await req('POST', `/jobs/${jobId}/attachments`, {
+      filename: 'photo.heic',
+      dataBase64: heicBytes.toString('base64'),
+    }, buyer);
+    expect(upload.status).toBe(201);
+    const uploaded = (await upload.json()) as Record<string, unknown>;
+    expect(uploaded.kind).toBe('image/heic');
+
+    const download = await req('GET', `/jobs/${jobId}/attachments/${uploaded.id as string}`, undefined, operator);
+    expect(download.status).toBe(200);
+    const stored = Buffer.from(await download.arrayBuffer());
+    const meta = await sharp(stored).metadata();
+    // Re-encoded to a JPEG the ordinary pipeline can decode -- never the
+    // original HEIC bytes kept verbatim.
+    expect(meta.format).toBe('jpeg');
+    expect(stored.equals(heicBytes)).toBe(false);
+
+    const thumb = await req('GET', `/jobs/${jobId}/attachments/${uploaded.id as string}?thumbnail=1`, undefined, buyer);
+    expect(thumb.status).toBe(200);
+  });
+
+  // Proof r1, defect 1 (the error-sanitisation half): a file that LOOKS
+  // like HEIC by its magic bytes but is not decodable image data must
+  // answer a clean, library-agnostic 400, never the raw libvips/
+  // heic-convert failure text.
+  it('a HEIC-shaped file that fails to decode answers a clean error, never raw decoder text', async () => {
+    const jobId = await openDraft();
+    // A well-formed ftyp box naming a HEIC brand, followed by garbage
+    // that is not a real HEIF bitstream: passes detectMagicBytes,
+    // fails decode.
+    const fakeHeic = Buffer.concat([
+      Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63]),
+      Buffer.alloc(64, 0xff),
+    ]);
+    const upload = await req('POST', `/jobs/${jobId}/attachments`, {
+      filename: 'broken.heic',
+      dataBase64: fakeHeic.toString('base64'),
+    }, buyer);
+    expect(upload.status).toBe(400);
+    const body = (await upload.json()) as { error: string };
+    expect(body.error).toBe('could not decode and re-encode the uploaded image');
+    expect(body.error.toLowerCase()).not.toContain('libvips');
+    expect(body.error.toLowerCase()).not.toContain('libheif');
+    expect(body.error.toLowerCase()).not.toContain('plugin');
   });
 });

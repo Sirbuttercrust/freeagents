@@ -132,6 +132,11 @@
   // GET /accounts/:did/notifications the same way My jobs/My agents
   // resolve the signed-in DID via GET /accounts/me.
   var NOTIFICATIONS_LINK_ID = "nav-notifications";
+  // Proof r1, defect 10: the badge was a bare number appended inside the
+  // link, so the link's accessible name read "Notifications12" with no
+  // "unread" text anywhere. An aria-label on the LINK itself (not the
+  // badge span) states the count in words; the badge's visible text
+  // stays just the digit for a sighted user.
   function renderNotificationsBadge(count) {
     var link = document.getElementById(NOTIFICATIONS_LINK_ID);
     if (!link) return;
@@ -143,8 +148,12 @@
         link.appendChild(existing);
       }
       existing.textContent = String(count);
-    } else if (existing && existing.parentNode) {
-      existing.parentNode.removeChild(existing);
+      link.setAttribute("aria-label", "Notifications, " + count + " unread");
+    } else {
+      if (existing && existing.parentNode) {
+        existing.parentNode.removeChild(existing);
+      }
+      link.removeAttribute("aria-label");
     }
   }
   function renderNotificationsLink(isSignedIn) {

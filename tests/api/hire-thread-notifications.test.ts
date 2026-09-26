@@ -23,6 +23,7 @@ import { testSessionAdapter } from '../helpers/session-fixtures.js';
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import { createUsdcPaymentRail, type UsdcObservedTransfer } from '../../src/adapters/payment/usdc.js';
+import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 import type { WebhookSender } from '../../src/adapters/webhook/webhook.js';
 import type { PushSender } from '../../src/adapters/push/push.js';
 import type { Notification } from '../../src/domain/notification.js';
@@ -117,6 +118,20 @@ async function walkToConfirmed(): Promise<string> {
   return jobId;
 }
 
+async function walkToStaged(): Promise<string> {
+  const jobId = await walkToConfirmed();
+  await req('POST', `/jobs/${jobId}/payments/deposit/usdc/start`, undefined, buyer);
+  await req(
+    'POST',
+    `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
+    { priceTxHash: '0xdep-price', feeTx: { signed: true, hash: '0xdep-fee' } },
+    buyer,
+  );
+  await req('POST', `/jobs/${jobId}/confirm`, undefined, buyer);
+  await req('POST', `/jobs/${jobId}/stage`, { stagedCommit: 'commit-notify-1' }, agent);
+  return jobId;
+}
+
 describe('HT1 Part B: notifications, webhook delivery, settlement system events', () => {
   beforeAll(async () => {
     buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(171));
@@ -168,6 +183,8 @@ describe('HT1 Part B: notifications, webhook delivery, settlement system events'
             const map: Record<string, { status: number; transfer: UsdcObservedTransfer }> = {
               '0xdep-price': { status: 1, transfer: { to: USDC_OPERATOR_ADDRESS, value: '125000000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID } },
               '0xdep-fee': { status: 1, transfer: { to: USDC_FEE_ADDRESS, value: '7500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID } },
+              '0xrem-price': { status: 1, transfer: { to: USDC_OPERATOR_ADDRESS, value: '375000000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID } },
+              '0xrem-fee': { status: 1, transfer: { to: USDC_FEE_ADDRESS, value: '22500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID } },
             };
             return map[hash.toLowerCase()] ?? null;
           },
@@ -193,7 +210,7 @@ describe('HT1 Part B: notifications, webhook delivery, settlement system events'
       sessionAdapter,
       undefined,
       gate,
-      undefined,
+      anyCommitStagingObserver(),
       undefined,
       null,
       usdcRail,
@@ -266,5 +283,188 @@ describe('HT1 Part B: notifications, webhook delivery, settlement system events'
 
     const buyerNotifications = await notificationRepo.listByAccountDid(buyer.did);
     expect(buyerNotifications.some((n) => n.jobId === jobId && n.eventType === 'new_message')).toBe(true);
+
+    // Proof r1, defect 8 (the read-through-the-route half): the row must
+    // be visible reading GET /jobs/:jobId/messages as BOTH parties, not
+    // only through messageRepo directly.
+    const asBuyer = await req('GET', `/jobs/${jobId}/messages`, undefined, buyer);
+    const asBuyerBody = (await asBuyer.json()) as { messages: Array<Record<string, unknown>> };
+    expect(asBuyerBody.messages.some((m) => (m.systemEvent as Record<string, unknown> | null)?.type === 'deposit_paid')).toBe(true);
+    const asOperator = await req('GET', `/jobs/${jobId}/messages`, undefined, operator);
+    const asOperatorBody = (await asOperator.json()) as { messages: Array<Record<string, unknown>> };
+    expect(asOperatorBody.messages.some((m) => (m.systemEvent as Record<string, unknown> | null)?.type === 'deposit_paid')).toBe(true);
+  });
+
+  // Proof r1, defect 8: the B19 STEER asks for one route-level test PER
+  // LEG, reading the thread as buyer and owner. Only the deposit leg
+  // existed; this covers the remainder leg through the full route walk
+  // (confirm, stage, then the remainder wallet-response).
+  it('a remainder settling on USDC writes a remainder_paid system row, read through the route as both parties', async () => {
+    const jobId = await walkToStaged();
+    await req('POST', `/jobs/${jobId}/payments/remainder/usdc/start`, undefined, buyer);
+    const res = await req(
+      'POST',
+      `/jobs/${jobId}/payments/remainder/usdc/wallet-response`,
+      { priceTxHash: '0xrem-price', feeTx: { signed: true, hash: '0xrem-fee' } },
+      buyer,
+    );
+    expect(res.status).toBe(200);
+    const confirmed = (await res.json()) as { confirmed: boolean };
+    expect(confirmed.confirmed).toBe(true);
+
+    const settled = await settlementRepo.findByJobAndLeg(jobId, 'remainder');
+    expect(settled).not.toBeNull();
+
+    const asBuyer = await req('GET', `/jobs/${jobId}/messages`, undefined, buyer);
+    const asBuyerBody = (await asBuyer.json()) as { messages: Array<Record<string, unknown>> };
+    const buyerRow = asBuyerBody.messages.find((m) => (m.systemEvent as Record<string, unknown> | null)?.type === 'remainder_paid');
+    expect(buyerRow).toBeDefined();
+    expect(buyerRow?.systemEvent).toMatchObject({ type: 'remainder_paid', leg: 'remainder', amountUsd: '375.00', rail: 'usdc' });
+    expect(JSON.stringify(buyerRow?.systemEvent)).not.toContain(USDC_OPERATOR_ADDRESS);
+    expect(JSON.stringify(buyerRow?.systemEvent)).not.toContain('0xrem-price');
+
+    const asOperator = await req('GET', `/jobs/${jobId}/messages`, undefined, operator);
+    const asOperatorBody = (await asOperator.json()) as { messages: Array<Record<string, unknown>> };
+    expect(asOperatorBody.messages.some((m) => (m.systemEvent as Record<string, unknown> | null)?.type === 'remainder_paid')).toBe(true);
+  });
+});
+
+// Proof r1, defect 7: the webhook gate ("never contacted unless both
+// enabled negotiation AND set the webhook") only ever had a positive
+// test. This block covers both negative halves against the real route,
+// each with its own agent fixture and its own webhook spy.
+describe('HT1 Part B (STEER item 4): the webhook gate stays closed unless BOTH conditions hold', () => {
+  async function startWithAgent(agentOverrides: { notifyWebhookUrl: string | null; negotiatesOnOwnersBehalf: boolean }): Promise<{
+    readonly server: Server;
+    readonly baseUrl: string;
+    readonly buyer: SigningIdentity;
+    readonly agent: SigningIdentity;
+    readonly operator: SigningIdentity;
+    readonly sentWebhooks: Array<{ url: string; notification: Notification }>;
+  }> {
+    const localBuyer = await signingIdentityFromSeed(new Uint8Array(32).fill(191));
+    const localAgent = await signingIdentityFromSeed(new Uint8Array(32).fill(192));
+    const localOperator = await signingIdentityFromSeed(new Uint8Array(32).fill(193));
+
+    const operatorRepo = new MemoryAccountRepository();
+    await operatorRepo.register({ did: localBuyer.did, githubLogin: 'buyer-webhook-gate' });
+    await operatorRepo.register({ did: localOperator.did, githubLogin: 'operator-webhook-gate' });
+
+    const agentRepo = new MemoryAgentRepository();
+    await agentRepo.create({
+      did: localAgent.did,
+      operatorDid: localOperator.did,
+      delegation: delegationFixture(localAgent.did, localOperator.did) as never,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: 'scout-webhook-gate',
+      notifyWebhookUrl: agentOverrides.notifyWebhookUrl,
+      negotiatesOnOwnersBehalf: agentOverrides.negotiatesOnOwnersBehalf,
+    });
+    await agentRepo.updateGithubBinding(localAgent.did, { handle: 'scout-webhook-gate', status: 'verified' });
+
+    const jobRepo = new MemoryJobRepository();
+    const sessionAdapter = testSessionAdapter();
+    const { github } = createStagingLifecycleGithubFake();
+    const localSentWebhooks: Array<{ url: string; notification: Notification }> = [];
+    const fakeWebhookSender: WebhookSender = {
+      async send(url, notification) {
+        localSentWebhooks.push({ url, notification });
+      },
+    };
+    const fakePushSender: PushSender = { publicKey: null, async send() {} };
+
+    const app = createApp(
+      operatorRepo,
+      agentRepo,
+      undefined,
+      github,
+      jobRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fakeWebhookSender,
+      fakePushSender,
+    );
+    const started = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => started.once('listening', resolve));
+    const address = started.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('expected server to listen on a port');
+    }
+    return {
+      server: started,
+      baseUrl: `http://127.0.0.1:${address.port}`,
+      buyer: localBuyer,
+      agent: localAgent,
+      operator: localOperator,
+      sentWebhooks: localSentWebhooks,
+    };
+  }
+
+  async function postDraft(base: string, buyerId: SigningIdentity, agentId: SigningIdentity): Promise<string> {
+    const bodyText = JSON.stringify({ agentDid: agentId.did, repository: 'buyer/target-repo', brief: 'Fix the login bug' });
+    const targetUri = `${base}/jobs`;
+    const signed = signRequest(buyerId, 'POST', targetUri, { body: bodyText });
+    const res = await fetch(targetUri, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'signature-input': signed['signature-input'],
+        signature: signed.signature,
+        'content-digest': signed['content-digest'],
+      },
+      body: bodyText,
+    });
+    const body = (await res.json()) as Record<string, unknown>;
+    return String(body.id);
+  }
+
+  it('negotiatesOnOwnersBehalf on, but no webhook URL set: zero sends', async () => {
+    const started = await startWithAgent({ notifyWebhookUrl: null, negotiatesOnOwnersBehalf: true });
+    try {
+      await postDraft(started.baseUrl, started.buyer, started.agent);
+      expect(started.sentWebhooks.length).toBe(0);
+    } finally {
+      started.server.close();
+    }
+  });
+
+  it('a webhook URL set, but negotiatesOnOwnersBehalf off: zero sends', async () => {
+    const started = await startWithAgent({ notifyWebhookUrl: 'https://operator.example/webhook', negotiatesOnOwnersBehalf: false });
+    try {
+      await postDraft(started.baseUrl, started.buyer, started.agent);
+      expect(started.sentWebhooks.length).toBe(0);
+    } finally {
+      started.server.close();
+    }
+  });
+
+  it('both conditions on: the webhook fires (the positive control, proving the harness itself is not silently broken)', async () => {
+    const started = await startWithAgent({ notifyWebhookUrl: 'https://operator.example/webhook', negotiatesOnOwnersBehalf: true });
+    try {
+      await postDraft(started.baseUrl, started.buyer, started.agent);
+      expect(started.sentWebhooks.length).toBeGreaterThan(0);
+    } finally {
+      started.server.close();
+    }
   });
 });

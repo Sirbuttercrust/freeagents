@@ -3,6 +3,7 @@
 // only once negotiatesOnOwnersBehalf is on), and the read-only-once-
 // terminal rule.
 import type { Server } from 'node:http';
+import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
@@ -67,6 +68,7 @@ async function openDraft(): Promise<string> {
 
 describe('HT1 Part B: hire thread messages', () => {
   beforeAll(async () => {
+    process.env.FREEAGENTS_ATTACHMENTS_DIR = '/tmp/ht1-messages-attachments-test-' + Date.now();
     buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(161));
     agent = await signingIdentityFromSeed(new Uint8Array(32).fill(162));
     operator = await signingIdentityFromSeed(new Uint8Array(32).fill(163));
@@ -234,6 +236,34 @@ describe('HT1 Part B: hire thread messages', () => {
     expect(typeof body1.lastReadAt).toBe('string');
   });
 
+  it('read receipts: GET read-state shows the OTHER party its lastReadAt (Proof r1, defect 3)', async () => {
+    const jobId = await openDraft();
+    // Nobody has read yet: both sides answer null.
+    const before = await req('GET', `/jobs/${jobId}/messages/read-state`, undefined, buyer);
+    expect(before.status).toBe(200);
+    const beforeBody = (await before.json()) as { buyer: { lastReadAt: string | null }; agent: { lastReadAt: string | null } };
+    expect(beforeBody.buyer.lastReadAt).toBeNull();
+    expect(beforeBody.agent.lastReadAt).toBeNull();
+
+    const marked = await req('POST', `/jobs/${jobId}/messages/read`, undefined, operator);
+    expect(marked.status).toBe(200);
+
+    // The BUYER reads the OPERATOR's (agent-party) receipt through the
+    // same route -- proving this is not just an echo of the caller's own
+    // mark.
+    const after = await req('GET', `/jobs/${jobId}/messages/read-state`, undefined, buyer);
+    expect(after.status).toBe(200);
+    const afterBody = (await after.json()) as { buyer: { lastReadAt: string | null }; agent: { lastReadAt: string | null } };
+    expect(afterBody.buyer.lastReadAt).toBeNull();
+    expect(typeof afterBody.agent.lastReadAt).toBe('string');
+  });
+
+  it('a stranger cannot read the thread\'s read-state', async () => {
+    const jobId = await openDraft();
+    const res = await req('GET', `/jobs/${jobId}/messages/read-state`, undefined, stranger);
+    expect(res.status).toBe(403);
+  });
+
   it('the typing signal answers 204 and requires thread access', async () => {
     const jobId = await openDraft();
     const ok = await req('POST', `/jobs/${jobId}/typing`, undefined, buyer);
@@ -255,6 +285,125 @@ describe('HT1 Part B: hire thread messages', () => {
     expect(quoteRow).toBeDefined();
     expect(quoteRow?.authorParty).toBe('system');
     expect((quoteRow?.systemEvent as Record<string, unknown>).criteriaCount).toBe(1);
+  });
+
+  // Proof r1, defect 4: the SSE stream used to broadcast a system row as
+  // `data: {}`, forcing a live client to make a second call to render
+  // the quote card. This connects a real SSE reader before the quote is
+  // sent and asserts the pushed event itself carries priceUsd and
+  // criteriaCount.
+  it('the SSE stream carries the full quote_sent projection, not an empty object', async () => {
+    const jobId = await openDraft();
+    const targetUri = `${baseUrl}/jobs/${jobId}/messages/stream`;
+    const signed = signRequest(buyer, 'GET', targetUri);
+    const streamRes = await fetch(targetUri, {
+      headers: {
+        'signature-input': signed['signature-input'],
+        signature: signed.signature,
+        'content-digest': signed['content-digest'],
+      },
+    });
+    expect(streamRes.status).toBe(200);
+    const reader = streamRes.body!.getReader();
+    const decoder = new TextDecoder();
+
+    const quoteEventPromise = (async (): Promise<Record<string, unknown>> => {
+      let buffered = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) throw new Error('SSE stream closed before the quote_sent event arrived');
+        buffered += decoder.decode(value, { stream: true });
+        const frames = buffered.split('\n\n');
+        buffered = frames.pop() ?? '';
+        for (const frame of frames) {
+          const dataLine = frame.split('\n').find((line) => line.startsWith('data: '));
+          if (dataLine === undefined) continue;
+          const parsed = JSON.parse(dataLine.slice('data: '.length)) as Record<string, unknown>;
+          if ((parsed.systemEvent as Record<string, unknown> | null)?.type === 'quote_sent') {
+            return parsed;
+          }
+        }
+      }
+    })();
+
+    await req('POST', `/jobs/${jobId}/criteria`, {
+      criteria: [{ text: 'The bug is fixed', proposedBy: 'agent' }],
+      priceUsd: '500.00',
+      rail: 'abt',
+    }, operator);
+
+    const quoteEvent = await quoteEventPromise;
+    reader.cancel();
+    expect(quoteEvent.authorParty).toBe('system');
+    const systemEvent = quoteEvent.systemEvent as Record<string, unknown>;
+    expect(systemEvent.priceUsd).toBe('500.00');
+    expect(systemEvent.criteriaCount).toBe(1);
+  });
+
+  // Proof r1, defect 5: a terminal thread refused a new MESSAGE (409) but
+  // still accepted reactions and typing, contradicting "becomes read-only
+  // once the job reaches a terminal status."
+  it('a terminal thread refuses reactions (POST and DELETE) and the typing signal, once withdrawn', async () => {
+    const jobId = await openDraft();
+    const posted = await req('POST', `/jobs/${jobId}/messages`, { body: 'react to this before withdraw' }, buyer);
+    const messageId = String((await posted.json() as Record<string, unknown>).id);
+
+    const withdraw = await req('POST', `/jobs/${jobId}/withdraw`, undefined, buyer);
+    expect(withdraw.status).toBe(200);
+
+    const react = await req('POST', `/jobs/${jobId}/messages/${messageId}/reactions`, { emoji: '\u{1F44D}' }, operator);
+    expect(react.status).toBe(409);
+    const unreact = await req('DELETE', `/jobs/${jobId}/messages/${messageId}/reactions`, undefined, operator);
+    expect(unreact.status).toBe(409);
+    const typing = await req('POST', `/jobs/${jobId}/typing`, undefined, buyer);
+    expect(typing.status).toBe(409);
+  });
+
+  // Proof r1, defect 2: an uploaded attachment must actually reach a
+  // message, not just exist in isolation. Uploads through the real
+  // attachments route, then posts a message naming it, and reads it back
+  // as the OTHER party.
+  it('a message can carry an attachment uploaded to the same job, read back by the other party', async () => {
+    const jobId = await openDraft();
+    const pngBytes = await sharp({ create: { width: 3, height: 3, channels: 3, background: { r: 5, g: 6, b: 7 } } }).png().toBuffer();
+    const upload = await req('POST', `/jobs/${jobId}/attachments`, {
+      filename: 'note.png',
+      dataBase64: pngBytes.toString('base64'),
+    }, buyer);
+    expect(upload.status).toBe(201);
+    const attachmentId = String((await upload.json() as Record<string, unknown>).id);
+
+    const post = await req('POST', `/jobs/${jobId}/messages`, { body: 'see attached', attachmentIds: [attachmentId] }, buyer);
+    expect(post.status).toBe(201);
+    const posted = (await post.json()) as { attachments: Array<{ attachmentId: string }> };
+    expect(posted.attachments).toEqual([{ attachmentId }]);
+
+    const read = await req('GET', `/jobs/${jobId}/messages`, undefined, operator);
+    const readBody = (await read.json()) as { messages: Array<{ attachments: Array<{ attachmentId: string }> }> };
+    const row = readBody.messages.find((m) => m.attachments.length > 0);
+    expect(row?.attachments).toEqual([{ attachmentId }]);
+  });
+
+  it('a message cannot claim an attachment uploaded by a different caller or already attached', async () => {
+    const jobId = await openDraft();
+    const pngBytes = await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 1, g: 1, b: 1 } } }).png().toBuffer();
+    const upload = await req('POST', `/jobs/${jobId}/attachments`, {
+      filename: 'note.png',
+      dataBase64: pngBytes.toString('base64'),
+    }, buyer);
+    const attachmentId = String((await upload.json() as Record<string, unknown>).id);
+
+    // The operator (a different party) cannot claim the buyer's upload.
+    const stolen = await req('POST', `/jobs/${jobId}/messages`, { body: 'not mine', attachmentIds: [attachmentId] }, operator);
+    expect(stolen.status).toBe(400);
+
+    // The buyer attaches it once, successfully.
+    const first = await req('POST', `/jobs/${jobId}/messages`, { body: 'first use', attachmentIds: [attachmentId] }, buyer);
+    expect(first.status).toBe(201);
+
+    // A second message cannot re-claim the same attachment.
+    const reused = await req('POST', `/jobs/${jobId}/messages`, { body: 'reuse', attachmentIds: [attachmentId] }, buyer);
+    expect(reused.status).toBe(400);
   });
 
   it('the thread becomes read-only once the job reaches a terminal status', async () => {
