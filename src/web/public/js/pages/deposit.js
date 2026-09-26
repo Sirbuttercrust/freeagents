@@ -301,9 +301,41 @@
           showError("confirm-waiting", "The chain has not confirmed your payment yet. Wait a moment and press this again to check.");
           return;
         }
-        showError("confirm-error", refusalSentence(status, typeof body.error === "string" ? body.error : "", "Your session has expired. Sign in again to finish this hire.", "Finish signing the agreement before the deposit can lock it. Reload the page to see the latest state."));
+        var serverMessage = typeof body.error === "string" ? body.error : "";
+        if (status === 409 && isRepositoryHidden(serverMessage)) {
+          showRepositoryHidden();
+          return;
+        }
+        showError("confirm-error", refusalSentence(status, serverMessage, "Your session has expired. Sign in again to finish this hire.", "Finish signing the agreement before the deposit can lock it. Reload the page to see the latest state."));
       });
     });
+  }
+  // ORG1b: confirm answers 409 for two different facts. Most are the
+  // agreement's own state ("finish signing"), but one says the platform's
+  // GitHub account cannot see the buyer's repository, usually because it
+  // is private on a personal account. That one gets its own sentence and a
+  // link to the walkthrough page for this job, told apart by the server's
+  // own phrase (pinned by tests/api/job-confirm-repository-inaccessible
+  // .test.ts). The 409 persists nothing, so the same press works once the
+  // buyer has shared the repository.
+  function isRepositoryHidden(serverMessage) {
+    return serverMessage.toLowerCase().indexOf("cannot see this repository") !== -1;
+  }
+  function showRepositoryHidden() {
+    var detail = A.el("confirm-error-detail");
+    if (!detail) return;
+    detail.textContent = "We can't see this repository yet. If it's private, share it first, then press this again.";
+    var line = document.createElement("span");
+    line.className = "sf-mores";
+    line.style.marginTop = "6px";
+    var link = document.createElement("a");
+    link.className = "sf-more";
+    link.id = "confirm-private-repos-link";
+    link.setAttribute("href", "/private-repos?job=" + encodeURIComponent(jobId));
+    link.textContent = "How to share a private repository";
+    line.appendChild(link);
+    detail.appendChild(line);
+    A.showById("confirm-error", true);
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();

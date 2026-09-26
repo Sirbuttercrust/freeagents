@@ -39,6 +39,11 @@ const WIREFRAME_FOR: Record<string, string | null> = {
   landing: null,
   'auth-callback-error': null,
   'auth-callback-success': null,
+  // SITEMAP P-32. A page added after the wireframes, so there is none to
+  // compare against; it binds to the simplicity law and to how.html's look
+  // (same head, nav, footer, stylesheets and office footer), and
+  // tests/web/private-repos.test.ts measures it.
+  'private-repos': null,
 };
 
 // Justified departures, per page, each with the reason. A heading or control

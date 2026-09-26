@@ -101,6 +101,7 @@ type PageName =
   | 'myjobs'
   | 'myagents'
   | 'outcomes'
+  | 'privateRepos'
   | 'incoming'
   | 'conduct'
   | 'dashboard'
@@ -139,6 +140,9 @@ const PAGE_FILES: Readonly<Record<PageName, string>> = {
   myagents: 'myagents.html',
   // P8o: same stance -- /outcomes owns no path an API route also serves.
   outcomes: 'outcomes.html',
+  // ORG1b: same stance -- /private-repos owns no path an API route also
+  // serves (SITEMAP P-32, sharing a private repository read-only).
+  privateRepos: 'private-repos.html',
   // P8q: same stance -- /incoming owns no path an API route also serves.
   incoming: 'incoming.html',
   // P8s: same stance -- /conduct owns no path an API route also serves
@@ -346,6 +350,9 @@ export function createWebSurface(
       // P8o: same stance -- /outcomes owns no path an API route also
       // serves.
       app.get('/outcomes', (_req: Request, res: Response) => send(res, 'outcomes'));
+      // ORG1b: same stance -- /private-repos owns no path an API route
+      // also serves, so this is a plain own-path mount, never `negotiated`.
+      app.get('/private-repos', (_req: Request, res: Response) => send(res, 'privateRepos'));
       // P8q: same stance -- /incoming owns no path an API route also
       // serves.
       app.get('/incoming', (_req: Request, res: Response) => send(res, 'incoming'));

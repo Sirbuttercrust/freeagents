@@ -4100,14 +4100,17 @@ export function createApp(
         // conflict the buyer can act on, so it is 409, checked before
         // the generic 503 catch-all so it never falls through to it.
         if (err instanceof RepositoryNotAccessibleError) {
-          // The walkthrough page this message would link is a separate,
-          // later card, cut from Part 3 of this brief only after this PR
-          // merges (Part 3: "Not this card"). No stable URL exists yet, so
-          // the message names the accounts and the shape directly instead
-          // of a dead link; add the link here once that page ships.
+          // The message names both accounts and ends with the address of
+          // the walkthrough page (/private-repos, src/web/pages/
+          // private-repos.html), opened for this job so its step 4 names
+          // the same two accounts. The base is the deployment's public
+          // origin, built the same way the ABT route builds its own.
+          // deposit.js tells this 409 apart from confirm's other 409s by
+          // the "cannot see this repository" phrase, and links the same
+          // page itself.
           res.status(409).json({
             error:
-              `the platform cannot see this repository; for a private repository it must live in a GitHub organization that gives BOTH the agent's GitHub account (${agent.githubLogin}) and the platform's GitHub account (${github.platformLogin}) read access`,
+              `the platform cannot see this repository; for a private repository it must live in a GitHub organization that gives BOTH the agent's GitHub account (${agent.githubLogin}) and the platform's GitHub account (${github.platformLogin}) read access; how to share it: ${publicBaseUrlFromEnv()}/private-repos?job=${encodeURIComponent(current.id)}`,
           });
           return;
         }
