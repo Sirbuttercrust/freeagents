@@ -30,11 +30,17 @@
 //       on touch; reduced motion runs nothing and hides nothing; 17px text
 //       and 2px grouped gaps at 390
 //   (j) no machine words and no DID on the surface, and no dashes
+//   (k) real Chrome, real input: each control a person reaches by hand
+//       (the react button, a long press, Download, Copy, a click on the
+//       backdrop, the browser's Back, Tab and Enter on a bubble, a double
+//       click, Escape, coming back to a hidden tab), the page filling the
+//       window without scrolling, and the contrast of every piece of text
+//       inside my own bubbles
 //
 // The pinned strip (Make 8) and the step table's equality with job.js are
 // pinned too. Set MSG1B_CAPTURE_DIR to a directory to have (i) save a
 // screenshot of each state it measures at 390 and 1280.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,7 +51,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { Session } from '../../src/adapters/identity/session.js';
 import {
-  AGENT_NAME, AGREED, BUYER_DID, BUYER_LOGIN, DONE, IDENTITIES, OPEN, OWNER_DID, OWNER_LOGIN, STAGED, SUBMITTED,
+  AGENT_NAME, AGREED, BUYER_DID, BUYER_LOGIN, DONE, IDENTITIES, LONG_BRIEF, OPEN, OWNER_DID, OWNER_LOGIN, STAGED, SUBMITTED,
   asParty, buildMessagesWorld, type World,
 } from '../helpers/messages-world.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
@@ -147,6 +153,14 @@ async function until(check: () => boolean, ms = 3000): Promise<boolean> {
   }
   return check();
 }
+async function untilAsync(check: () => Promise<boolean>, ms = 3000): Promise<boolean> {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (await check()) return true;
+    await wait(100);
+  }
+  return check();
+}
 
 // A row as the API sends it; a test reads the fields it asserts on.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -158,6 +172,12 @@ async function messagesOf(jobId: string): Promise<Row[]> {
 async function threadsOf(who: Session, did: string): Promise<{ threads: Row[]; unreadTotal: number }> {
   const res = await asParty(world, who, 'GET', `/accounts/${encodeURIComponent(did)}/threads`);
   return (await res.json()) as { threads: Row[]; unreadTotal: number };
+}
+// When each seat last read the thread, in ms (0 for never), from the route.
+async function lastReadOf(jobId: string, party: 'buyer' | 'agent'): Promise<number> {
+  const res = await asParty(world, world.buyer, 'GET', `/jobs/${jobId}/messages/read-state`);
+  const at = ((await res.json()) as Record<string, { lastReadAt: string | null }>)[party]?.lastReadAt;
+  return at ? Date.parse(at) : 0;
 }
 function bubbleOf(page: Page, id: string): HTMLElement {
   const b = page.$(`#msg-${id} [data-msg]`);
@@ -427,6 +447,25 @@ describe('(c) the thread renders every kind of row', () => {
       expect(done.$('.event a')!.getAttribute('href')).toBe(`/pullrequest?job=${DONE}`);
     } finally { done.close(); }
   });
+
+  // M12: the bar's name, its Hire link and a long brief's "Read the whole
+  // brief" all go to the hire's own page, which differs by seat.
+  it.each([
+    ['the hirer', 'buyer', `/jobs/${SUBMITTED}`],
+    ['the owner', 'owner', `/operatorjob?job=${SUBMITTED}`],
+  ] as const)('%s: the bar\u2019s name, its Hire link and Read the whole brief go to that seat\u2019s page for the hire', async (_label, who, href) => {
+    expect(LONG_BRIEF.length, 'the fixture brief must be long enough to be cut').toBeGreaterThan(280);
+    const page = await render(thread(SUBMITTED), who === 'buyer' ? world.buyer : world.owner);
+    try {
+      expect(page.$('.a-bar .who-c')!.getAttribute('href')).toBe(href);
+      const info = page.$('.a-bar .end a')!;
+      expect(info.getAttribute('aria-label')).toBe('See the hire');
+      expect(info.getAttribute('href')).toBe(href);
+      const more = page.$('#msg-brief a.more')!;
+      expect(more.textContent).toBe('Read the whole brief');
+      expect(more.getAttribute('href')).toBe(href);
+    } finally { page.close(); }
+  });
 });
 
 // ------------------------------------------------------------------ Make 8
@@ -534,7 +573,7 @@ describe('(d) writing: every control reaches its route and shows on the page', (
     } finally { page.close(); }
   });
 
-  it('the other party\u2019s message and an old one of mine offer no Edit', async () => {
+  it('the other party\u2019s message offers no Edit, and the quote card offers no Edit and no Copy', async () => {
     const page = await render(thread(OPEN), world.buyer);
     try {
       const theirs = openMenu(page, world.ids.thanks);
@@ -545,6 +584,22 @@ describe('(d) writing: every control reaches its route and shows on the page', (
       const card = openMenu(page, world.ids.quote2);
       expect(card.querySelector('[data-act="edit"]')).toBeNull();
       expect(card.querySelector('[data-act="copy"]')).toBeNull();
+    } finally { page.close(); }
+  });
+
+  // Make 4's "within 15 minutes": the fixture's oldMine is the hirer's own,
+  // with words, sent 40 minutes before the world was built.
+  it('my own message from more than 15 minutes ago offers Reply and Copy, but no Edit', async () => {
+    const old = (await messagesOf(OPEN)).find((m) => m.id === world.ids.oldMine)!;
+    expect(old.authorDid).toBe(BUYER_DID);
+    expect(old.body).not.toBe('');
+    expect(Date.now() - Date.parse(old.createdAt)).toBeGreaterThan(15 * 60 * 1000);
+    const page = await render(thread(OPEN), world.buyer);
+    try {
+      expect(bubbleOf(page, world.ids.oldMine).closest('.run')!.classList.contains('me')).toBe(true);
+      const menu = openMenu(page, world.ids.oldMine);
+      expect(Array.from(menu.querySelectorAll('.tb-acts button')).map((b) => b.textContent)).toEqual(['Reply', 'Copy']);
+      expect(menu.querySelector('.tb-foot')!.textContent).toContain("Messages can't be unsent.");
     } finally { page.close(); }
   });
 
@@ -650,8 +705,10 @@ describe('(e) live, without a reload', () => {
       expect(await until(() => page.$$('.run.them .bubble').some((b) => b.textContent === note))).toBe(true);
 
       expect((await asParty(world, world.owner, 'POST', `/jobs/${OPEN}/typing`, {})).status).toBe(204);
-      expect(await until(() => page.$('.run.them.typing [role="status"]') !== null)).toBe(true);
-      expect(page.$('.typing [role="status"]')!.getAttribute('aria-label')).toBe(`@${OWNER_LOGIN} is typing`);
+      expect(await until(() => page.$('.run.them.typing .bubble') !== null)).toBe(true);
+      expect(page.$$('.typing .bubble i')).toHaveLength(3);
+      expect(page.$('.typing .bubble')!.getAttribute('aria-label')).toBe(`@${OWNER_LOGIN} is typing`);
+      expect(page.text('#thread-live')).toContain(`@${OWNER_LOGIN} is typing`);
 
       type(page, 'Did you get that?');
       enter(page);
@@ -690,6 +747,76 @@ describe('(e) live, without a reload', () => {
       expect(page.calls.filter((c) => c === `GET /jobs/${OPEN}/messages`).length).toBeGreaterThanOrEqual(2);
     } finally { page.close(); }
   }, 20_000);
+
+  // M10: while the thread is open and the page is visible, a row that
+  // lands over the stream is marked read at once, not on the next open.
+  it('a message that arrives over the stream while I am looking is marked read', async () => {
+    const page = await render(thread(OPEN), world.owner);
+    const reads = (): number => page.calls.filter((c) => c === `POST /jobs/${OPEN}/messages/read`).length;
+    try {
+      expect(await until(() => reads() === 1), 'opening the thread marks it read once').toBe(true);
+      const note = `Seen as it lands ${Date.now()}`;
+      const sent = (await (await asParty(world, world.buyer, 'POST', `/jobs/${OPEN}/messages`, { body: note })).json()) as Row;
+      expect(await until(() => page.$$('.run.them .bubble').some((b) => b.textContent === note))).toBe(true);
+      expect(await until(() => reads() === 2)).toBe(true);
+      expect(await untilAsync(async () => (await lastReadOf(OPEN, 'agent')) >= Date.parse(sent.createdAt))).toBe(true);
+    } finally { page.close(); }
+  });
+
+  // A live region is read out whenever something is added inside it. The
+  // thread is redrawn whole on every change, so if it were one, every
+  // typing ping, reaction and receipt would read the conversation out
+  // again. This watches every node added inside any live region (aria-live
+  // or a live role) and holds what a screen reader would be handed.
+  it('a screen reader hears the other person start typing and each new row, and nothing when a ping, a reaction or a receipt redraws the thread', async () => {
+    const page = await render(thread(OPEN), world.buyer);
+    const heard: string[] = [];
+    let redraws = 0;
+    const liveRoles = new Set(['status', 'log', 'alert', 'marquee', 'timer']);
+    const inLive = (node: Node | null): boolean => {
+      for (let n = node; n !== null; n = n.parentNode) {
+        if (n.nodeType !== 1) continue;
+        const e = n as Element;
+        const polite = e.getAttribute('aria-live');
+        if ((polite !== null && polite !== 'off') || liveRoles.has(e.getAttribute('role') ?? '')) return true;
+      }
+      return false;
+    };
+    const threadEl = page.$('[data-thread]')!;
+    const words = (n: Node): string => (n.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const observer = new page.window.MutationObserver((records) => {
+      for (const r of records) {
+        if (threadEl.contains(r.target)) redraws += 1;
+        if (!inLive(r.target)) continue;
+        if (r.type === 'characterData') heard.push(words(r.target));
+        r.addedNodes.forEach((n) => { if (words(n)) heard.push(words(n)); });
+      }
+    });
+    observer.observe(page.document.body, { childList: true, subtree: true, characterData: true });
+    const redrawn = async (act: () => Promise<unknown>): Promise<void> => {
+      const before = redraws;
+      await act();
+      expect(await until(() => redraws > before), 'the action redraws the thread, so the check below means something').toBe(true);
+      await wait(250);
+    };
+    const typing = `@${OWNER_LOGIN} is typing`;
+    try {
+      expect(inLive(threadEl), 'the thread is not itself a live region').toBe(false);
+      await redrawn(() => asParty(world, world.owner, 'POST', `/jobs/${OPEN}/typing`, {}));
+      expect(heard).toEqual([typing]);
+      await redrawn(() => asParty(world, world.owner, 'POST', `/jobs/${OPEN}/typing`, {}));
+      await redrawn(() => asParty(world, world.owner, 'POST', `/jobs/${OPEN}/messages/${world.ids.thanks}/reactions`, { emoji: '\uD83D\uDC40' }));
+      await redrawn(() => asParty(world, world.owner, 'POST', `/jobs/${OPEN}/messages/read`, {}));
+      expect(heard, 'a second ping, a reaction and a receipt are heard as nothing').toEqual([typing]);
+      const note = `One more thing ${Date.now()}`;
+      await redrawn(() => asParty(world, world.owner, 'POST', `/jobs/${OPEN}/messages`, { body: note }));
+      expect(heard).toEqual([typing, `@${OWNER_LOGIN}: ${note}`]);
+    } finally {
+      observer.disconnect();
+      await asParty(world, world.owner, 'DELETE', `/jobs/${OPEN}/messages/${world.ids.thanks}/reactions`);
+      page.close();
+    }
+  });
 });
 
 // ------------------------------------------------------------------ (f)
@@ -957,6 +1084,115 @@ async function gate(b: RealBrowser, view: View, state: string): Promise<void> {
 }
 const js = (b: RealBrowser, expr: string): Promise<unknown> => b.evaluate(expr);
 const close = (b: RealBrowser): Promise<unknown> => js(b, "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+// Re-reads an expression in the page until `ok` holds or the time runs
+// out, and returns the last value read.
+async function pollIn<T>(b: RealBrowser, expr: string, ok: (v: T) => boolean, ms: number): Promise<T> {
+  const end = Date.now() + ms;
+  let v = await b.evaluate<T>(expr);
+  while (!ok(v) && Date.now() < end) {
+    await wait(100);
+    v = await b.evaluate<T>(expr);
+  }
+  return v;
+}
+
+// ------------------------------------------------------------------ real input
+// Everything below goes through Chrome's own input pipeline (Input.*), so
+// the page gets the same events, in the same order, as it would from a
+// person: hover before a click, mousedown focusing what it lands on, a
+// right click raising contextmenu, a finger held down.
+interface Point { x: number; y: number }
+// Scrolls the element to the middle of its own scroller and returns its
+// centre, after checking that a person pointing there would hit it.
+async function aim(b: RealBrowser, selector: string): Promise<Point> {
+  const p = await b.evaluate<{ x: number; y: number; hit: boolean } | null>(`(function () {
+    var el = document.querySelector(${JSON.stringify(selector)});
+    if (!el) return null;
+    el.scrollIntoView({ block: 'center' });
+    var r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+    var at = document.elementFromPoint(x, y);
+    return { x: x, y: y, hit: !!at && (at === el || el.contains(at)) };
+  })()`);
+  if (!p) throw new Error(`nothing on the page matches ${selector}`);
+  expect(p.hit, `${selector} is covered at its own centre`).toBe(true);
+  return { x: p.x, y: p.y };
+}
+async function mouse(b: RealBrowser, at: Point, opts: { button?: 'left' | 'right'; clicks?: number } = {}): Promise<void> {
+  const button = opts.button ?? 'left';
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y });
+  for (let n = 1; n <= (opts.clicks ?? 1); n += 1) {
+    await b.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: at.x, y: at.y, button, clickCount: n });
+    await b.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: at.x, y: at.y, button, clickCount: n });
+  }
+}
+const KEYS: Record<string, { code: string; keyCode: number }> = {
+  Tab: { code: 'Tab', keyCode: 9 }, Enter: { code: 'Enter', keyCode: 13 }, Escape: { code: 'Escape', keyCode: 27 },
+};
+async function press(b: RealBrowser, key: keyof typeof KEYS): Promise<void> {
+  const k = KEYS[key]!;
+  await b.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key, code: k.code, windowsVirtualKeyCode: k.keyCode });
+  await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: k.code, windowsVirtualKeyCode: k.keyCode });
+}
+// What the tapback menu is showing, and for which message.
+const MENU = `(function () { var m = document.querySelector('.tbmenu'); return m ? m.getAttribute('data-for') : null; })()`;
+const OVERLAY_OPEN = `!!document.querySelector('.ovl .scrim, .ovl .tbmenu, .ovl .sheet')`;
+
+// The contrast of every piece of text inside my own bubbles, from computed
+// styles, the way the pixels are actually composited: the text's colour
+// with its own alpha, every background under it with theirs, and every
+// opacity between them applied to its whole group. A dimmed label, a
+// translucent quote, or a faded ancestor all land in the number. Anything
+// the arithmetic cannot account for (a background image, a filter, a
+// blend mode, a colour it cannot read) is reported instead of guessed at.
+interface Contrast { rows: Array<{ text: string; px: number; weight: number; ratio: number; floor: number }>; unmeasurable: string[] }
+const CONTRAST = `(function () {
+  function parse(s) {
+    var m = /^rgba?\\(([^)]*)\\)$/.exec(s);
+    if (m) { var p = m[1].split(/[\\s,\\/]+/).filter(Boolean).map(parseFloat); return [p[0] / 255, p[1] / 255, p[2] / 255, p.length > 3 ? p[3] : 1]; }
+    m = /^color\\(srgb ([^)]*)\\)$/.exec(s);
+    if (m) { var q = m[1].split(/[\\s\\/]+/).filter(Boolean).map(parseFloat); return [q[0], q[1], q[2], q.length > 3 ? q[3] : 1]; }
+    return null;
+  }
+  var bad = [];
+  function col(s, where) { var c = parse(s); if (!c) { bad.push(where + ': ' + s); return [0, 0, 0, 0]; } return [c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]]; }
+  function over(t, u) { return [t[0] + u[0] * (1 - t[3]), t[1] + u[1] * (1 - t[3]), t[2] + u[2] * (1 - t[3]), t[3] + u[3] * (1 - t[3])]; }
+  function name(e) { return e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.trim().split(/\\s+/).join('.') : ''); }
+  // one element's group: its background, then the rest of the chain (or the
+  // text) on top, all at the element's own opacity
+  function group(chain, i, text) {
+    var cs = getComputedStyle(chain[i]);
+    if (chain[i].closest('.a-app') && (cs.backgroundImage !== 'none' || cs.filter !== 'none' || cs.mixBlendMode !== 'normal')) bad.push(name(chain[i]) + ': a background image, filter or blend');
+    var inner = i + 1 < chain.length ? group(chain, i + 1, text) : (text || [0, 0, 0, 0]);
+    var c = over(inner, col(cs.backgroundColor, name(chain[i])));
+    var o = parseFloat(cs.opacity);
+    return [c[0] * o, c[1] * o, c[2] * o, c[3] * o];
+  }
+  function lum(c) {
+    function ch(v) { return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
+    return 0.2126 * ch(c[0]) + 0.7152 * ch(c[1]) + 0.0722 * ch(c[2]);
+  }
+  var rows = [];
+  [].forEach.call(document.querySelectorAll('.thread .run.me .bubble'), function (bubble) {
+    var walk = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT);
+    for (var n = walk.nextNode(); n; n = walk.nextNode()) {
+      if (!/\\S/.test(n.nodeValue)) continue;
+      var host = n.parentElement, range = document.createRange();
+      range.selectNodeContents(n);
+      var r = range.getBoundingClientRect(), cs = getComputedStyle(host);
+      if (!r.width || !r.height || cs.visibility === 'hidden') continue;
+      var chain = [];
+      for (var e = host; e; e = e.parentElement) chain.unshift(e);
+      var canvas = [1, 1, 1, 1];
+      var ink = over(group(chain, 0, col(cs.color, name(host) + ' color')), canvas);
+      var paper = over(group(chain, 0, null), canvas);
+      var a = lum(ink), b = lum(paper);
+      var px = parseFloat(cs.fontSize), weight = parseInt(cs.fontWeight, 10);
+      var large = px >= 24 || (px >= 18.66 && weight >= 700);
+      rows.push({ text: n.nodeValue.trim().slice(0, 40), px: px, weight: weight, ratio: Math.round((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) * 100) / 100, floor: large ? 3 : 4.5 });
+    }
+  });
+  return { rows: rows, unmeasurable: bad };
+})()`;
 
 describe('(i) in real Chrome', () => {
   it.each([[PHONE_320], [PHONE_390], [DESKTOP]] as const)('%o: the list, a thread and every open state fit, and every control is 44px on touch', async (view) => {
@@ -1029,7 +1265,9 @@ describe('(i) in real Chrome', () => {
     } finally { await b.close(); }
   }, BROWSER_TIMEOUT_MS);
 
-  it('an upload in progress shows the ring, the percentage and cancel, and fits', async () => {
+  // M11: the percentage and the ring follow the upload's own progress
+  // events. A label stuck at 0% (or jumping straight to 100% on load) fails.
+  it('an upload in progress shows the ring, a percentage that climbs past 0, and cancel, and fits', async () => {
     if (!hasRealBrowser()) return;
     const big = join(tmpdir(), `msg1b-upload-${Date.now()}.png`);
     await sharp({ create: { width: 1600, height: 1200, channels: 3, background: { r: 128, g: 128, b: 128 }, noise: { type: 'gaussian', mean: 128, sigma: 60 } } }).png().toFile(big);
@@ -1043,14 +1281,17 @@ describe('(i) in real Chrome', () => {
         const doc = await b.send('DOM.getDocument');
         const found = await b.send('DOM.querySelector', { nodeId: (doc.result as { root: { nodeId: number } }).root.nodeId, selector: '#pick-image' });
         await b.send('DOM.setFileInputFiles', { files: [big], nodeId: (found.result as { nodeId: number }).nodeId });
-        await new Promise((r) => setTimeout(r, 2500));
-        const up = await b.evaluate<{ label: string; ring: boolean; cancel: number }>(`({
+        const pct = await pollIn(b, `(function () { var l = document.querySelector('[data-up-label]'); var m = l && /^Uploading, (\\d+)%$/.exec(l.textContent); return m ? +m[1] : -1; })()`, (n: number) => n > 0, 6000);
+        expect(pct, `${view.width}: the percentage never moved off 0`).toBeGreaterThan(0);
+        expect(pct, `${view.width}: the upload finished before it could be seen in flight`).toBeLessThan(100);
+        const up = await b.evaluate<{ label: string; offset: number; full: number; cancel: number }>(`({
           label: (document.querySelector('[data-up-label]') || {}).textContent || '',
-          ring: !!document.querySelector('[data-upload] .ring'),
+          offset: parseFloat(document.querySelector('[data-upload] .ring').getAttribute('stroke-dashoffset')),
+          full: parseFloat(document.querySelector('[data-upload] .ring').getAttribute('stroke-dasharray')),
           cancel: (document.querySelector('[data-upload] .cancel') || { getBoundingClientRect: function () { return { width: 0 }; } }).getBoundingClientRect().width
         })`);
-        expect(up.label).toMatch(/^Uploading, \d+%$/);
-        expect(up.ring).toBe(true);
+        expect(up.label).toMatch(/^Uploading, [1-9]\d?%$/);
+        expect(up.offset, 'the ring has drawn part of its circle').toBeLessThan(up.full);
         expect(up.cancel).toBeGreaterThanOrEqual(44);
         await gate(b, view, 'uploading');
         await js(b, "document.querySelector('[data-upload] .cancel').click()");
@@ -1108,5 +1349,282 @@ describe('(i) in real Chrome', () => {
       else expect(m.running, 'the control: with motion allowed the dots animate, so the reduce case can fail').toBeGreaterThan(0);
       await shot(b, PHONE_390, `typing-${pref}`);
     } finally { await b.close(); }
+  }, BROWSER_TIMEOUT_MS);
+});
+
+// ------------------------------------------------------------------ (k)
+
+describe('(k) in real Chrome, by hand', () => {
+  const open = async (view: View, who: Session, path: string): Promise<RealBrowser> => {
+    const b = await chrome(view, who, true);
+    await b.goto(`${world.baseUrl}${path}`, 1800);
+    return b;
+  };
+  const focused = (b: RealBrowser): Promise<unknown> => js(b, "document.activeElement && document.activeElement.getAttribute('data-msg')");
+
+  // M1
+  it('with a mouse, the react button beside a bubble shows on hover and opens that message\u2019s menu', async () => {
+    if (!hasRealBrowser()) return;
+    const id = world.ids.thanks;
+    const b = await open(DESKTOP, world.buyer, thread(OPEN));
+    try {
+      const bubble = await aim(b, `#msg-${id} [data-msg]`);
+      await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: bubble.x, y: bubble.y });
+      expect(await js(b, `getComputedStyle(document.querySelector('#msg-${id} .reactbtn')).opacity`)).toBe('1');
+      await mouse(b, await aim(b, `#msg-${id} .reactbtn`));
+      expect(await js(b, MENU)).toBe(id);
+    } finally { await b.close(); }
+  }, BROWSER_TIMEOUT_MS);
+
+  // M2. A quick tap is the control: it must not open anything.
+  it('on a phone, a long press opens the bubble\u2019s menu and it stays open when the finger lifts; a quick tap opens nothing', async () => {
+    if (!hasRealBrowser()) return;
+    const id = world.ids.thanks;
+    const b = await open(PHONE_390, world.buyer, thread(OPEN));
+    try {
+      expect(await js(b, "matchMedia('(pointer: coarse)').matches")).toBe(true);
+      const p = await aim(b, `#msg-${id} [data-msg]`);
+      await b.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [p] });
+      await b.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await wait(700);
+      expect(await js(b, MENU), 'a quick tap opened the menu').toBeNull();
+      await b.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [p] });
+      await wait(700);
+      expect(await js(b, MENU), 'held for 700ms').toBe(id);
+      await b.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await wait(400);
+      expect(await js(b, MENU), 'after the finger lifts').toBe(id);
+    } finally { await b.close(); }
+  }, BROWSER_TIMEOUT_MS);
+
+  // M3
+  it('with a mouse, a PDF card downloads the file, byte for byte', async () => {
+    if (!hasRealBrowser()) return;
+    const dir = mkdtempSync(join(tmpdir(), 'msg1b-download-'));
+    const b = await chrome(DESKTOP, world.buyer, true);
+    try {
+      await b.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dir });
+      await b.goto(`${world.baseUrl}${thread(OPEN)}`, 1800);
+      await mouse(b, await aim(b, `[data-dl="${world.ids.pdfFile}"]`));
+      const end = Date.now() + 5000;
+      while (Date.now() < end && !readdirSync(dir).includes('db-access-policy.pdf')) await wait(100);
+      expect(readdirSync(dir)).toEqual(['db-access-policy.pdf']);
+      expect(readFileSync(join(dir, 'db-access-policy.pdf')).equals(world.pdf)).toBe(true);
+    } finally {
+      await b.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, BROWSER_TIMEOUT_MS);
+
+  // M4. The browser's own clipboard, read back through the page.
+  it('with a mouse, Copy in a right click\u2019s menu puts the message\u2019s words on the clipboard and closes the menu', async () => {
+    if (!hasRealBrowser()) return;
+    const id = world.ids.thanks;
+    const b = await chrome(DESKTOP, world.buyer, true);
+    try {
+      await b.send('Browser.grantPermissions', { permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'], origin: world.baseUrl });
+      await b.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+      await b.goto(`${world.baseUrl}${thread(OPEN)}`, 1800);
+      await js(b, "navigator.clipboard.writeText('nothing copied yet')");
+      await mouse(b, await aim(b, `#msg-${id} [data-msg]`), { button: 'right' });
+      expect(await js(b, MENU)).toBe(id);
+      await mouse(b, await aim(b, '.tbmenu [data-act="copy"]'));
+      const copied = await pollIn(b, 'navigator.clipboard.readText()', (t: string) => t !== 'nothing copied yet', 3000);
+      expect(copied).toBe('Thanks, this is a clear brief.');
+      expect(await js(b, OVERLAY_OPEN)).toBe(false);
+    } finally { await b.close(); }
+  }, BROWSER_TIMEOUT_MS);
+
+  // M5
+  it('with a mouse, a click on the dimmed backdrop closes the open menu', async () => {
+    if (!hasRealBrowser()) return;
+    const id = world.ids.thanks;
+    const b = await open(DESKTOP, world.buyer, thread(OPEN));
+    try {
+      await mouse(b, await aim(b, `#msg-${id} [data-msg]`), { button: 'right' });
+      expect(await js(b, MENU)).toBe(id);
+      const spot = { x: 20, y: DESKTOP.height / 2 };
+      expect(await js(b, `document.elementFromPoint(${spot.x}, ${spot.y}).hasAttribute('data-scrim')`), 'the backdrop is what a click there lands on').toBe(true);
+      await mouse(b, spot);
+      expect(await js(b, OVERLAY_OPEN)).toBe(false);
+    } finally { await b.close(); }
+  }, BROWSER_TIMEOUT_MS);
+
+  // M6. The marker proves Back stayed in the page (popstate) rather than
+  // loading it again, which would pass without the handler.
+  it('the browser\u2019s Back button goes back to the conversation before, then to the list, without reloading the page', async () => {
+    if (!hasRealBrowser()) return;
+    const b = await open(DESKTOP, world.buyer, '/messages');
+    const back = async (): Promise<void> => {
+      const h = (await b.send('Page.getNavigationHistory')).result as { currentIndex: number; entries: Array<{ id: number }> };
+      await b.send('Page.navigateToHistoryEntry', { entryId: h.entries[h.currentIndex - 1]!.id });
+      await wait(900);
+    };
+    const where = `({ search: location.search, same: window.__samePage === true,
+      current: (document.querySelector('.convlist a[aria-current]') || { getAttribute: function () { return null; } }).getAttribute('data-job'),
+      now: (document.querySelector('.pin-now') || {}).textContent || null,
+      none: document.getElementById('conv').classList.contains('is-none') })`;
+    try {
+      await js(b, 'window.__samePage = true');
+      await mouse(b, await aim(b, `.convlist a[data-job="${STAGED}"]`));
+      await wait(900);
+      await mouse(b, await aim(b, `.convlist a[data-job="${SUBMITTED}"]`));
+      await wait(900);
+      expect(await js(b, where)).toEqual({ search: `?job=${SUBMITTED}`, same: true, current: SUBMITTED, now: 'Pull request open', none: false });
+      await back();
+      expect(await js(b, where)).toEqual({ search: `?job=${STAGED}`, same: true, current: STAGED, now: 'Work ready for your review', none: false });
+      await back();
+      expect(await js(b, where)).toEqual({ search: '', same: true, current: null, now: null, none: true });
+    } finally { await b.close(); }
+  }, BROWSER_TIMEOUT_MS);
+
+  // M7
+  it('with the keyboard, Tab reaches the first bubble and Enter opens its menu', async () => {
+    if (!hasRealBrowser()) return;
+    const b = await open(DESKTOP, world.buyer, thread(OPEN));
+    try {
+      const id = await js(b, "document.querySelector('.thread [data-msg][tabindex=\"0\"]').getAttribute('data-msg')");
+      expect(id).toBe(world.ids.oldMine);
+      await js(b, "document.getElementById('pin-next').focus()");
+      await press(b, 'Tab');
+      expect(await focused(b)).toBe(id);
+      await press(b, 'Enter');
+      expect(await js(b, MENU)).toBe(id);
+    } finally { await b.close(); }
+  }, BROWSER_TIMEOUT_MS);
+
+  // M8
+  it('with a mouse, a double click on a bubble opens its menu', async () => {
+    if (!hasRealBrowser()) return;
+    const id = world.ids.thanks;
+    const b = await open(DESKTOP, world.buyer, thread(OPEN));
+    try {
+      const p = await aim(b, `#msg-${id} [data-msg]`);
+      await mouse(b, p);
+      expect(await js(b, MENU), 'a single click opens nothing').toBeNull();
+      await mouse(b, p, { clicks: 2 });
+      expect(await js(b, MENU)).toBe(id);
+    } finally { await b.close(); }
+  }, BROWSER_TIMEOUT_MS);
+
+  // M9
+  it('Escape closes the open menu and puts focus back on the bubble it was opened from', async () => {
+    if (!hasRealBrowser()) return;
+    const id = world.ids.thanks;
+    const b = await open(DESKTOP, world.buyer, thread(OPEN));
+    try {
+      await mouse(b, await aim(b, `#msg-${id} [data-msg]`), { button: 'right' });
+      expect(await js(b, MENU)).toBe(id);
+      expect(await js(b, "!!document.activeElement.closest('.tbmenu')"), 'focus moved into the menu').toBe(true);
+      await press(b, 'Escape');
+      expect(await js(b, OVERLAY_OPEN)).toBe(false);
+      expect(await focused(b)).toBe(id);
+    } finally { await b.close(); }
+  }, BROWSER_TIMEOUT_MS);
+
+  // M13. Another tab in front hides this one; closing it brings this one
+  // back, the way switching tabs does.
+  it('a message that lands while the tab is hidden stays unread until the tab is shown again, then is marked read', async () => {
+    if (!hasRealBrowser()) return;
+    const b = await open(DESKTOP, world.owner, thread(OPEN));
+    try {
+      const other = (await b.send('Target.createTarget', { url: 'about:blank' })).result as { targetId: string };
+      expect(await pollIn(b, 'document.visibilityState', (s: string) => s === 'hidden', 3000)).toBe('hidden');
+      const note = `While you were away ${Date.now()}`;
+      const sent = (await (await asParty(world, world.buyer, 'POST', `/jobs/${OPEN}/messages`, { body: note })).json()) as Row;
+      await wait(1200);
+      expect(await lastReadOf(OPEN, 'agent'), 'marked read while hidden').toBeLessThan(Date.parse(sent.createdAt));
+      await b.send('Target.closeTarget', { targetId: other.targetId });
+      expect(await pollIn(b, 'document.visibilityState', (s: string) => s === 'visible', 3000)).toBe('visible');
+      expect(await untilAsync(async () => (await lastReadOf(OPEN, 'agent')) >= Date.parse(sent.createdAt))).toBe(true);
+    } finally { await b.close(); }
+  }, BROWSER_TIMEOUT_MS);
+
+  // The page is the app, as the board locks it: nothing under it, and no
+  // page scroll to slide the pinned strip under the site's sticky bar.
+  it.each([[PHONE_320], [PHONE_390], [DESKTOP]] as const)('%o: with a thread open the page does not scroll, and a mouse wheel over the pinned strip leaves its next step in view', async (view) => {
+    if (!hasRealBrowser()) return;
+    const b = await open(view, world.buyer, thread(OPEN));
+    const geo = `(function () {
+      var nav = document.querySelector('nav.nav'), pin = document.querySelector('.a-pin'), next = document.getElementById('pin-next');
+      var navShown = getComputedStyle(nav).display !== 'none', r = next.getBoundingClientRect();
+      var at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return {
+        scrollHeight: document.documentElement.scrollHeight, innerHeight: innerHeight, scrollY: scrollY,
+        appBottom: Math.round(document.getElementById('msg-app').getBoundingClientRect().bottom),
+        navBottom: navShown ? nav.getBoundingClientRect().bottom : 0,
+        pinTop: pin.getBoundingClientRect().top, nextTop: r.top, nextSeen: !!at && (at === next || next.contains(at)),
+        pinX: pin.getBoundingClientRect().left + 40, pinY: pin.getBoundingClientRect().top + pin.getBoundingClientRect().height / 2
+      };
+    })()`;
+    type Geo = { scrollHeight: number; innerHeight: number; scrollY: number; appBottom: number; navBottom: number; pinTop: number; nextTop: number; nextSeen: boolean; pinX: number; pinY: number };
+    try {
+      const before = await b.evaluate<Geo>(geo);
+      expect(before.scrollHeight, 'the document is taller than the window').toBeLessThanOrEqual(before.innerHeight);
+      expect(before.appBottom, 'the app fills the window').toBe(before.innerHeight);
+      expect(before.nextSeen).toBe(true);
+      if (!view.touch) {
+        expect(await js(b, `!!document.elementFromPoint(${before.pinX}, ${before.pinY}).closest('.a-pin')`), 'the wheel goes over the strip').toBe(true);
+        await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: before.pinX, y: before.pinY });
+        for (let i = 0; i < 4; i += 1) await b.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: before.pinX, y: before.pinY, deltaX: 0, deltaY: 120 });
+        await wait(500);
+      }
+      const after = await b.evaluate<Geo>(geo);
+      expect(after.scrollY).toBe(0);
+      expect(after.pinTop, 'the strip slid under the site bar').toBeGreaterThanOrEqual(after.navBottom);
+      expect(after.nextTop).toBeGreaterThanOrEqual(after.navBottom);
+      expect(after.nextSeen, 'the next step is covered').toBe(true);
+    } finally { await b.close(); }
+  }, BROWSER_TIMEOUT_MS);
+
+  // Below the app's 420px floor the page has to scroll. The site bar is
+  // not sticky here, so it scrolls away with the page instead of settling
+  // over the strip.
+  it('in a window shorter than the app, a mouse wheel over the pinned strip scrolls the site bar away, not over the strip', async () => {
+    if (!hasRealBrowser()) return;
+    const view: View = { width: 1280, height: 400, touch: false };
+    const b = await open(view, world.buyer, thread(OPEN));
+    try {
+      const at = await b.evaluate<{ x: number; y: number; scrolls: boolean }>(`(function () {
+        var r = document.querySelector('.a-pin').getBoundingClientRect();
+        return { x: r.left + 40, y: r.top + r.height / 2, scrolls: document.documentElement.scrollHeight > innerHeight };
+      })()`);
+      expect(at.scrolls, 'the window is shorter than the app, so the page scrolls').toBe(true);
+      await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y });
+      for (let i = 0; i < 4; i += 1) await b.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: at.x, y: at.y, deltaX: 0, deltaY: 120 });
+      await wait(500);
+      const after = await b.evaluate<{ scrollY: number; navBottom: number; pinTop: number }>(`({
+        scrollY: scrollY,
+        navBottom: document.querySelector('nav.nav').getBoundingClientRect().bottom,
+        pinTop: document.querySelector('.a-pin').getBoundingClientRect().top
+      })`);
+      expect(after.scrollY, 'the wheel scrolled the page').toBeGreaterThan(0);
+      expect(after.pinTop, 'the strip slid under the site bar').toBeGreaterThanOrEqual(after.navBottom);
+    } finally { await b.close(); }
+  }, BROWSER_TIMEOUT_MS);
+
+  // Defect 3's measure, over every text node in my own bubbles: the
+  // hirer's brief (cut, with its link), label and messages; the owner's PDF
+  // card, a reply with its quote, and their messages.
+  it('every piece of text inside my own bubbles measures 4.5:1 or more against the bubble it sits on', async () => {
+    if (!hasRealBrowser()) return;
+    const rows: Contrast['rows'] = [];
+    for (const [who, jobId] of [[world.buyer, SUBMITTED], [world.buyer, OPEN], [world.owner, OPEN]] as const) {
+      const b = await open(DESKTOP, who, thread(jobId));
+      try {
+        const m = await b.evaluate<Contrast>(CONTRAST);
+        expect(m.unmeasurable, 'text the measure cannot account for').toEqual([]);
+        rows.push(...m.rows);
+      } finally { await b.close(); }
+    }
+    const texts = rows.map((r) => r.text);
+    for (const must of ['Brief', 'Read the whole brief', 'PDF, 1 KB', 'db-access-policy.pdf', '@msg-buyer', 'Could you do $1,100?']) {
+      expect(texts.some((t) => t.startsWith(must)), `the fixture shows "${must}" in my bubble`).toBe(true);
+    }
+    if (captureDir) {
+      mkdirSync(captureDir, { recursive: true });
+      writeFileSync(join(captureDir, 'contrast-my-bubbles.json'), JSON.stringify(rows, null, 1));
+    }
+    expect(rows.filter((r) => r.ratio < r.floor)).toEqual([]);
   }, BROWSER_TIMEOUT_MS);
 });

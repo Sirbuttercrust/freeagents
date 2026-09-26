@@ -48,6 +48,10 @@ export const STAGED = 'msg-job-staged'; // staged, waiting on the hirer's review
 export const SUBMITTED = 'msg-job-submitted'; // the pull request is open
 export const DONE = 'msg-job-done'; // completed: read only, every system event
 export const BRIEF = 'Move Postgres 12 to 16 on a new host.\nIt is about 40 GB, and one Django app writes to it.';
+// Long enough that the thread cuts it and links to the whole brief.
+export const LONG_BRIEF = 'Speed up the search page.\nSearch takes about four seconds on a cold cache, and people give up before the results arrive. '
+  + 'The slow part looks like the query that joins listings to their tags, which runs once per result instead of once per page. '
+  + 'Please keep the ranking exactly as it is today, and leave the filters alone.';
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -65,6 +69,7 @@ export interface ThreadIds {
   readonly pdfFile: string;
   readonly pdf: string;
   readonly night: string;
+  readonly oldMine: string;
   readonly doneThanks: string;
 }
 
@@ -171,7 +176,7 @@ export async function buildMessagesWorld(): Promise<World> {
     stagedAt: recent, stagedCommit: 'msgstagedcommit',
   }));
   await jobs.create(job(SUBMITTED, new Date(now - 7 * HOUR), {
-    brief: 'Speed up the search page.', status: 'submitted', criteria: CRITERIA_SIGNED, priceUsd: '800.00', rail: 'abt',
+    brief: LONG_BRIEF, status: 'submitted', criteria: CRITERIA_SIGNED, priceUsd: '800.00', rail: 'abt',
     priceAcceptedByBuyer: true, priceAcceptedByAgent: true, confirmedAt: recent, confirmedSpecHash: 'sha256:msg-submitted-spec',
     stagedAt: recent, stagedCommit: 'msgsubmittedcommit', pullRequestUrl: 'https://github.com/buyer/msg-repo/pull/6', submittedAt: recent,
   }));
@@ -259,6 +264,11 @@ export async function buildMessagesWorld(): Promise<World> {
   const pdfMessage = await post(owner, OPEN, 'Our access policy, for the cutover night.', { attachmentIds: [pdfFile] });
   const night = await post(buyer, OPEN, 'Wednesday after 10 PM Eastern.');
   await call(buyer, 'PATCH', `/jobs/${OPEN}/messages/${night}`, { body: 'Thursday after 10 PM Eastern.' });
+  // One of the hirer's own messages from before the 15 minutes to edit it
+  // ran out, stored directly because a route would stamp it now.
+  const oldMine = await direct(OPEN, {
+    id: 'm-msg-old-mine', body: 'Happy to answer anything about the setup.', authorParty: 'buyer', authorKind: 'buyer', authorDid: BUYER_DID,
+  }, new Date(now - 40 * 60 * 1000));
 
   // THE FINISHED HIRE: every event the platform writes, days ago.
   const at = (d: number, h = 0): Date => new Date(now - d * DAY + h * HOUR);
@@ -273,7 +283,7 @@ export async function buildMessagesWorld(): Promise<World> {
     reactions: { buyer: null, agent: '\u2764\uFE0F' },
   }, at(9, 2));
 
-  const ids: ThreadIds = { thanks, question, quote1, push, counter, quote2, auto, imageFile, image, pdfFile, pdf: pdfMessage, night, doneThanks };
+  const ids: ThreadIds = { thanks, question, quote1, push, counter, quote2, auto, imageFile, image, pdfFile, pdf: pdfMessage, night, oldMine, doneThanks };
 
   return {
     server, baseUrl, accounts, agents, jobs, messages, readStates, attachments, buyer, owner, stranger, ids, png, pdf,
