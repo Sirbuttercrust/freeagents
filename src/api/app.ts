@@ -26,7 +26,9 @@ import { createDidAbtSigningKeyResolver, createKnownKeyStore } from '../adapters
 import { verify as verifySignature } from '../adapters/identity/http-signature.js';
 import { CandidateKeyRejectedError, createIdentityAdapter, DidNotResolvableError } from '../adapters/identity/identity.js';
 import type { IdentityAdapter } from '../adapters/identity/types.js';
-import { createRateLimiter, type RateLimiter } from '../adapters/identity/verify-rate-limit.js';
+import { type RateLimiter } from '../adapters/identity/verify-rate-limit.js';
+import { InvalidTrustProxyError, trustProxySettingFromEnv, TRUST_PROXY_ENV_VAR } from '../adapters/config/trust-proxy.js';
+import { createClassRateLimiters, createClassRateLimitMiddleware, type ClassLimits } from './rate-limit-middleware.js';
 import { createSignatureSpendStorage } from '../adapters/identity/signature-spend-storage.js';
 import type { SignatureSpendStorage } from '../adapters/identity/signature-spend-storage-types.js';
 import { type StagingObserver } from '../adapters/staging/types.js';
@@ -890,12 +892,19 @@ export function createApp(
   compromiseRepo: CompromiseRepository = createCompromiseRepository(),
   credentialRepo: CredentialRepository = createCredentialRepository(),
   // #30 addendum: public does not mean scrapeable-to-death. A session
-  // never raises this limit -- it gates the anonymous verify routes only,
-  // by caller IP, independent of whatever identity mechanism R-39 adds.
-  // 60 requests/minute is a generous default for a human or a legitimate
-  // integration; a scraper hits it fast. Injectable so tests can pin a
-  // small limit instead of hammering a live app hundreds of times.
-  verifyRateLimiter: RateLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 }),
+  // never raises any of these limits -- they gate by caller IP, independent
+  // of whatever identity mechanism R-39 adds.
+  // FIX-S7 (security sweep S7+S11): this parameter used to construct a
+  // single RateLimiter that gated only the 4 anonymous verify routes. It
+  // now takes the injection seam for the WHOLE class-limiter system
+  // (src/api/rate-limit-middleware.ts): a bare RateLimiter here is still
+  // treated as the `verify` class override (so the four existing test
+  // files that construct one keep passing unchanged), or a ClassLimits
+  // object can override any subset of the four classes' limits by number,
+  // for a test that needs a generous override rather than a raised
+  // default. Undefined means every class reads its own env-derived
+  // default (CLASS_DEFAULTS in rate-limit-middleware.ts).
+  rateLimits: RateLimiter | ClassLimits | undefined = undefined,
   web: WebSurface = createWebSurface(),
   reviewRepo: ReviewRepository = createReviewRepository(),
   // R-39 follow-up (issue 83): the session adapter hire and list routes
@@ -988,6 +997,21 @@ export function createApp(
   // only wrong in dev is the kind that ships.
   const credentialsAdapter = credentials ?? createCredentialsAdapter(undefined, credentialRepo);
   const app = express();
+
+  // S11 (security sweep 2026-09-06): the caller's real address, behind a
+  // proxy. Must be set before any route or rate-limit bucket reads
+  // req.ip/req.protocol, because both change meaning once this is set
+  // (Express's own req.ip and req.protocol docs). Whoever fixes S7 must
+  // fix S11 first: mounting a limiter more widely with no proxy trust
+  // configured would turn one shared bucket into a platform-wide denial
+  // of service for every caller behind the same proxy.
+  try {
+    app.set('trust proxy', trustProxySettingFromEnv());
+  } catch {
+    const raw = process.env[TRUST_PROXY_ENV_VAR] ?? '';
+    throw new InvalidTrustProxyError(raw);
+  }
+
   app.use(
     express.json({
       // HT1 Part B (attachments STEER): an attachment travels as a
@@ -1006,6 +1030,17 @@ export function createApp(
       },
     }),
   );
+
+  // S7 (security sweep 2026-09-06): every route class gets a bucket,
+  // mounted in ONE place, here, right after the body parser and before
+  // web.mountPages(app) below -- so a page shell and every API route both
+  // pass through it, and nothing registered after this point can be
+  // reached without first being classified (rate-limit-classes.ts's
+  // classifyRoute, and its own router-walk enforcement test). S11 above
+  // (trust proxy) runs first, per the sweep's own rule: "whoever fixes S7
+  // must fix S11 first".
+  const classRateLimiters = createClassRateLimiters(rateLimits);
+  app.use(createClassRateLimitMiddleware(classRateLimiters));
 
   // R-3 + R-4 completion (B5, launch blocker): the record of which DIDs'
   // key material this process has itself independently checked (via the
@@ -1370,7 +1405,6 @@ export function createApp(
   // before this card, on every status code this route can answer.
   app.get(
     '/auth/github/callback',
-    verifyRateLimiter.middleware,
     (req: Request, res: Response, next: NextFunction) => {
       const wantsHtml = prefersHtml(req.headers.accept);
       const code = req.query['code'];
@@ -1434,7 +1468,6 @@ export function createApp(
   // mapped to 401 without inspecting which one it was.
   app.post(
     '/auth/passkey/verify',
-    verifyRateLimiter.middleware,
     (req: Request, res: Response, next: NextFunction) => {
       const body = (req.body ?? {}) as { responseJson?: unknown };
       const responseJson = body.responseJson;
@@ -3029,7 +3062,7 @@ export function createApp(
   // limit. Everything else that is public (capabilities, operator browse)
   // is left alone -- the brief names verify routes specifically, not every
   // public GET.
-  app.get('/agents/:agentDid', verifyRateLimiter.middleware, async (req: Request, res: Response) => {
+  app.get('/agents/:agentDid', async (req: Request, res: Response) => {
     const did = String(req.params.agentDid);
     try {
       const row = await agentRepo.findByDid(did);
@@ -3732,7 +3765,7 @@ export function createApp(
   // off-platform (invariant 2). No authentication: resolvable is part of
   // the contract (spec/work-history-extension-v1.md, credentials.endpoint).
   // Issuance is R-13's wiring; this route serves what it is handed.
-  app.get('/v1/credentials/:credentialId', verifyRateLimiter.middleware, async (req: Request, res: Response) => {
+  app.get('/v1/credentials/:credentialId', async (req: Request, res: Response) => {
     const credentialId = String(req.params.credentialId);
     try {
       const document = await credentialsAdapter.getCredential(credentialId);
