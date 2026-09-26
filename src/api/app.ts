@@ -62,6 +62,7 @@ import { delegationConsistent, isAgentOperator, agentMayNegotiate, type Agent, t
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
 import { buildAttestation, AttestationError } from '../domain/attestation.js';
 import { lastHireCompletedAt, recordLastChangedAt } from '../domain/freshness.js';
+import { isHttpsUrl } from '../domain/notification.js';
 import {
   filterBySkill,
   resolveBrowseSort,
@@ -181,6 +182,53 @@ import { SIGN_IN_METHODS, type SignInMethod } from '../domain/sign-in-methods.js
 import { type SessionAdapter, type SignInMethod as SessionSignInMethod } from '../adapters/identity/session.js';
 import { sessionAdapterFromEnv } from '../adapters/identity/session-github-passkey.js';
 import { createWebSurface, prefersHtml, type WebSurface } from '../web/static.js';
+import { isTerminal } from '../domain/job.js';
+import {
+  authorKindFor,
+  createMessage,
+  createSystemMessage,
+  editMessage,
+  EDIT_WINDOW_MINUTES,
+  isSingleEmoji,
+  MessageEditWindowExpiredError,
+  MessageError,
+  messageBodyWellFormed,
+  MESSAGE_BODY_MAX_LENGTH,
+  partyMayAccessThread,
+  reactToMessage,
+  removeReaction,
+  threadIsWritable,
+  ThreadReadOnlyError,
+  advanceReadState,
+  type Message,
+  type ThreadReadState,
+} from '../domain/message.js';
+import {
+  createNotification,
+  markNotificationRead,
+  unreadCountOf,
+  type Notification,
+  type NotificationEventType,
+} from '../domain/notification.js';
+import { assertAttachmentAllowed, AttachmentError, isImageKind, MAX_ATTACHMENT_BYTES, type Attachment } from '../domain/attachment.js';
+import {
+  createMessageRepository,
+  createThreadReadStateRepository,
+  createNotificationRepository,
+  createAttachmentRepository,
+  createPushSubscriptionRepository,
+} from '../adapters/storage/storage.js';
+import type {
+  MessageRepository,
+  ThreadReadStateRepository,
+  NotificationRepository,
+  AttachmentRepository,
+  PushSubscriptionRepository,
+} from '../adapters/storage/types.js';
+import { attachmentsDirFromEnv, randomFileId, readAttachmentFile, writeAttachmentFile } from '../adapters/attachments/storage.js';
+import { reencodeImage, ImageReencodeError } from '../adapters/attachments/image.js';
+import { createWebhookSender, type WebhookSender } from '../adapters/webhook/webhook.js';
+import { createPushSender, type PushSender } from '../adapters/push/push.js';
 
 // The hire-loop's last stub (R-12 reviews) stays honest about being unbuilt:
 // it returns 501 until its issue lands. Merge (R-11) now has a real handler
@@ -305,6 +353,11 @@ function agentProjection(row: Agent): Record<string, unknown> {
     // unconditionally like every other opt-in flag above. Set only by
     // PUT /agents/:agentDid/negotiation, gated to the agent's own operator.
     negotiatesOnOwnersBehalf: row.negotiatesOnOwnersBehalf,
+    // HT1 Part B (STEER item 4, 2026-09-25): null when the operator never
+    // set one, rides the base key set unconditionally like every other
+    // opt-in field above. Set only by PUT /agents/:agentDid/webhook,
+    // gated to the agent's own operator.
+    notifyWebhookUrl: row.notifyWebhookUrl,
   };
 }
 
@@ -876,6 +929,21 @@ export function createApp(
   // two separate createApp calls, the way every other storage capability
   // in this codebase proves a restart does not lose the observation.
   signatureSpendStorage: SignatureSpendStorage = createSignatureSpendStorage(),
+  // HT1 Part B: the hire thread's message store, read receipts, per-account
+  // notifications, message attachments and browser Push subscriptions.
+  // Same injectable-default stance as every other storage capability above.
+  messageRepo: MessageRepository = createMessageRepository(),
+  threadReadStateRepo: ThreadReadStateRepository = createThreadReadStateRepository(),
+  notificationRepo: NotificationRepository = createNotificationRepository(),
+  attachmentRepo: AttachmentRepository = createAttachmentRepository(),
+  pushSubscriptionRepo: PushSubscriptionRepository = createPushSubscriptionRepository(),
+  // HT1 Part B (STEER item 4): fire-and-forget senders. Both default to
+  // their env-derived construction (an unconfigured deployment gets a
+  // sender that announces itself once and then no-ops, matching every
+  // other capability's stance in this file); tests inject a fake to
+  // observe what would have been sent, with no network in the suite.
+  webhookSender: WebhookSender = createWebhookSender(),
+  pushSender: PushSender = createPushSender(),
 ): Express {
   // One repository behind both halves of the capability when the caller
   // supplies neither. createCredentialRepository() hands the memory driver a
@@ -887,6 +955,17 @@ export function createApp(
   const app = express();
   app.use(
     express.json({
+      // HT1 Part B (attachments STEER): an attachment travels as a
+      // base64-encoded JSON field, never multipart (no new body-parsing
+      // dependency for this one route). Base64 costs roughly 4/3 of the
+      // original bytes, so the 10 MB attachment cap (MAX_ATTACHMENT_BYTES,
+      // src/domain/attachment.ts) needs a body limit comfortably above
+      // 13.3 MB; 15 MB leaves headroom for the JSON envelope around it.
+      // Every other route's body is orders of magnitude smaller than this,
+      // so raising the one global limit (rather than a second per-route
+      // parser, which cannot re-read a stream express.json() already
+      // consumed) costs nothing elsewhere.
+      limit: '15mb',
       verify: (req, _res, buf) => {
         (req as RawBodyRequest).rawBody = Buffer.from(buf);
       },
@@ -2585,6 +2664,39 @@ export function createApp(
     }
   });
 
+  // HT1 Part B (STEER item 4, 2026-09-25): "add an optional
+  // notifyWebhookUrl the operator sets on the listing... validate the
+  // URL as https-only." null clears it back off, mirroring the
+  // negotiation route's own boolean-or-null shape. Same gate as the
+  // negotiation route above: the agent's own operator, no one else.
+  app.put('/agents/:agentDid/webhook', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+    const body = (req.body ?? {}) as { notifyWebhookUrl?: unknown };
+    if (body.notifyWebhookUrl !== null && typeof body.notifyWebhookUrl !== 'string') {
+      res.status(400).json({ error: 'body must be { notifyWebhookUrl }, an https URL string or null to clear it' });
+      return;
+    }
+    if (body.notifyWebhookUrl !== null && !isHttpsUrl(body.notifyWebhookUrl)) {
+      res.status(400).json({ error: 'notifyWebhookUrl must be an https:// URL' });
+      return;
+    }
+
+    const gated = await requireCallerIsAgentOperator('PUT /agents/:agentDid/webhook', req, res, did);
+    if (gated === null) return;
+
+    try {
+      const updated = await agentRepo.setNotifyWebhookUrl(did, body.notifyWebhookUrl);
+      if (updated === null) {
+        res.status(404).json({ error: `agent ${did} is not registered` });
+        return;
+      }
+      res.status(200).json(agentProjection(updated));
+    } catch (err) {
+      console.error('PUT /agents/:agentDid/webhook: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
   // R-16 (ENT-8.4): an operator reports one of the agent's keys compromised.
   // A side record beside the agent, never a field on it, and never written
   // into a signed credential (ENT-8.3 forbids a judgement inside the
@@ -3142,9 +3254,13 @@ export function createApp(
       // legacy agentDid field or through agentDids with one entry -- gets
       // the bare single-job shape below: "the single-agent POST /jobs
       // shape... is one agent in a list of one" (the card's own wording).
+      for (const row of createdRows) {
+        await notifyJobParties(row, 'new_brief', buyerDid);
+      }
       res.status(201).json({ requestId, jobs: createdRows.map((row) => jobProjection(row)) });
       return;
     }
+    await notifyJobParties(createdRows[0]!, 'new_brief', buyerDid);
     res.status(201).json(jobProjection(createdRows[0]!));
   });
 
@@ -3375,6 +3491,12 @@ export function createApp(
     current: Job,
     apply: (job: Job) => Job,
     paymentGate?: PaymentGateCheck,
+    // HT1 Part B: an optional post-persist hook (system messages,
+    // notifications) run AFTER the row is durably written and BEFORE the
+    // response is sent, with the persisted row. Never runs on a refusal
+    // (400/402/409) or a storage failure (503): only on the exact same
+    // path that would otherwise answer 200.
+    onPersisted?: (persisted: Job) => Promise<void>,
   ): Promise<void> {
     let updated: Job;
     try {
@@ -3439,6 +3561,7 @@ export function createApp(
         res.status(404).json({ error: 'not found' });
         return;
       }
+      if (onPersisted !== undefined) await onPersisted(row);
       res.status(200).json(jobProjection(row));
     } catch (err) {
       console.error(`${label}: storage failed`, err);
@@ -3460,6 +3583,7 @@ export function createApp(
     res: Response,
     apply: (job: Job) => Job,
     signerDid: string | null = null,
+    onPersisted?: (persisted: Job) => Promise<void>,
   ): Promise<void> {
     const current = await loadForExchange(label, jobId, res);
     if (current === null) return;
@@ -3467,7 +3591,7 @@ export function createApp(
       res.status(403).json({ error: 'signature does not name a party to this job' });
       return;
     }
-    await applyAndPersist(label, res, current, apply);
+    await applyAndPersist(label, res, current, apply, undefined, onPersisted);
   }
 
   // ENT-6.2's caller-identity gate. The brief's defect #2: runExchange never
@@ -3592,6 +3716,238 @@ export function createApp(
       error: "the owner has not allowed this agent to negotiate on its own signature; sign in as the operator, or have the operator turn on negotiatesOnOwnersBehalf for this agent",
     });
     return false;
+  }
+
+  // HT1 Part B: the hire thread's message projection. No em dash, no
+  // seat name, matching every other wire shape in this file.
+  function messageProjection(row: Message): Record<string, unknown> {
+    return {
+      id: row.id,
+      jobId: row.jobId,
+      authorDid: row.authorDid,
+      authorParty: row.authorParty,
+      authorKind: row.authorKind,
+      body: row.body,
+      replyToId: row.replyToId,
+      createdAt: row.createdAt.toISOString(),
+      editedAt: row.editedAt === null ? null : row.editedAt.toISOString(),
+      editHistory: row.editHistory.map((edit) => ({ body: edit.body, editedAt: edit.editedAt.toISOString() })),
+      reactions: row.reactions,
+      attachments: row.attachments,
+      systemEvent: row.systemEvent,
+    };
+  }
+
+  function notificationProjection(row: Notification): Record<string, unknown> {
+    return {
+      id: row.id,
+      accountDid: row.accountDid,
+      jobId: row.jobId,
+      eventType: row.eventType,
+      createdAt: row.createdAt.toISOString(),
+      readAt: row.readAt === null ? null : row.readAt.toISOString(),
+    };
+  }
+
+  // HT1 Part B: the thread's own read/write gate, the message-route
+  // sibling of requireNegotiationAllowed above. The buyer is always
+  // allowed (partyMayAccessThread's own short-circuit); the agent's own
+  // key needs the identical negotiatesOnOwnersBehalf flag every
+  // negotiation route already checks, since posting a message is named
+  // in the original brief as one of the negotiation routes.
+  async function requireThreadAccess(
+    label: string,
+    res: Response,
+    job: Job,
+    actingDid: string,
+    party: Party,
+  ): Promise<boolean> {
+    let jobAgent: Agent | null = null;
+    if (party === 'agent') {
+      try {
+        jobAgent = await agentRepo.findByDid(job.agentDid);
+      } catch (err) {
+        console.error(`${label}: storage failed reading the job's agent`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return false;
+      }
+    }
+    const allowed = partyMayAccessThread({
+      party,
+      callerIsAgentOwnKey: party === 'agent' && actingDid === job.agentDid,
+      negotiatesOnOwnersBehalf: jobAgent?.negotiatesOnOwnersBehalf ?? false,
+    });
+    if (allowed) return true;
+    res.status(403).json({
+      error: "the owner has not allowed this agent to negotiate on its own signature; sign in as the operator, or have the operator turn on negotiatesOnOwnersBehalf for this agent",
+    });
+    return false;
+  }
+
+  // HT1 Part B (STEER item 4): every new brief, message, quote change and
+  // sibling withdrawal notifies the agent's operator (and the buyer, on
+  // the buyer's own threads). notifyJobParties is the one call site every
+  // job-event trigger below uses: it resolves the job's own agent row
+  // once, notifies the agent's OPERATOR (never the agent's own DID; a
+  // notification is a fact for a person to read, and the operator is who
+  // reads it) and the buyer, skipping whichever DID authored the event
+  // (excludeDid) so a party is never notified of its own action. The
+  // webhook is fired ONLY toward the agent's own autonomous software, and
+  // ONLY when both gates STEER item 4 names are open: negotiation is
+  // turned on AND a webhook URL is set -- exactly
+  // "the agent's own autonomous software is never contacted unless its
+  // operator both enabled negotiation AND set the webhook."
+  async function notifyJobParties(
+    job: Job,
+    eventType: NotificationEventType,
+    excludeDid: string | null,
+  ): Promise<void> {
+    let jobAgent: Agent | null;
+    try {
+      jobAgent = await agentRepo.findByDid(job.agentDid);
+    } catch (err) {
+      console.error('notifyJobParties: storage failed reading the job\'s agent', err);
+      jobAgent = null;
+    }
+    if (jobAgent !== null && jobAgent.operatorDid !== excludeDid) {
+      await notify(jobAgent.operatorDid, job.id, eventType);
+      if (jobAgent.notifyWebhookUrl !== null && jobAgent.negotiatesOnOwnersBehalf) {
+        try {
+          await webhookSender.send(jobAgent.notifyWebhookUrl, {
+            id: 'w-' + randomBytes(8).toString('hex'),
+            accountDid: jobAgent.did,
+            jobId: job.id,
+            eventType,
+            createdAt: new Date(),
+            readAt: null,
+          });
+        } catch (err) {
+          console.error('notifyJobParties: webhook delivery failed', err);
+        }
+      }
+    }
+    if (job.buyerDid !== excludeDid) {
+      await notify(job.buyerDid, job.id, eventType);
+    }
+  }
+
+  // The stored notification row plus its delivery side effects (push and
+  // the live notification stream). Never the webhook: the webhook is a
+  // per-agent, per-DID concern only notifyJobParties resolves, since it
+  // needs the job's own agent row to find the URL.
+  async function notify(accountDid: string, jobId: string, eventType: NotificationEventType): Promise<void> {
+    let row: Notification;
+    try {
+      row = await notificationRepo.create(createNotification({ id: 'n-' + randomBytes(8).toString('hex'), accountDid, jobId, eventType }, new Date()));
+    } catch (err) {
+      console.error('notify: storage failed writing the notification row', err);
+      return;
+    }
+    broadcastNotification(accountDid, row);
+    try {
+      const subscriptions = await pushSubscriptionRepo.listByAccountDid(accountDid);
+      for (const subscription of subscriptions) {
+        await pushSender.send(subscription, { title: 'FreeAgents', body: pushBodyFor(eventType) });
+      }
+    } catch (err) {
+      console.error('notify: push delivery failed', err);
+    }
+  }
+
+  function pushBodyFor(eventType: NotificationEventType): string {
+    switch (eventType) {
+      case 'new_brief':
+        return 'You have a new brief.';
+      case 'new_message':
+        return 'You have a new message.';
+      case 'quote_changed':
+        return 'A quote changed on one of your jobs.';
+      case 'sibling_withdrawn':
+        return 'A sibling job was withdrawn.';
+      default:
+        return 'You have a new notification.';
+    }
+  }
+
+  // HT1 Part B: the live stream (SSE) and the typing signal. Both are
+  // in-memory, single-process pub/sub -- the same architecture every
+  // other ephemeral, non-durable signal in this codebase already uses
+  // (the rate limiter's own in-memory window, for one). A typing signal
+  // is explicitly NOT persisted (STEER names it a signal, not a stored
+  // fact); an SSE connection observes only messages written AFTER it
+  // subscribed, with polling as the documented fallback for a client
+  // that cannot hold the connection open (GET /jobs/:jobId/messages
+  // already answers that same fallback need).
+  const threadStreams = new Map<string, Set<Response>>();
+  const notificationStreams = new Map<string, Set<Response>>();
+
+  function sseSend(res: Response, event: string, data: unknown): void {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  }
+
+  function broadcastThreadEvent(jobId: string, event: string, data: unknown): void {
+    const subscribers = threadStreams.get(jobId);
+    if (subscribers === undefined) return;
+    for (const subscriber of subscribers) sseSend(subscriber, event, data);
+  }
+
+  function broadcastNotification(accountDid: string, row: Notification): void {
+    const subscribers = notificationStreams.get(accountDid);
+    if (subscribers === undefined) return;
+    for (const subscriber of subscribers) sseSend(subscriber, 'notification', notificationProjection(row));
+  }
+
+  // Temper's STEER (bugs.md B19, 2026-09-25): "when the platform observes
+  // a deposit or a balance leg settle... it writes a `deposit paid` or
+  // `balance paid` system row into the hire thread, readable by both
+  // parties. The row carries the leg, the amount in USD and the rail,
+  // never a wallet address or a transaction hash." One function, called
+  // from both the USDC wallet-response route below and the ABT DID
+  // Connect onSettlementRecorded callback (abt-did-connect.ts), so the
+  // two rails can never drift on what the row looks like. Best-effort,
+  // logged, never turns a successful settlement observation into a 503:
+  // the settlement row confirm() itself wrote is already durable by the
+  // time this is called.
+  async function recordSettlementSystemEvent(input: {
+    readonly jobId: string;
+    readonly leg: 'deposit' | 'remainder';
+    readonly rail: 'abt' | 'usdc';
+    readonly amountUsd: string;
+  }): Promise<void> {
+    try {
+      await messageRepo.create(
+        createSystemMessage(
+          {
+            id: 'm-' + randomBytes(8).toString('hex'),
+            jobId: input.jobId,
+            body: input.leg === 'deposit' ? 'Deposit paid' : 'Balance paid',
+            systemEvent:
+              input.leg === 'deposit'
+                ? { type: 'deposit_paid', leg: 'deposit', amountUsd: input.amountUsd, rail: input.rail }
+                : { type: 'balance_paid', leg: 'remainder', amountUsd: input.amountUsd, rail: input.rail },
+          },
+          new Date(),
+        ),
+      );
+      broadcastThreadEvent(input.jobId, 'message', {});
+    } catch (err) {
+      console.error('recordSettlementSystemEvent: failed to write the settlement system row', err);
+    }
+    // A settlement observation notifies both parties like any other new
+    // thread row; 'new_message' is the closest of the four defined
+    // NotificationEventType values (src/domain/notification.ts), since
+    // the brief did not ask for a fifth event type just for this.
+    let job: Job | null;
+    try {
+      job = await jobRepo.findById(input.jobId);
+    } catch (err) {
+      console.error('recordSettlementSystemEvent: storage failed reading the job', err);
+      return;
+    }
+    if (job !== null) {
+      await notifyJobParties(job, 'new_message', null);
+    }
   }
 
   // Lifecycle routes (withdraw, decline, pull-request, merge) were outside
@@ -3778,8 +4134,46 @@ export function createApp(
         (criterion) => ({ text: criterion.text, proposedBy: gate.party }),
       );
 
-      await applyAndPersist('POST /jobs/:jobId/criteria', res, current, (job) =>
-        proposeCriteria(job, attributedInput, priceProposal),
+      await applyAndPersist(
+        'POST /jobs/:jobId/criteria',
+        res,
+        current,
+        (job) => proposeCriteria(job, attributedInput, priceProposal),
+        undefined,
+        // HT1 Part B: "system events (quote sent...) are rows in the same
+        // thread... a quote event carries the price, window, and criteria
+        // count." Only when this call actually proposed a price -- a bare
+        // criteria revision writes no quote row. STEER item 4: "every...
+        // quote change... notifies the agent's operator," fired with the
+        // acting party excluded so the author of the quote is never
+        // notified of its own action.
+        priceProposal === undefined
+          ? undefined
+          : async (persisted) => {
+              try {
+                await messageRepo.create(
+                  createSystemMessage(
+                    {
+                      id: 'm-' + randomBytes(8).toString('hex'),
+                      jobId: persisted.id,
+                      body: 'Quote sent',
+                      systemEvent: {
+                        type: 'quote_sent',
+                        priceUsd: priceProposal!.priceUsd,
+                        rail: priceProposal!.rail,
+                        deliveryWindowDays: priceProposal!.deliveryWindowDays ?? null,
+                        criteriaCount: persisted.criteria.length,
+                      },
+                    },
+                    new Date(),
+                  ),
+                );
+                broadcastThreadEvent(persisted.id, 'message', {});
+              } catch (err) {
+                console.error('POST /jobs/:jobId/criteria: failed to write the quote_sent system row', err);
+              }
+              await notifyJobParties(persisted, 'quote_changed', gate.did);
+            },
       );
     }),
   );
@@ -4049,16 +4443,20 @@ export function createApp(
         // write to is a fact for the next read to reconcile, not a reason
         // to tell the buyer their own confirm failed.
         //
-        // TODO(HT1 item 4, messages/notifications follow-up card): this is
-        // exactly where the "your brief went to another agent" notice
-        // hooks in once that delivery infrastructure exists. The notice
-        // must name only that the buyer went elsewhere, never who: do not
-        // pass row.agentDid or any agent name into that call when it
-        // lands.
+        // HT1 Part B (STEER item 4): "every... sibling withdrawal notifies
+        // the agent's operator." Fires after the withdraw itself persists
+        // (best-effort, logged, never turns an otherwise-successful
+        // confirm into a 503, the same stance the withdraw loop above
+        // already takes on its own storage failure). The buyer already
+        // knows (it is the one that confirmed elsewhere); excludeDid is
+        // the buyer's own DID so it is never notified of its own action.
         for (const sibling of siblingsExcludingSelf) {
           if (sibling.status !== 'draft' && sibling.status !== 'proposed') continue;
           try {
-            await jobRepo.update(recordWithdrawn(sibling));
+            const withdrawnSibling = await jobRepo.update(recordWithdrawn(sibling));
+            if (withdrawnSibling !== null) {
+              await notifyJobParties(withdrawnSibling, 'sibling_withdrawn', withdrawnSibling.buyerDid);
+            }
           } catch (err) {
             console.error(`${label}: failed to withdraw sibling ${sibling.id}`, err);
           }
@@ -4334,6 +4732,20 @@ export function createApp(
           // vanished row already represents everywhere else in this file.
           res.status(404).json({ error: 'not found' });
           return;
+        }
+        // HT1 Part B: "system events (quote sent, deposit paid, staged,
+        // PR opened, completed) are rows in the same thread."
+        // Best-effort, logged, never turns a successful stage into a 503.
+        try {
+          await messageRepo.create(
+            createSystemMessage(
+              { id: 'm-' + randomBytes(8).toString('hex'), jobId: row.id, body: 'Staged', systemEvent: { type: 'staged' } },
+              new Date(),
+            ),
+          );
+          broadcastThreadEvent(row.id, 'message', {});
+        } catch (err) {
+          console.error(`${label}: failed to write the staged system row`, err);
         }
         res.status(200).json(jobProjection(row));
       } catch (err) {
@@ -4666,8 +5078,33 @@ export function createApp(
       // The domain applies its rule and the shared skeleton persists it:
       // JobError->400, transition->409, vanished row->404, dead storage->503,
       // exactly like every sibling route after confirm.
-      await runExchange('POST /jobs/:jobId/pull-request', jobId, res, (job) =>
-        submitPullRequest(job, pullRequestUrl, new Date()),
+      await runExchange(
+        'POST /jobs/:jobId/pull-request',
+        jobId,
+        res,
+        (job) => submitPullRequest(job, pullRequestUrl, new Date()),
+        null,
+        // HT1 Part B: "system events (... PR opened ...) are rows in the
+        // same thread." Best-effort, logged, never turns a successful
+        // submit into a 503.
+        async (persisted) => {
+          try {
+            await messageRepo.create(
+              createSystemMessage(
+                {
+                  id: 'm-' + randomBytes(8).toString('hex'),
+                  jobId: persisted.id,
+                  body: 'Pull request opened',
+                  systemEvent: { type: 'pr_opened', pullRequestUrl },
+                },
+                new Date(),
+              ),
+            );
+            broadcastThreadEvent(persisted.id, 'message', {});
+          } catch (err) {
+            console.error('POST /jobs/:jobId/pull-request: failed to write the pr_opened system row', err);
+          }
+        },
       );
     }),
   );
@@ -4822,6 +5259,7 @@ export function createApp(
           chainHost: process.env.FREEAGENTS_ABT_CHAIN_HOST || '',
           baseUrl: publicBaseUrlFromEnv(),
           txEncoder: abtTxEncoder,
+          onSettlementRecorded: recordSettlementSystemEvent,
         });
 
   // The buyer's browser calls this to START an ABT payment for a named
@@ -5176,6 +5614,12 @@ export function createApp(
           amountUsd: legAmountUsdFromJob(gate.job, leg),
           observedAt: new Date(),
         });
+        await recordSettlementSystemEvent({
+          jobId: gate.job.id,
+          leg,
+          rail: 'usdc',
+          amountUsd: legAmountUsdFromJob(gate.job, leg),
+        });
       }
 
       res.status(200).json(confirmation);
@@ -5452,6 +5896,27 @@ export function createApp(
         console.error('POST /jobs/:jobId/merge: storage failed', err);
         res.status(503).json({ error: 'storage unavailable' });
         return;
+      }
+
+      // HT1 Part B: "system events (... completed) are rows in the same
+      // thread." Best-effort, logged, never turns a successful merge
+      // into a 503: the credential is already durably issued by this
+      // point, and a message write failing here must not undo that.
+      try {
+        await messageRepo.create(
+          createSystemMessage(
+            {
+              id: 'm-' + randomBytes(8).toString('hex'),
+              jobId: row.id,
+              body: 'Completed',
+              systemEvent: { type: 'completed', mergeCommit: mergeCommitSha },
+            },
+            new Date(),
+          ),
+        );
+        broadcastThreadEvent(row.id, 'message', {});
+      } catch (err) {
+        console.error('POST /jobs/:jobId/merge: failed to write the completed system row', err);
       }
 
       res.status(200).json({ ...jobProjection(row), credential });
