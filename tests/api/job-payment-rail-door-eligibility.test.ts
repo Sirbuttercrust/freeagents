@@ -15,10 +15,9 @@
 // earlier "rail not configured" 503.
 import { afterEach, describe, expect, it } from 'vitest';
 import { fromRandom } from '@ocap/wallet';
-import { getSigned, postSigned, driveAbtPayment, decodeClaimBody, walletResponseJwt, walletSignsPartialTx } from '../helpers/abt-fixtures.js';
+import { getSigned, postSigned, driveAbtPayment, continueAbtWalletProtocol } from '../helpers/abt-fixtures.js';
 import { signingIdentityFromWallet } from '../helpers/sign-request.js';
 import { startOpenRailAppWithRails, walkToOpenQuoteAccepted, type OpenRailApp } from '../helpers/open-rail-fixtures.js';
-import { decode as jwtDecode } from '@arcblock/jwt';
 
 const USDC_OPERATOR_ADDRESS = '0xOperator000000000000000000000000000000';
 const USDC_FEE_ADDRESS = '0xFeeAddress000000000000000000000000000';
@@ -106,47 +105,19 @@ describe('rule 5: the deposit that settled in the other currency refuses every d
       jobId, leg: 'deposit', rail: 'usdc', hash: 'h5', secondaryHash: null,
       operatorAddress: USDC_OPERATOR_ADDRESS, feeAddress: USDC_FEE_ADDRESS, amountUsd: '125.00', observedAt: new Date('2026-01-01T00:00:00Z'),
     });
-    // driveAbtPayment cannot be reused for the full round trip here: the
+    // driveAbtPayment cannot be reused for the WHOLE round trip here: the
     // session was already minted above (proving /start itself is not
-    // what refuses), so this replays only the wallet-side callback steps
-    // driveAbtPayment would otherwise run end to end starting from
-    // /start (tests/api/job-payment-abt.test.ts has the identical shape).
+    // what refuses), so this continues from that already-minted session
+    // via continueAbtWalletProtocol rather than driveAbtPayment's own
+    // start-plus-continue shape.
     const startBody = (await startRes.json()) as { readonly token: string; readonly url: string };
     const deepLink = new URL(startBody.url);
     const encodedCallbackUrl = deepLink.searchParams.get('url');
     if (encodedCallbackUrl === null) throw new Error('expected a wallet callback url');
     const authCallbackUrl = decodeURIComponent(encodedCallbackUrl);
-    const authPath = new URL(authCallbackUrl).pathname;
-    const step0Res = await fetch(authCallbackUrl);
-    const step0 = decodeClaimBody(await step0Res.json() as Parameters<typeof decodeClaimBody>[0]);
-    const step0SubmitRes = await fetch(`${active.baseUrl}${authPath}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        _t_: startBody.token,
-        userPk: buyerWallet.publicKey,
-        userInfo: await walletResponseJwt(buyerWallet, step0.challenge, [{ type: 'authPrincipal' }]),
-      }),
-    });
-    const step1 = decodeClaimBody(await step0SubmitRes.json() as Parameters<typeof decodeClaimBody>[0]);
-    const prepareTxClaim = step1.requestedClaims.find((c) => c.type === 'prepareTx') as { readonly partialTx: string } | undefined;
-    if (prepareTxClaim === undefined) throw new Error('expected a prepareTx claim at step 1');
-    const finalTx = await walletSignsPartialTx(prepareTxClaim.partialTx, buyerWallet);
-    const step1SubmitRes = await fetch(`${active.baseUrl}${authPath}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        _t_: startBody.token,
-        userPk: buyerWallet.publicKey,
-        userInfo: await walletResponseJwt(buyerWallet, step1.challenge, [{ type: 'prepareTx', finalTx }]),
-      }),
-    });
-    const finalBody = (await step1SubmitRes.json()) as { authInfo: string };
-    const decoded = jwtDecode(finalBody.authInfo) as unknown as Record<string, unknown>;
-    const response = decoded.response as { confirmed: boolean };
-    const errorMessage = decoded.errorMessage as string | undefined;
-    expect(response.confirmed).toBe(false);
-    expect(errorMessage).toContain('usdc');
+    const result = await continueAbtWalletProtocol(active.baseUrl, startBody.token, authCallbackUrl, buyerWallet);
+    expect(result.confirmed).toBe(false);
+    expect(result.error).toContain('usdc');
     const row = await active.settlementRepo.findByJobAndLeg(jobId, 'deposit');
     expect(row?.rail).toBe('usdc');
   });

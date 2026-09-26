@@ -1102,6 +1102,12 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
       const step0Res = await fetch(authCallbackUrl);
       const step0Body = (await step0Res.json()) as DidConnectClaimResponse;
       const step0 = decodeClaimBody(step0Body);
+      // Advancing past authPrincipal is the step that signs the NEXT
+      // claim (prepareTx), which is where operatorAddressForJob is
+      // called; a null operator address throws before signing, so the
+      // response here is the raw { error } shape, never a second claim
+      // (continueAbtWalletProtocol assumes a full two-step round trip
+      // and does not fit this single-step failure).
       const step0SubmitRes = await fetch(`${started14b.baseUrl}${authPath}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },

@@ -250,24 +250,21 @@ export async function startAbtSession(
   return { sessionToken: body.token, authCallbackUrl };
 }
 
-// Drives the full DID Connect wallet protocol for one payment leg,
-// against the real HTTP routes, exactly the sequence a mobile wallet
-// follows: start a session through the buyer's own route (never a
-// hard-coded path), fetch the first claim (authPrincipal), answer it,
-// receive the second claim (prepareTx), sign it, submit, read the final
-// confirmed/error result. `starter` is whoever mints the session (either
-// an RFC 9421 signing identity or a live session header; must be the
-// job's buyer, or /start itself refuses); `wallet` is whoever completes
-// the DID Connect steps, which may be a different DID, to prove onAuth's
-// own buyerDid check.
-export async function driveAbtPayment(
+// The wallet-side continuation of the DID Connect protocol, from an
+// ALREADY-MINTED session (sessionToken, authCallbackUrl from
+// startAbtSession or a raw /start call the caller made itself): fetch
+// the first claim (authPrincipal), answer it, receive the second claim
+// (prepareTx), sign it, submit, read the final confirmed/error result.
+// Split out of driveAbtPayment so a test that must start the session
+// separately (to assert on the /start response before continuing) does
+// not need to repeat this walk inline.
+export async function continueAbtWalletProtocol(
   baseUrl: string,
-  starter: SigningIdentity | { readonly sessionHeader: Record<string, string> },
+  sessionToken: string,
+  authCallbackUrl: string,
   wallet: WalletObject,
-  params: { readonly jobId: string; readonly leg: 'deposit' | 'remainder' },
   outputsOverride?: unknown,
 ): Promise<{ readonly confirmed: boolean; readonly error?: string }> {
-  const { sessionToken, authCallbackUrl } = await startAbtSession(baseUrl, starter, params);
   const authPath = new URL(authCallbackUrl).pathname;
 
   const step0Res = await fetch(authCallbackUrl);
@@ -311,6 +308,25 @@ export async function driveAbtPayment(
   const response = decoded.response as { confirmed: boolean };
   const error = decoded.errorMessage as string | undefined;
   return error === undefined || error === '' ? { confirmed: response.confirmed } : { confirmed: response.confirmed, error };
+}
+
+// Drives the full DID Connect wallet protocol for one payment leg,
+// against the real HTTP routes, exactly the sequence a mobile wallet
+// follows: start a session through the buyer's own route (never a
+// hard-coded path), then continueAbtWalletProtocol above. `starter` is
+// whoever mints the session (either an RFC 9421 signing identity or a
+// live session header; must be the job's buyer, or /start itself
+// refuses); `wallet` is whoever completes the DID Connect steps, which
+// may be a different DID, to prove onAuth's own buyerDid check.
+export async function driveAbtPayment(
+  baseUrl: string,
+  starter: SigningIdentity | { readonly sessionHeader: Record<string, string> },
+  wallet: WalletObject,
+  params: { readonly jobId: string; readonly leg: 'deposit' | 'remainder' },
+  outputsOverride?: unknown,
+): Promise<{ readonly confirmed: boolean; readonly error?: string }> {
+  const { sessionToken, authCallbackUrl } = await startAbtSession(baseUrl, starter, params);
+  return continueAbtWalletProtocol(baseUrl, sessionToken, authCallbackUrl, wallet, outputsOverride);
 }
 
 export { fromRandom, type WalletObject };
