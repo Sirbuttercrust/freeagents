@@ -1353,6 +1353,23 @@ export class PrismaAttachmentRepository implements AttachmentRepository {
       createdAt: row.createdAt,
     };
   }
+
+  // MSG1a (Make item 2): oldest first (createdAt ascending), the
+  // @@index([jobId]) schema.prisma already declares on this model.
+  async listByJobId(jobId: string): Promise<readonly Attachment[]> {
+    const rows = await db().attachment.findMany({ where: { jobId }, orderBy: { createdAt: 'asc' } });
+    return rows.map((row) => ({
+      id: row.id,
+      jobId: row.jobId,
+      uploaderDid: row.uploaderDid,
+      kind: row.kind as AllowedAttachmentKind,
+      originalFilename: row.originalFilename,
+      sizeBytes: row.sizeBytes,
+      path: row.path,
+      thumbnailPath: row.thumbnailPath,
+      createdAt: row.createdAt,
+    }));
+  }
 }
 
 // HT1 Part B (STEER item 4): browser Push API subscriptions, upserted
