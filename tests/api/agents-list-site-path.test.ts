@@ -163,12 +163,13 @@ describe('POST /agents, site listing path (FIX-B41a), GitHub session', () => {
   // stored delegation." Nothing new is stored beside the agent to make
   // this true: the credential's own `id` (a fresh urn:uuid the route
   // generated before calling createAgentDid) plus the owner's DID plus
-  // the platform seed reproduce the exact same agent DID. This is a
-  // real mutation guard: if the route ever passed a DIFFERENT id to
-  // createAgentDid than the one it stored on the delegation (or stored
-  // a different one than it derived from), this re-derivation would
-  // silently land on a different DID than the row's own `did`, and this
-  // assertion would fail.
+  // the platform seed reproduce the exact same agent DID. A real
+  // mutation guard: if the route ever passed a DIFFERENT id to
+  // createAgentDid than the one it stored on the delegation, this
+  // re-derivation would land on a different DID than the row's own
+  // `did`, and this assertion would fail. The second half proves the id
+  // is load-bearing, not incidental: tampering it derives a DIFFERENT
+  // DID, so re-derivation is not a coincidence of a fixed id.
   it('re-derives the stored agent DID from nothing but the seed, the owner DID and the stored delegation id', async () => {
     const res = await postJson(
       baseUrl,
@@ -181,32 +182,15 @@ describe('POST /agents, site listing path (FIX-B41a), GitHub session', () => {
 
     const stored = await agentRepo.findByDid(body.did as string);
     expect(stored).not.toBeNull();
-    const storedCredentialId = stored?.delegation.id;
-    expect(typeof storedCredentialId).toBe('string');
+    const storedCredentialId = stored?.delegation.id as string;
 
     // A fresh adapter instance, standing in for a re-derivation performed
     // after a restart: no in-process state survives, only the seed
     // (an env var) and the stored row's own fields.
     const freshIdentity = createIdentityAdapter(createKnownKeyStore());
-    const rederived = await freshIdentity.createAgentDid(
-      stored?.operatorDid as string,
-      storedCredentialId as string,
-    );
+    const rederived = await freshIdentity.createAgentDid(stored?.operatorDid as string, storedCredentialId);
     expect(rederived.did).toBe(body.did);
-  });
 
-  it('a different stored delegation id re-derives a different agent DID: re-derivation is not a coincidence of a fixed id', async () => {
-    const res = await postJson(
-      baseUrl,
-      '/agents',
-      { name: 'rederive-me-2', skills: ['triage'] },
-      { authorization: `Bearer ${sessionToken}` },
-    );
-    const body = (await res.json()) as Record<string, unknown>;
-    const stored = await agentRepo.findByDid(body.did as string);
-    const storedCredentialId = stored?.delegation.id as string;
-
-    const freshIdentity = createIdentityAdapter(createKnownKeyStore());
     const wrongId = await freshIdentity.createAgentDid(stored?.operatorDid as string, `${storedCredentialId}-tampered`);
     expect(wrongId.did).not.toBe(body.did);
   });
@@ -231,7 +215,7 @@ describe('POST /agents, site listing path (FIX-B41a), GitHub session', () => {
   // credential's signer here is the PLATFORM's own derived key, not an
   // operator's wallet -- proving invariant 2 holds for that credential
   // too is the whole point of item 4 (delegationSignedBy: "platform").
-  it('the stored site-path delegation verifies with @digitalbazaar/vc and the did:abt loader alone, no call to this service', async () => {
+  it('the stored site-path delegation verifies with @digitalbazaar/vc and the did:abt loader alone, no call to this service, and a tampered copy fails', async () => {
     const res = await postJson(
       baseUrl,
       '/agents',
@@ -245,21 +229,9 @@ describe('POST /agents, site listing path (FIX-B41a), GitHub session', () => {
     expect(stored).not.toBeNull();
     const strangerCopy = JSON.parse(JSON.stringify(stored?.delegation)) as Record<string, unknown>;
     expect(await verifyIndependent(strangerCopy)).toBe(true);
-  });
 
-  it('a tampered copy of the site-path delegation fails the independent verifier', async () => {
-    const res = await postJson(
-      baseUrl,
-      '/agents',
-      { name: 'invariant2-site-tamper-scout', skills: ['triage'] },
-      { authorization: `Bearer ${sessionToken}` },
-    );
-    const body = (await res.json()) as Record<string, unknown>;
-
-    const stored = await agentRepo.findByDid(body.did as string);
     const tampered = JSON.parse(JSON.stringify(stored?.delegation)) as Record<string, unknown>;
     (tampered.credentialSubject as Record<string, unknown>).id = 'did:abt:zTamperedSiteAgent';
-
     expect(await verifyIndependent(tampered)).toBe(false);
   });
 });
@@ -703,189 +675,140 @@ describe('POST /agents, site path refusals (FIX-B41a)', () => {
 // adapter that lacks issueSiteDelegation, and the wallet path's own
 // did-required check (unchanged behavior, still needing its own pin
 // since it sits right beside the new site-path branch this card added).
+interface GuardApp {
+  readonly baseUrl: string;
+  readonly server: Server;
+  readonly accountRepo: MemoryAccountRepository;
+  readonly agentRepo: MemoryAgentRepository;
+  readonly token: string;
+  readonly sessionAdapter: ReturnType<typeof testSessionAdapter>;
+}
+
+async function startGuardApp(seedSuffix: string, identityOverride?: unknown): Promise<GuardApp> {
+  process.env.FREEAGENTS_PLATFORM_SEED = 'b41'.padEnd(64, seedSuffix);
+  const accountRepo = new MemoryAccountRepository();
+  const agentRepo = new MemoryAgentRepository();
+  const sessionAdapter = testSessionAdapter();
+  const identity = (identityOverride as ReturnType<typeof createIdentityAdapter>) ?? createIdentityAdapter(createKnownKeyStore());
+  const app = createApp(
+    accountRepo,
+    agentRepo,
+    identity,
+    undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+    sessionAdapter,
+  );
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address();
+  if (address === null || typeof address === 'string') throw new Error('expected a port');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const token = await mintSessionToken(sessionAdapter);
+  return { baseUrl, server, accountRepo, agentRepo, token, sessionAdapter };
+}
+
+async function stopGuardApp(started: GuardApp): Promise<void> {
+  await new Promise<void>((resolve) => started.server.close(() => resolve()));
+  if (ORIGINAL_SEED === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
+  else process.env.FREEAGENTS_PLATFORM_SEED = ORIGINAL_SEED;
+}
+
 describe('POST /agents, remaining guards (FIX-B41a)', () => {
   it('a brought DID that does not look like did:abt:<suffix> is 400', async () => {
-    process.env.FREEAGENTS_PLATFORM_SEED = 'b41'.padEnd(64, '4');
+    const started = await startGuardApp('4');
     try {
-      const sessionAdapter = testSessionAdapter();
-      const app = createApp(
-        new MemoryAccountRepository(),
-        new MemoryAgentRepository(),
-        createIdentityAdapter(createKnownKeyStore()),
-        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-        sessionAdapter,
+      const res = await postJson(
+        started.baseUrl,
+        '/agents',
+        { name: 'bad-did-agent', skills: ['triage'], did: 'not-a-did-at-all', agentProof: { signature: 'x', publicKeyMultibase: 'y' } },
+        { authorization: `Bearer ${started.token}` },
       );
-      const server = app.listen(0, '127.0.0.1');
-      await new Promise<void>((resolve) => server.once('listening', resolve));
-      const address = server.address();
-      if (address === null || typeof address === 'string') throw new Error('expected a port');
-      const baseUrl = `http://127.0.0.1:${address.port}`;
-      try {
-        const token = await mintSessionToken(sessionAdapter);
-        const res = await postJson(
-          baseUrl,
-          '/agents',
-          { name: 'bad-did-agent', skills: ['triage'], did: 'not-a-did-at-all', agentProof: { signature: 'x', publicKeyMultibase: 'y' } },
-          { authorization: `Bearer ${token}` },
-        );
-        expect(res.status).toBe(400);
-        const body = (await res.json()) as Record<string, unknown>;
-        expect(String(body.error)).toBe('did must look like did:abt:<suffix>, non-empty suffix, no whitespace');
-      } finally {
-        await new Promise<void>((resolve) => server.close(() => resolve()));
-      }
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(String(body.error)).toBe('did must look like did:abt:<suffix>, non-empty suffix, no whitespace');
     } finally {
-      if (ORIGINAL_SEED === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
-      else process.env.FREEAGENTS_PLATFORM_SEED = ORIGINAL_SEED;
+      await stopGuardApp(started);
     }
   });
 
   it('a brought DID already registered as an account is 409, and nothing is stored as an agent', async () => {
-    process.env.FREEAGENTS_PLATFORM_SEED = 'b41'.padEnd(64, '5');
+    const started = await startGuardApp('5');
     try {
-      const accountRepo = new MemoryAccountRepository();
-      const agentRepo = new MemoryAgentRepository();
-      const sessionAdapter = testSessionAdapter();
-      const app = createApp(
-        accountRepo,
-        agentRepo,
-        createIdentityAdapter(createKnownKeyStore()),
-        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-        sessionAdapter,
+      const agentSigning = await signingIdentityFromSeed(new Uint8Array(32).fill(220));
+      // Pre-register the AGENT's own DID as an account, simulating the
+      // ordering P8a already guards on the wallet path.
+      await started.accountRepo.register({ did: agentSigning.did, githubLogin: 'someone-elses-account' });
+
+      const ownerRes = await postJson(
+        started.baseUrl,
+        '/agents',
+        { name: 'owner-probe-collision', skills: ['triage'] },
+        { authorization: `Bearer ${started.token}` },
       );
-      const server = app.listen(0, '127.0.0.1');
-      await new Promise<void>((resolve) => server.once('listening', resolve));
-      const address = server.address();
-      if (address === null || typeof address === 'string') throw new Error('expected a port');
-      const baseUrl = `http://127.0.0.1:${address.port}`;
-      try {
-        const token = await mintSessionToken(sessionAdapter);
-        const agentSigning = await signingIdentityFromSeed(new Uint8Array(32).fill(220));
-        // Pre-register the AGENT's own DID as an account, simulating the
-        // ordering P8a already guards on the wallet path.
-        await accountRepo.register({ did: agentSigning.did, githubLogin: 'someone-elses-account' });
+      const owner = ((await ownerRes.json()) as Record<string, unknown>).operatorDid as string;
 
-        const live = await sessionAdapter.getSession(token);
-        if (live === null) throw new Error('expected a live session');
-        const ownerRes = await postJson(
-          baseUrl,
-          '/agents',
-          { name: 'owner-probe-collision', skills: ['triage'] },
-          { authorization: `Bearer ${token}` },
-        );
-        const ownerBody = (await ownerRes.json()) as Record<string, unknown>;
-        const owner = ownerBody.operatorDid as string;
+      const payload = `freeagents:list-agent:v1:${agentSigning.did}:${owner}`;
+      const signature = nodeSign(null, Buffer.from(payload, 'utf8'), agentSigning.privateKey).toString('base64');
+      const publicKeyMultibase = agentSigning.keyid.slice(agentSigning.keyid.indexOf('#') + 1);
 
-        const payload = `freeagents:list-agent:v1:${agentSigning.did}:${owner}`;
-        const signature = nodeSign(null, Buffer.from(payload, 'utf8'), agentSigning.privateKey).toString('base64');
-        const publicKeyMultibase = agentSigning.keyid.slice(agentSigning.keyid.indexOf('#') + 1);
-
-        const res = await postJson(
-          baseUrl,
-          '/agents',
-          {
-            name: 'colliding-agent',
-            skills: ['triage'],
-            did: agentSigning.did,
-            agentProof: { signature, publicKeyMultibase },
-          },
-          { authorization: `Bearer ${token}` },
-        );
-        expect(res.status).toBe(409);
-        const body = (await res.json()) as Record<string, unknown>;
-        expect(String(body.error)).toContain('already registered as an account');
-        expect(await agentRepo.findByDid(agentSigning.did)).toBeNull();
-      } finally {
-        await new Promise<void>((resolve) => server.close(() => resolve()));
-      }
+      const res = await postJson(
+        started.baseUrl,
+        '/agents',
+        { name: 'colliding-agent', skills: ['triage'], did: agentSigning.did, agentProof: { signature, publicKeyMultibase } },
+        { authorization: `Bearer ${started.token}` },
+      );
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(String(body.error)).toContain('already registered as an account');
+      expect(await started.agentRepo.findByDid(agentSigning.did)).toBeNull();
     } finally {
-      if (ORIGINAL_SEED === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
-      else process.env.FREEAGENTS_PLATFORM_SEED = ORIGINAL_SEED;
+      await stopGuardApp(started);
     }
   });
 
   it('an identity adapter without issueSiteDelegation answers 503, nothing stored', async () => {
     process.env.FREEAGENTS_PLATFORM_SEED = 'b41'.padEnd(64, '6');
+    const realIdentity = createIdentityAdapter(createKnownKeyStore());
+    // A stand-in that forwards everything EXCEPT issueSiteDelegation, the
+    // same "hand-rolled adapter omitting one optional method" pattern
+    // the brief's own storage seam (item 6) uses.
+    const noIssueIdentity = {
+      createOperatorDid: realIdentity.createOperatorDid.bind(realIdentity),
+      createAgentDid: realIdentity.createAgentDid.bind(realIdentity),
+      resolveDid: realIdentity.resolveDid.bind(realIdentity),
+      sign: realIdentity.sign.bind(realIdentity),
+      verify: realIdentity.verify.bind(realIdentity),
+      verifyDelegation: realIdentity.verifyDelegation.bind(realIdentity),
+      // issueSiteDelegation deliberately omitted.
+    };
+    const started = await startGuardApp('6', noIssueIdentity);
     try {
-      const realIdentity = createIdentityAdapter(createKnownKeyStore());
-      // A stand-in that forwards everything EXCEPT issueSiteDelegation,
-      // the same "hand-rolled repository/adapter omitting one optional
-      // method" pattern the brief's own storage seam (item 6) uses.
-      const noIssueIdentity: typeof realIdentity = {
-        createOperatorDid: realIdentity.createOperatorDid.bind(realIdentity),
-        createAgentDid: realIdentity.createAgentDid.bind(realIdentity),
-        resolveDid: realIdentity.resolveDid.bind(realIdentity),
-        sign: realIdentity.sign.bind(realIdentity),
-        verify: realIdentity.verify.bind(realIdentity),
-        verifyDelegation: realIdentity.verifyDelegation.bind(realIdentity),
-        // issueSiteDelegation deliberately omitted.
-      };
-      const agentRepo = new MemoryAgentRepository();
-      const sessionAdapter = testSessionAdapter();
-      const app = createApp(
-        new MemoryAccountRepository(),
-        agentRepo,
-        noIssueIdentity,
-        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-        sessionAdapter,
+      const res = await postJson(
+        started.baseUrl,
+        '/agents',
+        { name: 'no-issue-delegation-agent', skills: ['triage'] },
+        { authorization: `Bearer ${started.token}` },
       );
-      const server = app.listen(0, '127.0.0.1');
-      await new Promise<void>((resolve) => server.once('listening', resolve));
-      const address = server.address();
-      if (address === null || typeof address === 'string') throw new Error('expected a port');
-      const baseUrl = `http://127.0.0.1:${address.port}`;
-      try {
-        const token = await mintSessionToken(sessionAdapter);
-        const res = await postJson(
-          baseUrl,
-          '/agents',
-          { name: 'no-issue-delegation-agent', skills: ['triage'] },
-          { authorization: `Bearer ${token}` },
-        );
-        expect(res.status).toBe(503);
-        expect(await agentRepo.listAll?.()).toEqual([]);
-      } finally {
-        await new Promise<void>((resolve) => server.close(() => resolve()));
-      }
+      expect(res.status).toBe(503);
+      expect(await started.agentRepo.listAll?.()).toEqual([]);
     } finally {
-      if (ORIGINAL_SEED === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
-      else process.env.FREEAGENTS_PLATFORM_SEED = ORIGINAL_SEED;
+      await stopGuardApp(started);
     }
   });
 
   it('the wallet path still requires did when delegation is present (unchanged, pinned beside the new site branch)', async () => {
-    process.env.FREEAGENTS_PLATFORM_SEED = 'b41'.padEnd(64, '7');
+    const started = await startGuardApp('7');
     try {
-      const sessionAdapter = testSessionAdapter();
-      const app = createApp(
-        new MemoryAccountRepository(),
-        new MemoryAgentRepository(),
-        createIdentityAdapter(createKnownKeyStore()),
-        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-        sessionAdapter,
+      const res = await postJson(
+        started.baseUrl,
+        '/agents',
+        { name: 'wallet-no-did-agent', skills: ['triage'], delegation: { fake: 'credential' } },
+        { authorization: `Bearer ${started.token}` },
       );
-      const server = app.listen(0, '127.0.0.1');
-      await new Promise<void>((resolve) => server.once('listening', resolve));
-      const address = server.address();
-      if (address === null || typeof address === 'string') throw new Error('expected a port');
-      const baseUrl = `http://127.0.0.1:${address.port}`;
-      try {
-        const token = await mintSessionToken(sessionAdapter);
-        const res = await postJson(
-          baseUrl,
-          '/agents',
-          { name: 'wallet-no-did-agent', skills: ['triage'], delegation: { fake: 'credential' } },
-          { authorization: `Bearer ${token}` },
-        );
-        expect(res.status).toBe(400);
-        const body = (await res.json()) as Record<string, unknown>;
-        expect(String(body.error)).toContain('did is required when delegation is present');
-      } finally {
-        await new Promise<void>((resolve) => server.close(() => resolve()));
-      }
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(String(body.error)).toContain('did is required when delegation is present');
     } finally {
-      if (ORIGINAL_SEED === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
-      else process.env.FREEAGENTS_PLATFORM_SEED = ORIGINAL_SEED;
+      await stopGuardApp(started);
     }
   });
 });
