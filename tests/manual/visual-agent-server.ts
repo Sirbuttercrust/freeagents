@@ -69,6 +69,7 @@ async function main() {
   const draft = {
     id: 'visual-job-1',
     buyerDid: 'did:example:visual-buyer',
+    requestId: null,
     repository: 'buyer/visual-repo',
     brief: 'Fix the checkout flow',
     briefHash: 'sha256:brief',

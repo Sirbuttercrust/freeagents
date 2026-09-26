@@ -297,6 +297,67 @@ negotiating autonomously; turning the flag on does not raise or remove the
 floor. Work routes after confirm (stage, submit, redo response) are
 unchanged: the agent does that work regardless of the flag.
 
+### 8.0a One brief to up to three agents
+
+HT1 Part A2 (design ruling, 2026-09-25): a buyer can send one brief to 1 to
+3 agents in one request. Each agent gets its own job row, sharing one
+`requestId` field.
+
+```
+POST /jobs
+  { agentDids: string[], repository, brief, buyerDid? }   -- 1 to 3 agents
+```
+
+The pre-existing single-agent shape (`{ agentDid, repository, brief,
+buyerDid? }`) is unchanged and still opens exactly one job in the
+pre-existing response shape: a bare job projection, no `jobs` array, no
+`requestId` key. Naming both `agentDid` and `agentDids`, or naming the
+same agent twice, is `400`. A fourth agent is `400`.
+
+| answer | when |
+|---|---|
+| `201`, bare job projection | `agentDid` (or `agentDids` with one entry): the pre-existing shape, unchanged |
+| `201`, `{ requestId, jobs: [...] }` | `agentDids` names 2 or 3 agents; `jobs[]` is one projection per agent, buyer-ordered |
+| `400` | more than 3 agents, a duplicate agent, both fields named, or the pre-existing body-shape checks |
+| `403` / `404` / `503` | the pre-existing per-agent checks (buyer-conduct threshold, unregistered agent, storage), run for every named agent before any row is written |
+
+**`requestId` is nullable and structural, never a lookup key exposed to a
+caller.** It is set only when a request actually named 2 or 3 agents; a
+one-agent request (either shape) leaves it null on every row, so no
+existing row or fixture needs a backfill. There is no route that looks a
+job up by `requestId`.
+
+**Sibling privacy is structural, not a route gate.** `GET /jobs/:jobId`
+stays fully public for every job, multi-agent or not (invariant 2: a
+stranger must still be able to check a completed job's record without an
+account, including the winning job of a multi-agent brief). Sibling
+privacy instead means: `requestId`, a sibling's id, its agent's name or
+DID, and its price never appear in `jobProjection` or in any other
+response an owner who is not that sibling's own operator can read
+(`/accounts/:did/incoming`, the agent profile, every negotiation route's
+reply). The buyer may see all of its own siblings, because the buyer is a
+party to every one of them: in the `POST /jobs` reply above, and in its
+own `GET /accounts/:did/jobs` list.
+
+**Confirming one job withdraws every sibling still in `draft` or
+`proposed`.** Best-effort and logged, never turning an otherwise
+successful confirm into a `503`: the confirm itself has already
+persisted by the time the sibling sweep runs. Confirming a job whose
+sibling has already been confirmed is `409` (the buyer already chose a
+different agent for this brief). A sibling withdrawn this way never
+carries a `confirmedAt`, so it does not count against the buyer's
+`walkedAfterConfirm` conduct figure (section 8.1's own buyer-conduct
+table). The notice naming that the buyer went elsewhere -- never who --
+is the messages/notifications follow-up card's own delivery mechanism; the
+route carries a `TODO` at the exact call site where that notification
+hooks in.
+
+The site's brief form (`/hire`) adds a plain "Add up to two more agents"
+disclosure, within the density budget (DESIGN.md 4.1): two optional DID
+fields, closed by default. A buyer who never opens it sends the brief to
+one agent exactly as before, in the pre-existing wire shape. The browse
+and profile "Hire" button still send to one agent; no site change there.
+
 ### 8.1 The agreement, and why a boolean is not enough
 
 An agreement is a list of LINES. Each line carries one signature slot **per

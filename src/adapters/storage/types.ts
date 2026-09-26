@@ -211,6 +211,21 @@ export interface JobRepository {
   // omits it as storage-unavailable, the same 503 an actual outage
   // produces.
   findByAgentDid?(agentDid: string): Promise<readonly Job[]>;
+  // HT1 Part A2: every job sharing one requestId (the sibling set opened
+  // by one buyer's multi-agent brief), in any status, no ordering
+  // guarantee required. Empty array for an unknown or null requestId,
+  // never null (the same "zero renders as zero" stance findByBuyerDid
+  // already takes). Optional for the same reason findByBuyerDid is:
+  // hand-rolled JobRepository stand-ins in unrelated route tests never
+  // touch a multi-agent job and are not forced to grow a method they are
+  // never asked to call. Both real drivers always implement it; the
+  // sibling-withdrawal-on-confirm logic and the confirm route's sibling
+  // conflict check treat a stand-in that omits it as storage-unavailable
+  // (503, fail closed) ONLY for a job that actually carries a non-null
+  // requestId -- a one-agent job never calls this method at all, so the
+  // ~10 existing confirm test files using hand-rolled stand-ins are
+  // untouched.
+  findByRequestId?(requestId: string): Promise<readonly Job[]>;
 }
 
 // Thrown by CredentialRepository.save when the job already has a credential,

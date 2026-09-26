@@ -105,6 +105,7 @@ beforeAll(async () => {
   const buyer = 'did:example:league-buyer';
   const draft = {
     id: 'league-job-1', buyerDid: buyer, repository: 'buyer/league-repo', brief: 'Fix it', briefHash: 'sha256:brief',
+    requestId: null,
     confirmedSpecHash: null, status: 'draft' as const, criteria: [], priceUsd: null, rail: null,
     priceAcceptedByBuyer: false, priceAcceptedByAgent: false, depositPercent: 25, redoAllowance: 1, redoUsedCount: 0,
     redoRequestedCriterionIndex: null, redoRequestedAt: null, redoRefusedAt: null, stagedLapseExtensionDays: 0,
