@@ -778,6 +778,14 @@ describe('(e) exactly one primary button in every loaded state, none on a not-fo
 // Every control a person can reach, at the width under test. A link inside
 // a sentence is exempt (WCAG 2.5.8), the rule S1's sweep uses. The nav and
 // footer are measured by their own suites.
+//
+// The floor carries 0.05px of slack, as incoming.test.ts does for its foot
+// action. getBoundingClientRect() on a min-height: 44px chip at 320 with a
+// 2x device scale has read 43.99993896484375 under load (Proof r1), which is
+// float noise in layout and not a short control. 0.05px is 20 times narrower
+// than a 43px control, and the planted control below proves 43px and 43.9px
+// are still caught.
+const TAP_FLOOR = 43.95;
 const SWEEP = `
   (function () {
     function inSentence(a) {
@@ -807,10 +815,10 @@ const SWEEP = `
       measured: all.length,
       small: all.filter(function (el) {
         var r = el.getBoundingClientRect();
-        return (r.width < 44 || r.height < 44) && !(el.tagName === 'A' && inSentence(el));
+        return (r.width < ${TAP_FLOOR} || r.height < ${TAP_FLOOR}) && !(el.tagName === 'A' && inSentence(el));
       }).map(function (el) {
         var r = el.getBoundingClientRect();
-        return (el.id || el.className || el.tagName) + ' "' + el.textContent.trim().slice(0, 30) + '" ' + Math.round(r.width) + 'x' + Math.round(r.height);
+        return (el.id || el.className || el.tagName) + ' "' + el.textContent.trim().slice(0, 30) + '" ' + r.width + 'x' + r.height;
       })
     };
   })()
@@ -899,4 +907,43 @@ describe('(f) laid out right at 1280 and 320, each tab selected and each disclos
       }
     }, BROWSER_TIMEOUT_MS);
   }
+
+  // The gate's own control. Three buttons planted in the real page at 320
+  // with touch on: 43px and 43.9px tall must be named, 44px must not, and
+  // nothing else on the page may be named, so the slack in TAP_FLOOR cannot
+  // hide a short control and the planted 44px proves the floor is not
+  // tighter than the rule.
+  it('the 44px sweep names a planted 43px and 43.9px control and passes a planted 44px one', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for the 44px sweep control; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: 320, height: 900 });
+    try {
+      await browser.send('Emulation.setDeviceMetricsOverride', { width: 320, height: 780, deviceScaleFactor: 2, mobile: true });
+      await browser.send('Emulation.setTouchEmulationEnabled', { enabled: true });
+      await browser.goto(`${baseUrl}${agentPath(COLD_DID)}`, 400);
+      const deadline = Date.now() + 10_000;
+      while (!(await browser.evaluate<boolean>(`!!document.querySelector('#summary:not([data-pending])')`))) {
+        if (Date.now() > deadline) throw new Error('agent-cold never rendered its record');
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      await new Promise((r) => setTimeout(r, 700));
+      await browser.evaluate(`(function () {
+        var main = document.querySelector('main');
+        [['plant-43', 43], ['plant-43-9', 43.9], ['plant-44', 44]].forEach(function (p) {
+          var b = document.createElement('button');
+          b.id = p[0];
+          b.textContent = p[0];
+          b.style.cssText = 'all: unset; display: block; box-sizing: border-box; width: 100px; height: ' + p[1] + 'px;';
+          main.appendChild(b);
+        });
+      })()`);
+      const s = await browser.evaluate<Sweep>(SWEEP);
+      const named = s.small.map((line) => line.split(' ')[0]);
+      expect(named).toEqual(['plant-43', 'plant-43-9']);
+    } finally {
+      await browser.close();
+    }
+  }, BROWSER_TIMEOUT_MS);
 });
