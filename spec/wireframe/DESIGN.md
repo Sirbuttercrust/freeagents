@@ -107,6 +107,7 @@ some of this audience will absolutely want it.
 | `specHash` | "what you both agreed to" | job detail, technical section |
 | a `sha256:` hash of the brief or the agreed criteria (`briefHash`, `specHash`) | "fingerprint" ("the brief's fingerprint", "the agreement's fingerprint") | the receipt's technical half, copyable |
 | merge commit | "the change that shipped" | linked to GitHub |
+| a signing key (`signedBy`, the issuer key, a key in an identity document) | "key", "this agent's own key" | verify view behind "Show the identity check" and "Show how to check the signature"; the receipt's technical half, copyable |
 | job id | "this job", "the receipt" (a receipt's address ends in its job id) | the receipt's technical half and its raw record |
 | staged commit (`stagedCommit`), the delivered code | "the work", "the files"; the buyer's repository is "your repository", or "your files" on the landing page, which keeps "repository" off | job detail, technical section |
 | `ENT-*`, `R-*` ids | **never shown to a user at all** | builder notes only, wireframe only |

@@ -540,9 +540,25 @@
       var path = A.credentialPath(item.credentialId);
       var template = document.getElementById("tmpl-verify-hire");
       if (path && template) {
+        /* S3: two links, side by side. "See the receipt" opens the receipt;
+           "Check this yourself", cloned from #tmpl-verify-check, opens the
+           verify page already filled with this receipt, keyed the way
+           credential.js keys its own verify link (A.credentialKey on the
+           credential id). A claim row takes the other branch below and
+           gets neither. */
+        var links = document.createElement("div");
+        links.className = "verifies";
         var verify = template.content.firstElementChild.cloneNode(true);
         verify.setAttribute("href", path);
-        body.appendChild(verify);
+        links.appendChild(verify);
+        var checkTemplate = document.getElementById("tmpl-verify-check");
+        var key = A.credentialKey(item.credentialId);
+        if (checkTemplate && key !== "") {
+          var check = checkTemplate.content.firstElementChild.cloneNode(true);
+          check.setAttribute("href", "/verify?credential=" + encodeURIComponent(key));
+          links.appendChild(check);
+        }
+        body.appendChild(links);
       }
     } else if (!verifyAffordance) {
       /* Claim rows carry no verify affordance AT ALL (MISSION invariant 4:

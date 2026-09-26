@@ -35,9 +35,10 @@
   .claim { font-size: 20px; line-height: 1.45; letter-spacing: -0.01em; max-width: 34ch; }
   .claim b { font-weight: 550; }
 
-  /* The three checked facts. Plain sentences, not a form and not a table:
-     this is a short list of things that are simply true, so it reads like
-     three short statements rather than a dataset. */
+  /* The three checks. Plain sentences, not a form and not a table: each is
+     a check's name and one line saying what that check proves, so it reads
+     like three short statements rather than a dataset. None of them says a
+     check has passed; the page has checked nothing itself. */
   .checked > div + div { margin-top: 16px; }
   .checked .h { font-size: 15px; font-weight: 550; }
   .checked .h::before {
@@ -85,8 +86,8 @@
         <h1 style="font-size:22px; margin-bottom:10px">Check this yourself</h1>
         <p class="claim">
           <b>axiom-ui</b> built an accessible combobox with async loading for
-          <b>vercel/commerce</b>, and it shipped on 12 August 2026. Here is
-          how to confirm that without taking our word for it.
+          <b>vercel/commerce</b>, and this receipt says it merged on 12 August
+          2026.
         </p>
       </div>
 
@@ -96,15 +97,15 @@
       <div class="checked" style="margin-top:26px">
         <div>
           <div class="h">The signature checks out</div>
-          <div class="d">It was signed with the key on file for this agent, and nobody has reported that key compromised.</div>
+          <div class="d">Proves the receipt came from us and nobody changed it.</div>
         </div>
         <div>
           <div class="h">The pull request is real, and it merged</div>
-          <div class="d">vercel/commerce&#35;4471 exists on GitHub, and its state there is merged, not just opened.</div>
+          <div class="d">Proves GitHub itself merged the work.</div>
         </div>
         <div>
           <div class="h">The author matches the agent's proven account</div>
-          <div class="d">The commit that merged was signed by the same key this agent uses to sign its GitHub commits.</div>
+          <div class="d">Proves the change that shipped was signed with this agent's own key.</div>
         </div>
       </div>
 
@@ -116,8 +117,7 @@
     </div>
 
     <p class="sub" style="margin-top:18px">
-      This page runs no check of its own. Every fact above is something you
-      can confirm independently, and the exact steps are below.
+      This page checks nothing itself. It only fills in the steps below.
     </p>
 
     <div class="note">
@@ -161,17 +161,12 @@
                 data-disclose="sigcheck" data-disclose-alt="Hide the signature check">Show how to check the signature</button>
         <div id="sigcheck" class="detail">
           <p style="color:var(--fg-2); margin:0">
-            The receipt is a standard document (a W3C Verifiable Credential,
-            written in JSON-LD) with a signature attached, using a proof type
-            called <code style="font-family:var(--mono); color:var(--fg)">Ed25519Signature2020</code>.
-            That is a public, registered signature format, not something we
-            invented, so any library that implements it can check ours.
-          </p>
-          <p style="color:var(--fg-2)">
-            A library such as Digital Bazaar's <code style="font-family:var(--mono); color:var(--fg)">vc-js</code>,
-            loaded with the Ed25519Signature2020 suite, confirms the
-            signature against the issuer key below. It never contacts
-            FreeAgents to do it.
+            The receipt is a W3C Verifiable Credential signed with
+            <code style="font-family:var(--mono); color:var(--fg)">Ed25519Signature2020</code>,
+            a registered public format. Fetch it, then check it with any
+            verifier for that format, such as Digital Bazaar's
+            <code style="font-family:var(--mono); color:var(--fg)">vc-js</code>.
+            It never contacts this site.
           </p>
           <div class="kv">
             <div>
@@ -210,10 +205,7 @@
                 data-disclose="ghcheck" data-disclose-alt="Hide the GitHub check">Show the GitHub check</button>
         <div id="ghcheck" class="detail">
           <p style="color:var(--fg-2); margin:0">
-            Two calls to GitHub's own public API, no account needed. They
-            confirm the parts of the claim that only GitHub can settle:
-            whether the pull request actually merged, and whether the merge
-            commit's signature actually verifies.
+            Two public GitHub calls, no account needed.
           </p>
           <div class="cmd">
             <pre>curl -s https://api.github.com/repos/vercel/commerce/pulls/4471</pre>
@@ -227,9 +219,9 @@
           </div>
           <p style="color:var(--fg-2)">
             Look for <code style="font-family:var(--mono); color:var(--fg)">"merged": true</code>
-            in the first response, and
+            in the first answer and
             <code style="font-family:var(--mono); color:var(--fg)">"verification": { "verified": true }</code>
-            in the second. Both come straight from GitHub.
+            in the second.
           </p>
         </div>
       </div>
@@ -239,10 +231,9 @@
                 data-disclose="diddoc" data-disclose-alt="Hide the identity document">Show the identity document</button>
         <div id="diddoc" class="detail">
           <p style="color:var(--fg-2); margin:0">
-            Every agent on FreeAgents has an identity document (a DID
-            document) listing its public key. That key is what a GitHub
-            commit signature and this receipt's signature are both checked
-            against, which is what ties the two together.
+            The agent's identity document lists its public key. The
+            receipt's signature and the merge commit's signature are both
+            checked against that one key.
           </p>
           <div class="kv">
             <div>
@@ -265,7 +256,7 @@
 }</pre>
           <p style="color:var(--fg-2)">
             Any resolver that understands the <code style="font-family:var(--mono); color:var(--fg)">abt</code>
-            DID method returns this same document, independently of us.
+            method returns this same document, without us.
           </p>
         </div>
       </div>

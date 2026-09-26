@@ -123,7 +123,7 @@ function fakeGithub(gists: Map<string, Gist | null>): GithubAdapter {
     createStagingRepository: () => Promise.reject(new NotImplementedError('github', 'createStagingRepository')),
     grantPush: () => Promise.reject(new NotImplementedError('github', 'grantPush')),
     getCommit: () => Promise.reject(new NotImplementedError('github', 'getCommit')),
-    getDefaultBranchHead: () => Promise.reject(new NotImplementedError('github', 'getDefaultBranchHead')),
+    readRepository: () => Promise.reject(new NotImplementedError('github', 'readRepository')),
     compareCommits: () => Promise.reject(new NotImplementedError('github', 'compareCommits')),
   };
 }
@@ -767,6 +767,7 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
       recordKeyRotation: (did, input) => base.recordKeyRotation(did, input),
       setAvatarSpec: (did, avatarSpec) => base.setAvatarSpec(did, avatarSpec),
       setNegotiatesOnOwnersBehalf: (did, flag) => base.setNegotiatesOnOwnersBehalf(did, flag),
+      setNotifyWebhookUrl: (did, url) => base.setNotifyWebhookUrl(did, url),
     };
     return createApp(overrides.accountRepo ?? new MemoryAccountRepository(), repo, fakeIdentity(), fakeGithub(gists));
   }

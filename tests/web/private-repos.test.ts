@@ -156,10 +156,10 @@ const hiddenRepos = new Set<string>();
 function hidingGithub(github: GithubAdapter): GithubAdapter {
   return {
     ...github,
-    getDefaultBranchHead: (ref: StagingRepoRef) =>
+    readRepository: (ref: StagingRepoRef) =>
       hiddenRepos.has(`${ref.owner}/${ref.repo}`)
         ? Promise.reject(new RepositoryNotAccessibleError(ref.owner, ref.repo, 404))
-        : github.getDefaultBranchHead(ref),
+        : github.readRepository(ref),
   };
 }
 

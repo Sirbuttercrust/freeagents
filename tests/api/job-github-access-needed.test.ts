@@ -102,7 +102,7 @@ describe('job data names the GitHub read access needed and the account (ORG1)', 
   });
 
   // ORG1 r2 fix, defect 1: confirm's own read of the buyer's repository
-  // (getDefaultBranchHead) and the pull-request route's read of the PR
+  // (readRepository) and the pull-request route's read of the PR
   // (getPullRequest) both run on the PLATFORM's single token -- never the
   // agent's. A buyer who grants read ONLY to the agent's account still
   // gets a platform account that cannot see the repository, so this

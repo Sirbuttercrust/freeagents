@@ -4,12 +4,16 @@
 import type { Agent, ProofStatus } from '../../domain/agent.js';
 import type { AvatarSpec } from '../../domain/avatar-spec.js';
 import type { CompletedJob, Job } from '../../domain/job.js';
+import type { Party } from '../../domain/job.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
 import type { Account } from '../../domain/account.js';
 import type { KeyRotation } from '../../domain/key-rotation.js';
 import type { Review } from '../../domain/review.js';
 import type { SignedAttestation, IssuedCredentialDocument } from '../credentials/types.js';
 import type { Attestation } from '../../domain/attestation.js';
+import type { Message, ThreadReadState } from '../../domain/message.js';
+import type { Notification, PushSubscription } from '../../domain/notification.js';
+import type { Attachment } from '../../domain/attachment.js';
 import {
   AgentAlreadyExistsError,
   type AgentInput,
@@ -31,6 +35,11 @@ import {
   type ObservedSettlementRecord,
   type SettlementRepository,
   type AttestationRepository,
+  type MessageRepository,
+  type ThreadReadStateRepository,
+  type NotificationRepository,
+  type AttachmentRepository,
+  type PushSubscriptionRepository,
   credentialLookupKey,
 } from './types.js';
 
@@ -154,6 +163,7 @@ export class MemoryAgentRepository implements AgentRepository {
       maxWalkedAfterConfirm: input.maxWalkedAfterConfirm ?? null,
       avatarSpec: null,
       negotiatesOnOwnersBehalf: input.negotiatesOnOwnersBehalf ?? false,
+      notifyWebhookUrl: input.notifyWebhookUrl ?? null,
     };
     this.rows.set(input.did, row);
     return row;
@@ -221,6 +231,17 @@ export class MemoryAgentRepository implements AgentRepository {
     const row = this.rows.get(did);
     if (row === undefined) return null;
     const updated: Agent = { ...row, negotiatesOnOwnersBehalf };
+    this.rows.set(did, updated);
+    return updated;
+  }
+
+  // HT1 Part B (STEER item 4, 2026-09-25): overwrites the stored webhook
+  // URL, or clears it back to null, the same overwrite-or-clear shape
+  // setAvatarSpec above takes.
+  async setNotifyWebhookUrl(did: string, notifyWebhookUrl: string | null): Promise<Agent | null> {
+    const row = this.rows.get(did);
+    if (row === undefined) return null;
+    const updated: Agent = { ...row, notifyWebhookUrl };
     this.rows.set(did, updated);
     return updated;
   }
@@ -507,5 +528,116 @@ export class MemorySettlementRepository implements SettlementRepository {
 
   async findByJobAndLeg(jobId: string, leg: 'deposit' | 'remainder'): Promise<ObservedSettlementRecord | null> {
     return this.rows.get(this.key(jobId, leg)) ?? null;
+  }
+}
+
+// HT1 Part B: the hire thread's message store, keyed by id, indexed by
+// jobId for listByJobId. Map iteration order is insertion order (the JS
+// spec guarantees it), so listByJobId is already oldest-first with no
+// extra sort, the same convention every other listing repository in this
+// file relies on.
+export class MemoryMessageRepository implements MessageRepository {
+  private readonly rows = new Map<string, Message>();
+
+  async create(message: Message): Promise<Message> {
+    const row: Message = { ...message };
+    this.rows.set(message.id, row);
+    return row;
+  }
+
+  async update(message: Message): Promise<Message | null> {
+    if (!this.rows.has(message.id)) return null;
+    const row: Message = { ...message };
+    this.rows.set(message.id, row);
+    return row;
+  }
+
+  async findById(id: string): Promise<Message | null> {
+    return this.rows.get(id) ?? null;
+  }
+
+  async listByJobId(jobId: string): Promise<readonly Message[]> {
+    return [...this.rows.values()].filter((row) => row.jobId === jobId);
+  }
+}
+
+// HT1 Part B: read receipts, keyed by (jobId, party). Always overwrites,
+// mirroring the interface's own header comment: monotonicity is the
+// domain layer's job (advanceReadState), not this driver's.
+export class MemoryThreadReadStateRepository implements ThreadReadStateRepository {
+  private readonly rows = new Map<string, ThreadReadState>();
+
+  private key(jobId: string, party: Party): string {
+    return `${jobId}:${party}`;
+  }
+
+  async record(state: ThreadReadState): Promise<void> {
+    this.rows.set(this.key(state.jobId, state.party), { ...state });
+  }
+
+  async findByJobAndParty(jobId: string, party: Party): Promise<ThreadReadState | null> {
+    return this.rows.get(this.key(jobId, party)) ?? null;
+  }
+}
+
+// HT1 Part B (STEER item 4): the per-account notification store, keyed
+// by id. Map iteration order is insertion order, matching every other
+// listing repository's own convention.
+export class MemoryNotificationRepository implements NotificationRepository {
+  private readonly rows = new Map<string, Notification>();
+
+  async create(notification: Notification): Promise<Notification> {
+    const row: Notification = { ...notification };
+    this.rows.set(notification.id, row);
+    return row;
+  }
+
+  async markRead(id: string, accountDid: string, now: Date): Promise<Notification | null> {
+    const row = this.rows.get(id);
+    if (row === undefined || row.accountDid !== accountDid) return null;
+    const updated: Notification = { ...row, readAt: row.readAt ?? now };
+    this.rows.set(id, updated);
+    return updated;
+  }
+
+  async listByAccountDid(accountDid: string): Promise<readonly Notification[]> {
+    return [...this.rows.values()].filter((row) => row.accountDid === accountDid);
+  }
+}
+
+// HT1 Part B (attachments STEER): one stored attachment per uploaded
+// file, keyed by id. No update method (the interface's own header
+// comment: an attachment, once stored, is immutable).
+export class MemoryAttachmentRepository implements AttachmentRepository {
+  private readonly rows = new Map<string, Attachment>();
+
+  async create(attachment: Attachment): Promise<Attachment> {
+    const row: Attachment = { ...attachment };
+    this.rows.set(attachment.id, row);
+    return row;
+  }
+
+  async findById(id: string): Promise<Attachment | null> {
+    return this.rows.get(id) ?? null;
+  }
+}
+
+// HT1 Part B (STEER item 4): browser Push API subscriptions, keyed by
+// endpoint (the interface's own upsert-by-endpoint stance).
+export class MemoryPushSubscriptionRepository implements PushSubscriptionRepository {
+  private readonly rows = new Map<string, PushSubscription>();
+
+  async upsert(subscription: PushSubscription): Promise<PushSubscription> {
+    const row: PushSubscription = { ...subscription };
+    this.rows.set(subscription.endpoint, row);
+    return row;
+  }
+
+  async listByAccountDid(accountDid: string): Promise<readonly PushSubscription[]> {
+    return [...this.rows.values()].filter((row) => row.accountDid === accountDid);
+  }
+
+  async removeByEndpoint(endpoint: string): Promise<void> {
+    this.rows.delete(endpoint);
   }
 }

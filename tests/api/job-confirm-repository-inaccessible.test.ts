@@ -4,7 +4,7 @@
 // card, confirm's single catch-all around the github calls answered 503
 // "github unavailable" for this exact case, indistinguishable from a real
 // outage. This suite pins the split: RepositoryNotAccessibleError (thrown
-// by github.getDefaultBranchHead, see
+// by github.readRepository, see
 // tests/adapters/github/github-staging.test.ts) answers 409 with a
 // message the buyer can act on; every other failure from that same call
 // still answers 503, unchanged (see job-confirm-staging.test.ts, which
@@ -48,13 +48,13 @@ async function postSigned(baseUrl: string, path: string, body: unknown, identity
   });
 }
 
-// Mirrors job-confirm-staging.test.ts's own rejectingOnCreateStagingRepository:
-// every method the fixture offers is unchanged except the one this route's
-// two error branches are being pinned against.
-function rejectingOnGetDefaultBranchHead(github: GithubAdapter, err: Error): GithubAdapter {
+// Mirrors job-pull-request.test.ts's own rejectingOnPullRequest: every
+// method the fixture offers is unchanged except the one this route's
+// fail-closed path is being pinned against.
+function rejectingOnReadRepository(github: GithubAdapter, err: Error): GithubAdapter {
   return {
     ...github,
-    getDefaultBranchHead: (_ref: StagingRepoRef) => Promise.reject(err),
+    readRepository: (_ref: StagingRepoRef) => Promise.reject(err),
   };
 }
 
@@ -135,7 +135,7 @@ describe('POST /jobs/:jobId/confirm: a repository the platform cannot see (ORG1)
   it('answers 409 with an actionable message on RepositoryNotAccessibleError, never 503', async () => {
     const { github } = createStagingLifecycleGithubFake();
     active = await startApp(
-      rejectingOnGetDefaultBranchHead(github, new RepositoryNotAccessibleError('buyer', 'private-repo', 404)),
+      rejectingOnReadRepository(github, new RepositoryNotAccessibleError('buyer', 'private-repo', 404)),
     );
     const jobId = await walkToPriceAccepted(active.baseUrl, 'buyer/private-repo');
 
@@ -165,7 +165,7 @@ describe('POST /jobs/:jobId/confirm: a repository the platform cannot see (ORG1)
   it('the 409 message names BOTH the agent account and the platform account that need read', async () => {
     const { github } = createStagingLifecycleGithubFake();
     active = await startApp(
-      rejectingOnGetDefaultBranchHead(github, new RepositoryNotAccessibleError('buyer', 'private-repo', 404)),
+      rejectingOnReadRepository(github, new RepositoryNotAccessibleError('buyer', 'private-repo', 404)),
     );
     const jobId = await walkToPriceAccepted(active.baseUrl, 'buyer/private-repo');
 
@@ -184,7 +184,7 @@ describe('POST /jobs/:jobId/confirm: a repository the platform cannot see (ORG1)
   it('the 409 message ends with the walkthrough page address for this job, on the deployment\'s public origin', async () => {
     const { github } = createStagingLifecycleGithubFake();
     active = await startApp(
-      rejectingOnGetDefaultBranchHead(github, new RepositoryNotAccessibleError('buyer', 'private-repo', 404)),
+      rejectingOnReadRepository(github, new RepositoryNotAccessibleError('buyer', 'private-repo', 404)),
     );
     const jobId = await walkToPriceAccepted(active.baseUrl, 'buyer/private-repo');
 
@@ -209,7 +209,7 @@ describe('POST /jobs/:jobId/confirm: a repository the platform cannot see (ORG1)
   it('answers 409 the same way on a 403 (an org repository never shared with the platform account)', async () => {
     const { github } = createStagingLifecycleGithubFake();
     active = await startApp(
-      rejectingOnGetDefaultBranchHead(github, new RepositoryNotAccessibleError('some-org', 'private-repo', 403)),
+      rejectingOnReadRepository(github, new RepositoryNotAccessibleError('some-org', 'private-repo', 403)),
     );
     const jobId = await walkToPriceAccepted(active.baseUrl, 'some-org/private-repo');
 
@@ -224,7 +224,7 @@ describe('POST /jobs/:jobId/confirm: a repository the platform cannot see (ORG1)
 
   it('still answers 503 for a real outage (connection refused), the RepositoryNotAccessibleError branch does not swallow it', async () => {
     const { github } = createStagingLifecycleGithubFake();
-    active = await startApp(rejectingOnGetDefaultBranchHead(github, new Error('connection refused by github')));
+    active = await startApp(rejectingOnReadRepository(github, new Error('connection refused by github')));
     const jobId = await walkToPriceAccepted(active.baseUrl, 'buyer/outage-repo');
 
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});

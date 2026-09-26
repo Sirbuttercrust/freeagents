@@ -71,6 +71,20 @@ export interface AttachAbtPaymentHandlersOptions {
   readonly baseUrl: string;
   readonly txEncoder: AbtTxEncoder;
   readonly sessionStorage?: DidConnectSessionStorage;
+  // STEER (bugs.md B19, 2026-09-25): "when the platform observes
+  // a deposit or a balance leg settle... it writes a `deposit paid` or
+  // `balance paid` system row into the hire thread." Called AFTER the
+  // settlement row above is written, with the identical facts (never a
+  // wallet address or a transaction hash -- the callback receives only
+  // jobId, leg, rail and amountUsd, on purpose: it cannot leak what it is
+  // never given). Optional so the many existing tests constructing this
+  // adapter without message/notification wiring are untouched.
+  readonly onSettlementRecorded?: (input: {
+    readonly jobId: string;
+    readonly leg: 'deposit' | 'remainder';
+    readonly rail: 'abt' | 'usdc';
+    readonly amountUsd: string;
+  }) => void | Promise<void>;
 }
 
 export interface AbtPaymentHandlers {
@@ -303,6 +317,7 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
           amountUsd,
           observedAt: new Date(),
         });
+        await options.onSettlementRecorded?.({ jobId, leg, rail: 'abt', amountUsd });
       }
       return { confirmed: confirmation.confirmed };
     },

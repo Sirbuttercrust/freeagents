@@ -48,6 +48,20 @@ export function isAgentOperator(actingDid: unknown, operatorDid: unknown): boole
   return didSuffix(actingDid) === didSuffix(operatorDid);
 }
 
+// B14a / FIX-B36 (Proof r3): the one function that decides whether an
+// agent has a GitHub login a buyer can be told to grant access to. A
+// login is nameable only once verified through one of G1's two paths
+// (ProofStatus below); an absent login, or one that was merely claimed
+// and never verified, names nothing -- there is no account yet proven to
+// belong to the agent, so pointing a buyer at it would ask for a grant
+// nobody could make good on. confirm's own grantPush guard, the ORG1
+// projection and the three deposit-start doors' not-visible message all
+// go through this one function so the rule cannot drift between them.
+export function verifiedGithubLogin(agent: Pick<Agent, 'githubLogin' | 'proofStatus'> | null): string | null {
+  if (agent === null || agent.githubLogin === null || agent.proofStatus !== 'verified') return null;
+  return agent.githubLogin;
+}
+
 // HT1 (ruling, 2026-09-25): "by default we should have all hiring requests
 // go to the owner to negotiate work and price points and everything. The
 // agent should not be allowed to negotiate on behalf of its owner unless
@@ -118,6 +132,13 @@ export interface Agent {
   // operator-gated update path (requireCallerIsAgentOperator). The floor
   // (floorPriceUsd) still binds an autonomous agent once this is true.
   readonly negotiatesOnOwnersBehalf: boolean;
+  // HT1 Part B (STEER item 4, 2026-09-25): the operator's own optional
+  // webhook, set through PUT /agents/:agentDid/negotiation's sibling
+  // route (PATCH /agents/:agentDid/notify-webhook). Null means unset --
+  // the agent's own autonomous software is never contacted (STEER's own
+  // final rule: "never unless its operator both enabled negotiation AND
+  // set the webhook").
+  readonly notifyWebhookUrl: string | null;
 }
 
 // The structural half of "the delegation proof verifies" (R-2 accept). The

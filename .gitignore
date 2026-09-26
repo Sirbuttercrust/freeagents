@@ -4,6 +4,10 @@ node_modules/
 !.env.example
 dist/
 build/
+# The default local-disk attachments directory (attachmentsDirFromEnv's
+# own generic default): a runtime artifact when a test or a local dev
+# run never sets FREEAGENTS_ATTACHMENTS_DIR, never source.
+var/
 # The blocklet CLI writes bundle output here; it is a build artifact, not source.
 .blocklet/
 src/generated/

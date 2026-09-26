@@ -77,6 +77,10 @@
     text-decoration: underline; text-underline-offset: 3px;
   }
   .verify:hover { color: var(--action-hi); }
+  /* S3: a verified row's two links (the receipt, and the verify page
+     filled with it) sit on one line and wrap as a pair at narrow widths. */
+  .verifies { display: flex; flex-wrap: wrap; gap: 0 20px; margin-top: 4px; }
+  .verifies .verify { margin-top: 0; }
 
   /* The self-hire label. Every row that is one carries it, so no reading of
      this page can present five self-hires as five independent buyers
@@ -462,6 +466,12 @@
      "Verify this credential" here and in the wireframe). Cloned for every
      row in agent.value.verifiedHires, which is real, live data.
 
+     tmpl-verify-check: S3's second link beside it, "Check this yourself",
+     the same words the receipt's own primary button uses. It opens
+     /verify?credential=<key>, so the verify page arrives filled with this
+     row's receipt. Cloned only beside tmpl-verify-hire, never on a claim
+     row (MISSION invariant 4).
+
      The prior-work equivalents (a gist-proof link and a "Check the
      ownership proof" button) are NOT templated here: R-17's three tiers
      share ONE item shape (agent-work-record.ts, VerifiedHireItem) that
@@ -476,6 +486,7 @@
      here for the same reason it is in ALLOWED_ABSENT: no field on
      VerifiedHireItem carries a site URL to give the control a real href. -->
 <template id="tmpl-verify-hire"><a class="verify" href="#">See the receipt</a></template>
+<template id="tmpl-verify-check"><a class="verify" href="#">Check this yourself</a></template>
 <template id="tmpl-gallery-hire-link"><a class="btn btn-sm" href="#"><span class="ico ico-sm" data-ico="git-merge"></span>Read the pull request</a></template>
 
 <footer class="foot">

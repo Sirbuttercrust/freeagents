@@ -44,6 +44,12 @@ const WIREFRAME_FOR: Record<string, string | null> = {
   // (same head, nav, footer, stylesheets and office footer), and
   // tests/web/private-repos.test.ts measures it.
   'private-repos': null,
+  // HT1 Part B: this card's own scope limit is "build only the
+  // operator's unread badge and a plain notification list on the site,
+  // nothing more elaborate"; the conversation screen AND its design
+  // board (MSG0, assignee burnish) are a separate card. No wireframe
+  // exists yet for this deliberately plain page.
+  notifications: null,
 };
 
 // Justified departures, per page, each with the reason. A heading or control
@@ -161,7 +167,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Waiting on you 1': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
     'In progress 2': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
     'Shipped 3': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
-    'Didn&#8217;t ship 1': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
+    'Didn\u2019t ship 1': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
     // W-myjobs. The wireframe holds exactly one data-avatar
     // (spec/wireframe/myjobs.html:41) and it is not on a row: it is the
     // face on the nav account menu, a <details class="avatarmenu"> whose

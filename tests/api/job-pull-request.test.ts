@@ -980,7 +980,6 @@ describe('pull-request, invariant 1 and Gate 2 (R-10, STG2)', () => {
         'compareCommits',
         'createStagingRepository',
         'getCommit',
-        'getDefaultBranchHead',
         'getMergeCommitSignature',
         'getPublicGist',
         'getPullRequest',
@@ -991,6 +990,7 @@ describe('pull-request, invariant 1 and Gate 2 (R-10, STG2)', () => {
         // account in a message without re-deriving it from the
         // environment a second time. It grants nothing new.
         'platformLogin',
+        'readRepository',
       ]);
       // getMergeCommitSignature has no caller on main yet (this card's own
       // scope: "may stay NotImplementedError if nothing on main calls it
