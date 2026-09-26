@@ -415,11 +415,19 @@ describe('createIdentityAdapter, createAgentDid (FIX-B41a)', () => {
     expect(a.did).not.toBe(b.did);
   });
 
-  it('the agent DID info string differs from the operator DID info string: the same subject/owner and same freshness input never collide', async () => {
+  it('the agent DID info string differs from the operator DID info string: matched inputs would collide if it did not', async () => {
     process.env.FREEAGENTS_PLATFORM_SEED = '2'.repeat(64);
     const identity = createIdentityAdapter(createKnownKeyStore());
 
-    const operator = await identity.createOperatorDid('same-value');
+    // Chosen so that IF AGENT_DID_HKDF_INFO equalled OPERATOR_DID_HKDF_INFO,
+    // the two HKDF inputs below would be byte-identical strings:
+    // createOperatorDid feeds `${info}:${subject}`, createAgentDid feeds
+    // `${info}:${operatorDid}:${credentialId}`. Concatenating
+    // operatorDid and credentialId with a colon reproduces the exact
+    // subject string, so this is a real collision probe, not two calls
+    // that merely happen to take different-shaped arguments.
+    const subject = 'did:abt:zSomeOwner:same-value';
+    const operator = await identity.createOperatorDid(subject);
     const agent = await identity.createAgentDid('did:abt:zSomeOwner', 'same-value');
 
     expect(agent.did).not.toBe(operator.did);

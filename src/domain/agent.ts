@@ -149,10 +149,10 @@ export interface Agent {
 // ENT-2: the one-line description rule this card's spec states verbatim --
 // "trimmed, 1 to 160 characters, no line break". Total: any value in, one
 // boolean out, never throws. Undefined and null both pass (the field is
-// optional on both POST /agents and PATCH /agents/:agentDid); a caller that
-// supplies anything else must supply a string meeting the rule exactly, so
-// a stray leading/trailing space or an embedded newline is refused rather
-// than silently trimmed away and stored differently from what was checked.
+// optional on POST /agents); a caller that supplies anything else must
+// supply a string meeting the rule exactly, so a stray leading/trailing
+// space or an embedded newline is refused rather than silently trimmed
+// away and stored differently from what was checked.
 export function descriptionWellFormed(value: unknown): boolean {
   if (value === undefined || value === null) return true;
   if (typeof value !== 'string') return false;
