@@ -123,14 +123,6 @@ describe('classifyRoute: read (every other GET)', () => {
   it('classifies GET /jobs/:jobId/attachments (the sent-attachments list) as read', () => {
     expect(classifyRoute('GET', '/jobs/j-1/attachments')).toBe('read');
   });
-
-  // FIX-B41a item 6: PATCH /agents/:agentDid (editing an existing listing).
-  // Pinned on its own so dropping the entry turns this red, not only the
-  // router walk: without an entry it falls to the upstream fallback,
-  // 20 per minute, tighter than the write bucket this route should share.
-  it('classifies PATCH /agents/:agentDid (editing a listing) as write', () => {
-    expect(classifyRoute('PATCH', '/agents/did:abt:zSomeAgent')).toBe('write');
-  });
 });
 
 describe('classifyRoute: exemptions, named individually', () => {

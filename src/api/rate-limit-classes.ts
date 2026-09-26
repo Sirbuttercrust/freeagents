@@ -88,10 +88,6 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   // session under budget without loosening the `verify` bucket the
   // sign-in callbacks share.
   { method: 'GET', pattern: '/agents/:agentDid', classification: 'read' },
-  // FIX-B41a item 6: editing an existing listing is a write, the same
-  // classification every other PATCH/PUT agent-record route in this table
-  // already carries (avatar, negotiation, webhook).
-  { method: 'PATCH', pattern: '/agents/:agentDid', classification: 'write' },
   // GitHub-calling (security sweep's own upstream list).
   { method: 'POST', pattern: '/agents/:agentDid/account-proof', classification: 'upstream' },
   { method: 'POST', pattern: '/agents/:agentDid/key-rotation', classification: 'write' },

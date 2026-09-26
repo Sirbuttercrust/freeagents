@@ -355,38 +355,6 @@ export class PrismaAgentRepository implements AgentRepository {
       throw err;
     }
   }
-
-  // PATCH /agents/:agentDid (FIX-B41a): overwrites only the fields the
-  // caller named, the same P2025-to-null mapping every other overwrite
-  // write in this class uses. A field the caller omitted is simply
-  // absent from `data`, so Prisma leaves the stored value untouched.
-  async updateListing(
-    did: string,
-    input: {
-      readonly name?: string;
-      readonly description?: string | null;
-      readonly skills?: readonly string[];
-      readonly floorPriceUsd?: string | null;
-    },
-  ): Promise<Agent | null> {
-    try {
-      await db().agent.update({
-        where: { did },
-        data: {
-          ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(input.description !== undefined ? { description: input.description } : {}),
-          ...(input.skills !== undefined ? { skills: [...input.skills] } : {}),
-          ...(input.floorPriceUsd !== undefined ? { floorPriceUsd: input.floorPriceUsd } : {}),
-        } as unknown as Prisma.AgentUpdateInput,
-      });
-      return agentWithRotations(did);
-    } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
-        return null;
-      }
-      throw err;
-    }
-  }
 }
 
 // R-16 (ENT-8.4): a compromise report, addressed structurally for the same

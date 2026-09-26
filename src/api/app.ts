@@ -3577,62 +3577,6 @@ export function createApp(
     }
   });
 
-  // FIX-B41a item 6: edit the listing. Gated by requireCallerIsAgentOperator,
-  // the same gate key-rotation, avatar, negotiation and webhook already use:
-  // unsigned 401, registered stranger 403, unknown agent 404. Takes only
-  // { name?, description?, skills?, floorPriceUsd? } with the same
-  // validation POST /agents applies to each field; never touches did,
-  // delegation, githubLogin or proofStatus (there is no field for any of
-  // them on the storage write this route makes, so naming one in the body
-  // has no effect, by construction, not by a name filtered out here).
-  app.patch('/agents/:agentDid', async (req: Request, res: Response) => {
-    const did = String(req.params.agentDid);
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const name = body.name;
-    const description = body.description;
-    const skills = body.skills;
-    const floorPriceUsd = body.floorPriceUsd;
-
-    if (
-      (name !== undefined && (typeof name !== 'string' || name.length === 0)) ||
-      !descriptionWellFormed(description) ||
-      (skills !== undefined && (!Array.isArray(skills) || skills.length === 0 || skills.some((s) => typeof s !== 'string' || s.length === 0))) ||
-      (floorPriceUsd !== undefined && floorPriceUsd !== null &&
-        (typeof floorPriceUsd !== 'string' || !/^\d+\.\d{2}$/.test(floorPriceUsd)))
-    ) {
-      res.status(400).json({
-        error: 'body must be { name?, description?, skills?, floorPriceUsd? }; name (if present) a non-empty string, description (if present) one line 1 to 160 characters trimmed with no line break or null to clear it, skills (if present) a non-empty list of strings, floorPriceUsd (if present) a decimal string with exactly two places or null to clear it',
-      });
-      return;
-    }
-
-    const gated = await requireCallerIsAgentOperator('PATCH /agents/:agentDid', req, res, did);
-    if (gated === null) return;
-
-    if (typeof agentRepo.updateListing !== 'function') {
-      console.error('PATCH /agents/:agentDid: storage does not support updateListing');
-      res.status(503).json({ error: 'storage unavailable' });
-      return;
-    }
-
-    try {
-      const updated = await agentRepo.updateListing(did, {
-        ...(name !== undefined ? { name: name as string } : {}),
-        ...(description !== undefined ? { description: description as string | null } : {}),
-        ...(skills !== undefined ? { skills: skills as string[] } : {}),
-        ...(floorPriceUsd !== undefined ? { floorPriceUsd: floorPriceUsd as string | null } : {}),
-      });
-      if (updated === null) {
-        res.status(404).json({ error: `agent ${did} is not registered` });
-        return;
-      }
-      res.status(200).json(agentProjection(updated));
-    } catch (err) {
-      console.error('PATCH /agents/:agentDid: storage failed', err);
-      res.status(503).json({ error: 'storage unavailable' });
-    }
-  });
-
   // G1 path two (ENT-5.1): a signed gist, alone, is now the whole proof. An
   // agent with its own separate GitHub account (the account the operator's
   // own session did not already prove) authors a public gist holding a

@@ -167,23 +167,9 @@ signed by the operator's own key, verified with `identityAdapter.verifyDelegatio
 ### `description` (ENT-2)
 
 Optional on every path. When present: trimmed, 1 to 160 characters, one
-line (no line break). Null when never set. Same rule on `POST /agents`
-and on `PATCH /agents/:agentDid` below.
-
-### Editing a listing
-
-```
-PATCH /agents/:agentDid
-  { name?, description?, skills?, floorPriceUsd? }
-```
-
-Gated to the agent's own operator (`requireCallerIsAgentOperator`: unsigned
-401, a registered stranger 403, an unknown agent 404). `floorPriceUsd` may
-be `null` to clear it. 200 with the agent projection. Never touches `did`,
-the delegation, `githubLogin` or `proofStatus` -- naming any of those in
-the body has no effect. 503 "storage unavailable" when the storage driver
-does not implement the write, the same stance browse takes for an optional
-method.
+line (no line break). Null when never set. Editing an existing listing
+(a PATCH route) is a follow-up card; this card only adds the field to
+`POST /agents` and the read projection.
 
 ---
 

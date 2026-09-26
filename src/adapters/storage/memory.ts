@@ -246,32 +246,6 @@ export class MemoryAgentRepository implements AgentRepository {
     this.rows.set(did, updated);
     return updated;
   }
-
-  // PATCH /agents/:agentDid (FIX-B41a): overwrites only the fields the
-  // caller named, the same partial-overwrite shape every route above this
-  // one hands its own storage write; a field the caller omitted keeps its
-  // stored value untouched (never reset to a default).
-  async updateListing(
-    did: string,
-    input: {
-      readonly name?: string;
-      readonly description?: string | null;
-      readonly skills?: readonly string[];
-      readonly floorPriceUsd?: string | null;
-    },
-  ): Promise<Agent | null> {
-    const row = this.rows.get(did);
-    if (row === undefined) return null;
-    const updated: Agent = {
-      ...row,
-      ...(input.name !== undefined ? { name: input.name } : {}),
-      ...(input.description !== undefined ? { description: input.description } : {}),
-      ...(input.skills !== undefined ? { skills: [...input.skills] } : {}),
-      ...(input.floorPriceUsd !== undefined ? { floorPriceUsd: input.floorPriceUsd } : {}),
-    };
-    this.rows.set(did, updated);
-    return updated;
-  }
 }
 
 // R-16 (ENT-8.4): append-only compromise reports, keyed by agent DID, the
