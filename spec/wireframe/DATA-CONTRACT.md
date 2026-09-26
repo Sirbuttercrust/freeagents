@@ -165,15 +165,18 @@ route family uses (`PUT /agents/:agentDid/negotiation`,
 `/avatar`, `/webhook`): the body's shape first, then the caller check,
 then the write.
 
-| status | when | sentence names |
+| status | when | sentence, word for word |
 |---|---|---|
-| 400 | the body names none of the four fields | the fixed set of names |
-| 400 | `name` present but empty, or `null` | name must be a non-empty string |
-| 400 | `description` present and not well-formed (not trimmed, over 160 characters, or a line break) | description |
-| 400 | `skills` present but empty, or containing an empty string | skills |
-| 400 | `floorPriceUsd` present, not `null`, and not a decimal string with exactly two places | floorPriceUsd |
-| 401 | unsigned, or a signature from no registered account | (unsigned) |
-| 403 | a registered account that is not this agent's operator | (never names the real operator) |
+| 400 | the body names none of the four fields | `body must name at least one of { name, description, skills, floorPriceUsd }` |
+| 400 | `name` present but empty, or `null` | `name must be a non-empty string` |
+| 400 | `description` present and not well-formed (not trimmed, over 160 characters, or a line break) | `description (if present) must be null or one line 1 to 160 characters trimmed with no line break` |
+| 400 | `skills` present but empty, or containing an empty string | `skills (if present) must be a non-empty list of non-empty strings` |
+| 400 | `floorPriceUsd` present, not `null`, and not a decimal string with exactly two places | `floorPriceUsd (if present) must be null or a decimal string with exactly two places` |
+| 401 | a request signature that names a key this service does not know | `unknown key` |
+| 401 | a request signature that fails verification | `invalid signature` |
+| 401 | no session and no request signature at all | `this route requires a session (sign in with GitHub OAuth or a passkey) or a verified request signature (R-34)` |
+| 403 | authenticated, but no registered account resolves from the session or signature | `no registered account resolves from your session or signature; register an account before acting on this agent` |
+| 403 | a registered account that is not this agent's operator | `the authenticated party is not the operator of agent <did>` |
 | 404 | the named agent DID is not registered | `agent <did> is not registered` |
 | 503 | storage does not support the write, or the write throws | `storage unavailable`, cause logged server-side |
 

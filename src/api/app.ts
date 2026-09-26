@@ -4063,11 +4063,13 @@ export function createApp(
     const gated = await requireCallerIsAgentOperator('PATCH /agents/:agentDid', req, res, did);
     if (gated === null) return;
 
-    // Only the four validated fields are ever forwarded to storage, each
-    // via `in` (not `!== undefined`) so an OMITTED key leaves the stored
-    // value untouched while an explicit `null` on description or
-    // floorPriceUsd clears it -- the same three-state distinction
-    // UpdateListingInput documents.
+    // Only the four validated fields are ever forwarded to storage: each
+    // is included only when its key is present in the body, so a caller
+    // who never named a field leaves the stored value untouched, while an
+    // explicit `null` on description or floorPriceUsd is forwarded and
+    // clears it (memory.ts and prisma.ts do the clearing, keyed off the
+    // same `!== undefined` check as everything else here, since JSON never
+    // produces a key whose parsed value is literally `undefined`).
     const input: UpdateListingInput = {
       ...('name' in body ? { name: body.name as string } : {}),
       ...('description' in body ? { description: body.description as string | null } : {}),

@@ -363,17 +363,17 @@ export class PrismaAgentRepository implements AgentRepository {
   // proofStatus, operatorDid...) cannot reach `data` here, by
   // construction, mirroring the same guarantee the memory driver's
   // object-spread gives. description and floorPriceUsd are three-state
-  // (absent, a value, or explicitly null to clear), so `data` is built
-  // conditionally with `in`, the same test the memory driver uses, so an
-  // absent key never overwrites the stored value with an unintended
-  // null. Same P2025-to-null mapping every other overwrite write in this
-  // class uses.
+  // (absent, a value, or explicitly null to clear): `data` is built
+  // conditionally with `!== undefined`, the same check the memory driver
+  // uses, so an absent key never overwrites the stored value with an
+  // unintended null. Same P2025-to-null mapping every other overwrite
+  // write in this class uses.
   async updateListing(did: string, input: UpdateListingInput): Promise<Agent | null> {
     const data: Record<string, unknown> = {};
     if (input.name !== undefined) data.name = input.name;
-    if ('description' in input) data.description = input.description ?? null;
+    if (input.description !== undefined) data.description = input.description;
     if (input.skills !== undefined) data.skills = [...input.skills];
-    if ('floorPriceUsd' in input) data.floorPriceUsd = input.floorPriceUsd ?? null;
+    if (input.floorPriceUsd !== undefined) data.floorPriceUsd = input.floorPriceUsd;
     try {
       await db().agent.update({
         where: { did },

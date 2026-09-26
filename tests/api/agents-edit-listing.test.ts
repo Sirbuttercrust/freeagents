@@ -299,6 +299,38 @@ describe('PATCH /agents/:agentDid (FIX-B41b): ignored fields change nothing', ()
     }
   });
 
+  it('the write only ever receives the four validated keys, never did/delegation/githubLogin/proofStatus', async () => {
+    // Defect from review round 1: a route that forwarded the whole body to
+    // storage (`...(body as object)` ahead of the four picks) still passed
+    // every prior test in this file, because none of them inspected what
+    // reached the write, only what the response and a re-read showed. This
+    // spies on the write itself and pins its second argument's keys, so a
+    // route-layer leak reddens here even when memory.ts drops the leaked
+    // key before it reaches the row.
+    const booted = await bootApp();
+    try {
+      const { did, auth } = await listAgent(booted);
+      const spy = vi.spyOn(booted.agentRepo, 'updateListing');
+      const res = await patchJson(
+        booted.baseUrl,
+        `/agents/${did}`,
+        { name: 'spied-on-rename', did: 'did:abt:zHijacked', delegation: { fake: 'credential' }, githubLogin: 'someone-else', proofStatus: 'verified', operatorDid: 'did:abt:zHijackedOperator' },
+        auth,
+      );
+      expect(res.status).toBe(200);
+      expect(spy).toHaveBeenCalledTimes(1);
+      const forwarded = spy.mock.calls[0]?.[1] as Record<string, unknown>;
+      expect(Object.keys(forwarded).sort()).toEqual(['name']);
+      expect(forwarded).not.toHaveProperty('did');
+      expect(forwarded).not.toHaveProperty('delegation');
+      expect(forwarded).not.toHaveProperty('githubLogin');
+      expect(forwarded).not.toHaveProperty('proofStatus');
+      expect(forwarded).not.toHaveProperty('operatorDid');
+    } finally {
+      await shutdownApp(booted);
+    }
+  });
+
   it('a body naming only did, delegation, githubLogin, proofStatus (no valid field) is 400, and none of them change', async () => {
     const booted = await bootApp();
     try {
