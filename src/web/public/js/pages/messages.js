@@ -165,7 +165,7 @@
     thumbs: {}, thumbLoading: {}, listKinds: {},
     typingOn: false, typingTimer: null, lastTypingSent: 0,
     live: null, listTimer: null,
-    convEl: null, threadEl: null, scrollEl: null, slotEl: null, cmpEl: null
+    convEl: null, threadEl: null, scrollEl: null, slotEl: null, cmpEl: null, liveEl: null
   };
 
   /* ------------------------------------------------------------ words */
@@ -271,21 +271,23 @@
     ["signin-required", "load-error"].forEach(function (x) { A.showById(x, x === id); });
     A.showById("msg-app", false);
     if (detail) A.setTextById("load-error-detail", detail);
-    document.body.classList.remove("in-thread", "show-list");
+    document.body.classList.remove("in-thread", "show-list", "app-on");
     layout();
   }
   function showApp() {
     A.showById("signin-required", false);
     A.showById("load-error", false);
     A.showById("msg-app", true);
+    document.body.classList.add("app-on");
     layout();
   }
   /* The app fills the screen under the site bar, so it needs the bar's
-     height. On a phone inside a thread the bar is hidden and this is 0. */
+     height. On a phone inside a thread the bar is hidden and this is 0.
+     Rounded up: half a pixel too tall would give the page a scroll. */
   function layout() {
     var nav = document.querySelector("nav.nav");
     var h = 0;
-    if (nav && window.getComputedStyle(nav).display !== "none") h = Math.round(nav.getBoundingClientRect().height);
+    if (nav && window.getComputedStyle(nav).display !== "none") h = Math.ceil(nav.getBoundingClientRect().height);
     document.documentElement.style.setProperty("--msg-top", h + "px");
   }
 
@@ -445,7 +447,7 @@
     S.messages = []; S.byId = {}; S.files = {}; S.readState = { buyer: null, agent: null };
     S.replyTo = null; S.editing = null; S.uploads = []; S.fresh = {}; S.pops = {};
     S.thumbs = {}; S.thumbLoading = {}; S.typingOn = false;
-    S.threadEl = null; S.scrollEl = null; S.slotEl = null; S.cmpEl = null;
+    S.threadEl = null; S.scrollEl = null; S.slotEl = null; S.cmpEl = null; S.liveEl = null;
   }
 
   function openThread(jobId) {
@@ -566,12 +568,23 @@
     sc.setAttribute("data-scroll", "");
     var th = el("div", "thread");
     th.setAttribute("data-thread", "");
-    th.setAttribute("aria-live", "polite");
-    th.setAttribute("aria-relevant", "additions");
     sc.appendChild(th);
     conv.appendChild(sc);
     S.scrollEl = sc;
     S.threadEl = th;
+
+    /* What a screen reader hears arrive. The thread is redrawn whole on
+       every change (a reaction, a receipt, the typing dots), so it is NOT a
+       live region: that would read the whole conversation out again each
+       time. This one region gets a line per new row that is not mine (the
+       other person's, their agent's, or one of the hire's own events) and
+       one when the other person starts typing (announce, below). */
+    var live = el("div", "sr");
+    live.id = "thread-live";
+    live.setAttribute("aria-live", "polite");
+    live.setAttribute("aria-relevant", "additions");
+    conv.appendChild(live);
+    S.liveEl = live;
 
     /* the composer, or the read-only line */
     var cmp = el("div", "a-cmp");
@@ -1072,7 +1085,10 @@
     var m = el("div", "msg tail");
     var brow = el("div", "brow");
     var b = el("div", "bubble");
-    b.setAttribute("role", "status");
+    /* a picture of the dots, named; it is heard through the live region
+       (announce), because this bubble is redrawn with the thread and a
+       status role here would be read out again on every redraw */
+    b.setAttribute("role", "img");
     b.setAttribute("aria-label", otherLabel(S.row) + " is typing");
     add(b, el("i"), el("i"), el("i"), tail());
     brow.appendChild(b);
@@ -1341,10 +1357,12 @@
     api("POST", jobPath() + "/typing", {});
   }
   function showTyping() {
+    var was = S.typingOn;
     S.typingOn = true;
     clearTimeout(S.typingTimer);
     S.typingTimer = setTimeout(function () { S.typingOn = false; renderThread(); }, TYPING_SHOW_MS);
     renderThread();
+    if (!was) announce(otherLabel(S.row) + " is typing");
   }
 
   /* ------------------------------------------------------------ files */
@@ -1567,7 +1585,7 @@
       if (isNew) S.fresh[data.id] = true;
       var incoming = isNew && data.authorParty !== S.seat;
       if (incoming && data.authorParty !== "system") { S.typingOn = false; clearTimeout(S.typingTimer); }
-      var draw = function () { renderThread(); };
+      var draw = function () { renderThread(); if (incoming) announce(data); };
       if (missingFiles()) loadFiles().then(draw); else draw();
       if (incoming) markRead();
       refreshListSoon();
@@ -1580,6 +1598,18 @@
       if (data.party && data.party !== S.seat) showTyping();
     }
   }
+  /* One line in the live region per thing worth hearing: a new row that is
+     not mine (who, then its words or the kind of file; an event in its own
+     words), or the other person starting to type. Old lines are trimmed;
+     a removal is never read out. */
+  var LIVE_KEEP = 4;
+  function announce(m) {
+    var text = typeof m === "string" ? m : (m.authorParty === "system" ? preview(m) : authorShort(m) + ": " + preview(m));
+    var region = S.liveEl;
+    if (!region || !text) return;
+    region.appendChild(el("p", null, text));
+    while (region.childNodes.length > LIVE_KEEP) region.removeChild(region.firstChild);
+  }
   function startPolling(gen) {
     if (!S.live || S.live.poll) return;
     S.live.mode = "poll";
@@ -1591,13 +1621,13 @@
     var p = jobPath();
     Promise.all([api("GET", p + "/messages"), api("GET", p + "/messages/read-state")]).then(function (res) {
       if (gen !== S.gen) return;
-      var changed = false, incoming = false;
+      var changed = false, incoming = false, heard = [];
       var list = body(res[0]);
       if (status(res[0]) === 200 && list && Array.isArray(list.messages)) {
         list.messages.forEach(function (m) {
           var old = S.byId[m.id];
           if (old && JSON.stringify(old) === JSON.stringify(m)) return;
-          if (upsert(m)) { S.fresh[m.id] = true; if (m.authorParty !== S.seat) incoming = true; }
+          if (upsert(m)) { S.fresh[m.id] = true; if (m.authorParty !== S.seat) { incoming = true; heard.push(m); } }
           changed = true;
         });
       }
@@ -1609,7 +1639,7 @@
         });
       }
       if (!changed) return;
-      var draw = function () { renderThread(); };
+      var draw = function () { renderThread(); heard.forEach(announce); };
       if (missingFiles()) loadFiles().then(draw); else draw();
       if (incoming) { markRead(); refreshListSoon(); }
     });
@@ -1955,8 +1985,20 @@
   }
 
   /* ------------------------------------------------------------ wiring */
-  var pressTimer = null;
+  var pressTimer = null, pressStart = 0, swallowUntil = 0;
   function wire() {
+    /* A long press opens the menu while the finger is still down, so the
+       scrim is under the finger when it lifts, and the click that ends the
+       press would land on it and close the menu again. That one click is
+       dropped here, before any handler below sees it; any new touch clears
+       the window. */
+    document.addEventListener("click", function (e) {
+      if (swallowUntil && Date.now() < swallowUntil) {
+        swallowUntil = 0;
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }, true);
     document.addEventListener("click", function (e) {
       var t = e.target.closest ? e.target.closest("button, a, [data-scrim]") : null;
       if (!t) return;
@@ -2038,6 +2080,8 @@
     });
     document.addEventListener("pointerdown", function (e) {
       if (e.pointerType !== "touch") return;
+      pressStart = Date.now();
+      swallowUntil = 0;
       var b = e.target.closest ? e.target.closest("[data-msg]") : null;
       if (!b || !S.writable) return;
       clearTimeout(pressTimer);
@@ -2047,6 +2091,10 @@
       document.addEventListener(ev, function (e) {
         if (ev !== "pointermove" || Math.abs(e.movementY || 0) > 4) clearTimeout(pressTimer);
       });
+    });
+    document.addEventListener("pointerup", function (e) {
+      if (e.pointerType !== "touch" || !layer || !layer.querySelector(".tbmenu")) return;
+      if (Date.now() - pressStart >= 450) swallowUntil = Date.now() + 600;
     });
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") {

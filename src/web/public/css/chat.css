@@ -48,18 +48,25 @@
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* ------------------------------------------------------------ the page
-   The app fills the screen under the site bar. The site footer (the
-   office) sits below it, past the fold; inside a thread on a phone it goes
-   with the header. --msg-top is the bar's measured height (messages.js). */
+   The app IS the screen under the site bar, as a.html locks it: the list
+   and the thread scroll inside it, and the page itself never scrolls. So
+   while the app is showing (body.app-on, set by messages.js) the office
+   footer stays in the markup, as on every page, but is not drawn, and the
+   app takes exactly the height the bar leaves. A page that scrolled here
+   slid the pinned strip, and its next step, under the sticky bar at 1280.
+   The bar is also not sticky on this page, so a window too short for the
+   app's floor scrolls the bar away rather than over the strip. --msg-top
+   is the bar's measured height (messages.js). */
 .msg-page main { flex: none; }
+body.app-on > .foot { display: none; }
+body.app-on > .nav { position: relative; }
 .a-app {
   display: grid; grid-template-columns: 340px minmax(0, 1fr);
   height: calc(100dvh - var(--msg-top));
   min-height: 420px;
-  border-bottom: 1px solid var(--line);
   /* A solid surface, like the board's: the league's chalk lines (league.css,
      body::before) would otherwise draw a centre circle through the middle
-     of every conversation. They still show above and below the app. */
+     of every conversation. */
   background: var(--bg);
 }
 .a-list { border-right: 1px solid var(--line); overflow: auto; min-height: 0; }
@@ -154,7 +161,7 @@
   .a-list { display: none; border-right: 0; }
   body.show-list .a-list { display: block; }
   body.show-list .a-conv { display: none; }
-  body.in-thread .nav, body.in-thread > .foot { display: none; }
+  body.in-thread .nav { display: none; }
   .a-bar .back { display: inline-flex; }
   .a-bar .end a .lbl { display: none; }
   .a-pin { padding-left: 12px; }
@@ -241,8 +248,10 @@
 .intro b { font-size: 15px; font-weight: 600; margin-top: 6px; line-height: 20px; }
 .intro p { margin: 4px 0 0; font-size: 13px; line-height: 18px; color: var(--fg-2); }
 
-/* the brief, sent as the first bubble */
-.bubble.brief .lbl { display: block; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.02em; opacity: 0.86; margin-bottom: 2px; }
+/* the brief, sent as the first bubble. The label is full --fg, never
+   dimmed: on --bubble-mine any dimming drops it under the 4.5 floor
+   (DESIGN.md 2.5), so the label is set apart by size and weight instead */
+.bubble.brief .lbl { display: block; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.02em; margin-bottom: 2px; }
 .bubble.brief .more {
   display: inline-flex; align-items: center; min-height: 44px; margin: -8px 0 -10px;
   font-weight: 600; text-decoration: none;
@@ -361,7 +370,8 @@
 .run.them .filecard .fi::before { border-right-color: var(--bubble-theirs); }
 .filecard .fn { min-width: 0; }
 .filecard b { display: block; font-weight: 560; font-size: 15px; line-height: 20px; overflow-wrap: anywhere; }
-.filecard small { display: block; font-size: 13px; line-height: 17px; color: var(--fg); opacity: 0.85; }
+/* the size line is full --fg for the same reason as the brief's label */
+.filecard small { display: block; font-size: 13px; line-height: 17px; color: var(--fg); }
 
 /* ------------------------------------------------------------ composer */
 .composer {
