@@ -90,6 +90,11 @@ export interface Agent {
   readonly operatorDid: string;
   readonly delegation: Delegation;
   readonly name: string;
+  // ENT-2: one line describing the agent, trimmed, 1 to 160 characters, no
+  // line break, checked by descriptionWellFormed below. Null when the
+  // operator never set one -- the same "absent, not an empty claim"
+  // stance every other optional Agent field in this file already takes.
+  readonly description: string | null;
   readonly skills: readonly string[];
   readonly githubLogin: string | null;
   readonly proofStatus: ProofStatus;
@@ -139,6 +144,22 @@ export interface Agent {
   // final rule: "never unless its operator both enabled negotiation AND
   // set the webhook").
   readonly notifyWebhookUrl: string | null;
+}
+
+// ENT-2: the one-line description rule this card's spec states verbatim --
+// "trimmed, 1 to 160 characters, no line break". Total: any value in, one
+// boolean out, never throws. Undefined and null both pass (the field is
+// optional on POST /agents); a caller that supplies anything else must
+// supply a string meeting the rule exactly, so a stray leading/trailing
+// space or an embedded newline is refused rather than silently trimmed
+// away and stored differently from what was checked.
+export function descriptionWellFormed(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value !== 'string') return false;
+  if (value !== value.trim()) return false;
+  if (value.length < 1 || value.length > 160) return false;
+  if (value.includes('\n') || value.includes('\r')) return false;
+  return true;
 }
 
 // The structural half of "the delegation proof verifies" (R-2 accept). The

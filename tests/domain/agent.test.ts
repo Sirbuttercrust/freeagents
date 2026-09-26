@@ -7,7 +7,7 @@
 // operator whose caller-side proof resolved to the other form. Total: any
 // two strings in, one boolean out, never throws.
 import { describe, expect, it } from 'vitest';
-import { isAgentOperator, agentMayNegotiate } from '../../src/domain/agent.js';
+import { isAgentOperator, agentMayNegotiate, descriptionWellFormed } from '../../src/domain/agent.js';
 
 describe('isAgentOperator', () => {
   it('the same DID in the same form matches', () => {
@@ -57,5 +57,47 @@ describe('agentMayNegotiate (HT1, owner-first negotiation)', () => {
 
   it('the agent\'s own key is accepted once the owner turns the flag on', () => {
     expect(agentMayNegotiate({ callerIsAgentOwnKey: true, negotiatesOnOwnersBehalf: true })).toBe(true);
+  });
+});
+
+// FIX-B41a item 7 (ENT-2): "trimmed, 1 to 160 characters, no line break."
+// qa review round 2: descriptionWellFormed had no test at all, so five
+// mutants (dropping the trim check, the line-break check, the min-length
+// check, the max-length check, and the non-string guard) all stayed
+// green. One assertion per rule branch, each targeted so removing that
+// one branch (and no other) flips it.
+describe('descriptionWellFormed (FIX-B41a, ENT-2)', () => {
+  it('undefined and null both pass: the field is optional', () => {
+    expect(descriptionWellFormed(undefined)).toBe(true);
+    expect(descriptionWellFormed(null)).toBe(true);
+  });
+
+  it('a plain one-line string within range passes', () => {
+    expect(descriptionWellFormed('reviews pull requests for style and correctness')).toBe(true);
+  });
+
+  it('a non-string value fails, never coerced', () => {
+    expect(descriptionWellFormed(42)).toBe(false);
+    expect(descriptionWellFormed({})).toBe(false);
+    expect(descriptionWellFormed(['x'])).toBe(false);
+  });
+
+  it('a leading or trailing space fails: the caller must submit it already trimmed', () => {
+    expect(descriptionWellFormed(' leading space')).toBe(false);
+    expect(descriptionWellFormed('trailing space ')).toBe(false);
+  });
+
+  it('an empty string fails: the minimum is 1 character', () => {
+    expect(descriptionWellFormed('')).toBe(false);
+  });
+
+  it('a 160-character string passes and a 161-character string fails: the maximum is 160', () => {
+    expect(descriptionWellFormed('a'.repeat(160))).toBe(true);
+    expect(descriptionWellFormed('a'.repeat(161))).toBe(false);
+  });
+
+  it('an embedded line break fails, \\n and \\r both', () => {
+    expect(descriptionWellFormed('one\nline')).toBe(false);
+    expect(descriptionWellFormed('one\rline')).toBe(false);
   });
 });

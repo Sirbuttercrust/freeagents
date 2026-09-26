@@ -699,6 +699,7 @@ describe('every refusal POST /jobs can return renders its own distinct sentence'
       operatorDid: 'did:abt:refusal-404-operator',
       delegation: delegationFixture(NOT_REGISTERED_AGENT_DID, 'did:abt:refusal-404-operator'),
       name: 'refusal-404-scout',
+      description: null,
       skills: [],
       githubLogin: null,
       proofStatus: 'unverified',
