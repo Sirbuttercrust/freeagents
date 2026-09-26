@@ -13,36 +13,40 @@
 // tests/web/rate-limit-burst-measurement.test.ts and is run, not typed by
 // hand -- run it yourself with `npx vitest run
 // tests/web/rate-limit-burst-measurement.test.ts` and its console.log
-// lines print these same counts). FIX-S7 round 2 (qa proof r1, defect 3):
-// round 1's numbers left out the signed-in job page and measured deposit
-// signed-out only; both are measured signed in below, closing that gap.
-//   - browse page, 10 cards (PAGE_SIZE, browse.js): 1 GET /agents (a
-//     `read`) + 10 GET /agents/:agentDid (a `verify`, browse.js:376's
-//     per-card avatar read) = 1 read + 10 verify in one page load. The
-//     page shell itself (/browse, Accept: html) is exempt and consumes
-//     neither bucket (rate-limit-classes.ts's EXEMPT_WEB_PAGE_PATHS).
-//   - job page, SIGNED IN: 1 GET /jobs/:jobId (`read`, the primary
-//     record) + 1 GET /agents/:agentDid (`verify`, job.js's identity
-//     strip) + nav.js's own signed-in reads (GET /accounts/me and GET
-//     /accounts/:did/notifications, both `read`) = up to 3 read + 1
-//     verify measured; the page shell for /jobs/:jobId itself is also
-//     exempt (Accept: html, rate-limit-classes.ts's negotiated-page-shell
-//     rule), so it consumes neither bucket either.
-//   - deposit page, SIGNED IN: GET /jobs/:jobId (`read`) + GET
-//     /jobs/:jobId/attestations (`read`, authed party probe) + GET
-//     /agents/:agentDid (`verify`, renderWho) + GET
-//     /agents/:agentDid/hires (`read`) + nav.js's signed-in reads (GET
-//     /accounts/me, GET /accounts/:did/notifications, both `read`) = up
-//     to 6 read + 1 verify measured.
-// The busiest measured burst for any one class in one page load is 10
-// (`verify`, the browse page's 10 avatar reads) and 6 (`read`, the
-// signed-in deposit page). Defaults below sit at several times both:
-// `verify` keeps its pre-existing 60/60s (6x the browse burst); `read`
-// and `write` get generous per-minute budgets scaled the same way (50x
-// and more the signed-in deposit page's read burst); `upstream`
-// (GitHub/chain calls, never seen in a page load a browser itself
-// drives) is deliberately the tightest, since each request there costs a
-// real external call.
+// lines print these same counts). FIX-S7 round 3 (Temper's ruling on the
+// verify-vs-honest-user conflict qa's proof r2 raised): GET
+// /agents/:agentDid moved from `verify` to `read` (rate-limit-classes.ts),
+// so every count below that used to name a `verify` reading from that
+// route now counts it as `read` instead; the browse page's own per-card
+// avatar reads now consume zero `verify` at all.
+//   - browse page, 10 cards (PAGE_SIZE, browse.js): 1 GET /agents + 10 GET
+//     /agents/:agentDid (browse.js:376's per-card avatar read, both
+//     `read` now) = 11 read + 0 verify in one page load. The page shell
+//     itself (/browse, Accept: html) is exempt and consumes neither
+//     bucket (rate-limit-classes.ts's EXEMPT_WEB_PAGE_PATHS).
+//   - job page, SIGNED IN: GET /jobs/:jobId (the primary record) + GET
+//     /agents/:agentDid (job.js's identity strip) + nav.js's own
+//     signed-in reads (GET /accounts/me and GET
+//     /accounts/:did/notifications) = up to 5 read + 0 verify measured;
+//     the page shell for /jobs/:jobId itself is also exempt (Accept:
+//     html, rate-limit-classes.ts's negotiated-page-shell rule), so it
+//     consumes neither bucket either.
+//   - deposit page, SIGNED IN: GET /jobs/:jobId + GET
+//     /jobs/:jobId/attestations (authed party probe) + GET
+//     /agents/:agentDid (renderWho) + GET /agents/:agentDid/hires +
+//     nav.js's signed-in reads (GET /accounts/me, GET
+//     /accounts/:did/notifications) = up to 7 read + 0 verify measured.
+// The busiest measured burst for the `read` class in one page load is 11
+// (the browse page's 1 listing + 10 avatar reads). `verify` now sees no
+// page-load traffic at all: it serves only the 3 stranger/script routes
+// (a sign-in callback, a passkey assertion, a credential lookup), each a
+// single deliberate action. Defaults below sit at several times the
+// measured bursts: `read` and `write` get generous per-minute budgets
+// well above the 11-request browse burst; `verify` keeps its
+// pre-existing 60/60s, several times any real use of those 3 routes;
+// `upstream` (GitHub/chain calls, never seen in a page load a browser
+// itself drives) is deliberately the tightest, since each request there
+// costs a real external call.
 import type { NextFunction, Request, Response } from 'express';
 import { createRateLimiter, type RateLimiter } from '../adapters/identity/verify-rate-limit.js';
 import { classifyRoute, type RouteClass } from './rate-limit-classes.js';
@@ -87,21 +91,26 @@ export const CLASS_DEFAULTS: Readonly<Record<RouteClass, ClassDefault>> = {
   },
   // Every other GET. The busiest measured `read`-class burst across
   // browse/job/deposit page loads (real Chrome, signed in, see the
-  // DEFAULTS TABLE header comment above) was 6, the signed-in deposit
-  // page; 300/minute is 50 times that, many times any real read burst,
-  // including a buyer with several tabs open.
+  // DEFAULTS TABLE header comment above) was 11, the browse page's own
+  // listing plus its ten per-card avatar reads (GET /agents/:agentDid is
+  // `read`, Temper's ruling, round 3); 300/minute is well above that,
+  // many times any real read burst, including a buyer with several tabs
+  // open.
   read: {
     envVar: 'FREEAGENTS_RATE_LIMIT_READ',
     limit: 300,
-    reason: 'fifty times the busiest measured signed-in page-load read burst (deposit page, 6 reads)',
+    reason: 'well above the busiest measured page-load read burst (browse page, 11 reads)',
   },
-  // The 4 pre-existing routes (S7's original limiter): unchanged, kept at
-  // today's exact 60/minute so behaviour for these routes does not shift.
-  // The browse page's own 10-avatar burst (this class) is well under it.
+  // The 3 pre-existing routes a stranger or a script uses to prove
+  // something (a sign-in callback, a passkey assertion, an issued
+  // credential lookup): unchanged, kept at today's exact 60/minute so
+  // behaviour for these routes does not shift. No page load a browser
+  // itself drives touches this bucket at all (Temper's ruling, round 3,
+  // moved GET /agents/:agentDid to `read`).
   verify: {
     envVar: 'FREEAGENTS_RATE_LIMIT_VERIFY',
     limit: 60,
-    reason: "unchanged from the pre-existing limiter; the browse page's 10-avatar burst is well under it, several times over",
+    reason: 'unchanged from the pre-existing limiter; no ordinary page load touches this bucket at all',
   },
 };
 

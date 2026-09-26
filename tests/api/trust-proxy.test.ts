@@ -9,7 +9,6 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
-import { createRateLimiter } from '../../src/adapters/identity/verify-rate-limit.js';
 import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { TRUST_PROXY_ENV_VAR } from '../../src/adapters/config/trust-proxy.js';
 import type { Delegation } from '../../src/domain/agent.js';
@@ -92,7 +91,10 @@ describe('FREEAGENTS_TRUST_PROXY: per-caller buckets behind a proxy (S11)', () =
     originalEnv = process.env[TRUST_PROXY_ENV_VAR];
     setTrustProxyEnv('1');
 
-    const limiter = createRateLimiter({ limit: 1, windowMs: 60_000 });
+    // FIX-S7 round 3 (Temper's ruling): GET /agents/:agentDid moved from
+    // `verify` to `read`, so the override here targets the `read` class
+    // rather than passing a bare RateLimiter (which would only override
+    // `verify`, a bucket this route no longer uses).
     const agentRepo = new MemoryAgentRepository();
     const agentDid = 'did:abt:trust-proxy-on-agent';
     await agentRepo.create({
@@ -103,7 +105,9 @@ describe('FREEAGENTS_TRUST_PROXY: per-caller buckets behind a proxy (S11)', () =
       skills: ['triage'],
       githubLogin: null,
     });
-    const app = createApp(undefined, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, limiter);
+    const app = createApp(undefined, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, {
+      read: 1,
+    });
     const baseUrl = await listen(app);
 
     const callerA1 = await fetch(`${baseUrl}/agents/${agentDid}`, { headers: { 'X-Forwarded-For': '203.0.113.10' } });
@@ -122,7 +126,8 @@ describe('FREEAGENTS_TRUST_PROXY: per-caller buckets behind a proxy (S11)', () =
     originalEnv = process.env[TRUST_PROXY_ENV_VAR];
     setTrustProxyEnv(undefined);
 
-    const limiter = createRateLimiter({ limit: 1, windowMs: 60_000 });
+    // FIX-S7 round 3 (Temper's ruling): same repointing to a `read`
+    // override as the ON case above.
     const agentRepo = new MemoryAgentRepository();
     const agentDid = 'did:abt:trust-proxy-off-agent';
     await agentRepo.create({
@@ -133,7 +138,9 @@ describe('FREEAGENTS_TRUST_PROXY: per-caller buckets behind a proxy (S11)', () =
       skills: ['triage'],
       githubLogin: null,
     });
-    const app = createApp(undefined, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, limiter);
+    const app = createApp(undefined, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, {
+      read: 1,
+    });
     const baseUrl = await listen(app);
 
     const first = await fetch(`${baseUrl}/agents/${agentDid}`, { headers: { 'X-Forwarded-For': '203.0.113.10' } });

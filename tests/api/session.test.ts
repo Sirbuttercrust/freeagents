@@ -465,26 +465,26 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
     // Public does not mean scrapeable-to-death (#30 addendum). Repeated
     // anonymous hits on a verify route eventually answer 429; a session
     // does not lift the product boundary, only the limit bucket.
+    //
+    // FIX-S7 round 3 (Temper's ruling): GET /agents/:agentDid moved from
+    // `verify` to `read` (it is the site's own ordinary agent-record read,
+    // fetched by twelve page scripts, not a stranger's or a script's
+    // verification), so this test no longer exercises that route's
+    // bucket. Repointed at GET /v1/credentials/:credentialId, which stays
+    // in `verify` and answers a real 404 for an unknown id (no credential
+    // fixture needed), keeping this test's purpose: an anonymous read of
+    // a public record is bounded. Named in the PR body per FACTORY_RULES
+    // rule 1.
     const limiter = createRateLimiter({ limit: 2, windowMs: 60_000 });
-    const agentRepo = new MemoryAgentRepository();
-    const agentDid = 'did:abt:session-rate-agent';
-    await agentRepo.create({
-      did: agentDid,
-      operatorDid: 'did:abt:op-session-test',
-      delegation: delegationFixture(agentDid),
-      name: 'scout',
-      skills: ['triage'],
-      githubLogin: null,
-    });
-    const app = createApp(undefined, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, limiter);
+    const app = createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, limiter);
     const baseUrl = await listen(app);
 
-    const first = await fetch(`${baseUrl}/agents/${agentDid}`);
-    const second = await fetch(`${baseUrl}/agents/${agentDid}`);
-    const third = await fetch(`${baseUrl}/agents/${agentDid}`);
+    const first = await fetch(`${baseUrl}/v1/credentials/never-issued-1`);
+    const second = await fetch(`${baseUrl}/v1/credentials/never-issued-2`);
+    const third = await fetch(`${baseUrl}/v1/credentials/never-issued-3`);
 
-    expect(first.status).toBe(200);
-    expect(second.status).toBe(200);
+    expect(first.status).toBe(404);
+    expect(second.status).toBe(404);
     expect(third.status).toBe(429);
   });
 

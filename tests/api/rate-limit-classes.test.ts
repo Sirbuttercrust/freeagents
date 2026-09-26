@@ -15,11 +15,7 @@ import {
 const HTML_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const JSON_ACCEPT = 'application/json';
 
-describe('classifyRoute: the four verify-class routes (today\'s 60/minute limiter)', () => {
-  it('classifies GET /agents/:agentDid as verify', () => {
-    expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent')).toBe('verify');
-  });
-
+describe('classifyRoute: the three verify-class routes (today\'s 60/minute limiter)', () => {
   it('classifies GET /v1/credentials/:credentialId as verify', () => {
     expect(classifyRoute('GET', '/v1/credentials/abc-123')).toBe('verify');
   });
@@ -96,6 +92,13 @@ describe('classifyRoute: read (every other GET)', () => {
     expect(classifyRoute('GET', '/agents')).toBe('read');
   });
 
+  // FIX-S7 round 3 (Temper's ruling): moved out of `verify` because it is
+  // the site's own ordinary agent-record read (twelve page scripts fetch
+  // it for the agent strip), not a stranger's or a script's verification.
+  it('classifies GET /agents/:agentDid as read (Temper\'s ruling, round 3)', () => {
+    expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent')).toBe('read');
+  });
+
   it('classifies GET /jobs/:jobId as read', () => {
     expect(classifyRoute('GET', '/jobs/j-1')).toBe('read');
   });
@@ -104,7 +107,7 @@ describe('classifyRoute: read (every other GET)', () => {
     expect(classifyRoute('GET', '/accounts/did:abt:zOperator/agents')).toBe('read');
   });
 
-  it('classifies GET /accounts/:did (not one of the 4 verify routes) as read', () => {
+  it('classifies GET /accounts/:did (not one of the 3 verify routes) as read', () => {
     expect(classifyRoute('GET', '/accounts/did:abt:zOperator')).toBe('read');
   });
 });
@@ -161,12 +164,12 @@ describe('classifyRoute: the four negotiated page shells are exempt ONLY when Ac
     expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent', HTML_ACCEPT)).toBe('exempt');
   });
 
-  it('still classifies GET /agents/:agentDid as verify when Accept is JSON (a real API read, not a page paint)', () => {
-    expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent', JSON_ACCEPT)).toBe('verify');
+  it('still classifies GET /agents/:agentDid as read when Accept is JSON (a real API read, not a page paint; Temper\'s ruling, round 3)', () => {
+    expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent', JSON_ACCEPT)).toBe('read');
   });
 
-  it('still classifies GET /agents/:agentDid as verify when no Accept header is present at all', () => {
-    expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent')).toBe('verify');
+  it('still classifies GET /agents/:agentDid as read when no Accept header is present at all (Temper\'s ruling, round 3)', () => {
+    expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent')).toBe('read');
   });
 
   it('exempts GET /accounts/:did when Accept prefers html (the operator profile page shell)', () => {

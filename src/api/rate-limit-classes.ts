@@ -31,8 +31,12 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   { method: 'GET', pattern: '/sign-in-methods', classification: 'read' },
   { method: 'GET', pattern: '/.well-known/freeagents-issuer.json', classification: 'read' },
   { method: 'GET', pattern: '/auth/github/start', classification: 'read' },
-  // The 4 routes the pre-existing limiter covered (security sweep S7):
-  // kept at their own 'verify' bucket, unchanged behaviour.
+  // FIX-S7 round 3 (Temper's ruling): the `verify` bucket keeps exactly
+  // the 3 routes a stranger or a script uses to PROVE something (a
+  // sign-in callback, a passkey assertion, an issued credential lookup),
+  // never the site's own ordinary reads. GET /agents/:agentDid moved out
+  // of this bucket to `read` (see its own entry below) because it is the
+  // agent strip every page renders, not a verification.
   { method: 'GET', pattern: '/auth/github/callback', classification: 'verify' },
   { method: 'POST', pattern: '/auth/passkey/register', classification: 'write' },
   { method: 'POST', pattern: '/auth/passkey/verify', classification: 'verify' },
@@ -67,7 +71,16 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   { method: 'GET', pattern: '/accounts/:did/pending', classification: 'read' },
   { method: 'POST', pattern: '/agents', classification: 'write' },
   { method: 'GET', pattern: '/agents', classification: 'read' },
-  { method: 'GET', pattern: '/agents/:agentDid', classification: 'verify' },
+  // FIX-S7 round 3 (Temper's ruling on the verify-vs-honest-user
+  // conflict qa's proof r2 raised): this is the site's own ordinary
+  // agent-record read, not a stranger's or a script's verification.
+  // Twelve page scripts read it for the agent strip (browse.js once per
+  // card, plus job, agreement, operator, operatorjob, deposit,
+  // pullrequest, verify, staged, credential, dashboard, myagents), so
+  // moving it to `read` (300/minute) keeps an honest multi-page browse
+  // session under budget without loosening the `verify` bucket the
+  // sign-in callbacks share.
+  { method: 'GET', pattern: '/agents/:agentDid', classification: 'read' },
   // GitHub-calling (security sweep's own upstream list).
   { method: 'POST', pattern: '/agents/:agentDid/account-proof', classification: 'upstream' },
   { method: 'POST', pattern: '/agents/:agentDid/key-rotation', classification: 'write' },

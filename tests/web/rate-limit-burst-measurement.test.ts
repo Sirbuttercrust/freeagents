@@ -220,7 +220,7 @@ describe('FIX-S7 Make item 2: real-browser burst measurement, reproducible (roun
   });
 
   it(
-    'measures the browse page (10 cards) burst: 1 read + 10 verify (the per-card avatar reads), several times under CLASS_DEFAULTS',
+    'measures the browse page (10 cards) burst: 11 read, 0 verify (Temper\'s ruling, round 3), several times under CLASS_DEFAULTS',
     async () => {
       if (!hasRealBrowser()) {
         console.warn('no Chrome found for real-browser burst measurement; skipping (see CHROME_BIN)');
@@ -231,14 +231,14 @@ describe('FIX-S7 Make item 2: real-browser burst measurement, reproducible (roun
         await browser.send('Network.enable');
         const counts = await measurePageLoad(browser, `${baseUrl}/browse`, HTML_ACCEPT);
         console.log('[FIX-S7 burst measurement] browse page (10 cards):', counts);
-        expect(counts.read, 'the one GET /agents listing read').toBe(1);
-        expect(counts.verify, 'ten GET /agents/:agentDid avatar reads, one per card').toBe(10);
+        // FIX-S7 round 3 (Temper's ruling): GET /agents/:agentDid moved
+        // from `verify` to `read`, so both the listing read and the ten
+        // per-card avatar reads land in the same, single `read` bucket.
+        expect(counts.read, 'the listing read plus ten per-card avatar reads').toBe(11);
+        expect(counts.verify, 'no page load touches the verify bucket at all, post-ruling').toBe(0);
         expect(counts.write).toBe(0);
         expect(counts.upstream).toBe(0);
-        // The page shell itself (Accept: html) must not have consumed a
-        // verify-class slot for /browse's OWN load, since /browse is a
-        // plain own-path mount (EXEMPT_WEB_PAGE_PATHS), not negotiated.
-        expect(counts.read + counts.verify).toBeLessThan(CLASS_DEFAULTS.verify.limit);
+        expect(counts.read).toBeLessThan(CLASS_DEFAULTS.read.limit);
       } finally {
         await browser.close();
       }
@@ -247,7 +247,7 @@ describe('FIX-S7 Make item 2: real-browser burst measurement, reproducible (roun
   );
 
   it(
-    'measures a SIGNED-IN job page burst: the identity strip fires one verify read alongside the primary read',
+    'measures a SIGNED-IN job page burst: post-ruling, the identity strip and the primary record are both `read`',
     async () => {
       if (!hasRealBrowser()) {
         console.warn('no Chrome found for real-browser burst measurement; skipping (see CHROME_BIN)');
@@ -266,11 +266,13 @@ describe('FIX-S7 Make item 2: real-browser burst measurement, reproducible (roun
 
         const counts = await measurePageLoad(browser, `${baseUrl}/jobs/burst-measure-job`, HTML_ACCEPT);
         console.log('[FIX-S7 burst measurement] signed-in job page:', counts);
-        // job.js: GET /jobs/:jobId (read) + GET /agents/:agentDid (verify,
-        // identity strip). nav.js (signed in): GET /accounts/me (read) +
-        // GET /accounts/:did/notifications (read).
-        expect(counts.verify, 'the identity-strip avatar/name read').toBeGreaterThanOrEqual(1);
-        expect(counts.read).toBeGreaterThanOrEqual(1);
+        // FIX-S7 round 3 (Temper's ruling): GET /agents/:agentDid (job.js's
+        // identity strip) is now `read`, same class as GET /jobs/:jobId
+        // (the primary record) and nav.js's signed-in reads (GET
+        // /accounts/me, GET /accounts/:did/notifications). No page load
+        // touches the verify bucket at all any more.
+        expect(counts.read, 'the primary record, the identity strip, and nav.js\'s signed-in reads, all read now').toBeGreaterThanOrEqual(1);
+        expect(counts.verify, 'no page load touches the verify bucket at all, post-ruling').toBe(0);
         expect(counts.write).toBe(0);
         expect(counts.upstream).toBe(0);
       } finally {
@@ -281,7 +283,7 @@ describe('FIX-S7 Make item 2: real-browser burst measurement, reproducible (roun
   );
 
   it(
-    'measures a SIGNED-IN deposit page burst: the pre-session reads plus the identity/hires reads once signed in',
+    'measures a SIGNED-IN deposit page burst: post-ruling, every read (including renderWho\'s agent read) is `read`',
     async () => {
       if (!hasRealBrowser()) {
         console.warn('no Chrome found for real-browser burst measurement; skipping (see CHROME_BIN)');
@@ -295,12 +297,13 @@ describe('FIX-S7 Make item 2: real-browser burst measurement, reproducible (roun
 
         const counts = await measurePageLoad(browser, `${baseUrl}/deposit?job=burst-measure-deposit-job`, HTML_ACCEPT);
         console.log('[FIX-S7 burst measurement] signed-in deposit page:', counts);
-        // deposit.js: GET /jobs/:jobId (read) + GET /jobs/:jobId/attestations
-        // (read, authed) + GET /agents/:agentDid (verify, renderWho) +
-        // GET /agents/:agentDid/hires (read). nav.js (signed in):
-        // GET /accounts/me (read) + GET /accounts/:did/notifications (read).
-        expect(counts.verify, 'renderWho\'s GET /agents/:agentDid read').toBeGreaterThanOrEqual(1);
-        expect(counts.read).toBeGreaterThanOrEqual(3);
+        // FIX-S7 round 3 (Temper's ruling): deposit.js's GET
+        // /agents/:agentDid (renderWho) is now `read`, the same class as
+        // GET /jobs/:jobId, GET /jobs/:jobId/attestations, GET
+        // /agents/:agentDid/hires, and nav.js's signed-in reads. No page
+        // load touches the verify bucket at all any more.
+        expect(counts.read, 'every read this page fires, all read now').toBeGreaterThanOrEqual(4);
+        expect(counts.verify, 'no page load touches the verify bucket at all, post-ruling').toBe(0);
         expect(counts.write).toBe(0);
         expect(counts.upstream).toBe(0);
       } finally {

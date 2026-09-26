@@ -1390,12 +1390,15 @@ export function createApp(
   });
 
   // P8b: the callback is one of the two unauthenticated entry points a
-  // caller-supplied secret flows through, so it is mounted behind the same
-  // verify rate limiter GET /agents/:agentDid already uses (brief scope
-  // item 6). completeGitHubOAuth is total (never throws): null covers
-  // every failure path (bad state, reused state, expired state, provider
-  // refusal), so null maps to 401 without inspecting which one it was,
-  // the same stance verifySignature's own verify() takes.
+  // caller-supplied secret flows through, so it is mounted in the `verify`
+  // class (rate-limit-classes.ts; FIX-S7 round 3 moved GET
+  // /agents/:agentDid to `read`, so this route now shares the `verify`
+  // bucket only with POST /auth/passkey/verify and GET
+  // /v1/credentials/:credentialId). completeGitHubOAuth is total (never
+  // throws): null covers every failure path (bad state, reused state,
+  // expired state, provider refusal), so null maps to 401 without
+  // inspecting which one it was, the same stance verifySignature's own
+  // verify() takes.
   //
   // P8e: GitHub redirects the BROWSER here, not a JSON client, so this
   // route negotiates on the Accept header the same way src/web/static.ts's
@@ -3063,10 +3066,13 @@ export function createApp(
   // superseded that: EVERY route now carries a class-limiter bucket
   // (src/api/rate-limit-classes.ts's ROUTE_TABLE names every one, walked
   // by tests/architecture/rate-limit-enforcement.test.ts), not just these
-  // two. This route stays in the `verify` class (unchanged 60/minute), and
-  // GET /accounts/:did and GET /capabilities are in `read` -- rate limited
-  // too, just at the read class's own, more generous budget, never
-  // "left alone" as this comment used to claim.
+  // two. FIX-S7 round 3 (Temper's ruling on the verify-vs-honest-user
+  // conflict qa's proof r2 raised): this route is now in the `read` class
+  // (300/minute), not `verify` -- it is the site's own ordinary
+  // agent-record read (twelve page scripts fetch it for the agent strip),
+  // never a stranger's or a script's verification. GET /accounts/:did and
+  // GET /capabilities are also `read`, never "left alone" as an earlier
+  // version of this comment claimed.
   app.get('/agents/:agentDid', async (req: Request, res: Response) => {
     const did = String(req.params.agentDid);
     try {

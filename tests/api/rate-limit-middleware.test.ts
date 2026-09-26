@@ -126,10 +126,15 @@ describe('CLASS_DEFAULTS: one table, each default several times the measured bro
     expect(CLASS_DEFAULTS.verify.limit).toBe(60);
   });
 
-  it('every default clears the browse page\'s measured burst of 10 (the busiest measured page-load class burst) several times over', () => {
-    for (const routeClass of ['upstream', 'write', 'read', 'verify'] as const) {
-      expect(CLASS_DEFAULTS[routeClass].limit).toBeGreaterThanOrEqual(10 * 2);
+  it('read and write clear the browse page\'s measured burst of 11 (the busiest measured page-load class burst) several times over', () => {
+    for (const routeClass of ['write', 'read'] as const) {
+      expect(CLASS_DEFAULTS[routeClass].limit).toBeGreaterThanOrEqual(11 * 2);
     }
+  });
+
+  it('upstream and verify are each generous on their own terms (never touched by an ordinary page load, so not measured against the browse burst)', () => {
+    expect(CLASS_DEFAULTS.upstream.limit).toBeGreaterThan(0);
+    expect(CLASS_DEFAULTS.verify.limit).toBeGreaterThan(0);
   });
 });
 
