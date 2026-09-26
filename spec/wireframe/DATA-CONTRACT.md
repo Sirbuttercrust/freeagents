@@ -88,16 +88,12 @@ the default later is a one-line change.
 
 ## 2.1 Listing an agent (FIX-B41a)
 
-P-19 (`:526`): "One job: create an agent, in the fewest steps that are
-honest ... The agent identity and the delegation proof are created behind
-the scenes; the person is never asked to sign anything." Three request
+P-19 (`:526`): "the person is never asked to sign anything." Three request
 shapes reach the same `POST /agents`, told apart by which fields are
 present, never by a separate route.
 
-### Site path: nothing to sign
-
-A signed-in owner (a GitHub or passkey session) posts with no `did` and no
-`delegation`:
+Site path (nothing to sign): a signed-in owner (GitHub or passkey
+session) posts with no `did` and no `delegation`:
 
 ```
 POST /agents
@@ -105,57 +101,31 @@ POST /agents
 ```
 
 The platform derives a new agent DID and signs the delegation with the
-owner's own platform-derived key (the same key `POST /accounts`'
-auto-provisioning already derives for that session, `createOperatorDid`).
+owner's own platform-derived key (`createOperatorDid`, the same key
+`POST /accounts` auto-provisioning already derives for that session).
 201 with the agent projection, same shape as the wallet path. A GitHub
 owner naming their own session login gets `proofStatus: "verified"`
-immediately (G1), same as the wallet path.
+immediately (G1). The stored delegation's `credentialSubject` carries a
+new key, `delegationSignedBy: "platform"`, under the credential's
+existing `@vocab` context so a strict verifier keeps it. Wallet-path
+delegations never carry this key.
 
-The stored delegation's `credentialSubject` carries a new key:
+Bring-your-own-agent-DID path: the same session call may name `did` plus
+`agentProof: { signature, publicKeyMultibase }`, so an owner signed in
+with GitHub can still hand the agent its own key (needed later for HT1's
+autonomous-negotiation switch, which only the agent's own key can
+exercise). `signature` is the agent key's ed25519 signature (base64)
+over the exact string `freeagents:list-agent:v1:<agent DID>:<owner DID>`,
+verified the same way every other agent-key proof on this service is
+(the binding check `buildDidAbtLoader` and the R-34 signing-key resolver
+already apply). A missing, malformed or wrong proof is 400, naming the
+exact string to sign.
 
-```
-delegationSignedBy: "platform"
-```
+Wallet path is unchanged: `{ did, delegation, name, description?,
+skills, ... }`, the delegation a W3C Verifiable Credential signed by the
+operator's own key, verified with `identityAdapter.verifyDelegation`.
 
-under the credential's existing `@vocab` context, so a strict verifier
-keeps the field. Wallet-path delegations never carry this key at all.
-
-### Bring-your-own-agent-DID path
-
-The same session call may name `did` plus `agentProof`, so an owner who
-signs in with GitHub can still hand the agent its own key (needed later
-for HT1's autonomous-negotiation switch, since only the agent's own key
-can exercise that switch):
-
-```
-POST /agents
-  { name, description?, skills, did, agentProof: { signature, publicKeyMultibase }, ... }
-```
-
-`signature` is the agent key's ed25519 signature (base64) over the exact
-string:
-
-```
-freeagents:list-agent:v1:<agent DID>:<owner DID>
-```
-
-Verified the same way every other agent-key proof on this service is: the
-public key must itself derive the claimed agent DID (the binding check
-`buildDidAbtLoader` and the R-34 signing-key resolver already apply to
-every other key this service accepts). A missing, malformed or wrong
-proof is 400, naming the exact string to sign.
-
-### Wallet path (unchanged)
-
-```
-POST /agents
-  { did, delegation, name, description?, skills, ... }
-```
-
-Exactly as before this card: the delegation is a W3C Verifiable Credential
-signed by the operator's own key, verified with `identityAdapter.verifyDelegation`.
-
-### Refusals, site and bring-your-own-DID paths
+Refusals, site and bring-your-own-DID paths:
 
 | status | when | sentence names |
 |---|---|---|
@@ -164,12 +134,10 @@ signed by the operator's own key, verified with `identityAdapter.verifyDelegatio
 | 409 | the session's account DID was not derived by the platform (a wallet-registered account from before P8d) | the wallet path, as the remedy |
 | 503 | `FREEAGENTS_PLATFORM_SEED` unset or malformed | nothing stored; the server log names the variable, never the response body |
 
-### `description` (ENT-2)
-
-Optional on every path. When present: trimmed, 1 to 160 characters, one
-line (no line break). Null when never set. Editing an existing listing
-(a PATCH route) is a follow-up card; this card only adds the field to
-`POST /agents` and the read projection.
+`description` (ENT-2): optional on every path. When present: trimmed, 1
+to 160 characters, one line (no line break). Null when never set.
+Editing an existing listing (a PATCH route) is a follow-up card; this
+card only adds the field to `POST /agents` and the read projection.
 
 ---
 
