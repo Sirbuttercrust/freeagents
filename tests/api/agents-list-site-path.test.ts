@@ -15,7 +15,7 @@ import * as vc from '@digitalbazaar/vc';
 import { securityLoader } from '@digitalbazaar/security-document-loader';
 
 import { createApp } from '../../src/api/app.js';
-import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
+import { createIdentityAdapter, PlatformSeedUnavailableError } from '../../src/adapters/identity/identity.js';
 import { createKnownKeyStore } from '../../src/adapters/identity/did-abt-resolver.js';
 import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
@@ -462,12 +462,97 @@ describe('POST /agents, remaining guards (FIX-B41a)', () => {
     }
   });
 
+  // qa review round 2: the route's own PlatformSeedUnavailableError catch
+  // around issueSiteDelegation had no test that reaches it -- the
+  // no-issueSiteDelegation-at-all test above proves the "adapter lacks the
+  // method" 503, a different branch entirely. This stand-in HAS the
+  // method (so the earlier check passes) and throws
+  // PlatformSeedUnavailableError from inside it, the only way to reach
+  // this specific catch without the seed also being gone before
+  // createOperatorDid, which would answer 503 one branch earlier instead.
+  it('issueSiteDelegation throwing PlatformSeedUnavailableError answers 503, nothing stored', async () => {
+    const realIdentity = createIdentityAdapter(createKnownKeyStore());
+    const throwingIdentity = {
+      createOperatorDid: realIdentity.createOperatorDid.bind(realIdentity),
+      createAgentDid: realIdentity.createAgentDid.bind(realIdentity),
+      resolveDid: realIdentity.resolveDid.bind(realIdentity),
+      sign: realIdentity.sign.bind(realIdentity),
+      verify: realIdentity.verify.bind(realIdentity),
+      verifyDelegation: realIdentity.verifyDelegation.bind(realIdentity),
+      issueSiteDelegation: () => Promise.reject(new PlatformSeedUnavailableError()),
+    };
+    const booted = await bootApp({ identityOverride: throwingIdentity });
+    try {
+      const res = await postJson(booted.baseUrl, '/agents', { name: 'seed-vanishes-mid-issue-agent', skills: ['triage'] }, { authorization: `Bearer ${booted.sessionToken}` });
+      expect(res.status).toBe(503);
+      expect(await booted.agentRepo.listAll?.()).toEqual([]);
+    } finally {
+      await shutdownApp(booted);
+    }
+  });
+
   it('the wallet path still requires did when delegation is present (unchanged, pinned beside the new site branch)', async () => {
     const booted = await bootApp();
     try {
       const res = await postJson(booted.baseUrl, '/agents', { name: 'wallet-no-did-agent', skills: ['triage'], delegation: { fake: 'credential' } }, { authorization: `Bearer ${booted.sessionToken}` });
       expect(res.status).toBe(400);
       expect(String((await res.json() as Record<string, unknown>).error)).toContain('did is required when delegation is present');
+    } finally {
+      await shutdownApp(booted);
+    }
+  });
+});
+
+// FIX-B41a item 7 (ENT-2): "description" joined the contract on the site
+// path (POST validation, src/api/app.ts :3124, is shared code that also
+// guards the wallet path, so one refusal test here covers both routes'
+// call into descriptionWellFormed). qa review round 2: no test anywhere
+// posted a description, so three mutants survived: the validation call
+// itself, and each create call silently writing null regardless of what
+// was posted.
+describe('POST /agents, description (FIX-B41a item 7)', () => {
+  it('a well-formed description is stored and reads back on the site path', async () => {
+    const booted = await bootApp();
+    try {
+      const res = await postJson(
+        booted.baseUrl,
+        '/agents',
+        { name: 'scout-with-bio', skills: ['triage'], description: 'Triages GitHub issues and drafts fixes.' },
+        { authorization: `Bearer ${booted.sessionToken}` },
+      );
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.description).toBe('Triages GitHub issues and drafts fixes.');
+      const read = await fetch(`${booted.baseUrl}/agents/${body.did as string}`);
+      expect(((await read.json()) as Record<string, unknown>).description).toBe('Triages GitHub issues and drafts fixes.');
+    } finally {
+      await shutdownApp(booted);
+    }
+  });
+
+  it('an agent posted with no description at all reads back null', async () => {
+    const booted = await bootApp();
+    try {
+      const res = await postJson(booted.baseUrl, '/agents', { name: 'scout-no-bio', skills: ['triage'] }, { authorization: `Bearer ${booted.sessionToken}` });
+      expect(res.status).toBe(201);
+      expect(((await res.json()) as Record<string, unknown>).description).toBeNull();
+    } finally {
+      await shutdownApp(booted);
+    }
+  });
+
+  it('a malformed description (161 characters) is 400, and nothing is stored', async () => {
+    const booted = await bootApp();
+    try {
+      const res = await postJson(
+        booted.baseUrl,
+        '/agents',
+        { name: 'scout-bad-bio', skills: ['triage'], description: 'a'.repeat(161) },
+        { authorization: `Bearer ${booted.sessionToken}` },
+      );
+      expect(res.status).toBe(400);
+      expect(String((await res.json() as Record<string, unknown>).error)).toContain('description');
+      expect(await booted.agentRepo.listAll?.()).toEqual([]);
     } finally {
       await shutdownApp(booted);
     }
