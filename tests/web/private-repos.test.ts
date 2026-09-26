@@ -397,7 +397,7 @@ describe('(a) /private-repos is one page, one <main>, at most 120 words', () => 
 // ---------------------------------------------------------------- (b)
 
 describe('(b) the four steps, in order, each with GitHub\u2019s own page', () => {
-  it('four numbered steps, in the order the probe ran them, and the five links exactly', async () => {
+  it('four numbered steps, in order, and the five links exactly', async () => {
     const page = await render('/private-repos', walkthroughReady, 'the walkthrough');
     try {
       const steps = Array.from(page.document.querySelectorAll('main ol#steps > li'));
@@ -417,7 +417,7 @@ describe('(b) the four steps, in order, each with GitHub\u2019s own page', () =>
           expect((a.textContent ?? '').trim().length, 'a link with no words').toBeGreaterThan(0);
         }
       });
-      // And nothing else links out of <main>: five, the probe's five.
+      // And nothing else links out of <main>: these five.
       expect(page.document.querySelectorAll('main a[href]')).toHaveLength(5);
       // One primary button at most (none is needed).
       expect(page.document.querySelectorAll('main .btn-primary').length).toBeLessThanOrEqual(1);

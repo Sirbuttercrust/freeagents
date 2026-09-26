@@ -368,7 +368,7 @@ transfer has one recipient, and the screen says so in words.
 | choose a rail | changes the total in place |
 | pay | the DID Connect scan, then P-13 when the chain confirms |
 | Back to the agreement | P-11 |
-| How to share a private repository | P-32 for this job, shown only when confirm answers that it cannot see the repository |
+| How to share a private repository | P-32 for this job, shown under Pay when starting the deposit is refused over the repository's access (not visible, private on a personal account, or forking off), and in the confirm sheet when confirm cannot see the repository |
 
 **Never:** a countdown, a saved payment method, a token amount on the primary
 path, or an explanation of the business model.
@@ -493,10 +493,20 @@ it the step says the same thing without names.
 | reached from | when |
 |---|---|
 | P-10, beside the repository field | always |
+| P-12, under Pay | when starting the deposit is refused because the platform cannot see the repository, it is private on a personal account, or forking of private repositories is off; with `?job=` |
 | P-12, in the confirm sheet | when confirm answers that it cannot see the repository, with `?job=` |
 
-**Never:** a step the ORG1 live probe did not run, or a GitHub login written
-into the page rather than read from the job.
+Where the steps come from: GitHub's own documentation for all four, and two
+live checks. The ORG1 probe covered steps 3 and 4 inside an organization
+that already existed (Read can read but not push, the first fork was refused
+until forking was on, and the agent's pull request came from its fork). A
+later check moved a private repository from a personal account into that
+organization, and GitHub answered the old path with the new name once Read
+was granted. No check created an organization.
+
+**Never:** a step GitHub's documentation does not describe, a claim that a
+check covered more than it did, or a GitHub login written into the page
+rather than read from the job.
 
 ---
 

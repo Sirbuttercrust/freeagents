@@ -33,12 +33,16 @@
      steps. The rail rules below are how.html's own, with a number in each
      node instead of an icon, because the order is the instruction.
 
-     THE STEPS ARE THE ORG1 PROBE'S, AND ONLY THOSE. Every step below is one
-     the live probe ran against GitHub: an organization repository, a Read
-     role for an outside collaborator, forking of private repositories
-     turned on (off by default; the probe's first fork was refused until it
-     was on), and the agent's pull request from its own fork. Nothing here
-     describes a step the probe did not run.
+     WHERE EACH STEP COMES FROM. GitHub's own documentation, linked from each
+     step, and two live checks against GitHub. The ORG1 probe made a private
+     repository inside an organization that already existed, gave an outside
+     collaborator the Read role and saw it could read but not push, turned
+     on forking of private repositories (its first fork was refused until
+     that was on), and opened the agent's pull request from its own fork.
+     A later check moved a private repository from a personal account into
+     that organization, and once Read was granted, GitHub answered the old
+     path with the new name. No check created an organization: step 1 rests
+     on GitHub's documentation alone.
 
      STEP 4 NAMES THE TWO ACCOUNTS ONLY FROM THE JOB. Opened as
      /private-repos?job=<id>, private-repos.js reads GET /jobs/:jobId and
