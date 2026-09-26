@@ -257,6 +257,13 @@ describe('the deposit screen, driven end to end against the real app', () => {
     // into the session it mints at construction time (review round 1,
     // D1 in job-payment-abt.test.ts's own header comment), so the port
     // has to be reserved before createApp is ever called.
+    // FIX-B39 (Ruling, run 792): setOperatorAddressAbt answers null on
+    // an unregistered DID (AccountRepository's own documented stance),
+    // and this fixture never registered 'did:abt:deposit-page-operator'
+    // before this card's rail door check started reading that address,
+    // so the set silently did nothing and the ABT pay control test
+    // below started failing the door's own new address gate.
+    await accountRepo.register({ did: 'did:abt:deposit-page-operator', githubLogin: 'deposit-page-operator' });
     await accountRepo.setOperatorAddressAbt('did:abt:deposit-page-operator', didSuffix(AGENT_DID));
     const platformWallet = fromRandom();
     const port = await reservePort();

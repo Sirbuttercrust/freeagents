@@ -24,6 +24,7 @@ import { createAbtPaymentRail, type AbtChainClient } from '../../src/adapters/pa
 import { didSuffix } from '../../src/domain/agent.js';
 import { MemorySettlementRepository } from '../../src/adapters/storage/memory.js';
 import { MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
+import type { AccountRepository } from '../../src/adapters/storage/types.js';
 import { signingIdentityFromWallet, type SigningIdentity } from '../helpers/sign-request.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
@@ -68,7 +69,10 @@ interface StartedAbtApp {
   readonly operatorRepo: MemoryAccountRepository;
 }
 
-async function startAbtApp(chainClient: AbtChainClient): Promise<StartedAbtApp> {
+async function startAbtApp(
+  chainClient: AbtChainClient,
+  wrapOperatorRepo?: (repo: MemoryAccountRepository, operatorDid: string) => AccountRepository,
+): Promise<StartedAbtApp> {
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   return withEnv(testAbtEnv(baseUrl), async () => {
@@ -120,7 +124,7 @@ async function startAbtApp(chainClient: AbtChainClient): Promise<StartedAbtApp> 
     const { github } = createStagingLifecycleGithubFake();
 
     const app = createApp(
-      operatorRepo,
+      wrapOperatorRepo !== undefined ? wrapOperatorRepo(operatorRepo, 'did:abt:op-abt-surface') : operatorRepo,
       agentRepo,
       undefined,
       github,
@@ -856,32 +860,21 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
     });
 
     try {
-      const { sessionToken, authCallbackUrl } = await startAbtSession(started13.baseUrl, started13.buyer, {
-        jobId: started13.jobId,
-        leg: 'deposit',
-      });
-      const authPath = new URL(authCallbackUrl).pathname;
-      const step0Res = await fetch(authCallbackUrl);
-      const step0Body = (await step0Res.json()) as DidConnectClaimResponse;
-      const step0 = decodeClaimBody(step0Body);
-      // Advancing past authPrincipal is the step that signs the NEXT
-      // claim (prepareTx), which is where operatorAddressForJob is
-      // called; a null operator address throws before signing, so the
-      // response here is the raw { error } shape, never a signed JWT.
-      const step0SubmitRes = await fetch(`${started13.baseUrl}${authPath}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          _t_: sessionToken,
-          userPk: started13.buyerWallet.publicKey,
-          userInfo: await walletResponseJwt(started13.buyerWallet, step0.challenge, [{ type: 'authPrincipal' }]),
-        }),
-      });
-      const finalBody = (await step0SubmitRes.json()) as { appPk: string; authInfo: string };
-      const decoded = jwtDecode(finalBody.authInfo) as unknown as Record<string, unknown>;
-      const errorMessage = decoded.errorMessage as string | undefined;
-      expect(typeof errorMessage).toBe('string');
-      expect(errorMessage).toContain('operator-address');
+      // FIX-B39 (Ruling, run 792): rule 5 moves this refusal to the
+      // /start door itself, so the buyer learns before a session is
+      // even minted, rather than after advancing through the wallet
+      // protocol as far as prepareTx. checkRailDoorEligible answers
+      // this before startAbtSession's own /start call ever succeeds, so
+      // the assertion is now on the raw route response.
+      const startRes = await postSigned(
+        started13.baseUrl,
+        `/jobs/${started13.jobId}/payments/deposit/abt/start`,
+        {},
+        started13.buyer,
+      );
+      expect(startRes.status).toBe(409);
+      const body = (await startRes.json()) as { error: string };
+      expect(body.error).toContain('operator-address');
       expect(await started13.settlementRepo.findByJobAndLeg(started13.jobId, 'deposit')).toBeNull();
     } finally {
       started13.server.close();
@@ -986,6 +979,73 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
       expect(row?.operatorAddress).not.toBe(didSuffix('did:abt:op-abt-set'));
     } finally {
       started14.server.close();
+    }
+  });
+
+  it('the address vanishing between a successful /start and the wallet advancing past authPrincipal still refuses, naming the PATCH route, and settles nothing (defence in depth)', async () => {
+    // Ruling (run 792): checkRailDoorEligible's /start-time read is the
+    // FRONT gate a buyer sees first, but abt-did-connect.ts's own
+    // operatorAddressForJob (inside prepareTx) is kept as a second,
+    // independent read at the moment the recipient is actually signed
+    // into the transaction. This test proves that second read still
+    // fires on its own: the address is present for the /start door's
+    // check, then gone by the time the wallet completes authPrincipal
+    // and the server resolves the recipient for prepareTx. Removing
+    // abt-did-connect.ts's own guard (not app.ts's) is what turns this
+    // test red. Reuses startAbtApp (its operator DID and address are
+    // fixed at 'did:abt:op-abt-surface' / didSuffix(...)), wrapping only
+    // findByDid so the SAME row answers once, then answers with the
+    // address gone on every call after -- the /start door's own read
+    // succeeds, the wallet's later prepareTx read does not.
+    const started14b = await startAbtApp(fakeAbtChainClient(true).client, (repo, operatorDid) => {
+      let operatorReads = 0;
+      return {
+        register: repo.register.bind(repo),
+        findByGithubLogin: repo.findByGithubLogin.bind(repo),
+        findByPasskeySubject: repo.findByPasskeySubject.bind(repo),
+        setOperatorAddressEvm: repo.setOperatorAddressEvm.bind(repo),
+        setOperatorAddressAbt: repo.setOperatorAddressAbt.bind(repo),
+        findByDid: async (did: string) => {
+          const row = await repo.findByDid(did);
+          if (did !== operatorDid) return row;
+          operatorReads += 1;
+          return operatorReads === 1 ? row : row === null ? null : { ...row, operatorAddressAbt: null };
+        },
+      };
+    });
+
+    try {
+      const { sessionToken, authCallbackUrl } = await startAbtSession(started14b.baseUrl, started14b.buyer, {
+        jobId: started14b.jobId,
+        leg: 'deposit',
+      });
+      const authPath = new URL(authCallbackUrl).pathname;
+      const step0Res = await fetch(authCallbackUrl);
+      const step0Body = (await step0Res.json()) as DidConnectClaimResponse;
+      const step0 = decodeClaimBody(step0Body);
+      // Advancing past authPrincipal is the step that signs the NEXT
+      // claim (prepareTx), which is where operatorAddressForJob is
+      // called; a null operator address throws before signing, so the
+      // response here is the raw { error } shape, never a second claim
+      // (continueAbtWalletProtocol assumes a full two-step round trip
+      // and does not fit this single-step failure).
+      const step0SubmitRes = await fetch(`${started14b.baseUrl}${authPath}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          _t_: sessionToken,
+          userPk: started14b.buyerWallet.publicKey,
+          userInfo: await walletResponseJwt(started14b.buyerWallet, step0.challenge, [{ type: 'authPrincipal' }]),
+        }),
+      });
+      const finalBody = (await step0SubmitRes.json()) as { appPk: string; authInfo: string };
+      const decoded = jwtDecode(finalBody.authInfo) as unknown as Record<string, unknown>;
+      const errorMessage = decoded.errorMessage as string | undefined;
+      expect(typeof errorMessage).toBe('string');
+      expect(errorMessage).toContain('operator-address');
+      expect(await started14b.settlementRepo.findByJobAndLeg(started14b.jobId, 'deposit')).toBeNull();
+    } finally {
+      started14b.server.close();
     }
   });
 });
