@@ -147,15 +147,29 @@ export type RepositoryReadinessResult =
 // message (app.ts:5278) plus the page address, since the private-repos
 // walkthrough page (card t_1aa4b834, waiting on this PR) is the fix a
 // buyer follows before paying, not after.
+//
+// Proof r3: agentGithubLogin is null when the agent has no VERIFIED
+// GitHub login yet (domain/agent.ts's verifiedGithubLogin -- an absent
+// login and an unverified one are both null here). Naming an unverified
+// login, or worse the agent's own DID as a fallback, asked the buyer to
+// grant read to an account nobody had proved belonged to the agent, or
+// to an identifier that is not a GitHub account at all -- a grant no
+// buyer could ever make (the impossible-remedy-message defect line).
+// When null, the message says the agent has not verified one yet and
+// names only the platform account, still ending on the same page
+// address so the buyer has somewhere to go regardless.
 export function repositoryNotAccessibleMessage(
-  agentGithubLogin: string,
+  agentGithubLogin: string | null,
   platformGithubLogin: string,
   jobId: string,
 ): string {
+  const grant =
+    agentGithubLogin === null
+      ? `the agent has not verified a GitHub account yet, so for now it gives the platform's GitHub account (${platformGithubLogin}) read access`
+      : `it gives BOTH the agent's GitHub account (${agentGithubLogin}) and the platform's GitHub account (${platformGithubLogin}) read access`;
   return (
     `the platform cannot see this repository; for a private repository it must live in a GitHub organization ` +
-    `that gives BOTH the agent's GitHub account (${agentGithubLogin}) and the platform's GitHub account ` +
-    `(${platformGithubLogin}) read access; how to share it: ${publicBaseUrlFromEnv()}/private-repos?job=${jobId}`
+    `that ${grant}; how to share it: ${publicBaseUrlFromEnv()}/private-repos?job=${jobId}`
   );
 }
 
@@ -195,20 +209,24 @@ export function repositoryEmptyMessage(): string {
 
 // Reads the job's repository through the shared adapter and maps every
 // outcome the three deposit-start doors and confirm both care about.
-// agentGithubLogin is the caller's own resolved value (the agent's
-// verified GitHub login when it has one, or a placeholder when it does
-// not -- the deposit leg is eligible while the job is still 'proposed',
+// agentGithubLogin is the caller's own resolved value: the agent's
+// VERIFIED GitHub login (domain/agent.ts's verifiedGithubLogin) when it
+// has one, or null when it does not -- an absent login and an unverified
+// one are both null, matching confirm's own grantPush guard and
+// githubAccessNeededFor (app.ts), which likewise name only a verified
+// login. The deposit leg is eligible while the job is still 'proposed',
 // before confirm's own verified-GitHub gate runs, so the agent may not
-// have completed GitHub proof yet at this point in the loop). A 5xx or
-// network failure from the adapter is any error that is neither typed
-// error above, mapped to 503 "github unavailable", the same wording
-// confirm's own catch-all already uses.
+// have completed GitHub proof yet at this point in the loop -- null is
+// the ordinary case here, not an error. A 5xx or network failure from
+// the adapter is any error that is neither typed error above, mapped to
+// 503 "github unavailable", the same wording confirm's own catch-all
+// already uses.
 export async function checkRepositoryReady(
   github: GithubAdapter,
   input: {
     readonly repository: string;
     readonly jobId: string;
-    readonly agentGithubLogin: string;
+    readonly agentGithubLogin: string | null;
   },
 ): Promise<RepositoryReadinessResult> {
   const slashAt = input.repository.indexOf('/');

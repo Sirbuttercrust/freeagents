@@ -59,7 +59,7 @@ import {
   createReviewRepository,
   createObservedKeyRepository,
 } from '../adapters/storage/storage.js';
-import { delegationConsistent, isAgentOperator, agentMayNegotiate, type Agent, type Delegation } from '../domain/agent.js';
+import { delegationConsistent, isAgentOperator, agentMayNegotiate, verifiedGithubLogin, type Agent, type Delegation } from '../domain/agent.js';
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
 import { buildAttestation, AttestationError } from '../domain/attestation.js';
 import { lastHireCompletedAt, recordLastChangedAt } from '../domain/freshness.js';
@@ -594,8 +594,11 @@ function jobProjection(row: Job): Record<string, unknown> {
 // accounts need read; this carries both under the same key so downstream
 // readers keep pinning one projection shape rather than two.
 // Never asserts whether the named repository actually IS private; that
-// fact surfaces only when confirm's own RepositoryNotAccessibleError
-// check runs.
+// fact used to surface only when confirm's own RepositoryNotAccessibleError
+// check ran. FIX-B36: it now surfaces first at the three deposit-start
+// doors (checkRepositoryReady, route-support.ts), before a deposit is
+// ever paid, and confirm's own check remains as a second read in case
+// the repository's visibility changed in between.
 function githubAccessNeededFor(
   agent: Agent | null,
   row: Pick<Job, 'stagingRepo'>,
@@ -6131,7 +6134,7 @@ export function createApp(
         const repositoryCheck = await checkRepositoryReady(github, {
           repository: gate.job.repository,
           jobId: gate.job.id,
-          agentGithubLogin: (await agentRepo.findByDid(gate.job.agentDid))?.githubLogin ?? gate.job.agentDid,
+          agentGithubLogin: verifiedGithubLogin(await agentRepo.findByDid(gate.job.agentDid)),
         });
         if (!repositoryCheck.ok) {
           res.status(repositoryCheck.status).json({ error: repositoryCheck.message });
@@ -6240,7 +6243,7 @@ export function createApp(
         const repositoryCheck = await checkRepositoryReady(github, {
           repository: gate.job.repository,
           jobId: gate.job.id,
-          agentGithubLogin: (await agentRepo.findByDid(gate.job.agentDid))?.githubLogin ?? gate.job.agentDid,
+          agentGithubLogin: verifiedGithubLogin(await agentRepo.findByDid(gate.job.agentDid)),
         });
         if (!repositoryCheck.ok) {
           res.status(repositoryCheck.status).json({ error: repositoryCheck.message });
@@ -6340,7 +6343,7 @@ export function createApp(
         const repositoryCheck = await checkRepositoryReady(github, {
           repository: gate.job.repository,
           jobId: gate.job.id,
-          agentGithubLogin: (await agentRepo.findByDid(gate.job.agentDid))?.githubLogin ?? gate.job.agentDid,
+          agentGithubLogin: verifiedGithubLogin(await agentRepo.findByDid(gate.job.agentDid)),
         });
         if (!repositoryCheck.ok) {
           res.status(repositoryCheck.status).json({ error: repositoryCheck.message });

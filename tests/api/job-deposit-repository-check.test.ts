@@ -97,7 +97,14 @@ interface Started {
   readonly quoteSpy: ReturnType<typeof vi.fn>;
 }
 
-async function startApp(github: GithubAdapter): Promise<Started> {
+interface AgentConfig {
+  readonly githubLogin: string | null;
+  readonly verified: boolean;
+}
+
+const DEFAULT_AGENT_CONFIG: AgentConfig = { githubLogin: 'scout-deposit-repo-check', verified: true };
+
+async function startApp(github: GithubAdapter, agentConfig: AgentConfig = DEFAULT_AGENT_CONFIG): Promise<Started> {
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   return withEnv({ ...usdcEnvVars(), ...abtEnv(baseUrl, platformWallet, ABT_TOKEN, ABT_FEE_ADDRESS) }, async () => {
@@ -139,14 +146,16 @@ async function startApp(github: GithubAdapter): Promise<Started> {
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
-      githubLogin: 'scout-deposit-repo-check',
+      githubLogin: agentConfig.githubLogin,
       negotiatesOnOwnersBehalf: true,
     });
     // Verified so a test can walk a job all the way through confirm and
     // stage (the remainder-leg test below needs a staged job, and
     // confirm's own gate refuses an agent without a verified GitHub
-    // login).
-    await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-deposit-repo-check', status: 'verified' });
+    // login). Tests pinning the not-verified case pass verified: false.
+    if (agentConfig.verified && agentConfig.githubLogin !== null) {
+      await agentRepo.updateGithubBinding(agent.did, { handle: agentConfig.githubLogin, status: 'verified' });
+    }
     const jobRepo = new MemoryJobRepository();
     const settlementRepo = new MemorySettlementRepository();
     const gate = new PrismaSettlementGate(settlementRepo);
@@ -308,6 +317,52 @@ describe.each(doors)('$name: refuses a repository the platform cannot see, 409, 
       const body = (await res.json()) as { error: string };
       expect(body.error.toLowerCase()).toContain('cannot see this repository');
       expect(body.error).toContain('scout-deposit-repo-check');
+      expect(body.error).toContain('private-repos?job=' + jobId);
+      expect(quoteSpy).not.toHaveBeenCalled();
+      expect(await settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  // Proof r3: the not-visible 409 is copy a buyer acts on before paying,
+  // and it must never name a grant no buyer can make. Before this test,
+  // agentGithubLogin fell back to the agent's raw DID when no login was
+  // on record, and named an unverified login when one was present but
+  // never proved -- confirm and githubAccessNeededFor both name only a
+  // VERIFIED login for this exact reason. Two cases: no login at all,
+  // and a login present but not yet verified.
+  it('does not name an agent GitHub account when the agent has no login on record (no DID either)', async () => {
+    const github = githubRejecting(new RepositoryNotAccessibleError('buyer', 'repo-check', 404));
+    const { server, baseUrl, settlementRepo, quoteSpy } = await startApp(github, { githubLogin: null, verified: false });
+    try {
+      const jobId = await walkToProposed(baseUrl, 'buyer/repo-check', door.rail);
+      const res = await door.start(baseUrl, jobId);
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string };
+      expect(body.error.toLowerCase()).toContain('cannot see this repository');
+      expect(body.error).not.toContain(agent.did);
+      expect(body.error).toContain('private-repos?job=' + jobId);
+      expect(quoteSpy).not.toHaveBeenCalled();
+      expect(await settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('does not name an agent GitHub account when the login on record was never verified', async () => {
+    const github = githubRejecting(new RepositoryNotAccessibleError('buyer', 'repo-check', 404));
+    const { server, baseUrl, settlementRepo, quoteSpy } = await startApp(github, {
+      githubLogin: 'scout-unverified-deposit-repo-check',
+      verified: false,
+    });
+    try {
+      const jobId = await walkToProposed(baseUrl, 'buyer/repo-check', door.rail);
+      const res = await door.start(baseUrl, jobId);
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string };
+      expect(body.error.toLowerCase()).toContain('cannot see this repository');
+      expect(body.error).not.toContain('scout-unverified-deposit-repo-check');
       expect(body.error).toContain('private-repos?job=' + jobId);
       expect(quoteSpy).not.toHaveBeenCalled();
       expect(await settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
