@@ -243,13 +243,15 @@ export function messageBodyWellFormed(body: unknown): body is string {
   return typeof body === 'string' && body.length > 0 && body.length <= MESSAGE_BODY_MAX_LENGTH;
 }
 
-// MSG1a (Make item 5): the route-level shape check (POST
-// /jobs/:jobId/messages) accepts an empty body only when attachmentIds
+// MSG1a (Make item 5): an empty body is allowed only when attachmentIds
 // names at least one qualifying attachment (iMessage sends a bare
-// photo). This is the single source of that rule -- messageWellFormedFor
-// is what both createMessage below and the route's own shape check call,
-// so the two can never silently diverge on what counts as a well-formed
-// message.
+// photo). This is the single source of that content rule -- createMessage
+// below is its only caller. The route's own shape check (POST
+// /jobs/:jobId/messages, app.ts) does not call this function: it checks
+// only that the body is a string within the length cap, a narrower,
+// attachment-independent check, and leaves the empty-body-needs-an-
+// attachment decision to createMessage so the two can never diverge on
+// what counts as a well-formed message.
 export function messageWellFormedFor(body: unknown, hasAttachments: boolean): body is string {
   if (typeof body !== 'string' || body.length > MESSAGE_BODY_MAX_LENGTH) return false;
   if (body.length === 0) return hasAttachments;

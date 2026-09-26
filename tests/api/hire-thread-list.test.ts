@@ -32,6 +32,25 @@ async function getSigned(baseUrl: string, path: string, identity: SigningIdentit
   });
 }
 
+// Proof r1, defect 2: the unread-count tests must drive the real POST
+// /jobs/:jobId/messages/read route, not write threadReadStateRepo
+// directly, so the assertion also proves the route itself advances the
+// caller's own read state.
+async function postSigned(baseUrl: string, path: string, identity: SigningIdentity): Promise<Response> {
+  const targetUri = `${baseUrl}${path}`;
+  const signed = signRequest(identity, 'POST', targetUri, { body: '', components: ['@method', '@target-uri', 'content-digest'] });
+  return fetch(targetUri, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+  });
+}
+
 async function listen(app: ReturnType<typeof createApp>): Promise<{ server: Server; baseUrl: string }> {
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -119,7 +138,7 @@ describe('GET /accounts/:did/threads: authentication', () => {
     }
   });
 
-  it('a resolved party that is not the named account is refused with 403, revealing neither the account nor its threads', async () => {
+  it('a resolved party that is not the named account is refused with 403, the sibling routes\' own wording, revealing neither the account nor its threads', async () => {
     const { server, baseUrl, accountRepo } = await buildApp();
     try {
       const owner = await signingIdentityFromSeed(new Uint8Array(32).fill(201));
@@ -129,6 +148,11 @@ describe('GET /accounts/:did/threads: authentication', () => {
       const res = await getSigned(baseUrl, `/accounts/${owner.did}/threads`, stranger);
       expect(res.status).toBe(403);
       const body = (await res.json()) as Record<string, unknown>;
+      // Proof r1, defect 2b: pins the exact wording (the sibling routes'
+      // own pattern -- "an account may only read its own X list") rather
+      // than merely checking the response is SOME 403; a swap to a
+      // generic "forbidden" must turn this red.
+      expect(body.error).toBe('an account may only read its own thread list');
       expect(String(body.error)).not.toContain('exist');
       expect(JSON.stringify(body)).not.toContain('threads-owner');
     } finally {
@@ -219,6 +243,52 @@ describe('GET /accounts/:did/threads: storage capability', () => {
     try {
       const owner = await signingIdentityFromSeed(new Uint8Array(32).fill(207));
       await accountRepo.register({ did: owner.did, githubLogin: 'threads-503-owner-3' });
+      const res = await getSigned(baseUrl, `/accounts/${owner.did}/threads`, owner);
+      expect(res.status).toBe(503);
+    } finally {
+      server.close();
+    }
+  });
+
+  // Proof r1, defect 1: the three guard tests above only cover a METHOD
+  // MISSING from the driver, which the route refuses before its own try
+  // block ever runs. This drives an ACTUAL throw from inside that try
+  // block (a present method that rejects, the same shape a real Postgres
+  // outage would take), so the route's own catch -- not the earlier
+  // guard -- is what must answer 503.
+  it('findByBuyerDid THROWING (not merely absent) inside the route body is 503, never a silent empty list', async () => {
+    const throwingJobRepo = {
+      create: () => Promise.reject(new Error('unused')),
+      update: () => Promise.reject(new Error('unused')),
+      findById: () => Promise.reject(new Error('unused')),
+      complete: () => Promise.reject(new Error('unused')),
+      findCompletedByJobId: () => Promise.reject(new Error('unused')),
+      findByBuyerDid: () => Promise.reject(new Error('the database connection was reset')),
+      findByAgentDid: () => Promise.resolve([]),
+    };
+    const { server, baseUrl, accountRepo } = await buildApp(throwingJobRepo);
+    try {
+      const owner = await signingIdentityFromSeed(new Uint8Array(32).fill(246));
+      await accountRepo.register({ did: owner.did, githubLogin: 'threads-503-throw-buyer' });
+      const res = await getSigned(baseUrl, `/accounts/${owner.did}/threads`, owner);
+      expect(res.status).toBe(503);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('agentRepo.listAll THROWING (not merely absent) inside the route body is 503, never a silent empty list', async () => {
+    const throwingAgentRepo = {
+      create: () => Promise.reject(new Error('unused')),
+      findByDid: () => Promise.resolve(null),
+      updateGithubBinding: () => Promise.reject(new Error('unused')),
+      recordKeyRotation: () => Promise.reject(new Error('unused')),
+      listAll: () => Promise.reject(new Error('the database connection was reset')),
+    };
+    const { server, baseUrl, accountRepo } = await buildApp(undefined, throwingAgentRepo);
+    try {
+      const owner = await signingIdentityFromSeed(new Uint8Array(32).fill(247));
+      await accountRepo.register({ did: owner.did, githubLogin: 'threads-503-throw-agent' });
       const res = await getSigned(baseUrl, `/accounts/${owner.did}/threads`, owner);
       expect(res.status).toBe(503);
     } finally {
@@ -437,6 +507,54 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
     }
   });
 
+  // Proof r1, defect 4: agentName falls back to the agent's own DID when
+  // no agent row exists (never an empty string).
+  it('agentName falls back to the agent DID when the agent row is gone', async () => {
+    const built = await buildApp();
+    try {
+      const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(251));
+      const missingAgentDid = 'did:abt:zNoLongerRegisteredAgent';
+      await built.accountRepo.register({ did: buyer.did, githubLogin: 'threads-fallback-buyer' });
+      // No agentRepo.create call at all: the job references an agent DID
+      // that has no stored Agent row, exactly the fallback path.
+      await built.jobRepo.create(jobFixture({ id: 'job-agent-gone', buyerDid: buyer.did, agentDid: missingAgentDid, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
+
+      const buyerView = await getSigned(built.baseUrl, `/accounts/${buyer.did}/threads`, buyer);
+      const buyerBody = (await buyerView.json()) as { threads: Array<Record<string, unknown>> };
+      const row = buyerBody.threads.find((t) => t.jobId === 'job-agent-gone')!;
+      expect(row.agentName).toBe(missingAgentDid);
+      expect(row.agentName).not.toBe('');
+    } finally {
+      built.server.close();
+    }
+  });
+
+  // Proof r1, defect 4: counterpartGithubLogin is a real null (never an
+  // empty string) when the counterpart account has no GitHub login (a
+  // passkey-only account).
+  it('counterpartGithubLogin is null, never empty string, for a passkey-only counterpart', async () => {
+    const built = await buildApp();
+    try {
+      const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(253));
+      const owner = await signingIdentityFromSeed(new Uint8Array(32).fill(254));
+      const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(255));
+      // The buyer has a passkey but no GitHub login: the OWNER's seat
+      // view resolves the buyer as its counterpart.
+      await built.accountRepo.register({ did: buyer.did, passkeySubject: 'threads-passkey-only-buyer' });
+      await built.accountRepo.register({ did: owner.did, githubLogin: 'threads-null-login-owner' });
+      await built.agentRepo.create({ did: agent.did, operatorDid: owner.did, delegation: delegationFixture(agent.did, owner.did) as never, name: 'null-login-scout', skills: ['triage'], githubLogin: null });
+      await built.jobRepo.create(jobFixture({ id: 'job-null-login', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
+
+      const ownerView = await getSigned(built.baseUrl, `/accounts/${owner.did}/threads`, owner);
+      const ownerBody = (await ownerView.json()) as { threads: Array<Record<string, unknown>> };
+      const row = ownerBody.threads.find((t) => t.jobId === 'job-null-login')!;
+      expect(row.counterpartDid).toBe(buyer.did);
+      expect(row.counterpartGithubLogin).toBeNull();
+    } finally {
+      built.server.close();
+    }
+  });
+
   it('threads sort newest activity first, ties by jobId', async () => {
     const built = await buildApp();
     try {
@@ -449,16 +567,23 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
       await built.jobRepo.create(jobFixture({ id: 'job-oldest', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
       await built.jobRepo.create(jobFixture({ id: 'job-newest', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-05T00:00:00Z')));
       await built.jobRepo.create(jobFixture({ id: 'job-middle', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-03T00:00:00Z')));
+      // Proof r1, defect 3: a genuine tie -- two rows sharing the exact
+      // same lastActivityAt (job createdAt here, since neither has a
+      // message) -- so a reversed tie-break actually reddens this test.
+      // 'job-tie-b' sorts after 'job-tie-a' lexically, so the correct
+      // order is [..., job-tie-a, job-tie-b, ...] among the tied pair.
+      await built.jobRepo.create(jobFixture({ id: 'job-tie-b', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-04T00:00:00Z')));
+      await built.jobRepo.create(jobFixture({ id: 'job-tie-a', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-04T00:00:00Z')));
 
       const res = await getSigned(built.baseUrl, `/accounts/${buyer.did}/threads`, buyer);
       const body = (await res.json()) as { threads: Array<{ jobId: string }> };
-      expect(body.threads.map((t) => t.jobId)).toEqual(['job-newest', 'job-middle', 'job-oldest']);
+      expect(body.threads.map((t) => t.jobId)).toEqual(['job-newest', 'job-tie-a', 'job-tie-b', 'job-middle', 'job-oldest']);
     } finally {
       built.server.close();
     }
   });
 
-  it('lastActivityAt reflects the newest MESSAGE, not just the job createdAt, and moves the thread to the top', async () => {
+  it('lastActivityAt reflects the newest MESSAGE, not just the job createdAt, and moves the thread to the top -- and the row\'s own createdAt stays the job\'s, never lastActivityAt', async () => {
     const built = await buildApp();
     try {
       const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(231));
@@ -477,15 +602,21 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
       await built.messageRepo.create(message);
 
       const res = await getSigned(built.baseUrl, `/accounts/${buyer.did}/threads`, buyer);
-      const body = (await res.json()) as { threads: Array<{ jobId: string; lastActivityAt: string }> };
+      const body = (await res.json()) as { threads: Array<{ jobId: string; lastActivityAt: string; createdAt: string }> };
       expect(body.threads.map((t) => t.jobId)).toEqual(['job-activity-old-brief-new-message', 'job-activity-newer-brief-no-messages']);
       expect(body.threads[0]!.lastActivityAt).toBe(new Date('2026-08-10T00:00:00Z').toISOString());
+      // Proof r1, defect 4: the row's OWN createdAt is the job's brief
+      // date (2026-08-01), never lastActivityAt (2026-08-10) -- these two
+      // fields answer different questions and a mutant collapsing them
+      // together must turn this red.
+      expect(body.threads[0]!.createdAt).toBe(new Date('2026-08-01T00:00:00Z').toISOString());
+      expect(body.threads[0]!.createdAt).not.toBe(body.threads[0]!.lastActivityAt);
     } finally {
       built.server.close();
     }
   });
 
-  it('lastMessage is null with no rows, and carries authorParty/bodyPreview/attachmentCount/systemEventType/createdAt', async () => {
+  it('lastMessage is null with no rows, and carries authorParty/authorKind/bodyPreview/attachmentCount/systemEventType/createdAt', async () => {
     const built = await buildApp();
     try {
       const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(234));
@@ -499,6 +630,12 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
       await built.jobRepo.create(jobFixture({ id: 'job-party-message', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
       await built.jobRepo.create(jobFixture({ id: 'job-system-message', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
       await built.jobRepo.create(jobFixture({ id: 'job-attachment-only', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
+      // Proof r1, defect 4: a fourth job whose last message is authored
+      // by the OWNER (authorKind 'owner', authorParty 'agent') -- a
+      // mutant that forces lastMessage.authorKind to a constant 'buyer'
+      // must turn this red, since the other three fixtures above all
+      // happen to be buyer-authored.
+      await built.jobRepo.create(jobFixture({ id: 'job-owner-message', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
 
       await built.messageRepo.create(
         createMessage({ id: 'pm1', jobId: 'job-party-message', authorDid: buyer.did, authorParty: 'buyer', authorKind: 'buyer', body: 'hello there', existingMessageIds: new Set() }, new Date('2026-08-02T00:00:00Z')),
@@ -509,6 +646,9 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
       await built.messageRepo.create(
         createMessage({ id: 'am1', jobId: 'job-attachment-only', authorDid: buyer.did, authorParty: 'buyer', authorKind: 'buyer', body: '', existingMessageIds: new Set(), attachments: [{ attachmentId: 'a1' }] }, new Date('2026-08-02T00:00:00Z')),
       );
+      await built.messageRepo.create(
+        createMessage({ id: 'om1', jobId: 'job-owner-message', authorDid: owner.did, authorParty: 'agent', authorKind: 'owner', body: 'from the owner', existingMessageIds: new Set() }, new Date('2026-08-02T00:03:00Z')),
+      );
 
       const res = await getSigned(built.baseUrl, `/accounts/${buyer.did}/threads`, buyer);
       const body = (await res.json()) as { threads: Array<Record<string, unknown>> };
@@ -518,18 +658,25 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
 
       const partyLast = byId.get('job-party-message')!.lastMessage as Record<string, unknown>;
       expect(partyLast.authorParty).toBe('buyer');
+      expect(partyLast.authorKind).toBe('buyer');
       expect(partyLast.bodyPreview).toBe('hello there');
       expect(partyLast.attachmentCount).toBe(0);
       expect(partyLast.systemEventType).toBeNull();
-      expect(typeof partyLast.createdAt).toBe('string');
+      expect(partyLast.createdAt).toBe(new Date('2026-08-02T00:00:00Z').toISOString());
 
       const systemLast = byId.get('job-system-message')!.lastMessage as Record<string, unknown>;
       expect(systemLast.authorParty).toBe('system');
+      expect(systemLast.authorKind).toBe('system');
       expect(systemLast.systemEventType).toBe('quote_sent');
 
       const attachmentLast = byId.get('job-attachment-only')!.lastMessage as Record<string, unknown>;
       expect(attachmentLast.bodyPreview).toBe('');
       expect(attachmentLast.attachmentCount).toBe(1);
+
+      const ownerLast = byId.get('job-owner-message')!.lastMessage as Record<string, unknown>;
+      expect(ownerLast.authorParty).toBe('agent');
+      expect(ownerLast.authorKind).toBe('owner');
+      expect(ownerLast.createdAt).toBe(new Date('2026-08-02T00:03:00Z').toISOString());
     } finally {
       built.server.close();
     }
@@ -624,6 +771,59 @@ describe('GET /accounts/:did/threads: unreadCount and unreadTotal', () => {
       expect(byId.get('job-unread2-a')).toBe(1);
       expect(byId.get('job-unread2-b')).toBe(0);
       expect(body.unreadTotal).toBe(1);
+    } finally {
+      built.server.close();
+    }
+  });
+
+  // Proof r1, defect 2a: the brief's own Tests line asks for unreadCount
+  // "before and after POST /jobs/:jobId/messages/read", for both seats.
+  // This drives the REAL route (not a direct write into
+  // threadReadStateRepo) for the buyer seat AND the agent (owner) seat,
+  // proving the route itself is what the thread list's unreadCount
+  // reflects.
+  it('unreadCount for both seats moves from 1 to 0 after each seat calls the real POST /jobs/:jobId/messages/read route', async () => {
+    const built = await buildApp();
+    try {
+      const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(248));
+      const owner = await signingIdentityFromSeed(new Uint8Array(32).fill(249));
+      const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(250));
+      await built.accountRepo.register({ did: buyer.did, githubLogin: 'threads-realread-buyer' });
+      await built.accountRepo.register({ did: owner.did, githubLogin: 'threads-realread-owner' });
+      await built.agentRepo.create({ did: agent.did, operatorDid: owner.did, delegation: delegationFixture(agent.did, owner.did) as never, name: 'realread-scout', skills: ['triage'], githubLogin: null });
+      await built.jobRepo.create(jobFixture({ id: 'job-realread', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
+
+      // The owner (agent seat) posts a message the buyer has not read yet.
+      await built.messageRepo.create(
+        createMessage({ id: 'rr1', jobId: 'job-realread', authorDid: owner.did, authorParty: 'agent', authorKind: 'owner', body: 'from the owner', existingMessageIds: new Set() }, new Date('2026-08-02T00:00:00Z')),
+      );
+
+      // BUYER seat: unread is 1 before, and the real read route drives it
+      // to 0 after.
+      const buyerBefore = await getSigned(built.baseUrl, `/accounts/${buyer.did}/threads`, buyer);
+      const buyerBeforeBody = (await buyerBefore.json()) as { threads: Array<{ jobId: string; unreadCount: number }> };
+      expect(buyerBeforeBody.threads.find((t) => t.jobId === 'job-realread')!.unreadCount).toBe(1);
+
+      const buyerMark = await postSigned(built.baseUrl, `/jobs/job-realread/messages/read`, buyer);
+      expect(buyerMark.status).toBe(200);
+
+      const buyerAfter = await getSigned(built.baseUrl, `/accounts/${buyer.did}/threads`, buyer);
+      const buyerAfterBody = (await buyerAfter.json()) as { threads: Array<{ jobId: string; unreadCount: number }> };
+      expect(buyerAfterBody.threads.find((t) => t.jobId === 'job-realread')!.unreadCount).toBe(0);
+
+      // AGENT (owner) seat: the brief itself is unread until the owner's
+      // FIRST read; before the owner has ever read, unread is 1 (the
+      // brief bonus, since no agent-authored message exists to count).
+      const ownerBefore = await getSigned(built.baseUrl, `/accounts/${owner.did}/threads`, owner);
+      const ownerBeforeBody = (await ownerBefore.json()) as { threads: Array<{ jobId: string; unreadCount: number }> };
+      expect(ownerBeforeBody.threads.find((t) => t.jobId === 'job-realread')!.unreadCount).toBe(1);
+
+      const ownerMark = await postSigned(built.baseUrl, `/jobs/job-realread/messages/read`, owner);
+      expect(ownerMark.status).toBe(200);
+
+      const ownerAfter = await getSigned(built.baseUrl, `/accounts/${owner.did}/threads`, owner);
+      const ownerAfterBody = (await ownerAfter.json()) as { threads: Array<{ jobId: string; unreadCount: number }> };
+      expect(ownerAfterBody.threads.find((t) => t.jobId === 'job-realread')!.unreadCount).toBe(0);
     } finally {
       built.server.close();
     }

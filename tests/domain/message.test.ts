@@ -1,7 +1,7 @@
-// MSG1a (Make item 5, HT1 Part B STEER: "a photo cannot be sent without
-// words... iMessage sends a bare photo"): createMessage's empty-body
-// rule, pinned at the domain layer directly (the route-level acceptance
-// test lives in tests/api/hire-thread-messages.test.ts).
+// MSG1a (Make item 5, brief: "a photo cannot be sent without words...
+// iMessage sends a bare photo"): createMessage's empty-body rule, pinned
+// at the domain layer directly (the route-level acceptance test lives in
+// tests/api/hire-thread-messages.test.ts).
 import { describe, expect, it } from 'vitest';
 import { createMessage, MessageError, MESSAGE_BODY_MAX_LENGTH } from '../../src/domain/message.js';
 

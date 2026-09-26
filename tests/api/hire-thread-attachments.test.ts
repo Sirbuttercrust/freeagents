@@ -322,7 +322,8 @@ describe('HT1 Part B: message attachments', () => {
       const png2 = await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 2, g: 2, b: 2 } } }).png().toBuffer();
 
       const upload1 = await req('POST', `/jobs/${jobId}/attachments`, { filename: 'first.png', dataBase64: png1.toString('base64') }, buyer);
-      const attachment1 = String((await upload1.json() as Record<string, unknown>).id);
+      const uploaded1 = (await upload1.json()) as Record<string, unknown>;
+      const attachment1 = String(uploaded1.id);
       const upload2 = await req('POST', `/jobs/${jobId}/attachments`, { filename: 'second.png', dataBase64: png2.toString('base64') }, buyer);
       const attachment2 = String((await upload2.json() as Record<string, unknown>).id);
       // An upload that is never attached to a message -- must never
@@ -348,7 +349,12 @@ describe('HT1 Part B: message attachments', () => {
       expect(row.kind).toBe('image/png');
       expect(row.contentType).toBe('image/jpeg');
       expect(row.originalFilename).toBe('first.png');
-      expect(typeof row.sizeBytes).toBe('number');
+      // Proof r1, defect 4: sizeBytes is the REAL stored size (matching
+      // the upload reply's own sizeBytes for the same attachment), never
+      // a constant 0 -- "typeof number" alone stays green under a
+      // mutant that hardcodes 0.
+      expect(row.sizeBytes).toBe(uploaded1.sizeBytes);
+      expect(row.sizeBytes).toBeGreaterThan(0);
       expect(typeof row.createdAt).toBe('string');
     });
 
@@ -358,6 +364,86 @@ describe('HT1 Part B: message attachments', () => {
       expect(list.status).toBe(200);
       const body = (await list.json()) as { attachments: unknown[] };
       expect(body.attachments).toEqual([]);
+    });
+
+    // Proof r1, defect 1: a throwing attachment repository (a real
+    // storage outage, not a missing method) must answer 503, never a
+    // silent empty list. A separate app instance, built with the same
+    // fixture pattern as the suite above, but with a THROWING
+    // attachmentRepo standing in for the real one.
+    it('a storage failure reading the attachment list answers 503, never a silent empty list', async () => {
+      const throwingOperatorRepo = new MemoryAccountRepository();
+      await throwingOperatorRepo.register({ did: buyer.did, githubLogin: 'buyer-attachments-503' });
+      await throwingOperatorRepo.register({ did: operator.did, githubLogin: 'operator-attachments-503' });
+      const throwingAgentRepo = new MemoryAgentRepository();
+      await throwingAgentRepo.create({
+        did: agent.did,
+        operatorDid: operator.did,
+        delegation: delegationFixture(agent.did, operator.did) as never,
+        name: 'scout-503',
+        skills: ['triage'],
+        githubLogin: 'scout-attachments-503',
+      });
+      const throwingJobRepo = new MemoryJobRepository();
+      const throwingSessionAdapter = testSessionAdapter();
+      const { github: throwingGithub } = createStagingLifecycleGithubFake();
+      const throwingAttachmentRepo = {
+        create: () => Promise.reject(new Error('unused')),
+        findById: () => Promise.reject(new Error('unused')),
+        listByJobId: () => Promise.reject(new Error('the database connection was reset')),
+      };
+      const throwingServer = createApp(
+        throwingOperatorRepo,
+        throwingAgentRepo,
+        undefined,
+        throwingGithub,
+        throwingJobRepo,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        throwingSessionAdapter,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        throwingAttachmentRepo as never,
+      ).listen(0, '127.0.0.1');
+      await new Promise<void>((resolve) => throwingServer.once('listening', resolve));
+      const address = throwingServer.address();
+      if (address === null || typeof address === 'string') throw new Error('expected a port');
+      const throwingBaseUrl = `http://127.0.0.1:${address.port}`;
+      try {
+        const draft = await fetch(`${throwingBaseUrl}/jobs`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...signRequest(buyer, 'POST', `${throwingBaseUrl}/jobs`, {
+              body: JSON.stringify({ agentDid: agent.did, repository: 'buyer/target-repo', brief: 'Fix the login bug' }),
+            }),
+          },
+          body: JSON.stringify({ agentDid: agent.did, repository: 'buyer/target-repo', brief: 'Fix the login bug' }),
+        });
+        const jobId = String((await draft.json() as Record<string, unknown>).id);
+        const targetUri = `${throwingBaseUrl}/jobs/${jobId}/attachments`;
+        const signed = signRequest(buyer, 'GET', targetUri);
+        const res = await fetch(targetUri, {
+          headers: { Accept: 'application/json', 'signature-input': signed['signature-input'], signature: signed.signature, 'content-digest': signed['content-digest'] },
+        });
+        expect(res.status).toBe(503);
+      } finally {
+        throwingServer.close();
+      }
     });
   });
 });

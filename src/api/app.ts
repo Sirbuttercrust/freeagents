@@ -2518,6 +2518,178 @@ export function createApp(
     }),
   );
 
+  // MSG1a (Make item 1): GET /accounts/:did/threads, the conversation
+  // list for BOTH seats -- the buyer's own hires (GET
+  // /accounts/:did/jobs, every status, unlike that route which excludes
+  // draft/proposed) and the owner's agents' hires (GET
+  // /accounts/:did/incoming's roster, but every status, not only
+  // draft/proposed). Built from the same parts in the same order as
+  // both of those routes: resolveActingParty, then a 403 that never
+  // says whether :did is a registered account or how many threads it
+  // has.
+  //
+  // A job where the account is both buyer and owner (a self-hire)
+  // appears once, as the buyer -- partyForDid's own resolution order
+  // (buyer checked before agent) is mirrored here by building the
+  // buyer set first and excluding any job id already claimed by it from
+  // the agent-seat set.
+  app.get('/accounts/:did/threads', requireSessionOrSignature, async (req: Request, res: Response) => {
+    const did = String(req.params.did);
+    let actingParty: string | null;
+    try {
+      actingParty = await resolveActingParty(req, repo, identityAdapter);
+    } catch (err) {
+      console.error('GET /accounts/:did/threads: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    // Neither a stranger nor an unresolved caller ever learns whether
+    // :did is a registered account or how many threads it has: the
+    // refusal is identical whether or not the account exists.
+    if (actingParty === null || actingParty !== did) {
+      res.status(403).json({ error: 'an account may only read its own thread list' });
+      return;
+    }
+
+    if (typeof jobRepo.findByBuyerDid !== 'function') {
+      console.error('GET /accounts/:did/threads: storage does not support findByBuyerDid');
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (typeof jobRepo.findByAgentDid !== 'function') {
+      console.error('GET /accounts/:did/threads: storage does not support findByAgentDid');
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (typeof agentRepo.listAll !== 'function') {
+      console.error('GET /accounts/:did/threads: storage does not support listAll');
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+
+    try {
+      const buyerJobs = await jobRepo.findByBuyerDid(did);
+      const buyerJobIds = new Set(buyerJobs.map((job) => job.id));
+
+      // The exact `row.operatorDid === did` comparison GET
+      // /accounts/:did/incoming already uses, never isAgentOperator's
+      // didSuffix match: one account's roster must mean the same thing
+      // on every route, and a caller whose DID shares a suffix with the
+      // real operator must never inherit that operator's roster
+      // (mutation-proof test: hire-thread-list.test.ts's
+      // roster-collision case).
+      const agentRows = await agentRepo.listAll();
+      const ownAgents = agentRows.filter((row) => row.operatorDid === did);
+      const findByAgentDid = jobRepo.findByAgentDid.bind(jobRepo);
+      const perAgentJobs = await Promise.all(ownAgents.map((row) => findByAgentDid(row.did)));
+      // A self-hire (this account is both buyer and agent's operator)
+      // appears once, as the buyer: any job already in the buyer set is
+      // excluded here, mirroring partyForDid's own buyer-first order.
+      const agentSeatJobs = perAgentJobs.flat().filter((job) => !buyerJobIds.has(job.id));
+
+      const rows: Array<{ readonly job: Job; readonly seat: Party }> = [
+        ...buyerJobs.map((job) => ({ job, seat: 'buyer' as const })),
+        ...agentSeatJobs.map((job) => ({ job, seat: 'agent' as const })),
+      ];
+
+      // One agent/message/read-state lookup per DISTINCT job, not
+      // recomputed per row (the same per-distinct-key caching every
+      // other list route in this file already uses).
+      const distinctAgentDids = [...new Set(rows.map((r) => r.job.agentDid))];
+      const agentByDid = new Map<string, Agent | null>();
+      await Promise.all(
+        distinctAgentDids.map(async (agentDid) => {
+          agentByDid.set(agentDid, await agentRepo.findByDid(agentDid));
+        }),
+      );
+      const distinctBuyerDids = [...new Set(rows.map((r) => r.job.buyerDid))];
+      const accountByDid = new Map<string, Account | null>();
+      await Promise.all(
+        distinctBuyerDids.map(async (buyerDid) => {
+          accountByDid.set(buyerDid, await repo.findByDid(buyerDid));
+        }),
+      );
+      // The counterpart account for a BUYER seat is the agent's own
+      // operator (never the buyer's own account, which is the caller
+      // here) -- a second, distinct set of lookups keyed by operatorDid,
+      // resolved once per distinct operator, not once per row.
+      const distinctOperatorDids = [
+        ...new Set(distinctAgentDids.map((agentDid) => agentByDid.get(agentDid)?.operatorDid).filter((d): d is string => d !== undefined)),
+      ];
+      await Promise.all(
+        distinctOperatorDids.map(async (operatorDid) => {
+          if (!accountByDid.has(operatorDid)) {
+            accountByDid.set(operatorDid, await repo.findByDid(operatorDid));
+          }
+        }),
+      );
+
+      const messagesByJobId = new Map<string, readonly Message[]>();
+      const readStateByJobId = new Map<string, ThreadReadState | null>();
+      await Promise.all(
+        rows.map(async (r) => {
+          const [messages, readState] = await Promise.all([
+            messageRepo.listByJobId(r.job.id),
+            threadReadStateRepo.findByJobAndParty(r.job.id, r.seat),
+          ]);
+          messagesByJobId.set(r.job.id, messages);
+          readStateByJobId.set(r.job.id, readState);
+        }),
+      );
+
+      const threads = rows.map((r) => {
+        const { job, seat } = r;
+        const messages = messagesByJobId.get(job.id) ?? [];
+        const readState = readStateByJobId.get(job.id) ?? null;
+        const agentRow = agentByDid.get(job.agentDid) ?? null;
+        // The counterpart is the OTHER side: the agent's operator for a
+        // buyer, the buyer for an owner. The login is null when that
+        // account has none (a passkey-only account) or is unregistered.
+        const counterpartDid = seat === 'buyer' ? (agentRow?.operatorDid ?? job.agentDid) : job.buyerDid;
+        const counterpartGithubLogin = accountByDid.get(counterpartDid)?.githubLogin ?? null;
+        return {
+          jobId: job.id,
+          status: job.status,
+          writable: threadIsWritable(job.status),
+          seat,
+          brief: job.brief,
+          createdAt: job.createdAt.toISOString(),
+          agentDid: job.agentDid,
+          agentName: agentRow?.name ?? job.agentDid,
+          avatarSpec: resolveAvatar(agentRow?.avatarSpec ?? null, job.agentDid),
+          counterpartDid,
+          counterpartGithubLogin,
+          lastActivityAt: lastActivityAtOf(job.createdAt, messages).toISOString(),
+          lastMessage: (() => {
+            const lm = lastMessageOf(messages);
+            if (lm === null) return null;
+            return {
+              authorParty: lm.authorParty,
+              authorKind: lm.authorKind,
+              bodyPreview: lm.bodyPreview,
+              attachmentCount: lm.attachmentCount,
+              systemEventType: lm.systemEventType,
+              createdAt: lm.createdAt.toISOString(),
+            };
+          })(),
+          unreadCount: threadUnreadCount(seat, messages, readState === null ? null : readState.lastReadAt),
+        };
+      });
+
+      threads.sort((a, b) => {
+        const diff = new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime();
+        if (diff !== 0) return diff;
+        return a.jobId < b.jobId ? -1 : a.jobId > b.jobId ? 1 : 0;
+      });
+
+      const unreadTotal = threads.reduce((sum, t) => sum + t.unreadCount, 0);
+      res.status(200).json({ threads, unreadTotal });
+    } catch (err) {
+      console.error('GET /accounts/:did/threads: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
   // R-19 (D4, ENT-1.2): the operator roster. ANCHOR: an operator page is the
   // sum of who they run, never a score for the operator. Widens the same
   // browse-card assembly R-20 built (toBrowseCard, agentWorkRecord), so a
@@ -2852,178 +3024,6 @@ export function createApp(
       res.status(200).json({ buyerDid: did, pending });
     } catch (err) {
       console.error('GET /accounts/:did/pending: storage failed', err);
-      res.status(503).json({ error: 'storage unavailable' });
-    }
-  });
-
-  // MSG1a (Make item 1): GET /accounts/:did/threads, the conversation
-  // list for BOTH seats -- the buyer's own hires (GET
-  // /accounts/:did/jobs, every status, unlike that route which excludes
-  // draft/proposed) and the owner's agents' hires (GET
-  // /accounts/:did/incoming's roster, but every status, not only
-  // draft/proposed). Built from the same parts in the same order as
-  // both of those routes: resolveActingParty, then a 403 that never
-  // says whether :did is a registered account or how many threads it
-  // has.
-  //
-  // A job where the account is both buyer and owner (a self-hire)
-  // appears once, as the buyer -- partyForDid's own resolution order
-  // (buyer checked before agent) is mirrored here by building the
-  // buyer set first and excluding any job id already claimed by it from
-  // the agent-seat set.
-  app.get('/accounts/:did/threads', requireSessionOrSignature, async (req: Request, res: Response) => {
-    const did = String(req.params.did);
-    let actingParty: string | null;
-    try {
-      actingParty = await resolveActingParty(req, repo, identityAdapter);
-    } catch (err) {
-      console.error('GET /accounts/:did/threads: storage failed', err);
-      res.status(503).json({ error: 'storage unavailable' });
-      return;
-    }
-    // Neither a stranger nor an unresolved caller ever learns whether
-    // :did is a registered account or how many threads it has: the
-    // refusal is identical whether or not the account exists.
-    if (actingParty === null || actingParty !== did) {
-      res.status(403).json({ error: 'an account may only read its own thread list' });
-      return;
-    }
-
-    if (typeof jobRepo.findByBuyerDid !== 'function') {
-      console.error('GET /accounts/:did/threads: storage does not support findByBuyerDid');
-      res.status(503).json({ error: 'storage unavailable' });
-      return;
-    }
-    if (typeof jobRepo.findByAgentDid !== 'function') {
-      console.error('GET /accounts/:did/threads: storage does not support findByAgentDid');
-      res.status(503).json({ error: 'storage unavailable' });
-      return;
-    }
-    if (typeof agentRepo.listAll !== 'function') {
-      console.error('GET /accounts/:did/threads: storage does not support listAll');
-      res.status(503).json({ error: 'storage unavailable' });
-      return;
-    }
-
-    try {
-      const buyerJobs = await jobRepo.findByBuyerDid(did);
-      const buyerJobIds = new Set(buyerJobs.map((job) => job.id));
-
-      // The exact `row.operatorDid === did` comparison GET
-      // /accounts/:did/incoming already uses, never isAgentOperator's
-      // didSuffix match: one account's roster must mean the same thing
-      // on every route, and a caller whose DID shares a suffix with the
-      // real operator must never inherit that operator's roster
-      // (mutation-proof test: hire-thread-list.test.ts's
-      // roster-collision case).
-      const agentRows = await agentRepo.listAll();
-      const ownAgents = agentRows.filter((row) => row.operatorDid === did);
-      const findByAgentDid = jobRepo.findByAgentDid.bind(jobRepo);
-      const perAgentJobs = await Promise.all(ownAgents.map((row) => findByAgentDid(row.did)));
-      // A self-hire (this account is both buyer and agent's operator)
-      // appears once, as the buyer: any job already in the buyer set is
-      // excluded here, mirroring partyForDid's own buyer-first order.
-      const agentSeatJobs = perAgentJobs.flat().filter((job) => !buyerJobIds.has(job.id));
-
-      const rows: Array<{ readonly job: Job; readonly seat: Party }> = [
-        ...buyerJobs.map((job) => ({ job, seat: 'buyer' as const })),
-        ...agentSeatJobs.map((job) => ({ job, seat: 'agent' as const })),
-      ];
-
-      // One agent/message/read-state lookup per DISTINCT job, not
-      // recomputed per row (the same per-distinct-key caching every
-      // other list route in this file already uses).
-      const distinctAgentDids = [...new Set(rows.map((r) => r.job.agentDid))];
-      const agentByDid = new Map<string, Agent | null>();
-      await Promise.all(
-        distinctAgentDids.map(async (agentDid) => {
-          agentByDid.set(agentDid, await agentRepo.findByDid(agentDid));
-        }),
-      );
-      const distinctBuyerDids = [...new Set(rows.map((r) => r.job.buyerDid))];
-      const accountByDid = new Map<string, Account | null>();
-      await Promise.all(
-        distinctBuyerDids.map(async (buyerDid) => {
-          accountByDid.set(buyerDid, await repo.findByDid(buyerDid));
-        }),
-      );
-      // The counterpart account for a BUYER seat is the agent's own
-      // operator (never the buyer's own account, which is the caller
-      // here) -- a second, distinct set of lookups keyed by operatorDid,
-      // resolved once per distinct operator, not once per row.
-      const distinctOperatorDids = [
-        ...new Set(distinctAgentDids.map((agentDid) => agentByDid.get(agentDid)?.operatorDid).filter((d): d is string => d !== undefined)),
-      ];
-      await Promise.all(
-        distinctOperatorDids.map(async (operatorDid) => {
-          if (!accountByDid.has(operatorDid)) {
-            accountByDid.set(operatorDid, await repo.findByDid(operatorDid));
-          }
-        }),
-      );
-
-      const messagesByJobId = new Map<string, readonly Message[]>();
-      const readStateByJobId = new Map<string, ThreadReadState | null>();
-      await Promise.all(
-        rows.map(async (r) => {
-          const [messages, readState] = await Promise.all([
-            messageRepo.listByJobId(r.job.id),
-            threadReadStateRepo.findByJobAndParty(r.job.id, r.seat),
-          ]);
-          messagesByJobId.set(r.job.id, messages);
-          readStateByJobId.set(r.job.id, readState);
-        }),
-      );
-
-      const threads = rows.map((r) => {
-        const { job, seat } = r;
-        const messages = messagesByJobId.get(job.id) ?? [];
-        const readState = readStateByJobId.get(job.id) ?? null;
-        const agentRow = agentByDid.get(job.agentDid) ?? null;
-        // The counterpart is the OTHER side: the agent's operator for a
-        // buyer, the buyer for an owner. The login is null when that
-        // account has none (a passkey-only account) or is unregistered.
-        const counterpartDid = seat === 'buyer' ? (agentRow?.operatorDid ?? job.agentDid) : job.buyerDid;
-        const counterpartGithubLogin = accountByDid.get(counterpartDid)?.githubLogin ?? null;
-        return {
-          jobId: job.id,
-          status: job.status,
-          writable: threadIsWritable(job.status),
-          seat,
-          brief: job.brief,
-          createdAt: job.createdAt.toISOString(),
-          agentDid: job.agentDid,
-          agentName: agentRow?.name ?? job.agentDid,
-          avatarSpec: resolveAvatar(agentRow?.avatarSpec ?? null, job.agentDid),
-          counterpartDid,
-          counterpartGithubLogin,
-          lastActivityAt: lastActivityAtOf(job.createdAt, messages).toISOString(),
-          lastMessage: (() => {
-            const lm = lastMessageOf(messages);
-            if (lm === null) return null;
-            return {
-              authorParty: lm.authorParty,
-              authorKind: lm.authorKind,
-              bodyPreview: lm.bodyPreview,
-              attachmentCount: lm.attachmentCount,
-              systemEventType: lm.systemEventType,
-              createdAt: lm.createdAt.toISOString(),
-            };
-          })(),
-          unreadCount: threadUnreadCount(seat, messages, readState === null ? null : readState.lastReadAt),
-        };
-      });
-
-      threads.sort((a, b) => {
-        const diff = new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime();
-        if (diff !== 0) return diff;
-        return a.jobId < b.jobId ? -1 : a.jobId > b.jobId ? 1 : 0;
-      });
-
-      const unreadTotal = threads.reduce((sum, t) => sum + t.unreadCount, 0);
-      res.status(200).json({ threads, unreadTotal });
-    } catch (err) {
-      console.error('GET /accounts/:did/threads: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
