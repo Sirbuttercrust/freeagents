@@ -9,8 +9,8 @@ import type { Server } from 'node:http';
 import { fromRandom } from '@ocap/wallet';
 import { createApp } from '../../src/api/app.js';
 import { PrismaSettlementGate, type SettlementGate } from '../../src/adapters/payment/gate.js';
-import { createAbtPaymentRail } from '../../src/adapters/payment/abt.js';
-import { createUsdcPaymentRail } from '../../src/adapters/payment/usdc.js';
+import { createAbtPaymentRail, type AbtPaymentRail } from '../../src/adapters/payment/abt.js';
+import { createUsdcPaymentRail, type UsdcPaymentRailShim } from '../../src/adapters/payment/usdc.js';
 import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from '../../src/adapters/payment/usdc-spent-transfer-storage-types.js';
 import {
   MemoryAccountRepository,
@@ -26,27 +26,6 @@ const USDC_TOKEN = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d';
 const USDC_FEE_ADDRESS = '0xFeeAddress000000000000000000000000000';
 const USDC_CHAIN_ID = 421614;
 
-function usdcEnvVars(): Record<string, string> {
-  return {
-    FREEAGENTS_USDC_RPC_URL: 'https://sepolia-rollup.arbitrum.io/rpc',
-    FREEAGENTS_USDC_TOKEN_CONTRACT: USDC_TOKEN,
-    FREEAGENTS_USDC_CHAIN_ID: String(USDC_CHAIN_ID),
-    FREEAGENTS_USDC_FEE_ADDRESS: USDC_FEE_ADDRESS,
-  };
-}
-
-function fakeSpentTransferStorage(): UsdcSpentTransferStorage {
-  const rows = new Map<string, UsdcSpentTransferRow>();
-  return {
-    async record(row) {
-      rows.set(row.hash, { ...row });
-    },
-    async findByHash(hash) {
-      return rows.get(hash) ?? null;
-    },
-  };
-}
-
 export interface OpenRailApp {
   readonly server: Server;
   readonly baseUrl: string;
@@ -57,17 +36,23 @@ export interface OpenRailApp {
   readonly operatorDid: string;
 }
 
-// gate defaults to a PrismaSettlementGate reading the SAME settlementRepo
-// this function returns, so a test that records a settlement directly on
-// settlementRepo sees it reflected through the gate with no separate
-// wiring step (confirm's own default stance). No payment rail is wired
-// (both abt and usdc payment start doors answer 503): tests that only
-// care about payableRails or confirm's own backfill never need one. Use
-// startOpenRailAppWithRails for a test that drives a real /start call.
-export async function startOpenRailApp(
-  operatorAddresses: { readonly abt?: string; readonly evm?: string } = {},
-  gate?: SettlementGate,
-): Promise<OpenRailApp> {
+interface OpenRailActors {
+  readonly buyer: SigningIdentity;
+  readonly agent: SigningIdentity;
+  readonly operatorRepo: MemoryAccountRepository;
+  readonly operatorDid: string;
+  readonly agentRepo: MemoryAgentRepository;
+  readonly jobRepo: MemoryJobRepository;
+  readonly settlementRepo: MemorySettlementRepository;
+  readonly github: ReturnType<typeof createStagingLifecycleGithubFake>['github'];
+}
+
+// The buyer, the hired agent, its operator (with zero, one or two
+// payout addresses), and fresh in-memory repositories: the part both
+// harness variants below need identically.
+async function buildOpenRailActors(
+  operatorAddresses: { readonly abt?: string; readonly evm?: string },
+): Promise<OpenRailActors> {
   const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(Math.floor(Math.random() * 200) + 1));
   const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(Math.floor(Math.random() * 200) + 1));
   const operatorRepo = new MemoryAccountRepository();
@@ -87,119 +72,108 @@ export async function startOpenRailApp(
     negotiatesOnOwnersBehalf: true,
   });
   await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-open-rail', status: 'verified' });
-  const jobRepo = new MemoryJobRepository();
-  const settlementRepo = new MemorySettlementRepository();
   const { github } = createStagingLifecycleGithubFake();
+  return { buyer, agent, operatorRepo, operatorDid, agentRepo, jobRepo: new MemoryJobRepository(), settlementRepo: new MemorySettlementRepository(), github };
+}
+
+// gate defaults to a PrismaSettlementGate reading the SAME settlementRepo
+// this function returns, so a test that records a settlement directly on
+// settlementRepo sees it reflected through the gate with no separate
+// wiring step (confirm's own default stance). No payment rail is wired
+// (both abt and usdc payment start doors answer 503): tests that only
+// care about payableRails or confirm's own backfill never need one. Use
+// startOpenRailAppWithRails for a test that drives a real /start call.
+export async function startOpenRailApp(
+  operatorAddresses: { readonly abt?: string; readonly evm?: string } = {},
+  gate?: SettlementGate,
+): Promise<OpenRailApp> {
+  const actors = await buildOpenRailActors(operatorAddresses);
   const server = createApp(
-    operatorRepo,
-    agentRepo,
-    undefined,
-    github,
-    jobRepo,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    gate ?? new PrismaSettlementGate(settlementRepo),
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    settlementRepo,
+    actors.operatorRepo, actors.agentRepo, undefined, actors.github, actors.jobRepo,
+    undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+    gate ?? new PrismaSettlementGate(actors.settlementRepo),
+    undefined, undefined, undefined, undefined, actors.settlementRepo,
   ).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('expected a port');
-  return { server, baseUrl: `http://127.0.0.1:${address.port}`, buyer, agent, settlementRepo, operatorRepo, operatorDid };
+  return {
+    server, baseUrl: `http://127.0.0.1:${address.port}`,
+    buyer: actors.buyer, agent: actors.agent, settlementRepo: actors.settlementRepo,
+    operatorRepo: actors.operatorRepo, operatorDid: actors.operatorDid,
+  };
+}
+
+function fakeUsdcRail(): UsdcPaymentRailShim {
+  const rows = new Map<string, UsdcSpentTransferRow>();
+  const spentTransferStorage: UsdcSpentTransferStorage = {
+    async record(row) {
+      rows.set(row.hash, { ...row });
+    },
+    async findByHash(hash) {
+      return rows.get(hash) ?? null;
+    },
+  };
+  return createUsdcPaymentRail({
+    chainClient: { decimals: async () => 6, getTransactionReceipt: async () => null },
+    rateSource: async () => '1',
+    halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+    spentTransferStorage,
+  });
+}
+
+function fakeAbtRail(): AbtPaymentRail {
+  const rows = new Map<string, { hash: string; jobId: string; leg: 'deposit' | 'balance' }>();
+  return createAbtPaymentRail({
+    chainClient: fakeAbtChainClient(true).client,
+    rateSource: async () => '1',
+    spentTransferStorage: {
+      async record(row) {
+        rows.set(row.hash, { ...row });
+      },
+      async findByHash(hash) {
+        return rows.get(hash) ?? null;
+      },
+    },
+  });
 }
 
 // The same harness, with BOTH real payment rails wired (fake chain
 // clients, no network), for a test that must drive an actual /start call
 // through to a 200 or through the full DID Connect wallet protocol.
 // FREEAGENTS_PUBLIC_BASE_URL must be set before createApp constructs
-// WalletAuthenticator, so the port is reserved first (abt-fixtures.ts's
-// own reservePort/withEnv pattern, mirrored by every other ABT route
-// test file).
+// WalletAuthenticator, so the port is reserved and the env set up FIRST
+// (abt-fixtures.ts's own reservePort/withEnv pattern, mirrored by every
+// other ABT route test file), before the shared actor setup runs.
 export async function startOpenRailAppWithRails(
   operatorAddresses: { readonly abt?: string; readonly evm?: string } = {},
 ): Promise<OpenRailApp> {
-  const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(Math.floor(Math.random() * 200) + 1));
-  const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(Math.floor(Math.random() * 200) + 1));
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const platformWallet = fromRandom();
   const abtToken = fromRandom().address;
   const abtFeeAddress = fromRandom().address;
-  return withEnv({ ...usdcEnvVars(), ...abtEnv(baseUrl, platformWallet, abtToken, abtFeeAddress) }, async () => {
-    const usdcRail = createUsdcPaymentRail({
-      chainClient: { decimals: async () => 6, getTransactionReceipt: async () => null },
-      rateSource: async () => '1',
-      halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
-      spentTransferStorage: fakeSpentTransferStorage(),
-    });
-    const abtSpentRows = new Map<string, { hash: string; jobId: string; leg: 'deposit' | 'balance' }>();
-    const abtRail = createAbtPaymentRail({
-      chainClient: fakeAbtChainClient(true).client,
-      rateSource: async () => '1',
-      spentTransferStorage: {
-        async record(row) {
-          abtSpentRows.set(row.hash, { ...row });
-        },
-        async findByHash(hash) {
-          return abtSpentRows.get(hash) ?? null;
-        },
-      },
-    });
-    const operatorRepo = new MemoryAccountRepository();
-    await operatorRepo.register({ did: buyer.did, githubLogin: `buyer-open-rail-${Math.random()}` });
-    const operatorDid = `did:abt:op-open-rail-${Math.random()}`;
-    await operatorRepo.register({ did: operatorDid, githubLogin: `operator-open-rail-${Math.random()}` });
-    if (operatorAddresses.abt !== undefined) await operatorRepo.setOperatorAddressAbt(operatorDid, operatorAddresses.abt);
-    if (operatorAddresses.evm !== undefined) await operatorRepo.setOperatorAddressEvm(operatorDid, operatorAddresses.evm);
-    const agentRepo = new MemoryAgentRepository();
-    await agentRepo.create({
-      did: agent.did,
-      operatorDid,
-      delegation: { fixture: true } as never,
-      name: 'scout',
-      skills: ['triage'],
-      githubLogin: 'scout-open-rail',
-      negotiatesOnOwnersBehalf: true,
-    });
-    await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-open-rail', status: 'verified' });
-    const jobRepo = new MemoryJobRepository();
-    const settlementRepo = new MemorySettlementRepository();
-    const gate = new PrismaSettlementGate(settlementRepo);
-    const { github } = createStagingLifecycleGithubFake();
+  const usdcEnv = {
+    FREEAGENTS_USDC_RPC_URL: 'https://sepolia-rollup.arbitrum.io/rpc',
+    FREEAGENTS_USDC_TOKEN_CONTRACT: USDC_TOKEN,
+    FREEAGENTS_USDC_CHAIN_ID: String(USDC_CHAIN_ID),
+    FREEAGENTS_USDC_FEE_ADDRESS: USDC_FEE_ADDRESS,
+  };
+  return withEnv({ ...usdcEnv, ...abtEnv(baseUrl, platformWallet, abtToken, abtFeeAddress) }, async () => {
+    const actors = await buildOpenRailActors(operatorAddresses);
+    const gate = new PrismaSettlementGate(actors.settlementRepo);
     const app = createApp(
-      operatorRepo,
-      agentRepo,
-      undefined,
-      github,
-      jobRepo,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      gate,
-      undefined,
-      undefined,
-      abtRail,
-      usdcRail,
-      settlementRepo,
-      pureTxEncoder,
+      actors.operatorRepo, actors.agentRepo, undefined, actors.github, actors.jobRepo,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      gate, undefined, undefined, fakeAbtRail(), fakeUsdcRail(), actors.settlementRepo, pureTxEncoder,
     );
     const server = app.listen(port, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
-    return { server, baseUrl, buyer, agent, settlementRepo, operatorRepo, operatorDid };
+    return {
+      server, baseUrl,
+      buyer: actors.buyer, agent: actors.agent, settlementRepo: actors.settlementRepo,
+      operatorRepo: actors.operatorRepo, operatorDid: actors.operatorDid,
+    };
   });
 }
 
