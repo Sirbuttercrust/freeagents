@@ -138,6 +138,43 @@ describe('HT1 Part B: message attachments', () => {
     expect(download.headers.get('content-security-policy')).toContain("default-src 'none'");
   });
 
+  // MSG1a (Make item 3 and 4): the upload reply carries contentType --
+  // what the bytes route serves, distinct from `kind` (the detected
+  // upload type) -- and the full-size download is actually served under
+  // that type. A PNG upload re-encodes to JPEG, so both the reply and
+  // the served bytes must say image/jpeg, and the served bytes must
+  // actually start with the JPEG SOI marker.
+  it('a PNG upload carries contentType image/jpeg and is served full-size as image/jpeg with bytes starting FF D8 FF', async () => {
+    const jobId = await openDraft();
+    const pngBytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: { r: 0, g: 128, b: 255 } } }).png().toBuffer();
+    const upload = await req('POST', `/jobs/${jobId}/attachments`, {
+      filename: 'sky.png',
+      dataBase64: pngBytes.toString('base64'),
+    }, buyer);
+    expect(upload.status).toBe(201);
+    const uploaded = (await upload.json()) as Record<string, unknown>;
+    expect(uploaded.kind).toBe('image/png');
+    expect(uploaded.contentType).toBe('image/jpeg');
+
+    const download = await req('GET', `/jobs/${jobId}/attachments/${uploaded.id as string}`, undefined, operator);
+    expect(download.status).toBe(200);
+    expect(download.headers.get('content-type')).toBe('image/jpeg');
+    const bytes = Buffer.from(await download.arrayBuffer());
+    expect(bytes.subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
+  });
+
+  it('a PDF upload carries contentType application/pdf', async () => {
+    const jobId = await openDraft();
+    const pdfBytes = Buffer.from('%PDF-1.4\n%fixture content for contentType test\n');
+    const upload = await req('POST', `/jobs/${jobId}/attachments`, {
+      filename: 'quote2.pdf',
+      dataBase64: pdfBytes.toString('base64'),
+    }, buyer);
+    expect(upload.status).toBe(201);
+    const uploaded = (await upload.json()) as Record<string, unknown>;
+    expect(uploaded.contentType).toBe('application/pdf');
+  });
+
   it('a file refused by its magic bytes even when named .png', async () => {
     const jobId = await openDraft();
     const notReallyPng = Buffer.from('this is plain text, not a PNG file at all');
@@ -272,5 +309,55 @@ describe('HT1 Part B: message attachments', () => {
     expect(body.error.toLowerCase()).not.toContain('libvips');
     expect(body.error.toLowerCase()).not.toContain('libheif');
     expect(body.error.toLowerCase()).not.toContain('plugin');
+  });
+
+  // MSG1a (Make item 2): GET /jobs/:jobId/attachments, gated by
+  // requireThreadParty like its neighbours -- every attachment
+  // referenced by a message in this job's thread, oldest first, never
+  // an upload no message has claimed yet.
+  describe('GET /jobs/:jobId/attachments: the sent-attachments list (MSG1a make item 2)', () => {
+    it('lists only attachments a message references, oldest first, with messageId, contentType and a stranger refused', async () => {
+      const jobId = await openDraft();
+      const png1 = await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 1, g: 1, b: 1 } } }).png().toBuffer();
+      const png2 = await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 2, g: 2, b: 2 } } }).png().toBuffer();
+
+      const upload1 = await req('POST', `/jobs/${jobId}/attachments`, { filename: 'first.png', dataBase64: png1.toString('base64') }, buyer);
+      const attachment1 = String((await upload1.json() as Record<string, unknown>).id);
+      const upload2 = await req('POST', `/jobs/${jobId}/attachments`, { filename: 'second.png', dataBase64: png2.toString('base64') }, buyer);
+      const attachment2 = String((await upload2.json() as Record<string, unknown>).id);
+      // An upload that is never attached to a message -- must never
+      // appear in the list (the file the other party was never sent
+      // stays invisible).
+      await req('POST', `/jobs/${jobId}/attachments`, { filename: 'unsent.png', dataBase64: png1.toString('base64') }, buyer);
+
+      const message1 = await req('POST', `/jobs/${jobId}/messages`, { body: '', attachmentIds: [attachment1] }, buyer);
+      const messageId1 = String((await message1.json() as Record<string, unknown>).id);
+      const message2 = await req('POST', `/jobs/${jobId}/messages`, { body: '', attachmentIds: [attachment2] }, buyer);
+      const messageId2 = String((await message2.json() as Record<string, unknown>).id);
+
+      const stranger403 = await req('GET', `/jobs/${jobId}/attachments`, undefined, stranger);
+      expect(stranger403.status).toBe(403);
+
+      const list = await req('GET', `/jobs/${jobId}/attachments`, undefined, operator);
+      expect(list.status).toBe(200);
+      const body = (await list.json()) as { attachments: Array<Record<string, unknown>> };
+      expect(body.attachments.length).toBe(2);
+      expect(body.attachments.map((a) => a.id)).toEqual([attachment1, attachment2]);
+      expect(body.attachments.map((a) => a.messageId)).toEqual([messageId1, messageId2]);
+      const row = body.attachments[0]!;
+      expect(row.kind).toBe('image/png');
+      expect(row.contentType).toBe('image/jpeg');
+      expect(row.originalFilename).toBe('first.png');
+      expect(typeof row.sizeBytes).toBe('number');
+      expect(typeof row.createdAt).toBe('string');
+    });
+
+    it('an empty thread lists no attachments, not an error', async () => {
+      const jobId = await openDraft();
+      const list = await req('GET', `/jobs/${jobId}/attachments`, undefined, buyer);
+      expect(list.status).toBe(200);
+      const body = (await list.json()) as { attachments: unknown[] };
+      expect(body.attachments).toEqual([]);
+    });
   });
 });

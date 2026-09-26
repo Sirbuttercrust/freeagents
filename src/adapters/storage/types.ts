@@ -497,6 +497,15 @@ export interface NotificationRepository {
 export interface AttachmentRepository {
   create(attachment: Attachment): Promise<Attachment>;
   findById(id: string): Promise<Attachment | null>;
+  // MSG1a (Make item 2): every attachment uploaded to one job, oldest
+  // first. Empty array for a job with none, never null (the same "zero
+  // renders as zero" stance every other listing in this file takes).
+  // The ROUTE (GET /jobs/:jobId/attachments) is what filters this down
+  // to attachments a message actually references -- this method itself
+  // returns every upload, sent or not, mirroring how listByJobId on
+  // every other per-job repository in this file makes no judgement
+  // about the caller's further filtering.
+  listByJobId(jobId: string): Promise<readonly Attachment[]>;
 }
 
 // HT1 Part B (STEER item 4): one row per browser Push API subscription.
