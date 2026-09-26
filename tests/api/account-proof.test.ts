@@ -164,7 +164,12 @@ describe('POST /agents/:agentDid/account-proof (G1 path two: the signed gist alo
   beforeAll(async () => {
     operator = await signingIdentityFromSeed(new Uint8Array(32).fill(241));
     await repo.register({ did: operator.did, githubLogin: 'account-proof-operator' });
-    const app = createApp(repo, agentRepo, fakeIdentity(), fakeGithub(gists));
+    // FIX-S7: this describe block shares ONE app/server across many `it`
+    // cases, each firing an upstream-class request (POST .../account-proof
+    // calls GitHub through the fake adapter). More than the default
+    // FREEAGENTS_RATE_LIMIT_UPSTREAM (20/minute) would trip mid-suite --
+    // a generous override, per Make item 3, never a raised default.
+    const app = createApp(repo, agentRepo, fakeIdentity(), fakeGithub(gists), undefined, undefined, undefined, undefined, { upstream: 10_000 });
     server = app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
