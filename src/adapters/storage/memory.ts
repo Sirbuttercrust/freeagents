@@ -620,6 +620,14 @@ export class MemoryAttachmentRepository implements AttachmentRepository {
   async findById(id: string): Promise<Attachment | null> {
     return this.rows.get(id) ?? null;
   }
+
+  // MSG1a (Make item 2): oldest first, matching every other listByJobId
+  // ordering convention in this file.
+  async listByJobId(jobId: string): Promise<readonly Attachment[]> {
+    return [...this.rows.values()]
+      .filter((row) => row.jobId === jobId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
 }
 
 // HT1 Part B (STEER item 4): browser Push API subscriptions, keyed by
