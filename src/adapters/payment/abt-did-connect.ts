@@ -33,7 +33,7 @@ import { depositUsd, remainderUsd } from '../../domain/payment.js';
 import type { AccountRepository, AgentRepository, JobRepository } from '../storage/types.js';
 import type { SettlementRepository } from '../storage/types.js';
 import type { AbtPaymentRail } from './abt.js';
-import { confirmPayment, legRailMismatchMessage, legStatusConflictMessage, legStatusEligible, processWalletResponse, requestPayment, type RouteLeg } from './route-support.js';
+import { confirmPayment, legStatusConflictMessage, legStatusEligible, processWalletResponse, requestPayment, type RouteLeg, checkRailDoorEligible } from './route-support.js';
 import { createDidConnectSessionStorage } from './session-storage.js';
 import type { DidConnectSessionStorage } from './session-storage-types.js';
 
@@ -262,10 +262,22 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       if (!legStatusEligible(leg, job.status)) {
         return { confirmed: false, error: legStatusConflictMessage(leg, job.status) };
       }
-      // B25: the job's own agreed rail must match the rail this callback
-      // belongs to, the same check /start and the token-mint door apply.
-      if (job.rail !== null && job.rail !== 'abt') {
-        return { confirmed: false, error: legRailMismatchMessage('abt', job.rail) };
+      // FIX-B39 (bugs.md B39), rule 5: ONE shared check, in place of
+      // B25's job-rail-only check, in this order: the job's pinned
+      // currency, the settled deposit's currency, then the operator
+      // address for this rail. Resolved BEFORE the operator address
+      // lookup below the eligibility check already needs (operatorAddressOk
+      // reuses the same operatorAddressForJob call this callback already
+      // makes for the actual recipient).
+      const eligibility = await checkRailDoorEligible({
+        jobId,
+        routeRail: 'abt',
+        jobRail: job.rail,
+        settlementRepo: options.settlementRepo,
+        operatorAddressOk: (await operatorAddressForJob(options.jobRepo, options.agentRepo, options.accountRepo, jobId)).ok,
+      });
+      if (!eligibility.ok) {
+        return { confirmed: false, error: eligibility.message };
       }
       // RULE (S3, P8c): the expected operator address is resolved from
       // the hired agent's operator, the identical derivation prepareTx
