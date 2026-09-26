@@ -4470,8 +4470,16 @@ export function createApp(
       console.error('notifyJobParties: storage failed reading the job\'s agent', err);
       jobAgent = null;
     }
-    if (jobAgent !== null && jobAgent.operatorDid !== excludeDid) {
-      await notify(jobAgent.operatorDid, job.id, eventType);
+    if (jobAgent !== null) {
+      if (jobAgent.operatorDid !== excludeDid) {
+        await notify(jobAgent.operatorDid, job.id, eventType);
+      }
+      // The webhook targets the agent's own autonomous software, a
+      // DIFFERENT actor than its operator -- it fires whenever the two
+      // STEER gates are open, independent of whether the OPERATOR
+      // authored this particular event (excludeDid names the operator's
+      // exclusion from the notify() call above, not the webhook's own
+      // audience).
       if (jobAgent.notifyWebhookUrl !== null && jobAgent.negotiatesOnOwnersBehalf) {
         try {
           await webhookSender.send(jobAgent.notifyWebhookUrl, {
