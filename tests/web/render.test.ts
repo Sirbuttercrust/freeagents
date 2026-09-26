@@ -211,16 +211,18 @@ describe('a receipt that does not exist offers no controls', () => {
 });
 
 describe('an agent that was never registered says only that', () => {
-  it('hides the identity row instead of leaving it loading for good', async () => {
+  it('hides the operator line instead of leaving it half-written for good', async () => {
     const page = await render('/agents/did:abt:nobody-at-all');
     try {
       expect(page.document.getElementById('name')?.textContent).toBe('Agent not found');
 
       // A permanent "operator loading" claims we are still working when we
-      // have finished and failed.
-      expect(page.isHidden('ident')).toBe(true);
+      // have finished and failed. S2 moved the operator into the header's
+      // "operated by" line (the identity box it used to share is now in
+      // the technical details), so the rule applies to that line.
+      expect(page.isHidden('operated-by')).toBe(true);
       expect(page.document.getElementById('operator-link')?.getAttribute('href')).toBe(null);
-      expect(page.document.getElementById('credentials-link')?.getAttribute('href')).toBe(null);
+      expect(page.document.getElementById('hire-cta')?.getAttribute('href')).toBe(null);
     } finally {
       page.close();
     }

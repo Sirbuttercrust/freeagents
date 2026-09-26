@@ -16,6 +16,8 @@ import type { AddressInfo } from 'node:net';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { agentPageReady, settled } from '../helpers/page-settled.js';
+
 import { createApp } from '../../src/api/app.js';
 import {
   MemoryAgentRepository,
@@ -201,7 +203,7 @@ async function render(): Promise<Document> {
     if (dom.window.document.readyState === 'complete') resolve();
     else dom.window.addEventListener('load', () => resolve());
   });
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  await settled(dom.window.document, agentPageReady, 'the agent page');
 
   if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
 
