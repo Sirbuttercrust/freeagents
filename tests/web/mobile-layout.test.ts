@@ -196,6 +196,8 @@ const PAGES: ReadonlyArray<readonly [label: string, path: string]> = [
   ['myjobs', '/myjobs'],
   ['myagents', '/myagents'],
   ['outcomes', '/outcomes'],
+  ['private-repos', '/private-repos'],
+  ['private-repos, for a job', '/private-repos?job=m1-job-proposed'],
   ['incoming', '/incoming'],
   ['conduct', '/conduct?account=m1-buyer-login'],
   ['dashboard', '/dashboard'],
@@ -743,7 +745,7 @@ describe('no page widens the layout viewport at 320px (M1, mobile-horizontal-ove
       // and the scrollWidth assertions above are not relaxed for it. What
       // it must not become is a quiet escape hatch any page can reach for.
       // So the sweep reads back what the filter took out and holds it to a
-      // named list: nothing at all on 26 of the 27 pages, and on landing
+      // named list: nothing at all on 28 of the 29 pages, and on landing
       // only its two decorative agent layers, by id.
       //
       // This is the assertion that replaces the `scrollX === 0` check the
