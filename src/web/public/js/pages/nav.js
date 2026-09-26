@@ -138,22 +138,32 @@
   // badge span) states the count in words; the badge's visible text
   // stays just the digit for a sighted user.
   function renderNotificationsBadge(count) {
-    var link = document.getElementById(NOTIFICATIONS_LINK_ID);
-    if (!link) return;
-    var existing = link.querySelector(".badge");
-    if (count > 0) {
-      if (!existing) {
-        existing = document.createElement("span");
-        existing.className = "badge";
-        link.appendChild(existing);
+    // Guarded: this runs at the end of a fire-and-forget fetch chain
+    // (renderNotificationsLink below), so the page may already have
+    // navigated away or torn itself down by the time the response
+    // lands (a test's own JSDOM window closing before the request
+    // resolves is the same shape a real navigation would take). A
+    // stale-page throw here must never become an unhandled rejection.
+    try {
+      var link = document.getElementById(NOTIFICATIONS_LINK_ID);
+      if (!link) return;
+      var existing = link.querySelector(".badge");
+      if (count > 0) {
+        if (!existing) {
+          existing = document.createElement("span");
+          existing.className = "badge";
+          link.appendChild(existing);
+        }
+        existing.textContent = String(count);
+        link.setAttribute("aria-label", "Notifications, " + count + " unread");
+      } else {
+        if (existing && existing.parentNode) {
+          existing.parentNode.removeChild(existing);
+        }
+        link.removeAttribute("aria-label");
       }
-      existing.textContent = String(count);
-      link.setAttribute("aria-label", "Notifications, " + count + " unread");
-    } else {
-      if (existing && existing.parentNode) {
-        existing.parentNode.removeChild(existing);
-      }
-      link.removeAttribute("aria-label");
+    } catch (e) {
+      /* the page tore down before this async update landed; nothing to render */
     }
   }
   function renderNotificationsLink(isSignedIn) {
@@ -184,6 +194,10 @@
         var count = typeof body.unreadCount === "number" ? body.unreadCount : 0;
         renderNotificationsBadge(count);
       });
+    }).catch(function () {
+      /* fire-and-forget: a failed badge refresh must never surface as an
+         unhandled rejection, the same reasoning as renderNotificationsBadge's
+         own try/catch above */
     });
   }
 
