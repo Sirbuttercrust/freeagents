@@ -265,10 +265,12 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       // FIX-B39 (bugs.md B39), rule 5: ONE shared check, in place of
       // B25's job-rail-only check, in this order: the job's pinned
       // currency, the settled deposit's currency, then the operator
-      // address for this rail. Resolved BEFORE the operator address
-      // lookup below the eligibility check already needs (operatorAddressOk
-      // reuses the same operatorAddressForJob call this callback already
-      // makes for the actual recipient).
+      // address for this rail. operatorAddressOk here makes its OWN
+      // call to operatorAddressForJob (a second, separate call from the
+      // one a few lines below that resolves the actual recipient
+      // address): the two calls answer different questions (a boolean
+      // eligibility check here, the address value itself there), so one
+      // result cannot stand in for the other.
       const eligibility = await checkRailDoorEligible({
         jobId,
         routeRail: 'abt',

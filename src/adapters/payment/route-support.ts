@@ -84,7 +84,11 @@ export function depositRailMismatchMessage(routeRail: Rail, depositRail: Rail): 
 // operator has no payout address on record for this rail. Byte-identical
 // to the wording every existing per-rail 409 already used (S3/P8c), so
 // tests/api/job-payment-usdc.test.ts's pre-existing "operator address"
-// assertion and the ABT sibling both keep passing unedited.
+// assertion keeps passing unedited. The ABT sibling assertion
+// (tests/api/job-payment-abt.test.ts P8c) and the account-provisioning
+// custody fence test were both EDITED on this card, per Temper's rule-5
+// ruling: they used to assert /start succeeded with no address set, and
+// now assert this same 409, since rule 5 moves that refusal to /start.
 // tests/architecture/no-custody.test.ts bans custody words including
 // "payout" on any code line inside src/adapters/payment (this file), so
 // this comment (a comment line, exempt) is the only place that word may
