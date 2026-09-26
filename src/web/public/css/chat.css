@@ -67,7 +67,11 @@
 .a-list .list-empty { margin: 6px 16px; color: var(--fg-2); font-size: 14px; }
 .a-conv { display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
 .a-bar {
-  flex: none; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+  flex: none; display: grid; align-items: center;
+  /* the side columns keep room for their 44px controls; the middle one
+     gives way first and its name ellipsizes, so a long name never widens
+     a 320px screen */
+  grid-template-columns: minmax(52px, 1fr) minmax(0, auto) minmax(52px, 1fr);
   min-height: 64px; padding: 6px 8px; border-bottom: 1px solid var(--line);
 }
 .a-bar .back {
@@ -87,8 +91,8 @@
   font-size: 13px; font-weight: 560; line-height: 16px;
   display: inline-flex; align-items: center; gap: 2px; max-width: 100%;
 }
-.a-bar .who-c b .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.a-bar .who-c b small { color: var(--fg-2); font-weight: 400; font-size: 12px; white-space: nowrap; }
+.a-bar .who-c b .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.a-bar .who-c b small { color: var(--fg-2); font-weight: 400; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex-shrink: 2; }
 .a-bar .who-c svg { width: 12px; height: 12px; color: var(--fg-2); flex: none; }
 .a-bar .end { grid-column: 3; justify-self: end; }
 .a-bar .end a {
@@ -421,11 +425,18 @@
 .liftclone .reacts { display: none; }
 .tbmenu { position: fixed; z-index: 80; }
 .tbmenu .tb-row {
-  display: flex; gap: 0; padding: 4px; border-radius: 26px;
-  background: var(--bg-2); border: 1px solid var(--line-2);
-  max-width: calc(100vw - 16px); overflow-x: auto; scrollbar-width: none;
+  display: flex; flex-wrap: wrap; gap: 0; padding: 4px; border-radius: 26px;
+  background: var(--bg-2); box-shadow: inset 0 0 0 1px var(--line-2);
+  max-width: calc(100vw - 16px);
 }
-.tbmenu .tb-row::-webkit-scrollbar { display: none; }
+/* The six tapbacks and the plus are 308px of 44px targets, and at 320
+   they fit on one line with this padding. With a seventh (my own emoji
+   from the picker) the row wraps onto a second line rather than hiding the
+   plus behind a sideways scroll. The ring is a shadow, not a border, so it
+   costs no width. */
+@media (max-width: 360px) {
+  .tbmenu .tb-row { padding: 2px; max-width: calc(100vw - 8px); }
+}
 .tbmenu .tb-row button {
   flex: none; width: 44px; height: 44px; border-radius: 50%; font-size: 24px; line-height: 1;
   display: inline-flex; align-items: center; justify-content: center;

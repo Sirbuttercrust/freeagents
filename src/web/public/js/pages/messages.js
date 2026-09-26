@@ -185,9 +185,10 @@
   /* The other person: their GitHub handle, or their role in plain words. */
   function otherLabel(row) { return login(row) || (row.seat === "buyer" ? "Owner" : "Hirer"); }
   function otherWords(row) { return login(row) || (row.seat === "buyer" ? "the owner" : "the hirer"); }
+  /* A system row (the quote) belongs to the agent's side of the hire. */
+  function sideOf(m) { return m.authorParty === "system" ? "agent" : m.authorParty; }
   function authorShort(m) {
-    if (m.authorParty === S.seat) return "You";
-    if (m.authorParty === "system") return "Quote";
+    if (sideOf(m) === S.seat) return "You";
     if (m.authorKind === "agent-autonomous") return agentName(S.row);
     return otherLabel(S.row);
   }
@@ -232,7 +233,10 @@
     return f.kind === "application/pdf" ? "PDF" : "Image";
   }
   function preview(m) {
-    if (m.authorParty === "system") return "Quote";
+    if (m.authorParty === "system") {
+      var ev = m.systemEvent || {};
+      return ev.type === "quote_sent" ? "Quote, " + usd(ev.priceUsd) : (EVENT_WORDS[ev.type] || "Update");
+    }
     if (typeof m.body === "string" && m.body !== "") return m.body;
     var a = (m.attachments || [])[0];
     return a ? kindWord(a.attachmentId) : "";
@@ -642,7 +646,7 @@
       var n = step === "done" ? 6 : step;
       var pips = el("div", "pip-row");
       pips.setAttribute("role", "img");
-      pips.setAttribute("aria-label", n > 5 ? "Hire complete" : "Step " + n + " of 5");
+      pips.setAttribute("aria-label", n > 5 ? "All five steps done" : "Step " + n + " of 5");
       for (var i = 1; i <= 5; i++) pips.appendChild(el("i", i < n ? "done" : i === n ? "now" : ""));
       t.appendChild(pips);
     }
@@ -1244,7 +1248,7 @@
     if (!m || !S.writable) return;
     if (S.editing) cancelBar();
     S.replyTo = id;
-    setBar(replyBar("Replying to " + (m.authorParty === S.seat ? "yourself" : authorShort(m)), preview(m), "Cancel the reply"));
+    setBar(replyBar("Replying to " + (sideOf(m) === S.seat ? "yourself" : authorShort(m)), preview(m), "Cancel the reply"));
     focusComposer();
   }
   function canEdit(m) {
