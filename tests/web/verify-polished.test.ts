@@ -381,6 +381,12 @@ describe('5. every real control on the page clears 44px, at 1280 and at 320', ()
   // rendered on every page from the same markup and governed by its own rules
   // in base.css and polish.css; this card owns the page. The footer links are
   // in scope and pass, so including them costs nothing and covers more.
+  //
+  // The floor is 43.95, not 44 (S3): at 320 this sweep named
+  // "receipt-link 147.8x44" as under the floor, a height that prints as 44
+  // at one decimal and sits a hair below it, float noise in layout rather
+  // than a short control. The same slack past-work-simple.test.ts's
+  // TAP_FLOOR carries and proves with a planted 43.9px control.
   const sweep = `
     (function () {
       ['sigcheck', 'ghcheck', 'idcheck'].forEach(function (id) {
@@ -396,7 +402,7 @@ describe('5. every real control on the page clears 44px, at 1280 and at 320', ()
         measured: all.map(function (el) { return el.id || el.className || el.tagName; }),
         under: all.filter(function (el) {
           var r = el.getBoundingClientRect();
-          return r.width < 44 || r.height < 44;
+          return r.width < 43.95 || r.height < 43.95;
         }).map(function (el) {
           var r = el.getBoundingClientRect();
           return (el.id || el.className || el.tagName) + ' ' +
@@ -484,7 +490,7 @@ describe('5. every real control on the page clears 44px, at 1280 and at 320', ()
 // ------------------------------------------------------- 6. nothing depends on us
 
 describe('6. the page performs no request that could be read as a check', () => {
-  it('issues exactly one request, the credential read, and states that it checked nothing', async () => {
+  it('issues exactly two GETs, the credential read and the agent-name read, and states that it checked nothing', async () => {
     const page = await renderVerify(`/verify?credential=${JOB_ID}`);
     try {
       // POSITIVE CONTROL FIRST. An empty page satisfies "makes no check", so
@@ -496,15 +502,17 @@ describe('6. the page performs no request that could be read as a check', () => 
       );
       expect(page.document.getElementById('claim')!.textContent ?? '').toContain('w-verify-polished-repo');
 
-      expect(page.requests, 'the page made a request other than the one credential read').toEqual([
+      expect(page.requests, 'the page made a request other than the credential read and the agent-name read').toEqual([
         `/v1/credentials/${JOB_ID}`,
+        `/agents/${encodeURIComponent(AGENT_DID)}`,
       ]);
 
-      // The sentence that makes the fetch honest. Without it the page reads a
-      // receipt and says nothing about having done so, which is the shape of
-      // a check being performed quietly.
+      // The sentence that makes the reads honest. Without it the page reads
+      // a receipt and says nothing about having done so, which is the shape
+      // of a check being performed quietly. S3 shortened it from "This page
+      // has checked none of that" to the line below; the rule is unchanged.
       const rendered = (page.document.body.textContent ?? '').replace(/\s+/g, ' ');
-      expect(rendered, 'the page no longer says it has checked nothing').toContain('This page has checked none of that');
+      expect(rendered, 'the page no longer says it has checked nothing').toContain('This page checks nothing itself');
 
       // And the verdict language a check would produce. These are phrases
       // this page must never render about the receipt it just read; the
