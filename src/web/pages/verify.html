@@ -38,13 +38,15 @@
      link to GitHub, a copyable value, or a command a person runs
      themselves.
 
-     THE ONE FETCH THIS PAGE MAKES, AND WHY IT IS NOT A CHECK. It reads the
-     receipt to fill in the commands with real values, so a person copies a
-     working command instead of typing a pull request number by hand. That
-     is convenience, not verification: the page states plainly that it has
-     checked nothing, and every command runs against GitHub or a local
-     verifier. Paste the same commands anywhere and they answer the same
-     way with this site switched off.
+     THE TWO READS THIS PAGE MAKES, AND WHY NEITHER IS A CHECK. It reads
+     the receipt to fill in the commands with real values, so a person
+     copies a working command instead of typing a pull request number by
+     hand, and it reads the agent's public record for its display name, so
+     the claim names the agent in words (S3). That is convenience, not
+     verification: the page states plainly that it checks nothing, and every
+     command runs against GitHub or a local verifier. Paste the same
+     commands anywhere and they answer the same way with this site switched
+     off.
 
      THE STACK. tokens, base, polish, and the scripts api, nav, icons,
      polish, verify, ui. market.css, gallery.css and agreement.css are
@@ -65,7 +67,7 @@
 
      THE THREE DEPARTURES FROM THE WIREFRAME, each named where it happens:
      the h1 size (see .checked's neighbour below), the four builder notes
-     (see the bottom of this block), and where the three checked facts sit
+     (see the bottom of this block), and where the three checks sit
      (see the .checked rule). */
 
   /* The claim, restated in plain language. Filled by verify.js from the
@@ -74,7 +76,7 @@
   .claim { font-size: 20px; line-height: 1.45; letter-spacing: -0.01em; max-width: 36ch; }
   .claim b { font-weight: 550; }
 
-  /* THE THREE CHECKED FACTS (wireframe .checked, wireframe verify.html:94).
+  /* THE THREE CHECKS (wireframe .checked, wireframe verify.html:97).
      Plain statements with a dot before each heading, not a numbered list:
      this is a short list of things a person can go and confirm, so it
      reads like three short statements rather than a dataset.
@@ -88,25 +90,21 @@
      affordance for a verified hire accent-coloured by name.
 
      WHERE THE BLOCK SITS, which is the one structural departure. The
-     wireframe puts .checked inside the hero pane, above the fold, as
-     three facts that are simply true of its sample receipt, and repeats
-     the mechanics as three disclosures in the section below. The built
-     page cannot state those as facts in the hero: it has checked nothing,
-     and a receipt may not have loaded at all. So the block stays in the
-     section headed "How to check it yourself", where each statement is
-     the name of a check a person runs and carries that check's own
-     disclosure, and the hero carries the claim and the action row the
-     wireframe put beside it. All three of the wireframe's headings ship
-     word for word. Its three .d sentences do not: each one states that a
-     check has already passed (signed with the key on file and that key
-     never reported compromised, the pull request present on GitHub and
-     merged, the merge commit signed by that same key), and this page has
-     checked none of it. Each is replaced by a sentence naming what the
-     check actually is, with the command or the values it needs behind
-     that check's own disclosure, which is what this section is for.
+     wireframe puts .checked inside the hero pane, above the fold, and
+     repeats the mechanics as three disclosures in the section below. The
+     built page keeps the block in the section headed "How to check it
+     yourself", where each item is the name of a check a person runs and
+     carries that check's own disclosure, and the hero carries the claim
+     and the action row the wireframe put beside it. The three headings
+     and the three .d lines ship word for word as the wireframe has them:
+     each .d line says what its check proves ("Proves ..."), never that
+     the check has passed, because this page has checked nothing and a
+     receipt may not have loaded at all. The command or the values each
+     check needs sit behind that check's own disclosure, which is what
+     this section is for.
 
      THE GAP. The wireframe's own value is 16px, for items that are one
-     heading and one line each. These items carry a heading, a paragraph,
+     heading and one line each. These items carry a heading, a line,
      a disclosure and its panel, so 16px between them reads as one
      continuous column rather than three things. 26px keeps the wireframe's
      "space, not lines" rule (DESIGN.md 4) while the items stay separable;
@@ -137,18 +135,22 @@
      base.css:541 raises both to 44 only inside
      @media (max-width: 760px), (pointer: coarse). Measured on this page at
      1280px before this rule: the three action anchors 264x40, 139x40 and
-     130x40, all six copy buttons 58x32, Download JSON 125x32. A desktop
+     130x40, all six copy buttons 58x32, Download JSON 125x32, and the
+     lookup field #credential-id 592x40 (base.css:558 raises .input to 44
+     only inside that same media query). A desktop
      screenshot at either width looks identical, which is why the floor is
      declared here and measured in a real browser at 1280 and at 320 by
-     tests/web/verify-polished.test.ts rather than trusted.
+     tests/web/verify-polished.test.ts and tests/web/verify-simple.test.ts
+     rather than trusted.
 
      [data-copy] rather than six ids: that is the selector ui.js itself
      sweeps, so a seventh copy control added later inherits the floor
      instead of quietly shipping at 32px. .disclose already carries an
      unconditional 44px in base.css:230 and is restated here at the same
      value so this page's floor does not depend on a rule it does not own.
-     tap-target-under-44px has 5 strikes in the ledger. */
+     tap-target-under-44px is a repeat line in the defect ledger. */
   #lookup button[type="submit"],
+  #credential-id,
   #pr-link, #receipt-link, #verify-agent-link,
   #sig-download-link,
   .disclose,
@@ -186,6 +188,9 @@
   </div>
 </nav>
 
+<!-- S3: everything between the nav and the footer is the page, in one main
+     element, which is what tests/web/verify-simple.test.ts counts. -->
+<main>
 <div class="wrap section">
   <div class="narrow">
 
@@ -198,7 +203,15 @@
          Three states share this one surface, because they are three
          answers to the same question rather than three screens: no
          receipt asked for (the lookup form), one asked for that would not
-         load (the error), and one loaded (#loaded). -->
+         load (the error), and one loaded (#loaded).
+
+         NO SIGN-IN, EVER (MISSION invariant 2, SITEMAP P-6 and journey
+         J-3). Checking someone else's work is the one thing this site must
+         never ask an account for. The lede says so in plain words; nothing
+         on this page links to, posts to, or reads a sign-in or session
+         route, and tests/web/verify-simple.test.ts (g) fails if anything
+         does. The nav keeps its ordinary Sign in link because it is the
+         same nav on every page, and nothing here uses it. -->
     <div class="pane pane-pad reveal" data-reveal>
       <div class="glow">
         <div class="state state-live" style="margin-bottom:14px">
@@ -207,9 +220,8 @@
 
         <h1>Check this yourself</h1>
         <p class="lede" style="margin-top:10px" id="intro">
-          Every completed job here has a receipt, and every receipt can be
-          checked without us. Below is exactly how, using GitHub's own public
-          API and a standard verifier.
+          Every finished job gets a receipt. Anyone can check it without
+          trusting us, and without an account.
         </p>
       </div>
 
@@ -218,10 +230,10 @@
            arriving cold has one in hand or nothing at all. -->
       <form class="stack-sm" id="lookup" style="margin-top:24px" hidden>
         <div class="field">
-          <label for="credential-id">Paste a receipt address or its job id</label>
+          <label for="credential-id">Paste a receipt's address</label>
           <input class="input" id="credential-id" name="credential-id" type="text"
                  autocomplete="off" spellcheck="false"
-                 placeholder="job id, or the full receipt address">
+                 placeholder="the address, or its last part">
         </div>
         <button class="btn btn-primary" type="submit">Look it up</button>
       </form>
@@ -232,12 +244,11 @@
       </div>
 
       <div id="loaded" hidden>
+        <!-- What the receipt claims, in plain words (verify.js render). -->
         <p class="claim" style="margin-top:24px" id="claim"></p>
 
         <p class="sub" style="margin-top:16px">
-          This page has checked none of that. It reads the receipt to fill in
-          the commands below with real values, and nothing else. Every check
-          is yours to run.
+          This page checks nothing itself. It only fills in the steps below.
         </p>
 
         <!-- V1: the action row. Each control ships WITHOUT an href in the
@@ -265,28 +276,26 @@
       Three independent checks. None of them ask FreeAgents anything.
     </p>
 
+    <!-- THE THREE CHECKS. On the surface, each is a heading and one plain
+         line saying what the check proves. Everything a technical person
+         needs to run it (the commands, the keys, the proof type and a
+         verifier for it) is behind that check's own disclosure, one click
+         away and nothing dropped. -->
     <div class="checked" style="margin-top:24px">
 
       <!-- CHECK ONE: the signature, against a registered proof type. -->
       <div>
         <div class="h">The signature checks out</div>
-        <p class="d">
-          The receipt is a standard document (a W3C Verifiable Credential)
-          with a signature attached, using a registered proof type called
-          Ed25519Signature2020. That word "registered" is the load-bearing
-          one: it is a public format, not something we invented, so any
-          general-purpose library already knows how to check ours and you
-          never have to write custom code or trust ours.
-        </p>
+        <p class="d">Proves the receipt came from us and nobody changed it.</p>
         <div style="margin-top:12px">
           <button class="disclose" type="button"
                   data-disclose="sigcheck" data-disclose-alt="Hide how to check the signature">Show how to check the signature</button>
           <div id="sigcheck" class="detail">
             <p style="color:var(--fg-2); margin:0">
-              Fetch the receipt, then hand it to a verifier such as Digital
-              Bazaar's vc library loaded with the Ed25519Signature2020 suite.
-              It confirms the signature against the issuer key below and
-              never contacts this site to do it.
+              The receipt is a W3C Verifiable Credential signed with
+              Ed25519Signature2020, a registered public format. Fetch it, then
+              check it with any verifier for that format, such as Digital
+              Bazaar's vc library. It never contacts this site.
             </p>
             <div class="cmd">
               <pre id="cmd-fetch">curl -sH 'Accept: application/ld+json' &lt;receipt address&gt;</pre>
@@ -295,7 +304,7 @@
             <div class="kv">
               <div>
                 <dt>Issuer key</dt>
-                <dd id="issuer">load a receipt to fill this in</dd>
+                <dd id="issuer">Not loaded yet</dd>
               </div>
               <button class="btn btn-sm copybtn" type="button" id="issuer-copy" data-copy="" hidden><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
             </div>
@@ -306,19 +315,15 @@
         </div>
       </div>
 
-      <!-- CHECK TWO: GitHub settles what only GitHub can settle. -->
+      <!-- CHECK TWO: GitHub answers what only GitHub can. -->
       <div>
         <div class="h">The pull request is real, and it merged</div>
-        <p class="d">
-          Two calls to GitHub's own public API, no account needed. They
-          settle the parts of the claim only GitHub can: whether the pull
-          request actually merged, and whether the merge commit's signature
-          verifies.
-        </p>
+        <p class="d">Proves GitHub itself merged the work.</p>
         <div style="margin-top:12px">
           <button class="disclose" type="button"
                   data-disclose="ghcheck" data-disclose-alt="Hide the GitHub check">Show the GitHub check</button>
           <div id="ghcheck" class="detail">
+            <p style="color:var(--fg-2); margin:0">Two public GitHub calls, no account needed.</p>
             <div class="cmd">
               <pre id="cmd-pr">curl -s https://api.github.com/repos/&lt;owner&gt;/&lt;repo&gt;/pulls/&lt;number&gt;</pre>
               <button class="btn btn-sm copybtn" type="button" id="cmd-pr-copy" data-copy=""><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
@@ -329,23 +334,18 @@
             </div>
             <p style="color:var(--fg-2)">
               Look for <span class="mono" style="color:var(--fg)">"merged": true</span>
-              in the first response, and
+              in the first answer and
               <span class="mono" style="color:var(--fg)">"verification": { "verified": true }</span>
-              in the second. Both come straight from GitHub.
+              in the second.
             </p>
           </div>
         </div>
       </div>
 
-      <!-- CHECK THREE: the identity document ties the two together. -->
+      <!-- CHECK THREE: the agent's identity ties the two together. -->
       <div>
         <div class="h">The author matches the agent's proven account</div>
-        <p class="d">
-          Every agent here has an identity document listing its public key.
-          That key is what the GitHub commit signature and the receipt's own
-          signature are both checked against, which is what ties the two
-          together rather than leaving them as two unrelated facts.
-        </p>
+        <p class="d">Proves the change that shipped was signed with this agent's own key.</p>
         <div style="margin-top:12px">
           <button class="disclose" type="button"
                   data-disclose="idcheck" data-disclose-alt="Hide the identity check">Show the identity check</button>
@@ -353,40 +353,31 @@
             <div class="kv">
               <div>
                 <dt>The agent's identity</dt>
-                <dd id="agent-did">load a receipt to fill this in</dd>
+                <dd id="agent-did">Not loaded yet</dd>
               </div>
               <button class="btn btn-sm copybtn" type="button" id="agent-did-copy" data-copy="" hidden><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
             </div>
             <div class="kv">
               <div>
-                <dt>The key that signed the merge commit</dt>
-                <dd id="signer">load a receipt to fill this in</dd>
+                <dt>Key that signed the merge commit</dt>
+                <dd id="signer">Not loaded yet</dd>
               </div>
               <button class="btn btn-sm copybtn" type="button" id="signer-copy" data-copy="" hidden><span class="icoslot"><span class="ico ico-sm ico-copy" data-ico="copy"></span><span class="ico ico-sm ico-done" data-ico="check"></span></span><span class="lbl">Copy</span></button>
             </div>
             <p style="color:var(--fg-2)">
-              Any resolver that understands the
-              <span class="mono" style="color:var(--fg)">abt</span> identity
-              method returns that same document, independently of us. The key
-              in it must be the key the receipt names, and the key GitHub
-              reports on the merge commit.
+              Any resolver for the
+              <span class="mono" style="color:var(--fg)">abt</span> method
+              returns the same identity document, without us. Its key must
+              match the one above and the one GitHub reports for the merge
+              commit.
             </p>
           </div>
         </div>
       </div>
     </div>
-
-    <div class="empty" style="margin-top:32px">
-      <b>No sign-in appears anywhere on this page, and none may be added.</b>
-      <p class="sub" style="margin-top:8px">
-        Checking someone else's work is the one thing this site must never
-        ask you to have an account for. The nav carries the ordinary Sign in
-        link because it is the same nav on every page, and nothing here uses
-        it.
-      </p>
-    </div>
   </div>
 </div>
+</main>
 
 <footer class="foot">
   <div class="site-office" data-office aria-hidden="true"></div>

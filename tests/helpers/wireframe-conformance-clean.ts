@@ -25,7 +25,24 @@ export function clean(s: string): string {
   // are these two browse strings, and both of those ALLOWED_ABSENT
   // entries stay in place with their keys corrected to the decoded
   // middle-dot character in wireframe-conformance.test.ts.
-  return s.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&middot;/g, '\u00b7').replace(/&rarr;|→/g, '').replace(/\s+/g, ' ').trim();
+  //
+  // The apostrophe decodes, added by S3 (TRI1). A page or wireframe that
+  // writes an apostrophe as an entity (&#39;, &#x27;, &apos;) or a right
+  // single quote as one (&rsquo;, &#8217;) is read here as the character a
+  // person sees, the same correction the &middot; decode makes. The one
+  // string this changes today is myjobs' chip "Didn&#8217;t ship", on both
+  // sides of the comparison; its ALLOWED_ABSENT key is re-keyed to the
+  // decoded form in wireframe-conformance.test.ts with its reason unchanged.
+  // Pinned by wireframe-conformance-apostrophe.test.ts.
+  return s
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&middot;/g, '\u00b7')
+    .replace(/&#39;|&#x27;|&apos;/gi, "'")
+    .replace(/&rsquo;|&#8217;/g, '\u2019')
+    .replace(/&rarr;|→/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // strip() and headings() moved here from wireframe-conformance.test.ts so a

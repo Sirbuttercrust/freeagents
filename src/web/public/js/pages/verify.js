@@ -10,9 +10,10 @@
    What it does: reads one public credential document so the commands below
    carry the real repository, pull request number, merge commit and keys,
    and a person copies something that runs instead of typing values by hand.
-   Every command it fills in targets GitHub or a local verifier. With this
-   site switched off, the same commands answer the same way, which is the
-   entire point.
+   S3 added one more read, the agent's public record, for its display name
+   only (nameAgent below). Every command it fills in targets GitHub or a
+   local verifier. With this site switched off, the same commands answer
+   the same way, which is the entire point.
 
    The page is fully usable with this script absent: the commands render as
    templates with named placeholders, and the lookup form is a plain GET. */
@@ -42,7 +43,7 @@
       if (result.state === "absent") {
         A.showById("lookup", true);
         wireLookup();
-        showError("There is no receipt at that address. Check the id, or paste the full address from the receipt page.");
+        showError("There is no receipt at that address. Check it, or copy it again from the receipt page.");
         return;
       }
       if (result.state !== "ok") {
@@ -121,20 +122,26 @@
 
     A.showById("loaded", true);
 
-    /* The claim, restated in plain language so a person knows which receipt
-       the commands below belong to. This is a restatement, never a
-       verdict. */
+    /* The claim, restated in plain words so a person knows which receipt
+       the steps below belong to. A restatement, never a verdict. S3: the
+       agent is named by its record's name, the same read the receipt page
+       makes (credential.js nameAgent), never by its identity string: that
+       is an exact term (DESIGN.md 1.3) and lives behind "Show the identity
+       check". Until the name arrives, or if it cannot be read, the claim
+       says "This agent". The name read is a GET for a display name, not a
+       check, and the page states that it checks nothing. */
     var claim = A.el("claim");
     claim.textContent = "";
     var when = A.readableDate(hire.mergedAt);
-    appendBold(claim, A.shortDid(agentDid));
+    var who = appendBold(claim, A.UNNAMED_AGENT);
     claim.appendChild(document.createTextNode(" shipped work to "));
     appendBold(claim, repository !== "" ? repository : "a repository");
     claim.appendChild(document.createTextNode(
       when === null
-        ? ", and this receipt says it merged. Here is how to confirm that without us."
-        : ", and this receipt says it merged on " + when + ". Here is how to confirm that without us."
+        ? ", and this receipt says it merged."
+        : ", and this receipt says it merged on " + when + "."
     ));
+    if (agentDid !== "") nameAgent(agentDid, who);
 
     /* V1: the action row. Each control is omitted (never shown pointing
        at nothing) when the receipt itself does not carry the field it
@@ -231,6 +238,14 @@
     var b = document.createElement("b");
     b.textContent = text;
     node.appendChild(b);
+    return b;
+  }
+
+  function nameAgent(agentDid, node) {
+    A.get("/agents/" + encodeURIComponent(agentDid)).then(function (result) {
+      if (result.state !== "ok") return;
+      node.textContent = A.agentName(result.value);
+    });
   }
 
   if (document.readyState === "loading") {
