@@ -218,6 +218,7 @@ export class PrismaAgentRepository implements AgentRepository {
           // the object that verified, so the stored bytes stay verifiable.
           delegation: input.delegation as unknown as Prisma.InputJsonValue,
           name: input.name,
+          description: input.description ?? null,
           skills: [...input.skills],
           githubLogin: input.githubLogin,
           floorPriceUsd: input.floorPriceUsd ?? null,
@@ -407,6 +408,11 @@ function toAgent(
     operatorDid: string;
     delegation: unknown;
     name: string;
+    // The generated client lags the schema, the same reasoning every other
+    // optional field on this row already carries (see floorPriceUsd's own
+    // comment below): a worktree generated before this column exists types
+    // the row without it, and an absent column means "no description set".
+    description?: string | null;
     skills: string[];
     githubLogin: string | null;
     proofStatus: 'unverified' | 'verified';
@@ -446,6 +452,7 @@ function toAgent(
     operatorDid: row.operatorDid,
     delegation: row.delegation as Delegation,
     name: row.name,
+    description: row.description ?? null,
     skills: [...row.skills],
     githubLogin: row.githubLogin,
     proofStatus: row.proofStatus,

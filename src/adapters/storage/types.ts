@@ -85,6 +85,9 @@ export interface AgentInput {
   readonly operatorDid: string;
   readonly delegation: Delegation;
   readonly name: string;
+  // ENT-2: optional, one line (src/domain/agent.ts's descriptionWellFormed).
+  // Omitted (or explicitly null) means the operator never set one.
+  readonly description?: string | null;
   readonly skills: readonly string[];
   readonly githubLogin: string | null;
   // P1, scope item 5: optional, decimal string, never caller-suggested by
