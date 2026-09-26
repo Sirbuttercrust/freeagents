@@ -14,7 +14,14 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { postSigned } from '../helpers/abt-fixtures.js';
-import { openDraft, startOpenRailApp, walkToOpenQuoteAccepted, type OpenRailApp } from '../helpers/open-rail-fixtures.js';
+import {
+  openDraft,
+  proposeOneCriterionPrice,
+  recordDeposit,
+  startOpenRailApp,
+  walkToOpenQuoteAccepted,
+  type OpenRailApp,
+} from '../helpers/open-rail-fixtures.js';
 
 let active: OpenRailApp | null = null;
 afterEach(() => {
@@ -22,24 +29,22 @@ afterEach(() => {
   active = null;
 });
 
+async function payableRailsOf(baseUrl: string, jobId: string): Promise<Record<string, unknown>> {
+  const read = await fetch(`${baseUrl}/jobs/${jobId}`);
+  return (await read.json()) as Record<string, unknown>;
+}
+
 describe('payableRails: both addresses on record, open quote', () => {
   it('answers ["abt","usdc"] for an open (no-rail) quote, on GET /jobs/:jobId only', async () => {
     active = await startOpenRailApp({ abt: 'z1OperatorAbt', evm: '0xOperatorEvm00000000000000000000000000' });
     const jobId = await openDraft(active);
-    const proposed = await postSigned(active.baseUrl, `/jobs/${jobId}/criteria`, {
-      criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent' }],
-      priceUsd: '500.00',
-    }, active.agent);
+    const proposed = await proposeOneCriterionPrice(active, jobId);
     expect(proposed.status).toBe(200);
     // Rule 6: payableRails rides ONLY GET /jobs/:jobId, the same
     // conditional stance githubAccessNeeded already takes on that one
     // route, never the criteria route's own mutation response.
-    const proposedBody = (await proposed.json()) as Record<string, unknown>;
-    expect(proposedBody.payableRails).toBeUndefined();
-
-    const read = await fetch(`${active.baseUrl}/jobs/${jobId}`);
-    const readBack = (await read.json()) as Record<string, unknown>;
-    expect(readBack.payableRails).toEqual(['abt', 'usdc']);
+    expect((await proposed.json() as Record<string, unknown>).payableRails).toBeUndefined();
+    expect((await payableRailsOf(active.baseUrl, jobId)).payableRails).toEqual(['abt', 'usdc']);
   });
 });
 
@@ -47,14 +52,8 @@ describe('payableRails: a pinned quote reports only the pinned currency, even wi
   it('answers ["usdc"] for a quote naming usdc', async () => {
     active = await startOpenRailApp({ abt: 'z1OperatorAbt', evm: '0xOperatorEvm00000000000000000000000000' });
     const jobId = await openDraft(active);
-    await postSigned(active.baseUrl, `/jobs/${jobId}/criteria`, {
-      criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent' }],
-      priceUsd: '500.00',
-      rail: 'usdc',
-    }, active.agent);
-    const read = await fetch(`${active.baseUrl}/jobs/${jobId}`);
-    const body = (await read.json()) as Record<string, unknown>;
-    expect(body.payableRails).toEqual(['usdc']);
+    await proposeOneCriterionPrice(active, jobId, { rail: 'usdc' });
+    expect((await payableRailsOf(active.baseUrl, jobId)).payableRails).toEqual(['usdc']);
   });
 });
 
@@ -62,37 +61,22 @@ describe('payableRails: filtered by which payout address the owner actually has'
   it('answers ["abt"] when only operatorAddressAbt is set', async () => {
     active = await startOpenRailApp({ abt: 'z1OperatorAbt' });
     const jobId = await openDraft(active);
-    await postSigned(active.baseUrl, `/jobs/${jobId}/criteria`, {
-      criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent' }],
-      priceUsd: '500.00',
-    }, active.agent);
-    const read = await fetch(`${active.baseUrl}/jobs/${jobId}`);
-    const body = (await read.json()) as Record<string, unknown>;
-    expect(body.payableRails).toEqual(['abt']);
+    await proposeOneCriterionPrice(active, jobId);
+    expect((await payableRailsOf(active.baseUrl, jobId)).payableRails).toEqual(['abt']);
   });
 
   it('answers ["usdc"] when only operatorAddressEvm is set', async () => {
     active = await startOpenRailApp({ evm: '0xOperatorEvm00000000000000000000000000' });
     const jobId = await openDraft(active);
-    await postSigned(active.baseUrl, `/jobs/${jobId}/criteria`, {
-      criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent' }],
-      priceUsd: '500.00',
-    }, active.agent);
-    const read = await fetch(`${active.baseUrl}/jobs/${jobId}`);
-    const body = (await read.json()) as Record<string, unknown>;
-    expect(body.payableRails).toEqual(['usdc']);
+    await proposeOneCriterionPrice(active, jobId);
+    expect((await payableRailsOf(active.baseUrl, jobId)).payableRails).toEqual(['usdc']);
   });
 
   it('answers [] when neither address is set', async () => {
     active = await startOpenRailApp({});
     const jobId = await openDraft(active);
-    await postSigned(active.baseUrl, `/jobs/${jobId}/criteria`, {
-      criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent' }],
-      priceUsd: '500.00',
-    }, active.agent);
-    const read = await fetch(`${active.baseUrl}/jobs/${jobId}`);
-    const body = (await read.json()) as Record<string, unknown>;
-    expect(body.payableRails).toEqual([]);
+    await proposeOneCriterionPrice(active, jobId);
+    expect((await payableRailsOf(active.baseUrl, jobId)).payableRails).toEqual([]);
   });
 });
 
@@ -100,27 +84,11 @@ describe('payableRails: once a deposit has settled, only that deposit\'s currenc
   it('an open quote reports only the settled deposit\'s rail while still proposed', async () => {
     active = await startOpenRailApp({ abt: 'z1OperatorAbt', evm: '0xOperatorEvm00000000000000000000000000' });
     const jobId = await openDraft(active);
-    await postSigned(active.baseUrl, `/jobs/${jobId}/criteria`, {
-      criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent' }],
-      priceUsd: '500.00',
-    }, active.agent);
-    // Settle the deposit directly on the repo (the same shortcut this
-    // suite's other fixtures take), without driving the full wallet
-    // protocol: this test is about the projection, not the settlement
-    // mechanics.
-    await active.settlementRepo.record({
-      jobId,
-      leg: 'deposit',
-      rail: 'usdc',
-      hash: 'hash-deposit-1',
-      secondaryHash: null,
-      operatorAddress: '0xOperatorEvm00000000000000000000000000',
-      feeAddress: '0xFee',
-      amountUsd: '125.00',
-      observedAt: new Date('2026-01-01T00:00:00Z'),
-    });
-    const read = await fetch(`${active.baseUrl}/jobs/${jobId}`);
-    const body = (await read.json()) as Record<string, unknown>;
+    await proposeOneCriterionPrice(active, jobId);
+    // Settle the deposit directly on the repo: this test is about the
+    // projection, not the settlement mechanics.
+    await recordDeposit(active, jobId, 'usdc', { operatorAddress: '0xOperatorEvm00000000000000000000000000' });
+    const body = await payableRailsOf(active.baseUrl, jobId);
     expect(body.status).toBe('proposed');
     expect(body.payableRails).toEqual(['usdc']);
   });
@@ -130,9 +98,7 @@ describe('payableRails: omitted before a price exists, per the same conditional 
   it('a draft with no price carries no payableRails key', async () => {
     active = await startOpenRailApp({ abt: 'z1OperatorAbt', evm: '0xOperatorEvm00000000000000000000000000' });
     const jobId = await openDraft(active);
-    const read = await fetch(`${active.baseUrl}/jobs/${jobId}`);
-    const body = (await read.json()) as Record<string, unknown>;
-    expect(body.payableRails).toBeUndefined();
+    expect((await payableRailsOf(active.baseUrl, jobId)).payableRails).toBeUndefined();
   });
 });
 
@@ -152,17 +118,7 @@ describe('confirm on an open quote: the settled deposit backfills job.rail befor
   it('confirms with the confirmed job\'s rail equal to the settled deposit\'s rail, and specHash recomputes off node:crypto alone', async () => {
     active = await startOpenRailApp();
     const jobId = await walkToOpenQuoteAccepted(active);
-    await active.settlementRepo.record({
-      jobId,
-      leg: 'deposit',
-      rail: 'abt',
-      hash: 'hash-deposit-1',
-      secondaryHash: null,
-      operatorAddress: 'z1Operator',
-      feeAddress: 'z1Fee',
-      amountUsd: '125.00',
-      observedAt: new Date('2026-01-01T00:00:00Z'),
-    });
+    await recordDeposit(active, jobId, 'abt');
     const confirmed = await postSigned(active.baseUrl, `/jobs/${jobId}/confirm`, {}, active.buyer);
     expect(confirmed.status).toBe(200);
     const body = (await confirmed.json()) as Record<string, unknown>;
@@ -192,17 +148,7 @@ describe('confirm on an open quote: the settled deposit backfills job.rail befor
     // here is the proof.
     active = await startOpenRailApp();
     const jobId = await walkToOpenQuoteAccepted(active);
-    await active.settlementRepo.record({
-      jobId,
-      leg: 'deposit',
-      rail: 'usdc',
-      hash: 'hash-deposit-2',
-      secondaryHash: null,
-      operatorAddress: '0xOperator',
-      feeAddress: '0xFee',
-      amountUsd: '125.00',
-      observedAt: new Date('2026-01-01T00:00:00Z'),
-    });
+    await recordDeposit(active, jobId, 'usdc');
     const confirmed = await postSigned(active.baseUrl, `/jobs/${jobId}/confirm`, {}, active.buyer);
     expect(confirmed.status).toBe(200);
   });
@@ -252,17 +198,7 @@ describe('confirm on a PINNED quote keeps its existing order and answers exactly
     await postSigned(active.baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, active.agent);
     await postSigned(active.baseUrl, `/jobs/${jobId}/price/accept`, {}, active.buyer);
     await postSigned(active.baseUrl, `/jobs/${jobId}/price/accept`, {}, active.agent);
-    await active.settlementRepo.record({
-      jobId,
-      leg: 'deposit',
-      rail: 'abt',
-      hash: 'hash-deposit-3',
-      secondaryHash: null,
-      operatorAddress: 'z1Operator',
-      feeAddress: 'z1Fee',
-      amountUsd: '125.00',
-      observedAt: new Date('2026-01-01T00:00:00Z'),
-    });
+    await recordDeposit(active, jobId, 'abt');
     const confirmed = await postSigned(active.baseUrl, `/jobs/${jobId}/confirm`, {}, active.buyer);
     expect(confirmed.status).toBe(200);
     const body = (await confirmed.json()) as Record<string, unknown>;

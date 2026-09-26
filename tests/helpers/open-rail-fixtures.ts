@@ -187,6 +187,51 @@ export async function openDraft(app: Pick<OpenRailApp, 'baseUrl' | 'buyer' | 'ag
   return String(((await created.json()) as Record<string, unknown>).id);
 }
 
+// A single-criterion open (or pinned, if rail is passed) price proposal,
+// with no criteria acceptance walked: the payableRails describe blocks
+// in tests/api/job-open-rail.test.ts only ever need the job at
+// 'proposed' with a price, never all the way to both-accepted.
+export async function proposeOneCriterionPrice(
+  app: Pick<OpenRailApp, 'baseUrl' | 'agent'>,
+  jobId: string,
+  opts: { readonly priceUsd?: string; readonly rail?: 'abt' | 'usdc' } = {},
+): Promise<Response> {
+  return postSigned(app.baseUrl, `/jobs/${jobId}/criteria`, {
+    criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent' }],
+    priceUsd: opts.priceUsd ?? '500.00',
+    ...(opts.rail !== undefined ? { rail: opts.rail } : {}),
+  }, app.agent);
+}
+
+const DEPOSIT_RAIL_DEFAULTS = {
+  abt: { operatorAddress: 'z1Operator', feeAddress: 'z1Fee' },
+  usdc: { operatorAddress: '0xOperator', feeAddress: '0xFee' },
+} as const;
+
+// Writes a settled deposit row straight to the repository (the shortcut
+// this suite's other fixtures take for testing a projection or a gate,
+// never the settlement mechanics themselves), with the rail's ordinary
+// operator and fee addresses as sensible defaults.
+export async function recordDeposit(
+  app: Pick<OpenRailApp, 'settlementRepo'>,
+  jobId: string,
+  rail: 'abt' | 'usdc',
+  overrides: { readonly hash?: string; readonly operatorAddress?: string; readonly feeAddress?: string } = {},
+): Promise<void> {
+  const defaults = DEPOSIT_RAIL_DEFAULTS[rail];
+  await app.settlementRepo.record({
+    jobId,
+    leg: 'deposit',
+    rail,
+    hash: overrides.hash ?? `hash-deposit-${jobId}`,
+    secondaryHash: null,
+    operatorAddress: overrides.operatorAddress ?? defaults.operatorAddress,
+    feeAddress: overrides.feeAddress ?? defaults.feeAddress,
+    amountUsd: '125.00',
+    observedAt: new Date('2026-01-01T00:00:00Z'),
+  });
+}
+
 const OPEN_QUOTE_CRITERIA = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
   { text: 'Checkout e2e test passes', proposedBy: 'agent' },
