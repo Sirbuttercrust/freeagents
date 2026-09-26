@@ -182,13 +182,11 @@ import { SIGN_IN_METHODS, type SignInMethod } from '../domain/sign-in-methods.js
 import { type SessionAdapter, type SignInMethod as SessionSignInMethod } from '../adapters/identity/session.js';
 import { sessionAdapterFromEnv } from '../adapters/identity/session-github-passkey.js';
 import { createWebSurface, prefersHtml, type WebSurface } from '../web/static.js';
-import { isTerminal } from '../domain/job.js';
 import {
   authorKindFor,
   createMessage,
   createSystemMessage,
   editMessage,
-  EDIT_WINDOW_MINUTES,
   isSingleEmoji,
   MessageEditWindowExpiredError,
   MessageError,
@@ -201,16 +199,14 @@ import {
   ThreadReadOnlyError,
   advanceReadState,
   type Message,
-  type ThreadReadState,
 } from '../domain/message.js';
 import {
   createNotification,
-  markNotificationRead,
   unreadCountOf,
   type Notification,
   type NotificationEventType,
 } from '../domain/notification.js';
-import { assertAttachmentAllowed, AttachmentError, isImageKind, MAX_ATTACHMENT_BYTES, type Attachment } from '../domain/attachment.js';
+import { assertAttachmentAllowed, AttachmentError, isImageKind, type Attachment } from '../domain/attachment.js';
 import {
   createMessageRepository,
   createThreadReadStateRepository,
@@ -1664,6 +1660,671 @@ export function createApp(
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
+
+  // ==========================================================================
+  // HT1 Part B: the hire thread (messages, reactions, edits, read receipts,
+  // typing, the live stream), per-account notifications, browser Web Push
+  // subscriptions and message attachments. One contiguous block, matching
+  // the payment surface's own region-fence convention above.
+  // ==========================================================================
+
+  // The thread's own read/write gate (item 3 of the brief): "readable and
+  // writable only by the job's two parties, and by the agent's own DID
+  // only when negotiatesOnOwnersBehalf is on." Loads the job, resolves
+  // the caller to a party (401/403 exactly like every other job route),
+  // and applies requireThreadAccess. Returns the job and the caller's
+  // identity, or null after already answering.
+  async function requireThreadParty(
+    label: string,
+    jobId: string,
+    req: Request,
+    res: Response,
+  ): Promise<{ readonly did: string; readonly job: Job; readonly party: Party } | null> {
+    const job = await loadForExchange(label, jobId, res);
+    if (job === null) return null;
+    const gate = await resolveJobActingParty(req, res, job);
+    if (gate === null) return null;
+    if (!(await requireThreadAccess(label, res, job, gate.did, gate.party))) return null;
+    return { did: gate.did, job, party: gate.party };
+  }
+
+  // GET /jobs/:jobId/messages: every message in the thread, oldest first
+  // (MessageRepository.listByJobId's own convention). Available whether
+  // the job is open or terminal (read-only never means unreadable): the
+  // brief's own words, "stays open through the hire, and becomes
+  // read-only once the job reaches a terminal status" -- read-only is a
+  // WRITE restriction, checked only on the write routes below.
+  app.get(
+    '/jobs/:jobId/messages',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'GET /jobs/:jobId/messages';
+      const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
+      if (gate === null) return;
+      try {
+        const rows = await messageRepo.listByJobId(gate.job.id);
+        res.status(200).json({ messages: rows.map((row) => messageProjection(row)) });
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+      }
+    }),
+  );
+
+  // POST /jobs/:jobId/messages: post a message. Refused once the thread
+  // is read-only (a terminal job), and refused for the agent's own key
+  // exactly where every other negotiation route already refuses it (the
+  // original brief's own line: "the negotiation routes are:...and
+  // posting a message"). authorKind is derived, never taken from the
+  // body (the same "never trust the caller's own claim of identity"
+  // stance every party-exchange route in this file already takes).
+  app.post(
+    '/jobs/:jobId/messages',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/messages';
+      const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
+      if (gate === null) return;
+      if (!threadIsWritable(gate.job.status)) {
+        res.status(409).json({ error: new ThreadReadOnlyError(gate.job.id).message });
+        return;
+      }
+      const body = (req.body ?? {}) as { body?: unknown; replyToId?: unknown };
+      if (!messageBodyWellFormed(body.body)) {
+        res.status(400).json({
+          error: `body must be { body, replyToId? }; body a non-empty string up to ${MESSAGE_BODY_MAX_LENGTH} characters`,
+        });
+        return;
+      }
+      if (body.replyToId !== undefined && body.replyToId !== null && typeof body.replyToId !== 'string') {
+        res.status(400).json({ error: 'replyToId, if present, must be a string or null' });
+        return;
+      }
+      let existing: readonly Message[];
+      try {
+        existing = await messageRepo.listByJobId(gate.job.id);
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      const authorKind = authorKindFor(gate.party, gate.party === 'agent' && gate.did === gate.job.agentDid);
+      let message: Message;
+      try {
+        message = createMessage(
+          {
+            id: 'm-' + randomBytes(8).toString('hex'),
+            jobId: gate.job.id,
+            authorDid: gate.did,
+            authorParty: gate.party,
+            authorKind,
+            body: body.body,
+            replyToId: (body.replyToId as string | null | undefined) ?? null,
+            existingMessageIds: new Set(existing.map((row) => row.id)),
+          },
+          new Date(),
+        );
+      } catch (err) {
+        if (err instanceof MessageError) {
+          res.status(400).json({ error: err.message });
+          return;
+        }
+        throw err;
+      }
+      try {
+        const row = await messageRepo.create(message);
+        broadcastThreadEvent(gate.job.id, 'message', messageProjection(row));
+        const excludeDid = gate.party === 'agent' && gate.did !== gate.job.agentDid ? gate.job.agentDid : gate.did;
+        await notifyJobParties(gate.job, 'new_message', excludeDid);
+        res.status(201).json(messageProjection(row));
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+      }
+    }),
+  );
+
+  // PATCH /jobs/:jobId/messages/:messageId: edit within 15 minutes, full
+  // history kept (src/domain/message.ts's own editMessage). Only the
+  // ORIGINAL author may edit their own message -- never the other party,
+  // and never a system row (editMessage itself refuses a system row;
+  // this route additionally refuses a caller editing someone else's).
+  app.patch(
+    '/jobs/:jobId/messages/:messageId',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'PATCH /jobs/:jobId/messages/:messageId';
+      const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
+      if (gate === null) return;
+      if (!threadIsWritable(gate.job.status)) {
+        res.status(409).json({ error: new ThreadReadOnlyError(gate.job.id).message });
+        return;
+      }
+      const body = (req.body ?? {}) as { body?: unknown };
+      if (!messageBodyWellFormed(body.body)) {
+        res.status(400).json({ error: `body must be { body }; a non-empty string up to ${MESSAGE_BODY_MAX_LENGTH} characters` });
+        return;
+      }
+      let existing: Message | null;
+      try {
+        existing = await messageRepo.findById(String(req.params.messageId));
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (existing === null || existing.jobId !== gate.job.id) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      if (existing.authorDid !== gate.did) {
+        res.status(403).json({ error: 'only the original author may edit this message' });
+        return;
+      }
+      let edited: Message;
+      try {
+        edited = editMessage(existing, body.body, new Date());
+      } catch (err) {
+        if (err instanceof MessageEditWindowExpiredError) {
+          res.status(409).json({ error: err.message });
+          return;
+        }
+        if (err instanceof MessageError) {
+          res.status(400).json({ error: err.message });
+          return;
+        }
+        throw err;
+      }
+      try {
+        const row = await messageRepo.update(edited);
+        if (row === null) {
+          res.status(404).json({ error: 'not found' });
+          return;
+        }
+        broadcastThreadEvent(gate.job.id, 'message', messageProjection(row));
+        res.status(200).json(messageProjection(row));
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+      }
+    }),
+  );
+
+  // POST /jobs/:jobId/messages/:messageId/reactions: one per party per
+  // message, any single emoji, replace on re-react (src/domain/message.ts's
+  // reactToMessage). A DELETE on the same path removes it.
+  app.post(
+    '/jobs/:jobId/messages/:messageId/reactions',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/messages/:messageId/reactions';
+      const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
+      if (gate === null) return;
+      const body = (req.body ?? {}) as { emoji?: unknown };
+      if (!isSingleEmoji(body.emoji)) {
+        res.status(400).json({ error: 'body must be { emoji }; a single emoji character' });
+        return;
+      }
+      let existing: Message | null;
+      try {
+        existing = await messageRepo.findById(String(req.params.messageId));
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (existing === null || existing.jobId !== gate.job.id) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      let reacted: Message;
+      try {
+        reacted = reactToMessage(existing, gate.party, body.emoji);
+      } catch (err) {
+        if (err instanceof MessageError) {
+          res.status(400).json({ error: err.message });
+          return;
+        }
+        throw err;
+      }
+      try {
+        const row = await messageRepo.update(reacted);
+        if (row === null) {
+          res.status(404).json({ error: 'not found' });
+          return;
+        }
+        broadcastThreadEvent(gate.job.id, 'message', messageProjection(row));
+        res.status(200).json(messageProjection(row));
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+      }
+    }),
+  );
+
+  app.delete(
+    '/jobs/:jobId/messages/:messageId/reactions',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'DELETE /jobs/:jobId/messages/:messageId/reactions';
+      const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
+      if (gate === null) return;
+      let existing: Message | null;
+      try {
+        existing = await messageRepo.findById(String(req.params.messageId));
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (existing === null || existing.jobId !== gate.job.id) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      try {
+        const row = await messageRepo.update(removeReaction(existing, gate.party));
+        if (row === null) {
+          res.status(404).json({ error: 'not found' });
+          return;
+        }
+        broadcastThreadEvent(gate.job.id, 'message', messageProjection(row));
+        res.status(200).json(messageProjection(row));
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+      }
+    }),
+  );
+
+  // POST /jobs/:jobId/messages/read: read receipts, per-party lastReadAt,
+  // monotonic (advanceReadState never regresses it). Available on a
+  // read-only thread too: marking read is not a write to the CONVERSATION,
+  // only to the reader's own position in it.
+  app.post(
+    '/jobs/:jobId/messages/read',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/messages/read';
+      const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
+      if (gate === null) return;
+      try {
+        const current = await threadReadStateRepo.findByJobAndParty(gate.job.id, gate.party);
+        const advanced = advanceReadState(current, gate.job.id, gate.party, new Date());
+        await threadReadStateRepo.record(advanced);
+        res.status(200).json({ jobId: advanced.jobId, party: advanced.party, lastReadAt: advanced.lastReadAt.toISOString() });
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+      }
+    }),
+  );
+
+  // POST /jobs/:jobId/typing: the typing signal. Deliberately NOT
+  // persisted (a signal, not a stored fact) -- broadcast only, to
+  // whichever SSE subscribers are listening on this thread right now. A
+  // client with no open SSE connection simply never sees it, which is
+  // the correct behaviour for a signal this ephemeral.
+  app.post(
+    '/jobs/:jobId/typing',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/typing';
+      const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
+      if (gate === null) return;
+      broadcastThreadEvent(gate.job.id, 'typing', { party: gate.party });
+      res.status(204).end();
+    }),
+  );
+
+  // GET /jobs/:jobId/messages/stream: the live stream (Server-Sent
+  // Events), authenticated exactly like every other job route above.
+  // "Fallback to polling for a client that cannot hold an SSE
+  // connection" is GET /jobs/:jobId/messages itself: this route adds
+  // nothing that route cannot already answer, only pushes it live.
+  app.get(
+    '/jobs/:jobId/messages/stream',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'GET /jobs/:jobId/messages/stream';
+      const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
+      if (gate === null) return;
+      res.status(200);
+      res.setHeader('content-type', 'text/event-stream');
+      res.setHeader('cache-control', 'no-cache');
+      res.setHeader('connection', 'keep-alive');
+      res.flushHeaders?.();
+      let subscribers = threadStreams.get(gate.job.id);
+      if (subscribers === undefined) {
+        subscribers = new Set();
+        threadStreams.set(gate.job.id, subscribers);
+      }
+      subscribers.add(res);
+      req.on('close', () => {
+        subscribers?.delete(res);
+      });
+    }),
+  );
+
+  // GET /accounts/:did/notifications: the plain notification list and
+  // unread count (item 3's own scope limit: "build only the operator's
+  // unread badge and a plain notification list... nothing more
+  // elaborate"). Gated to the account's own DID: a notification is
+  // addressed to exactly one account, never shared.
+  app.get('/accounts/:did/notifications', requireSessionOrSignature, async (req: Request, res: Response) => {
+    const did = String(req.params.did);
+    let actingParty: string | null;
+    try {
+      actingParty = await resolveActingParty(req, repo, identityAdapter);
+    } catch (err) {
+      console.error('GET /accounts/:did/notifications: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (actingParty === null) {
+      res.status(403).json({
+        error: 'no registered account resolves from your session or signature; register an account to see its notifications',
+      });
+      return;
+    }
+    if (actingParty !== did) {
+      res.status(403).json({ error: 'an account may only read its own notifications' });
+      return;
+    }
+    try {
+      const rows = await notificationRepo.listByAccountDid(did);
+      res.status(200).json({
+        notifications: rows.map((row) => notificationProjection(row)),
+        unreadCount: unreadCountOf(rows),
+      });
+    } catch (err) {
+      console.error('GET /accounts/:did/notifications: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  app.post('/accounts/:did/notifications/:notificationId/read', requireSessionOrSignature, async (req: Request, res: Response) => {
+    const did = String(req.params.did);
+    let actingParty: string | null;
+    try {
+      actingParty = await resolveActingParty(req, repo, identityAdapter);
+    } catch (err) {
+      console.error('POST /accounts/:did/notifications/:notificationId/read: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (actingParty === null || actingParty !== did) {
+      res.status(403).json({ error: 'an account may only mark its own notifications read' });
+      return;
+    }
+    try {
+      const row = await notificationRepo.markRead(String(req.params.notificationId), did, new Date());
+      if (row === null) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      res.status(200).json(notificationProjection(row));
+    } catch (err) {
+      console.error('POST /accounts/:did/notifications/:notificationId/read: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // GET /accounts/:did/notifications/stream: the badge's own live update,
+  // the identical SSE shape the thread stream above uses.
+  app.get('/accounts/:did/notifications/stream', requireSessionOrSignature, async (req: Request, res: Response) => {
+    const did = String(req.params.did);
+    let actingParty: string | null;
+    try {
+      actingParty = await resolveActingParty(req, repo, identityAdapter);
+    } catch (err) {
+      console.error('GET /accounts/:did/notifications/stream: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (actingParty === null || actingParty !== did) {
+      res.status(403).json({ error: 'an account may only stream its own notifications' });
+      return;
+    }
+    res.status(200);
+    res.setHeader('content-type', 'text/event-stream');
+    res.setHeader('cache-control', 'no-cache');
+    res.setHeader('connection', 'keep-alive');
+    res.flushHeaders?.();
+    let subscribers = notificationStreams.get(did);
+    if (subscribers === undefined) {
+      subscribers = new Set();
+      notificationStreams.set(did, subscribers);
+    }
+    subscribers.add(res);
+    req.on('close', () => {
+      subscribers?.delete(res);
+    });
+  });
+
+  // GET /push/vapid-public-key: the browser's own PushManager.subscribe()
+  // needs the VAPID public key as applicationServerKey. Public by design
+  // (a VAPID public key is meant to be published); null when push is
+  // unconfigured on this deployment, so the client can hide the "enable
+  // notifications" control rather than fail a subscribe attempt.
+  app.get('/push/vapid-public-key', (_req: Request, res: Response) => {
+    res.status(200).json({ publicKey: pushSender.publicKey });
+  });
+
+  // POST /accounts/:did/push-subscriptions: registers a browser's Push API
+  // subscription (the standard PushSubscription.toJSON() shape). Upsert
+  // by endpoint (PushSubscriptionRepository's own stance).
+  app.post('/accounts/:did/push-subscriptions', requireSessionOrSignature, async (req: Request, res: Response) => {
+    const did = String(req.params.did);
+    let actingParty: string | null;
+    try {
+      actingParty = await resolveActingParty(req, repo, identityAdapter);
+    } catch (err) {
+      console.error('POST /accounts/:did/push-subscriptions: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (actingParty === null || actingParty !== did) {
+      res.status(403).json({ error: 'an account may only register its own push subscription' });
+      return;
+    }
+    const body = (req.body ?? {}) as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } };
+    if (
+      typeof body.endpoint !== 'string' || body.endpoint.length === 0 ||
+      typeof body.keys?.p256dh !== 'string' || body.keys.p256dh.length === 0 ||
+      typeof body.keys?.auth !== 'string' || body.keys.auth.length === 0
+    ) {
+      res.status(400).json({ error: 'body must be { endpoint, keys: { p256dh, auth } }, the standard PushSubscription.toJSON() shape' });
+      return;
+    }
+    try {
+      const row = await pushSubscriptionRepo.upsert({
+        id: 'ps-' + randomBytes(8).toString('hex'),
+        accountDid: did,
+        endpoint: body.endpoint,
+        p256dh: body.keys.p256dh,
+        auth: body.keys.auth,
+        createdAt: new Date(),
+      });
+      res.status(201).json({ id: row.id, endpoint: row.endpoint });
+    } catch (err) {
+      console.error('POST /accounts/:did/push-subscriptions: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  app.delete('/accounts/:did/push-subscriptions', requireSessionOrSignature, async (req: Request, res: Response) => {
+    const did = String(req.params.did);
+    let actingParty: string | null;
+    try {
+      actingParty = await resolveActingParty(req, repo, identityAdapter);
+    } catch (err) {
+      console.error('DELETE /accounts/:did/push-subscriptions: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (actingParty === null || actingParty !== did) {
+      res.status(403).json({ error: 'an account may only remove its own push subscription' });
+      return;
+    }
+    const body = (req.body ?? {}) as { endpoint?: unknown };
+    if (typeof body.endpoint !== 'string' || body.endpoint.length === 0) {
+      res.status(400).json({ error: 'body must be { endpoint }' });
+      return;
+    }
+    try {
+      await pushSubscriptionRepo.removeByEndpoint(body.endpoint);
+      res.status(204).end();
+    } catch (err) {
+      console.error('DELETE /accounts/:did/push-subscriptions: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // POST /jobs/:jobId/attachments (attachments STEER): base64-encoded
+  // upload, checked from its own bytes (assertAttachmentAllowed), never
+  // its declared filename or content type. Images are decoded and
+  // re-encoded (sharp) so EXIF/GPS never survives; the original bytes
+  // are never written to disk. Refused once the thread is read-only,
+  // the same gate every other write route above already applies.
+  app.post(
+    '/jobs/:jobId/attachments',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/attachments';
+      const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
+      if (gate === null) return;
+      if (!threadIsWritable(gate.job.status)) {
+        res.status(409).json({ error: new ThreadReadOnlyError(gate.job.id).message });
+        return;
+      }
+      const body = (req.body ?? {}) as { filename?: unknown; dataBase64?: unknown };
+      if (typeof body.filename !== 'string' || body.filename.length === 0 || typeof body.dataBase64 !== 'string' || body.dataBase64.length === 0) {
+        res.status(400).json({ error: 'body must be { filename, dataBase64 }; dataBase64 the file bytes, base64-encoded, up to 10 MB' });
+        return;
+      }
+      let bytes: Buffer;
+      try {
+        bytes = Buffer.from(body.dataBase64, 'base64');
+      } catch {
+        res.status(400).json({ error: 'dataBase64 is not valid base64' });
+        return;
+      }
+      let kind;
+      try {
+        kind = assertAttachmentAllowed(bytes);
+      } catch (err) {
+        if (err instanceof AttachmentError) {
+          res.status(400).json({ error: err.message });
+          return;
+        }
+        throw err;
+      }
+      const dir = attachmentsDirFromEnv();
+      const id = randomFileId();
+      let storedPath: string;
+      let thumbnailPath: string | null = null;
+      if (isImageKind(kind)) {
+        let reencoded;
+        try {
+          reencoded = await reencodeImage(bytes);
+        } catch (err) {
+          if (err instanceof ImageReencodeError) {
+            res.status(400).json({ error: err.message });
+            return;
+          }
+          throw err;
+        }
+        storedPath = await writeAttachmentFile(dir, id, reencoded.bytes);
+        thumbnailPath = await writeAttachmentFile(dir, id + '-thumb', reencoded.thumbnailBytes);
+      } else {
+        // A PDF has no EXIF/GPS payload to strip (the domain's own
+        // header comment); the uploaded bytes, already verified by
+        // their magic bytes above, are stored verbatim.
+        storedPath = await writeAttachmentFile(dir, id, bytes);
+      }
+      let attachment: Attachment;
+      try {
+        attachment = await attachmentRepo.create({
+          id,
+          jobId: gate.job.id,
+          uploaderDid: gate.did,
+          kind,
+          originalFilename: body.filename,
+          sizeBytes: bytes.length,
+          path: storedPath,
+          thumbnailPath,
+          createdAt: new Date(),
+        });
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      res.status(201).json({
+        id: attachment.id,
+        jobId: attachment.jobId,
+        kind: attachment.kind,
+        originalFilename: attachment.originalFilename,
+        sizeBytes: attachment.sizeBytes,
+        createdAt: attachment.createdAt.toISOString(),
+      });
+    }),
+  );
+
+  // GET /jobs/:jobId/attachments/:attachmentId: serves only to the job's
+  // two parties, through the identical thread-access gate every other
+  // route in this block uses. Content-Disposition: attachment for a PDF
+  // (attachments STEER: "PDFs are served as downloads... never opened
+  // inline"), X-Content-Type-Options: nosniff and a restrictive CSP on
+  // every response, image or PDF alike.
+  app.get(
+    '/jobs/:jobId/attachments/:attachmentId',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'GET /jobs/:jobId/attachments/:attachmentId';
+      const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
+      if (gate === null) return;
+      let attachment: Attachment | null;
+      try {
+        attachment = await attachmentRepo.findById(String(req.params.attachmentId));
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (attachment === null || attachment.jobId !== gate.job.id) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      const wantsThumbnail = req.query.thumbnail === '1' || req.query.thumbnail === 'true';
+      const path = wantsThumbnail && attachment.thumbnailPath !== null ? attachment.thumbnailPath : attachment.path;
+      let bytes: Buffer;
+      try {
+        bytes = await readAttachmentFile(path);
+      } catch (err) {
+        console.error(`${label}: could not read the stored attachment file`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      res.setHeader('x-content-type-options', 'nosniff');
+      res.setHeader('content-security-policy', "default-src 'none'; sandbox");
+      res.setHeader('content-type', wantsThumbnail && attachment.thumbnailPath !== null ? 'image/jpeg' : attachment.kind);
+      if (attachment.kind === 'application/pdf') {
+        res.setHeader('content-disposition', `attachment; filename="${encodeURIComponent(attachment.originalFilename)}"`);
+      }
+      res.status(200).send(bytes);
+    }),
+  );
 
   // R-19 (D4, ENT-1.2): the operator roster. ANCHOR: an operator page is the
   // sum of who they run, never a score for the operator. Widens the same
@@ -3921,11 +4582,11 @@ export function createApp(
           {
             id: 'm-' + randomBytes(8).toString('hex'),
             jobId: input.jobId,
-            body: input.leg === 'deposit' ? 'Deposit paid' : 'Balance paid',
+            body: input.leg === 'deposit' ? 'Deposit paid' : 'Remainder paid',
             systemEvent:
               input.leg === 'deposit'
                 ? { type: 'deposit_paid', leg: 'deposit', amountUsd: input.amountUsd, rail: input.rail }
-                : { type: 'balance_paid', leg: 'remainder', amountUsd: input.amountUsd, rail: input.rail },
+                : { type: 'remainder_paid', leg: 'remainder', amountUsd: input.amountUsd, rail: input.rail },
           },
           new Date(),
         ),

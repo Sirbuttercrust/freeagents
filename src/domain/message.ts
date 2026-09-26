@@ -121,8 +121,15 @@ export interface DepositPaidEvent {
   readonly rail: 'abt' | 'usdc';
 }
 
-export interface BalancePaidEvent {
-  readonly type: 'balance_paid';
+// Temper's STEER (bugs.md B19): the remainder leg's sibling event, named
+// 'remainder_paid' rather than 'balance_paid' -- 'remainder' is this
+// codebase's own established name for the second payment leg (RouteLeg,
+// src/adapters/payment/route-support.ts; remainderUsd,
+// src/domain/payment.ts), chosen there for the identical reason this
+// event needs it too: tests/architecture/no-custody.test.ts bans the
+// literal word "balance" on any line outside src/adapters/payment.
+export interface RemainderPaidEvent {
+  readonly type: 'remainder_paid';
   readonly leg: 'remainder';
   readonly amountUsd: string;
   readonly rail: 'abt' | 'usdc';
@@ -145,7 +152,7 @@ export interface CompletedEvent {
 export type SystemEvent =
   | QuoteSentEvent
   | DepositPaidEvent
-  | BalancePaidEvent
+  | RemainderPaidEvent
   | StagedEvent
   | PullRequestOpenedEvent
   | CompletedEvent;
