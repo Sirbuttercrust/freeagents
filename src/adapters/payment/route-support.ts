@@ -165,8 +165,8 @@ export function repositoryNotAccessibleMessage(
 ): string {
   const grant =
     agentGithubLogin === null
-      ? `the agent has not verified a GitHub account yet, so for now it gives the platform's GitHub account (${platformGithubLogin}) read access`
-      : `it gives BOTH the agent's GitHub account (${agentGithubLogin}) and the platform's GitHub account (${platformGithubLogin}) read access`;
+      ? `gives the platform's GitHub account (${platformGithubLogin}) read access (the agent has not verified a GitHub account yet)`
+      : `gives BOTH the agent's GitHub account (${agentGithubLogin}) and the platform's GitHub account (${platformGithubLogin}) read access`;
   return (
     `the platform cannot see this repository; for a private repository it must live in a GitHub organization ` +
     `that ${grant}; how to share it: ${publicBaseUrlFromEnv()}/private-repos?job=${jobId}`
