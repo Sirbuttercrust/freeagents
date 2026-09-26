@@ -1,13 +1,21 @@
-// HT1 Part B (Proof r1, defect 9): a route-level invariant-3 test. The
-// prior test (tests/domain/message-invariant3.test.ts) built Message
-// objects that were never wired into any function confirmSpec could
-// reach, so it could not fail no matter what leaked. This drives TWO
+// HT1 Part B (Proof r1, defect 9; Proof r2, defect 2): a route-level
+// invariant-3 test. The prior test (tests/domain/message-invariant3.test.ts)
+// built Message objects that were never wired into any function confirmSpec
+// could reach, so it could not fail no matter what leaked. This drives TWO
 // twin jobs through the real HTTP routes (identical criteria, identical
-// price), one carrying a real thread of messages, reactions, edits and
-// an uploaded attachment, the other with an empty thread, and compares
-// the CONFIRMED SPEC HASH, the signed attestation and the issued
-// credential byte for byte (aside from the fields that legitimately
-// differ between two distinct jobs: id, timestamps, staged commit).
+// price, and now the SAME buyer/agent/operator identities on both twins),
+// one carrying a real thread of messages, reactions, edits and an uploaded
+// attachment, the other with an empty thread, and compares the CONFIRMED
+// SPEC HASH, the signed attestation and the issued credential against each
+// other after normalizing away exactly the fields that legitimately differ
+// between two distinct jobs: the resolution id (rooted at the job id or the
+// staged commit), every timestamp, the staged commit itself, the merge
+// commit, and the platform's own signature (a distinct id/timestamp/staged
+// commit makes the signed bytes distinct too, so the signature itself is a
+// legitimately-differing field, not a leak). Using shared identities across
+// both twins (Proof r2 fix) means signedBy, buyer and issuer are no longer
+// separately excluded as "different agents" -- they are asserted equal
+// because they must be, closing the gap the prior version papered over.
 //
 // Manual mutation check performed while writing this test (not shipped):
 // temporarily made POST /jobs/:jobId/confirm append the thread's own
@@ -77,7 +85,6 @@ interface Started {
   readonly agent: SigningIdentity;
   readonly agentGithubLogin: string;
   readonly operator: SigningIdentity;
-  readonly stranger: SigningIdentity;
   readonly fixture: StagingLifecycleFixture;
 }
 
@@ -97,19 +104,26 @@ async function req(baseUrl: string, method: string, path: string, body: unknown,
   });
 }
 
-async function startFixture(seedOffset: number): Promise<Started> {
-  const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(200 + seedOffset));
-  const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(210 + seedOffset));
-  const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(220 + seedOffset));
-  const stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(230 + seedOffset));
+// A SINGLE fixture (one buyer, one agent, one operator, one github fake)
+// shared by both twin jobs (Proof r2, defect 2). The prior version started
+// two separate fixtures with two separate agent/buyer identities, which
+// forced the credential comparison to skip signedBy and buyer as
+// "legitimately different" when they were only different because the test
+// harness made them so, not because the brief allows them to differ. A
+// shared fixture makes every hire fact except the ones explicitly excluded
+// below (id, timestamps, staged/merge commit, the platform's own
+// signature) a genuine equality assertion.
+async function startFixture(): Promise<Started> {
+  const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(200));
+  const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(210));
+  const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(220));
 
   const operatorRepo = new MemoryAccountRepository();
-  await operatorRepo.register({ did: buyer.did, githubLogin: `buyer-inv3-${seedOffset}` });
-  await operatorRepo.register({ did: operator.did, githubLogin: `operator-inv3-${seedOffset}` });
-  await operatorRepo.register({ did: stranger.did, githubLogin: `stranger-inv3-${seedOffset}` });
+  await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-inv3' });
+  await operatorRepo.register({ did: operator.did, githubLogin: 'operator-inv3' });
 
   const agentRepo = new MemoryAgentRepository();
-  const agentGithubLogin = `scout-inv3-${seedOffset}`;
+  const agentGithubLogin = 'scout-inv3';
   await agentRepo.create({
     did: agent.did,
     operatorDid: operator.did,
@@ -163,7 +177,7 @@ async function startFixture(seedOffset: number): Promise<Started> {
   if (address === null || typeof address === 'string') {
     throw new Error('expected server to listen on a port');
   }
-  return { server, baseUrl: `http://127.0.0.1:${address.port}`, buyer, agent, agentGithubLogin, operator, stranger, fixture };
+  return { server, baseUrl: `http://127.0.0.1:${address.port}`, buyer, agent, agentGithubLogin, operator, fixture };
 }
 
 async function openDraft(started: Started): Promise<string> {
@@ -194,19 +208,35 @@ async function walkToConfirmed(started: Started, jobId: string): Promise<Record<
   return (await confirm.json()) as Record<string, unknown>;
 }
 
-async function walkToCompleted(started: Started, jobId: string, stagedCommit: string): Promise<Record<string, unknown>> {
+async function walkToStaged(started: Started, jobId: string, stagedCommit: string): Promise<Record<string, unknown>> {
   const stage = await req(started.baseUrl, 'POST', `/jobs/${jobId}/stage`, { stagedCommit }, started.operator);
   expect(stage.status).toBe(200);
+  return (await stage.json()) as Record<string, unknown>;
+}
+
+async function readAttestation(started: Started, jobId: string): Promise<Record<string, unknown>> {
+  const res = await req(started.baseUrl, 'GET', `/jobs/${jobId}/attestation`, undefined, started.buyer);
+  expect(res.status).toBe(200);
+  return (await res.json()) as Record<string, unknown>;
+}
+
+async function walkToCompleted(
+  started: Started,
+  jobId: string,
+  stagedCommit: string,
+  prNumber: number,
+): Promise<Record<string, unknown>> {
   const { url } = registerAgentForkPullRequest(started.fixture, {
     repository: 'buyer/target-repo',
     jobId,
     stagedCommit,
     agentLogin: started.agentGithubLogin,
+    number: prNumber,
   });
   const pr = await req(started.baseUrl, 'POST', `/jobs/${jobId}/pull-request`, { pullRequestUrl: url }, started.operator);
   expect(pr.status).toBe(200);
   started.fixture.setPullRequest(
-    { owner: 'buyer', repo: 'target-repo', number: 1 },
+    { owner: 'buyer', repo: 'target-repo', number: prNumber },
     {
       state: 'merged',
       mergeCommitSha: `merge-${jobId}`,
@@ -229,62 +259,101 @@ async function walkToCompleted(started: Started, jobId: string, stagedCommit: st
   return (await merge.json()) as Record<string, unknown>;
 }
 
-describe('HT1 Part B: invariant 3 at the route level (twin jobs, one with a real thread)', () => {
-  let plain: Started;
-  let chatty: Started;
+// Deep-clones `value` and deletes every dotted path in `paths` that
+// resolves (a missing path is a no-op, not an error -- some excluded
+// paths only exist on one side, e.g. specHash being present/absent).
+function withoutPaths(value: unknown, paths: readonly string[]): unknown {
+  const clone = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+  for (const path of paths) {
+    const segments = path.split('.');
+    let cursor: Record<string, unknown> | undefined = clone;
+    for (let i = 0; i < segments.length - 1 && cursor !== undefined; i++) {
+      cursor = cursor[segments[i]!] as Record<string, unknown> | undefined;
+    }
+    if (cursor !== undefined) {
+      delete cursor[segments[segments.length - 1]!];
+    }
+  }
+  return clone;
+}
+
+describe('HT1 Part B: invariant 3 at the route level (twin jobs sharing one identity set, one with a real thread)', () => {
+  let started: Started;
 
   beforeAll(async () => {
     process.env.FREEAGENTS_ATTACHMENTS_DIR = '/tmp/ht1-inv3-attachments-test-' + Date.now();
-    plain = await startFixture(1);
-    chatty = await startFixture(2);
+    started = await startFixture();
   });
 
   afterAll(() => {
-    plain.server.close();
-    chatty.server.close();
+    started.server.close();
   });
 
   it('confirmedSpecHash is byte-identical whether or not the job carries a real message/reaction/edit/attachment history', async () => {
-    const plainJobId = await openDraft(plain);
-    const chattyJobId = await openDraft(chatty);
+    const plainJobId = await openDraft(started);
+    const chattyJobId = await openDraft(started);
 
     // The chatty twin gets a real thread: messages, a reply, a reaction,
     // an edit, and an uploaded attachment -- all through the actual
     // routes, landing in real storage, before confirm ever runs.
-    const m1 = await req(chatty.baseUrl, 'POST', `/jobs/${chattyJobId}/messages`, { body: 'What is the timeline?' }, chatty.buyer);
+    const m1 = await req(started.baseUrl, 'POST', `/jobs/${chattyJobId}/messages`, { body: 'What is the timeline?' }, started.buyer);
     const m1Id = String((await m1.json() as Record<string, unknown>).id);
-    await req(chatty.baseUrl, 'POST', `/jobs/${chattyJobId}/messages`, { body: 'Two weeks, price is 500', replyToId: m1Id }, chatty.operator);
-    await req(chatty.baseUrl, 'POST', `/jobs/${chattyJobId}/messages/${m1Id}/reactions`, { emoji: '\u{1F44D}' }, chatty.operator);
-    await req(chatty.baseUrl, 'PATCH', `/jobs/${chattyJobId}/messages/${m1Id}`, { body: 'What is the timeline? (edited)' }, chatty.buyer);
+    await req(started.baseUrl, 'POST', `/jobs/${chattyJobId}/messages`, { body: 'Two weeks, price is 500', replyToId: m1Id }, started.operator);
+    await req(started.baseUrl, 'POST', `/jobs/${chattyJobId}/messages/${m1Id}/reactions`, { emoji: '\u{1F44D}' }, started.operator);
+    await req(started.baseUrl, 'PATCH', `/jobs/${chattyJobId}/messages/${m1Id}`, { body: 'What is the timeline? (edited)' }, started.buyer);
     const png = await sharp({ create: { width: 4, height: 4, channels: 3, background: { r: 9, g: 9, b: 9 } } }).png().toBuffer();
-    const upload = await req(chatty.baseUrl, 'POST', `/jobs/${chattyJobId}/attachments`, { filename: 'note.png', dataBase64: png.toString('base64') }, chatty.buyer);
+    const upload = await req(started.baseUrl, 'POST', `/jobs/${chattyJobId}/attachments`, { filename: 'note.png', dataBase64: png.toString('base64') }, started.buyer);
     const attachmentId = String((await upload.json() as Record<string, unknown>).id);
-    await req(chatty.baseUrl, 'POST', `/jobs/${chattyJobId}/messages`, { body: 'see attached', attachmentIds: [attachmentId] }, chatty.buyer);
+    await req(started.baseUrl, 'POST', `/jobs/${chattyJobId}/messages`, { body: 'see attached', attachmentIds: [attachmentId] }, started.buyer);
 
-    const plainConfirmed = await walkToConfirmed(plain, plainJobId);
-    const chattyConfirmed = await walkToConfirmed(chatty, chattyJobId);
+    const plainConfirmed = await walkToConfirmed(started, plainJobId);
+    const chattyConfirmed = await walkToConfirmed(started, chattyJobId);
 
     expect(chattyConfirmed.specHash).toBe(plainConfirmed.specHash);
     expect(chattyConfirmed.specHash).not.toBeNull();
   });
 
-  it('the merged credential document never carries a message body or an attachment id, and both twins agree on every hire fact', async () => {
-    process.env.FREEAGENTS_ATTACHMENTS_DIR = '/tmp/ht1-inv3-attachments-test-' + Date.now();
-    const plainJobId = await openDraft(plain);
-    const chattyJobId = await openDraft(chatty);
+  it('the signed attestation and the issued credential are identical between the twins once id/timestamp/commit fields are normalized away, and neither ever carries a message body or an attachment id', async () => {
+    const plainJobId = await openDraft(started);
+    const chattyJobId = await openDraft(started);
 
     const secretBody = 'the buyer secretly offered a bonus of $9001 if delivered early';
-    await req(chatty.baseUrl, 'POST', `/jobs/${chattyJobId}/messages`, { body: secretBody }, chatty.buyer);
+    await req(started.baseUrl, 'POST', `/jobs/${chattyJobId}/messages`, { body: secretBody }, started.buyer);
     const png = await sharp({ create: { width: 3, height: 3, channels: 3, background: { r: 1, g: 2, b: 3 } } }).png().toBuffer();
-    const upload = await req(chatty.baseUrl, 'POST', `/jobs/${chattyJobId}/attachments`, { filename: 'secret.png', dataBase64: png.toString('base64') }, chatty.buyer);
+    const upload = await req(started.baseUrl, 'POST', `/jobs/${chattyJobId}/attachments`, { filename: 'secret.png', dataBase64: png.toString('base64') }, started.buyer);
     const attachmentId = String((await upload.json() as Record<string, unknown>).id);
-    await req(chatty.baseUrl, 'POST', `/jobs/${chattyJobId}/messages`, { body: 'attached', attachmentIds: [attachmentId] }, chatty.buyer);
+    await req(started.baseUrl, 'POST', `/jobs/${chattyJobId}/messages`, { body: 'attached', attachmentIds: [attachmentId] }, started.buyer);
 
-    await walkToConfirmed(plain, plainJobId);
-    await walkToConfirmed(chatty, chattyJobId);
+    await walkToConfirmed(started, plainJobId);
+    await walkToConfirmed(started, chattyJobId);
 
-    const plainCompleted = await walkToCompleted(plain, plainJobId, 'commit-inv3-plain');
-    const chattyCompleted = await walkToCompleted(chatty, chattyJobId, 'commit-inv3-chatty');
+    const plainStagedCommit = 'commit-inv3-plain';
+    const chattyStagedCommit = 'commit-inv3-chatty';
+    await walkToStaged(started, plainJobId, plainStagedCommit);
+    await walkToStaged(started, chattyJobId, chattyStagedCommit);
+
+    // The signed attestation (P5): built and signed the instant each job
+    // staged, entirely independent of the thread. Read through the real
+    // GET /jobs/:jobId/attestation route as the buyer, on both twins.
+    const plainAttestation = await readAttestation(started, plainJobId);
+    const chattyAttestation = await readAttestation(started, chattyJobId);
+    const attestationExclusions = [
+      'id',
+      'validFrom',
+      'proof',
+      'credentialSubject.id',
+      'credentialSubject.attestation.stagedCommit',
+      'credentialSubject.attestation.generatedAt',
+    ];
+    expect(withoutPaths(chattyAttestation, attestationExclusions)).toEqual(withoutPaths(plainAttestation, attestationExclusions));
+    // The excluded fields really do differ (a sanity check that the
+    // normalization above is not vacuously comparing two already-equal
+    // documents): the staged commit is the whole reason the two
+    // attestations carry a different id and a different subject id.
+    expect(chattyAttestation.id).not.toBe(plainAttestation.id);
+
+    const plainCompleted = await walkToCompleted(started, plainJobId, plainStagedCommit, 1);
+    const chattyCompleted = await walkToCompleted(started, chattyJobId, chattyStagedCommit, 2);
 
     const plainCredential = plainCompleted.credential as Record<string, unknown>;
     const chattyCredential = chattyCompleted.credential as Record<string, unknown>;
@@ -295,16 +364,25 @@ describe('HT1 Part B: invariant 3 at the route level (twin jobs, one with a real
     expect(chattyCredentialJson).not.toContain(secretBody);
     expect(chattyCredentialJson).not.toContain(attachmentId);
 
-    // Every hire fact both jobs share (identical criteria and price)
-    // agrees between the two twins -- the thread made no difference to
-    // what the credential attests.
-    const plainHire = (plainCredential.credentialSubject as Record<string, unknown>).hire as Record<string, unknown>;
-    const chattyHire = (chattyCredential.credentialSubject as Record<string, unknown>).hire as Record<string, unknown>;
-    expect(chattyHire.brief).toBe(plainHire.brief);
-    expect(chattyHire.repository).toBe(plainHire.repository);
-    expect(chattyHire.specHash).toBe(plainHire.specHash);
-    expect(chattyHire.additions).toBe(plainHire.additions);
-    expect(chattyHire.deletions).toBe(plainHire.deletions);
-    expect(chattyHire.filesChanged).toBe(plainHire.filesChanged);
+    // The full issued credential document, normalized against the same
+    // twin, aside from the id (rooted at the job id), every timestamp,
+    // the merge commit (rooted at the staged commit), the pull request
+    // reference (a distinct PR per twin, by construction of this test),
+    // and the platform's own signature over all of the above (a
+    // different id/timestamp/mergeCommit produces a different signature
+    // even with no leak at all). Every OTHER hire fact -- brief,
+    // repository, buyer, signedBy, additions, deletions, filesChanged,
+    // specHash -- must now be genuinely identical, since both twins
+    // share the same buyer and agent identities.
+    const credentialExclusions = [
+      'id',
+      'validFrom',
+      'proof',
+      'credentialSubject.hire.mergeCommit',
+      'credentialSubject.hire.mergedAt',
+      'credentialSubject.hire.pullRequest',
+    ];
+    expect(withoutPaths(chattyCredential, credentialExclusions)).toEqual(withoutPaths(plainCredential, credentialExclusions));
+    expect(chattyCredential.id).not.toBe(plainCredential.id);
   });
 });

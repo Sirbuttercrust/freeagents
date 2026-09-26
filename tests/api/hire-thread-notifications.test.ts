@@ -334,7 +334,10 @@ describe('HT1 Part B: notifications, webhook delivery, settlement system events'
 // test. This block covers both negative halves against the real route,
 // each with its own agent fixture and its own webhook spy.
 describe('HT1 Part B (STEER item 4): the webhook gate stays closed unless BOTH conditions hold', () => {
-  async function startWithAgent(agentOverrides: { notifyWebhookUrl: string | null; negotiatesOnOwnersBehalf: boolean }): Promise<{
+  async function startWithAgent(
+    agentOverrides: { notifyWebhookUrl: string | null; negotiatesOnOwnersBehalf: boolean },
+    senderOverrides: { webhookSender?: WebhookSender; pushSender?: PushSender } = {},
+  ): Promise<{
     readonly server: Server;
     readonly baseUrl: string;
     readonly buyer: SigningIdentity;
@@ -367,12 +370,12 @@ describe('HT1 Part B (STEER item 4): the webhook gate stays closed unless BOTH c
     const sessionAdapter = testSessionAdapter();
     const { github } = createStagingLifecycleGithubFake();
     const localSentWebhooks: Array<{ url: string; notification: Notification }> = [];
-    const fakeWebhookSender: WebhookSender = {
+    const fakeWebhookSender: WebhookSender = senderOverrides.webhookSender ?? {
       async send(url, notification) {
         localSentWebhooks.push({ url, notification });
       },
     };
-    const fakePushSender: PushSender = { publicKey: null, async send() {} };
+    const fakePushSender: PushSender = senderOverrides.pushSender ?? { publicKey: null, async send() {} };
 
     const app = createApp(
       operatorRepo,
@@ -463,6 +466,39 @@ describe('HT1 Part B (STEER item 4): the webhook gate stays closed unless BOTH c
     try {
       await postDraft(started.baseUrl, started.buyer, started.agent);
       expect(started.sentWebhooks.length).toBeGreaterThan(0);
+    } finally {
+      started.server.close();
+    }
+  });
+
+  // Proof r2, defect 1: the r1 handoff claimed "a slow webhook does not
+  // delay the response" but no test ever exercised that. This one
+  // injects a webhook sender AND a push sender that each hang for
+  // several seconds, then asserts the job-creation response comes back
+  // in well under that time -- the response must never wait on either
+  // send. A mutation that puts `await` back in front of either call in
+  // notifyJobParties/notify (src/api/app.ts) makes this test time out
+  // against its own assertion, since the response would then take the
+  // full hang duration.
+  it('a webhook and a push send that each hang for seconds do not delay the triggering response', async () => {
+    const HANG_MS = 4000;
+    const hangingWebhookSender: WebhookSender = {
+      send: () => new Promise((resolve) => setTimeout(resolve, HANG_MS)),
+    };
+    const hangingPushSender: PushSender = {
+      publicKey: null,
+      send: () => new Promise((resolve) => setTimeout(resolve, HANG_MS)),
+    };
+    const started = await startWithAgent(
+      { notifyWebhookUrl: 'https://operator.example/webhook', negotiatesOnOwnersBehalf: true },
+      { webhookSender: hangingWebhookSender, pushSender: hangingPushSender },
+    );
+    try {
+      const startedAt = Date.now();
+      const jobId = await postDraft(started.baseUrl, started.buyer, started.agent);
+      const elapsedMs = Date.now() - startedAt;
+      expect(jobId).not.toBe('undefined');
+      expect(elapsedMs).toBeLessThan(HANG_MS / 2);
     } finally {
       started.server.close();
     }
