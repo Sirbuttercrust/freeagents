@@ -21,12 +21,21 @@
 // pull-request and merge routes now read a PR the agent opened OUTSIDE
 // this adapter, so a route-level test scripts what github reports for a
 // given ref rather than asserting what this fixture wrote.
+//
+// FIX-B36: readRepository (Make item 1) answers a READY repository by
+// default -- fullName equal to the requested owner/repo, private false,
+// allowForking true, ownerIsOrganization true -- so every existing test
+// that starts a deposit or confirms through this fixture keeps passing
+// with no change. A test that needs the not-ready cases (not visible,
+// private with forking off, a personal-account private repository, or
+// empty) sets them explicitly via setRepositoryFacts or the rejection
+// helpers the route-level test files build on top of this fixture.
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import {
   type CommitInfo,
   type CreateStagingRepositoryInput,
   type CreateStagingRepositoryResult,
-  type DefaultBranchHead,
+  type RepositoryFacts,
   type GetCommitInput,
   type GithubAdapter,
   type GrantPushInput,
@@ -46,17 +55,19 @@ export interface StagingLifecycleCalls {
   readonly createStagingRepository: CreateStagingRepositoryInput[];
   readonly grantPush: GrantPushInput[];
   readonly getCommit: GetCommitInput[];
-  readonly getDefaultBranchHead: StagingRepoRef[];
+  readonly readRepository: StagingRepoRef[];
   readonly getPullRequest: PullRequestRef[];
 }
 
 export interface StagingLifecycleFixture {
   readonly github: GithubAdapter;
   readonly calls: StagingLifecycleCalls;
-  // Configures the source repository's default branch and head sha
-  // (what getDefaultBranchHead answers). Defaults to main /
-  // `${owner}-${repo}-head-sha` when never configured.
-  setDefaultBranchHead(owner: string, repo: string, head: DefaultBranchHead): void;
+  // Configures the source repository's facts (what readRepository
+  // answers). Defaults to a ready, organization-owned repository --
+  // fullName `${owner}/${repo}`, private false, allowForking true,
+  // ownerIsOrganization true, defaultBranch main, sha
+  // `${owner}-${repo}-head-sha` -- when never configured.
+  setRepositoryFacts(owner: string, repo: string, facts: RepositoryFacts): void;
   // Plants a commit directly into a staging repository this fixture
   // already created, with the parents a test wants -- so a route-level
   // test can construct a forged commit (no parent chain to base) or a
@@ -88,8 +99,15 @@ export interface CreateStagingLifecycleGithubFakeOptions {
   readonly strict?: boolean;
 }
 
-function defaultHeadFor(owner: string, repo: string): DefaultBranchHead {
-  return { defaultBranch: 'main', sha: `${owner}-${repo}-head-sha` };
+function defaultFactsFor(owner: string, repo: string): RepositoryFacts {
+  return {
+    fullName: `${owner}/${repo}`,
+    private: false,
+    allowForking: true,
+    ownerIsOrganization: true,
+    defaultBranch: 'main',
+    sha: `${owner}-${repo}-head-sha`,
+  };
 }
 
 function prKey(ref: PullRequestRef): string {
@@ -104,14 +122,14 @@ export function createStagingLifecycleGithubFake(
   options: CreateStagingLifecycleGithubFakeOptions = {},
 ): StagingLifecycleFixture {
   const strict = options.strict ?? false;
-  const sourceHeads = new Map<string, DefaultBranchHead>();
+  const sourceFacts = new Map<string, RepositoryFacts>();
   const repos = new Map<string, RepoState>();
   const pullRequests = new Map<string, PullRequestSummary>();
   const calls: StagingLifecycleCalls = {
     createStagingRepository: [],
     grantPush: [],
     getCommit: [],
-    getDefaultBranchHead: [],
+    readRepository: [],
     getPullRequest: [],
   };
 
@@ -181,9 +199,9 @@ export function createStagingLifecycleGithubFake(
       return { sha: input.sha, parents: commit.parents, treeSha: `${input.sha}-tree`, signed: false };
     },
 
-    async getDefaultBranchHead(ref: StagingRepoRef): Promise<DefaultBranchHead> {
-      calls.getDefaultBranchHead.push(ref);
-      return sourceHeads.get(repoKey(ref.owner, ref.repo)) ?? defaultHeadFor(ref.owner, ref.repo);
+    async readRepository(ref: StagingRepoRef): Promise<RepositoryFacts> {
+      calls.readRepository.push(ref);
+      return sourceFacts.get(repoKey(ref.owner, ref.repo)) ?? defaultFactsFor(ref.owner, ref.repo);
     },
 
     // B14b: this fixture's own tests all inject a MemoryStagingObserver
@@ -197,8 +215,8 @@ export function createStagingLifecycleGithubFake(
   return {
     github,
     calls,
-    setDefaultBranchHead(owner: string, repo: string, head: DefaultBranchHead): void {
-      sourceHeads.set(repoKey(owner, repo), head);
+    setRepositoryFacts(owner: string, repo: string, facts: RepositoryFacts): void {
+      sourceFacts.set(repoKey(owner, repo), facts);
     },
     registerCommit(owner: string, repo: string, sha: string, parents: readonly string[]): void {
       const state = repos.get(repoKey(owner, repo));

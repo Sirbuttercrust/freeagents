@@ -26,6 +26,7 @@ import { MemorySettlementRepository } from '../../src/adapters/storage/memory.js
 import { MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromWallet, type SigningIdentity } from '../helpers/sign-request.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import {
   abtEnv,
   decodeClaimBody,
@@ -112,12 +113,17 @@ async function startAbtApp(chainClient: AbtChainClient): Promise<StartedAbtApp> 
     const jobRepo = new MemoryJobRepository();
     const settlementRepo = new MemorySettlementRepository();
     const gate = new PrismaSettlementGate(settlementRepo);
+    // FIX-B36: the /start route now reads the job's repository before a
+    // deposit leg starts (Make item 2); this fixture answers a ready
+    // repository by default, so every existing assertion in this file
+    // keeps proving what it always proved.
+    const { github } = createStagingLifecycleGithubFake();
 
     const app = createApp(
       operatorRepo,
       agentRepo,
       undefined,
-      undefined,
+      github,
       jobRepo,
       undefined,
       undefined,
@@ -344,11 +350,12 @@ describe('POST /jobs/:jobId/payments/deposit/abt/start: an unconfigured rail ref
     const jobRepo = new MemoryJobRepository();
     const settlementRepo = new MemorySettlementRepository();
     const gate = new PrismaSettlementGate(settlementRepo);
+    const { github } = createStagingLifecycleGithubFake();
     const app = createApp(
       operatorRepo,
       agentRepo,
       undefined,
-      undefined,
+      github,
       jobRepo,
       undefined,
       undefined,
@@ -697,12 +704,13 @@ describe('S3, Trap 1: self-hire settles normally on ABT, paying the buyer\'s own
       const jobRepo = new MemoryJobRepository();
       const settlementRepo = new MemorySettlementRepository();
       const gate = new PrismaSettlementGate(settlementRepo);
+      const { github } = createStagingLifecycleGithubFake();
 
       const app = createApp(
         operatorRepo,
         agentRepo,
         undefined,
-        undefined,
+        github,
         jobRepo,
         undefined,
         undefined,
@@ -801,12 +809,13 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
       const jobRepo = new MemoryJobRepository();
       const settlementRepo = new MemorySettlementRepository();
       const gate = new PrismaSettlementGate(settlementRepo);
+      const { github } = createStagingLifecycleGithubFake();
 
       const app = createApp(
         operatorRepo,
         agentRepo,
         undefined,
-        undefined,
+        github,
         jobRepo,
         undefined,
         undefined,
@@ -919,12 +928,13 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
       const jobRepo = new MemoryJobRepository();
       const settlementRepo = new MemorySettlementRepository();
       const gate = new PrismaSettlementGate(settlementRepo);
+      const { github } = createStagingLifecycleGithubFake();
 
       const app = createApp(
         operatorRepo,
         agentRepo,
         undefined,
-        undefined,
+        github,
         jobRepo,
         undefined,
         undefined,

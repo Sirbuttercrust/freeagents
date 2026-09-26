@@ -59,7 +59,7 @@ import {
   createReviewRepository,
   createObservedKeyRepository,
 } from '../adapters/storage/storage.js';
-import { delegationConsistent, isAgentOperator, agentMayNegotiate, type Agent, type Delegation } from '../domain/agent.js';
+import { delegationConsistent, isAgentOperator, agentMayNegotiate, verifiedGithubLogin, type Agent, type Delegation } from '../domain/agent.js';
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
 import { buildAttestation, AttestationError } from '../domain/attestation.js';
 import { lastHireCompletedAt, recordLastChangedAt } from '../domain/freshness.js';
@@ -109,6 +109,7 @@ import {
   confirmSpec,
   createJob,
   DepositSettledError,
+  followRepositoryMove,
   JobError,
   JobPriceError,
   JobTransitionError,
@@ -143,10 +144,12 @@ import { attachAbtPaymentHandlers, type AbtTxEncoder } from '../adapters/payment
 import { createTxEncoder as createAbtTxEncoder } from '@ocap/client/encode';
 import {
   confirmPayment,
+  checkRepositoryReady,
   legRailMismatchMessage,
   legStatusConflictMessage,
   legStatusEligible,
   processWalletResponse,
+  repositoryNotAccessibleMessage,
   requestPayment,
   type RouteLeg,
 } from '../adapters/payment/route-support.js';
@@ -581,7 +584,7 @@ function jobProjection(row: Job): Record<string, unknown> {
 //   at; and
 // - before a staging repository exists (row.stagingRepo === null): once
 //   confirm has succeeded, the platform already proved it CAN read the
-//   buyer's repository (that is what getDefaultBranchHead's own success
+//   buyer's repository (that is what readRepository's own success
 //   means), so the access question this field answers is already
 //   settled, and every merge/outcome row carrying the field forever
 //   would grow the fixed projection every downstream test pins against
@@ -593,8 +596,11 @@ function jobProjection(row: Job): Record<string, unknown> {
 // accounts need read; this carries both under the same key so downstream
 // readers keep pinning one projection shape rather than two.
 // Never asserts whether the named repository actually IS private; that
-// fact surfaces only when confirm's own RepositoryNotAccessibleError
-// check runs.
+// fact used to surface only when confirm's own RepositoryNotAccessibleError
+// check ran. FIX-B36: it now surfaces first at the three deposit-start
+// doors (checkRepositoryReady, route-support.ts), before a deposit is
+// ever paid, and confirm's own check remains as a second read in case
+// the repository's visibility changed in between.
 function githubAccessNeededFor(
   agent: Agent | null,
   row: Pick<Job, 'stagingRepo'>,
@@ -5331,20 +5337,23 @@ export function createApp(
   // carries the depositUsd amount so a 402 is actionable, not just a
   // refusal.
   //
-  // B14a anchor: "every staged commit lives in a repository the platform
-  // created, at a base the platform pinned". confirm is where that
-  // repository comes into being: once the deposit has settled, this route
-  // reads the buyer's repository's current default-branch head (the base
-  // the platform pins), creates a private staging repository seeded from
-  // it, and grants the agent's verified GitHub login push. This route no
-  // longer shares runPartyExchange/applyAndPersist's generic skeleton,
-  // because those two async GitHub calls sit BETWEEN the money gate and
-  // persistence -- a shape no other route in this file needs. Any
-  // failure creating the repository or granting push fails confirm
-  // closed: nothing is persisted, so the job stays at whatever status it
-  // was already stored at (proposed), and the deposit settlement row
-  // already recorded is untouched (it settled on chain; this route never
-  // reverses that, matching invariant 12's own stance everywhere else).
+  // B14a, FIX-B36 anchor: "every staged commit lives in a repository the
+  // platform created, at a base the platform pinned". confirm is where
+  // that repository comes into being: once the deposit has settled, this
+  // route reads the buyer's repository's current facts (the base the
+  // platform pins, and whether GitHub now reports it under a different
+  // name than job.repository), follows a move if there is one
+  // (followRepositoryMove, domain/job.ts), creates a private staging
+  // repository seeded from it, and grants the agent's verified GitHub
+  // login push. This route no longer shares runPartyExchange/
+  // applyAndPersist's generic skeleton, because those two async GitHub
+  // calls sit BETWEEN the money gate and persistence -- a shape no other
+  // route in this file needs. Any failure creating the repository or
+  // granting push fails confirm closed: nothing is persisted, so the job
+  // stays at whatever status it was already stored at (proposed), and the
+  // deposit settlement row already recorded is untouched (it settled on
+  // chain; this route never reverses that, matching invariant 12's own
+  // stance everywhere else).
   app.post(
     '/jobs/:jobId/confirm',
     didSignature,
@@ -5480,12 +5489,24 @@ export function createApp(
 
       let withStagingRepo: Job;
       try {
-        const head = await github.getDefaultBranchHead({ owner: sourceOwner, repo: sourceRepo });
+        const facts = await github.readRepository({ owner: sourceOwner, repo: sourceRepo });
+        // FIX-B36 (Make item 3): the buyer may have moved the repository
+        // into a new GitHub organization between POST /jobs and confirm
+        // (the whole reason this card exists -- bugs.md B36). facts.fullName
+        // is GitHub's own canonical name, which already reflects a move
+        // (the adapter's read follows GitHub's 301). chainIdentifiersMatch,
+        // never a bare !==: owners, repos and logins compare
+        // case-insensitively everywhere else in this file, and a stored
+        // spelling that merely differs in case from GitHub's own report is
+        // not a move.
+        const confirmedWithRepository = chainIdentifiersMatch(facts.fullName, confirmed.repository)
+          ? confirmed
+          : followRepositoryMove(confirmed, facts.fullName);
         const stagingRepo = await github.createStagingRepository({
           jobId: current.id,
           sourceOwner,
           sourceRepo,
-          baseCommit: head.sha,
+          baseCommit: facts.sha,
         });
         await github.grantPush({
           owner: stagingRepo.owner,
@@ -5494,7 +5515,7 @@ export function createApp(
           verifiedGithubLogin: agent.githubLogin,
         });
         withStagingRepo = attachStagingRepository(
-          confirmed,
+          confirmedWithRepository,
           { owner: stagingRepo.owner, repo: stagingRepo.repo },
           stagingRepo.baseCommit,
         );
@@ -5509,14 +5530,16 @@ export function createApp(
         // conflict the buyer can act on, so it is 409, checked before
         // the generic 503 catch-all so it never falls through to it.
         if (err instanceof RepositoryNotAccessibleError) {
-          // The walkthrough page this message would link is a separate,
-          // later card, cut from Part 3 of this brief only after this PR
-          // merges (Part 3: "Not this card"). No stable URL exists yet, so
-          // the message names the accounts and the shape directly instead
-          // of a dead link; add the link here once that page ships.
+          // FIX-B36: this message is now shared with the three
+          // deposit-start doors (route-support.ts's
+          // repositoryNotAccessibleMessage) so the buyer sees the
+          // identical wording whichever route answers -- the phrase
+          // "cannot see this repository" is kept exactly, which
+          // deposit.js tells the case apart by. The walkthrough page
+          // (card t_1aa4b834, waiting on this PR) is the page the URL
+          // points at.
           res.status(409).json({
-            error:
-              `the platform cannot see this repository; for a private repository it must live in a GitHub organization that gives BOTH the agent's GitHub account (${agent.githubLogin}) and the platform's GitHub account (${github.platformLogin}) read access`,
+            error: repositoryNotAccessibleMessage(agent.githubLogin, github.platformLogin, current.id),
           });
           return;
         }
@@ -6332,6 +6355,25 @@ export function createApp(
         res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
         return;
       }
+      // FIX-B36 (Make item 2): before a DEPOSIT leg starts, on all three
+      // doors -- this is the token-mint door, the second door onto the
+      // same session did-connect-js's own /api/did/pay/token would
+      // otherwise mint unguarded. The remainder leg is not checked here:
+      // the repository was already proven at confirm (Not this card
+      // section, brief). Runs after the party/rail/status checks above
+      // and before anything is minted, so a repository that is not ready
+      // starts nothing.
+      if (leg === 'deposit') {
+        const repositoryCheck = await checkRepositoryReady(github, {
+          repository: gate.job.repository,
+          jobId: gate.job.id,
+          agentGithubLogin: verifiedGithubLogin(await agentRepo.findByDid(gate.job.agentDid)),
+        });
+        if (!repositoryCheck.ok) {
+          res.status(repositoryCheck.status).json({ error: repositoryCheck.message });
+          return;
+        }
+      }
       next();
     })().catch(next);
   };
@@ -6426,6 +6468,21 @@ export function createApp(
         res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
         return;
       }
+      // FIX-B36 (Make item 2): before a DEPOSIT leg starts, the platform
+      // reads the job's repository and refuses (409, nothing minted) one
+      // that is not ready. Runs after the party/price/rail/status checks
+      // above and before generateSession ever mints a wallet session.
+      if (leg === 'deposit') {
+        const repositoryCheck = await checkRepositoryReady(github, {
+          repository: gate.job.repository,
+          jobId: gate.job.id,
+          agentGithubLogin: verifiedGithubLogin(await agentRepo.findByDid(gate.job.agentDid)),
+        });
+        if (!repositoryCheck.ok) {
+          res.status(repositoryCheck.status).json({ error: repositoryCheck.message });
+          return;
+        }
+      }
       // The did-connect-js generateSession route reads req.query,
       // req.body and req.params into extraParams (protocol.js's own
       // mechanism); jobId/leg ride through req.query so the web layer's
@@ -6510,6 +6567,21 @@ export function createApp(
       if (!legStatusEligible(leg, gate.job.status)) {
         res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
         return;
+      }
+      // FIX-B36 (Make item 2): before a DEPOSIT leg starts, the platform
+      // reads the job's repository and refuses (409, nothing quoted) one
+      // that is not ready. Runs after the party/price/rail/status checks
+      // above and before the rail is ever asked to quote.
+      if (leg === 'deposit') {
+        const repositoryCheck = await checkRepositoryReady(github, {
+          repository: gate.job.repository,
+          jobId: gate.job.id,
+          agentGithubLogin: verifiedGithubLogin(await agentRepo.findByDid(gate.job.agentDid)),
+        });
+        if (!repositoryCheck.ok) {
+          res.status(repositoryCheck.status).json({ error: repositoryCheck.message });
+          return;
+        }
       }
       // S3, Ruling 5: no address on record is a 409, fail closed -- a
       // payment that cannot name a real recipient must not begin.

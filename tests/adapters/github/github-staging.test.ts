@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 import { createGithubAdapter } from '../../../src/adapters/github/github.js';
 import {
   NotPlatformOwnerError,
+  RepositoryEmptyError,
   RepositoryNotAccessibleError,
   UnverifiedGithubLoginError,
   type CreateStagingRepositoryInput,
@@ -54,7 +55,7 @@ function scriptedFetch(responses: readonly Response[]): { fetchImpl: typeof fetc
   return { fetchImpl, calls };
 }
 
-// ORG1 r2 fix, defect 1: confirm's getDefaultBranchHead and the pull-request
+// ORG1 r2 fix, defect 1: confirm's readRepository and the pull-request
 // route's getPullRequest both run on the PLATFORM's token, never the
 // agent's. A message or field that names only the agent's account sends
 // the buyer to grant read to the wrong login whenever the platform account
@@ -256,40 +257,168 @@ describe('createGithubAdapter, getCommit (B14a)', () => {
   });
 });
 
-describe('createGithubAdapter, getDefaultBranchHead (B14a)', () => {
-  it('reads the repository, then its default branch head sha', async () => {
+describe('createGithubAdapter, readRepository (B14a, FIX-B36)', () => {
+  it('reads the repository, then its default branch head sha, projecting the full set of facts', async () => {
     const { fetchImpl, calls } = scriptedFetch([
-      jsonResponse(200, { default_branch: 'main' }),
+      jsonResponse(200, {
+        full_name: 'buyer/target-repo',
+        private: false,
+        allow_forking: true,
+        default_branch: 'main',
+        owner: { type: 'Organization' },
+      }),
       jsonResponse(200, { object: { sha: 'buyer-head-sha' } }),
     ]);
     const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
 
-    const head = await adapter.getDefaultBranchHead({ owner: 'buyer', repo: 'target-repo' });
+    const facts = await adapter.readRepository({ owner: 'buyer', repo: 'target-repo' });
 
     expect(calls).toEqual([
       { url: 'https://api.github.com/repos/buyer/target-repo', method: 'GET', body: undefined },
       { url: 'https://api.github.com/repos/buyer/target-repo/git/ref/heads/main', method: 'GET', body: undefined },
     ]);
-    expect(head).toEqual({ defaultBranch: 'main', sha: 'buyer-head-sha' });
+    expect(facts).toEqual({
+      fullName: 'buyer/target-repo',
+      private: false,
+      allowForking: true,
+      ownerIsOrganization: true,
+      defaultBranch: 'main',
+      sha: 'buyer-head-sha',
+    });
   });
 
-  it('a non-2xx response rejects rather than returning a half-built head', async () => {
+  // Proof r2, gap 1: every scripted response in this file that sends
+  // `private: true` asserted something else (fullName, ownerIsOrganization,
+  // allowForking) and never asserted `facts.private` itself. Hardcoding
+  // `private: false` in the adapter (turning off both the personal-account
+  // and forking-off refusals, since checkRepositoryReady's private branch
+  // never runs) left all 59 tests across this file and the route tests
+  // green. This pins the field directly, in both directions.
+  it('projects private true when the response body sends private true', async () => {
+    const { fetchImpl } = scriptedFetch([
+      jsonResponse(200, {
+        full_name: 'buyer-org/target-repo',
+        private: true,
+        allow_forking: true,
+        default_branch: 'main',
+        owner: { type: 'Organization' },
+      }),
+      jsonResponse(200, { object: { sha: 'sha' } }),
+    ]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    const facts = await adapter.readRepository({ owner: 'buyer-org', repo: 'target-repo' });
+
+    expect(facts.private).toBe(true);
+  });
+
+  it('projects private false when the response body sends private false', async () => {
+    const { fetchImpl } = scriptedFetch([
+      jsonResponse(200, {
+        full_name: 'buyer/target-repo',
+        private: false,
+        allow_forking: true,
+        default_branch: 'main',
+        owner: { type: 'Organization' },
+      }),
+      jsonResponse(200, { object: { sha: 'sha' } }),
+    ]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    const facts = await adapter.readRepository({ owner: 'buyer', repo: 'target-repo' });
+
+    expect(facts.private).toBe(false);
+  });
+
+  // FIX-B36 Make item 1: fullName is GitHub's own canonical owner/repo,
+  // which follows a move -- the repository read answers a 301 to the
+  // repository's id-stable path and this adapter's fetchImpl (the real
+  // fetch, or a test double replaying the same behaviour) follows
+  // redirects, so the parsed body's full_name already names the CURRENT
+  // owner. Requested under the OLD owner/repo (the path this call still
+  // takes, since the caller only knows job.repository), the response
+  // still names the repository's real, current location.
+  it('projects fullName from the response body, which may differ from the requested owner/repo after a move', async () => {
+    const { fetchImpl } = scriptedFetch([
+      jsonResponse(200, {
+        full_name: 'buyer-org/target-repo',
+        private: true,
+        allow_forking: true,
+        default_branch: 'main',
+        owner: { type: 'Organization' },
+      }),
+      jsonResponse(200, { object: { sha: 'moved-head-sha' } }),
+    ]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    const facts = await adapter.readRepository({ owner: 'buyer', repo: 'target-repo' });
+
+    expect(facts.fullName).toBe('buyer-org/target-repo');
+  });
+
+  // STEER 2026-09-26: ownerIsOrganization is owner.type === 'Organization'
+  // exactly -- a personal account's owner.type is 'User', which this
+  // projects as false.
+  it('projects ownerIsOrganization false for a personal-account owner (owner.type "User")', async () => {
+    const { fetchImpl } = scriptedFetch([
+      jsonResponse(200, {
+        full_name: 'buyer/target-repo',
+        private: true,
+        allow_forking: true,
+        default_branch: 'main',
+        owner: { type: 'User' },
+      }),
+      jsonResponse(200, { object: { sha: 'sha' } }),
+    ]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    const facts = await adapter.readRepository({ owner: 'buyer', repo: 'target-repo' });
+
+    expect(facts.ownerIsOrganization).toBe(false);
+  });
+
+  // Make item 2's forking-off case: the pull-only reader sees
+  // allow_forking follow the organization's own setting (measured
+  // 2026-09-26: false a few seconds after the owner turned forking off).
+  // Proof r1: every scripted response in this file sent allow_forking
+  // true, so hardcoding allowForking to true left the whole file green.
+  it('projects allowForking false when the response body sends allow_forking false', async () => {
+    const { fetchImpl } = scriptedFetch([
+      jsonResponse(200, {
+        full_name: 'buyer-org/target-repo',
+        private: true,
+        allow_forking: false,
+        default_branch: 'main',
+        owner: { type: 'Organization' },
+      }),
+      jsonResponse(200, { object: { sha: 'sha' } }),
+    ]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    const facts = await adapter.readRepository({ owner: 'buyer-org', repo: 'target-repo' });
+
+    expect(facts.allowForking).toBe(false);
+  });
+
+  it('a non-2xx response reading the repository rejects rather than returning a half-built result', async () => {
     const { fetchImpl } = scriptedFetch([jsonResponse(404, { message: 'Not Found' })]);
     const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
 
-    await expect(adapter.getDefaultBranchHead({ owner: 'buyer', repo: 'gone' })).rejects.toThrow();
+    await expect(adapter.readRepository({ owner: 'buyer', repo: 'gone' })).rejects.toBeInstanceOf(
+      RepositoryNotAccessibleError,
+    );
   });
 
   // ORG1: a 404 on the repository read means the platform cannot see the
   // buyer's repository at all (private, not shared with the platform's
   // account) -- distinct from a real GitHub outage. The confirm route
-  // maps this to a 409 a buyer can act on, never the 503 an unreachable
-  // API gets.
+  // and the deposit-start doors map this to a 409 a buyer can act on,
+  // never the 503 an unreachable API gets.
   it('throws RepositoryNotAccessibleError, not a bare Error, on a 404 reading the repository', async () => {
     const { fetchImpl } = scriptedFetch([jsonResponse(404, { message: 'Not Found' })]);
     const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
 
-    await expect(adapter.getDefaultBranchHead({ owner: 'buyer', repo: 'gone' })).rejects.toBeInstanceOf(
+    await expect(adapter.readRepository({ owner: 'buyer', repo: 'gone' })).rejects.toBeInstanceOf(
       RepositoryNotAccessibleError,
     );
   });
@@ -302,25 +431,52 @@ describe('createGithubAdapter, getDefaultBranchHead (B14a)', () => {
     const { fetchImpl } = scriptedFetch([jsonResponse(403, { message: 'Forbidden' })]);
     const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
 
-    await expect(adapter.getDefaultBranchHead({ owner: 'buyer', repo: 'private-repo' })).rejects.toBeInstanceOf(
+    await expect(adapter.readRepository({ owner: 'buyer', repo: 'private-repo' })).rejects.toBeInstanceOf(
       RepositoryNotAccessibleError,
     );
   });
 
   // A real outage (500) must NOT be mistaken for an inaccessible
-  // repository -- it stays a bare Error, which confirm maps to 503.
+  // repository -- it stays a bare Error, which confirm and the
+  // deposit-start doors both map to 503.
   it('does not throw RepositoryNotAccessibleError on a 500 (a real outage stays a generic failure)', async () => {
     const { fetchImpl } = scriptedFetch([jsonResponse(500, { message: 'Internal Server Error' })]);
     const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
 
     let caught: unknown;
     try {
-      await adapter.getDefaultBranchHead({ owner: 'buyer', repo: 'target-repo' });
+      await adapter.readRepository({ owner: 'buyer', repo: 'target-repo' });
     } catch (err) {
       caught = err;
     }
     expect(caught).not.toBeInstanceOf(RepositoryNotAccessibleError);
+    expect(caught).not.toBeInstanceOf(RepositoryEmptyError);
     expect(caught).toBeInstanceOf(Error);
+  });
+
+  // FIX-B36: GitHub answers 409 "Git Repository is empty." on the ref
+  // read for a repository with no commits (measured 2026-09-26 against a
+  // real public empty repository). The repository read itself succeeded
+  // (the platform CAN see it), so this is a fact about the repository,
+  // not an access question -- a distinct typed error from
+  // RepositoryNotAccessibleError, which the deposit-start doors map to
+  // 409 with a message naming the fix (one starting commit).
+  it('throws RepositoryEmptyError, not a bare Error, on a 409 reading the default branch ref (an empty repository)', async () => {
+    const { fetchImpl } = scriptedFetch([
+      jsonResponse(200, {
+        full_name: 'buyer/empty-repo',
+        private: false,
+        allow_forking: true,
+        default_branch: 'main',
+        owner: { type: 'Organization' },
+      }),
+      jsonResponse(409, { message: 'Git Repository is empty.' }),
+    ]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    await expect(adapter.readRepository({ owner: 'buyer', repo: 'empty-repo' })).rejects.toBeInstanceOf(
+      RepositoryEmptyError,
+    );
   });
 });
 

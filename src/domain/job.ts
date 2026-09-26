@@ -545,6 +545,36 @@ export function attachStagingRepository(
   return { ...job, stagingRepo, baseCommit };
 }
 
+// FIX-B36 (Make item 3): follows a repository the buyer moved into a new
+// GitHub organization between proposing the job and confirming it.
+// job.repository is set once, at POST /jobs, and nothing before this card
+// ever revisited it -- GitHub answers 301 on the old owner/name and the
+// adapter's fetch follows it (readRepository's own fullName is already
+// the repository's CURRENT name), but job.repository stayed stale, so
+// confirm either kept 409ing on the old path or succeeded while the job
+// still named a repository the pull-request route's base-repository check
+// (app.ts:5910) would never match again (bugs.md B36). A pure function,
+// not a transition, the same stance attachStagingRepository above takes:
+// confirm's own status edge is confirmSpec's job alone, and this function
+// never touches status, only ever `repository`. Refused once the job is
+// anything other than freshly confirmed -- the repository question is
+// settled for good the moment staging exists, so a caller reaching this
+// from outside confirm's own flow (after staged, submitted, or any later
+// status) gets a loud refusal rather than silently rewriting a repository
+// commit history and staged work already point at.
+//
+// briefHash (createJob, above) hashes the brief text alone, and
+// confirmedSpecHash (confirmSpec, below) hashes the criteria and price
+// lines alone -- neither ever covers job.repository, so both stay valid
+// exactly as they were before the move: a job whose repository moved has
+// the identical brief hash and confirmed spec hash it always had.
+export function followRepositoryMove(job: Job, fullName: string): Job {
+  if (job.status !== 'confirmed') {
+    throw new JobTransitionError(job.status, 'follow a repository move on');
+  }
+  return { ...job, repository: fullName };
+}
+
 // P6 (design record, 2026-09-01, row 2): the redo mechanic requestRedo /
 // refuseRedo fills the seam stageWork's own header comment names. Named
 // beside LAPSE_AT_STAGED_AFTER_DAYS, per the brief: a redo extends
