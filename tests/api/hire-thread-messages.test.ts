@@ -189,10 +189,11 @@ describe('HT1 Part B: hire thread messages', () => {
     expect(res.status).toBe(400);
   });
 
-  // Proof r2, not-blocking note: PATCH (edit) is unchanged by MSG1a --
+  // Review r2, not-blocking note: PATCH (edit) is unchanged by MSG1a --
   // an edit still needs words, even though a new POST may now be
-  // attachment-only. Pinned so a loosened editMessage or route check
-  // (accepting an empty PATCH body) turns this red.
+  // attachment-only. The route's body check and editMessage each refuse
+  // an empty body, so this test turns red only when BOTH are loosened;
+  // the domain half is pinned on its own in tests/domain/message.test.ts.
   it('PATCH with an empty body is refused with 400, unlike a new attachment-only POST', async () => {
     const jobId = await openDraft();
     const posted = await req('POST', `/jobs/${jobId}/messages`, { body: 'to be edited' }, buyer);

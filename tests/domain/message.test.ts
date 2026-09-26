@@ -3,7 +3,7 @@
 // at the domain layer directly (the route-level acceptance test lives in
 // tests/api/hire-thread-messages.test.ts).
 import { describe, expect, it } from 'vitest';
-import { createMessage, MessageError, MESSAGE_BODY_MAX_LENGTH } from '../../src/domain/message.js';
+import { createMessage, editMessage, MessageError, MESSAGE_BODY_MAX_LENGTH } from '../../src/domain/message.js';
 
 describe('createMessage: the empty-body rule (MSG1a, make item 5)', () => {
   it('refuses an empty body when no attachments are named', () => {
@@ -73,5 +73,28 @@ describe('createMessage: the empty-body rule (MSG1a, make item 5)', () => {
       new Date('2026-01-01T00:00:00Z'),
     );
     expect(message.body).toBe('hello');
+  });
+});
+
+// An edit is not a new message: attachment-only is a POST-time allowance
+// (make item 5), and an edit still needs words. Pinned here at the domain
+// layer on its own, because the route's own body check at the PATCH route
+// refuses an empty body first, so a route-level test alone cannot see
+// editMessage lose this rule.
+describe('editMessage: an edit still needs a body', () => {
+  it('refuses an empty body', () => {
+    const original = createMessage(
+      {
+        id: 'm5',
+        jobId: 'job-1',
+        authorDid: 'did:example:buyer',
+        authorParty: 'buyer',
+        authorKind: 'buyer',
+        body: 'to be edited',
+        existingMessageIds: new Set(),
+      },
+      new Date('2026-01-01T00:00:00Z'),
+    );
+    expect(() => editMessage(original, '', new Date('2026-01-01T00:01:00Z'))).toThrow(MessageError);
   });
 });

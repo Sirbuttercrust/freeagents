@@ -349,7 +349,7 @@ describe('HT1 Part B: message attachments', () => {
       expect(row.kind).toBe('image/png');
       expect(row.contentType).toBe('image/jpeg');
       expect(row.originalFilename).toBe('first.png');
-      // Proof r1, defect 4: sizeBytes is the REAL stored size (matching
+      // Review r1, defect 4: sizeBytes is the REAL stored size (matching
       // the upload reply's own sizeBytes for the same attachment), never
       // a constant 0 -- "typeof number" alone stays green under a
       // mutant that hardcodes 0.
@@ -366,7 +366,7 @@ describe('HT1 Part B: message attachments', () => {
       expect(body.attachments).toEqual([]);
     });
 
-    // Proof r1, defect 1: a throwing attachment repository (a real
+    // Review r1, defect 1: a throwing attachment repository (a real
     // storage outage, not a missing method) must answer 503, never a
     // silent empty list. A separate app instance, built with the same
     // fixture pattern as the suite above, but with a THROWING
