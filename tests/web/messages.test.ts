@@ -748,6 +748,24 @@ describe('(e) live, without a reload', () => {
     } finally { page.close(); }
   }, 20_000);
 
+  // The poll brings rows in by its own path, so it announces them by its
+  // own path too. A reaction changes the row, so the next poll redraws it,
+  // and that must not read it out a second time.
+  it('when the stream is refused, a row the poll brings in is announced once, and a reaction the next poll brings is not announced', async () => {
+    const page = await render(thread(OPEN), world.buyer, { refuseStream: true });
+    try {
+      const note = `Heard by the poll ${Date.now()}`;
+      const sent = (await (await asParty(world, world.owner, 'POST', `/jobs/${OPEN}/messages`, { body: note })).json()) as Row;
+      expect(await until(() => page.$$('.run.them .bubble').some((b) => b.textContent === note), 11_000)).toBe(true);
+      const lines = (): string[] => page.$$('#thread-live p').map((p) => p.textContent ?? '');
+      expect(await until(() => lines().includes(`@${OWNER_LOGIN}: ${note}`))).toBe(true);
+      expect((await asParty(world, world.owner, 'POST', `/jobs/${OPEN}/messages/${sent.id}/reactions`, { emoji: '\uD83D\uDC4D' })).status).toBe(200);
+      expect(await until(() => page.$(`#msg-${sent.id} .react`) !== null, 11_000), 'the next poll drew the reaction').toBe(true);
+      await wait(300);
+      expect(lines().filter((l) => l.endsWith(note))).toHaveLength(1);
+    } finally { page.close(); }
+  }, 30_000);
+
   // M10: while the thread is open and the page is visible, a row that
   // lands over the stream is marked read at once, not on the next open.
   it('a message that arrives over the stream while I am looking is marked read', async () => {
