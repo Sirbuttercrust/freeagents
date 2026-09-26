@@ -279,6 +279,31 @@
         <p class="field-error" id="brief-error" hidden></p>
       </div>
 
+      <!-- HT1 Part A2: "add up to two more agents" (2026-09-25 brief, item
+           2). A disclosure, not two more fields on the first viewport: the
+           density budget (DESIGN.md 4.1) exempts anything behind a
+           disclosure, the same stance the technical-details panel below
+           already takes. A buyer who never opens this sends the brief to
+           one agent exactly as today (departure: no picker exists for a
+           second or third agent any more than one exists for the
+           repository above, so each is a plain DID field, typed exactly). -->
+      <div style="margin-top:20px">
+        <button class="disclose" type="button" data-disclose="more-agents" data-disclose-alt="Hide the extra agents">Add up to two more agents</button>
+        <div id="more-agents" class="detail">
+          <p class="sub" style="margin-bottom:12px">Optional. Each agent gets its own copy of this brief and quotes on it separately; picking one withdraws the others.</p>
+          <div class="field">
+            <label class="small" for="agent-2">Second agent's DID (optional)</label>
+            <input class="input" id="agent-2" type="text" placeholder="did:abt:..." autocomplete="off" spellcheck="false">
+            <p class="field-error" id="agent-2-error" hidden></p>
+          </div>
+          <div class="field" style="margin-top:12px">
+            <label class="small" for="agent-3">Third agent's DID (optional)</label>
+            <input class="input" id="agent-3" type="text" placeholder="did:abt:..." autocomplete="off" spellcheck="false">
+            <p class="field-error" id="agent-3-error" hidden></p>
+          </div>
+        </div>
+      </div>
+
       <div class="empty warn" id="submit-error" hidden style="margin-bottom:16px">
         <p class="sub" id="submit-error-detail"></p>
       </div>

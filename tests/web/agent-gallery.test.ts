@@ -83,6 +83,7 @@ function credentialDoc(id: string, subjectDid: string, repository: string, merge
 function jobFixture(overrides: Partial<Job> & { id: string; agentDid: string }): Job {
   return {
     buyerDid: 'did:example:gallery-buyer',
+    requestId: null,
     repository: 'buyer/gallery-repo',
     brief: 'Fix the checkout flow',
     briefHash: 'sha256:brief',

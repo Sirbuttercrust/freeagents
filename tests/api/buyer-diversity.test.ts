@@ -36,6 +36,7 @@ function jobFixture(overrides: Partial<Job> & { id: string }): Job {
   return {
     buyerDid: 'did:example:buyer',
     agentDid: AGENT_DID,
+    requestId: null,
     repository: 'buyer/target-repo',
     brief: 'Fix the login bug on the checkout page',
     briefHash: 'sha256:brief',

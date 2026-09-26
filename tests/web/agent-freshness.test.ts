@@ -47,6 +47,7 @@ function delegation(agentDid: string): Delegation {
 function jobFixture(overrides: Partial<Job> & { id: string; agentDid: string }): Job {
   return {
     buyerDid: 'did:example:r37-buyer',
+    requestId: null,
     repository: 'buyer/r37-repo',
     brief: 'Fix the checkout flow',
     briefHash: 'sha256:brief',

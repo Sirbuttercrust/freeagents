@@ -28,6 +28,7 @@ function proposedJob(overrides: Partial<Job> = {}): Job {
     id: 'job_1',
     buyerDid: 'did:example:buyer',
     agentDid: 'did:example:agent',
+    requestId: null,
     repository: 'buyer/target-repo',
     brief: 'Fix the login bug on the checkout page',
     briefHash: 'sha256:brief',

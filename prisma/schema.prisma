@@ -178,6 +178,14 @@ model Job {
   id                String    @id @default(cuid())
   buyerDid          String
   agentDid          String
+  // HT1 Part A2 (ruling, 2026-09-25): nullable, set ONLY when a buyer's
+  // request named 2 or 3 agents in one call (route layer). A one-agent
+  // request leaves this null, so every existing row stays valid with no
+  // backfill. Indexed because the sibling-withdrawal-on-confirm logic
+  // looks every sibling up by this column; there is no route that looks
+  // a job up by requestId (sibling privacy is structural, per invariant
+  // 2: GET /jobs/:jobId stays fully public for every job).
+  requestId         String?
   repository        String
   // The buyer's own prose, stored verbatim (ENT-4): a third party holding it
   // can recompute briefHash without calling this service.
@@ -280,6 +288,7 @@ model Job {
 
   @@index([agentDid])
   @@index([buyerDid])
+  @@index([requestId])
 }
 
 // Created only when a Job transitions to "completed" (its pull request

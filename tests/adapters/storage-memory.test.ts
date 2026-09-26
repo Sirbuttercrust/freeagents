@@ -207,6 +207,7 @@ function jobFixture(): Job {
     id: 'job_x',
     buyerDid: 'did:example:buyer',
     agentDid: 'did:example:agent',
+    requestId: null,
     repository: 'buyer/target-repo',
     brief: 'Fix the login bug on the checkout page',
     briefHash: 'sha256:brief',
