@@ -111,6 +111,7 @@ async function render(path: string, session: Session | null, opts: { stream?: bo
             if (theirs.aborted) ctrl.abort();
             else theirs.addEventListener('abort', () => ctrl.abort());
           }
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { signal: _dropped, ...rest } = init;
           return fetch(url, { ...rest, signal: ctrl.signal });
         },
@@ -147,13 +148,16 @@ async function until(check: () => boolean, ms = 3000): Promise<boolean> {
   return check();
 }
 
-async function messagesOf(jobId: string): Promise<Array<Record<string, any>>> {
+// A row as the API sends it; a test reads the fields it asserts on.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Row = Record<string, any>;
+async function messagesOf(jobId: string): Promise<Row[]> {
   const res = await asParty(world, world.buyer, 'GET', `/jobs/${jobId}/messages`);
-  return ((await res.json()) as { messages: Array<Record<string, any>> }).messages;
+  return ((await res.json()) as { messages: Row[] }).messages;
 }
-async function threadsOf(who: Session, did: string): Promise<{ threads: Array<Record<string, any>>; unreadTotal: number }> {
+async function threadsOf(who: Session, did: string): Promise<{ threads: Row[]; unreadTotal: number }> {
   const res = await asParty(world, who, 'GET', `/accounts/${encodeURIComponent(did)}/threads`);
-  return (await res.json()) as { threads: Array<Record<string, any>>; unreadTotal: number };
+  return (await res.json()) as { threads: Row[]; unreadTotal: number };
 }
 function bubbleOf(page: Page, id: string): HTMLElement {
   const b = page.$(`#msg-${id} [data-msg]`);

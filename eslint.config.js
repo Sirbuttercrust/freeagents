@@ -145,6 +145,15 @@ export default tseslint.config(
         OffscreenCanvas: 'readonly',
         TextEncoder: 'readonly',
         devicePixelRatio: 'readonly',
+        // The hire conversation (messages.js): the live stream is read with
+        // fetch and a reader it can abort, an upload reports progress
+        // through XMLHttpRequest (fetch cannot), a picked file is read as
+        // base64 by FileReader, and CSS.escape keeps a message id safe in a
+        // selector.
+        AbortController: 'readonly',
+        XMLHttpRequest: 'readonly',
+        FileReader: 'readonly',
+        CSS: 'readonly',
         // The landing page's own globals, each defined by one script in
         // src/web/public/js/landing and read by the others.
         FA: 'readonly',
