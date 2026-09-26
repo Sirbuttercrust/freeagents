@@ -156,7 +156,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Waiting on you 1': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
     'In progress 2': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
     'Shipped 3': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
-    'Didn&#8217;t ship 1': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
+    'Didn\u2019t ship 1': 'same reason as "All 6": a live count, never the wireframe\u2019s sample digit (myjobs.js:93-95, tests/web/myjobs.test.ts:207)',
     // W-myjobs. The wireframe holds exactly one data-avatar
     // (spec/wireframe/myjobs.html:41) and it is not on a row: it is the
     // face on the nav account menu, a <details class="avatarmenu"> whose
