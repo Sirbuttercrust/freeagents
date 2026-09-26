@@ -16,6 +16,7 @@ import { NotImplementedError } from '../../../src/adapters/not-implemented.js';
 
 function fakeGithub(overrides: Partial<GithubAdapter> = {}): GithubAdapter {
   return {
+    platformLogin: 'freeagents-platform',
     getPullRequest: () => Promise.reject(new NotImplementedError('github', 'getPullRequest')),
     getMergeCommitSignature: () => Promise.reject(new NotImplementedError('github', 'getMergeCommitSignature')),
     getPublicGist: () => Promise.reject(new NotImplementedError('github', 'getPublicGist')),

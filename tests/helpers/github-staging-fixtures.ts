@@ -120,6 +120,7 @@ export function createStagingLifecycleGithubFake(
   }
 
   const github: GithubAdapter = {
+    platformLogin: PLATFORM_LOGIN,
     getPullRequest: (ref: PullRequestRef) => {
       calls.getPullRequest.push(ref);
       const found = pullRequests.get(prKey(ref));
