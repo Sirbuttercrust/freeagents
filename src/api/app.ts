@@ -5504,20 +5504,28 @@ export function createApp(
       // in the same position (confirmSpec itself is unchanged) so
       // tests/api/job-confirm.test.ts's recomputation holds. A pinned
       // job (current.rail already set) is untouched: this only fills a
-      // null. An open-quote job whose deposit has not settled yet
-      // reaches confirmSpec with rail still null; confirmSpec throws
-      // its existing JobPriceError, and the catch block below turns
-      // that into this route's ordinary 402 (deposit not yet settled),
-      // UNLESS the settlement gate itself already reports the deposit
-      // settled with no record to read a currency from, in which case
-      // the catch answers 409 naming the missing record rather than
-      // guessing at a currency, since priceUsd on this job is not
-      // actually missing.
+      // null. openQuoteAwaitingDeposit distinguishes the two ways an
+      // open quote can still be missing a rail at this point: no
+      // settlement row exists yet (confirmSpec's rail-null JobPriceError
+      // maps to the ordinary 402, or to the missing-record 409 if the
+      // gate itself disagrees) versus a settlement row WAS found and
+      // backfilled, in which case any JobPriceError confirmSpec throws
+      // next has nothing to do with rail at all -- it is the ordinary
+      // criteria or price-acceptance gate, and must answer with its own
+      // message, not the missing-record one (Proof r2, defect 1: a
+      // re-proposed price resets acceptance on an open quote whose
+      // deposit already settled, and the old check here read
+      // current.rail, which stays null even after a successful
+      // backfill, so it answered "no settlement record" for a job that
+      // had one).
       let jobForConfirm = current;
+      let openQuoteAwaitingDeposit = false;
       if (current.rail === null) {
         const settledDeposit = await settlementRepo.findByJobAndLeg(current.id, 'deposit');
         if (settledDeposit !== null) {
           jobForConfirm = { ...current, rail: settledDeposit.rail };
+        } else {
+          openQuoteAwaitingDeposit = true;
         }
       }
       let confirmed: Job;
@@ -5539,21 +5547,22 @@ export function createApp(
         if (err instanceof JobPriceError) {
           // FIX-B39, rule 3: this branch also carries the pre-existing
           // "no price has been proposed" case (JobPriceError with
-          // priceUsd null), unrelated to a currency at all -- that falls
-          // straight through to the generic err.message answer below,
-          // unchanged from before this card. The new branch here is
-          // narrower: an open-quote job that DOES have a price
-          // (priceUsd set, rail still null after the backfill above
-          // found no settled deposit row) fails confirmSpec's price gate
-          // for the sole reason that rail is missing, pending the
-          // deposit that will supply it. Before answering the ordinary
-          // "the deposit has not settled yet" 402 every other job gets
-          // here, ask the settlement gate directly: if it reports the
-          // deposit ALREADY settled (a state the repo lookup above could
-          // not corroborate with a row), guessing a currency would be
-          // wrong, so this refuses with 409 naming the missing record
-          // instead.
-          if (current.priceUsd !== null && current.rail === null) {
+          // priceUsd null), and the price-ACCEPTANCE gate case (a price
+          // and rail both set, one party has not accepted), neither one
+          // related to a currency at all -- both fall straight through
+          // to the generic err.message answer below, unchanged from
+          // before this card. The new branch here is narrower still: an
+          // open-quote job that DOES have a price and has NO settled
+          // deposit row yet (openQuoteAwaitingDeposit) fails
+          // confirmSpec's price gate for the sole reason that rail is
+          // missing, pending the deposit that will supply it. Before
+          // answering the ordinary "the deposit has not settled yet" 402
+          // every other job gets here, ask the settlement gate directly:
+          // if it reports the deposit ALREADY settled (a state the repo
+          // lookup above could not corroborate with a row), guessing a
+          // currency would be wrong, so this refuses with 409 naming the
+          // missing record instead.
+          if (current.priceUsd !== null && openQuoteAwaitingDeposit) {
             let gateSaysSettledWithNoRecord = false;
             try {
               gateSaysSettledWithNoRecord = await settlementGate.depositSettled(current.id);

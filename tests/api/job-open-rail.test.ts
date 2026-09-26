@@ -1,20 +1,18 @@
-// FIX-B39 (bugs.md B39): rules 2, 3 and 6 together, on the lightweight
-// open-rail harness (no real payment rails needed: this file settles a
-// deposit by writing straight to settlementRepo, the same shortcut
-// tests/api/job-confirm-staging.test.ts and others already take).
-//
-// Rule 6 (payableRails): GET /jobs/:jobId carries payableRails while the
-// job is 'proposed' and priced. Rule 2: the pinned currency if a quote
-// pinned it, otherwise every currency the hired agent's owner has a
-// payout address for. Rule 3 (the settled deposit fixes the currency):
-// once a deposit settles, only that currency, both in payableRails and
-// at confirm, which backfills job.rail from it BEFORE confirmSpec runs
-// so specHash still recomputes off node:crypto alone, and never clears
-// either party's price acceptance.
+// FIX-B39 (bugs.md B39): rules 2, 3 and 6, on the lightweight open-rail
+// harness (deposits are settled by writing straight to settlementRepo,
+// the shortcut tests/api/job-confirm-staging.test.ts also takes).
+// Rule 6: GET /jobs/:jobId carries payableRails while 'proposed' and
+// priced. Rule 2: the pinned currency if a quote pinned it, otherwise
+// every currency the hired agent's owner has a payout address for. Rule
+// 3: once a deposit settles, only that currency, both in payableRails
+// and at confirm, which backfills job.rail from it BEFORE confirmSpec
+// runs so specHash still recomputes off node:crypto alone, and never
+// clears either party's price acceptance.
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { postSigned } from '../helpers/abt-fixtures.js';
 import {
+  OPEN_QUOTE_CRITERIA,
   openDraft,
   proposeOneCriterionPrice,
   recordDeposit,
@@ -105,7 +103,15 @@ describe('confirm on an open quote: no deposit settled answers 402, never confir
 });
 
 describe('confirm on an open quote: the settled deposit backfills job.rail before confirmSpec runs', () => {
-  it('confirms with the confirmed job\'s rail equal to the settled deposit\'s rail, and specHash recomputes off node:crypto alone', async () => {
+  it('confirms with the confirmed job\'s rail equal to the settled deposit\'s rail, specHash recomputes off node:crypto alone, and price acceptance was never cleared', async () => {
+    // Rule 4: if backfilling job.rail cleared acceptance, confirmSpec's
+    // criteria-independent price gate would still pass (price acceptance
+    // is a separate check), but confirm would then fail on
+    // priceAcceptedByBuyer/Agent being false. Confirm succeeding at all
+    // here is that proof; the usdc mirror of this same "confirm
+    // succeeds" fact is exercised end to end, through the real
+    // wallet-response route, in tests/api/job-payment-rail-door-
+    // eligibility.test.ts.
     active = await startOpenRailApp();
     const jobId = await walkToOpenQuoteAccepted(active);
     await recordDeposit(active, jobId, 'abt');
@@ -129,19 +135,6 @@ describe('confirm on an open quote: the settled deposit backfills job.rail befor
     const recomputed = 'sha256:' + createHash('sha256').update(joined).digest('hex');
     expect(recomputed).toBe(body.specHash);
   });
-
-  it('never clears either party\'s price acceptance: confirm succeeds straight through (both acceptances were already true)', async () => {
-    // If backfilling job.rail cleared acceptance, confirmSpec's own
-    // criteria-acceptance-independent price gate would still pass (price
-    // acceptance is checked separately), but confirm would then fail on
-    // priceAcceptedByBuyer/Agent being false. Confirm succeeding at all
-    // here is the proof.
-    active = await startOpenRailApp();
-    const jobId = await walkToOpenQuoteAccepted(active);
-    await recordDeposit(active, jobId, 'usdc');
-    const confirmed = await postSigned(active.baseUrl, `/jobs/${jobId}/confirm`, {}, active.buyer);
-    expect(confirmed.status).toBe(200);
-  });
 });
 
 describe('confirm on an open quote: the settlement gate says settled but no record exists', () => {
@@ -161,6 +154,30 @@ describe('confirm on an open quote: the settlement gate says settled but no reco
     expect(confirmed.status).toBe(409);
     const body = (await confirmed.json()) as { error: string };
     expect(body.error).toContain('settlement record');
+  });
+
+  it('does NOT fire when the real refusal is unaccepted price, even though a deposit already settled (Proof r2, defect 1)', async () => {
+    // Proof r2 repro: a settled deposit exists (findByJobAndLeg finds a
+    // real row), so the "no record" branch must never trigger here --
+    // the actual reason confirmSpec refuses is that re-proposing the
+    // price (with no rail named) reset both acceptances, and neither
+    // party has re-accepted yet. Guessing "no settlement record" when a
+    // record plainly exists is exactly the false remedy message rule 3
+    // and rule 5 both forbid.
+    active = await startOpenRailApp();
+    const jobId = await walkToOpenQuoteAccepted(active);
+    await recordDeposit(active, jobId, 'usdc');
+    const reproposed = await postSigned(active.baseUrl, `/jobs/${jobId}/criteria`, {
+      criteria: OPEN_QUOTE_CRITERIA,
+      priceUsd: '600.00',
+    }, active.agent);
+    expect(reproposed.status).toBe(200);
+    expect((await reproposed.json() as { price: { acceptedByBuyer: boolean } }).price.acceptedByBuyer).toBe(false);
+    const confirmed = await postSigned(active.baseUrl, `/jobs/${jobId}/confirm`, {}, active.buyer);
+    expect(confirmed.status).toBe(409);
+    const body = (await confirmed.json()) as { error: string };
+    expect(body.error).toContain('price accepted by both parties');
+    expect(body.error).not.toContain('settlement record');
   });
 });
 

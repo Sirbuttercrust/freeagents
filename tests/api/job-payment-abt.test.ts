@@ -69,7 +69,10 @@ interface StartedAbtApp {
   readonly operatorRepo: MemoryAccountRepository;
 }
 
-async function startAbtApp(chainClient: AbtChainClient): Promise<StartedAbtApp> {
+async function startAbtApp(
+  chainClient: AbtChainClient,
+  wrapOperatorRepo?: (repo: MemoryAccountRepository, operatorDid: string) => AccountRepository,
+): Promise<StartedAbtApp> {
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   return withEnv(testAbtEnv(baseUrl), async () => {
@@ -121,7 +124,7 @@ async function startAbtApp(chainClient: AbtChainClient): Promise<StartedAbtApp> 
     const { github } = createStagingLifecycleGithubFake();
 
     const app = createApp(
-      operatorRepo,
+      wrapOperatorRepo !== undefined ? wrapOperatorRepo(operatorRepo, 'did:abt:op-abt-surface') : operatorRepo,
       agentRepo,
       undefined,
       github,
@@ -989,108 +992,26 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
     // check, then gone by the time the wallet completes authPrincipal
     // and the server resolves the recipient for prepareTx. Removing
     // abt-did-connect.ts's own guard (not app.ts's) is what turns this
-    // test red.
-    const fakeChain14b = fakeAbtChainClient(true);
-    const port = await reservePort();
-    const baseUrl = `http://127.0.0.1:${port}`;
-    const started14b = await withEnv(testAbtEnv(baseUrl), async () => {
-      const buyerWallet = fromRandom();
-      const agentWallet = fromRandom();
-      const spentTransferStorage = {
-        async record(): Promise<void> {},
-        async findByHash() {
-          return null;
-        },
-      };
-      const abtRail = createAbtPaymentRail({ chainClient: fakeChain14b.client, rateSource: async () => '1', spentTransferStorage });
-
-      const buyer = await signingIdentityFromWallet(buyerWallet);
-      const agent = await signingIdentityFromWallet(agentWallet);
-
-      const innerOperatorRepo = new MemoryAccountRepository();
-      await innerOperatorRepo.register({ did: buyer.did, githubLogin: 'buyer-abt-vanish' });
-      const agentRepo = new MemoryAgentRepository();
-      const operatorDid = 'did:abt:op-abt-vanish';
-      await agentRepo.create({
-        did: agent.did,
-        operatorDid,
-        delegation: { fixture: true } as never,
-        name: 'scout',
-        skills: ['triage'],
-        githubLogin: null,
-        negotiatesOnOwnersBehalf: true,
-      });
-      await innerOperatorRepo.register({ did: operatorDid, githubLogin: 'operator-abt-vanish' });
-      await innerOperatorRepo.setOperatorAddressAbt(operatorDid, 'z6MkVanishingAddress');
-
-      // Wraps findByDid so the operator's own row answers the address
-      // exactly once (the /start route's own checkRailDoorEligible read),
-      // then null on every call after (the read prepareTx makes when the
-      // wallet advances past authPrincipal), reproducing an address that
-      // was present when the buyer pressed pay and gone by the time the
-      // wallet finished the first claim.
+    // test red. Reuses startAbtApp (its operator DID and address are
+    // fixed at 'did:abt:op-abt-surface' / didSuffix(...)), wrapping only
+    // findByDid so the SAME row answers once, then answers with the
+    // address gone on every call after -- the /start door's own read
+    // succeeds, the wallet's later prepareTx read does not.
+    const started14b = await startAbtApp(fakeAbtChainClient(true).client, (repo, operatorDid) => {
       let operatorReads = 0;
-      const vanishingOperatorRepo: AccountRepository = {
-        register: innerOperatorRepo.register.bind(innerOperatorRepo),
-        findByGithubLogin: innerOperatorRepo.findByGithubLogin.bind(innerOperatorRepo),
-        findByPasskeySubject: innerOperatorRepo.findByPasskeySubject.bind(innerOperatorRepo),
-        setOperatorAddressEvm: innerOperatorRepo.setOperatorAddressEvm.bind(innerOperatorRepo),
-        setOperatorAddressAbt: innerOperatorRepo.setOperatorAddressAbt.bind(innerOperatorRepo),
+      return {
+        register: repo.register.bind(repo),
+        findByGithubLogin: repo.findByGithubLogin.bind(repo),
+        findByPasskeySubject: repo.findByPasskeySubject.bind(repo),
+        setOperatorAddressEvm: repo.setOperatorAddressEvm.bind(repo),
+        setOperatorAddressAbt: repo.setOperatorAddressAbt.bind(repo),
         findByDid: async (did: string) => {
-          const row = await innerOperatorRepo.findByDid(did);
+          const row = await repo.findByDid(did);
           if (did !== operatorDid) return row;
           operatorReads += 1;
           return operatorReads === 1 ? row : row === null ? null : { ...row, operatorAddressAbt: null };
         },
       };
-
-      const jobRepo = new MemoryJobRepository();
-      const settlementRepo = new MemorySettlementRepository();
-      const gate = new PrismaSettlementGate(settlementRepo);
-      const { github } = createStagingLifecycleGithubFake();
-
-      const app = createApp(
-        vanishingOperatorRepo,
-        agentRepo,
-        undefined,
-        github,
-        jobRepo,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        gate,
-        anyCommitStagingObserver(),
-        undefined,
-        abtRail,
-        null,
-        settlementRepo,
-        pureTxEncoder,
-      );
-      const server = app.listen(port, '127.0.0.1');
-      await new Promise<void>((resolve) => server.once('listening', resolve));
-
-      const created = await postSigned(baseUrl, '/jobs', {
-        buyerDid: buyer.did,
-        agentDid: agent.did,
-        repository: 'buyer/target-repo',
-        brief: 'Fix the login bug',
-      }, buyer);
-      const job = (await created.json()) as Record<string, unknown>;
-      const jobId = String(job.id);
-      await postSigned(baseUrl, `/jobs/${jobId}/criteria`, { criteria: proposal, priceUsd: '400.00', rail: 'abt' }, agent);
-      await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, buyer);
-      await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agent);
-      await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyer);
-      await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, agent);
-      await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyer);
-      await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agent);
-
-      return { server, baseUrl, buyer, buyerWallet, settlementRepo, jobId };
     });
 
     try {

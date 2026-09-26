@@ -22,28 +22,19 @@ describe('checkRailDoorEligible: an open quote with an address on record starts 
 });
 
 describe('checkRailDoorEligible: the job is pinned to the other currency', () => {
-  it('refuses naming the pin, before ever reading settlement or address', async () => {
+  it.each([
+    ['abt', 'usdc', false],
+    ['usdc', 'abt', true],
+  ] as const)('routeRail %s vs jobRail %s refuses naming the pin', async (routeRail, jobRail, operatorAddressOk) => {
     const settlementRepo = new MemorySettlementRepository();
     const result = await checkRailDoorEligible({
       jobId: 'job_1',
-      routeRail: 'abt',
-      jobRail: 'usdc',
+      routeRail,
+      jobRail,
       settlementRepo,
-      operatorAddressOk: false, // even wrong here, the pin fires first
+      operatorAddressOk, // even wrong (false) here, the pin fires first
     });
-    expect(result).toEqual({ ok: false, status: 409, message: expect.stringContaining('usdc') });
-  });
-
-  it('matches the pin exactly (abt pinned refuses the usdc door)', async () => {
-    const settlementRepo = new MemorySettlementRepository();
-    const result = await checkRailDoorEligible({
-      jobId: 'job_1',
-      routeRail: 'usdc',
-      jobRail: 'abt',
-      settlementRepo,
-      operatorAddressOk: true,
-    });
-    expect(result.ok).toBe(false);
+    expect(result).toEqual({ ok: false, status: 409, message: expect.stringContaining(jobRail) });
   });
 });
 

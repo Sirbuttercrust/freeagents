@@ -1,16 +1,14 @@
-// FIX-B39 (bugs.md B39): shared open-rail HTTP test harness. Extracted so
+// FIX-B39 (bugs.md B39): shared open-rail HTTP test harness for
 // tests/api/job-open-rail.test.ts and tests/api/job-payment-rail-door-
-// eligibility.test.ts do not each grow their own copy of the same
-// app-wiring and walk-to-open-quote boilerplate (both drive an open
-// quote, both need a buyer, an agent whose operator carries zero, one or
-// two payout addresses, and a settlement repository the test can write
-// into directly).
+// eligibility.test.ts (both drive an open quote, both need a buyer, an
+// agent whose operator carries zero, one or two payout addresses, and a
+// settlement repository the test can write into directly).
 import type { Server } from 'node:http';
 import { fromRandom } from '@ocap/wallet';
 import { createApp } from '../../src/api/app.js';
 import { PrismaSettlementGate, type SettlementGate } from '../../src/adapters/payment/gate.js';
 import { createAbtPaymentRail, type AbtPaymentRail } from '../../src/adapters/payment/abt.js';
-import { createUsdcPaymentRail, type UsdcPaymentRailShim } from '../../src/adapters/payment/usdc.js';
+import { createUsdcPaymentRail, type UsdcChainClient, type UsdcPaymentRailShim } from '../../src/adapters/payment/usdc.js';
 import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from '../../src/adapters/payment/usdc-spent-transfer-storage-types.js';
 import {
   MemoryAccountRepository,
@@ -48,13 +46,22 @@ interface OpenRailActors {
 }
 
 // The buyer, the hired agent, its operator (with zero, one or two
-// payout addresses), and fresh in-memory repositories: the part both
-// harness variants below need identically.
+// payout addresses), and fresh in-memory repositories, shared by both
+// harness variants below.
+// Fixed, distinct seeds (tests/api/job-payment-usdc.test.ts's own
+// fill(111)/fill(112) precedent): a random seed per identity had a
+// 1-in-200 chance of colliding buyer and agent into one signer, making
+// every criterion-accept land against a single party so confirm answers
+// the wrong 409 ("criteria outstanding") on an otherwise-correct run
+// (Proof r2 defect 2).
+const OPEN_RAIL_BUYER_SEED = 121;
+const OPEN_RAIL_AGENT_SEED = 122;
+
 async function buildOpenRailActors(
   operatorAddresses: { readonly abt?: string; readonly evm?: string },
 ): Promise<OpenRailActors> {
-  const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(Math.floor(Math.random() * 200) + 1));
-  const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(Math.floor(Math.random() * 200) + 1));
+  const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(OPEN_RAIL_BUYER_SEED));
+  const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(OPEN_RAIL_AGENT_SEED));
   const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyer.did, githubLogin: `buyer-open-rail-${Math.random()}` });
   const operatorDid = `did:abt:op-open-rail-${Math.random()}`;
@@ -76,12 +83,10 @@ async function buildOpenRailActors(
   return { buyer, agent, operatorRepo, operatorDid, agentRepo, jobRepo: new MemoryJobRepository(), settlementRepo: new MemorySettlementRepository(), github };
 }
 
-// gate defaults to a PrismaSettlementGate reading the SAME settlementRepo
-// this function returns, so a test that records a settlement directly on
-// settlementRepo sees it reflected through the gate with no separate
-// wiring step (confirm's own default stance). No payment rail is wired
-// (both abt and usdc payment start doors answer 503): tests that only
-// care about payableRails or confirm's own backfill never need one. Use
+// gate defaults to a PrismaSettlementGate reading the SAME settlementRepo,
+// so a test that records a settlement directly on settlementRepo sees it
+// reflected through the gate with no separate wiring step. No payment
+// rail is wired (both start doors answer 503): use
 // startOpenRailAppWithRails for a test that drives a real /start call.
 export async function startOpenRailApp(
   operatorAddresses: { readonly abt?: string; readonly evm?: string } = {},
@@ -104,7 +109,13 @@ export async function startOpenRailApp(
   };
 }
 
-function fakeUsdcRail(): UsdcPaymentRailShim {
+// The default $500.00 open-quote price (walkToOpenQuoteAccepted) with the
+// job's fixed 25% deposit: 125.00 USD price transfer, 6% USDC fee on
+// that (7.50 USD) fee transfer, at USDC's 6 decimals and a 1:1 rate.
+const OPEN_QUOTE_USDC_DEPOSIT_PRICE_HASH = '0xopen-quote-usdc-price';
+const OPEN_QUOTE_USDC_DEPOSIT_FEE_HASH = '0xopen-quote-usdc-fee';
+
+function fakeUsdcRail(operatorAddress: string): UsdcPaymentRailShim {
   const rows = new Map<string, UsdcSpentTransferRow>();
   const spentTransferStorage: UsdcSpentTransferStorage = {
     async record(row) {
@@ -114,8 +125,34 @@ function fakeUsdcRail(): UsdcPaymentRailShim {
       return rows.get(hash) ?? null;
     },
   };
+  // FIX-B39: the wallet-response door needs a chain client that actually
+  // observes a real transfer for the deposit leg's hashes this file's
+  // own open-quote-through-wallet-response test drives, or confirm()
+  // never answers confirmed: true and the test can prove nothing about
+  // rule 3's currency backfill. Every other hash used across this
+  // suite's refusal tests never reaches the chain client at all
+  // (checkRailDoorEligible refuses first), so this fixed pair is
+  // sufficient.
+  const chainClient: UsdcChainClient = {
+    decimals: async () => 6,
+    getTransactionReceipt: async (hash: string) => {
+      if (hash.toLowerCase() === OPEN_QUOTE_USDC_DEPOSIT_PRICE_HASH) {
+        return {
+          status: 1,
+          transfer: { to: operatorAddress, value: '125000000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID },
+        };
+      }
+      if (hash.toLowerCase() === OPEN_QUOTE_USDC_DEPOSIT_FEE_HASH) {
+        return {
+          status: 1,
+          transfer: { to: USDC_FEE_ADDRESS, value: '7500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID },
+        };
+      }
+      return null;
+    },
+  };
   return createUsdcPaymentRail({
-    chainClient: { decimals: async () => 6, getTransactionReceipt: async () => null },
+    chainClient,
     rateSource: async () => '1',
     halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
     spentTransferStorage,
@@ -138,13 +175,11 @@ function fakeAbtRail(): AbtPaymentRail {
   });
 }
 
-// The same harness, with BOTH real payment rails wired (fake chain
-// clients, no network), for a test that must drive an actual /start call
-// through to a 200 or through the full DID Connect wallet protocol.
-// FREEAGENTS_PUBLIC_BASE_URL must be set before createApp constructs
-// WalletAuthenticator, so the port is reserved and the env set up FIRST
-// (abt-fixtures.ts's own reservePort/withEnv pattern, mirrored by every
-// other ABT route test file), before the shared actor setup runs.
+// The same harness with BOTH real payment rails wired (fake chain
+// clients, no network), for a test that drives an actual /start call or
+// the full DID Connect wallet protocol. FREEAGENTS_PUBLIC_BASE_URL must
+// be set before createApp constructs WalletAuthenticator, so the port is
+// reserved and env set up FIRST (abt-fixtures.ts's own pattern).
 export async function startOpenRailAppWithRails(
   operatorAddresses: { readonly abt?: string; readonly evm?: string } = {},
 ): Promise<OpenRailApp> {
@@ -165,7 +200,7 @@ export async function startOpenRailAppWithRails(
     const app = createApp(
       actors.operatorRepo, actors.agentRepo, undefined, actors.github, actors.jobRepo,
       undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-      gate, undefined, undefined, fakeAbtRail(), fakeUsdcRail(), actors.settlementRepo, pureTxEncoder,
+      gate, undefined, undefined, fakeAbtRail(), fakeUsdcRail(operatorAddresses.evm ?? '0xUnusedOperator00000000000000000000000'), actors.settlementRepo, pureTxEncoder,
     );
     const server = app.listen(port, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -188,9 +223,8 @@ export async function openDraft(app: Pick<OpenRailApp, 'baseUrl' | 'buyer' | 'ag
 }
 
 // A single-criterion price proposal (open, or pinned if rail is
-// passed), with no criteria acceptance walked: the payableRails describe
-// blocks in tests/api/job-open-rail.test.ts only ever need the job at
-// 'proposed' with a price, never all the way to both-accepted.
+// passed), with no criteria acceptance walked: payableRails only needs
+// the job at 'proposed' with a price, never all the way to accepted.
 export async function proposeOneCriterionPrice(
   app: Pick<OpenRailApp, 'baseUrl' | 'agent'>,
   jobId: string,
@@ -232,7 +266,11 @@ export async function recordDeposit(
   });
 }
 
-const OPEN_QUOTE_CRITERIA = [
+// Exported: tests/api/job-open-rail.test.ts's own "a real price-acceptance
+// refusal is not mistaken for the missing-record one" case re-proposes
+// this SAME text (a different price only) to reset price acceptance
+// without touching criteria acceptance, and needs the identical list.
+export const OPEN_QUOTE_CRITERIA = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
   { text: 'Checkout e2e test passes', proposedBy: 'agent' },
 ];

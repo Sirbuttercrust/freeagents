@@ -110,12 +110,19 @@ export function operatorAddressNotSetMessage(rail: Rail): string {
 //      confirm has not necessarily run yet);
 //   3. the hired agent's operator has no payout address on record for
 //      this currency at all.
-// A caller passes operatorAddressOk (already resolved by the door's own
-// existing per-rail address lookup) rather than this function reaching
+// A caller passes operatorAddressOk rather than this function reaching
 // into AccountRepository itself, so it stays usable from both the route
-// layer (src/api/app.ts, which owns usdcOperatorAddressForJob) and
-// abt-did-connect.ts (which owns its own ABT equivalent) without a second
-// address-resolution path.
+// layer (src/api/app.ts) and abt-did-connect.ts without either needing
+// to import the other's address-resolution logic. That input is not
+// always a passthrough of an existing lookup: usdcOperatorAddressForJob
+// (app.ts) already resolved the address for its OWN recipient-quoting
+// purpose before this card, so its two call sites reuse that result, but
+// the ABT /start and token-mint doors added a SECOND resolution path
+// here (abtOperatorAddressOk, app.ts) specifically because neither door
+// had any prior reason to look up the ABT address before this card --
+// abt-did-connect.ts's operatorAddressForJob resolves the identical fact
+// for its own onAuth callback, kept separate because it builds the
+// actual recipient, not merely a boolean.
 export interface RailDoorEligibilityResult {
   readonly ok: true;
 }

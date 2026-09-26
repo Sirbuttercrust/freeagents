@@ -32,23 +32,19 @@ afterEach(() => {
   active = null;
 });
 
-describe('rule 5: the deposit that settled in the other currency refuses every door, before confirm', () => {
-  it('usdc deposit/start refuses naming the deposit currency, once an abt deposit has settled', async () => {
+describe('rule 5: the deposit that settled in the other currency refuses every simple door, before confirm', () => {
+  it.each([
+    ['usdc deposit/start', 'abt', 'usdc' as const, (baseUrl: string, jobId: string, buyer: Parameters<typeof postSigned>[3]) =>
+      postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer)],
+    ['abt deposit/start', 'usdc', 'abt' as const, (baseUrl: string, jobId: string, buyer: Parameters<typeof postSigned>[3]) =>
+      postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/abt/start`, {}, buyer)],
+  ] as const)('%s refuses naming the deposit currency, once a %s deposit has settled', async (_label, settledRail, _routeRail, call) => {
     active = await startOpenRailAppWithRails({ abt: 'z1Operator', evm: USDC_OPERATOR_ADDRESS });
     const jobId = await walkToOpenQuoteAccepted(active);
-    await recordDeposit(active, jobId, 'abt');
-    const res = await postSigned(active.baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, active.buyer);
+    await recordDeposit(active, jobId, settledRail);
+    const res = await call(active.baseUrl, jobId, active.buyer);
     expect(res.status).toBe(409);
-    expect((await res.json() as { error: string }).error).toContain('abt');
-  });
-
-  it('abt deposit/start refuses naming the deposit currency, once a usdc deposit has settled', async () => {
-    active = await startOpenRailAppWithRails({ abt: 'z1Operator', evm: USDC_OPERATOR_ADDRESS });
-    const jobId = await walkToOpenQuoteAccepted(active);
-    await recordDeposit(active, jobId, 'usdc');
-    const res = await postSigned(active.baseUrl, `/jobs/${jobId}/payments/deposit/abt/start`, {}, active.buyer);
-    expect(res.status).toBe(409);
-    expect((await res.json() as { error: string }).error).toContain('usdc');
+    expect((await res.json() as { error: string }).error).toContain(settledRail);
   });
 
   it('the token-mint door refuses naming the deposit currency, once a usdc deposit has settled', async () => {
@@ -57,6 +53,7 @@ describe('rule 5: the deposit that settled in the other currency refuses every d
     await recordDeposit(active, jobId, 'usdc');
     const res = await getSigned(active.baseUrl, `/api/did/pay/token?jobId=${jobId}&leg=deposit`, active.buyer);
     expect(res.status).toBe(409);
+    expect((await res.json() as { error: string }).error).toContain('usdc');
   });
 
   it('usdc wallet-response refuses and records no settlement, once an abt deposit has settled', async () => {
@@ -107,38 +104,23 @@ describe('rule 5: the deposit that settled in the other currency refuses every d
 });
 
 describe('rule 5: no payout address for THIS currency refuses an open quote, before any rail is pinned', () => {
-  it('abt deposit/start refuses naming the missing operator address when only the usdc address is set', async () => {
-    active = await startOpenRailAppWithRails({ evm: USDC_OPERATOR_ADDRESS });
+  it.each([
+    ['abt deposit/start', { evm: USDC_OPERATOR_ADDRESS }, (baseUrl: string, jobId: string, buyer: Parameters<typeof postSigned>[3]) =>
+      postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/abt/start`, {}, buyer)],
+    ['the token-mint door', { evm: USDC_OPERATOR_ADDRESS }, (baseUrl: string, jobId: string, buyer: Parameters<typeof postSigned>[3]) =>
+      getSigned(baseUrl, `/api/did/pay/token?jobId=${jobId}&leg=deposit`, buyer)],
+    ['usdc deposit/start (the mirror)', { abt: 'z1Operator' }, (baseUrl: string, jobId: string, buyer: Parameters<typeof postSigned>[3]) =>
+      postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer)],
+  ] as const)('%s refuses naming the missing operator address, with only one address set', async (_label, addresses, call) => {
+    active = await startOpenRailAppWithRails(addresses);
     const jobId = await walkToOpenQuoteAccepted(active);
-    const res = await postSigned(active.baseUrl, `/jobs/${jobId}/payments/deposit/abt/start`, {}, active.buyer);
-    expect(res.status).toBe(409);
-    expect((await res.json() as { error: string }).error).toContain('operator address');
-  });
-
-  it('the token-mint door refuses naming the missing operator address when only the usdc address is set', async () => {
-    active = await startOpenRailAppWithRails({ evm: USDC_OPERATOR_ADDRESS });
-    const jobId = await walkToOpenQuoteAccepted(active);
-    const res = await getSigned(active.baseUrl, `/api/did/pay/token?jobId=${jobId}&leg=deposit`, active.buyer);
-    expect(res.status).toBe(409);
-  });
-
-  it('usdc deposit/start refuses naming the missing operator address when only the abt address is set (the mirror)', async () => {
-    active = await startOpenRailAppWithRails({ abt: 'z1Operator' });
-    const jobId = await walkToOpenQuoteAccepted(active);
-    const res = await postSigned(active.baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, active.buyer);
+    const res = await call(active.baseUrl, jobId, active.buyer);
     expect(res.status).toBe(409);
     expect((await res.json() as { error: string }).error).toContain('operator address');
   });
 });
 
 describe('rule 5: an open quote starts on EITHER door when an address is on record', () => {
-  it('usdc deposit/start answers 200 on an open (no-rail) quote', async () => {
-    active = await startOpenRailAppWithRails({ evm: USDC_OPERATOR_ADDRESS });
-    const jobId = await walkToOpenQuoteAccepted(active);
-    const res = await postSigned(active.baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, active.buyer);
-    expect(res.status).toBe(200);
-  });
-
   it('abt deposit/start answers 200 on an open (no-rail) quote, and a full wallet round trip through it settles the deposit', async () => {
     const buyerWallet = fromRandom();
     const walletBuyer = await signingIdentityFromWallet(buyerWallet);
@@ -148,6 +130,27 @@ describe('rule 5: an open quote starts on EITHER door when an address is on reco
     const result = await driveAbtPayment(active.baseUrl, walletBuyer, buyerWallet, { jobId, leg: 'deposit' });
     expect(result.confirmed).toBe(true);
     expect((await active.settlementRepo.findByJobAndLeg(jobId, 'deposit'))?.rail).toBe('abt');
+  });
+
+  it('the same with USDC: an open quote settles a deposit through the wallet-response route, and confirm resolves the job to usdc', async () => {
+    active = await startOpenRailAppWithRails({ evm: USDC_OPERATOR_ADDRESS });
+    const jobId = await walkToOpenQuoteAccepted(active);
+    const startRes = await postSigned(active.baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, active.buyer);
+    expect(startRes.status).toBe(200);
+    const responseRes = await postSigned(
+      active.baseUrl,
+      `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
+      { priceTxHash: '0xopen-quote-usdc-price', feeTx: { signed: true, hash: '0xopen-quote-usdc-fee' } },
+      active.buyer,
+    );
+    expect(responseRes.status).toBe(200);
+    expect((await responseRes.json() as { confirmed: boolean }).confirmed).toBe(true);
+    expect((await active.settlementRepo.findByJobAndLeg(jobId, 'deposit'))?.rail).toBe('usdc');
+    const confirmed = await postSigned(active.baseUrl, `/jobs/${jobId}/confirm`, {}, active.buyer);
+    expect(confirmed.status).toBe(200);
+    const body = (await confirmed.json()) as Record<string, unknown>;
+    const price = body.price as { rail: string };
+    expect(price.rail).toBe('usdc');
   });
 });
 

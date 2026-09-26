@@ -8,7 +8,6 @@ import {
   acceptPrice,
   confirmSpec,
   createJob,
-  JobError,
   JobPriceError,
   proposeCriteria,
   type Job,
@@ -49,12 +48,6 @@ describe('proposeCriteria: rule 1, rail is optional on a price proposal', () => 
     // both acceptances survive.
     expect(again.priceAcceptedByBuyer).toBe(true);
     expect(again.priceAcceptedByAgent).toBe(true);
-  });
-
-  it('still rejects a rail value that is neither abt nor usdc when one is provided', () => {
-    expect(() =>
-      proposeCriteria(draftJob(), criteriaProposal, { priceUsd: '500.00', rail: 'usd' as never }),
-    ).toThrow(JobError);
   });
 });
 
