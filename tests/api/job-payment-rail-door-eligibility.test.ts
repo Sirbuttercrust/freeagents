@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { fromRandom } from '@ocap/wallet';
 import { getSigned, postSigned, driveAbtPayment, decodeClaimBody, walletResponseJwt, walletSignsPartialTx } from '../helpers/abt-fixtures.js';
 import { signingIdentityFromWallet } from '../helpers/sign-request.js';
-import { openDraft, startOpenRailAppWithRails, walkToOpenQuoteAccepted, type OpenRailApp } from '../helpers/open-rail-fixtures.js';
+import { startOpenRailAppWithRails, walkToOpenQuoteAccepted, type OpenRailApp } from '../helpers/open-rail-fixtures.js';
 import { decode as jwtDecode } from '@arcblock/jwt';
 
 const USDC_OPERATOR_ADDRESS = '0xOperator000000000000000000000000000000';

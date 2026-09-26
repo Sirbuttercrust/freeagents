@@ -86,7 +86,7 @@ export function depositRailMismatchMessage(routeRail: Rail, depositRail: Rail): 
 // tests/api/job-payment-usdc.test.ts's pre-existing "operator address"
 // assertion keeps passing unedited. The ABT sibling assertion
 // (tests/api/job-payment-abt.test.ts P8c) and the account-provisioning
-// custody fence test were both EDITED on this card, per Temper's rule-5
+// custody fence test were both EDITED on this card, per the rule-5
 // ruling: they used to assert /start succeeded with no address set, and
 // now assert this same 409, since rule 5 moves that refusal to /start.
 // tests/architecture/no-custody.test.ts bans custody words including
