@@ -120,6 +120,13 @@ p:last-child { margin-bottom: 0; }
 .nav .links { display: flex; gap: 22px; font-size: 15px; color: var(--fg-2); }
 .nav .links a:hover { color: var(--fg); }
 .nav .links a.on { color: var(--fg); }
+/* HT1 Part B: the unread-notifications count on the nav link. A small
+   filled pill, never a color the site doesn't already use elsewhere. */
+.nav .links a .badge {
+  display: inline-block; margin-left: 6px; padding: 0 6px; min-width: 16px;
+  border-radius: 999px; background: var(--action); color: var(--action-fg);
+  font-size: 11px; line-height: 16px; text-align: center; font-weight: 600;
+}
 .spacer { flex: 1; }
 
 /* -------------------------------------------------------------- buttons

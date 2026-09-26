@@ -118,6 +118,13 @@ export interface Agent {
   // operator-gated update path (requireCallerIsAgentOperator). The floor
   // (floorPriceUsd) still binds an autonomous agent once this is true.
   readonly negotiatesOnOwnersBehalf: boolean;
+  // HT1 Part B (STEER item 4, 2026-09-25): the operator's own optional
+  // webhook, set through PUT /agents/:agentDid/negotiation's sibling
+  // route (PATCH /agents/:agentDid/notify-webhook). Null means unset --
+  // the agent's own autonomous software is never contacted (STEER's own
+  // final rule: "never unless its operator both enabled negotiation AND
+  // set the webhook").
+  readonly notifyWebhookUrl: string | null;
 }
 
 // The structural half of "the delegation proof verifies" (R-2 accept). The

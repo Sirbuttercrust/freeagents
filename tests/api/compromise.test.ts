@@ -439,6 +439,7 @@ describe('POST /agents/:agentDid/compromise-report and GET .../compromise-report
       recordKeyRotation: (did, input) => baseAgents.recordKeyRotation(did, input),
       setAvatarSpec: (did, avatarSpec) => baseAgents.setAvatarSpec(did, avatarSpec),
       setNegotiatesOnOwnersBehalf: (did, flag) => baseAgents.setNegotiatesOnOwnersBehalf(did, flag),
+      setNotifyWebhookUrl: (did, url) => baseAgents.setNotifyWebhookUrl(did, url),
     };
     return createApp(
       overrides.accountRepo ?? new MemoryAccountRepository(),

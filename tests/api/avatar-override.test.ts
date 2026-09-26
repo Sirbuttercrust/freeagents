@@ -273,6 +273,7 @@ describe('PUT /agents/:agentDid/avatar, side-effect spy on every refusal (AV1)',
       recordKeyRotation: (did, input) => base.recordKeyRotation(did, input),
       setAvatarSpec,
       setNegotiatesOnOwnersBehalf: (did, flag) => base.setNegotiatesOnOwnersBehalf(did, flag),
+      setNotifyWebhookUrl: (did, url) => base.setNotifyWebhookUrl(did, url),
     };
 
     const app = createApp(accountRepo, spyRepo);

@@ -162,6 +162,14 @@ model Agent {
   // session or signature is always accepted there. The operator sets this
   // on their own agent through the existing operator-gated update path.
   negotiatesOnOwnersBehalf Boolean @default(false)
+  // HT1 Part B (STEER item 4, 2026-09-25): the operator's own optional
+  // webhook, called with a small signed JSON event (job id, event type,
+  // time; never the message body) fire-and-forget with a short timeout.
+  // Null means no webhook is set, the same "not set" fail-closed meaning
+  // negotiatesOnOwnersBehalf's own default already carries. Validated as
+  // https-only at the route that sets it (isHttpsUrl,
+  // src/domain/notification.ts), never re-validated here.
+  notifyWebhookUrl String?
 
   operator Account @relation(fields: [operatorDid], references: [did])
 
@@ -285,6 +293,7 @@ model Job {
   settlement   Settlement?
   review       Review?
   attestations Attestation[]
+  messages     Message[]
 
   @@index([agentDid])
   @@index([buyerDid])
@@ -617,4 +626,118 @@ model SignatureSpend {
 
   @@id([keyid, signatureHash])
   @@index([created])
+}
+
+// HT1 Part B (2026-09-25): the hire thread. One row per message, jobId
+// indexed since every read is scoped to one job's thread. authorDid is
+// null only for a system row (authorParty 'system'); authorParty and
+// authorKind are stored as plain strings, the same "narrow union as a
+// string column, validated by the domain layer" stance JobStatus's own
+// sibling fields (rail, status) do NOT take (those are real Postgres
+// enums) but Job.criteria's Party field already does implicitly via its
+// Json shape -- authorParty here needs no enum of its own because it is
+// never queried by value, only ever read back whole per row. editHistory
+// is Json (an ordered list of { body, editedAt }, src/domain/message.ts's
+// EditRecord), append-only from the domain layer's own editMessage
+// (invariant: no route in this codebase ever writes to editHistory
+// directly). reactionBuyer/reactionAgent are two nullable columns, not
+// one Json object, mirroring Job's own acceptedByBuyer/acceptedByAgent
+// pattern: two independent slots that can never share one column.
+// attachmentIds is a Postgres native string array (mirroring Agent.skills),
+// referencing Attachment.id rows by id only, never their bytes.
+// systemEvent is Json, present only on a system row (src/domain/message.ts's
+// SystemEvent union) -- the same "structured, not projected to named
+// columns" stance Job.criteria and Agent.avatarSpec already take, chosen
+// for the identical reason: the shape is small, fixed per event type, and
+// a Json column avoids a migration per event type this file's own union
+// might grow.
+model Message {
+  id              String   @id
+  jobId           String
+  authorDid       String?
+  authorParty     String
+  authorKind      String
+  body            String
+  replyToId       String?
+  createdAt       DateTime @default(now())
+  editedAt        DateTime?
+  editHistory     Json     @default("[]")
+  reactionBuyer   String?
+  reactionAgent   String?
+  attachmentIds   String[]
+  systemEvent     Json?
+
+  job Job @relation(fields: [jobId], references: [id])
+
+  @@index([jobId])
+}
+
+// HT1 Part B: read receipts, per party per job (src/domain/message.ts's
+// ThreadReadState). A sibling record, not a field on Message, for the
+// same reason KeyRotation and CompromiseReport sit beside the entity
+// they describe rather than inside it (src/adapters/storage/types.ts's
+// own header comments): a read receipt is a fact about the READER's
+// position in the thread, not about any one message.
+model ThreadReadState {
+  jobId      String
+  party      String
+  lastReadAt DateTime
+
+  @@id([jobId, party])
+}
+
+// HT1 Part B (STEER item 4): a per-account notification row. accountDid
+// is the recipient (the agent's operator by default, or the buyer on
+// the buyer's own threads); jobId and eventType are the pointer back to
+// the thread, never the message body itself (the same "never the
+// message body" rule the webhook payload keeps, src/domain/notification.ts's
+// own header comment).
+model Notification {
+  id         String   @id
+  accountDid String
+  jobId      String
+  eventType  String
+  createdAt  DateTime @default(now())
+  readAt     DateTime?
+
+  @@index([accountDid])
+}
+
+// HT1 Part B (attachments STEER): one stored attachment per uploaded
+// file, keyed by a random id (never the original filename or a
+// caller-guessable path). path and thumbnailPath name files under the
+// configurable storage directory (src/adapters/attachments/storage.ts);
+// this row never carries the bytes themselves. sizeBytes is the
+// RE-ENCODED size for an image (the original bytes are never kept, per
+// the brief), and the uploaded size verbatim for a PDF.
+model Attachment {
+  id               String   @id
+  jobId            String
+  uploaderDid      String
+  kind             String
+  originalFilename String
+  sizeBytes        Int
+  path             String
+  thumbnailPath    String?
+  createdAt        DateTime @default(now())
+
+  @@index([jobId])
+}
+
+// HT1 Part B (STEER item 4): one row per browser Push API subscription
+// (the standard endpoint + p256dh/auth key pair a browser's own
+// PushManager.subscribe() returns), keyed by accountDid so an account
+// with several signed-in browsers can hold several subscriptions.
+// endpoint is unique: the same browser subscription can never be
+// recorded twice, and a re-subscribe (a browser rotating its own
+// endpoint) simply adds a new row rather than colliding with the old one.
+model PushSubscription {
+  id         String   @id @default(cuid())
+  accountDid String
+  endpoint   String   @unique
+  p256dh     String
+  auth       String
+  createdAt  DateTime @default(now())
+
+  @@index([accountDid])
 }

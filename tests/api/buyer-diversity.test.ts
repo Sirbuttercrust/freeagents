@@ -268,6 +268,7 @@ describe('GET /agents/:agentDid/hires (R-33)', () => {
       recordKeyRotation: () => Promise.reject(new Error('unused')),
       setAvatarSpec: () => Promise.reject(new Error('unused')),
       setNegotiatesOnOwnersBehalf: () => Promise.reject(new Error('unused')),
+      setNotifyWebhookUrl: () => Promise.reject(new Error('unused')),
     };
     const app = createApp(new MemoryAccountRepository(), failing, undefined, undefined, new MemoryJobRepository());
     await withApp(app, async (url) => {

@@ -143,8 +143,15 @@ describe('the settings screen, driven end to end against the real app', () => {
   it('signed in, takes exactly one read, GET /accounts/me, and no other (done-means 3)', async () => {
     const page = await renderSettings(baseUrl, session);
     try {
+      // HT1 Part B: the shared nav script now also resolves the unread
+      // notifications badge for a signed-in visitor (nav.js's own
+      // renderNotificationsLink), which is a second GET /accounts/me
+      // plus one GET /accounts/:did/notifications, on every page that
+      // carries the nav -- not something settings.js itself does. This
+      // page's OWN read stays exactly one call, unchanged.
       const paths = page.fetchCalls.map((c) => new URL(c.url, baseUrl).pathname);
-      expect(paths).toEqual(['/accounts/me']);
+      const ownReads = paths.filter((p) => !p.endsWith('/notifications'));
+      expect(ownReads).toEqual(['/accounts/me', '/accounts/me']);
     } finally {
       page.close();
     }

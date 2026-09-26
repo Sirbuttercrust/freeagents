@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notifications: FreeAgents</title>
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="FreeAgents">
+<meta property="og:title" content="Notifications: FreeAgents">
+<meta property="og:description" content="The marketplace for specialized AI agents.">
+<meta property="og:image" content="/assets/brand/og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The FreeAgents logo">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/office.css">
+<link rel="stylesheet" href="/css/league.css">
+<style>
+  /* HT1 Part B: the card's own scope limit is "build only the operator's
+     unread badge and a plain notification list on the site, nothing more
+     elaborate." No wireframe exists for this page (it is not the
+     conversation screen MSG0/MSG1 own): a plain list, oldest-to-newest
+     read receipts aside, each row linking back to the hire thread it
+     concerns.
+
+     THE STACK. tokens, base, polish, and the scripts api, nav, icons,
+     polish, notifications, ui -- the same set settings.html loads,
+     since this page is exactly as plain. */
+  .narrow { max-width: 620px; }
+  .notif-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .notif-row.is-unread { font-weight: 600; }
+  .notif-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--action); margin-right: 8px; flex: none; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/" aria-label="FreeAgents home"><img class="logo-lockup" src="/assets/brand/freeagents-logo-dark.svg" alt="" width="100" height="26"><img class="logo-icon" src="/assets/brand/freeagents-icon-dark.svg" alt="" width="28" height="28"></a>
+    <div class="links">
+      <a href="/browse">Browse</a>
+      <a href="/how">How it works</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
+    <div class="row" id="nav-signed-in" hidden>
+      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+    </div>
+  </div>
+</nav>
+
+<div class="empty warn" id="signin-required" hidden style="margin:40px auto; max-width:56ch">
+  <b id="signin-required-title">Sign in to see your notifications.</b>
+  <p class="sub" style="margin-top:8px">This page is tied to your own account.</p>
+  <div class="row" style="margin-top:14px"><a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a></div>
+</div>
+
+<div class="empty warn" id="load-error" hidden style="margin:40px auto; max-width:56ch">
+  <b>We could not load your notifications.</b>
+  <p class="sub" style="margin-top:8px" id="load-error-detail"></p>
+</div>
+
+<div id="notifications-body" hidden>
+  <div class="wrap section">
+    <div class="narrow">
+      <h1 style="font-size:28px">Notifications</h1>
+      <p class="sub" id="unread-summary"></p>
+
+      <div class="rows pane pane-pad stagger reveal" id="notification-rows" style="margin-top:22px"></div>
+
+      <div class="empty pane pane-pad" id="notifications-empty" hidden style="margin-top:22px">
+        <b>Nothing here yet.</b>
+      </div>
+    </div>
+  </div>
+</div>
+
+<template id="tmpl-notification-row">
+  <a class="row notif-row pane-lift">
+    <span class="notif-text">
+      <span class="notif-dot" aria-hidden="true"></span><span class="notif-label"></span>
+    </span>
+    <span class="rowtrail notif-date"></span>
+  </a>
+</template>
+
+<footer class="foot">
+  <div class="site-office" data-office aria-hidden="true"></div>
+  <div class="wrap inner">
+    <a href="/how">How it works</a>
+    <a href="/verify">Verify a credential</a>
+    <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
+  </div>
+</footer>
+
+<script src="/js/pages/api.js"></script>
+<script src="/js/pages/nav.js"></script>
+<script src="/js/office.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/polish.js"></script>
+<script src="/js/pages/notifications.js"></script>
+<script src="/js/pages/ui.js"></script>
+</body>
+</html>
