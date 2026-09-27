@@ -129,7 +129,7 @@ async function until(check: () => boolean, ms = 4000): Promise<void> {
   while (!check() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
 }
 
-async function render(path: string, session: Session | null, opts: { base?: string; reject?: Page['reject'] } = {}): Promise<Page> {
+async function render(path: string, session: Session | null, opts: { base?: string; reject?: Page['reject']; hold?: (path: string, method: string) => Promise<void> | null } = {}): Promise<Page> {
   const base = opts.base ?? baseUrl;
   const failures: string[] = [];
   const virtualConsole = new VirtualConsole();
@@ -152,6 +152,10 @@ async function render(path: string, session: Session | null, opts: { base?: stri
             authed: typeof headers.Authorization === 'string',
           });
           if (page.reject?.(String(input), method)) return Promise.reject(new TypeError('Failed to fetch'));
+          // When set, a matching request waits for the returned promise
+          // before it goes out, so a test can close the window first.
+          const held = opts.hold?.(String(input), method) ?? null;
+          if (held !== null) return held.then(() => fetch(new URL(input, base), init));
           return fetch(new URL(input, base), init);
         },
       });
@@ -539,6 +543,49 @@ describe('(h) /myagents opens every agent\u2019s settings', () => {
       }
     } finally {
       page.close();
+    }
+  });
+
+  // The page's per-row read (GET /agents/:did, myagents.js loadDetail) is
+  // the one read no render signal waits for, so a test can close the window
+  // while it is out. A read that answers after that must paint nothing:
+  // bots.js has no document left to draw into, and the throw is an
+  // unhandled rejection that fails the whole CI run. Every row read is
+  // held, the window closed, then the reads released. The open-window twin
+  // proves the hold itself does not stop a live page painting.
+  it('a row read that answers after the page is closed paints nothing; one that answers while open paints', async () => {
+    nextLogin = 'settings-late-read-owner';
+    const owner = await mintSession(sessions);
+    const did = await listAgent(owner, { name: 'late-read', skills: ['triage'] });
+    const heldRead = (p: string, m: string): boolean => m === 'GET' && p.startsWith('/agents/did');
+    for (const closeFirst of [true, false]) {
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((r) => { release = r; });
+      const page = await render('/myagents', owner, { hold: (p, m) => (heldRead(p, m) ? gate : null) });
+      await until(() => page.document.querySelector(`[data-agent-row="${did}"]`) !== null);
+      const bots = (page.window as unknown as { FABots: { mount: (...a: unknown[]) => unknown } }).FABots;
+      const realMount = bots.mount.bind(bots);
+      let closed = false;
+      let mountsAfterClose = 0;
+      bots.mount = (...a: unknown[]) => (closed ? (mountsAfterClose += 1, null) : realMount(...a));
+      const host = page.document.querySelector(`[data-agent-row="${did}"] .rav`)!;
+      expect(page.calls.some((c) => heldRead(c.path, c.method)), 'the row read went out').toBe(true);
+      expect(host.querySelector('canvas'), 'painted before its read answered').toBeNull();
+      if (closeFirst) {
+        page.close();
+        closed = true;
+        release();
+        await new Promise((r) => setTimeout(r, 400));
+        expect(mountsAfterClose, 'a closed page painted an avatar').toBe(0);
+      } else {
+        release();
+        try {
+          await until(() => host.querySelector('canvas') !== null);
+          expect(host.querySelector('canvas'), 'an open page never painted its row').not.toBeNull();
+        } finally {
+          page.close();
+        }
+      }
     }
   });
 });

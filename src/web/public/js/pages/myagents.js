@@ -310,9 +310,16 @@
      be read should not assert an identity this page could not confirm: a
      failed read leaves the box exactly as it started, data-pending and
      empty, and offers no editor either. The roster row does not know
-     whether the agent has a job in progress, so the bot never works here. */
+     whether the agent has a job in progress, so the bot never works here.
+
+     A read that answers after its row has left the document paints
+     nothing. Nothing on this page removes a row, so this only happens when
+     the page itself is torn down while reads are out (the jsdom tests close
+     every window they render, and a closed window has no document for
+     bots.js to draw into). */
   function loadDetail(agent, row) {
     A.get("/agents/" + encodeURIComponent(agent.did)).then(function (result) {
+      if (!row.isConnected) return;
       if (result.state !== "ok") return;
       var detail = result.value;
       paintAvatar(row, agent.did, detail.avatarSpec);
