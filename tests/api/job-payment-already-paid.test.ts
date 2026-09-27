@@ -25,11 +25,12 @@ import { didSuffix } from '../../src/domain/agent.js';
 import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from '../../src/adapters/payment/usdc-spent-transfer-storage-types.js';
 import { MemorySettlementRepository, MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
-import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { signingIdentityFromSeed } from '../helpers/sign-request.js';
 import {
   abtEnv,
   continueAbtWalletProtocol,
   getSigned,
+  postSigned,
   pureTxEncoder,
   reservePort,
   startAbtSession,
@@ -84,21 +85,6 @@ function fakeSpentTransferStorage(): UsdcSpentTransferStorage {
       return rows.get(hash) ?? null;
     },
   };
-}
-async function postSigned(baseUrl: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
-  const bodyText = JSON.stringify(body);
-  const targetUri = `${baseUrl}${path}`;
-  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText });
-  return fetch(targetUri, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'signature-input': signed['signature-input'],
-      signature: signed.signature,
-      'content-digest': signed['content-digest'],
-    },
-    body: bodyText,
-  });
 }
 interface Started {
   readonly server: Server;
