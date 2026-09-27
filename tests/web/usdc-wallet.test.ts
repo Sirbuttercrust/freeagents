@@ -54,6 +54,13 @@ interface ChainState {
 function newChainState(): ChainState {
   return { receipts: new Map(), hashCounter: 0 };
 }
+// A late-landing fee receipt: the transaction was real, only slow.
+function markFeeConfirmed(chainState: ChainState): void {
+  chainState.receipts.set('0xsent2', {
+    status: 1,
+    transfer: { to: USDC_FEE_ADDRESS.toLowerCase(), value: '7500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID },
+  });
+}
 function serverChainClient(state: ChainState): UsdcChainClient {
   return {
     decimals: async () => 6,
@@ -376,7 +383,6 @@ async function setup(seedSuffix: number): Promise<{ chainState: ChainState; h: H
 function walletEntry(id: string, provider: FakeWallet['provider']): { id: string; name: string; icon: string; provider: FakeWallet['provider'] } {
   return { id, name: 'Fake Wallet', icon: '', provider };
 }
-
 describe('the engine pays a deposit and a balance end to end against the real routes', () => {
   it('deposit: paid, both transfers land, and the settlement row exists', async () => {
     const { chainState, h, page } = await setup(1);
@@ -404,7 +410,6 @@ describe('the engine pays a deposit and a balance end to end against the real ro
     expect(row?.amountUsd).toBe('375.00');
   });
 });
-
 describe('invariant 2: the call data decodes, with no call to this service, to what the server confirmed', () => {
   it('each transfer decodes to the recipient and amount the start answer named, price before fee', async () => {
     const { chainState, h, page } = await setup(3);
@@ -428,7 +433,6 @@ describe('invariant 2: the call data decodes, with no call to this service, to w
     expect(amount.toString()).toBe(huge);
   });
 });
-
 describe('discovery: EIP-6963 announced wallets, window.ethereum only as a fallback', () => {
   it('two announced wallets are both listed by name and id', async () => {
     const { page } = await setup(5);
@@ -470,7 +474,6 @@ describe('discovery: EIP-6963 announced wallets, window.ethereum only as a fallb
     expect(found[0]!.id).toBe('uuid-c');
   });
 });
-
 describe('chain switching (EIP-3326/3085)', () => {
   it('add-then-switch: a switch refused for a reason other than 4001 tries an add, once, then switches', async () => {
     const { chainState, h, page } = await setup(7);
@@ -507,7 +510,6 @@ describe('chain switching (EIP-3326/3085)', () => {
     expect(wallet.sends).toHaveLength(0);
   });
 });
-
 describe('resume: a reload never sends the price transfer again', () => {
   it('resumes from localStorage after a reload (same device, same window object)', async () => {
     const { chainState, h, page } = await setup(8);
@@ -585,10 +587,7 @@ describe('resume: a reload never sends the price transfer again', () => {
     deviceAPage.close();
     // The fee's receipt lands after the fact, like the waiting-network
     // case above: the transaction was real, only slow.
-    chainState.receipts.set('0xsent2', {
-      status: 1,
-      transfer: { to: USDC_FEE_ADDRESS.toLowerCase(), value: '7500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID },
-    });
+    markFeeConfirmed(chainState);
     const deviceBPage = await loadEnginePage(h.baseUrl);
     opened.push({ server: h.server, page: deviceBPage });
     const deviceBWallet = buildFakeWallet({ chainState });
@@ -598,7 +597,6 @@ describe('resume: a reload never sends the price transfer again', () => {
     expect(deviceBWallet.sends).toHaveLength(0);
   });
 });
-
 describe('every other outcome in Make 3', () => {
   it('cancelled at the first approval: nothing sent, nothing posted', async () => {
     const { h, page } = await setup(10);
@@ -621,13 +619,8 @@ describe('every other outcome in Make 3', () => {
     expect(first.outcome).toBe('transfer_failed');
     expect(first.leg).toBe('price');
     // The fee transfer's own receipt lands after the fact (a slow
-    // confirmation, exactly like the waiting-on-the-network case
-    // above), so the retry below only has the price transfer left to
-    // resolve.
-    chainState.receipts.set('0xsent2', {
-      status: 1,
-      transfer: { to: USDC_FEE_ADDRESS.toLowerCase(), value: '7500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID },
-    });
+    // confirmation), leaving only the price transfer to resolve.
+    markFeeConfirmed(chainState);
     // The buyer presses "send it again": resend: 'price' never sends
     // the stored (failed) hash again.
     const retryWallet = buildFakeWallet({ chainState });
@@ -657,13 +650,8 @@ describe('every other outcome in Make 3', () => {
     const wallet = buildFakeWallet({ chainState, feeNeverConfirms: true });
     const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w13', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 1, pollLimit: 2 });
     expect(result.outcome).toBe('waiting_network');
-    // The fee's receipt lands on chain after pay()'s own bounded wait
-    // gave up: written directly into the shared chain state, exactly
-    // what a slow-confirming transaction looks like from outside.
-    chainState.receipts.set('0xsent2', {
-      status: 1,
-      transfer: { to: USDC_FEE_ADDRESS.toLowerCase(), value: '7500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID },
-    });
+    // The fee's receipt lands after pay()'s own bounded wait gave up.
+    markFeeConfirmed(chainState);
     // check(): reads the receipts once (never on a timer) and posts
     // wallet-response once.
     const checkResult = await engineOf(page).check({ window: page.window, wallet: walletEntry('w13', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken });
@@ -685,7 +673,6 @@ describe('every other outcome in Make 3', () => {
     expect(result.message).toBe('insufficient funds for gas');
   });
 });
-
 describe('no wallet-response posts before both receipts exist', () => {
   it('the wallet-response body always carries feeTx.signed true once the fee transfer was sent, and posts exactly once', async () => {
     const { chainState, h, page } = await setup(16);
@@ -742,7 +729,6 @@ describe('no wallet-response posts before both receipts exist', () => {
     expect(wallet.calls.filter((c) => c === 'eth_getTransactionReceipt').length).toBeGreaterThan(2);
   });
 });
-
 describe('outcomes with no case before B49 review round 1 (defect 3)', () => {
   it('already_paid: the server\'s own already-paid refusal is forwarded and the stored record cleared', async () => {
     const { chainState, h, page } = await setup(21);
