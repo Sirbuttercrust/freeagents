@@ -536,9 +536,10 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
   });
 
   // (i) Real Chrome: no sideways scroll at 320, 390 (touch) and 1280 with
-  // the composer, a line edit and the price edit open; every control is
-  // 44px or more on touch; reduced motion leaves every row finished and
-  // still.
+  // the composer, a line edit and the price edit open, measured against
+  // the layout viewport (clientWidth) so a scrollbar's width is not read as
+  // overflow; every control is 44px or more on touch; reduced motion leaves
+  // every row finished and still.
   describe('(i) real layout of the owner\u2019s open states', () => {
     const VIEWPORTS = [
       { width: 320, touch: true },
@@ -555,8 +556,12 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
         await browser.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: touch });
         await browser.send('Emulation.setTouchEmulationEnabled', { enabled: touch });
         await browser.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+        // At desktop width the page gets a classic 15px scrollbar, as CI's
+        // Linux Chrome draws one; a Mac overlays its scrollbar and would
+        // hide a measurement tied to the nominal width.
+        const classicScrollbar = touch ? '' : ` document.addEventListener('DOMContentLoaded', function () { var s = document.createElement('style'); s.textContent = '::-webkit-scrollbar { width: 15px; } ::-webkit-scrollbar-thumb { background: #888; }'; document.head.appendChild(s); });`;
         await browser.send('Page.addScriptToEvaluateOnNewDocument', {
-          source: `window.sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify({ token: ownerToken }))});`,
+          source: `window.sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify({ token: ownerToken }))});${classicScrollbar}`,
         });
         const states: Array<[string, string, string | null]> = [
           ['composer', '/agreement?job=b40-draft-reload', null],
@@ -567,7 +572,7 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
           await browser.goto(`${baseUrl}${path}`, 900);
           if (opener) await browser.evaluate(`document.querySelector(${JSON.stringify(opener)}).click()`);
           await new Promise((r) => setTimeout(r, 200));
-          const m = await browser.evaluate<{ scrollWidth: number; open: boolean; small: string[]; moving: string[] }>(`
+          const m = await browser.evaluate<{ scrollWidth: number; clientWidth: number; open: boolean; small: string[]; moving: string[] }>(`
             (function () {
               var controls = Array.from(document.querySelectorAll('#agreement-body button, #agreement-body input, #agreement-body a.btn'))
                 .filter(function (el) { var r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
@@ -578,16 +583,29 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
                 .map(function (el) { return el.className || el.tagName; });
               return {
                 scrollWidth: document.documentElement.scrollWidth,
+                clientWidth: document.documentElement.clientWidth,
                 open: !!document.querySelector(${JSON.stringify(opener ? '.line-edit' : '#compose-send')}),
                 small: small, moving: moving
               };
             })()
           `);
           expect(m.open, `${label} at ${width} did not open`).toBe(true);
-          expect(m.scrollWidth, `${label} at ${width} scrolls sideways`).toBe(width);
+          expect(m.scrollWidth, `${label} at ${width} scrolls sideways`).toBeLessThanOrEqual(m.clientWidth);
           if (touch) expect(m.small, `${label} at ${width}: controls under 44px`).toEqual([]);
           expect(m.moving, `${label} at ${width}: moving under reduced motion`).toEqual([]);
         }
+        // Positive control: one element a little wider than the layout
+        // viewport must fail the same measurement.
+        const wide = await browser.evaluate<{ scrollWidth: number; clientWidth: number }>(`
+          (function () {
+            var d = document.createElement('div');
+            d.style.width = (document.documentElement.clientWidth + 20) + 'px';
+            d.style.height = '1px';
+            document.getElementById('agreement-body').appendChild(d);
+            return { scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth };
+          })()
+        `);
+        expect(wide.scrollWidth).toBeGreaterThan(wide.clientWidth);
       } finally {
         await browser.close();
       }
