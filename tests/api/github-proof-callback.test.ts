@@ -598,16 +598,13 @@ describe('GET /auth/github/callback, the one-click proof branch: HTML landing (d
   });
 });
 
-// QA proof r1, D4/(d): route-level cross-over (the adapter's own
-// refusals were tested, but never over this route). Asserts zero gist
-// writes on the proof side.
+// QA proof r1, D4/(d): route-level cross-over. Asserts zero gist writes
+// on the proof side.
 describe('GET /auth/github/callback, the one-click proof branch: route-level cross-over (decision 1)', () => {
   it('a sign-in state presented at the callback never completes a proof and mints no session-shaped body for a proof caller: falls through to the ordinary sign-in success shape', async () => {
     const booted = await bootWithDerivableAgent('octo-crossover-signin-state');
     try {
-      // A sign-in state, minted the same way GET /auth/github/start does.
       const signInStart = await booted.sessionAdapter.beginGitHubOAuth();
-
       const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(signInStart.state)}`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;

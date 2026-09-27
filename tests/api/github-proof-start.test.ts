@@ -214,8 +214,7 @@ describe('POST /agents/:agentDid/github-proof/start, decision 2 (the platform mu
     }
   });
 
-  // QA proof r1, D4/(a): the OTHER agent shape that fails the re-derive
-  // comparison, a site agent that brought its own DID (FIX-B41a item 5).
+  // QA proof r1, D4/(a): the site-brought-own-DID shape (FIX-B41a item 5).
   it('409: a site agent that brought its own agent DID (the agentProof branch) is refused, naming path two', async () => {
     process.env.FREEAGENTS_PLATFORM_SEED = freshSeed();
     const identity = createIdentityAdapter(createKnownKeyStore());
@@ -234,12 +233,8 @@ describe('POST /agents/:agentDid/github-proof/start, decision 2 (the platform mu
       const session = await sessionAdapter.completeGitHubOAuth({ code: 'good-code', state: start.state });
       if (session === null) throw new Error('expected a session');
       const auth = { authorization: `Bearer ${session.token}` };
-      // The site path derives the owner's DID from the session subject
-      // with the identical call POST /agents' site path makes.
       const { did: ownerDid } = await identity.createOperatorDid(ownerLogin);
 
-      // The agent's own key, brought by the owner, over the exact string
-      // POST /agents' agentProof branch requires.
       const agentKey = await signingIdentityFromSeed(new Uint8Array(32).fill(216));
       const payload = `freeagents:list-agent:v1:${agentKey.did}:${ownerDid}`;
       const { sign } = await import('node:crypto');
