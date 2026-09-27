@@ -187,7 +187,9 @@
     if (isOwner) {
       A.setTextById("lede", job.status === "draft"
         ? "Add what you will deliver, one line at a time, then set the price."
-        : "Sign the lines you agree with. Changing a line clears both signatures on it.");
+        : isOpen(job)
+          ? "Sign the lines you agree with. Changing a line clears both signatures on it."
+          : "This agreement is closed to changes.");
     }
     var host = A.el("terms");
     host.textContent = "";

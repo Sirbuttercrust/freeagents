@@ -188,6 +188,7 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
     await jobRepo.create(jobFixture({ id: 'b40-edit', status: 'proposed', criteria: [unsigned('One'), unsigned('Two'), unsigned('Three')], priceUsd: '300.00', deliveryWindowDays: 4 }));
     await jobRepo.create(jobFixture({ id: 'b40-price', status: 'proposed', criteria: [unsigned('Only')], priceUsd: '500.00', deliveryWindowDays: 7 }));
     await jobRepo.create(jobFixture({ id: 'b40-window', status: 'proposed', criteria: [unsigned('Only')], priceUsd: '500.00', deliveryWindowDays: 7 }));
+    await jobRepo.create(jobFixture({ id: 'b40-cents', status: 'proposed', criteria: [unsigned('Only')], priceUsd: '500.00', deliveryWindowDays: 7 }));
     await jobRepo.create(jobFixture({ id: 'b40-floor', status: 'proposed', criteria: [unsigned('Only')], priceUsd: '500.00', deliveryWindowDays: 7 }));
     await jobRepo.create(jobFixture({ id: 'b40-add', status: 'proposed', criteria: [unsigned('Existing')], priceUsd: '300.00', deliveryWindowDays: 4 }));
     await jobRepo.create(jobFixture({ id: 'b40-withdrawn', status: 'proposed', criteria: [unsigned('Going away')], priceUsd: '300.00', deliveryWindowDays: 4 }));
@@ -418,6 +419,35 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
       }
     });
 
+    // Each refusal below is the parser's own guard: with it gone, the value
+    // would reach the server (or post a wrong shape), so posts.length moves.
+    it.each([
+      ['a zero price', 1, '0', 'Enter the price in dollars, like 400 or 400.50.'],
+      ['a part-day window', 2, '5.5', 'Enter the window in whole days, like 5.'],
+      ['a zero-day window', 2, '0', 'Enter the window in whole days, like 5.'],
+      ['a blank line', 0, '   ', 'Write the line before saving it.'],
+    ] as const)('%s is refused before any request is made', async (_label, row, value, sentence) => {
+      const page = await render(baseUrl, 'b40-floor', ownerToken);
+      try {
+        await editRow(page, row, value);
+        expect(page.posts.length).toBe(0);
+        expect(page.document.querySelector('.line-edit .edit-error')?.textContent).toBe(sentence);
+      } finally {
+        page.close();
+      }
+    });
+
+    it('"400.5" goes out as the two-place "400.50" the route requires', async () => {
+      const page = await render(baseUrl, 'b40-cents', ownerToken);
+      try {
+        await editRow(page, 1, '400.5');
+        expect(page.posts.at(-1)!.body).toMatchObject({ priceUsd: '400.50' });
+        expect((await readJob('b40-cents')).price.priceUsd).toBe('400.50');
+      } finally {
+        page.close();
+      }
+    });
+
     it('a job withdrawn after the page loaded answers 409 with a sentence naming the reload', async () => {
       const page = await render(baseUrl, 'b40-withdrawn', ownerToken);
       try {
@@ -449,6 +479,7 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
         expect(page.document.querySelectorAll('#terms button').length).toBe(0);
         expect(page.document.getElementById('propose-field')!.hidden).toBe(true);
         expect(page.document.querySelector('.line-edit')).toBeNull();
+        expect(page.document.getElementById('lede')?.textContent).toBe('This agreement is closed to changes.');
       } finally {
         page.close();
       }
