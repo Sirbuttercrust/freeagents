@@ -618,14 +618,12 @@
   /* ---------------------------------------------------- section 3 rows */
 
   // The unproven-GitHub half of section 3 (W5 ruling, handoff item 1): a
-  // full-row link to /agents/:did, the screen that holds this agent's own
-  // record. The wireframe's own row links to provegithub.html, which is
-  // not built or mounted anywhere in src/web (no route in static.ts): the
-  // same substitution myagents.js already made for the identical fact,
-  // there rendered as inert text with no link at all. This row still
-  // needs a destination (it is a door, the wireframe's own words), so it
-  // goes to the agent's own profile, the nearest built page that holds
-  // the fact this row is about. Named in the PR body as a departure.
+  // full-row link to /agents/:did, the agent's own public record. The
+  // wireframe's own row links to provegithub.html, which is not built as
+  // its own page: its one button lives on /agentsettings (FIX-B47c), and
+  // /myagents' attention line links there as "confirm it". This row still
+  // opens the agent's public page; pointing it at /agentsettings too is
+  // bugs.md B55, its own card. Named in the PR body as a departure.
   function attentionRow(entry) {
     var a = document.createElement("a");
     a.className = "row between pane-lift";

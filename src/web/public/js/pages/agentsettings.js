@@ -1,12 +1,25 @@
 /* FIX-B41d: agent settings (SITEMAP P-20). The owner of a listed agent
    changes its name, description, skills and lowest price, and can clear the
-   description and the price. One write, PATCH /agents/:agentDid.
+   description and the price, with PATCH /agents/:agentDid. FIX-B47c adds
+   the second write: the GitHub account section's one button, which starts
+   the one-click proof through github-proof.js (the press and its refusal
+   sentences live there, shared with /listagent's created state).
 
    READS. GET /accounts/me for the signed-in account's did, then
-   GET /agents/:agentDid for the agent. The form shows only when the two
-   match (the agent's operatorDid is this account's did). The route answers
-   403 to anyone else whatever this page shows, so hiding the form is a
-   courtesy, never the guard.
+   GET /agents/:agentDid for the agent. The form and the GitHub section
+   show only when the two match (the agent's operatorDid is this account's
+   did). Both routes answer 403 to anyone else whatever this page shows, so
+   hiding them is a courtesy, never the guard.
+
+   THE GITHUB SECTION reads proofStatus and githubLogin off that same agent
+   read: verified shows "Confirmed: @login" and no button; anything else
+   shows why it matters and the button.
+
+   THE LANDING. GitHub's callback sends the owner back here as
+   ?agent=<did>&github=verified|refused|failed. The outcome is read once,
+   after the owner check, and then taken out of the address so a reload or
+   a shared link does not say it again. "verified" is believed only when
+   the agent itself reads verified: the query alone proves nothing.
 
    THE BODY. Every save sends all four fields and nothing else: name and
    skills always, description and floorPriceUsd as null when their field is
@@ -24,6 +37,11 @@
   var A = window.FAApi;
   var agentDid = "";
   var sending = false;
+
+  var OUTCOMES = {
+    refused: "Nothing changed. You can confirm it whenever you are ready.",
+    failed: "That did not work, and nothing changed. Try again."
+  };
 
   function start() {
     var session = A.getStoredSession();
@@ -62,14 +80,43 @@
           return;
         }
         fill(agent);
+        showGithub(agent);
         A.showById("settings-body", true);
         var form = A.el("settings-form");
         form.addEventListener("submit", onSubmit);
         /* "Saved." speaks for the values on screen; an edit after it makes
            it stale, so it goes. */
         form.addEventListener("input", function () { A.setTextById("saved", ""); });
+        A.el("gh-confirm").addEventListener("click", function () {
+          A.setTextById("gh-outcome", "");
+          window.FAGithubProof.press(agentDid, A.el("gh-confirm"), A.el("gh-error"));
+        });
+        landing(agent);
       });
     });
+  }
+
+  /* ------------------------------------------------------------- github */
+
+  function showGithub(agent) {
+    var verified = agent.proofStatus === "verified";
+    A.setTextById("gh-login", typeof agent.githubLogin === "string" ? agent.githubLogin : "");
+    A.showById("gh-confirmed", verified);
+    A.showById("gh-unverified", !verified);
+  }
+
+  function landing(agent) {
+    var params = new URLSearchParams(window.location.search);
+    var outcome = params.get("github");
+    if (outcome === null) return;
+    params.delete("github");
+    var query = params.toString();
+    window.history.replaceState(window.history.state, "", window.location.pathname + (query === "" ? "" : "?" + query) + window.location.hash);
+    if (outcome === "verified" && agent.proofStatus === "verified") {
+      A.setTextById("gh-outcome", "GitHub confirmed.");
+    } else if (Object.prototype.hasOwnProperty.call(OUTCOMES, outcome)) {
+      A.setTextById("gh-outcome", OUTCOMES[outcome]);
+    }
   }
 
   function fill(agent) {
