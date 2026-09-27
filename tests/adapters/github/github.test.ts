@@ -383,11 +383,20 @@ describe('createGithubAdapter, createGist (FIX-B47a)', () => {
 
   it('the request carries the CALLER token, not the configured platform token', async () => {
     const { fetchImpl, calls } = scriptedFetch([jsonResponse(201, { id: 'g1', owner: null })]);
+    const platformToken = 'ghp_platform_token_not_real';
+    let capturedAuth = '';
+    const wrapped: typeof fetch = (async (input, init) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      capturedAuth = headers['authorization'] ?? '';
+      return fetchImpl(input, init);
+    }) as typeof fetch;
     // A platform token IS configured here, to prove createGist ignores it.
-    const adapter = createGithubAdapter({ token: 'ghp_platform_token_not_real', fetchImpl });
+    const adapter = createGithubAdapter({ token: platformToken, fetchImpl: wrapped });
 
     await adapter.createGist({ token: CALLER_TOKEN, filename: 'f.txt', content: 'c' });
 
+    expect(capturedAuth).toBe(`Bearer ${CALLER_TOKEN}`);
+    expect(capturedAuth).not.toContain(platformToken);
     const call = calls[0];
     if (call === undefined) throw new Error('expected a recorded call');
     expect(call.url).toBe('https://api.github.com/gists');
@@ -421,6 +430,24 @@ describe('createGithubAdapter, deleteGist (FIX-B47a)', () => {
     expect(calls).toEqual([
       { url: 'https://api.github.com/gists/gist-to-remove', method: 'DELETE', body: undefined },
     ]);
+  });
+
+  it('the request carries the CALLER token, not the configured platform token', async () => {
+    const { fetchImpl } = scriptedFetch([new Response(null, { status: 204 })]);
+    const platformToken = 'ghp_platform_token_not_real';
+    let capturedAuth = '';
+    const wrapped: typeof fetch = (async (input, init) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      capturedAuth = headers['authorization'] ?? '';
+      return fetchImpl(input, init);
+    }) as typeof fetch;
+    // A platform token IS configured here, to prove deleteGist ignores it.
+    const adapter = createGithubAdapter({ token: platformToken, fetchImpl: wrapped });
+
+    await adapter.deleteGist({ token: CALLER_TOKEN, id: 'gist-to-remove' });
+
+    expect(capturedAuth).toBe(`Bearer ${CALLER_TOKEN}`);
+    expect(capturedAuth).not.toContain(platformToken);
   });
 
   it('rejects rather than calling GitHub when the caller token is empty', async () => {
@@ -486,7 +513,8 @@ describe('createGithubAdapter, deleteGrant (FIX-B47a, docs.github.com delete-an-
 
     await adapter.deleteGrant({ token: CALLER_TOKEN });
 
-    expect(capturedAuth.startsWith('Basic ')).toBe(true);
+    const expectedBasic = `Basic ${Buffer.from('client-abc:secret-xyz', 'utf8').toString('base64')}`;
+    expect(capturedAuth).toBe(expectedBasic);
     expect(capturedAuth).not.toContain(CALLER_TOKEN);
   });
 
@@ -508,11 +536,10 @@ describe('createGithubAdapter, deleteGrant (FIX-B47a, docs.github.com delete-an-
   });
 });
 
-// S3+S4-style fence, but for THIS card's own worry: no method among the
-// three new ones (or any existing one) ever sends the caller's exchanged
-// token to a /repos/ path -- that would be a write to a repository using
-// the owner's own credentials, which invariant 1 forbids this adapter from
-// ever doing.
+// S3+S4-style fence, but for THIS card's own worry: none of the three new
+// methods this card adds ever sends the caller's exchanged token to a
+// /repos/ path -- that would be a write to a repository using the owner's
+// own credentials, which invariant 1 forbids this adapter from ever doing.
 describe('createGithubAdapter, the caller token never reaches a /repos/ path (FIX-B47a)', () => {
   it('createGist, deleteGist and deleteGrant only ever call /gists or /applications, never /repos/', async () => {
     const { fetchImpl: gistFetch, calls: gistCalls } = scriptedFetch([jsonResponse(201, { id: 'g1', owner: null })]);
