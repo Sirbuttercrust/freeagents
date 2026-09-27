@@ -501,7 +501,8 @@ describe('4. not one of the wireframe\u2019s three builder notes is rendered', (
     const markup = await servedMarkup();
     // Every href the page ships lands on a route the app mounts: the static
     // shell's own links, and every link myagents.js renders into the roster
-    // (FIX-B41d added the per-row Settings link, /agentsettings?agent=<did>).
+    // (FIX-B41d added the per-row Settings link, /agentsettings?agent=<did>,
+    // and FIX-B47c the attention line's "confirm it", to the same page).
     // The rendered links are read out of the script's own href strings,
     // so a new link pointing anywhere unmounted turns this red.
     const script = readFileSync(scriptPath, 'utf8');
@@ -509,7 +510,7 @@ describe('4. not one of the wireframe\u2019s three builder notes is rendered', (
     // with a real one, the page's own first row.
     const rendered = [...script.matchAll(/(?:href\s*=|setAttribute\("href",)\s*"(\/[^"#?]*)/g)]
       .map((m) => (m[1]!.endsWith('/') ? m[1]! + encodeURIComponent(HIRE_DID) : m[1]!));
-    expect(rendered, 'the links myagents.js renders').toEqual([`/agents/${encodeURIComponent(HIRE_DID)}`, '/incoming', '/agentsettings']);
+    expect(rendered, 'the links myagents.js renders').toEqual([`/agents/${encodeURIComponent(HIRE_DID)}`, '/incoming', '/agentsettings', '/agentsettings']);
     const hrefs = [...markup.matchAll(/href="(\/[^"#?]*)/g)].map((m) => m[1]!).filter((h) => !/\.(css|ico|svg|png|webmanifest)$/.test(h));
     expect(hrefs).toContain('/listagent');
     for (const href of new Set([...hrefs, ...rendered])) {
