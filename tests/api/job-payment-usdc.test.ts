@@ -12,9 +12,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
 import { createUsdcPaymentRail, type UsdcChainClient, type UsdcObservedTransfer } from '../../src/adapters/payment/usdc.js';
-import type { UsdcHalfPaidRow, UsdcHalfPaidStorage } from '../../src/adapters/payment/usdc-half-paid-storage-types.js';
 import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from '../../src/adapters/payment/usdc-spent-transfer-storage-types.js';
 import { MemorySettlementRepository } from '../../src/adapters/storage/memory.js';
+import { fakeHalfPaidStorage } from '../helpers/usdc-half-paid-fixtures.js';
 import {
   MemoryAgentRepository,
   MemoryJobRepository,
@@ -976,25 +976,9 @@ describe('B23: a wallet response replaying an already-recorded hash stays idempo
 // Make 2 (B49 card): usdc/start carries the leg's half-paid record when
 // one exists, under its own top-level halfPaidRecord key, absent
 // otherwise. Distinct from wallet-response's `halfPaid` boolean.
-// A STATEFUL fake (unlike the no-op fixture elsewhere): these tests
-// need what confirm() wrote to come back out of read().
-function fakeHalfPaidStorage(): UsdcHalfPaidStorage {
-  const rows = new Map<string, UsdcHalfPaidRow>();
-  function key(jobId: string, leg: 'deposit' | 'balance'): string {
-    return `${jobId}:${leg}`;
-  }
-  return {
-    async record(row: UsdcHalfPaidRow) {
-      rows.set(key(row.jobId, row.leg), { ...row });
-    },
-    async read(jobId: string, leg: 'deposit' | 'balance') {
-      return rows.get(key(jobId, leg)) ?? null;
-    },
-    async clear(jobId: string, leg: 'deposit' | 'balance') {
-      rows.delete(key(jobId, leg));
-    },
-  };
-}
+// fakeHalfPaidStorage (shared, tests/helpers/usdc-half-paid-fixtures.ts)
+// is STATEFUL, unlike the no-op fixture used elsewhere in this file:
+// these tests need what confirm() wrote to come back out of read().
 // Every Make 2 test below builds a rail with a fresh half-paid store on
 // its own chain client: this one call replaces the repeated withUsdcEnv
 // + createUsdcPaymentRail wrapper each test would otherwise write out.

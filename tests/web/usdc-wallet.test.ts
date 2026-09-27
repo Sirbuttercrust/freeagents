@@ -16,9 +16,9 @@ import { createSessionAdapter } from '../../src/adapters/identity/session-github
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
 import { createUsdcPaymentRail, type UsdcChainClient } from '../../src/adapters/payment/usdc.js';
 import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from '../../src/adapters/payment/usdc-spent-transfer-storage-types.js';
-import type { UsdcHalfPaidRow, UsdcHalfPaidStorage } from '../../src/adapters/payment/usdc-half-paid-storage-types.js';
-import { MemoryAccountRepository, MemoryAgentRepository, MemoryJobRepository, MemorySettlementRepository } from '../../src/adapters/storage/memory.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSessionToken } from '../helpers/session-fixtures.js';
+import { MemoryAccountRepository, MemoryAgentRepository, MemoryJobRepository, MemorySettlementRepository } from '../../src/adapters/storage/memory.js';
+import { fakeHalfPaidStorage } from '../helpers/usdc-half-paid-fixtures.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 import { signingIdentityFromSeed, type SigningIdentity } from '../helpers/sign-request.js';
@@ -70,23 +70,6 @@ function fakeSpentTransferStorage(): UsdcSpentTransferStorage {
     },
     async findByHash(hash) {
       return rows.get(hash) ?? null;
-    },
-  };
-}
-function fakeHalfPaidStorage(): UsdcHalfPaidStorage {
-  const rows = new Map<string, UsdcHalfPaidRow>();
-  function key(jobId: string, leg: 'deposit' | 'balance'): string {
-    return `${jobId}:${leg}`;
-  }
-  return {
-    async record(row) {
-      rows.set(key(row.jobId, row.leg), { ...row });
-    },
-    async read(jobId, leg) {
-      return rows.get(key(jobId, leg)) ?? null;
-    },
-    async clear(jobId, leg) {
-      rows.delete(key(jobId, leg));
     },
   };
 }
