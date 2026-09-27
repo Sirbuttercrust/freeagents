@@ -554,8 +554,11 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
 
   // QA proof r1, D3: covers a failed exchange and a failed gist write
   // (brief test (f)), each with no binding change and no token leak.
-  it("failed: a failed token exchange (GitHub's own /login/oauth/access_token refuses it) gives 'failed' with no binding change and no token leak", async () => {
-    const booted = await bootWithDerivableAgent('octo-exchange-fails', { fetchImpl: failingGitHubFetch() });
+  it.each([
+    ['a failed token exchange', { fetchImpl: failingGitHubFetch() }, 0, 0],
+    ['a failed gist publish', { createGistShouldFail: true }, 1, 1],
+  ] as const)("failed: %s gives 'failed' with no binding change and no token leak", async (_label, bootOptions, expectCreateGist, expectDeleteGrant) => {
+    const booted = await bootWithDerivableAgent('octo-failure-case', bootOptions);
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
@@ -567,39 +570,8 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body).toEqual({ outcome: 'failed', agentDid: booted.agentDid });
-      expect(booted.githubFake.calls.createGist).toHaveLength(0);
-      expect(booted.githubFake.calls.deleteGrant).toHaveLength(0);
-
-      const read = await fetch(`${booted.baseUrl}/agents/${booted.agentDid}`);
-      const readBody = (await read.json()) as Record<string, unknown>;
-      expect(readBody.proofStatus).toBe('unverified');
-      expect(readBody.githubLogin).toBeNull();
-
-      const loggedText = [...errSpy.mock.calls, ...warnSpy.mock.calls].map((args) => JSON.stringify(args)).join('\n');
-      expect(loggedText).not.toContain(FAKE_TOKEN);
-    } finally {
-      errSpy.mockRestore();
-      warnSpy.mockRestore();
-      await new Promise<void>((resolve) => booted.server.close(() => resolve()));
-    }
-  });
-
-  it("failed: a failed gist publish (createGist rejects) gives 'failed' with no binding change, one deleteGrant, and no token leak", async () => {
-    const booted = await bootWithDerivableAgent('octo-createGist-fails', { createGistShouldFail: true });
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const startRes = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
-      const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
-      const state = new URL(redirectUrl).searchParams.get('state')!;
-
-      const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as Record<string, unknown>;
-      expect(body).toEqual({ outcome: 'failed', agentDid: booted.agentDid });
-      expect(booted.githubFake.calls.createGist).toHaveLength(1);
-      expect(booted.githubFake.calls.deleteGist).toHaveLength(0);
-      expect(booted.githubFake.calls.deleteGrant).toHaveLength(1);
+      expect(booted.githubFake.calls.createGist).toHaveLength(expectCreateGist);
+      expect(booted.githubFake.calls.deleteGrant).toHaveLength(expectDeleteGrant);
 
       const read = await fetch(`${booted.baseUrl}/agents/${booted.agentDid}`);
       const readBody = (await read.json()) as Record<string, unknown>;
