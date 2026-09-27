@@ -525,3 +525,19 @@ button.sig:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px;
    cannot show. Nothing is lost, including for a screen reader. */
 .railnow { display: none; font-size: 13px; color: var(--fg-2); margin-top: 12px; }
 @media (max-width: 640px) { .railnow { display: block; } }
+
+/* ============================================ THE OWNER'S EDITING SEAT
+   FIX-B40. The same page with the two mark columns read from the other
+   side, plus the edit control the wireframe already draws on every row.
+
+   A row's editor spans the whole row, under the text, so the matrix
+   columns never shift while a line is being rewritten. */
+.terms > li > .line-edit { grid-column: 1 / -1; padding: 4px 0 2px 42px; }
+.line-edit .edit-actions { margin-top: 10px; }
+.edit-error { font-size: 13px; color: var(--fg); margin-top: 8px; }
+.terms .act[aria-expanded="true"] { color: var(--fg); background: var(--bg-2); }
+.terms .act:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+@media (max-width: 640px) {
+  .terms > li > .line-edit { grid-row: 3; padding-left: 0; }
+}
