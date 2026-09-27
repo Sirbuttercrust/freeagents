@@ -995,17 +995,22 @@ function fakeHalfPaidStorage(): UsdcHalfPaidStorage {
     },
   };
 }
+// Every Make 2 test below builds a rail with a fresh half-paid store on
+// its own chain client: this one call replaces the repeated withUsdcEnv
+// + createUsdcPaymentRail wrapper each test would otherwise write out.
+function halfPaidRail(chainClient: UsdcChainClient): ReturnType<typeof createUsdcPaymentRail> {
+  return withUsdcEnv(() =>
+    createUsdcPaymentRail({
+      chainClient,
+      rateSource: async () => '1',
+      halfPaidStorage: fakeHalfPaidStorage(),
+      spentTransferStorage: fakeSpentTransferStorage(),
+    }),
+  );
+}
 describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a half-paid record', () => {
   it('absent when the leg has never gone half-paid', async () => {
-    const usdcRail = withUsdcEnv(() =>
-      createUsdcPaymentRail({
-        chainClient: fakeUsdcChainClient(),
-        rateSource: async () => '1',
-        halfPaidStorage: fakeHalfPaidStorage(),
-        spentTransferStorage: fakeSpentTransferStorage(),
-      }),
-    );
-    const { server, baseUrl, buyer, agent } = await startApp(usdcRail);
+    const { server, baseUrl, buyer, agent } = await startApp(halfPaidRail(fakeUsdcChainClient()));
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
       const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
@@ -1017,17 +1022,8 @@ describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a h
     }
   });
   it('present, with both hashes and statuses, once the price confirmed and the fee did not', async () => {
-    const usdcRail = withUsdcEnv(() =>
-      createUsdcPaymentRail({
-        chainClient: fakeUsdcChainClient({
-          '0xhalf-price': { status: 1, transfer: depositPriceTransfer() },
-        }),
-        rateSource: async () => '1',
-        halfPaidStorage: fakeHalfPaidStorage(),
-        spentTransferStorage: fakeSpentTransferStorage(),
-      }),
-    );
-    const { server, baseUrl, buyer, agent } = await startApp(usdcRail);
+    const rail = halfPaidRail(fakeUsdcChainClient({ '0xhalf-price': { status: 1, transfer: depositPriceTransfer() } }));
+    const { server, baseUrl, buyer, agent } = await startApp(rail);
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
       await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
@@ -1072,14 +1068,7 @@ describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a h
       decimals: async () => 6,
       getTransactionReceipt: async (hash: string) => chainReceipts[hash.toLowerCase()] ?? null,
     };
-    const usdcRail = withUsdcEnv(() =>
-      createUsdcPaymentRail({
-        chainClient: liveChainClient,
-        rateSource: async () => '1',
-        halfPaidStorage: fakeHalfPaidStorage(),
-        spentTransferStorage: fakeSpentTransferStorage(),
-      }),
-    );
+    const usdcRail = halfPaidRail(liveChainClient);
     const { server, baseUrl, buyer, agent } = await startApp(usdcRail);
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
