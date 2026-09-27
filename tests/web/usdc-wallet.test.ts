@@ -21,28 +21,14 @@ import { MemoryAccountRepository, MemoryAgentRepository, MemoryJobRepository, Me
 import { fakeGitHubConfig, fakeGitHubFetch, mintSessionToken } from '../helpers/session-fixtures.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
-import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
+import { signingIdentityFromSeed, type SigningIdentity } from '../helpers/sign-request.js';
+import { postSigned } from '../helpers/abt-fixtures.js';
 const USDC_TOKEN = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d';
 const USDC_FEE_ADDRESS = '0x00000000000000000000000000000000000000AB';
 const USDC_OPERATOR_ADDRESS = '0x00000000000000000000000000000000000000CD';
 const USDC_CHAIN_ID = 421614;
 const BUYER_FROM_ADDRESS = '0x00000000000000000000000000000000000000EF';
 const TRANSFER_IFACE = new Interface(['function transfer(address,uint256)']);
-async function postSigned(baseUrl: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
-  const bodyText = JSON.stringify(body);
-  const targetUri = `${baseUrl}${path}`;
-  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText });
-  return fetch(targetUri, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'signature-input': signed['signature-input'],
-      signature: signed.signature,
-      'content-digest': signed['content-digest'],
-    },
-    body: bodyText,
-  });
-}
 // A live, shared receipt store the server's chain client reads, written
 // only by the fake wallet's own eth_sendTransaction handler below --
 // this is what proves the receipt confirm() reads was actually the
