@@ -17,7 +17,6 @@
 import type { Server } from 'node:http';
 import { describe, expect, it } from 'vitest';
 import { fromRandom } from '@ocap/wallet';
-
 import { createApp } from '../../src/api/app.js';
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
 import { createUsdcPaymentRail, type UsdcChainClient } from '../../src/adapters/payment/usdc.js';
@@ -36,23 +35,19 @@ import {
   startAbtSession,
   withEnv,
 } from '../helpers/abt-fixtures.js';
-
 const USDC_TOKEN = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d';
 const USDC_FEE_ADDRESS = '0xFeeAddress000000000000000000000000000';
 const USDC_OPERATOR_ADDRESS = '0xOperator000000000000000000000000000000';
 const USDC_CHAIN_ID = 421614;
-
 const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(251));
 const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(252));
 const platformWallet = fromRandom();
 const ABT_TOKEN = fromRandom().address;
 const ABT_FEE_ADDRESS = fromRandom().address;
-
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
   { text: 'Checkout e2e test passes', proposedBy: 'agent' },
 ];
-
 function usdcEnvVars(): Record<string, string> {
   return {
     FREEAGENTS_USDC_RPC_URL: 'https://sepolia-rollup.arbitrum.io/rpc',
@@ -61,7 +56,6 @@ function usdcEnvVars(): Record<string, string> {
     FREEAGENTS_USDC_FEE_ADDRESS: USDC_FEE_ADDRESS,
   };
 }
-
 function fakeUsdcChainClient(): UsdcChainClient {
   return {
     decimals: async () => 6,
@@ -91,7 +85,6 @@ function fakeSpentTransferStorage(): UsdcSpentTransferStorage {
     },
   };
 }
-
 async function postSigned(baseUrl: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
   const bodyText = JSON.stringify(body);
   const targetUri = `${baseUrl}${path}`;
@@ -107,13 +100,11 @@ async function postSigned(baseUrl: string, path: string, body: unknown, identity
     body: bodyText,
   });
 }
-
 interface Started {
   readonly server: Server;
   readonly baseUrl: string;
   readonly settlementRepo: MemorySettlementRepository;
 }
-
 async function startApp(): Promise<Started> {
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -137,7 +128,6 @@ async function startApp(): Promise<Started> {
         },
       },
     });
-
     const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: buyer.did, githubLogin: `buyer-already-paid-${Math.random()}` });
     await operatorRepo.setOperatorAddressEvm(buyer.did, USDC_OPERATOR_ADDRESS);
@@ -184,7 +174,6 @@ async function startApp(): Promise<Started> {
     return { server, baseUrl, settlementRepo };
   });
 }
-
 async function walkToProposed(baseUrl: string, rail: 'usdc' | 'abt' = 'usdc'): Promise<string> {
   const created = await postSigned(baseUrl, '/jobs', {
     buyerDid: buyer.did,
@@ -202,7 +191,6 @@ async function walkToProposed(baseUrl: string, rail: 'usdc' | 'abt' = 'usdc'): P
   await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agent);
   return jobId;
 }
-
 async function recordSettledDeposit(settlementRepo: MemorySettlementRepository, jobId: string, rail: 'abt' | 'usdc'): Promise<void> {
   await settlementRepo.record({
     jobId,
@@ -216,7 +204,6 @@ async function recordSettledDeposit(settlementRepo: MemorySettlementRepository, 
     observedAt: new Date('2026-01-01T00:00:00Z'),
   });
 }
-
 describe('B49: usdc/start refuses a leg that already has a settlement row', () => {
   it('answers 409 naming the already-paid sentence, and starts nothing fresh', async () => {
     const { server, baseUrl, settlementRepo } = await startApp();
@@ -231,7 +218,6 @@ describe('B49: usdc/start refuses a leg that already has a settlement row', () =
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
-
   it('a leg that is NOT settled still starts normally', async () => {
     const { server, baseUrl } = await startApp();
     try {
@@ -243,7 +229,6 @@ describe('B49: usdc/start refuses a leg that already has a settlement row', () =
     }
   });
 });
-
 describe('B49: abt/start refuses a leg that already has a settlement row', () => {
   it('answers 409 naming the already-paid sentence, and mints no session', async () => {
     const { server, baseUrl, settlementRepo } = await startApp();
@@ -259,7 +244,6 @@ describe('B49: abt/start refuses a leg that already has a settlement row', () =>
     }
   });
 });
-
 describe('B49: the token-mint door (/api/did/pay/token) refuses a leg that already has a settlement row', () => {
   it('answers 409 naming the already-paid sentence, and mints no session', async () => {
     const { server, baseUrl, settlementRepo } = await startApp();
@@ -275,7 +259,6 @@ describe('B49: the token-mint door (/api/did/pay/token) refuses a leg that alrea
     }
   });
 });
-
 describe('B49: usdc/wallet-response refuses a fresh (non-replay) attempt on an already-settled leg', () => {
   it('a different hash pair than the recorded settlement answers 409, and the row is unchanged', async () => {
     const { server, baseUrl, settlementRepo } = await startApp();
@@ -297,7 +280,6 @@ describe('B49: usdc/wallet-response refuses a fresh (non-replay) attempt on an a
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
-
   it('an exact replay of the recorded pair still answers what the first call answered (idempotency untouched)', async () => {
     const { server, baseUrl, settlementRepo } = await startApp();
     try {
@@ -312,7 +294,6 @@ describe('B49: usdc/wallet-response refuses a fresh (non-replay) attempt on an a
       expect(first.status).toBe(200);
       const firstBody = (await first.json()) as Record<string, unknown>;
       expect(firstBody.confirmed).toBe(true);
-
       // Same recorded pair replayed: must still answer confirmed, not 409.
       const replay = await postSigned(
         baseUrl,
@@ -330,7 +311,6 @@ describe('B49: usdc/wallet-response refuses a fresh (non-replay) attempt on an a
     }
   });
 });
-
 describe('B49: onAuth (the ABT wallet callback) refuses to broadcast or settle a leg that settled in the meantime', () => {
   it('a session minted while the leg was still open refuses once the leg settles before the wallet finishes', async () => {
     const { server, baseUrl, settlementRepo } = await startApp();
@@ -342,7 +322,6 @@ describe('B49: onAuth (the ABT wallet callback) refuses to broadcast or settle a
       // through a different session, lands before this wallet finishes.
       const { sessionToken, authCallbackUrl } = await startAbtSession(baseUrl, buyer, { jobId, leg: 'deposit' });
       await recordSettledDeposit(settlementRepo, jobId, 'abt');
-
       const result = await continueAbtWalletProtocol(baseUrl, sessionToken, authCallbackUrl, fromRandom());
       expect(result.confirmed).toBe(false);
       expect(result.error).toContain('already been paid');
