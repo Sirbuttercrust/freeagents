@@ -11,7 +11,7 @@
 // page shows it.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { repositoryPersonalAccountMessage } from '../../src/adapters/payment/route-support.js';
+import { repositoryPersonalAccountMessage, siblingAlreadyConfirmedMessage } from '../../src/adapters/payment/route-support.js';
 import { USDC_FEE_RATE_PERCENT, ABT_FEE_RATE_PERCENT, calculateFee, depositUsd, remainderUsd } from '../../src/domain/payment.js';
 import {
   UNPAID_AGENT_DID, USDC_FEE_ADDRESS, USDC_OPERATOR_ADDRESS,
@@ -172,6 +172,30 @@ describe('Make 2 and 3: a deposit paid in USDC from the page', () => {
       expect(status(page)).toBe('');
       expect(presses(page)).toEqual([]);
       expect((page.document.getElementById('scan') as HTMLDialogElement).open).toBe(false);
+    } finally { await page.close(); }
+  });
+
+  it('any other USDC start refusal keeps the server sentence in the live region, with Try again and the sheet open', async () => {
+    const id = await depositJob();
+    const page = await openDeposit(id);
+    try {
+      choose(page, 'usdc');
+      announceWallets(page.window, [{ uuid: 'w-s', name: 'Wallet', wallet: buildPageWallet(h.chain) }]);
+      // A 409 that is not about the repository, in the route's own words.
+      const refusal = siblingAlreadyConfirmedMessage();
+      const realFetch = page.window.fetch;
+      Object.defineProperty(page.window, 'fetch', {
+        writable: true,
+        value: (input: string, init?: RequestInit) => String(input).endsWith('/usdc/start')
+          ? Promise.resolve(new Response(JSON.stringify({ error: refusal }), { status: 409, headers: { 'content-type': 'application/json' } }))
+          : realFetch(input, init),
+      });
+      press(page, 'pay-btn');
+      await waitFor(() => presses(page).length > 0, 'the refusal never offered a press');
+      expect(status(page)).toBe(refusal.charAt(0).toUpperCase() + refusal.slice(1));
+      expect(presses(page)).toEqual(['usdc-retry']);
+      expect((page.document.getElementById('scan') as HTMLDialogElement).open).toBe(true);
+      expect(shown(page.document, 'pay-error')).toBe(false);
     } finally { await page.close(); }
   });
 
