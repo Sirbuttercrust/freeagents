@@ -397,14 +397,28 @@ afterEach(async () => {
   }
 });
 
+// Shared setup every test below starts from: a fresh chain state, a
+// harness on it, and the engine page loaded against that harness's own
+// baseUrl. Registered with `opened` so afterEach tears both down.
+async function setup(seedSuffix: number): Promise<{ chainState: ChainState; h: Harness; page: EnginePage }> {
+  const chainState = newChainState();
+  const h = await buildHarness({ chainState, seedSuffix });
+  opened.push({ server: h.server });
+  const page = await loadEnginePage(h.baseUrl);
+  opened[opened.length - 1]!.page = page;
+  return { chainState, h, page };
+}
+
+// A wallet entry, the shape discover() would answer, wrapping a fake
+// provider under a test-chosen id.
+function walletEntry(id: string, provider: FakeWallet['provider']): { id: string; name: string; icon: string; provider: FakeWallet['provider'] } {
+  return { id, name: 'Fake Wallet', icon: '', provider };
+}
+
 describe('the engine pays a deposit and a balance end to end against the real routes', () => {
   it('deposit: paid, both transfers land, and the settlement row exists', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 1 });
-    opened.push({ server: h.server });
-    const page = await loadEnginePage(h.baseUrl);
-    opened[opened.length - 1]!.page = page;
-    const wallet = { id: 'w1', name: 'Fake Wallet', icon: '', provider: buildFakeWallet({ chainState }).provider };
+    const { chainState, h, page } = await setup(1);
+    const wallet = walletEntry('w1', buildFakeWallet({ chainState }).provider);
 
     const result = await engineOf(page).pay({ window: page.window, wallet, jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(result.outcome).toBe('paid');
@@ -414,14 +428,10 @@ describe('the engine pays a deposit and a balance end to end against the real ro
   });
 
   it('balance: paid once the job is staged, and the settlement row exists', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 2 });
-    opened.push({ server: h.server });
-    const page = await loadEnginePage(h.baseUrl);
-    opened[opened.length - 1]!.page = page;
+    const { chainState, h, page } = await setup(2);
 
     const depositWallet = buildFakeWallet({ chainState });
-    const depositResult = await engineOf(page).pay({ window: page.window, wallet: { id: 'w2', name: 'Fake Wallet', icon: '', provider: depositWallet.provider }, jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const depositResult = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w2', depositWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(depositResult.outcome).toBe('paid');
 
     const confirm = await postSigned(h.baseUrl, `/jobs/${h.jobId}/confirm`, {}, h.buyer);
@@ -430,7 +440,7 @@ describe('the engine pays a deposit and a balance end to end against the real ro
     expect(stage.status).toBe(200);
 
     const balanceWallet = buildFakeWallet({ chainState });
-    const balanceResult = await engineOf(page).pay({ window: page.window, wallet: { id: 'w2', name: 'Fake Wallet', icon: '', provider: balanceWallet.provider }, jobId: h.jobId, leg: 'remainder', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const balanceResult = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w2', balanceWallet.provider), jobId: h.jobId, leg: 'remainder', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(balanceResult.outcome).toBe('paid');
     const row = await h.settlementRepo.findByJobAndLeg(h.jobId, 'remainder');
     expect(row).not.toBeNull();
@@ -440,14 +450,10 @@ describe('the engine pays a deposit and a balance end to end against the real ro
 
 describe('invariant 2: the call data decodes, with no call to this service, to what the server confirmed', () => {
   it('each transfer decodes to the recipient and amount the start answer named, price before fee', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 3 });
-    opened.push({ server: h.server });
-    const page = await loadEnginePage(h.baseUrl);
-    opened[opened.length - 1]!.page = page;
+    const { chainState, h, page } = await setup(3);
     const wallet = buildFakeWallet({ chainState });
 
-    const result = await engineOf(page).pay({ window: page.window, wallet: { id: 'w3', name: 'Fake Wallet', icon: '', provider: wallet.provider }, jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w3', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(result.outcome).toBe('paid');
     expect(wallet.sends).toHaveLength(2);
     // Decoded through ethers' Interface ALONE (TRANSFER_IFACE), never
@@ -460,11 +466,7 @@ describe('invariant 2: the call data decodes, with no call to this service, to w
   });
 
   it('an amount above 2^53 base units survives exactly through transferCallData (never a float)', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 4 });
-    opened.push({ server: h.server });
-    const page = await loadEnginePage(h.baseUrl);
-    opened[opened.length - 1]!.page = page;
+    const { page } = await setup(4);
     const huge = '9007199254740993'; // 2^53 + 1
     const data = engineOf(page).transferCallData(USDC_OPERATOR_ADDRESS, huge);
     const [, amount] = TRANSFER_IFACE.decodeFunctionData('transfer', data) as unknown as [string, bigint];
@@ -474,12 +476,12 @@ describe('invariant 2: the call data decodes, with no call to this service, to w
 
 describe('discovery: EIP-6963 announced wallets, window.ethereum only as a fallback', () => {
   it('two announced wallets are both listed by name and id', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 5 });
-    opened.push({ server: h.server });
-    const page = await loadEnginePage(h.baseUrl);
-    opened[opened.length - 1]!.page = page;
-    const win = page.window as unknown as { addEventListener: Function; dispatchEvent: Function; CustomEvent: typeof CustomEvent };
+    const { page } = await setup(5);
+    const win = page.window as unknown as {
+      addEventListener: (event: string, handler: () => void) => void;
+      dispatchEvent: (event: Event) => void;
+      CustomEvent: typeof CustomEvent;
+    };
 
     win.addEventListener('eip6963:requestProvider', () => {
       win.dispatchEvent(new win.CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'uuid-a', name: 'Wallet A' }, provider: {} } }));
@@ -492,11 +494,7 @@ describe('discovery: EIP-6963 announced wallets, window.ethereum only as a fallb
   });
 
   it('window.ethereum appears only when nothing announces', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 6 });
-    opened.push({ server: h.server });
-    const page = await loadEnginePage(h.baseUrl);
-    opened[opened.length - 1]!.page = page;
+    const { page } = await setup(6);
     (page.window as unknown as { ethereum: unknown }).ethereum = { marker: 'window.ethereum' };
 
     const found = (await engineOf(page).discover({ window: page.window, discoveryWindowMs: 20 })) as Array<{ id: string; provider: { marker: string } }>;
@@ -508,74 +506,23 @@ describe('discovery: EIP-6963 announced wallets, window.ethereum only as a fallb
 
 describe('chain switching (EIP-3326/3085)', () => {
   it('add-then-switch: a switch refused for a reason other than 4001 tries an add, once, then switches', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 7 });
-    opened.push({ server: h.server });
-    const page = await loadEnginePage(h.baseUrl);
-    opened[opened.length - 1]!.page = page;
+    const { chainState, h, page } = await setup(7);
     const wallet = buildFakeWallet({ chainState, switchBehavior: 'fail-then-add-succeeds' });
 
-    const result = await engineOf(page).pay({ window: page.window, wallet: { id: 'w7', name: 'Fake Wallet', icon: '', provider: wallet.provider }, jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w7', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(result.outcome).toBe('paid');
     expect(wallet.calls.filter((c) => c === 'wallet_addEthereumChain')).toHaveLength(1);
     expect(wallet.calls.filter((c) => c === 'wallet_switchEthereumChain')).toHaveLength(2);
   });
 
+  // The rail's own configured chain id is always 421614 (usdcEnvVars);
+  // this test proves the refusal path by mangling usdc/start's OWN
+  // answer to name a chain id KNOWN_CHAINS does not list, rather than
+  // building a second harness on a third chain id.
   it('an unknown chain is refused with a sentence and no switch or add call', async () => {
-    const oddChainState = newChainState();
-    const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(300));
-    const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(301));
-    const accountRepo = new MemoryAccountRepository();
-    await accountRepo.register({ did: buyer.did, githubLogin: 'odd-chain-buyer' });
-    const operatorDid = 'did:abt:odd-chain-operator';
-    await accountRepo.register({ did: operatorDid, githubLogin: 'odd-chain-operator' });
-    await accountRepo.setOperatorAddressEvm(operatorDid, USDC_OPERATOR_ADDRESS);
-    const agentRepo = new MemoryAgentRepository();
-    await agentRepo.create({ did: agent.did, operatorDid, delegation: { fixture: true } as never, name: 'scout', skills: ['triage'], githubLogin: 'scout-odd-chain', negotiatesOnOwnersBehalf: true });
-    await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-odd-chain', status: 'verified' });
-    const jobRepo = new MemoryJobRepository();
-    const settlementRepo = new MemorySettlementRepository();
-    const gate = new PrismaSettlementGate(settlementRepo);
-    const { github } = createStagingLifecycleGithubFake();
-    const usdcRail = withUsdcEnv(() =>
-      createUsdcPaymentRail({
-        chainClient: serverChainClient(oddChainState),
-        rateSource: async () => '1',
-        halfPaidStorage: fakeHalfPaidStorage(),
-        spentTransferStorage: fakeSpentTransferStorage(),
-      }),
-    );
-    const sessionAdapter = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: 'odd-chain-buyer', id: 999999 }) });
-    const app = createApp(accountRepo, agentRepo, undefined, github, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter, undefined, gate, undefined, undefined, null, usdcRail, settlementRepo);
-    const server = app.listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') throw new Error('expected a port');
-    const baseUrl = `http://127.0.0.1:${address.port}`;
-    opened.push({ server });
+    const { h, page } = await setup(17);
+    const wallet = buildFakeWallet({ chainState: newChainState() });
 
-    const created = await postSigned(baseUrl, '/jobs', { buyerDid: buyer.did, agentDid: agent.did, repository: 'buyer/target-repo', brief: 'Fix it' }, buyer);
-    const jobId = String(((await created.json()) as Record<string, unknown>).id);
-    const criteria = [{ text: 'Done', proposedBy: 'agent' }];
-    await postSigned(baseUrl, `/jobs/${jobId}/criteria`, { criteria, priceUsd: '500.00', rail: 'usdc' }, agent);
-    await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, buyer);
-    await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agent);
-    await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyer);
-    await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agent);
-    const buyerToken = await mintSessionToken(sessionAdapter);
-
-    const page = await loadEnginePage(baseUrl);
-    opened[opened.length - 1]!.page = page;
-    const wallet = buildFakeWallet({ chainState: oddChainState });
-
-    // FREEAGENTS_USDC_CHAIN_ID for this rail's own env (see usdcEnvVars in
-    // sibling test files) is not this test's concern: this rail was built
-    // with a real chain id (421614), but KNOWN_CHAINS in the engine only
-    // ever lists 42161 and 421614 -- so an unrecognised chain answered by
-    // the server would need a rail on a THIRD chain id, which the current
-    // rail construction cannot express without its own env. Instead this
-    // proves the engine's own refusal path directly against the answer
-    // shape, by monkey-patching chainId on the fetched response.
     const originalFetch = page.window.fetch;
     Object.defineProperty(page.window, 'fetch', {
       writable: true,
@@ -589,7 +536,7 @@ describe('chain switching (EIP-3326/3085)', () => {
       },
     });
 
-    const result = await engineOf(page).pay({ window: page.window, wallet: { id: 'w-odd', name: 'Fake Wallet', icon: '', provider: wallet.provider }, jobId, leg: 'deposit', token: buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w-odd', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(result.outcome).toBe('wallet_error');
     expect(result.message.toLowerCase()).toContain('network');
     expect(wallet.calls).not.toContain('wallet_switchEthereumChain');
@@ -600,35 +547,28 @@ describe('chain switching (EIP-3326/3085)', () => {
 
 describe('resume: a reload never sends the price transfer again', () => {
   it('resumes from localStorage after a reload (same device, same window object)', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 8 });
-    opened.push({ server: h.server });
-    const page = await loadEnginePage(h.baseUrl);
-    opened[opened.length - 1]!.page = page;
+    const { chainState, h, page } = await setup(8);
 
     // First attempt: the fee transfer is refused (buyer closes the
     // wallet at the second approval), leaving the price hash stored.
     const firstWallet = buildFakeWallet({ chainState, refuseFeeTransfer: true });
-    const first = await engineOf(page).pay({ window: page.window, wallet: { id: 'w8', name: 'Fake Wallet', icon: '', provider: firstWallet.provider }, jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const first = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w8', firstWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(first.outcome).toBe('fee_due');
     expect(firstWallet.sends).toHaveLength(1);
 
     // Resume, same window (same localStorage): only the fee is sent.
     const secondWallet = buildFakeWallet({ chainState });
-    const second = await engineOf(page).pay({ window: page.window, wallet: { id: 'w8', name: 'Fake Wallet', icon: '', provider: secondWallet.provider }, jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const second = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w8', secondWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(second.outcome).toBe('paid');
     expect(secondWallet.sends).toHaveLength(1);
     expect(secondWallet.sends[0]!.recipient.toLowerCase()).toBe(USDC_FEE_ADDRESS.toLowerCase());
   });
 
   it('resumes on a clean device from the server\u2019s halfPaidRecord (no localStorage)', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 9 });
-    opened.push({ server: h.server });
-    const deviceAPage = await loadEnginePage(h.baseUrl);
+    const { chainState, h, page: deviceAPage } = await setup(9);
 
     const deviceAWallet = buildFakeWallet({ chainState, refuseFeeTransfer: true });
-    const first = await engineOf(deviceAPage).pay({ window: deviceAPage.window, wallet: { id: 'wA', name: 'Fake Wallet', icon: '', provider: deviceAWallet.provider }, jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const first = await engineOf(deviceAPage).pay({ window: deviceAPage.window, wallet: walletEntry('wA', deviceAWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(first.outcome).toBe('fee_due');
     deviceAPage.close();
 
@@ -637,7 +577,7 @@ describe('resume: a reload never sends the price transfer again', () => {
     const deviceBPage = await loadEnginePage(h.baseUrl);
     opened.push({ server: h.server, page: deviceBPage });
     const deviceBWallet = buildFakeWallet({ chainState });
-    const second = await engineOf(deviceBPage).pay({ window: deviceBPage.window, wallet: { id: 'wB', name: 'Fake Wallet', icon: '', provider: deviceBWallet.provider }, jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const second = await engineOf(deviceBPage).pay({ window: deviceBPage.window, wallet: walletEntry('wB', deviceBWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(second.outcome).toBe('paid');
     expect(deviceBWallet.sends).toHaveLength(1);
     expect(deviceBWallet.sends[0]!.recipient.toLowerCase()).toBe(USDC_FEE_ADDRESS.toLowerCase());
@@ -646,33 +586,25 @@ describe('resume: a reload never sends the price transfer again', () => {
 
 describe('every other outcome in Make 3', () => {
   it('cancelled at the first approval: nothing sent, nothing posted', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 10 });
-    opened.push({ server: h.server });
-    const page = await loadEnginePage(h.baseUrl);
-    opened[opened.length - 1]!.page = page;
+    const { h, page } = await setup(10);
     const provider = { request: async (args: { method: string }) => {
       if (args.method === 'eth_requestAccounts') throw { code: 4001, message: 'User rejected' };
       throw new Error(`unexpected call ${args.method}`);
     } };
-    const result = await engineOf(page).pay({ window: page.window, wallet: { id: 'w10', name: 'Fake Wallet', icon: '', provider }, jobId: h.jobId, leg: 'deposit', token: h.buyerToken });
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w10', provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken });
     expect(result.outcome).toBe('cancelled');
     expect(await h.settlementRepo.findByJobAndLeg(h.jobId, 'deposit')).toBeNull();
   });
 
   it('a transfer that fails on the network, while the other is still pending, offers to send that one transfer again', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 11 });
-    opened.push({ server: h.server });
-    const page = await loadEnginePage(h.baseUrl);
-    opened[opened.length - 1]!.page = page;
+    const { chainState, h, page } = await setup(11);
     // The price fails on chain; the fee is sent but never confirms
     // within the bounded wait (still pending), so this is not the
     // "price still due" case (that needs the FEE confirmed) -- it is a
     // failed transfer with nothing else confirmed to report instead.
     const wallet = buildFakeWallet({ chainState, failPriceOnChain: true, feeNeverConfirms: true });
 
-    const first = await engineOf(page).pay({ window: page.window, wallet: { id: 'w11', name: 'Fake Wallet', icon: '', provider: wallet.provider }, jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const first = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w11', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(first.outcome).toBe('transfer_failed');
     expect(first.leg).toBe('price');
 
@@ -688,37 +620,28 @@ describe('every other outcome in Make 3', () => {
     // The buyer presses "send it again": resend: 'price' never sends
     // the stored (failed) hash again.
     const retryWallet = buildFakeWallet({ chainState });
-    const retry = await engineOf(page).pay({ window: page.window, wallet: { id: 'w11', name: 'Fake Wallet', icon: '', provider: retryWallet.provider }, jobId: h.jobId, leg: 'deposit', token: h.buyerToken, resend: 'price', pollIntervalMs: 5, pollLimit: 5 });
+    const retry = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w11', retryWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, resend: 'price', pollIntervalMs: 5, pollLimit: 5 });
     expect(retry.outcome).toBe('paid');
   });
 
   it('fee still due: the price landed and the buyer refused the fee approval', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 12 });
-    opened.push({ server: h.server });
-    const page = await loadEnginePage(h.baseUrl);
-    opened[opened.length - 1]!.page = page;
+    const { chainState, h, page } = await setup(12);
     const wallet = buildFakeWallet({ chainState, refuseFeeTransfer: true });
-    const result = await engineOf(page).pay({ window: page.window, wallet: { id: 'w12', name: 'Fake Wallet', icon: '', provider: wallet.provider }, jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w12', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(result.outcome).toBe('fee_due');
     expect(await h.settlementRepo.findByJobAndLeg(h.jobId, 'deposit')).toBeNull();
   });
 
   it('waiting on the network: not_confirmed after the bounded wait, check() posts once more without a timer', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 13 });
-    opened.push({ server: h.server });
-    const page = await loadEnginePage(h.baseUrl);
-    opened[opened.length - 1]!.page = page;
+    const { chainState, h, page } = await setup(13);
     const wallet = buildFakeWallet({ chainState, feeNeverConfirms: true });
 
-    const result = await engineOf(page).pay({ window: page.window, wallet: { id: 'w13', name: 'Fake Wallet', icon: '', provider: wallet.provider }, jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 1, pollLimit: 2 });
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w13', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 1, pollLimit: 2 });
     expect(result.outcome).toBe('waiting_network');
 
     // The fee's receipt lands on chain after pay()'s own bounded wait
     // gave up: written directly into the shared chain state, exactly
     // what a slow-confirming transaction looks like from outside.
-    chainState.hashCounter += 0; // no-op, keeps intent explicit
     chainState.receipts.set('0xsent2', {
       status: 1,
       transfer: { to: USDC_FEE_ADDRESS.toLowerCase(), value: '7500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID },
@@ -726,31 +649,23 @@ describe('every other outcome in Make 3', () => {
 
     // check(): reads the receipts once (never on a timer) and posts
     // wallet-response once.
-    const checkResult = await engineOf(page).check({ window: page.window, wallet: { id: 'w13', name: 'Fake Wallet', icon: '', provider: wallet.provider }, jobId: h.jobId, leg: 'deposit', token: h.buyerToken });
+    const checkResult = await engineOf(page).check({ window: page.window, wallet: walletEntry('w13', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken });
     expect(checkResult.outcome).toBe('paid');
   });
 
   it('no wallet found: discover() answers nothing and pay() is never called with one', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 14 });
-    opened.push({ server: h.server });
-    const page = await loadEnginePage(h.baseUrl);
-    opened[opened.length - 1]!.page = page;
+    const { h, page } = await setup(14);
     const result = await engineOf(page).pay({ window: page.window, wallet: null, jobId: h.jobId, leg: 'deposit', token: h.buyerToken });
     expect(result.outcome).toBe('no_wallet');
   });
 
   it('a wallet error (too little gas, for example) is reported in the wallet\u2019s own words', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 15 });
-    opened.push({ server: h.server });
-    const page = await loadEnginePage(h.baseUrl);
-    opened[opened.length - 1]!.page = page;
+    const { h, page } = await setup(15);
     const provider = { request: async (args: { method: string }) => {
       if (args.method === 'eth_requestAccounts') throw new Error('insufficient funds for gas');
       throw new Error(`unexpected call ${args.method}`);
     } };
-    const result = await engineOf(page).pay({ window: page.window, wallet: { id: 'w15', name: 'Fake Wallet', icon: '', provider }, jobId: h.jobId, leg: 'deposit', token: h.buyerToken });
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w15', provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken });
     expect(result.outcome).toBe('wallet_error');
     expect(result.message).toBe('insufficient funds for gas');
   });
@@ -758,11 +673,7 @@ describe('every other outcome in Make 3', () => {
 
 describe('no wallet-response posts before both receipts exist', () => {
   it('the wallet-response body always carries feeTx.signed true once the fee transfer was sent', async () => {
-    const chainState = newChainState();
-    const h = await buildHarness({ chainState, seedSuffix: 16 });
-    opened.push({ server: h.server });
-    const page = await loadEnginePage(h.baseUrl);
-    opened[opened.length - 1]!.page = page;
+    const { chainState, h, page } = await setup(16);
     const wallet = buildFakeWallet({ chainState });
 
     let walletResponseBody: Record<string, unknown> | null = null;
@@ -777,7 +688,7 @@ describe('no wallet-response posts before both receipts exist', () => {
       },
     });
 
-    const result = await engineOf(page).pay({ window: page.window, wallet: { id: 'w16', name: 'Fake Wallet', icon: '', provider: wallet.provider }, jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w16', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(result.outcome).toBe('paid');
     expect(walletResponseBody).not.toBeNull();
     expect((walletResponseBody as unknown as { feeTx: { signed: boolean } }).feeTx.signed).toBe(true);
