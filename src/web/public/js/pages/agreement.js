@@ -184,7 +184,11 @@
     currentJob = job;
     var lines = agreementLines(job);
     A.show(A.el("propose-field"), isOpen(job) || job.status === "draft");
-    if (isOwner) A.setTextById("lede", "Sign the lines you agree with. Changing a line clears both signatures on it.");
+    if (isOwner) {
+      A.setTextById("lede", job.status === "draft"
+        ? "Add what you will deliver, one line at a time, then set the price."
+        : "Sign the lines you agree with. Changing a line clears both signatures on it.");
+    }
     var host = A.el("terms");
     host.textContent = "";
     lines.forEach(function (line, i) { host.appendChild(termRow(line, i + 1, i, job)); });

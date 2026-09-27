@@ -255,6 +255,7 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
       const page = await render(baseUrl, 'b40-draft', ownerToken);
       try {
         expect(page.document.getElementById('propose-field')!.hidden).toBe(false);
+        expect(page.document.getElementById('lede')?.textContent).toBe('Add what you will deliver, one line at a time, then set the price.');
         expect(page.document.getElementById('lockbar')?.textContent).toContain('No lines yet.');
         type(page, page.document.getElementById('newcrit'), 'The cart survives a refresh');
         await click(page.document.getElementById('propose-submit'));
