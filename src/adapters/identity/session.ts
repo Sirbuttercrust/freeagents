@@ -74,18 +74,13 @@ export type OAuthStatePurpose =
 //     has to publish and verify the gist before recording anything.
 //   - 'invalid-state': the state was never issued, was already used, has
 //     expired, or names the WRONG purpose (a sign-in state presented here,
-//     decision 1's own guard). The same refusal for every one of those
-//     causes, exactly as completeGitHubOAuth answers null for all of its
-//     own failure shapes, so a caller cannot distinguish them by response.
+//     decision 1's own guard). One refusal for all of those causes, like
+//     completeGitHubOAuth's null for every one of its own failure shapes.
 //   - 'exchange-failed': the state was valid and proof-purposed, but the
-//     provider's own token exchange or the /user read failed (a bad code,
-//     or GitHub down). The owner declining at GitHub's consent screen never
-//     reaches this method at all: GitHub sends that case back as
-//     `error=access_denied` with no code, so nothing here ever sees it.
-//     On this head no route calls completeGitHubProofOAuth yet; the
-//     callback's proof branch (FIX-B47b part two) reads `error` off the
-//     query string ahead of any code exchange and answers its own
-//     'refused' outcome for access_denied without ever calling this method.
+//     token exchange or the /user read failed. GitHub returns a declined
+//     consent screen as `error=access_denied` with no code, so no route
+//     calls this method for that case; the proof branch (part two) checks
+//     `error` before any exchange and answers its own 'refused' outcome.
 export type GitHubProofCompletion =
   | { readonly kind: 'ok'; readonly accountDid: string; readonly agentDid: string; readonly login: string; readonly token: string }
   | { readonly kind: 'invalid-state' }
