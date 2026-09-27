@@ -312,6 +312,7 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
         const job = await readJob('b40-draft-remove');
         expect(job.criteria.map((c: { text: string }) => c.text)).toEqual(['Keep one', 'Keep two']);
         expect(job.price.priceUsd).toBe('250.50');
+        expect(job.price.deliveryWindowDays).toBe(3);
       } finally {
         page.close();
       }
@@ -324,8 +325,12 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
         type(first, first.document.querySelector('.compose-line input'), 'Half written');
         await click(first.document.getElementById('compose-add'), 20);
         type(first, first.document.querySelectorAll('.compose-line input')[1], 'Second thought');
+        const stored = () => JSON.parse(first.window.sessionStorage.getItem('fa_quote_draft:b40-draft-reload') ?? '{}') as { price?: string; days?: string };
+        // Each field saves on its own input, read before the other is typed.
         type(first, first.document.getElementById('compose-price'), '420');
+        expect(stored().price).toBe('420');
         type(first, first.document.getElementById('compose-days'), '6');
+        expect(stored().days).toBe('6');
         saved = first.window.sessionStorage.getItem('fa_quote_draft:b40-draft-reload');
         expect(first.posts.length).toBe(0);
       } finally {
