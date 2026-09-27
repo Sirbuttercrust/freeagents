@@ -899,6 +899,7 @@ describe('(o) the landing from GitHub', () => {
       expect(text(after, 'gh-confirmed')).toBe('Confirmed: @proof-picked-account');
       expect(shown(after, 'gh-unverified')).toBe(false);
       expect(landingOf(after)).toBe(settingsPath(did));
+      expect(machineWords(after)).toEqual([]);
     } finally {
       after.close();
     }
@@ -909,6 +910,8 @@ describe('(o) the landing from GitHub', () => {
     ['refused', 'refused', 'Nothing changed. You can confirm it whenever you are ready.'],
     ['failed', 'failed', 'That did not work, and nothing changed. Try again.'],
     ['an unknown value', 'maybe', ''],
+    // A name every object inherits: the lookup must be the table's own.
+    ['a built-in name', 'toString', ''],
   ])('%s', async (_label, outcome, sentence) => {
     const did = await listAgent(passkeyOwner, { name: `landing-${outcome}`, skills: ['triage'] });
     const page = await render(`${settingsPath(did)}&github=${outcome}`, passkeyOwner);
@@ -917,6 +920,7 @@ describe('(o) the landing from GitHub', () => {
       expect(shown(page, 'gh-unverified'), 'the button stays').toBe(true);
       expect(shown(page, 'gh-confirmed')).toBe(false);
       expect(landingOf(page)).toBe(settingsPath(did));
+      expect(machineWords(page)).toEqual([]);
     } finally {
       page.close();
     }
