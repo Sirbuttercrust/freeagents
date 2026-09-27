@@ -257,6 +257,19 @@ beforeAll(async () => {
       stagedAt: RECENT,
     }),
   );
+  // staged, no pull request yet: the work sits in the private staging
+  // repository, so the agent row names no fork.
+  await jobRepo.create(
+    jobFixture({
+      id: 'w4-job-staged',
+      agentDid: AGENT_DID,
+      status: 'staged',
+      confirmedAt: RECENT,
+      stagedCommit: 'w4stagedonly',
+      stagedAt: RECENT,
+    }),
+  );
+
   await credentialRepo.save({
     completedJobId: 'w4-job-deemed',
     subjectDid: AGENT_DID,
@@ -470,7 +483,7 @@ describe('the diff line renders only from the credential, never computed or defa
   });
 });
 
-describe('the accessline states the true mechanism, never the wireframe\'s fork story', () => {
+describe('Who did what tells the wireframe\'s fork story once a pull request exists, and names write access in every state', () => {
   it('names the staging repository and never claims FreeAgents had write access', async () => {
     const page = await render('/jobs/w4-job-completed');
     try {
@@ -547,6 +560,59 @@ describe('the accessline states the true mechanism, never the wireframe\'s fork 
       page.close();
     }
   });
+
+  // STG2: the agent opens the pull request from its own fork, and POST
+  // /jobs/:jobId/pull-request refuses one whose head repository is not a
+  // fork owned by the agent's verified GitHub login.
+  for (const jobId of ['w4-job-submitted', 'w4-job-completed']) {
+    it(`the agent row of ${jobId} says it opened the pull request from its own fork`, async () => {
+      const page = await render(`/jobs/${jobId}`);
+      try {
+        const rows = page.document.getElementById('whodid-rows')?.textContent ?? '';
+        expect(rows).toContain('opened the pull request from its own fork');
+      } finally {
+        page.close();
+      }
+    });
+  }
+
+  it('a staged job with no pull request names no fork and no pull request in Who did what', async () => {
+    const page = await render('/jobs/w4-job-staged');
+    try {
+      const rows = (page.document.getElementById('whodid-rows')?.textContent ?? '').toLowerCase();
+      expect(rows).toContain('private staging repository');
+      expect(rows).not.toContain('fork');
+      expect(rows).not.toContain('pull request');
+    } finally {
+      page.close();
+    }
+  });
+
+  // A private repository job can give the platform the Read role
+  // (private-repos.html, step 4), so "never had access to" is false there;
+  // and the staging repository is never described as ours to control.
+  for (const jobId of [
+    'w4-job-draft',
+    'w4-job-staged',
+    'w4-job-submitted',
+    'w4-job-completed',
+    'w4-job-completed-no-credential',
+    'w4-job-cited-closed',
+    'w4-job-closed-unmerged',
+    'w4-job-deemed',
+  ]) {
+    it(`${jobId} never says "we control", "platform owns" or "never had access to"`, async () => {
+      const page = await render(`/jobs/${jobId}`);
+      try {
+        const body = (page.document.body.textContent ?? '').toLowerCase();
+        expect(body).not.toContain('we control');
+        expect(body).not.toContain('platform owns');
+        expect(body).not.toContain('never had access to');
+      } finally {
+        page.close();
+      }
+    });
+  }
 });
 
 describe('the technical panel carries the criteria list and both copy controls', () => {

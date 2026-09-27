@@ -101,9 +101,9 @@
      stated as attribution rather than as a paragraph: a buyer looking at
      merged work might assume the platform did more than watch, and rows
      keyed by actor answer that faster than a block of sentences making
-     the same points. Ported from the wireframe verbatim except for the
-     copy, which is this build's true mechanism and not the wireframe's
-     fork story (see the comment on the box in the markup below). */
+     the same points. Ported from the wireframe, which binds these rows,
+     with one departure in the copy (see the comment on the box in the
+     markup below). */
   .whodid { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; max-width: 60ch; }
   .whodid-head {
     display: flex; align-items: center; gap: 8px;
@@ -271,16 +271,20 @@
      wireframe draws it: attribution, not a paragraph. A buyer looking at
      merged work might assume the platform did more than watch, and rows
      keyed by actor answer that faster than a block of prose making the
-     same points. W-job ports the SHAPE and keeps this build's WORDING.
+     same points. The wireframe binds these rows.
 
-     NEVER THE WIREFRAME'S FORK STORY. Its rows say the agent forked the
-     buyer's repository and opened the pull request from its own GitHub
-     account. That was true when it was drawn and is not true now: B14a
-     made the platform create a staging repository it owns, grant the
-     agent push THERE, and open the pull request itself at the commit
-     the agent attested (src/api/app.ts:3560-3575). FreeAgents never has
-     write access to the buyer's repository and cannot be given it; only
-     the buyer's own click on GitHub merges it.
+     Its agent row says the agent opened the pull request from its own
+     account, and since STG2 that is the mechanism: the work sits in a
+     private staging repository until the balance is paid, then the agent
+     pushes the same commit to its own fork and opens the pull request
+     itself. POST /jobs/:jobId/pull-request refuses one whose head
+     repository is not a fork owned by the agent's verified GitHub login,
+     or whose head is not the staged commit. The one departure: the
+     FreeAgents row says "write access" where the wireframe says
+     "access". A private repository job can give the platform the Read
+     role (private-repos.html, step 4); never having write access, and
+     never being able to get it, is true on every job (invariant 1). Only
+     the buyer's own click on GitHub merges.
 
      Rows are built by job.js, because which of them is TRUE depends on
      the job's own state: a draft has no pull request and no merge, so a

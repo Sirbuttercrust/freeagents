@@ -265,15 +265,11 @@
     var submission = job.pullRequestUrl;
     var submittedAt = typeof job.submittedAt === "string" ? job.submittedAt : null;
     if (typeof submission === "string" && submission !== "" && submittedAt !== null) {
-      // W-job: no provenance note on this row. It used to carry "Opened by
-      // FreeAgents from a staging repository it controls, at the commit the
-      // agent attested", which was right when the only other statement of
-      // that fact was a paragraph three sections below. The Who did what box
-      // now says it keyed by actor, which is where a reader looks for it, and
-      // measured on the rendered page the note put "staging repository" on
-      // the page three times in 1,375 visible characters. A track row is a
-      // dated observation; a 137-character explanation inside one is a
-      // paragraph wearing a timeline.
+      // W-job: no provenance note on this row. Where the pull request came
+      // from (the agent's own fork, at the staged commit) is said once, in
+      // the Who did what box, keyed by actor, which is where a reader looks
+      // for it. A track row is a dated observation; an explanation inside
+      // one is a paragraph wearing a timeline.
       var submissionRow = {
         label: "Pull request opened",
         when: submittedAt,
@@ -354,21 +350,25 @@
   // invariant 1 as three attributed rows rather than as a paragraph,
   // because a buyer looking at merged work might assume the platform did
   // more than watch, and rows keyed by actor answer that faster than
-  // prose making the same points. W-job ports that shape and keeps this
-  // build's WORDING.
+  // prose making the same points.
   //
-  // NEVER THE WIREFRAME'S FORK STORY. Its own copy says the agent forked
-  // the buyer's repository and opened the pull request from its own
-  // GitHub account; that was true when it was drawn and is not true now
-  // (B14a). The real mechanism, read from the routes rather than
-  // remembered: confirm creates a staging repository the platform owns
-  // and grants the agent push on THAT (app.ts:3560-3575), the agent
-  // pushes its work there and attests a commit that must exist in it
-  // (app.ts:3748-3752), and the platform opens the pull request from the
-  // staging repository. FreeAgents never has write access to the buyer's
-  // repository and cannot be given it; only the buyer's own click on
-  // GitHub merges it. Naming a mechanism the code does not have would be
-  // claim-contradicts-implementation.
+  // THE WIREFRAME BINDS THESE ROWS. Its agent row (job.html:194) says the
+  // agent opened the pull request from its own account, and since STG2
+  // that is what the code does, read from the routes: confirm creates a
+  // private staging repository and invites the agent to push there; the agent
+  // stages a commit that must exist in it; once the balance is paid, the
+  // agent pushes that same commit to its own fork and opens the pull
+  // request itself. POST /jobs/:jobId/pull-request only reads it back and
+  // refuses it unless its head repository is a fork owned by the agent's
+  // verified GitHub login and its head is the staged commit. The platform
+  // opens nothing. The agent row names the fork only once a pull request
+  // exists; a staged job with none names only the staging repository.
+  //
+  // ONE DEPARTURE: the FreeAgents row says "write access" where the
+  // wireframe says "access". A private repository job can give the
+  // platform the Read role (private-repos.html, step 4), so "never had
+  // access" would be false there. Never having write access, and never
+  // being able to get it, is true on every job (invariant 1).
   //
   // WHICH ROWS SHIP IS A FUNCTION OF THE JOB'S OWN STATE. The refusal row
   // is the standing truth and ships in every state. The other two make
@@ -394,7 +394,9 @@
     if (agentDid !== "" && (staged || hasPullRequest)) {
       host.appendChild(whoDidRow(
         A.UNNAMED_AGENT,
-        "Pushed its work to a staging repository the platform owns.",
+        hasPullRequest
+          ? "Pushed its work to a private staging repository, then opened the pull request from its own fork at the same commit."
+          : "Pushed its work to a private staging repository.",
         false,
         "whodid-agent"
       ));
@@ -413,14 +415,14 @@
     // The quiet row, and the point of the box: what the platform did NOT
     // do. The refusal is a standing truth and ships in every state.
     //
-    // "At the commit the agent attested" is deliberately NOT repeated here:
+    // Where the pull request came from is deliberately NOT repeated here:
     // the agent's own row above states it, and saying it twice in one box
     // makes a reader check whether the two sentences differ. This row is
-    // about access, which is the fact nothing else on the page carries.
+    // about write access, which is the fact nothing else on the page
+    // carries, and it names no staging repository as ours to control.
     var ours = "";
     if (merged) ours += "We watched that happen and recorded it; we did not do it. ";
-    if (hasPullRequest) ours += "The pull request came from a staging repository we control. ";
-    ours += "We never had access to " + repository + " and cannot be given write access to it.";
+    ours += "We cannot be given write access to " + repository + ", and never had it.";
     host.appendChild(whoDidRow("FreeAgents", ours, true));
   }
 

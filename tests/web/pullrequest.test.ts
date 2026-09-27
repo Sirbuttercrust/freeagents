@@ -418,14 +418,23 @@ describe('the pull-request screen, driven end to end against the real app', () =
       }
     });
   });
-  describe('the fork wording never appears (ruling 3, mutation proof 14); no-merge sentence checks, never watches (D1)', () => {
-    it('names a staging repository, never a fork, and keeps the write-access sentence verbatim', async () => {
+  // Ruling 3 of the 2026-09-08 pull-request brief ("the pull request comes
+  // from the platform's staging repository, not a fork") was superseded by
+  // STG2 and the 2026-09-25 staging ruling: the agent opens the pull
+  // request from its own fork, and POST /jobs/:jobId/pull-request refuses
+  // one whose head repository is not that fork.
+  describe('the provenance names the agent\'s own fork (STG2); no-merge sentence checks, never watches (D1)', () => {
+    it('says the agent opened it from its own fork, never that FreeAgents opened it or controls a staging repository, and keeps the write-access sentence verbatim', async () => {
       const page = await renderPr(baseUrl, 'job-fully-submitted', buyerSession);
       try {
         const text = (page.document.documentElement.outerHTML ?? '').toLowerCase();
-        expect(text).not.toContain('fork');
+        const visible = (page.document.body.textContent ?? '').toLowerCase();
         const provenance = page.document.getElementById('pr-provenance')?.textContent ?? '';
-        expect(provenance).toContain('staging repository');
+        expect(provenance).toContain('from its own fork');
+        expect(visible).not.toContain('opened by freeagents');
+        expect(visible).not.toMatch(/freeagents opened/);
+        expect(visible).not.toMatch(/staging repository (it|we|freeagents) controls?/);
+        expect(visible).not.toContain('platform owns');
         expect(provenance).toContain('has never had write access to');
         expect(provenance).toContain('cannot be given it');
         expect(text).not.toContain('watches your repository');
