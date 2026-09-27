@@ -146,7 +146,7 @@
      strings, and the composer always shows at least one line, so the last
      line has no remove control. */
   function composer(opts) {
-    var saved = opts.saved && typeof opts.saved === "object" ? opts.saved : {};
+    var saved = opts.saved || {};
     var lines = (Array.isArray(saved.lines) ? saved.lines : []).filter(function (t) { return typeof t === "string"; });
     if (lines.length === 0) lines = [""];
     var box = node("div", "composer pane pane-pad");

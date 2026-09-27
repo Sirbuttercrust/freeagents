@@ -215,8 +215,9 @@
 
   /* The composer is the owner's draft seat only. A half-written quote
      lives in sessionStorage under one key per job, so a reload keeps it,
-     and the key is cleared once the quote is sent. Storage that refuses a
-     write (full, or blocked) costs only the reload copy, never the send. */
+     and the key is cleared once the quote is sent. A saved draft that is
+     not JSON is dropped, and storage that refuses a write costs only the
+     reload copy, never the send. */
   function renderComposer(job, composing) {
     var host = A.el("composer-host");
     host.textContent = "";
@@ -233,7 +234,7 @@
       send: function (quote) {
         var criteria = quote.lines.map(function (t) { return { text: t, proposedBy: "agent" }; });
         return sendQuote({ criteria: criteria, priceUsd: quote.priceUsd, deliveryWindowDays: quote.deliveryWindowDays }).then(function (refusal) {
-          if (refusal === null) { try { window.sessionStorage.removeItem(key); } catch (e) { /* nothing to clear */ } }
+          if (refusal === null) window.sessionStorage.removeItem(key);
           return refusal;
         });
       },

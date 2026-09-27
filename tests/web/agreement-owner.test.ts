@@ -56,6 +56,8 @@ interface Rendered {
   window: JSDOM['window'];
   document: Document;
   posts: Array<{ path: string; body: Record<string, unknown> }>;
+  // Script errors reported after load (an uncaught throw in a handler).
+  failures: string[];
   close: () => void;
 }
 
@@ -65,7 +67,7 @@ async function render(
   baseUrl: string,
   jobId: string,
   token: string,
-  opts: { fault?: (path: string) => Response | null; storage?: Record<string, string> } = {},
+  opts: { fault?: (path: string) => Response | null; storage?: Record<string, string>; setup?: (window: JSDOM['window']) => void } = {},
 ): Promise<Rendered> {
   const path = `/agreement?job=${encodeURIComponent(jobId)}`;
   const virtualConsole = new VirtualConsole();
@@ -82,6 +84,7 @@ async function render(
     beforeParse(window) {
       window.sessionStorage.setItem('fa_session', JSON.stringify({ token }));
       for (const [k, v] of Object.entries(opts.storage ?? {})) window.sessionStorage.setItem(k, v);
+      opts.setup?.(window);
       Object.defineProperty(window, 'fetch', {
         writable: true,
         value: (input: string, init?: RequestInit) => {
@@ -99,7 +102,7 @@ async function render(
   });
   await wait(350);
   if (failures.length > 0) throw new Error(`page script failed on ${path}: ${failures.join('; ')}`);
-  return { window: dom.window, document: dom.window.document, posts, close: () => dom.window.close() };
+  return { window: dom.window, document: dom.window.document, posts, failures, close: () => dom.window.close() };
 }
 
 function rows(page: Rendered): Element[] {
@@ -175,7 +178,11 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
       github: fakeGitHubConfig(),
       fetchImpl: ((input: string, init?: RequestInit) => fakeGitHubFetch({ login, id: login.length })(input, init)) as typeof fetch,
     });
-    server = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, adapter).listen(0, '127.0.0.1');
+    // Thirty-odd page loads in one file, each several reads, pass the
+    // default 300 reads a minute; the generous override is the one
+    // mobile-layout.test.ts uses, so no case is refused by the limiter.
+    server = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined,
+      { verify: 10_000, read: 10_000, write: 10_000, upstream: 10_000 }, undefined, undefined, adapter).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     ownerToken = await mintSessionToken(adapter);
@@ -187,6 +194,8 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
     await jobRepo.create(jobFixture({ id: 'b40-draft-reload', status: 'draft' }));
     await jobRepo.create(jobFixture({ id: 'b40-draft-refuse', status: 'draft' }));
     await jobRepo.create(jobFixture({ id: 'b40-draft-floor', status: 'draft' }));
+    await jobRepo.create(jobFixture({ id: 'b40-draft-storage', status: 'draft' }));
+    await jobRepo.create(jobFixture({ id: 'b40-draft-double', status: 'draft' }));
     await jobRepo.create(jobFixture({ id: 'b40-seat', status: 'proposed', criteria: [unsigned('Agent line'), unsigned('Buyer line', 'buyer')], priceUsd: '300.00', deliveryWindowDays: 4 }));
     await jobRepo.create(jobFixture({ id: 'b40-sign', status: 'proposed', criteria: [unsigned('Sign me')], priceUsd: '300.00', deliveryWindowDays: 4 }));
     await jobRepo.create(jobFixture({ id: 'b40-edit', status: 'proposed', criteria: [unsigned('One'), unsigned('Two'), unsigned('Three')], priceUsd: '300.00', deliveryWindowDays: 4 }));
@@ -256,6 +265,94 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
   });
 
   describe('(b) the draft composer', () => {
+    it('the owner\u2019s draft shows the composer alone: no matrix, no lockbar, no propose field, and the composing lede', async () => {
+      const page = await render(baseUrl, 'b40-draft-refuse', ownerToken);
+      try {
+        expect(page.document.getElementById('compose-send')).not.toBeNull();
+        expect(page.document.getElementById('terms-pane')!.hidden).toBe(true);
+        expect(page.document.getElementById('lockbar')!.hidden).toBe(true);
+        expect(page.document.getElementById('propose-field')!.hidden).toBe(true);
+        expect(page.document.getElementById('lede')?.textContent).toBe('Write what you will deliver, your price and the days it takes. The buyer signs each line.');
+      } finally {
+        page.close();
+      }
+      // The buyer on the same draft keeps the propose field and gets no composer.
+      const buyer = await render(baseUrl, 'b40-draft-refuse', buyerToken);
+      try {
+        expect(buyer.document.getElementById('compose-send')).toBeNull();
+        expect(buyer.document.getElementById('propose-field')!.hidden).toBe(false);
+      } finally {
+        buyer.close();
+      }
+    });
+
+    it('a saved draft keeps only its string lines', async () => {
+      const saved = JSON.stringify({ lines: ['Kept', 7, null, { text: 'object' }], price: 400, days: '5' });
+      const page = await render(baseUrl, 'b40-draft-refuse', ownerToken, { storage: { 'fa_quote_draft:b40-draft-refuse': saved } });
+      try {
+        const restored = Array.from(page.document.querySelectorAll('.compose-line input')).map((i) => (i as HTMLInputElement).value);
+        expect(restored).toEqual(['Kept']);
+        expect(page.document.querySelectorAll('.compose-rm').length).toBe(0);
+        expect((page.document.getElementById('compose-price') as HTMLInputElement).value).toBe('');
+        expect((page.document.getElementById('compose-days') as HTMLInputElement).value).toBe('5');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a saved draft that is not JSON still opens an empty composer', async () => {
+      const page = await render(baseUrl, 'b40-draft-refuse', ownerToken, { storage: { 'fa_quote_draft:b40-draft-refuse': '{"lines": ["cut off' } });
+      try {
+        expect(page.document.getElementById('compose-send')).not.toBeNull();
+        const restored = Array.from(page.document.querySelectorAll('.compose-line input')).map((i) => (i as HTMLInputElement).value);
+        expect(restored).toEqual(['']);
+      } finally {
+        page.close();
+      }
+    });
+
+    it('storage that refuses every draft write throws nothing, and the quote still sends', async () => {
+      const setup = (window: JSDOM['window']) => {
+        const setItem = window.Storage.prototype.setItem;
+        window.Storage.prototype.setItem = function (this: Storage, key: string, value: string) {
+          if (key.startsWith('fa_quote_draft:')) throw new window.DOMException('storage is full', 'QuotaExceededError');
+          setItem.call(this, key, value);
+        };
+      };
+      const page = await render(baseUrl, 'b40-draft-storage', ownerToken, { setup });
+      try {
+        type(page, page.document.querySelector('.compose-line input'), 'Sent without a reload copy');
+        type(page, page.document.getElementById('compose-price'), '300');
+        type(page, page.document.getElementById('compose-days'), '4');
+        expect(page.window.sessionStorage.getItem('fa_quote_draft:b40-draft-storage')).toBeNull();
+        await click(page.document.getElementById('compose-send'));
+        expect(page.failures).toEqual([]);
+        const job = await readJob('b40-draft-storage');
+        expect(job.status).toBe('proposed');
+        expect(job.criteria.map((c: { text: string }) => c.text)).toEqual(['Sent without a reload copy']);
+        expect(job.price).toMatchObject({ priceUsd: '300.00', deliveryWindowDays: 4 });
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a double click on "Send the quote" makes exactly one request', async () => {
+      const page = await render(baseUrl, 'b40-draft-double', ownerToken);
+      try {
+        type(page, page.document.querySelector('.compose-line input'), 'Sent once');
+        type(page, page.document.getElementById('compose-price'), '300');
+        type(page, page.document.getElementById('compose-days'), '4');
+        const send = page.document.getElementById('compose-send') as HTMLElement;
+        send.click();
+        send.click();
+        await wait();
+        expect(page.posts.filter((p) => p.path === '/jobs/b40-draft-double/criteria').length).toBe(1);
+        expect((await readJob('b40-draft-double')).status).toBe('proposed');
+      } finally {
+        page.close();
+      }
+    });
+
     it('two lines, 400 and 5 days: exactly one POST carrying both lines, "400.00", 5 and no rail, and the job reads back proposed', async () => {
       const page = await render(baseUrl, 'b40-draft', ownerToken);
       try {
