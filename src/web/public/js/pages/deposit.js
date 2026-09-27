@@ -1,9 +1,11 @@
 /* P8i deposit (P-12): a fully-agreed buyer pays the deposit and the
    agreement locks. No route in src/api/app.ts changes. Reads
-   GET /jobs/:jobId, starts ABT through POST .../payments/deposit/abt/start,
-   calls POST /jobs/:jobId/confirm once per press of "I approved in my
-   wallet". USDC's routes are never called (ruling 1): its row renders
-   complete, its pay control states ABT is the rail that pays today.
+   GET /jobs/:jobId and offers only the currencies its payableRails names
+   (USDC-WEBb). ABT starts through POST .../payments/deposit/abt/start and
+   the buyer's own press of "I approved in my wallet" calls
+   POST /jobs/:jobId/confirm. USDC runs the whole payment in the browser
+   through usdc-pay.js and the wallet engine, and the press that started
+   it calls confirm once when the engine answers paid.
    RAIL_*_FEE_PERCENT are venue constants (ruling 3), pinned by a test
    against src/domain/payment.ts's fee-rate constants. No simulated
    settlement, ever: a 402 from confirm is the expected waiting state,
@@ -15,7 +17,8 @@
   "use strict";
   var A = window.FAApi;
   var RAIL_ABT_FEE_PERCENT = 3, RAIL_USDC_FEE_PERCENT = 6;
-  var jobId = "", token = "", job = null, chosenRail = "abt", confirmInFlight = false;
+  var ALREADY_PAID_PHRASE = "already been paid";
+  var jobId = "", token = "", job = null, chosenRail = "abt", confirmInFlight = false, usdcPay = null;
   function start() {
     jobId = new URLSearchParams(window.location.search).get("job") || "";
     if (!jobId) { failLoad("This address does not name a hire."); return; }
@@ -70,8 +73,37 @@
     A.setTextById("tech-spec-hash", typeof job.specHash === "string" && job.specHash !== "" ? job.specHash : "computed once the deposit clears");
     wireRailChooser();
     wirePayButton();
+    wireUsdc();
+    offerPayableRails();
     var back = A.el("back-to-agreement");
     if (back) back.setAttribute("href", "/agreement?job=" + encodeURIComponent(job.id));
+  }
+  // USDC-WEBb Make 1: only the currencies GET /jobs/:jobId says this job
+  // can be paid in. Both: both, ABT chosen (the markup's default). One:
+  // that one alone, chosen. None: no pay control and no total, because
+  // the fee depends on a currency nobody can pay in yet; one sentence
+  // pointing at the hire's conversation instead. The route sends the key
+  // on every proposed job with a price, which is the only state that
+  // reaches here; a response without it keeps both options.
+  function offerPayableRails() {
+    var rails = Array.isArray(job.payableRails)
+      ? job.payableRails.filter(function (r) { return r === "abt" || r === "usdc"; })
+      : ["abt", "usdc"];
+    A.showById("railopt-abt", rails.indexOf("abt") !== -1);
+    A.showById("railopt-usdc", rails.indexOf("usdc") !== -1);
+    if (rails.length === 0) {
+      ["rails-heading", "rails", "total-pane", "pay-btn", "usdc-gas-note"].forEach(function (id) { A.showById(id, false); });
+      var link = A.el("no-rails-link");
+      if (link) link.setAttribute("href", "/messages?job=" + encodeURIComponent(job.id));
+      A.showById("no-rails", true);
+      return;
+    }
+    if (rails.length === 1) {
+      var only = A.el("rail-" + rails[0]);
+      if (only) only.checked = true;
+      chosenRail = rails[0];
+      applyRailTotals(job.price);
+    }
   }
   function showNotReady(title, detail, href) {
     A.setTextById("not-ready-title", title);
@@ -126,15 +158,12 @@
     A.setTextById("sum-amount", money(figures.total));
     var payBtn = A.el("pay-btn");
     if (payBtn) {
-      if (chosenRail === "abt") {
-        payBtn.textContent = "Pay " + money(figures.total) + " with your wallet";
-        payBtn.disabled = false;
-      } else {
-        payBtn.textContent = "USDC payment is not available from the browser yet";
-        payBtn.disabled = true;
-      }
+      payBtn.textContent = "Pay " + money(figures.total) + " with your wallet";
+      payBtn.disabled = usdcPay !== null && usdcPay.busy();
     }
-    A.showById("usdc-pay-note", chosenRail === "usdc");
+    // Make 3: said before the Pay press, only while USDC is chosen. No
+    // figure: gas moves with the network, and a stale number is a claim.
+    A.showById("usdc-gas-note", chosenRail === "usdc");
   }
   function wireRailChooser() {
     var abtRadio = A.el("rail-abt"), usdcRadio = A.el("rail-usdc"), price = job.price;
@@ -232,8 +261,8 @@
     var payBtn = A.el("pay-btn");
     if (!payBtn) return;
     payBtn.addEventListener("click", function () {
-      if (chosenRail !== "abt") return; // ruling 1: USDC never starts a payment from this page
       A.showById("pay-error", false);
+      if (chosenRail === "usdc") { openUsdc(); return; }
       payBtn.disabled = true;
       A.postAuthed("/jobs/" + encodeURIComponent(jobId) + "/payments/deposit/abt/start", token, {}).then(function (result) {
         payBtn.disabled = false;
@@ -245,6 +274,9 @@
         var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
         if (status !== 200) {
           var serverMessage = typeof body.error === "string" ? body.error : "";
+          // B54: a leg already paid answers 409 too. It reads as paid,
+          // never as "no agreed price".
+          if (serverMessage.indexOf(ALREADY_PAID_PHRASE) !== -1) { openAlreadyPaid(serverMessage); return; }
           var repository = status === 409 ? repositoryRefusal(serverMessage) : null;
           if (repository !== null) {
             showRepositoryRefusal("pay", repository);
@@ -257,20 +289,72 @@
       });
     });
   }
+  // The scan sheet serves every way this page pays. "abt": the one-time
+  // address, one approval, then "I approved in my wallet". "usdc": no
+  // address (the wallet engine asks the wallet for both transfers) and
+  // usdc-pay.js draws the wallet choice and every outcome. "paid": the
+  // deposit is already paid, so only the confirm press is left.
+  var SCAN_HEADINGS = { abt: "Open this in your wallet", usdc: "Approve in your wallet", paid: "Already paid" };
+  function openSheet(mode, approvalsLine) {
+    var dialog = A.el("scan");
+    A.setTextById("scanh", SCAN_HEADINGS[mode]);
+    A.showById("scan-abt", mode === "abt");
+    A.showById("scan-waiting", mode === "abt");
+    A.showById("approved-btn", mode === "abt");
+    A.showById("confirm-error", false);
+    A.showById("confirm-waiting", false);
+    if (usdcPay !== null) usdcPay.reset();
+    A.setTextById("scan-approvals-line", approvalsLine);
+    if (dialog && typeof dialog.showModal === "function") { if (!dialog.open) dialog.showModal(); }
+    else if (dialog) dialog.setAttribute("open", "");
+  }
   // Scope item 5: the scan dialog. The URL is selectable text with a
   // copy control, byte-identical to the route's own `url` (a test
   // asserts this). No QR dependency in package.json and this card adds
   // none: a code that encoded the wrong string is worse than none.
   function openScan(url) {
-    var dialog = A.el("scan"), urlField = A.el("scan-url"), copyBtn = A.el("scan-url-copy");
+    var urlField = A.el("scan-url"), copyBtn = A.el("scan-url-copy");
     if (urlField) urlField.value = url;
     if (copyBtn) copyBtn.setAttribute("data-copy", url);
-    A.setTextById("scan-approvals-line", "Open your wallet with this address, and approve. One approval, for this whole payment.");
-    A.showById("confirm-error", false);
-    A.showById("confirm-waiting", false);
-    A.showById("scan-waiting", true);
-    if (dialog && typeof dialog.showModal === "function") dialog.showModal();
-    else if (dialog) dialog.setAttribute("open", "");
+    openSheet("abt", "Open your wallet with this address, and approve. One approval, for this whole payment.");
+  }
+  // USDC-WEBb Make 2. The wallet asks twice, said in the wireframe's
+  // words with this payment's own amounts (spec/wireframe/deposit.html:256).
+  function openUsdc() {
+    if (usdcPay === null || usdcPay.busy()) return;
+    var figures = depositAndFee(job.price, RAIL_USDC_FEE_PERCENT);
+    openSheet("usdc", "Two approvals, " + money(figures.deposit) + " then " + money(figures.fee) + ". Both are part of this one payment.");
+    usdcPay.start();
+  }
+  // Paid: the engine has seen the server confirm the deposit, so the same
+  // press carries on into ONE press of "I approved in my wallet", the
+  // same handler: a 200 goes to /jobs/<id>, and a 402 or a refusal shows
+  // that handler's own sentence with the button there to press again.
+  function confirmNow() {
+    A.showById("approved-btn", true);
+    var approvedBtn = A.el("approved-btn");
+    if (approvedBtn) approvedBtn.click();
+  }
+  // Already paid (either currency, B54): the server's own sentence and a
+  // reload, as it says. "I approved in my wallet" shows beside them and
+  // waits for a press: the deposit has arrived, and that press is what
+  // locks the agreement, so a buyer who reloaded after paying is never
+  // left with only a reload that shows the same screen again.
+  function openAlreadyPaid(serverMessage) {
+    openSheet("paid", "");
+    usdcPay.alreadyPaid(serverMessage);
+  }
+  function showAlreadyPaidPresses() {
+    A.showById("approved-btn", true);
+    A.showById("usdc-reload", true);
+  }
+  function wireUsdc() {
+    usdcPay = window.FAUsdcPay.create({
+      jobId: jobId, token: token, leg: "deposit",
+      onBusy: function (on) { var payBtn = A.el("pay-btn"); if (payBtn) payBtn.disabled = on; },
+      onPaid: confirmNow,
+      onAlreadyPaid: showAlreadyPaidPresses
+    });
   }
   function closeScan() {
     var dialog = A.el("scan");

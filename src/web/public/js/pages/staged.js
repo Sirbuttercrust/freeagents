@@ -27,8 +27,12 @@
    The clock states a fixed window and a deadline
    date, never a countdown (ruling 4); LAPSE_AT_STAGED_AFTER_DAYS and
    REDO_LAPSE_EXTENSION_DAYS are browser constants pinned by a test
-   against the domain's own. Pays over ABT on the REMAINDER, never the
-   deposit (ruling 5 of P8j). Never claims settlement; every re-read
+   against the domain's own. Pays the REMAINDER, never the deposit
+   (ruling 5 of P8j), in the job's own currency (price.rail, fixed at
+   confirm): ABT through .../remainder/abt/start at ABT_FEE_RATE_PERCENT,
+   USDC through usdc-pay.js and the wallet engine at
+   USDC_FEE_RATE_PERCENT (USDC-WEBb), both pinned by a test against
+   src/domain/payment.ts. Never claims settlement; every re-read
    fires only on a press (ruling 6). Both redo_requested and
    staged_declined render on this page now (ruling 5): the former keeps
    the clock and the account of the work with no control, the latter is
@@ -37,8 +41,9 @@
 (function () {
   "use strict";
   var A = window.FAApi;
-  var LAPSE_AT_STAGED_AFTER_DAYS = 7, REDO_LAPSE_EXTENSION_DAYS = 7, ABT_FEE_RATE_PERCENT = 3, MS_PER_DAY = 86400000;
-  var jobId = "", token = "", job = null, currentFigures = null, redoSelectedIndex = null;
+  var LAPSE_AT_STAGED_AFTER_DAYS = 7, REDO_LAPSE_EXTENSION_DAYS = 7, ABT_FEE_RATE_PERCENT = 3, USDC_FEE_RATE_PERCENT = 6, MS_PER_DAY = 86400000;
+  var ALREADY_PAID_PHRASE = "already been paid";
+  var jobId = "", token = "", job = null, currentFigures = null, redoSelectedIndex = null, usdcPay = null;
   // Round 1 fix (qa D1): whether the signed-in session IS this job's
   // buyer, resolved from GET /accounts/:did (already mounted,
   // unauthenticated, app.ts:1300) against the stored session's own
@@ -237,14 +242,18 @@
     host.appendChild(factRow("Commits signed by the agent", matching + " of " + signers.length));
   }
 
-  // Ruling 5 of P8j: remainderUsd(priceUsd, depositPercent), fee at
-  // ABT_FEE_RATE_PERCENT on the remainder, half-up per payment.ts.
+  // Ruling 5 of P8j: remainderUsd(priceUsd, depositPercent), fee at the
+  // job's own currency's rate on the remainder, half-up per payment.ts.
+  function isUsdc(job_) {
+    return job_ !== null && job_.price && typeof job_.price === "object" && job_.price.rail === "usdc";
+  }
+  function feePercentOf(job_) { return isUsdc(job_) ? USDC_FEE_RATE_PERCENT : ABT_FEE_RATE_PERCENT; }
   function remainderAndFee(price) {
     var priceUsd = parseFloat(price.priceUsd);
     var depositPercent = typeof price.depositPercent === "number" ? price.depositPercent : 25;
     var deposit = roundHalfUpCents((priceUsd * depositPercent) / 100);
     var remainder = roundHalfUpCents(priceUsd - deposit);
-    var fee = roundHalfUpCents(remainder * (ABT_FEE_RATE_PERCENT / 100));
+    var fee = roundHalfUpCents(remainder * (feePercentOf(job) / 100));
     return { deposit: deposit, remainder: remainder, fee: fee, total: roundHalfUpCents(remainder + fee) };
   }
 
@@ -279,7 +288,7 @@
     host.textContent = "";
     if (figures !== null) {
       host.appendChild(choiceRow("Pay the balance", money(figures.total),
-        money(figures.remainder) + " of the " + money(priceUsd) + " price, plus the " + ABT_FEE_RATE_PERCENT + " percent fee. Then the pull request opens on your repository, and merging is up to you."));
+        money(figures.remainder) + " of the " + money(priceUsd) + " price, plus the " + feePercentOf(job_) + " percent fee. Then the pull request opens on your repository, and merging is up to you."));
     }
     host.appendChild(choiceRow(
       exhausted ? "Send it back" : (redoAllowance === 1 ? "Send it back once" : "Send it back"),
@@ -292,9 +301,11 @@
     currentFigures = figures;
     var payBtn = A.el("pay-btn");
     if (payBtn) {
-      if (figures !== null) { payBtn.textContent = "Pay the balance, " + money(figures.total); payBtn.disabled = false; }
+      if (figures !== null) { payBtn.textContent = "Pay the balance, " + money(figures.total); payBtn.disabled = usdcPay !== null && usdcPay.busy(); }
       else { payBtn.textContent = "No agreed price to pay against"; payBtn.disabled = true; }
     }
+    // USDC-WEBb Make 3: before the press, only on a USDC hire.
+    A.showById("usdc-gas-note", figures !== null && isUsdc(job_));
   }
 
   // Ruling 6, round 1 fix (qa D1): the redo control renders only when a
@@ -450,6 +461,8 @@
   }
 
   // Scope item 4: every refusal from pay-start gets its own sentence.
+  // (An already-paid refusal never reaches here: the pay press opens the
+  // sheet's paid state for it, B54.)
   function refusalSentence(status, serverMessage) {
     if (status === 401) return "Your session has expired. Sign in again to pay the balance.";
     if (status === 403) return serverMessage || "This account is not a party to this hire.";
@@ -503,40 +516,96 @@
   });
 
   // Ruling 1 (P8j): the one control that card shipped. Posts to the
-  // REMAINDER leg only, never deposit.
+  // REMAINDER leg only, never deposit. On a USDC hire the same press runs
+  // the wallet engine instead (USDC-WEBb Make 4).
   var payBtn = A.el("pay-btn");
   if (payBtn) {
     payBtn.addEventListener("click", function () {
       if (currentFigures === null) return;
       A.showById("pay-error", false);
+      if (isUsdc(job)) { openUsdc(); return; }
       payBtn.disabled = true;
       A.postAuthed("/jobs/" + encodeURIComponent(jobId) + "/payments/remainder/abt/start", token, {}).then(function (result) {
         payBtn.disabled = false;
         if (result.state !== "ok") { showError("pay-error", "Could not reach the server just now. Try again in a moment."); return; }
         var status = result.value.status;
         var respBody = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
-        if (status !== 200) { showError("pay-error", refusalSentence(status, typeof respBody.error === "string" ? respBody.error : "")); return; }
+        if (status !== 200) {
+          var serverMessage = typeof respBody.error === "string" ? respBody.error : "";
+          // B54: already paid opens the sheet in its paid state, with the
+          // server's sentence, its reload, and the pull request check.
+          if (serverMessage.indexOf(ALREADY_PAID_PHRASE) !== -1) {
+            fillScanTotals();
+            scanMode("paid");
+            openDialog("scan");
+            usdcPay.alreadyPaid(serverMessage);
+            return;
+          }
+          showError("pay-error", refusalSentence(status, serverMessage));
+          return;
+        }
         openScan(typeof respBody.url === "string" ? respBody.url : "");
       });
     });
   }
 
+  function fillScanTotals() {
+    if (currentFigures === null) return;
+    A.setTextById("scan-total", money(currentFigures.total));
+    A.setTextById("scan-remainder", money(currentFigures.remainder));
+    A.setTextById("scan-fee-label", "FreeAgents fee, " + feePercentOf(job) + " percent");
+    A.setTextById("scan-fee", money(currentFigures.fee));
+    A.setTextById("scan-total-2", money(currentFigures.total));
+  }
+  // The pay sheet serves every way this page pays. "abt": the address and
+  // the status line. "usdc": the wallet engine's block (usdc-pay.js) until
+  // the payment is confirmed, then the same status line ABT shows.
+  // "paid": the balance is already paid; the already-paid sentence and
+  // its reload, and "Check for the pull request".
+  function scanMode(mode) {
+    A.showById("scan-abt", mode === "abt");
+    A.showById("scan-status", mode === "abt");
+    A.showById("scan-approvals-line", mode === "usdc");
+    A.showById("scan-pr-wrap", false);
+    if (usdcPay !== null) usdcPay.reset();
+  }
+
   // Byte-identical to the route's own `url`, never re-derived (a test
   // asserts this, mirroring P8i's own mutation proof).
   function openScan(url) {
-    if (currentFigures !== null) {
-      A.setTextById("scan-total", money(currentFigures.total));
-      A.setTextById("scan-remainder", money(currentFigures.remainder));
-      A.setTextById("scan-fee", money(currentFigures.fee));
-      A.setTextById("scan-total-2", money(currentFigures.total));
-    }
+    fillScanTotals();
+    scanMode("abt");
     var urlField = A.el("scan-url");
     if (urlField) urlField.value = url;
     var copyBtn = A.el("scan-url-copy");
     if (copyBtn) copyBtn.setAttribute("data-copy", url);
-    A.showById("scan-pr-wrap", false);
     openDialog("scan");
   }
+
+  // USDC-WEBb Make 4: the balance in USDC, the same wallet choice,
+  // outcomes and presses as the deposit page. On paid the sheet shows the
+  // post-payment state ABT shows: the status line and "Check for the pull
+  // request". The wallet asks twice, named with this payment's amounts.
+  function openUsdc() {
+    if (usdcPay === null || usdcPay.busy()) return;
+    fillScanTotals();
+    scanMode("usdc");
+    A.setTextById("scan-approvals-line", "Two approvals, " + money(currentFigures.remainder) + " then " + money(currentFigures.fee) + ". Both are part of this one payment.");
+    var dialog = A.el("scan");
+    if (!dialog || !dialog.open) openDialog("scan");
+    usdcPay.start();
+  }
+  usdcPay = window.FAUsdcPay.create({
+    get jobId() { return jobId; },
+    get token() { return token; },
+    leg: "remainder",
+    onBusy: function (on) { if (payBtn) payBtn.disabled = on || currentFigures === null; },
+    onPaid: function () {
+      A.showById("scan-approvals-line", false);
+      A.setTextById("scan-status", "The pull request opens once the operator submits the work.");
+      A.showById("scan-status", true);
+    }
+  });
 
   // Ruling 6 (P8j): the only re-read on the pay path, fired on a press
   // and never by a timer. Never claims settlement itself: shows the
