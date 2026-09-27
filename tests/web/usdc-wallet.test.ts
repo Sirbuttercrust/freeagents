@@ -540,7 +540,7 @@ describe('resume: a reload never sends the price transfer again', () => {
   it('resumes on a clean device from the server\u2019s halfPaidRecord (no localStorage)', async () => {
     const { chainState, h, page: deviceAPage } = await setup(9);
     const deviceAWallet = buildFakeWallet({ chainState, refuseFeeTransfer: true });
-    const first = await engineOf(deviceAPage).pay({ window: deviceAPage.window, wallet: walletEntry('wA', deviceAWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const first = await payDeposit(deviceAPage, h, walletEntry('wA', deviceAWallet.provider));
     expect(first.outcome).toBe('fee_due');
     deviceAPage.close();
     // A clean device, no localStorage record at all: only halfPaidRecord
@@ -548,19 +548,18 @@ describe('resume: a reload never sends the price transfer again', () => {
     const deviceBPage = await loadEnginePage(h.baseUrl);
     opened.push({ server: h.server, page: deviceBPage });
     const deviceBWallet = buildFakeWallet({ chainState });
-    const second = await engineOf(deviceBPage).pay({ window: deviceBPage.window, wallet: walletEntry('wB', deviceBWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const second = await payDeposit(deviceBPage, h, walletEntry('wB', deviceBWallet.provider));
     expect(second.outcome).toBe('paid');
     expect(deviceBWallet.sends).toHaveLength(1);
     expect(deviceBWallet.sends[0]!.recipient.toLowerCase()).toBe(USDC_FEE_ADDRESS.toLowerCase());
   });
   it('never resends a transfer whose halfPaidRecord hash is only not_confirmed (still pending), not failed', async () => {
-    // The QA repro: device A's fee lands on chain but has not mined by
-    // the time pay() gives up waiting, so the server's half-paid row
-    // records feeStatus 'not_confirmed' with a real hash, not
-    // 'confirmed'. Reusing a hash only when 'confirmed' sends it twice.
+    // Device A's fee lands on chain but has not mined when pay() gives
+    // up waiting, so the half-paid row records 'not_confirmed' with a
+    // real hash, not 'confirmed'. Reusing only 'confirmed' resends it.
     const { chainState, h, page: deviceAPage } = await setup(18);
     const deviceAWallet = buildFakeWallet({ chainState, feeNeverConfirms: true });
-    const first = await engineOf(deviceAPage).pay({ window: deviceAPage.window, wallet: walletEntry('wA18', deviceAWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 2 });
+    const first = await payDeposit(deviceAPage, h, walletEntry('wA18', deviceAWallet.provider), { pollLimit: 2 });
     expect(first.outcome).toBe('waiting_network');
     expect(deviceAWallet.sends).toHaveLength(2);
     deviceAPage.close();
@@ -570,7 +569,7 @@ describe('resume: a reload never sends the price transfer again', () => {
     const deviceBPage = await loadEnginePage(h.baseUrl);
     opened.push({ server: h.server, page: deviceBPage });
     const deviceBWallet = buildFakeWallet({ chainState });
-    const second = await engineOf(deviceBPage).pay({ window: deviceBPage.window, wallet: walletEntry('wB18', deviceBWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const second = await payDeposit(deviceBPage, h, walletEntry('wB18', deviceBWallet.provider));
     expect(second.outcome).toBe('paid');
     // Both hashes were already known; only their receipts needed re-reading.
     expect(deviceBWallet.sends).toHaveLength(0);
