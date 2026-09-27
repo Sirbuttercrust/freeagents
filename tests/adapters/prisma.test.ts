@@ -859,6 +859,34 @@ describe('PrismaAgentRepository', () => {
     expect(row?.description).toBeNull();
   });
 
+  it('updateListing: floorPriceUsd null clears it (sent as null, not omitted)', async () => {
+    const createdAt = new Date('2026-09-25T05:00:00.000Z');
+    const updatedRow = {
+      did: 'did:abt:agent-edit-5',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      description: null,
+      skills: ['triage'],
+      githubLogin: null,
+      proofStatus: 'unverified' as const,
+      createdAt,
+      floorPriceUsd: null,
+    };
+    vi.mocked(mock.agentUpdate).mockResolvedValue(updatedRow);
+    vi.mocked(mock.agentFindUnique).mockResolvedValue(updatedRow);
+    vi.mocked(mock.keyRotationFindMany).mockResolvedValue([]);
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.updateListing('did:abt:agent-edit-5', { floorPriceUsd: null });
+
+    expect(mock.agentUpdate).toHaveBeenCalledWith({
+      where: { did: 'did:abt:agent-edit-5' },
+      data: { floorPriceUsd: null },
+    });
+    expect(row?.floorPriceUsd).toBeNull();
+  });
+
   it('updateListing: a P2025 not-found comes back as null, not an error', async () => {
     vi.mocked(mock.agentUpdate).mockRejectedValue(p2025('did:abt:agent-none'));
 

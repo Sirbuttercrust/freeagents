@@ -4015,14 +4015,15 @@ export function createApp(
 
   // FIX-B41b: the owner's edit of an already-listed agent. Body may name
   // any of { name, description, skills, floorPriceUsd }, validated
-  // exactly as POST /agents validates them (app.ts :3120-3132 above);
+  // exactly as POST /agents validates the same four fields, in the big
+  // `if` guard inside the POST /agents handler above;
   // description and floorPriceUsd may be null (clears them), name and
   // skills may not. Naming none of the four is 400. Any other field in
   // the body (did, delegation, githubLogin, proofStatus, operatorDid...)
   // changes nothing: UpdateListingInput has no field for it, so it never
   // reaches the storage write regardless of what this function does with
-  // the rest of the body. Order matches the negotiation route's own
-  // (app.ts :3933-3957): the body's shape first (400), then
+  // the rest of the body. Order matches the PUT /agents/:agentDid/negotiation
+  // route's own, above: the body's shape first (400), then
   // requireCallerIsAgentOperator, which carries unsigned 401, registered
   // stranger 403 and unknown agent 404 in one call, then the write.
   function editListingBodyError(body: Record<string, unknown>): string | null {
@@ -4063,13 +4064,14 @@ export function createApp(
     const gated = await requireCallerIsAgentOperator('PATCH /agents/:agentDid', req, res, did);
     if (gated === null) return;
 
-    // Only the four validated fields are ever forwarded to storage: each
-    // is included only when its key is present in the body, so a caller
-    // who never named a field leaves the stored value untouched, while an
-    // explicit `null` on description or floorPriceUsd is forwarded and
-    // clears it (memory.ts and prisma.ts do the clearing, keyed off the
-    // same `!== undefined` check as everything else here, since JSON never
-    // produces a key whose parsed value is literally `undefined`).
+    // Only the four validated fields are ever forwarded to storage: each is
+    // included only when its key is present in the body (`'x' in body`), so
+    // a caller who never named a field leaves the stored value untouched,
+    // while an explicit `null` on description or floorPriceUsd is forwarded
+    // and clears it. memory.ts and prisma.ts key their own clearing off
+    // `!== undefined` on this already-picked input, a separate check at a
+    // separate layer: this route decides which keys to forward at all, the
+    // storage drivers decide what to do with the keys they receive.
     const input: UpdateListingInput = {
       ...('name' in body ? { name: body.name as string } : {}),
       ...('description' in body ? { description: body.description as string | null } : {}),
