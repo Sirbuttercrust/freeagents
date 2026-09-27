@@ -508,12 +508,10 @@ describe('resume: a reload never sends the price transfer again', () => {
     expect(secondWallet.sends[0]!.recipient.toLowerCase()).toBe(USDC_FEE_ADDRESS.toLowerCase());
   });
   it('resumes from localStorage ALONE: proven by a server that never learned about the price transfer at all', async () => {
-    // The other localStorage test above also passes with readStored()
-    // deleted, because the server's own confirm() records a
-    // halfPaidRecord on the same call that leaves the fee due. This
-    // isolates localStorage by dropping the FIRST wallet-response POST
-    // outright, so the server never learns the price landed and
-    // startBody.halfPaidRecord stays absent on the next call.
+    // The other localStorage test also passes if readStored() were
+    // deleted, since confirm() writes halfPaidRecord too. Isolate it by
+    // dropping the FIRST wallet-response POST, so the server never
+    // learns the price landed and halfPaidRecord stays absent.
     const { chainState, h, page } = await setup(29);
     const firstWallet = buildFakeWallet({ chainState, refuseFeeTransfer: true });
     const originalFetch = page.window.fetch;
@@ -695,15 +693,13 @@ describe('no wallet-response posts before both receipts exist', () => {
     expect(wallet.calls.filter((c) => c === 'eth_getTransactionReceipt').length).toBeGreaterThanOrEqual(2);
   });
   it('the bounded poll loop actually retries: it reads each receipt more than once when the first read is pending', async () => {
-    // The server confirms independently of this engine's local wait, so
-    // only the receipt-read COUNT (not pay()'s outcome) tells a real
-    // retry loop apart from one whose retry `while` was deleted.
+    // The server confirms independently of this engine's local wait; only
+    // the receipt-read COUNT tells a real retry loop apart from a deleted one.
     const { chainState, h, page } = await setup(30);
     const wallet = buildFakeWallet({ chainState, pendingRounds: 1 });
     const result = await payDeposit(page, h, walletEntry('w30', wallet.provider), { pollIntervalMs: 1, pollLimit: 5 });
     expect(result.outcome).toBe('paid');
-    // Two items, each read at least twice (pending round + retry round):
-    // a deleted retry loop reads each exactly once (2 total).
+    // Two items, each read twice minimum: a deleted retry loop reads each once (2 total).
     expect(wallet.calls.filter((c) => c === 'eth_getTransactionReceipt').length).toBeGreaterThan(2);
   });
 });
