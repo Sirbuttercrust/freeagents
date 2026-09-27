@@ -79,8 +79,9 @@ export type OAuthStatePurpose =
 //   - 'exchange-failed': the state was valid and proof-purposed, but the
 //     token exchange or the /user read failed. GitHub returns a declined
 //     consent screen as `error=access_denied` with no code, so no route
-//     calls this method for that case; the proof branch (part two) checks
-//     `error` before any exchange and answers its own 'refused' outcome.
+//     calls this method for that case; the callback's proof branch
+//     (FIX-B47b2, app.ts's own GET /auth/github/callback) checks `error`
+//     before any exchange and answers its own 'refused' outcome.
 export type GitHubProofCompletion =
   | { readonly kind: 'ok'; readonly accountDid: string; readonly agentDid: string; readonly login: string; readonly token: string }
   | { readonly kind: 'invalid-state' }

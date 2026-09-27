@@ -25,9 +25,9 @@ import {
 } from '../adapters/github/types.js';
 import { createDidAbtSigningKeyResolver, createKnownKeyStore } from '../adapters/identity/did-abt-resolver.js';
 import { verify as verifySignature } from '../adapters/identity/http-signature.js';
-import { CandidateKeyRejectedError, createIdentityAdapter, DidNotResolvableError } from '../adapters/identity/identity.js';
+import { CandidateKeyRejectedError, createIdentityAdapter, DidNotResolvableError, AgentKeyDerivationMismatchError } from '../adapters/identity/identity.js';
 import { PlatformSeedUnavailableError } from '../adapters/identity/identity.js';
-import type { IdentityAdapter, DidKeyPair } from '../adapters/identity/types.js';
+import type { IdentityAdapter, DidKeyPair, SignedPayload } from '../adapters/identity/types.js';
 import { type RateLimiter } from '../adapters/identity/verify-rate-limit.js';
 import { InvalidTrustProxyError, trustProxySettingFromEnv, TRUST_PROXY_ENV_VAR } from '../adapters/config/trust-proxy.js';
 import { createClassRateLimiters, createClassRateLimitMiddleware, type ClassLimits } from './rate-limit-middleware.js';
@@ -78,6 +78,7 @@ import {
 } from '../domain/browse.js';
 import { operatorAggregate } from '../domain/operator-roster.js';
 import {
+  buildGistStatement,
   gistProofPayload,
   githubAccountUrl,
   parseGistStatement,
@@ -192,7 +193,7 @@ import {
 } from '../domain/review.js';
 import { ACCESS_NOTICE, CAPABILITIES, type Capability } from '../domain/access.js';
 import { SIGN_IN_METHODS, type SignInMethod } from '../domain/sign-in-methods.js';
-import { type SessionAdapter, type SignInMethod as SessionSignInMethod } from '../adapters/identity/session.js';
+import { type SessionAdapter, type SignInMethod as SessionSignInMethod, type OAuthStart } from '../adapters/identity/session.js';
 import { sessionAdapterFromEnv } from '../adapters/identity/session-github-passkey.js';
 import { createWebSurface, prefersHtml, type WebSurface } from '../web/static.js';
 import {
@@ -1558,19 +1559,45 @@ export function createApp(
   // Accept header at all -- keeps the byte-identical JSON it answered
   // before this card, on every status code this route can answer.
   //
-  // FIX-B47b (part one, this card): the session adapter now also mints
-  // proof-purpose states (beginGitHubProofOAuth, peekOAuthStatePurpose,
-  // completeGitHubProofOAuth), but nothing on this route reads them yet;
-  // decision 1's "one callback carries both flows" lands with a follow-up
-  // card. A proof-purpose state reaching this route today falls through
-  // to completeGitHubOAuth, whose own purpose check refuses it with the
-  // ordinary 401, never a session.
+  // FIX-B47b2, Make 2 (FIX-B47b decision 1): the ONE callback also carries
+  // the one-click proof's completion. peekOAuthStatePurpose tells this
+  // route which flow a state is FOR before either completion method runs
+  // its own single-use check, so a proof-purpose state never reaches
+  // completeGitHubOAuth (which would refuse it anyway, decision 1
+  // direction two) and a sign-in-purpose state never reaches
+  // completeGitHubProofOAuth (direction one). GitHub's own refusal for the
+  // proof flow arrives as error=access_denied&state=<state> with NO code
+  // at all, so that one case is read from the state's purpose BEFORE the
+  // missing-code 400 below; a sign-in callback with no code keeps its 400
+  // byte for byte, since peeking a sign-in-purpose (or unknown) state
+  // never satisfies the purpose.kind === 'proof' guard.
   app.get(
     '/auth/github/callback',
     (req: Request, res: Response, next: NextFunction) => {
       const wantsHtml = prefersHtml(req.headers.accept);
       const code = req.query['code'];
       const state = req.query['state'];
+      const errorParam = req.query['error'];
+
+      const purpose = typeof state === 'string' ? session.peekOAuthStatePurpose(state) : null;
+
+      function sendProofOutcome(outcome: 'verified' | 'refused' | 'failed', agentDid: string): void {
+        if (wantsHtml) {
+          res.redirect(302, `/agentsettings?agent=${encodeURIComponent(agentDid)}&github=${outcome}`);
+          return;
+        }
+        res.status(200).json({ outcome, agentDid });
+      }
+
+      // Decision 1 and 3: GitHub's own decline arrives with no code at
+      // all. Read straight from the peeked purpose (nothing to exchange,
+      // nothing to write) rather than falling into the missing-code 400
+      // below, which stays reserved for sign-in.
+      if (purpose !== null && purpose.kind === 'proof' && errorParam === 'access_denied') {
+        sendProofOutcome('refused', purpose.agentDid);
+        return;
+      }
+
       if (typeof code !== 'string' || typeof state !== 'string') {
         if (wantsHtml) {
           res.status(400).set('Content-Type', 'text/html; charset=utf-8').send(web.renderAuthCallbackErrorPage());
@@ -1579,6 +1606,128 @@ export function createApp(
         res.status(400).json({ error: 'code and state are both required and must be strings' });
         return;
       }
+
+      if (purpose !== null && purpose.kind === 'proof') {
+        (async () => {
+          const completion = await session.completeGitHubProofOAuth({ code, state });
+          if (completion.kind === 'invalid-state') {
+            if (wantsHtml) {
+              res.status(401).set('Content-Type', 'text/html; charset=utf-8').send(web.renderAuthCallbackErrorPage());
+              return;
+            }
+            res.status(401).json({ error: 'invalid or expired sign-in attempt' });
+            return;
+          }
+          if (completion.kind === 'exchange-failed') {
+            sendProofOutcome('failed', purpose.agentDid);
+            return;
+          }
+
+          // completion.kind === 'ok'. Make item 4 (FIX-B47b decision 6):
+          // deleteGrant runs no matter what happens next, so it is a
+          // finally around everything the exchanged token authorizes.
+          let outcome: 'verified' | 'failed' = 'failed';
+          try {
+            // Decision 2: re-check the agent still belongs to the account
+            // that started this proof BEFORE publishing anything, off a
+            // FRESH lookup -- the state is minted at start time and the
+            // agent's operator could have changed in the meantime.
+            const fresh = await agentRepo.findByDid(completion.agentDid);
+            if (fresh === null || !isAgentOperator(completion.accountDid, fresh.operatorDid)) {
+              console.error(
+                'GET /auth/github/callback (proof): the agent no longer belongs to the account that started this proof',
+                completion.agentDid,
+              );
+            } else {
+              let signed: SignedPayload | null;
+              try {
+                signed = await identityAdapter.sign(
+                  completion.agentDid,
+                  gistProofPayload(completion.agentDid, githubAccountUrl(completion.login)),
+                  fresh.operatorDid,
+                  fresh.delegation.id,
+                );
+              } catch (err) {
+                const cause =
+                  err instanceof AgentKeyDerivationMismatchError || err instanceof PlatformSeedUnavailableError
+                    ? err.message
+                    : err;
+                console.error('GET /auth/github/callback (proof): signing the statement failed', cause);
+                signed = null;
+              }
+              if (signed !== null) {
+                const statement = buildGistStatement({
+                  did: completion.agentDid,
+                  github: githubAccountUrl(completion.login),
+                  signature: signed.signature,
+                  ...(signed.publicKeyMultibase !== undefined ? { key: signed.publicKeyMultibase } : {}),
+                });
+
+                let gistId: string | null = null;
+                try {
+                  const created = await github.createGist({
+                    token: completion.token,
+                    filename: 'freeagents-github-proof.txt',
+                    content: statement,
+                  });
+                  gistId = created.id;
+                } catch (err) {
+                  console.error('GET /auth/github/callback (proof): publishing the gist failed', err);
+                }
+
+                if (gistId !== null) {
+                  const checkOutcome = await checkSignedGist(
+                    'GET /auth/github/callback (proof)',
+                    completion.agentDid,
+                    completion.login,
+                    gistId,
+                  );
+                  if (checkOutcome.kind === 'verified') {
+                    try {
+                      const updated = await agentRepo.updateGithubBinding(completion.agentDid, {
+                        handle: completion.login,
+                        status: 'verified',
+                      });
+                      if (updated === null) {
+                        console.error(
+                          'GET /auth/github/callback (proof): the agent was no longer registered at write time',
+                          completion.agentDid,
+                        );
+                      } else {
+                        outcome = 'verified';
+                      }
+                    } catch (err) {
+                      console.error('GET /auth/github/callback (proof): storage failed writing the binding', err);
+                    }
+                  } else {
+                    // Make item 4: a gist that was created but did not
+                    // verify is deleted with the SAME token before the
+                    // grant is deleted, and decision 5 keeps the old
+                    // binding exactly as it was (no write happens here at
+                    // all, on any checkOutcome but verified).
+                    try {
+                      await github.deleteGist({ token: completion.token, id: gistId });
+                    } catch (err) {
+                      console.error('GET /auth/github/callback (proof): deleting the unverified gist failed', err);
+                    }
+                  }
+                }
+              }
+            }
+          } finally {
+            try {
+              await github.deleteGrant({ token: completion.token });
+            } catch (err) {
+              // The outcome above stands regardless: the operator-only log
+              // names the failure, never the token.
+              console.error('GET /auth/github/callback (proof): deleting the OAuth grant failed', err);
+            }
+          }
+          sendProofOutcome(outcome, completion.agentDid);
+        })().catch(next);
+        return;
+      }
+
       void session.completeGitHubOAuth({ code, state }).then((completed) => {
         if (completed === null) {
           if (wantsHtml) {
@@ -3870,6 +4019,56 @@ export function createApp(
       console.error('POST /agents/:agentDid/account-proof: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
+  });
+
+  // FIX-B47b2, Make 1 (FIX-B47b decision 2): starts the one-click GitHub
+  // proof for one agent. Operator only, through requireCallerIsAgentOperator
+  // (the same 401/403/404 ordering every other operator-gated route on this
+  // file already takes). The platform holds an agent's key only when
+  // createAgentDid(row.operatorDid, row.delegation.id) re-derives EXACTLY
+  // row.did -- the two inputs the site-listing route itself used to mint
+  // that DID (app.ts's own site path, `operator` and `credentialId`).
+  // row.operatorDid is the input, never row.delegation.issuer: the issuer
+  // is the owner DID as deriveDidFromSeed writes it, which the site-listing
+  // route compared with `operator` by SUFFIX only, so the two strings can
+  // differ and only `operator` (stored as row.operatorDid) fed the
+  // derivation. A wallet-path agent, and a site agent that brought its own
+  // DID, both fail that comparison: 409, naming path two. That 409 is
+  // checked BEFORE the OAuth-configured check, so a deployment with GitHub
+  // OAuth unconfigured never masks it behind a 503.
+  app.post('/agents/:agentDid/github-proof/start', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+    const gated = await requireCallerIsAgentOperator('POST /agents/:agentDid/github-proof/start', req, res, did);
+    if (gated === null) return;
+    const row = gated;
+
+    let derived: DidKeyPair;
+    try {
+      derived = await identityAdapter.createAgentDid(row.operatorDid, row.delegation.id);
+    } catch (err) {
+      if (err instanceof PlatformSeedUnavailableError) {
+        console.error('POST /agents/:agentDid/github-proof/start: FREEAGENTS_PLATFORM_SEED is not set; cannot derive the agent key', err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      throw err;
+    }
+    if (derived.did !== row.did) {
+      res.status(409).json({
+        error: `the platform holds no signing key for ${did}; prove ownership with a signed gist instead (POST /agents/:agentDid/account-proof)`,
+      });
+      return;
+    }
+
+    let start: OAuthStart;
+    try {
+      start = await session.beginGitHubProofOAuth(row.operatorDid, did);
+    } catch (err) {
+      console.error('POST /agents/:agentDid/github-proof/start: GitHub OAuth is not configured on this deployment', err);
+      res.status(503).json({ error: 'github proof is not configured on this deployment' });
+      return;
+    }
+    res.status(200).json({ redirectUrl: start.redirectUrl });
   });
 
   // R-30 (ENT-8.4): the operator supersedes an agent's key. The route owns
