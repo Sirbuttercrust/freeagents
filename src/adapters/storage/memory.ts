@@ -18,6 +18,7 @@ import {
   AgentAlreadyExistsError,
   type AgentInput,
   type AgentRepository,
+  type UpdateListingInput,
   type CompromiseReportInput,
   type CompromiseRepository,
   CredentialAlreadyIssuedError,
@@ -243,6 +244,30 @@ export class MemoryAgentRepository implements AgentRepository {
     const row = this.rows.get(did);
     if (row === undefined) return null;
     const updated: Agent = { ...row, notifyWebhookUrl };
+    this.rows.set(did, updated);
+    return updated;
+  }
+
+  // FIX-B41b: overwrites only the fields UpdateListingInput carries. name
+  // and skills, when present, replace the stored value outright; a field
+  // absent from the input is left untouched on the row (spread order:
+  // `...row` first, then only the present keys override it), which is
+  // what makes editing one field alone never disturb the others.
+  // description and floorPriceUsd are three-state (absent, a value, or
+  // explicitly null to clear): `!== undefined` tells "the caller passed
+  // null" apart from "the caller omitted this key entirely" just as well
+  // as `in` would here, because UpdateListingInput's optional fields are
+  // never explicitly set to the literal value `undefined`.
+  async updateListing(did: string, input: UpdateListingInput): Promise<Agent | null> {
+    const row = this.rows.get(did);
+    if (row === undefined) return null;
+    const updated: Agent = {
+      ...row,
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.description !== undefined ? { description: input.description } : {}),
+      ...(input.skills !== undefined ? { skills: [...input.skills] } : {}),
+      ...(input.floorPriceUsd !== undefined ? { floorPriceUsd: input.floorPriceUsd } : {}),
+    };
     this.rows.set(did, updated);
     return updated;
   }

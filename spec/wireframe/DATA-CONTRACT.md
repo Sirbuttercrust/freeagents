@@ -136,8 +136,54 @@ Refusals, site and bring-your-own-DID paths:
 
 `description` (ENT-2): optional on every path. When present: trimmed, 1
 to 160 characters, one line (no line break). Null when never set.
-Editing an existing listing (a PATCH route) is a follow-up card; this
-card only adds the field to `POST /agents` and the read projection.
+
+---
+
+## 2.2 Editing an existing listing (FIX-B41b)
+
+The owner's own edit of an already-listed agent. Any of `{ name,
+description, skills, floorPriceUsd }`, none required, validated exactly
+as `POST /agents` validates them above:
+
+```
+PATCH /agents/:agentDid
+  { name?, description?, skills?, floorPriceUsd? }
+```
+
+`description` and `floorPriceUsd` may each be `null`, which clears the
+stored value back to unset. `name` and `skills` may never be `null`: a
+listing always has a name and always has at least one skill. Naming
+none of the four fields is 400. Any OTHER field in the body (`did`,
+`delegation`, `githubLogin`, `proofStatus`, `operatorDid`, or anything
+else) changes nothing: the storage write's own input type has no field
+for it, so it is dropped before the write regardless of what the body
+names beside it. 200 with the agent projection on success, same shape
+`POST /agents` and `GET /agents/:agentDid` already use.
+
+Order of checks, the same order every other operator-gated write on this
+route family uses (`PUT /agents/:agentDid/negotiation`,
+`/avatar`, `/webhook`): the body's shape first, then the caller check,
+then the write.
+
+| status | when | sentence, word for word |
+|---|---|---|
+| 400 | the body names none of the four fields | `body must name at least one of { name, description, skills, floorPriceUsd }` |
+| 400 | `name` present but empty, or `null` | `name must be a non-empty string` |
+| 400 | `description` present and not well-formed (not trimmed, over 160 characters, or a line break) | `description (if present) must be null or one line 1 to 160 characters trimmed with no line break` |
+| 400 | `skills` present but empty, or containing an empty string | `skills (if present) must be a non-empty list of non-empty strings` |
+| 400 | `floorPriceUsd` present, not `null`, and not a decimal string with exactly two places | `floorPriceUsd (if present) must be null or a decimal string with exactly two places` |
+| 401 | a request signature that names a key this service does not know | `unknown key` |
+| 401 | a request signature that fails verification | `invalid signature` |
+| 401 | no session and no request signature at all | `this route requires a session (sign in with GitHub OAuth or a passkey) or a verified request signature (R-34)` |
+| 403 | authenticated, but no registered account resolves from the session or signature | `no registered account resolves from your session or signature; register an account before acting on this agent` |
+| 403 | a registered account that is not this agent's operator | `the authenticated party is not the operator of agent <did>` |
+| 404 | the named agent DID is not registered | `agent <did> is not registered` |
+| 503 | storage does not support the write, or the write throws | `storage unavailable`, cause logged server-side |
+
+Stopping a listing (bugs.md B43) and the P7 thresholds
+(`minBuyerMerges`, `maxWalkedAfterConfirm`, set at listing time) are out
+of this card. Every page that calls this route (listagent,
+agentsettings) is a follow-up card built from this section.
 
 ---
 

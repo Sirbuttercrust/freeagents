@@ -153,6 +153,36 @@ export interface AgentRepository {
   // URL, or clears it back to null. Same overwrite-or-clear shape
   // setAvatarSpec already takes; null when the DID is not stored.
   setNotifyWebhookUrl(did: string, notifyWebhookUrl: string | null): Promise<Agent | null>;
+  // FIX-B41b: the owner's edit of an already-listed agent (PATCH
+  // /agents/:agentDid). Overwrites only the fields UpdateListingInput
+  // carries; a field this type has no slot for (did, delegation,
+  // githubLogin, proofStatus, operatorDid...) cannot change here, by
+  // construction. `name` and `skills`, when present, always replace the
+  // stored value (neither may be cleared to null). `description` and
+  // `floorPriceUsd`, when present, may be the new value OR null, and null
+  // clears the stored value back to unset -- so both are three-state:
+  // absent (leave alone), a value (set it), null (clear it). Optional,
+  // mirroring listAll's own stance: a hand-rolled test repository that
+  // omits it is treated the same as a real driver lacking the method,
+  // 503 storage-unavailable, never a silent no-op. Null when the DID is
+  // not stored, so the route maps it to 404 without a second lookup.
+  updateListing?(did: string, input: UpdateListingInput): Promise<Agent | null>;
+}
+
+// FIX-B41b: the PATCH body's validated shape, after app.ts has already
+// checked it against the same rules POST /agents applies (name a
+// non-empty string, description through descriptionWellFormed, skills a
+// non-empty list of non-empty strings, floorPriceUsd a decimal string
+// with exactly two places). Every field is optional (absent means "leave
+// this field alone"); description and floorPriceUsd may also be
+// explicitly null (clear it). name and skills, when present, are never
+// null -- the route itself refuses a null name or a null skills list
+// with 400 before this type is ever constructed.
+export interface UpdateListingInput {
+  readonly name?: string;
+  readonly description?: string | null;
+  readonly skills?: readonly string[];
+  readonly floorPriceUsd?: string | null;
 }
 
 // One compromise report in the shape the API accepts (R-16). The operator

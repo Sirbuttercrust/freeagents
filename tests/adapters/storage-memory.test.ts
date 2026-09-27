@@ -161,6 +161,41 @@ describe('MemoryAgentRepository.updateGithubBinding', () => {
   });
 });
 
+// FIX-B41b: the memory driver's storage-layer half of the ignored-fields
+// guarantee. app.ts already strips did/delegation/githubLogin/proofStatus
+// from the body before building UpdateListingInput, so calling this
+// through the route can never exercise a leak here alone (review round 1's
+// M9: spreading the whole cast input into the row stayed green against
+// every route-level test). This calls updateListing directly with an
+// input deliberately cast to carry extra keys past the type system, the
+// same way a future caller who bypasses the route's own picks would, and
+// pins that only the four UpdateListingInput fields ever change the row.
+describe('MemoryAgentRepository.updateListing: ignored fields', () => {
+  it('extra keys on the input past UpdateListingInput never reach the stored row', async () => {
+    const repo = new MemoryAgentRepository();
+    const did = 'did:abt:zAgentIgnoredFields';
+    await register(repo, did);
+    const before = await repo.findByDid(did);
+
+    const leaking = {
+      name: 'renamed-via-leak-probe',
+      did: 'did:abt:zHijacked',
+      operatorDid: 'did:abt:zHijackedOperator',
+      delegation: { fake: 'credential' },
+      githubLogin: 'someone-else',
+      proofStatus: 'verified',
+    } as unknown as import('../../src/adapters/storage/types.js').UpdateListingInput;
+    const updated = await repo.updateListing(did, leaking);
+
+    expect(updated?.name).toBe('renamed-via-leak-probe');
+    expect(updated?.did).toBe(before?.did);
+    expect(updated?.operatorDid).toBe(before?.operatorDid);
+    expect(updated?.delegation).toEqual(before?.delegation);
+    expect(updated?.githubLogin).toBe(before?.githubLogin);
+    expect(updated?.proofStatus).toBe(before?.proofStatus);
+  });
+});
+
 // P7: the operator's listing filters, both null by default when the
 // caller omits them, matching floorPriceUsd's own stance.
 describe('MemoryAgentRepository: buyer conduct filters', () => {

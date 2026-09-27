@@ -123,6 +123,14 @@ describe('classifyRoute: read (every other GET)', () => {
   it('classifies GET /jobs/:jobId/attachments (the sent-attachments list) as read', () => {
     expect(classifyRoute('GET', '/jobs/j-1/attachments')).toBe('read');
   });
+
+  // FIX-B41b: the owner's edit of an already-listed agent. Pinned on its
+  // own so dropping the ROUTE_TABLE entry turns this red (the fallback,
+  // not a real classification), the same reasoning the threads pin above
+  // gives.
+  it('classifies PATCH /agents/:agentDid (edit an existing listing) as write', () => {
+    expect(classifyRoute('PATCH', '/agents/did:abt:zAgent')).toBe('write');
+  });
 });
 
 describe('classifyRoute: exemptions, named individually', () => {
