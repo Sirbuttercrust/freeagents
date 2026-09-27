@@ -22,6 +22,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
 import { MemoryJobRepository } from '../../src/adapters/storage/memory.js';
 import { createJob, type Job, type JobStatus } from '../../src/domain/job.js';
+import { jobPageReady, settled } from '../helpers/page-settled.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '../..');
@@ -176,7 +177,16 @@ async function render(path: string, expectStatus = 200): Promise<Rendered> {
     if (dom.window.document.readyState === 'complete') resolve();
     else dom.window.addEventListener('load', () => resolve());
   });
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  // FIX-CIFLAKE cause 3: waits on the page's own settled signal
+  // (job.js's render() removing #claim's data-pending, or failLoad
+  // showing #load-error) instead of a fixed 250ms sleep. The fixed sleep
+  // made "no two statuses share the same sentence" (14 renders back to
+  // back) spend 3.5s asleep regardless of how fast each render actually
+  // settled, and under a loaded CI runner it could still not be enough:
+  // vitest's default 5000ms test timeout was measured failing on it
+  // (4 of 200 runs, tests/web/job.test.ts's own "Test timed out in
+  // 5000ms"). This never waits longer than the page actually needs.
+  await settled(dom.window.document, jobPageReady, path);
 
   if (failures.length > 0) throw new Error(`page script failed on ${path}: ${failures.join('; ')}`);
 
