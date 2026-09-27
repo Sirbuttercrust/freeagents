@@ -363,12 +363,12 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'hatchmark': "wireframe sample data (one of the wireframe's four example agent names, myagents.html:122); this page renders agent names live from GET /accounts/:did/agents, never a hardcoded sample",
     // The wireframe's link points at provegithub.html (SITEMAP P-21), which
     // is not built and has no route in src/web/static.ts; P-21 stays
-    // API-only for launch. The per-row agentsettings.html link is not
-    // carried either: that page (P-20) is FIX-B41d, and its "Settings"
-    // label is already excused by SHARED_NAV. The built page renders the
-    // attention line as plain text with no anchor (myagents.js,
-    // renderAttention), and tests/web/myagents.test.ts asserts the
-    // absence of the link.
+    // API-only for launch. The built page renders the attention line as
+    // plain text with no anchor (myagents.js, renderAttention), and
+    // tests/web/myagents.test.ts asserts the absence of the link. (The
+    // per-row Settings link is carried since FIX-B41d, rendered by
+    // myagents.js; its label is in SHARED_NAV, so this instrument never
+    // needed an entry for it.)
     'confirm it': 'provegithub.html (P-21) is not built and /provegithub is not mounted; P-21 stays API-only for launch. The built attention line renders as plain text with no anchor (myagents.js renderAttention), asserted by tests/web/myagents.test.ts',
     // The work-offered attention line ships (W7b), built inline in
     // agentRow at render time from a second read of
@@ -405,13 +405,37 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Show technical details': 'the simplicity law and the no-DID-on-the-surface rule drop it; the agent\u2019s own page (/agents/<did>, linked from the created state as "See its page") shows its identity',
     'Copy': 'same reason as "Show technical details": the copy button sat inside that panel, beside the DID',
   },
+  agentsettings: {
+    // FIX-B41d's departures, each decided on the card, and exactly what
+    // this instrument printed red before they were written down. The
+    // wireframe's discipline select and its div.note blocks need no entry:
+    // the first is a label this instrument does not read, the second is
+    // stripped before it reads anything.
+    //
+    // 1. No Appearance section. A banner has no storage (no banner field
+    //    on the agent in prisma/schema.prisma, and no route), and the
+    //    avatar is chosen in the avatar editor on /myagents (AV2), which
+    //    stays there. With no avatar on this page, the wireframe's one
+    //    mount (its preview strip) is not carried either.
+    'Appearance': 'a banner has no storage (no field on the agent, no route), and the avatar is chosen in the avatar editor on /myagents (AV2), which stays there',
+    'avatars': 'the wireframe\u2019s one avatar mount is the Appearance preview strip, which is not carried (see "Appearance"); the avatar is chosen and shown on /myagents',
+    // 3. No "Stop listing" section. Stopping a listing is bugs.md B43 and
+    //    waits on a product decision; no route exists, so the page names no
+    //    control for it and promises none.
+    'Stop listing this agent': 'stopping a listing is bugs.md B43 and waits on a product decision; no route exists, so the page names no such control and promises none',
+    'Stop listing axiom-ui': 'same reason as "Stop listing this agent": no route stops a listing',
+    // The wireframe's nav button points at dashboard.html under the local
+    // label "Account", the same entry settings carries below.
+    'Account': 'the shared-nav mechanism (nav.js:100-105) renders this destination on every page under the label "Dashboard", already excused by SHARED_NAV; this wireframe names the same button "Account" locally',
+  },
   signin: {
     // All four excuses below share one root, already on the record: PLAN
     // 2026-09-08 (the P8 close-out) names five wireframed screens that
     // were never given a card, all of them the operator's onboarding
     // path (listagent.html, provegithub.html, agentsettings.html,
     // priorwork.html, claim.html). FIX-B41c built the first as
-    // /listagent; the other four have no route in src/web/static.ts.
+    // /listagent and FIX-B41d the third as /agentsettings; the other
+    // three have no route in src/web/static.ts.
     // That is a recorded launch-scope question for the operator, not a
     // defect for this card.
     //

@@ -185,6 +185,14 @@ describe('classifyRoute: exemptions, named individually', () => {
   it('exempts GET /listagent, the list-an-agent page shell', () => {
     expect(classifyRoute('GET', '/listagent')).toBe('exempt');
   });
+
+  // The agent settings page (src/web/pages/agentsettings.html) is a plain
+  // page shell too: its one write is PATCH /agents/:agentDid, classified in
+  // ROUTE_TABLE. Named on its own so dropping it from the list turns this
+  // red, not only the router walk.
+  it('exempts GET /agentsettings, the agent settings page shell', () => {
+    expect(classifyRoute('GET', '/agentsettings')).toBe('exempt');
+  });
 });
 
 describe('classifyRoute: an unrecognised route (defence in depth, never silently open)', () => {

@@ -110,6 +110,7 @@ type PageName =
   | 'notifications'
   | 'messages'
   | 'listagent'
+  | 'agentsettings'
   | 'notfound'
   | 'authCallbackSuccess'
   | 'authCallbackError';
@@ -169,6 +170,9 @@ const PAGE_FILES: Readonly<Record<PageName, string>> = {
   // FIX-B41c: same stance -- /listagent owns no path an API route also
   // serves (the listing call is POST /agents, a different path).
   listagent: 'listagent.html',
+  // FIX-B41d: same stance. /agentsettings owns no path an API route also
+  // serves (the edit call is PATCH /agents/:agentDid, a different path).
+  agentsettings: 'agentsettings.html',
   notfound: 'notfound.html',
   // P8e: rendered directly by GET /auth/github/callback in src/api/app.ts,
   // never mounted as a route of its own here. Loaded once at construction
@@ -394,6 +398,9 @@ export function createWebSurface(
       // FIX-B41c: same stance -- /listagent owns no path an API route
       // also serves, so this is a plain own-path mount, never `negotiated`.
       app.get('/listagent', (_req: Request, res: Response) => send(res, 'listagent'));
+      // FIX-B41d: same stance. /agentsettings owns no path an API route
+      // also serves, so this is a plain own-path mount, never `negotiated`.
+      app.get('/agentsettings', (_req: Request, res: Response) => send(res, 'agentsettings'));
 
       // Pages that share a path with an API route (see rule 1 above).
       app.get('/agents/:agentDid', negotiated('agent'));

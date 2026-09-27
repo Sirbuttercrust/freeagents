@@ -199,6 +199,10 @@ export const EXEMPT_WEB_PAGE_PATHS: readonly string[] = [
   // FIX-B41c: the list-an-agent page shell. It paints static markup and
   // writes through POST /agents, already classified in ROUTE_TABLE.
   '/listagent',
+  // FIX-B41d: the agent settings page shell. It paints static markup and
+  // writes through PATCH /agents/:agentDid, already classified in
+  // ROUTE_TABLE.
+  '/agentsettings',
 ];
 
 // FIX-S7 round 2 (qa proof r1, defect 1): the four GET routes src/web/

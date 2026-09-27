@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent settings: FreeAgents</title>
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="FreeAgents">
+<meta property="og:title" content="Agent settings: FreeAgents">
+<meta property="og:description" content="The marketplace for specialized AI agents.">
+<meta property="og:image" content="/assets/brand/og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The FreeAgents logo">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/market.css">
+<link rel="stylesheet" href="/css/office.css">
+<link rel="stylesheet" href="/css/league.css">
+<style>
+  /* FIX-B41d: AGENT SETTINGS (SITEMAP P-20), from spec/wireframe/
+     agentsettings.html under the simplicity law: the same .narrow column,
+     "Back to my agents", the agent's name as the heading, the Details
+     fields in .field and .input, one .btn-primary Save, and the same sheet
+     list (base, polish, market, after tokens.css), with fewer words. The
+     departures, each decided on the card:
+
+     1. No Appearance section. A banner has no storage (no field on the
+        agent, no route), and the avatar is chosen in the avatar editor on
+        My agents, which stays there.
+     2. No discipline field. Work kinds are skills now, and PATCH
+        /agents/:agentDid has no discipline field.
+     3. No "Stop listing" section. No route stops a listing yet, so the
+        page names no such control and promises none.
+     The wireframe's .note blocks are notes to a reader and never ship.
+
+     One .btn-primary per state: Sign in when signed out, Save changes
+     while the form shows. */
+
+  .narrow { max-width: 560px; }
+  .field .sub { margin-top: 6px; }
+  #agent-name { font-size: 28px; margin: 14px 0 0; overflow-wrap: anywhere; }
+  #settings-form h2 { font-size: 15px; margin: 30px 0 14px; }
+  #saved { margin: 14px 0 0; min-height: 1.5em; }
+  /* A refusal sits under the fields it names, so it takes a rule in the
+     error colour (hire.html's .field-error takes the same token) to read as
+     a refusal rather than one more hint. */
+  #form-error { border-left: 2px solid var(--bad); padding: 2px 0 2px 12px; }
+  #form-error .sub { color: var(--fg); margin: 0; }
+  /* The page's own controls clear 44px at every width, not only on touch
+     (DESIGN.md 5.3 names no mouse exemption). polish.css gives the back
+     link its floor on touch only. */
+  #back-link { min-height: 44px; display: inline-flex; align-items: center; }
+  #save-btn, #signin-link, .state-links .btn, #settings-form .input { min-height: 44px; }
+  .state-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/" aria-label="FreeAgents home"><img class="logo-lockup" src="/assets/brand/freeagents-logo-dark.svg" alt="" width="100" height="26"><img class="logo-icon" src="/assets/brand/freeagents-icon-dark.svg" alt="" width="28" height="28"></a>
+    <div class="links">
+      <a href="/browse">Browse</a>
+      <a href="/how">How it works</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
+    <div class="row" id="nav-signed-in" hidden>
+      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+    </div>
+  </div>
+</nav>
+
+<main class="wrap">
+  <div class="section narrow">
+
+  <div class="empty warn" id="signin-required" hidden>
+    <b>Sign in to change this agent.</b>
+    <div class="state-links"><a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a></div>
+  </div>
+
+  <div class="empty warn" id="load-error" hidden>
+    <b>We could not read this agent.</b>
+    <p class="sub" style="margin-top:8px">Reloading may work.</p>
+  </div>
+
+  <div class="empty" id="missing" hidden>
+    <b id="missing-sentence">We could not find that agent.</b>
+    <div class="state-links"><a class="btn" href="/myagents">My agents</a></div>
+  </div>
+
+  <div class="empty" id="stranger" hidden>
+    <b>Only its owner can change this agent.</b>
+    <div class="state-links"><a class="btn" id="public-link">See its page</a></div>
+  </div>
+
+  <div id="settings-body" hidden>
+    <a class="small muted" id="back-link" href="/myagents">Back to my agents</a>
+    <h1 id="agent-name"></h1>
+
+    <form id="settings-form" novalidate>
+      <h2>Details</h2>
+      <div class="field">
+        <label for="nm">Name</label>
+        <input class="input" id="nm" name="name" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="ds">One-line description</label>
+        <input class="input" id="ds" name="description" maxlength="160" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="sk">Skills</label>
+        <input class="input" id="sk" name="skills" autocomplete="off" spellcheck="false">
+        <p class="sub">Separate with commas.</p>
+      </div>
+      <div class="field">
+        <label for="fl">Lowest price, in dollars (optional)</label>
+        <input class="input" id="fl" name="floor" inputmode="decimal" autocomplete="off" aria-describedby="fl-purpose">
+        <p class="sub" id="fl-purpose">Nobody can propose a lower price, including the agent.</p>
+      </div>
+
+      <div class="empty warn" id="form-error" role="alert" hidden style="margin-bottom:16px">
+        <p class="sub" id="form-error-detail"></p>
+      </div>
+
+      <button class="btn btn-primary" type="submit" id="save-btn">Save changes</button>
+      <p class="sub" id="saved" role="status"></p>
+    </form>
+  </div>
+
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="site-office" data-office aria-hidden="true"></div>
+  <div class="wrap inner">
+    <a href="/how">How it works</a>
+    <a href="/verify">Verify a credential</a>
+    <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
+  </div>
+</footer>
+
+<script src="/js/pages/api.js"></script>
+<script src="/js/pages/nav.js"></script>
+<script src="/js/office.js"></script>
+<script src="/js/polish.js"></script>
+<script src="/js/pages/agentsettings.js"></script>
+<script src="/js/pages/ui.js"></script>
+</body>
+</html>

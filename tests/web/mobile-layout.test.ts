@@ -201,6 +201,9 @@ const PAGES: ReadonlyArray<readonly [label: string, path: string]> = [
   ['messages', '/messages'],
   ['messages, a thread', '/messages?job=m1-job-proposed'],
   ['listagent', '/listagent'],
+  // Signed out, so the shell alone; the owner's form is measured at 320,
+  // 390 and 1280 in tests/web/agentsettings.test.ts.
+  ['agentsettings', '/agentsettings'],
   ['incoming', '/incoming'],
   ['conduct', '/conduct?account=m1-buyer-login'],
   ['dashboard', '/dashboard'],
