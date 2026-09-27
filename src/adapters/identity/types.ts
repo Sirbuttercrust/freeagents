@@ -62,7 +62,17 @@ export interface IdentityAdapter {
   // (MISSION.md, "Who it is for").
   createAgentDid(operatorDid: string, credentialId: string): Promise<DidKeyPair>;
   resolveDid(did: string): Promise<DidDocument>;
-  sign(did: string, payload: string): Promise<SignedPayload>;
+  // FIX-B47a: signs `payload` with a SITE-LISTED agent's key, re-derived on
+  // the fly via createAgentDid(operatorDid, credentialId) -- never a newly
+  // minted or stored key. This is the narrow capability the one-click
+  // GitHub proof needs: the platform composes and signs the gist statement
+  // on the operator's behalf, then discards the derived key material the
+  // moment the signature exists. Throws PlatformSeedUnavailableError under
+  // the same condition createAgentDid does (no seed configured). Callers
+  // must already hold operatorDid and credentialId from the agent's own
+  // stored delegation (delegation.issuer and delegation.id respectively);
+  // this method does no storage lookup of its own.
+  sign(did: string, payload: string, operatorDid: string, credentialId: string): Promise<SignedPayload>;
   verify(signed: SignedPayload): Promise<boolean>;
   // R-2: does this delegation proof check out as signed by issuerDid for the
   // agent ownerDid? Total: a malformed or tampered proof is false, never a

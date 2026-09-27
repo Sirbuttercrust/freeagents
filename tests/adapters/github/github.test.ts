@@ -4,7 +4,7 @@
 // for -- method, URL, body -- so the read-only posture on the buyer's repo
 // (invariant 1) and the repositoryPublic derivation (R-17) are proved
 // against real recorded calls, not assumed from the code.
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { createGithubAdapter } from '../../../src/adapters/github/github.js';
 import { GistNotFoundError } from '../../../src/adapters/github/types.js';
@@ -342,5 +342,197 @@ describe('createGithubAdapter, getMergeCommitSignature (unbuilt: nothing on main
     expect(() => adapter.getMergeCommitSignature({ owner: 'buyer', repo: 'target-repo', number: 1 })).toThrowError(
       NotImplementedError,
     );
+  });
+});
+
+// FIX-B47a: the three writes the one-click GitHub proof needs, each taking
+// the CALLER's own token (the just-exchanged OAuth token) and never the
+// platform's own FREEAGENTS_GITHUB_TOKEN. TOKEN here stands in for that
+// exchanged token in every test below, never the platform token from the
+// describe blocks above (a separate adapter instance with no `token`
+// option at all proves these three never read the platform token).
+const CALLER_TOKEN = 'gho_caller_exchanged_token_not_real';
+
+describe('createGithubAdapter, createGist (FIX-B47a)', () => {
+  it('POSTs /gists with the caller token, a public file, and returns the gist id', async () => {
+    const { fetchImpl, calls } = scriptedFetch([
+      jsonResponse(201, { id: 'new-gist-id', owner: { login: 'scout-agent' } }),
+    ]);
+    // No platform token configured at all: proves this method never falls
+    // back to one.
+    const adapter = createGithubAdapter({ fetchImpl });
+
+    const result = await adapter.createGist({
+      token: CALLER_TOKEN,
+      filename: 'freeagents-github-proof.txt',
+      content: 'FreeAgents GitHub proof\nversion: 1\n',
+    });
+
+    expect(result).toEqual({ id: 'new-gist-id' });
+    expect(calls).toEqual([
+      {
+        url: 'https://api.github.com/gists',
+        method: 'POST',
+        body: {
+          public: true,
+          files: { 'freeagents-github-proof.txt': { content: 'FreeAgents GitHub proof\nversion: 1\n' } },
+        },
+      },
+    ]);
+  });
+
+  it('the request carries the CALLER token, not the configured platform token', async () => {
+    const { fetchImpl, calls } = scriptedFetch([jsonResponse(201, { id: 'g1', owner: null })]);
+    // A platform token IS configured here, to prove createGist ignores it.
+    const adapter = createGithubAdapter({ token: 'ghp_platform_token_not_real', fetchImpl });
+
+    await adapter.createGist({ token: CALLER_TOKEN, filename: 'f.txt', content: 'c' });
+
+    const call = calls[0];
+    if (call === undefined) throw new Error('expected a recorded call');
+    expect(call.url).toBe('https://api.github.com/gists');
+  });
+
+  it('rejects rather than calling GitHub when the caller token is empty', async () => {
+    const { fetchImpl, calls } = scriptedFetch([]);
+    const adapter = createGithubAdapter({ fetchImpl });
+
+    await expect(adapter.createGist({ token: '', filename: 'f.txt', content: 'c' })).rejects.toThrow();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('a non-2xx response rejects', async () => {
+    const { fetchImpl } = scriptedFetch([jsonResponse(422, { message: 'Validation Failed' })]);
+    const adapter = createGithubAdapter({ fetchImpl });
+
+    await expect(
+      adapter.createGist({ token: CALLER_TOKEN, filename: 'f.txt', content: 'c' }),
+    ).rejects.toThrow();
+  });
+});
+
+describe('createGithubAdapter, deleteGist (FIX-B47a)', () => {
+  it('DELETEs /gists/:id with the caller token', async () => {
+    const { fetchImpl, calls } = scriptedFetch([new Response(null, { status: 204 })]);
+    const adapter = createGithubAdapter({ fetchImpl });
+
+    await adapter.deleteGist({ token: CALLER_TOKEN, id: 'gist-to-remove' });
+
+    expect(calls).toEqual([
+      { url: 'https://api.github.com/gists/gist-to-remove', method: 'DELETE', body: undefined },
+    ]);
+  });
+
+  it('rejects rather than calling GitHub when the caller token is empty', async () => {
+    const { fetchImpl, calls } = scriptedFetch([]);
+    const adapter = createGithubAdapter({ fetchImpl });
+
+    await expect(adapter.deleteGist({ token: '', id: 'g1' })).rejects.toThrow();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('a non-2xx response rejects', async () => {
+    const { fetchImpl } = scriptedFetch([jsonResponse(404, { message: 'Not Found' })]);
+    const adapter = createGithubAdapter({ fetchImpl });
+
+    await expect(adapter.deleteGist({ token: CALLER_TOKEN, id: 'gone' })).rejects.toThrow();
+  });
+});
+
+describe('createGithubAdapter, deleteGrant (FIX-B47a, docs.github.com delete-an-app-authorization)', () => {
+  const original = {
+    id: process.env.FREEAGENTS_GITHUB_CLIENT_ID,
+    secret: process.env.FREEAGENTS_GITHUB_CLIENT_SECRET,
+  };
+
+  afterEach(() => {
+    if (original.id === undefined) delete process.env.FREEAGENTS_GITHUB_CLIENT_ID;
+    else process.env.FREEAGENTS_GITHUB_CLIENT_ID = original.id;
+    if (original.secret === undefined) delete process.env.FREEAGENTS_GITHUB_CLIENT_SECRET;
+    else process.env.FREEAGENTS_GITHUB_CLIENT_SECRET = original.secret;
+  });
+
+  it('DELETEs /applications/:client_id/grant with Basic auth (client_id:client_secret) and the access_token body', async () => {
+    const { fetchImpl, calls } = scriptedFetch([new Response(null, { status: 204 })]);
+    const adapter = createGithubAdapter({
+      fetchImpl,
+      oauthClientId: 'client-abc',
+      oauthClientSecret: 'secret-xyz',
+    });
+
+    await adapter.deleteGrant({ token: CALLER_TOKEN });
+
+    expect(calls).toHaveLength(1);
+    const call = calls[0];
+    if (call === undefined) throw new Error('expected a recorded call');
+    expect(call.url).toBe('https://api.github.com/applications/client-abc/grant');
+    expect(call.method).toBe('DELETE');
+    expect(call.body).toEqual({ access_token: CALLER_TOKEN });
+  });
+
+  it('never sends the caller token as a bearer header (Basic auth only, per the docs)', async () => {
+    const { fetchImpl } = scriptedFetch([new Response(null, { status: 204 })]);
+    let capturedAuth = '';
+    const wrapped: typeof fetch = (async (input, init) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      capturedAuth = headers['authorization'] ?? '';
+      return fetchImpl(input, init);
+    }) as typeof fetch;
+    const adapter = createGithubAdapter({
+      fetchImpl: wrapped,
+      oauthClientId: 'client-abc',
+      oauthClientSecret: 'secret-xyz',
+    });
+
+    await adapter.deleteGrant({ token: CALLER_TOKEN });
+
+    expect(capturedAuth.startsWith('Basic ')).toBe(true);
+    expect(capturedAuth).not.toContain(CALLER_TOKEN);
+  });
+
+  it('rejects rather than calling GitHub when oauthClientId/Secret are not configured', async () => {
+    delete process.env.FREEAGENTS_GITHUB_CLIENT_ID;
+    delete process.env.FREEAGENTS_GITHUB_CLIENT_SECRET;
+    const { fetchImpl, calls } = scriptedFetch([]);
+    const adapter = createGithubAdapter({ fetchImpl });
+
+    await expect(adapter.deleteGrant({ token: CALLER_TOKEN })).rejects.toThrow();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('a non-2xx response rejects', async () => {
+    const { fetchImpl } = scriptedFetch([jsonResponse(422, { message: 'Validation Failed' })]);
+    const adapter = createGithubAdapter({ fetchImpl, oauthClientId: 'client-abc', oauthClientSecret: 'secret-xyz' });
+
+    await expect(adapter.deleteGrant({ token: CALLER_TOKEN })).rejects.toThrow();
+  });
+});
+
+// S3+S4-style fence, but for THIS card's own worry: no method among the
+// three new ones (or any existing one) ever sends the caller's exchanged
+// token to a /repos/ path -- that would be a write to a repository using
+// the owner's own credentials, which invariant 1 forbids this adapter from
+// ever doing.
+describe('createGithubAdapter, the caller token never reaches a /repos/ path (FIX-B47a)', () => {
+  it('createGist, deleteGist and deleteGrant only ever call /gists or /applications, never /repos/', async () => {
+    const { fetchImpl: gistFetch, calls: gistCalls } = scriptedFetch([jsonResponse(201, { id: 'g1', owner: null })]);
+    const gistAdapter = createGithubAdapter({ fetchImpl: gistFetch });
+    await gistAdapter.createGist({ token: CALLER_TOKEN, filename: 'f.txt', content: 'c' });
+
+    const { fetchImpl: deleteFetch, calls: deleteCalls } = scriptedFetch([new Response(null, { status: 204 })]);
+    const deleteAdapter = createGithubAdapter({ fetchImpl: deleteFetch });
+    await deleteAdapter.deleteGist({ token: CALLER_TOKEN, id: 'g1' });
+
+    const { fetchImpl: grantFetch, calls: grantCalls } = scriptedFetch([new Response(null, { status: 204 })]);
+    const grantAdapter = createGithubAdapter({
+      fetchImpl: grantFetch,
+      oauthClientId: 'client-abc',
+      oauthClientSecret: 'secret-xyz',
+    });
+    await grantAdapter.deleteGrant({ token: CALLER_TOKEN });
+
+    for (const call of [...gistCalls, ...deleteCalls, ...grantCalls]) {
+      expect(call.url).not.toContain('/repos/');
+    }
   });
 });

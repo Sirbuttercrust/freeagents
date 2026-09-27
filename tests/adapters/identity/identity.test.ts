@@ -530,3 +530,62 @@ describe('createIdentityAdapter, issueSiteDelegation (FIX-B41a)', () => {
     await expect(identity.verifyDelegation(tampered, 'did:abt:zTamperedAgent', owner.did)).resolves.toBe(false);
   });
 });
+
+// FIX-B47a: the narrowest signing method the one-click proof needs -- sign
+// the gist statement payload with a site-listed agent's RE-DERIVED key
+// (createAgentDid's own derivation, never a new one), so the platform can
+// publish a gist that verifies through the identical check path two
+// already runs. No private key is ever stored: sign() re-derives the same
+// bytes createAgentDid did and discards them once the signature exists.
+describe('createIdentityAdapter, sign (FIX-B47a)', () => {
+  const ORIGINAL_SEED = process.env.FREEAGENTS_PLATFORM_SEED;
+
+  afterEach(() => {
+    if (ORIGINAL_SEED === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
+    else process.env.FREEAGENTS_PLATFORM_SEED = ORIGINAL_SEED;
+  });
+
+  it('signs with the exact key createAgentDid re-derives for this operator/credential pair, verifiable by verify()', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = '8'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const owner = await identity.createOperatorDid('sign-owner-subject');
+    const { did: agentDid, publicKeyMultibase } = await identity.createAgentDid(owner.did, 'urn:uuid:sign-me');
+
+    const payload = 'freeagents-github-proof v1\n' + agentDid + '\nhttps://github.com/scout-agent\n';
+    const signed = await identity.sign(agentDid, payload, owner.did, 'urn:uuid:sign-me');
+
+    expect(signed.signerDid).toBe(agentDid);
+    expect(signed.payload).toBe(payload);
+    // Verified the same way any other agent-signed payload is: through the
+    // adapter's own verify(), with the re-derived key offered as a
+    // candidate (the platform has never "observed" its own re-derived
+    // agent keys through a prior inbound request).
+    await expect(
+      identity.verify({ payload, signature: signed.signature, signerDid: agentDid, candidateKeyMultibase: publicKeyMultibase }),
+    ).resolves.toBe(true);
+  });
+
+  it('is deterministic: the same owner/credential pair signs with the same key every call', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = '9'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const owner = await identity.createOperatorDid('sign-owner-subject-2');
+    const { did: agentDid } = await identity.createAgentDid(owner.did, 'urn:uuid:sign-me-2');
+
+    const payload = 'same payload both times';
+    const first = await identity.sign(agentDid, payload, owner.did, 'urn:uuid:sign-me-2');
+    const second = await identity.sign(agentDid, payload, owner.did, 'urn:uuid:sign-me-2');
+
+    // Ed25519 is deterministic: identical key + identical payload always
+    // produces the identical signature bytes.
+    expect(first.signature).toBe(second.signature);
+  });
+
+  it('fails closed, naming FREEAGENTS_PLATFORM_SEED, when the seed is unset', async () => {
+    delete process.env.FREEAGENTS_PLATFORM_SEED;
+    const identity = createIdentityAdapter(createKnownKeyStore());
+
+    await expect(identity.sign('did:abt:zAgent', 'x', 'did:abt:zOwner', 'urn:uuid:no-seed')).rejects.toThrow(
+      /FREEAGENTS_PLATFORM_SEED/,
+    );
+  });
+});

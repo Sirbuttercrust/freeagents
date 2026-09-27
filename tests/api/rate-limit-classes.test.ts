@@ -65,6 +65,18 @@ describe('classifyRoute: upstream (GitHub- and chain-calling routes)', () => {
   });
 });
 
+// FIX-B47a: the start route is an authenticated POST that calls nothing
+// upstream at request time (Make item 1's own citation: "the nearest
+// neighbour is POST /auth/passkey/register"), so it belongs in `write`,
+// not `upstream` -- the upstream call (the GitHub token exchange and gist
+// publish) happens later, on the callback, which is already `verify`.
+describe('classifyRoute: POST /agents/:agentDid/github-proof/start (FIX-B47a)', () => {
+  it('classifies as write, the same class as POST /auth/passkey/register', () => {
+    expect(classifyRoute('POST', '/agents/did:abt:zAgent/github-proof/start')).toBe('write');
+    expect(classifyRoute('POST', '/auth/passkey/register')).toBe('write');
+  });
+});
+
 describe('classifyRoute: write (every other POST/PUT/PATCH/DELETE)', () => {
   it('classifies POST /accounts as write (the sweep names it explicitly)', () => {
     expect(classifyRoute('POST', '/accounts')).toBe('write');

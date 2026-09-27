@@ -10,8 +10,12 @@ import {
   type CommitSignatureStatus,
   type CompareCommitsInput,
   type CompareCommitsResult,
+  type CreateGistInput,
+  type CreateGistResult,
   type CreateStagingRepositoryInput,
   type CreateStagingRepositoryResult,
+  type DeleteGistInput,
+  type DeleteGrantInput,
   type RepositoryFacts,
   type Gist,
   type GetCommitInput,
@@ -63,6 +67,14 @@ export interface CreateGithubAdapterOptions {
   // fence). Defaults to FREEAGENTS_GITHUB_PLATFORM_LOGIN from the
   // environment.
   readonly platformLogin?: string;
+  // FIX-B47a: the OAuth app's own client id and secret, needed only by
+  // deleteGrant's Basic-auth call (docs.github.com/en/rest/apps/oauth-applications).
+  // Default to FREEAGENTS_GITHUB_CLIENT_ID / FREEAGENTS_GITHUB_CLIENT_SECRET
+  // from the environment, the same two env vars session-github-passkey.ts's
+  // sessionAdapterFromEnv already reads for the identical OAuth app -- one
+  // app, one pair of credentials, never a second registration.
+  readonly oauthClientId?: string;
+  readonly oauthClientSecret?: string;
 }
 
 interface GitHubErrorBody {
@@ -178,6 +190,9 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
   // B14a: the platform's own GitHub login, checked before every mutating
   // staging-lifecycle call.
   const platformLogin = options.platformLogin ?? (process.env.FREEAGENTS_GITHUB_PLATFORM_LOGIN || '');
+  // FIX-B47a: the OAuth app's own credentials, read only by deleteGrant.
+  const oauthClientId = options.oauthClientId ?? (process.env.FREEAGENTS_GITHUB_CLIENT_ID || '');
+  const oauthClientSecret = options.oauthClientSecret ?? (process.env.FREEAGENTS_GITHUB_CLIENT_SECRET || '');
 
   // Fails closed BEFORE any network call: an absent or empty token cannot
   // authenticate, so every method rejects immediately rather than attempting
@@ -189,6 +204,50 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
       throw new Error('github adapter: FREEAGENTS_GITHUB_TOKEN is not configured');
     }
     return token;
+  }
+
+  // FIX-B47a: the same fail-closed-before-any-network-call posture as
+  // requireToken above, for the CALLER's exchanged token every one-click
+  // proof write carries instead of the platform token.
+  function requireCallerToken(token: string): string {
+    if (token === '') {
+      throw new Error('github adapter: no caller token was supplied for this call');
+    }
+    return token;
+  }
+
+  // FIX-B47a: fails closed before any network call when the OAuth app's
+  // own credentials are not configured -- deleteGrant's Basic-auth call
+  // has no owner this adapter could safely assume otherwise.
+  function requireOAuthAppCredentials(): { readonly clientId: string; readonly clientSecret: string } {
+    if (oauthClientId === '' || oauthClientSecret === '') {
+      throw new Error(
+        'github adapter: FREEAGENTS_GITHUB_CLIENT_ID/FREEAGENTS_GITHUB_CLIENT_SECRET are not configured',
+      );
+    }
+    return { clientId: oauthClientId, clientSecret: oauthClientSecret };
+  }
+
+  // FIX-B47a: the caller-token counterpart of githubRequest above -- same
+  // shape, but authenticates with the CALLER's just-exchanged token, never
+  // the platform's FREEAGENTS_GITHUB_TOKEN. A distinct function, not a
+  // parameter on githubRequest, so a caller-token call and a platform-token
+  // call can never be confused by an omitted argument.
+  async function githubRequestAsCaller(
+    callerToken: string,
+    path: string,
+    init: { readonly method?: string; readonly body?: unknown } = {},
+  ): Promise<Response> {
+    return fetchImpl(`${apiBase}${path}`, {
+      method: init.method ?? 'GET',
+      headers: {
+        accept: 'application/vnd.github+json',
+        authorization: `Bearer ${callerToken}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
+      },
+      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+    });
   }
 
   // B14a, invariant 1's adapter-level fence: every mutating staging-repo
@@ -436,6 +495,58 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
           verified: commit.commit.verification?.verified ?? false,
         })),
       };
+    },
+
+    // FIX-B47a: POST /gists as the caller (docs.github.com/en/rest/gists/gists#create-a-gist).
+    // `public: true` always -- this route never publishes a secret gist,
+    // and every gist path two already reads is itself public. One file,
+    // the caller-supplied name and content (the composed statement text);
+    // no description, matching path two's own gist shape (no field this
+    // adapter or the domain layer ever reads).
+    async createGist(input: CreateGistInput): Promise<CreateGistResult> {
+      const callerToken = requireCallerToken(input.token);
+      const response = await githubRequestAsCaller(callerToken, '/gists', {
+        method: 'POST',
+        body: { public: true, files: { [input.filename]: { content: input.content } } },
+      });
+      await requireOk(response, 'create gist');
+      const raw = (await response.json()) as { readonly id: string };
+      return { id: raw.id };
+    },
+
+    // FIX-B47a: DELETE /gists/:id as the caller
+    // (docs.github.com/en/rest/gists/gists#delete-a-gist), used to clean up
+    // a gist that did not verify before the grant that authorized
+    // publishing it is revoked.
+    async deleteGist(input: DeleteGistInput): Promise<void> {
+      const callerToken = requireCallerToken(input.token);
+      const response = await githubRequestAsCaller(callerToken, `/gists/${input.id}`, { method: 'DELETE' });
+      await requireOk(response, 'delete gist');
+    },
+
+    // FIX-B47a: DELETE /applications/{client_id}/grant
+    // (docs.github.com/en/rest/apps/oauth-applications#delete-an-app-authorization).
+    // The docs' own "Basic authentication" section for this endpoint: the
+    // client_id is the username, the client_secret is the password --
+    // never the caller's bearer token, which this call revokes rather than
+    // authenticates with. The access_token goes in the body, naming whose
+    // grant to delete; GitHub deletes every token the app holds for that
+    // user and removes the app's access entirely, not merely this one token.
+    async deleteGrant(input: DeleteGrantInput): Promise<void> {
+      const callerToken = requireCallerToken(input.token);
+      const { clientId, clientSecret } = requireOAuthAppCredentials();
+      const basic = Buffer.from(`${clientId}:${clientSecret}`, 'utf8').toString('base64');
+      const response = await fetchImpl(`${apiBase}/applications/${clientId}/grant`, {
+        method: 'DELETE',
+        headers: {
+          accept: 'application/vnd.github+json',
+          authorization: `Basic ${basic}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ access_token: callerToken }),
+      });
+      await requireOk(response, 'delete grant');
     },
   };
 }
