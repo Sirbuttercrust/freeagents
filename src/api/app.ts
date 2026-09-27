@@ -554,10 +554,10 @@ function jobProjection(row: Job): Record<string, unknown> {
   // together or neither (see that function's own header comment), so the
   // pair rides one conditional here the same way every other one-writer
   // pair in this projection does. Once confirm has created the platform's
-  // staging repository, the agent it just granted push to has to be told
-  // which repository that is -- the anchor's whole point is that the
-  // staged commit lives somewhere the platform named, and the wire is
-  // where that name has to surface.
+  // staging repository and invited (or added) the agent's login as a
+  // collaborator, the agent has to be told which repository that is --
+  // the anchor's whole point is that the staged commit lives somewhere
+  // the platform named, and the wire is where that name has to surface.
   const stagingRepoFacts =
     row.stagingRepo !== null && row.baseCommit !== null
       ? { stagingRepo: row.stagingRepo, baseCommit: row.baseCommit }

@@ -144,8 +144,15 @@ describe('createGithubAdapter, grantPush (B14a, FIX-B14b: reports what GitHub ac
   it('a 201 (an invitation, still pending) answers { state: invited, invitationId, acceptUrl }, read off the body', async () => {
     const { fetchImpl, calls } = scriptedFetch([
       jsonResponse(201, {
+        // The html_url deliberately does NOT match the
+        // `https://github.com/${owner}/${repo}/invitations` shape the
+        // adapter's own input could build: it carries a trailing
+        // `/details` segment nothing in the PUT request supplies. If
+        // grantPush ever stopped reading html_url off this body and
+        // reconstructed the URL from input.owner/input.repo instead,
+        // this assertion is the one thing that would catch it.
         id: 334930672,
-        html_url: 'https://github.com/freeagents-platform/staging-job_1/invitations',
+        html_url: 'https://github.com/freeagents-platform/staging-job_1/invitations/details',
         permissions: 'write',
       }),
     ]);
@@ -168,7 +175,7 @@ describe('createGithubAdapter, grantPush (B14a, FIX-B14b: reports what GitHub ac
     expect(result).toEqual({
       state: 'invited',
       invitationId: '334930672',
-      acceptUrl: 'https://github.com/freeagents-platform/staging-job_1/invitations',
+      acceptUrl: 'https://github.com/freeagents-platform/staging-job_1/invitations/details',
     });
   });
 

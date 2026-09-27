@@ -85,11 +85,13 @@ export interface StagingLifecycleFixture {
   // uses.
   setPullRequest(ref: PullRequestRef, summary: Omit<PullRequestSummary, 'ref'>): void;
   // FIX-B14b: scripts what grantPush answers for the NEXT call against
-  // this owner/repo/login -- 'invited' (a fresh 201, a real invitationId
-  // and acceptUrl) or 'active' (a 204, the default when never called).
-  // Also scripts what getCollaboratorPermission reads back for that same
-  // login afterwards, since the two are the same underlying fact in a
-  // real deployment (an invited login reads none/read until it accepts).
+  // this owner/repo/login -- 'invited' (a fresh 201, an incrementing
+  // invitationId and a constructed acceptUrl) or 'active' (a 204, the
+  // default when never called). This scripts grantPush ALONE: a test
+  // that also wants getCollaboratorPermission to read back none/read
+  // for an invited login has to call setCollaboratorPermission itself
+  // (below), because the two fakes are independent stores and this
+  // method never touches collaboratorPermissions.
   setGrantPushState(owner: string, repo: string, githubLogin: string, state: 'invited' | 'active'): void;
   // FIX-B14b: scripts getCollaboratorPermission's answer directly, for a
   // test that needs a specific permission string ('none' | 'read' |
@@ -141,15 +143,18 @@ export function createStagingLifecycleGithubFake(
   const sourceFacts = new Map<string, RepositoryFacts>();
   const repos = new Map<string, RepoState>();
   const pullRequests = new Map<string, PullRequestSummary>();
-  // FIX-B14b: keyed by owner/repo/login (grantPushKey). grantPushStates
-  // scripts what the NEXT grantPush call for that key answers ('invited'
-  // mints a fresh, incrementing invitation id and acceptUrl each call --
-  // mirroring GitHub's own \"a second PUT while pending returns the SAME
-  // invitation\" only when a test asks for it via collaboratorPermissions
-  // directly; this fixture keeps the two scripts independent and simple).
-  // collaboratorPermissions scripts getCollaboratorPermission's answer;
-  // unset reads back 'write' (decision 3: every existing test stays
-  // green with no configuration).
+  // FIX-B14b: both maps are keyed by owner/repo/login (collaboratorKey).
+  // grantPushStates scripts what the NEXT grantPush call for that key
+  // answers: 'invited' mints a fresh, incrementing invitation id and a
+  // constructed acceptUrl on every call (this fixture does not mirror
+  // GitHub's "a second PUT while pending returns the SAME invitation"
+  // behaviour; that fact is pinned against the real adapter in
+  // tests/adapters/github/github-staging.test.ts, not here).
+  // collaboratorPermissions scripts getCollaboratorPermission's answer,
+  // as an entirely separate store; unset reads back 'write' (decision 3:
+  // every existing test stays green with no configuration). A test that
+  // wants an invited login's permission read to also answer none/read
+  // must call setCollaboratorPermission itself.
   const grantPushStates = new Map<string, 'invited' | 'active'>();
   const collaboratorPermissions = new Map<string, string>();
   let nextInvitationId = 1;

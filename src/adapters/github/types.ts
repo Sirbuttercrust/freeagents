@@ -3,8 +3,8 @@
 // itself from its own fork. There is no method here that writes to a
 // repository the caller does not own, by construction: createStagingRepository
 // only ever creates an empty repository under the platform account, and
-// grantPush only ever adds a collaborator to a repository the platform
-// owns. Nothing in this adapter ever opens a pull request or writes a
+// grantPush only ever invites or adds a collaborator to a repository the
+// platform owns. Nothing in this adapter ever opens a pull request or writes a
 // single byte against the buyer's (source) repository or the agent's own
 // fork -- the agent holds its own GitHub credentials and does that work
 // itself, outside this service (invariant 1, STG2 refined shape).
@@ -97,7 +97,10 @@ export interface GrantPushInput {
   readonly repo: string;
   // The agent's VERIFIED GitHub login (R-3/R-4, ENT-5) -- grantPush
   // refuses a login that does not match, so a caller cannot use this
-  // method to hand push access to an arbitrary account.
+  // method to invite or add an arbitrary account. FIX-B14b: sending the
+  // invitation is not the same as the account being able to push; that
+  // depends on the invitee accepting, which getCollaboratorPermission
+  // reads live rather than this method's own return value.
   readonly githubLogin: string;
   readonly verifiedGithubLogin: string;
 }
