@@ -39,8 +39,7 @@ interface ChainState {
 }
 type Eip6963Window = {
   addEventListener: (event: string, handler: () => void) => void;
-  dispatchEvent: (event: Event) => void;
-  CustomEvent: typeof CustomEvent;
+  dispatchEvent: (event: Event) => void; CustomEvent: typeof CustomEvent;
   ethereum?: unknown;
 };
 function announceWallet(win: Eip6963Window, uuid: string, name: string): void {
