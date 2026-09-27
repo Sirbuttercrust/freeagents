@@ -475,44 +475,16 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     return { agentDid, firstLogin, baseUrl, server, outcome, calls: githubFakeSecond.calls };
   }
 
-  it('failed: a gist that publishes but does not verify (author mismatch) is deleted with the same token before the grant, and the old binding is untouched (R-5 separation)', async () => {
-    const { agentDid, firstLogin, baseUrl, server, outcome, calls } = await reproveAfterVerified(
-      'octo-r5-second-failing',
-      async (ref) => ({ id: ref.id, owner: 'someone-else-entirely', files: { 'proof.txt': 'garbage' } }),
-    );
+  // QA proof r1, D1 and D2: R-5 separation on BOTH non-verified outcomes
+  // (author-mismatch and not-found), and the cleanup order pinned by an
+  // ordered call log (deleteGist strictly before deleteGrant).
+  it.each([
+    ['author mismatch', async (ref: { readonly id: string }) => ({ id: ref.id, owner: 'someone-else-entirely', files: { 'proof.txt': 'garbage' } })],
+    ['not-found', async (ref: { readonly id: string }) => { throw new GistNotFoundError(ref.id); }],
+  ] as const)('failed: a gist that publishes but the check reports %s is deleted with the same token before the grant, and the old binding is untouched (R-5 separation)', async (_label, override) => {
+    const { agentDid, firstLogin, baseUrl, server, outcome, calls } = await reproveAfterVerified('octo-r5-second-failing', override);
     try {
       expect(outcome).toEqual({ outcome: 'failed', agentDid });
-
-      // Cleanup order: the created-but-unverified gist is deleted with the
-      // SAME token, and it happens BEFORE the grant deletion.
-      expect(calls.createGist).toHaveLength(1);
-      expect(calls.deleteGist).toHaveLength(1);
-      expect(calls.deleteGist[0]!.token).toBe(FAKE_TOKEN);
-      expect(calls.deleteGrant).toHaveLength(1);
-      expect(calls.order.indexOf('deleteGist')).toBeLessThan(calls.order.indexOf('deleteGrant'));
-
-      // R-5 separation: the OLD verified binding stands exactly as it was.
-      const read = await fetch(`${baseUrl}/agents/${agentDid}`);
-      const readBody = (await read.json()) as Record<string, unknown>;
-      expect(readBody.proofStatus).toBe('verified');
-      expect(readBody.githubLogin).toBe(firstLogin);
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-  });
-
-  // QA proof r1, D1: adds the not-found case for R-5 separation (the
-  // gist is created but getPublicGist finds it gone by read-back).
-  // Mutation proof: writing an 'unverified' binding on not-found turns
-  // this red while every other test here stays green.
-  it('failed: a gist that publishes but reads back not-found is deleted with the same token before the grant, and the old binding is untouched (R-5 separation, the not-found case)', async () => {
-    const { agentDid, firstLogin, baseUrl, server, outcome, calls } = await reproveAfterVerified(
-      'octo-r5-second-notfound',
-      async (ref) => { throw new GistNotFoundError(ref.id); },
-    );
-    try {
-      expect(outcome).toEqual({ outcome: 'failed', agentDid });
-
       expect(calls.createGist).toHaveLength(1);
       expect(calls.deleteGist).toHaveLength(1);
       expect(calls.deleteGist[0]!.token).toBe(FAKE_TOKEN);
