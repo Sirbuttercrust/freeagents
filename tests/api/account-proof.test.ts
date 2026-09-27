@@ -123,6 +123,7 @@ function fakeGithub(gists: Map<string, Gist | null>): GithubAdapter {
     createStagingRepository: () => Promise.reject(new NotImplementedError('github', 'createStagingRepository')),
     grantPush: () => Promise.reject(new NotImplementedError('github', 'grantPush')),
     getCommit: () => Promise.reject(new NotImplementedError('github', 'getCommit')),
+    getCollaboratorPermission: () => Promise.reject(new NotImplementedError('github', 'getCollaboratorPermission')),
     readRepository: () => Promise.reject(new NotImplementedError('github', 'readRepository')),
     compareCommits: () => Promise.reject(new NotImplementedError('github', 'compareCommits')),
     createGist: () => Promise.reject(new NotImplementedError('github', 'createGist')),

@@ -102,6 +102,38 @@ export interface GrantPushInput {
   readonly verifiedGithubLogin: string;
 }
 
+// FIX-B14b: what GitHub's PUT .../collaborators/{login} call actually
+// answered, read off the wire instead of assumed. A 201 means an
+// invitation now sits pending (the agent has NOT been granted push yet,
+// whatever `permission: 'push'` in the request body implied); a 204
+// means the login was already a collaborator (or, for an organization
+// with default member permissions covering it, silently active) and
+// nothing is pending. There is no third outcome grantPush ever returns:
+// anything else keeps throwing through requireOk, exactly as before this
+// card.
+export interface GrantPushInvited {
+  readonly state: 'invited';
+  readonly invitationId: string;
+  readonly acceptUrl: string;
+}
+
+export interface GrantPushActive {
+  readonly state: 'active';
+}
+
+export type GrantPushResult = GrantPushInvited | GrantPushActive;
+
+// FIX-B14b: the input getCollaboratorPermission needs to ask GitHub
+// what a login's REAL standing on a repository is right now, rather
+// than trusting a write this adapter made earlier. A read, so it is
+// never subject to requirePlatformOwner (the same stance getCommit
+// already takes).
+export interface GetCollaboratorPermissionInput {
+  readonly owner: string;
+  readonly repo: string;
+  readonly githubLogin: string;
+}
+
 export interface GetCommitInput {
   readonly owner: string;
   readonly repo: string;
@@ -302,11 +334,29 @@ export interface GithubAdapter {
   // UnverifiedGithubLoginError when githubLogin does not match
   // verifiedGithubLogin, and NotPlatformOwnerError when owner is not the
   // platform account.
-  grantPush(input: GrantPushInput): Promise<void>;
+  //
+  // FIX-B14b: does NOT throw on the invitation itself, and does NOT mean
+  // the login can push yet -- GitHub answers 201 (a pending invitation,
+  // no access until the invitee accepts) or 204 (already a collaborator,
+  // active now). The caller reads which one came back off the result and
+  // acts accordingly; push readiness is never inferred from having called
+  // this method, only from getCollaboratorPermission below.
+  grantPush(input: GrantPushInput): Promise<GrantPushResult>;
   // B14a: reads a commit from a repository (staging or otherwise) so the
   // stage route can prove a SHA exists and descends from baseCommit.
   // Read-only: never subject to the owner check.
   getCommit(input: GetCommitInput): Promise<CommitInfo>;
+  // FIX-B14b: GET /repos/{owner}/{repo}/collaborators/{username}/permission
+  // (docs.github.com/en/rest/collaborators/collaborators#get-repository-permissions-for-a-user).
+  // Returns GitHub's own `permission` string verbatim: 'admin' | 'write'
+  // | 'read' | 'none' (GitHub's docs: "the maintain role is mapped to
+  // write and the triage role is mapped to read"). This is the fact that
+  // decides whether an agent can actually push right now -- measured
+  // live, never a stored copy of what grantPush once returned, because a
+  // pending invitation can be accepted, declined or revoked at any time
+  // outside this platform's knowledge. Read-only: never subject to the
+  // owner check, the same as getCommit above.
+  getCollaboratorPermission(input: GetCollaboratorPermissionInput): Promise<string>;
   // B14a, FIX-B36: reads the buyer's repository -- full name (follows a
   // move), private, allowForking, ownerIsOrganization, default branch and
   // its current head sha -- the facts confirm pins as baseCommit before

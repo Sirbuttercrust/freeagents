@@ -17,10 +17,12 @@ import {
   type DeleteGistInput,
   type DeleteGrantInput,
   type RepositoryFacts,
+  type GetCollaboratorPermissionInput,
   type Gist,
   type GetCommitInput,
   type GithubAdapter,
   type GrantPushInput,
+  type GrantPushResult,
   type PullRequestRef,
   type PullRequestSummary,
   type StagingRepoRef,
@@ -354,7 +356,14 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
     // on a staging repository the platform owns. Refuses (before any
     // network call) when the login named is not the agent's verified
     // login, or when the owner is not the platform account.
-    async grantPush(input: GrantPushInput): Promise<void> {
+    //
+    // FIX-B14b: the PUT itself never grants push -- GitHub's own
+    // documented behaviour is a 201 (a pending invitation the invitee
+    // must accept) unless the login is already a collaborator, in which
+    // case it answers 204 with no body. Read off the wire and reported to
+    // the caller, which is what the confirm route needs to tell the agent
+    // it must accept before it can push.
+    async grantPush(input: GrantPushInput): Promise<GrantPushResult> {
       requirePlatformOwner(input.owner);
       if (input.githubLogin !== input.verifiedGithubLogin) {
         throw new UnverifiedGithubLoginError(input.githubLogin);
@@ -368,6 +377,30 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
         { method: 'PUT', body: { permission: 'push' } },
       );
       await requireOk(response, 'grant push');
+      if (response.status === 204) {
+        return { state: 'active' };
+      }
+      const raw = (await response.json()) as { readonly id: number; readonly html_url: string };
+      return { state: 'invited', invitationId: String(raw.id), acceptUrl: raw.html_url };
+    },
+
+    // FIX-B14b: reads the login's REAL, current standing on a repository
+    // -- never a stored copy of what grantPush answered, because a
+    // pending invitation can be accepted, declined or revoked at any
+    // time GitHub decides, outside this platform's own knowledge.
+    // Read-only, so it is never subject to requirePlatformOwner, the same
+    // stance getCommit already takes.
+    async getCollaboratorPermission(input: GetCollaboratorPermissionInput): Promise<string> {
+      const tok = requireToken();
+      const response = await githubRequest(
+        fetchImpl,
+        apiBase,
+        tok,
+        `/repos/${input.owner}/${input.repo}/collaborators/${input.githubLogin}/permission`,
+      );
+      await requireOk(response, 'get collaborator permission');
+      const raw = (await response.json()) as { readonly permission: string };
+      return raw.permission;
     },
 
     // B14a: reads a commit so the stage route can prove a SHA exists in

@@ -36,9 +36,11 @@ import {
   type CreateStagingRepositoryInput,
   type CreateStagingRepositoryResult,
   type RepositoryFacts,
+  type GetCollaboratorPermissionInput,
   type GetCommitInput,
   type GithubAdapter,
   type GrantPushInput,
+  type GrantPushResult,
   type PullRequestRef,
   type PullRequestSummary,
   type StagingRepoRef,
@@ -55,6 +57,7 @@ export interface StagingLifecycleCalls {
   readonly createStagingRepository: CreateStagingRepositoryInput[];
   readonly grantPush: GrantPushInput[];
   readonly getCommit: GetCommitInput[];
+  readonly getCollaboratorPermission: GetCollaboratorPermissionInput[];
   readonly readRepository: StagingRepoRef[];
   readonly getPullRequest: PullRequestRef[];
 }
@@ -81,6 +84,19 @@ export interface StagingLifecycleFixture {
   // the same honest-about-the-gap stub every other uncalled capability here
   // uses.
   setPullRequest(ref: PullRequestRef, summary: Omit<PullRequestSummary, 'ref'>): void;
+  // FIX-B14b: scripts what grantPush answers for the NEXT call against
+  // this owner/repo/login -- 'invited' (a fresh 201, a real invitationId
+  // and acceptUrl) or 'active' (a 204, the default when never called).
+  // Also scripts what getCollaboratorPermission reads back for that same
+  // login afterwards, since the two are the same underlying fact in a
+  // real deployment (an invited login reads none/read until it accepts).
+  setGrantPushState(owner: string, repo: string, githubLogin: string, state: 'invited' | 'active'): void;
+  // FIX-B14b: scripts getCollaboratorPermission's answer directly, for a
+  // test that needs a specific permission string ('none' | 'read' |
+  // 'write' | 'admin') independent of what grantPush was ever told.
+  // Defaults to 'write' when never configured (decision 3: the fake's
+  // defaults must keep every existing test green).
+  setCollaboratorPermission(owner: string, repo: string, githubLogin: string, permission: string): void;
 }
 
 export interface CreateStagingLifecycleGithubFakeOptions {
@@ -125,16 +141,33 @@ export function createStagingLifecycleGithubFake(
   const sourceFacts = new Map<string, RepositoryFacts>();
   const repos = new Map<string, RepoState>();
   const pullRequests = new Map<string, PullRequestSummary>();
+  // FIX-B14b: keyed by owner/repo/login (grantPushKey). grantPushStates
+  // scripts what the NEXT grantPush call for that key answers ('invited'
+  // mints a fresh, incrementing invitation id and acceptUrl each call --
+  // mirroring GitHub's own \"a second PUT while pending returns the SAME
+  // invitation\" only when a test asks for it via collaboratorPermissions
+  // directly; this fixture keeps the two scripts independent and simple).
+  // collaboratorPermissions scripts getCollaboratorPermission's answer;
+  // unset reads back 'write' (decision 3: every existing test stays
+  // green with no configuration).
+  const grantPushStates = new Map<string, 'invited' | 'active'>();
+  const collaboratorPermissions = new Map<string, string>();
+  let nextInvitationId = 1;
   const calls: StagingLifecycleCalls = {
     createStagingRepository: [],
     grantPush: [],
     getCommit: [],
+    getCollaboratorPermission: [],
     readRepository: [],
     getPullRequest: [],
   };
 
   function repoKey(owner: string, repo: string): string {
     return `${owner}/${repo}`;
+  }
+
+  function collaboratorKey(owner: string, repo: string, githubLogin: string): string {
+    return `${owner}/${repo}#${githubLogin}`;
   }
 
   const github: GithubAdapter = {
@@ -167,11 +200,29 @@ export function createStagingLifecycleGithubFake(
       return { owner, repo, defaultBranch: 'main', baseCommit: input.baseCommit };
     },
 
-    async grantPush(input: GrantPushInput): Promise<void> {
+    async grantPush(input: GrantPushInput): Promise<GrantPushResult> {
       calls.grantPush.push(input);
       if (input.owner !== PLATFORM_LOGIN) {
         throw new Error(`fake github: refusing grantPush against non-platform owner ${input.owner}`);
       }
+      const key = collaboratorKey(input.owner, input.repo, input.githubLogin);
+      const state = grantPushStates.get(key) ?? 'active';
+      if (state === 'invited') {
+        const id = nextInvitationId;
+        nextInvitationId += 1;
+        return {
+          state: 'invited',
+          invitationId: String(id),
+          acceptUrl: `https://github.com/${input.owner}/${input.repo}/invitations`,
+        };
+      }
+      return { state: 'active' };
+    },
+
+    async getCollaboratorPermission(input: GetCollaboratorPermissionInput): Promise<string> {
+      calls.getCollaboratorPermission.push(input);
+      const key = collaboratorKey(input.owner, input.repo, input.githubLogin);
+      return collaboratorPermissions.get(key) ?? 'write';
     },
 
     async getCommit(input: GetCommitInput): Promise<CommitInfo> {
@@ -230,6 +281,12 @@ export function createStagingLifecycleGithubFake(
     },
     setPullRequest(ref: PullRequestRef, summary: Omit<PullRequestSummary, 'ref'>): void {
       pullRequests.set(prKey(ref), { ...summary, ref });
+    },
+    setGrantPushState(owner: string, repo: string, githubLogin: string, state: 'invited' | 'active'): void {
+      grantPushStates.set(collaboratorKey(owner, repo, githubLogin), state);
+    },
+    setCollaboratorPermission(owner: string, repo: string, githubLogin: string, permission: string): void {
+      collaboratorPermissions.set(collaboratorKey(owner, repo, githubLogin), permission);
     },
   };
 }
