@@ -235,12 +235,7 @@ describe('B49: usdc/wallet-response refuses a fresh (non-replay) attempt on an a
   it('a different hash pair than the recorded settlement answers 409, and the row is unchanged', () => withStarted(async ({ baseUrl, settlementRepo }) => {
     const jobId = await walkToProposed(baseUrl, 'usdc');
     await recordSettledDeposit(settlementRepo, jobId, 'usdc');
-    const res = await postSigned(
-      baseUrl,
-      `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-      { priceTxHash: '0xdep-price', feeTx: { signed: true, hash: '0xdep-fee' } },
-      buyer,
-    );
+    const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/wallet-response`, { priceTxHash: '0xdep-price', feeTx: { signed: true, hash: '0xdep-fee' } }, buyer);
     expect(res.status).toBe(409);
     const body = (await res.json()) as Record<string, unknown>;
     expect(String(body.error)).toContain('already been paid');
@@ -250,22 +245,14 @@ describe('B49: usdc/wallet-response refuses a fresh (non-replay) attempt on an a
   it('an exact replay of the recorded pair still answers what the first call answered (idempotency untouched)', () => withStarted(async ({ baseUrl, settlementRepo }) => {
     const jobId = await walkToProposed(baseUrl, 'usdc');
     await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
-    const first = await postSigned(
-      baseUrl,
-      `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-      { priceTxHash: '0xdep-price', feeTx: { signed: true, hash: '0xdep-fee' } },
-      buyer,
-    );
+    const walletResponsePath = `/jobs/${jobId}/payments/deposit/usdc/wallet-response`;
+    const walletResponseBody = { priceTxHash: '0xdep-price', feeTx: { signed: true, hash: '0xdep-fee' } };
+    const first = await postSigned(baseUrl, walletResponsePath, walletResponseBody, buyer);
     expect(first.status).toBe(200);
     const firstBody = (await first.json()) as Record<string, unknown>;
     expect(firstBody.confirmed).toBe(true);
     // Same recorded pair replayed: must still answer confirmed, not 409.
-    const replay = await postSigned(
-      baseUrl,
-      `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-      { priceTxHash: '0xdep-price', feeTx: { signed: true, hash: '0xdep-fee' } },
-      buyer,
-    );
+    const replay = await postSigned(baseUrl, walletResponsePath, walletResponseBody, buyer);
     expect(replay.status).toBe(200);
     const replayBody = (await replay.json()) as Record<string, unknown>;
     expect(replayBody.confirmed).toBe(true);

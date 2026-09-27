@@ -336,10 +336,15 @@ afterEach(async () => {
 async function setup(seedSuffix: number): Promise<{ chainState: ChainState; h: Harness; page: EnginePage }> {
   const chainState = newChainState();
   const h = await buildHarness({ chainState, seedSuffix });
+  const page = await newDevicePage(h);
+  return { chainState, h, page };
+}
+// Loads a fresh device (second engine page against the same job/server).
+async function newDevicePage(h: Harness): Promise<EnginePage> {
   opened.push({ server: h.server });
   const page = await loadEnginePage(h.baseUrl);
   opened[opened.length - 1]!.page = page;
-  return { chainState, h, page };
+  return page;
 }
 // A wallet entry, the shape discover() would answer, wrapping a fake
 // provider under a test-chosen id.
@@ -557,8 +562,7 @@ describe('resume: a reload never sends the price transfer again', () => {
     deviceAPage.close();
     // A clean device, no localStorage record at all: only halfPaidRecord
     // from the server tells it the price already landed.
-    const deviceBPage = await loadEnginePage(h.baseUrl);
-    opened.push({ server: h.server, page: deviceBPage });
+    const deviceBPage = await newDevicePage(h);
     const deviceBWallet = buildFakeWallet({ chainState });
     const second = await payDeposit(deviceBPage, h, walletEntry('wB', deviceBWallet.provider));
     expect(second.outcome).toBe('paid');
@@ -578,8 +582,7 @@ describe('resume: a reload never sends the price transfer again', () => {
     // The fee's receipt lands after the fact, like the waiting-network
     // case above: the transaction was real, only slow.
     markFeeConfirmed(chainState);
-    const deviceBPage = await loadEnginePage(h.baseUrl);
-    opened.push({ server: h.server, page: deviceBPage });
+    const deviceBPage = await newDevicePage(h);
     const deviceBWallet = buildFakeWallet({ chainState });
     const second = await payDeposit(deviceBPage, h, walletEntry('wB18', deviceBWallet.provider));
     expect(second.outcome).toBe('paid');
@@ -734,10 +737,9 @@ describe('outcomes with no case before B49 review round 1 (defect 3)', () => {
     expect(secondWallet.sends).toHaveLength(0);
   });
   it('already_paid via wallet-response itself: a leg settled by another device between start and this call\'s response is refused there, not at start', async () => {
-    // outcomeFromResponse's already-paid branch, distinct from pay()'s own
-    // start-door branch above: usdc/start still answered 200 (not yet
-    // settled), but the leg settled before THIS call's own wallet-response
-    // reached the server. Simulated by writing the row right after start.
+    // outcomeFromResponse's own already-paid branch: usdc/start answered
+    // 200, but the leg settled before this call's OWN wallet-response
+    // reached the server. Simulated by settling right after start answers.
     const { chainState, h, page } = await setup(33);
     const wallet = buildFakeWallet({ chainState });
     let raced = false;
@@ -752,11 +754,10 @@ describe('outcomes with no case before B49 review round 1 (defect 3)', () => {
     expect(wallet.sends).toHaveLength(2);
     expect(storedRecord(page, h.jobId, 'deposit')).toBeNull();
   });
-  it('already_paid actually clears a NON-empty stored record left by a prior fee refusal, not a no-op on an empty key', async () => {
+  it('already_paid actually clears a NON-empty stored record, not a no-op on an empty key', async () => {
     const { chainState, h, page } = await setup(34);
     const firstWallet = buildFakeWallet({ chainState, refuseFeeTransfer: true });
-    const first = await payDeposit(page, h, walletEntry('w34a', firstWallet.provider));
-    expect(first.outcome).toBe('fee_due');
+    expect((await payDeposit(page, h, walletEntry('w34a', firstWallet.provider))).outcome).toBe('fee_due');
     expect(storedRecord(page, h.jobId, 'deposit')).not.toBeNull();
     await settleDeposit(h, 'raced-hash-2');
     const secondWallet = buildFakeWallet({ chainState });

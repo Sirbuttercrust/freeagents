@@ -973,24 +973,18 @@ describe('B23: a wallet response replaying an already-recorded hash stays idempo
     }
   });
 });
-// Make 2 (B49 card): usdc/start carries the leg's half-paid record when
-// one exists, under its own top-level halfPaidRecord key, absent
-// otherwise. Distinct from wallet-response's `halfPaid` boolean.
-// fakeHalfPaidStorage (shared, tests/helpers/usdc-half-paid-fixtures.ts)
-// is STATEFUL, unlike the no-op fixture used elsewhere in this file:
-// these tests need what confirm() wrote to come back out of read().
-// Every Make 2 test below builds a rail with a fresh half-paid store on
-// its own chain client: this one call replaces the repeated withUsdcEnv
-// + createUsdcPaymentRail wrapper each test would otherwise write out.
+// Make 2 (B49 card): usdc/start carries the leg's half-paid record when one
+// exists, under its own top-level halfPaidRecord key, absent otherwise.
+// Distinct from wallet-response's `halfPaid` boolean. fakeHalfPaidStorage
+// (shared, tests/helpers/usdc-half-paid-fixtures.ts) is STATEFUL, unlike the
+// no-op fixture elsewhere in this file: these tests need what confirm()
+// wrote to come back out of read(). Every test below builds a rail with a
+// fresh half-paid store on its own chain client, replacing the repeated
+// withUsdcEnv + createUsdcPaymentRail wrapper each test would write out.
 function halfPaidRail(chainClient: UsdcChainClient): ReturnType<typeof createUsdcPaymentRail> {
-  return withUsdcEnv(() =>
-    createUsdcPaymentRail({
-      chainClient,
-      rateSource: async () => '1',
-      halfPaidStorage: fakeHalfPaidStorage(),
-      spentTransferStorage: fakeSpentTransferStorage(),
-    }),
-  );
+  return withUsdcEnv(() => createUsdcPaymentRail({
+    chainClient, rateSource: async () => '1', halfPaidStorage: fakeHalfPaidStorage(), spentTransferStorage: fakeSpentTransferStorage(),
+  }));
 }
 describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a half-paid record', () => {
   it('absent when the leg has never gone half-paid', async () => {
@@ -1056,26 +1050,17 @@ describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a h
     const { server, baseUrl, buyer, agent } = await startApp(usdcRail);
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
+      const walletResponsePath = `/jobs/${jobId}/payments/deposit/usdc/wallet-response`;
       await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
       // First call: price lands, fee has not yet -- half-paid.
-      await postSigned(
-        baseUrl,
-        `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-        { priceTxHash: priceHash, feeTx: { signed: true, hash: feeHash } },
-        buyer,
-      );
+      await postSigned(baseUrl, walletResponsePath, { priceTxHash: priceHash, feeTx: { signed: true, hash: feeHash } }, buyer);
       const halfPaidStart = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
       const halfPaidBody = (await halfPaidStart.json()) as Record<string, unknown>;
       expect(halfPaidBody.halfPaidRecord).toBeDefined();
       // The fee now lands too: a later confirm sees both legs confirmed
       // and clears the half-paid row.
       chainReceipts[feeHash] = { status: 1, transfer: depositFeeTransfer() };
-      const secondWalletResponse = await postSigned(
-        baseUrl,
-        `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-        { priceTxHash: priceHash, feeTx: { signed: true, hash: feeHash } },
-        buyer,
-      );
+      const secondWalletResponse = await postSigned(baseUrl, walletResponsePath, { priceTxHash: priceHash, feeTx: { signed: true, hash: feeHash } }, buyer);
       expect(secondWalletResponse.status).toBe(200);
       const secondWalletBody = (await secondWalletResponse.json()) as Record<string, unknown>;
       expect(secondWalletBody.confirmed).toBe(true);
