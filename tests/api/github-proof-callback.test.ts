@@ -47,8 +47,7 @@ interface FakeProofGithubCalls {
   readonly createGist: CreateGistInput[];
   readonly deleteGist: DeleteGistInput[];
   readonly deleteGrant: DeleteGrantInput[];
-  // Which of the three calls landed and in what order (QA proof r1, D2).
-  readonly order: string[];
+  readonly order: string[]; // which call landed and in what order (QA r1, D2)
 }
 
 // A GithubAdapter stand-in that records every call the proof callback can
