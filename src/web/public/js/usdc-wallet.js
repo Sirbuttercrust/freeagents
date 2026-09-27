@@ -3,11 +3,9 @@
    an EIP-1193 wallet, signs the two ERC-20 transfers the server already
    priced (price, then fee), and reports both hashes to the existing
    USDC routes (POST .../usdc/start, POST .../usdc/wallet-response).
-
    No page loads this yet: every call here goes straight at the real
    routes, proven by tests/web/usdc-wallet.test.ts.
-
-   THE RULE: a refused or failed step never reports paid. confirmed is
+   THE RULE: a refused or failed step never reports paid; confirmed is
    only ever set from the server's own { confirmed: true } answer, never
    guessed from a hash existing. No user-facing string here ever says
    "hash", "rail", "settlement", "credential" or a DID. */
@@ -19,9 +17,8 @@
   var ALREADY_PAID_PHRASE = "already been paid";
   var TRANSFER_SELECTOR = "0xa9059cbb";
 
-  // Measured 2026-09-27: the two chains this engine ever switches to,
-  // keyed by the chain id usdc/start names. wallet_addEthereumChain's
-  // own parameter shape.
+  // Measured 2026-09-27: the two chains this engine switches to, keyed
+  // by the chain id usdc/start names (wallet_addEthereumChain's shape).
   var KNOWN_CHAINS = {
     42161: {
       chainId: "0xa4b1", chainName: "Arbitrum One",
@@ -63,10 +60,10 @@
     } catch (e) { /* see writeStored */ }
   }
 
-  // EIP-6963 (Final): every wallet that answers within the window,
-  // deduped by uuid. window.ethereum is listed only when nothing
-  // announces, for the older in-app wallet browsers that inject only
-  // that. `win` is a parameter so a test controls exactly what answers.
+  // EIP-6963: every wallet that answers within the window, deduped by
+  // uuid. window.ethereum is listed only when nothing announces, for
+  // in-app wallet browsers that inject only that. `win` is a parameter
+  // so a test controls exactly what answers.
   function discover(opts) {
     opts = opts || {};
     var win = opts.window || window;
@@ -97,9 +94,9 @@
     return "The wallet reported a problem completing this request.";
   }
 
-  // EIP-3326 / EIP-3085. Neither defines an unknown-chain error code, so
-  // this never branches on one: any switch failure other than the
-  // user's own 4001 tries an add, once, then a switch, once more.
+  // EIP-3326/3085: no unknown-chain error code, so this never branches
+  // on one. Any switch failure other than 4001 tries an add, once,
+  // then a switch, once more.
   async function ensureChain(provider, chainId) {
     var entry = KNOWN_CHAINS[chainId];
     if (!entry) {
@@ -122,10 +119,9 @@
     }
   }
 
-  // transfer(address,uint256): the selector, the recipient left-padded
-  // to 32 bytes, the amount from the base-unit decimal string through
-  // BigInt so an amount above 2^53 base units survives exactly (never a
-  // float).
+  // transfer(address,uint256): selector, recipient left-padded to 32
+  // bytes, amount from the base-unit decimal string through BigInt so an
+  // amount above 2^53 base units survives exactly (never a float).
   function transferCallData(recipient, amountBaseUnits) {
     var addr = String(recipient).toLowerCase().replace(/^0x/, "").padStart(64, "0");
     var amount = BigInt(amountBaseUnits).toString(16).padStart(64, "0");
@@ -143,8 +139,7 @@
   }
 
   // Reads each hash's receipt once per round. pay() calls this bounded
-  // (interval, limit); check() calls it with limit 0, which reads once
-  // and returns, per its own "reads the receipts once" contract.
+  // (interval, limit); check() calls it with limit 0, reading once.
   async function pollReceipts(provider, items, intervalMs, limit) {
     var result = {};
     items.forEach(function (item) { result[item.role] = { hash: item.hash, status: "pending" }; });
@@ -166,10 +161,10 @@
   }
 
   // The one outcome-mapping function pay() and check() both end on: the
-  // server's own Confirmation, read against what this device observed
-  // on chain (receipts), so a transfer this device watched fail on the
-  // network reads as failed even where not_confirmed alone cannot tell
-  // that apart from still-pending.
+  // server's own Confirmation, read against what this device observed on
+  // chain, so a transfer this device watched fail on the network reads
+  // as failed even where not_confirmed alone can't tell that apart from
+  // still-pending.
   function outcomeFromResponse(win, jobId, leg, result, receipts, feeRefused) {
     if (result.state !== "ok") {
       return { outcome: "server_refused", message: "Could not reach the payment service. Try again in a moment." };
