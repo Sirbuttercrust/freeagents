@@ -438,24 +438,30 @@ describe('the deposit screen, driven end to end against the real app', () => {
         const usdcFee = calculateFee(usdcDeposit, USDC_FEE_RATE_PERCENT);
         const usdcTotal = (parseFloat(usdcDeposit) + parseFloat(usdcFee)).toFixed(2);
         expect(usdcTotalText).toBe(`$${usdcTotal}`);
-        expect(page.document.getElementById('usdc-pay-note')?.hidden).toBe(false);
+        // USDC-WEBb: the gas line replaced "Pay with ABT for now".
+        expect(page.document.getElementById('usdc-gas-note')?.hidden).toBe(false);
 
         const abtRadio = page.document.getElementById('rail-abt') as HTMLInputElement;
         abtRadio.checked = true;
         abtRadio.dispatchEvent(new page.window.Event('change', { bubbles: true }));
         await new Promise((resolve) => setTimeout(resolve, 50));
         expect(page.document.getElementById('total-amount')?.textContent).toBe(abtTotalText);
-        expect(page.document.getElementById('usdc-pay-note')?.hidden).toBe(true);
+        expect(page.document.getElementById('usdc-gas-note')?.hidden).toBe(true);
       } finally {
         page.close();
       }
     });
   });
 
-  describe('the USDC pay control can never start a payment (mutation proof 8)', () => {
-    it('is disabled in every state, and no request to any usdc path is ever made from this page', async () => {
+  // USDC-WEBb supersedes ruling 1 ("USDC never starts a payment from this
+  // page"): the product call on 2026-09-25 was to ship USDC payment
+  // before launch. This pins the new truth in the old one's
+  // place: choosing USDC leaves Pay pressable, and the press goes to the
+  // USDC start route and never to the ABT one.
+  describe('the USDC pay control starts a USDC payment, never an ABT one (mutation proof 8)', () => {
+    it('is pressable once USDC is chosen, and its press reaches the usdc start route, not the abt one', async () => {
       const originalFetch = global.fetch;
-      const usdcCalls: string[] = [];
+      const payCalls: string[] = [];
       const page = await renderDeposit(baseUrl, 'job-fully-agreed', { token: buyerToken });
       try {
         const usdcRadio = page.document.getElementById('rail-usdc') as HTMLInputElement;
@@ -464,18 +470,20 @@ describe('the deposit screen, driven end to end against the real app', () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
 
         const payBtn = page.document.getElementById('pay-btn') as HTMLButtonElement;
-        expect(payBtn.disabled).toBe(true);
+        expect(payBtn.disabled).toBe(false);
 
+        const win = page.window as unknown as { ethereum: unknown };
+        win.ethereum = { request: async (args: { method: string }) => (args.method === 'eth_requestAccounts' ? ['0x00000000000000000000000000000000000000ef'] : null) };
         Object.defineProperty(page.window, 'fetch', {
           writable: true,
           value: (input: string, init?: RequestInit) => {
-            if (String(input).includes('usdc')) usdcCalls.push(String(input));
+            if (String(input).includes('/payments/')) payCalls.push(String(input));
             return originalFetch(new URL(input, baseUrl), init);
           },
         });
         payBtn.click();
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        expect(usdcCalls.length).toBe(0);
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        expect(payCalls).toEqual(['/jobs/job-fully-agreed/payments/deposit/usdc/start']);
       } finally {
         page.close();
       }
