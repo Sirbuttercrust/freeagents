@@ -346,6 +346,8 @@ describe('job criteria exchange (R-8)', () => {
   // line "agent" must not be trusted; the server derives proposedBy from
   // the caller's own resolved seat on this job, the same seat
   // resolveJobActingParty already establishes for the caller-identity gate.
+  // This test sends a brand-new line, so the stamp applies; FIX-B45 narrows
+  // it to a new-or-changed line only, and the tests below cover that split.
   it('derives proposedBy from the signer, ignoring a mismatched body claim (B26)', async () => {
     const seed = await postSigned('/jobs', {
       agentDid: agent.did,
