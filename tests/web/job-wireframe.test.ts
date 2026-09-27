@@ -612,6 +612,22 @@ describe('Who did what tells the wireframe\'s fork story once a pull request exi
         page.close();
       }
     });
+
+    // Invariant 1 is a standing truth, so the FreeAgents row states it in
+    // every state. Read from that row alone, so the sentence showing up
+    // anywhere else on the page cannot satisfy it.
+    it(`${jobId}'s FreeAgents row says we cannot be given write access and never had it`, async () => {
+      const page = await render(`/jobs/${jobId}`);
+      try {
+        const ours = [...page.document.querySelectorAll('#whodid-rows .whodid-row')]
+          .find((row) => row.querySelector('.wd-who')?.textContent === 'FreeAgents');
+        expect(ours?.querySelector('.wd-what')?.textContent ?? '').toContain(
+          'We cannot be given write access to buyer/w4-repo, and never had it.',
+        );
+      } finally {
+        page.close();
+      }
+    });
   }
 });
 
