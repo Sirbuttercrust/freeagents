@@ -4,16 +4,13 @@
 // .../deposit/usdc/start answered 200 with fresh transfer intents, so a
 // buyer who reloaded checkout before confirm was offered a second full
 // payment. The ABT doors have the same shape: they check the job's
-// status through legStatusEligible, never whether the leg already
-// settled.
-//
+// status through legStatusEligible, never whether the leg already settled.
 // Five places refuse a settled leg here: the token-mint door
 // (/api/did/pay/token), abt/start, usdc/start, usdc/wallet-response's
 // non-replay path, and onAuth (abt-did-connect.ts) before it broadcasts.
 // Each place's own test goes red when that place's checkLegNotAlready-
-// Settled call is removed (verified by hand below, per the card's own
-// TDD requirement), and an exact replay of a recorded USDC pair still
-// answers what the first call answered (idempotency untouched).
+// Settled call is removed, and an exact replay of a recorded USDC pair
+// still answers what the first call answered (idempotency untouched).
 import type { Server } from 'node:http';
 import { describe, expect, it } from 'vitest';
 import { fromRandom } from '@ocap/wallet';
