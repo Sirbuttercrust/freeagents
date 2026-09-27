@@ -528,7 +528,8 @@ button.sig:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px;
 
 /* ============================================ THE OWNER'S EDITING SEAT
    FIX-B40. The same page with the two mark columns read from the other
-   side, plus the edit control the wireframe already draws on every row.
+   side, plus the controls the wireframe already draws: an edit control on
+   every row, and a draft composer before the first quote is sent.
 
    A row's editor spans the whole row, under the text, so the matrix
    columns never shift while a line is being rewritten. */
@@ -536,8 +537,31 @@ button.sig:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px;
 .line-edit .edit-actions { margin-top: 10px; }
 .edit-error { font-size: 13px; color: var(--fg); margin-top: 8px; }
 .terms .act[aria-expanded="true"] { color: var(--fg); background: var(--bg-2); }
-.terms .act:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.composer { margin-top: 24px; }
+.compose-lines { list-style: none; padding: 0; margin: 0 0 14px; }
+.compose-line {
+  display: grid; grid-template-columns: 30px minmax(0, 1fr) 40px; gap: 10px;
+  align-items: center; padding: 6px 0;
+}
+.compose-line .num { font-family: var(--mono); font-size: 12px; color: var(--fg-3); }
+.compose-rm {
+  width: 40px; height: 40px; border: 0; background: none; border-radius: 7px;
+  color: var(--fg-3); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.compose-rm:hover { color: var(--fg); background: var(--bg-2); }
+.compose-rm:focus-visible, .terms .act:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.compose-rm .ico { width: 14px; height: 14px; }
+.compose-terms { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; margin-top: 22px; max-width: 420px; }
 
 @media (max-width: 640px) {
   .terms > li > .line-edit { grid-row: 3; padding-left: 0; }
+}
+@media (max-width: 420px) {
+  .compose-terms { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px), (pointer: coarse) {
+  .compose-rm { width: 44px; height: 44px; }
+  .compose-line { grid-template-columns: 26px minmax(0, 1fr) 44px; }
 }
