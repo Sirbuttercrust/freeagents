@@ -36,12 +36,13 @@ let githubOwner: Session;
 let passkeyOwner: Session;
 let walletOwner: Session;
 let nextLogin = '';
+let sessionAdapter: ReturnType<typeof createSessionAdapter>;
 
 beforeAll(async () => {
   originalSeed = process.env.FREEAGENTS_PLATFORM_SEED;
   process.env.FREEAGENTS_PLATFORM_SEED = PLATFORM_SEED;
   accountRepo = new MemoryAccountRepository();
-  const sessionAdapter = createSessionAdapter({
+  sessionAdapter = createSessionAdapter({
     github: fakeGitHubConfig(),
     fetchImpl: ((input: string | URL | Request, init?: RequestInit) => fakeGitHubFetch({ login: nextLogin, id: 4100 })(input, init)) as typeof fetch,
     passkey: { rpName: 'FreeAgents test', rpID: 'localhost', origin: 'http://localhost:3000' },
@@ -173,6 +174,19 @@ describe('(a) signed out', () => {
       page.close();
     }
   });
+
+  it('a stored session the server does not know shows the sign-in prompt, not the load error', async () => {
+    const stale = { ...githubOwner, token: 'no-such-token-listagent' } as Session;
+    const page = await render('/listagent', stale);
+    try {
+      expect(page.calls.some((c) => c.path.includes('/accounts/me') && c.authed)).toBe(true);
+      expect(shown(page, 'signin-required')).toBe(true);
+      expect(shown(page, 'load-error')).toBe(false);
+      expect(shown(page, 'list-body')).toBe(false);
+    } finally {
+      page.close();
+    }
+  });
 });
 
 // ----------------------------------------------------------------- (b)
@@ -209,6 +223,27 @@ describe('(b) a GitHub owner lists an agent', () => {
       expect(roster.document.querySelector(`[data-agent-row="${did}"] .nm`)?.textContent).toBe('pixel-scout');
     } finally {
       roster.close();
+    }
+  });
+
+  it('posts once however often Create is pressed while the first request is out', async () => {
+    const page = await render('/listagent', githubOwner);
+    try {
+      type(page, 'nm', 'posts-once');
+      type(page, 'sk', 'triage');
+      const btn = page.document.getElementById('create-btn') as HTMLButtonElement;
+      const form = page.document.getElementById('list-form') as HTMLFormElement;
+      btn.click();
+      expect(btn.disabled, 'Create is disabled while the request is out').toBe(true);
+      // Enter in a field submits the form without the button, so the
+      // disabled button alone does not stop a second post.
+      form.dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
+      btn.click();
+      await until(() => shown(page, 'created'));
+      await new Promise((r) => setTimeout(r, 200));
+      expect(posts(page)).toHaveLength(1);
+    } finally {
+      page.close();
     }
   });
 });
@@ -266,6 +301,29 @@ describe('(c) the GitHub box, and the ceiling', () => {
       page.close();
     }
   });
+
+  // GET /accounts/me answers the GitHub account's login for this token, but
+  // the stored session does not prove it: it is not a GitHub sign-in, or it
+  // names another login. The saved draft asks for the box ticked, so a page
+  // that trusted the account alone would send the login.
+  it.each([
+    ['not a GitHub sign-in', { method: 'passkey' }],
+    ['a GitHub sign-in naming another login', { subject: 'someone-else' }],
+  ])('%s: no box, and no login sent', async (_label, change) => {
+    const unproved = { ...githubOwner, ...change } as Session;
+    const draft = JSON.stringify({ nm: 'unproved-agent', ds: '', sk: 'triage', fl: '', gh: true });
+    const page = await render('/listagent', unproved, { fa_listagent_draft: draft });
+    try {
+      expect(shown(page, 'list-body')).toBe(true);
+      expect(shown(page, 'gh-field')).toBe(false);
+      await create(page);
+      expect(posts(page)).toHaveLength(1);
+      expect('githubLogin' in posts(page)[0]!.body!).toBe(false);
+      expect(shown(page, 'ceiling')).toBe(true);
+    } finally {
+      page.close();
+    }
+  });
 });
 
 // ----------------------------------------------------------------- (d)
@@ -305,6 +363,26 @@ describe('(d) refusals keep every value and never show success', () => {
       await refused(page);
       expect(page.document.getElementById('form-error-detail')?.textContent).toMatch(/wallet/);
       expect((page.document.getElementById('nm') as HTMLInputElement).value).toBe('wallet-agent');
+    } finally {
+      page.close();
+    }
+  });
+
+  it('a session ended between load and Create gets a real 401 and the sign-in sentence', async () => {
+    nextLogin = 'listagent-owner';
+    const soon = await mintSession(sessionAdapter);
+    const page = await render('/listagent', soon);
+    try {
+      expect(shown(page, 'list-body')).toBe(true);
+      const out = await fetch(`${baseUrl}/auth/signout`, { method: 'POST', headers: { Authorization: `Bearer ${soon.token}` } });
+      expect(out.status).toBe(204);
+      type(page, 'nm', 'ended-session');
+      type(page, 'sk', 'triage');
+      await create(page);
+      expect(posts(page)).toHaveLength(1);
+      await refused(page);
+      expect(page.document.getElementById('form-error-detail')?.textContent).toBe('Your session has expired. Sign in again to create this listing.');
+      expect(['nm', 'sk'].map((id) => (page.document.getElementById(id) as HTMLInputElement).value)).toEqual(['ended-session', 'triage']);
     } finally {
       page.close();
     }
