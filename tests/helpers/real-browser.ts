@@ -12,10 +12,9 @@
 // anything else running on the machine: a fresh remote-debugging port and a
 // fresh throwaway profile directory per instance.
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import net from 'node:net';
 
 const CHROME_ENV = 'CHROME_BIN';
 
@@ -85,23 +84,6 @@ export function findChromeBinary(): string | null {
   return null;
 }
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.unref();
-    srv.on('error', reject);
-    srv.listen(0, '127.0.0.1', () => {
-      const address = srv.address();
-      if (address && typeof address === 'object') {
-        const { port } = address;
-        srv.close(() => resolve(port));
-      } else {
-        srv.close(() => reject(new Error('could not allocate a free port')));
-      }
-    });
-  });
-}
-
 interface CdpMessage {
   id?: number;
   method?: string;
@@ -124,6 +106,18 @@ interface CdpMessage {
 // uncensored worst case the runner has actually shown (see its own
 // comment), plus warmUpChrome (below) removing the cold-start cost that
 // produced every give-up in the first place.
+//
+// FIX-CIFLAKE cause 2, added later: a SEPARATE source of a hang into this
+// same message existed until now -- launch() used to pick a free port
+// itself (bind, read, close, hand the number to Chrome), leaving a window
+// between that close and Chrome's own bind where another process could
+// take the port. Chrome then logged a failed bind but kept running,
+// bound to a port nothing could reach, and this loop polled a dead port
+// for the full PORT_WAIT_MS before giving up with this same message. That
+// class of give-up is gone now: launch() always asks Chrome for port 0
+// and reads back the port Chrome actually bound (see launch()'s own
+// comment), so nothing this file does can hand Chrome an already-taken
+// port. This message still fires for a genuinely slow or wedged Chrome.
 const GIVEUP_MESSAGE = 'chrome debug port never came up';
 
 // CI4 round 3: what the runner logs show, and what they do not. Across
@@ -151,6 +145,13 @@ const GIVEUP_MESSAGE = 'chrome debug port never came up';
 // back to paying the cold start themselves and CI output should say so.
 // It returns whether a Chrome actually ran, so its test can fail when it
 // does nothing.
+//
+// FIX-CIFLAKE cause 2: this budget bounds the SAME port-wait loop the
+// per-test PORT_WAIT_MS bounds (both are handed to launch() as
+// portWaitMs), and both are unaffected by the port-race fix: launch()
+// asking Chrome for its own port (--remote-debugging-port=0) changes
+// WHERE the port comes from, never how long this loop is willing to wait
+// for Chrome to report one.
 export const WARMUP_PORT_WAIT_MS = 60_000;
 
 export async function warmUpChrome(log: (msg: string) => void = (m) => console.warn(m)): Promise<boolean> {
@@ -184,6 +185,14 @@ export async function warmUpChrome(log: (msg: string) => void = (m) => console.w
 // runner sample under warm-up shows a non-first launch still running
 // past this, warmUpChrome did not do its job and this number is the
 // wrong lever to move.
+//
+// FIX-CIFLAKE cause 2: this budget was sized against runs that mixed two
+// causes of a slow or hung open, cold Chrome and the port race described
+// on GIVEUP_MESSAGE above. The port race is fixed at the source now
+// (launch() asks Chrome for port 0 and reads back what it actually
+// bound), so this number keeps its full cold-start margin unchanged
+// rather than being shrunk on the assumption that fixing the race alone
+// would have moved it.
 const PORT_WAIT_MS = 22_000;
 
 // One throwaway headless Chrome tab, driven over CDP. Deliberately small:
@@ -220,6 +229,21 @@ export class RealBrowser {
   // warmUpChrome now takes before any test's timeout starts, so a single
   // attempt with PORT_WAIT_MS's own margin is what the runner data calls
   // for.
+  //
+  // FIX-CIFLAKE cause 2: Chrome is always spawned with
+  // --remote-debugging-port=0, Chrome's own kernel bind with no
+  // close-then-reopen window, rather than a port this file picked with
+  // freePort() (bind, read the number, close, hand it to Chrome) and
+  // between that close and Chrome's own bind any other process on the
+  // machine -- the suite launches Chrome from 37 files on 2 forks, plus a
+  // server per test file -- could take it. A lost race left Chrome
+  // logging `bind() failed: Address already in use` while still printing
+  // `DevTools listening on ws://...`, so it kept running with a taken
+  // port nothing could reach, and fetch(`.../json/list`) hung silently
+  // until PORT_WAIT_MS. The port Chrome actually chose is read back from
+  // its own <user-data-dir>/DevToolsActivePort file (first line), which
+  // it writes once its real bind has succeeded, so the port this file
+  // learns about is never one it merely hoped Chrome would still hold.
   static async launch(opts: { width?: number; height?: number; portWaitMs?: number } = {}): Promise<RealBrowser> {
     const chrome = findChromeBinary();
     if (!chrome) {
@@ -232,7 +256,6 @@ export class RealBrowser {
     const overlay = isPhoneWidth(width);
     const profile = mkdtempSync(join(tmpdir(), 'fa-real-browser-'));
     const browser = new RealBrowser(profile);
-    browser.port = await freePort();
 
     const args = [
       '--headless=new',
@@ -244,7 +267,7 @@ export class RealBrowser {
       '--disable-background-networking',
       '--disable-sync',
       '--remote-allow-origins=*',
-      `--remote-debugging-port=${browser.port}`,
+      '--remote-debugging-port=0',
       `--user-data-dir=${profile}`,
       `--window-size=${width},${height}`,
       'about:blank',
@@ -252,12 +275,20 @@ export class RealBrowser {
     browser.proc = spawn(chrome, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const proc = browser.proc;
 
+    const activePortFile = join(profile, 'DevToolsActivePort');
     let wsUrl: string | null = null;
     const deadline = Date.now() + (opts.portWaitMs ?? PORT_WAIT_MS);
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 300));
       if (proc.exitCode !== null) {
         throw new Error(`chrome exited immediately (code ${proc.exitCode})`);
+      }
+      if (browser.port === 0) {
+        if (!existsSync(activePortFile)) continue;
+        const firstLine = readFileSync(activePortFile, 'utf8').split('\n')[0] ?? '';
+        const parsed = Number.parseInt(firstLine, 10);
+        if (!Number.isFinite(parsed) || parsed <= 0) continue;
+        browser.port = parsed;
       }
       try {
         const res = await fetch(`http://127.0.0.1:${browser.port}/json/list`);
