@@ -390,10 +390,14 @@ describe('(f) the ways in, and every link lands', () => {
     }
   });
 
-  it.each([['/'], ['/how'], ['/myagents'], ['/listagent']])('every href %s ships lands on a mounted route', async (path) => {
-    const markup = await (await fetch(`${baseUrl}${path}`, { headers: { Accept: HTML } })).text();
+  it.each([['/'], ['/how'], ['/myagents'], ['/listagent']])('every href %s ships lands on a mounted route, /listagent among them', async (path) => {
+    const res = await fetch(`${baseUrl}${path}`, { headers: { Accept: HTML } });
+    expect(res.status, `${path} itself`).toBe(200);
+    const markup = await res.text();
     const hrefs = [...new Set([...markup.matchAll(/href="(\/[^"#?]*)/g)].map((m) => m[1]!))];
     expect(hrefs.length).toBeGreaterThan(3);
+    // The three ways in each carry the link; /listagent links My agents.
+    expect(hrefs).toContain(path === '/listagent' ? '/myagents' : '/listagent');
     for (const href of hrefs) {
       const res = await fetch(`${baseUrl}${href}`, { headers: { Accept: HTML } });
       expect(res.status, `${path} links ${href}, which answers ${res.status}`).toBe(200);
