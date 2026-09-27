@@ -547,6 +547,13 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // "the redo-accept button reads \"Accept, and take N more days\"
     // using the real extension constant".
     'Accept, and take 6 more days': 'wireframe sample data (a fixed "6" for the sample job); renderRedoPanel (operatorjob.js) renders the label from REDO_LAPSE_EXTENSION_DAYS (src/domain/job.ts:519, currently 7) so the number can never drift from requestRedo\u2019s real behaviour, pinned by tests/web/operatorjob.test.ts, test "the redo-accept button reads Accept, and take N more days using the real extension constant"',
+    // FIX-B40: the wireframe labels this link for a buyer-only agreement
+    // page. /agreement now gives the owner their own side (write, change
+    // and sign the quote), so the old label would send the owner to their
+    // own controls promising a read-only copy of the buyer's. The built
+    // label says what is behind it, pinned by tests/web/operatorjob.test.ts,
+    // "the link reads Open the agreement".
+    'See the agreement as the buyer sees it': 'FIX-B40: /agreement now carries the owner\u2019s own side (write, change and sign the quote), so the wireframe\u2019s buyer-view label is false for the operator; the built link reads "Open the agreement", pinned by tests/web/operatorjob.test.ts, "the link reads Open the agreement"',
   },
   pullrequest: {
     // Group 1 (W7c): pullrequest.js's renderPrLink (lines 171-177) builds

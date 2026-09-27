@@ -660,14 +660,16 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
       }
     });
 
-    // Group 2 (W7c): the wireframe's own wording tells the operator the
-    // screen behind this link is the buyer's view, not an operator-only
-    // one (spec/wireframe/operatorjob.html:298).
-    it('the link reads "See the agreement as the buyer sees it"', async () => {
+    // FIX-B40 supersedes the W7c pin: /agreement now carries the owner's
+    // own side (writing, changing and signing the quote), so the label
+    // says what is behind the link. A named departure from
+    // spec/wireframe/operatorjob.html:301, listed in
+    // tests/web/wireframe-conformance.test.ts.
+    it('the link reads "Open the agreement"', async () => {
       const page = await renderOperatorJob(baseUrl, 'job-draft', operatorSession);
       try {
         const link = page.document.getElementById('agreement-link');
-        expect(link?.textContent).toBe('See the agreement as the buyer sees it');
+        expect(link?.textContent).toBe('Open the agreement');
       } finally {
         page.close();
       }
