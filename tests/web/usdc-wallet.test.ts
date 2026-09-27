@@ -47,10 +47,7 @@ function newChainState(): ChainState {
 }
 // A late-landing fee receipt: the transaction was real, only slow.
 function markFeeConfirmed(chainState: ChainState): void {
-  chainState.receipts.set('0xsent2', {
-    status: 1,
-    transfer: { to: USDC_FEE_ADDRESS.toLowerCase(), value: '7500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID },
-  });
+  chainState.receipts.set('0xsent2', { status: 1, transfer: { to: USDC_FEE_ADDRESS.toLowerCase(), value: '7500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID } });
 }
 function serverChainClient(state: ChainState): UsdcChainClient {
   return {
@@ -61,12 +58,8 @@ function serverChainClient(state: ChainState): UsdcChainClient {
 function fakeSpentTransferStorage(): UsdcSpentTransferStorage {
   const rows = new Map<string, UsdcSpentTransferRow>();
   return {
-    async record(row) {
-      rows.set(row.hash, { ...row });
-    },
-    async findByHash(hash) {
-      return rows.get(hash) ?? null;
-    },
+    async record(row) { rows.set(row.hash, { ...row }); },
+    async findByHash(hash) { return rows.get(hash) ?? null; },
   };
 }
 // The rail reads its env at construction; this suite builds one rail per
@@ -74,10 +67,8 @@ function fakeSpentTransferStorage(): UsdcSpentTransferStorage {
 // createUsdcPaymentRail in this, mirroring every sibling file's withUsdcEnv.
 function usdcEnvVars(): Record<string, string> {
   return {
-    FREEAGENTS_USDC_RPC_URL: 'https://sepolia-rollup.arbitrum.io/rpc',
-    FREEAGENTS_USDC_TOKEN_CONTRACT: USDC_TOKEN,
-    FREEAGENTS_USDC_CHAIN_ID: String(USDC_CHAIN_ID),
-    FREEAGENTS_USDC_FEE_ADDRESS: USDC_FEE_ADDRESS,
+    FREEAGENTS_USDC_RPC_URL: 'https://sepolia-rollup.arbitrum.io/rpc', FREEAGENTS_USDC_TOKEN_CONTRACT: USDC_TOKEN,
+    FREEAGENTS_USDC_CHAIN_ID: String(USDC_CHAIN_ID), FREEAGENTS_USDC_FEE_ADDRESS: USDC_FEE_ADDRESS,
   };
 }
 function withUsdcEnv<T>(fn: () => T): T {
@@ -341,10 +332,8 @@ async function setup(seedSuffix: number): Promise<{ chainState: ChainState; h: H
 }
 // Loads a fresh device (second engine page against the same job/server).
 async function newDevicePage(h: Harness): Promise<EnginePage> {
-  opened.push({ server: h.server });
-  const page = await loadEnginePage(h.baseUrl);
-  opened[opened.length - 1]!.page = page;
-  return page;
+  opened.push({ server: h.server, page: await loadEnginePage(h.baseUrl) });
+  return opened[opened.length - 1]!.page!;
 }
 // A wallet entry, the shape discover() would answer, wrapping a fake
 // provider under a test-chosen id.
