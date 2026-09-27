@@ -136,9 +136,7 @@
          at the agreement when lines are unsigned and at /jobs/<id> when the
          hire has moved past the deposit: both are this hire's pages, and the
          old label ("Back to the agreement") was wrong for the second. -->
-    <!-- The title is always written by deposit.js's showNotReady, which
-         names which of the two not-ready states this is, so the markup
-         ships none of its own. -->
+    <!-- showNotReady writes the title for whichever state this is. -->
     <div class="empty warn" id="not-ready-error" hidden>
       <b id="not-ready-title"></b>
       <p class="sub" style="margin-top:8px" id="not-ready-detail"></p>
@@ -158,10 +156,8 @@
            reveals anything the observer never reported, which is what covers
            the blocks here that are empty at load (#getlist and the totals). -->
       <div class="sf-where" data-stepflow-hire="2"></div>
-      <!-- 1. THE ONE NUMBER. The total, the deposit and fee labels, the byline
-           and the fingerprint below ship empty: deposit.js writes each of
-           them in the same task that unhides #deposit-body, so a placeholder
-           word there is copy nobody ever sees. -->
+      <!-- 1. THE ONE NUMBER. Figures, labels, byline and fingerprint ship
+           empty: deposit.js fills them as it unhides #deposit-body. -->
       <div class="total pane pane-pad reveal" id="total-pane">
         <p class="small muted" style="margin:0 0 6px">You pay today</p>
         <div class="big" id="total-amount" data-pending></div>
@@ -237,12 +233,9 @@
            on the surface: they are what the buyer is agreeing to by paying. -->
       <p class="oneline" id="redo-line" style="margin-top:34px"></p>
       <p class="oneline" id="finality-line" style="margin-top:12px"></p>
-      <!-- 8. THE PAYMENT. One primary button. #usdc-gas-note shows only while
-           USDC is chosen, before the press (USDC-WEBb Make 3). It names no
-           figure, which is the one departure from the wireframe's technical
-           details ("Roughly 6 cents of gas each at current prices",
-           spec/wireframe/deposit.html:221): gas moves with the network, so
-           any number written here goes stale into a false claim. -->
+      <!-- 8. THE PAYMENT. One primary button. #usdc-gas-note (Make 3) names
+           no gas figure, unlike the wireframe (deposit.html:221): gas moves
+           with the network, so a written number goes stale into a false claim. -->
       <div class="row" style="margin-top:32px">
         <button class="btn btn-primary" type="button" id="pay-btn" disabled></button>
         <a class="btn" id="back-to-agreement">Back to the agreement</a>
@@ -288,17 +281,9 @@
      cross, Cancel, "I approved in my wallet", and the four USDC presses
      below.
 
-     USDC-WEBb: THE SAME SHEET PAYS IN USDC. deposit.js swaps the heading to
-     "Approve in your wallet" and hides #scan-abt (a USDC payment has no
-     address to paste: the wallet engine asks the wallet for both transfers
-     itself) and "I approved in my wallet" (the engine confirms the payment
-     and the press that started it calls confirm). usdc-pay.js fills the
-     rest: #usdc-pick when more than one wallet answers, #scan-waiting while
-     a payment runs, each outcome's own sentence in #usdc-status (a polite
-     live region), and at most one of the four footer presses, each the
-     one next step that sentence names. Nothing new is styled: the wallet
-     choices are the site's .btn at full width, and every press sits in
-     .sfoot, which flow.css already floors at 44px. -->
+     USDC-WEBb: the same sheet pays in USDC with no address (the engine
+     asks the wallet for both transfers); usdc-pay.js draws the rest with
+     the site's .btn and .sfoot, nothing new styled. -->
 <dialog class="sheet" id="scan" aria-labelledby="scanh">
   <div class="shead"><h2 id="scanh">Open this in your wallet</h2><button class="sclose" type="button" data-closes aria-label="Close">&times;</button></div>
   <div class="sbody">

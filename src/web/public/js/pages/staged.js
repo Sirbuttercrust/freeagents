@@ -28,12 +28,9 @@
    date, never a countdown (ruling 4); LAPSE_AT_STAGED_AFTER_DAYS and
    REDO_LAPSE_EXTENSION_DAYS are browser constants pinned by a test
    against the domain's own. Pays the REMAINDER, never the deposit
-   (ruling 5 of P8j), in the job's own currency (price.rail, fixed at
-   confirm): ABT through .../remainder/abt/start at ABT_FEE_RATE_PERCENT,
-   USDC through usdc-pay.js and the wallet engine at
-   USDC_FEE_RATE_PERCENT (USDC-WEBb), both pinned by a test against
-   src/domain/payment.ts. Never claims settlement; every re-read
-   fires only on a press (ruling 6). Both redo_requested and
+   (ruling 5 of P8j), in the job's own price.rail: ABT at .../abt/start,
+   USDC through usdc-pay.js (USDC-WEBb). Never claims settlement; every
+   re-read fires only on a press (ruling 6). Both redo_requested and
    staged_declined render on this page now (ruling 5): the former keeps
    the clock and the account of the work with no control, the latter is
    a terminal panel with no control. Every refusal gets its own sentence
@@ -461,8 +458,6 @@
   }
 
   // Scope item 4: every refusal from pay-start gets its own sentence.
-  // (An already-paid refusal never reaches here: the pay press opens the
-  // sheet's paid state for it, B54.)
   function refusalSentence(status, serverMessage) {
     if (status === 401) return "Your session has expired. Sign in again to pay the balance.";
     if (status === 403) return serverMessage || "This account is not a party to this hire.";
@@ -516,8 +511,7 @@
   });
 
   // Ruling 1 (P8j): the one control that card shipped. Posts to the
-  // REMAINDER leg only, never deposit. On a USDC hire the same press runs
-  // the wallet engine instead (USDC-WEBb Make 4).
+  // REMAINDER leg only, never deposit. A USDC hire's press pays in USDC.
   var payBtn = A.el("pay-btn");
   if (payBtn) {
     payBtn.addEventListener("click", function () {
@@ -532,8 +526,7 @@
         var respBody = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
         if (status !== 200) {
           var serverMessage = typeof respBody.error === "string" ? respBody.error : "";
-          // B54: already paid opens the sheet in its paid state, with the
-          // server's sentence, its reload, and the pull request check.
+          // B54: already paid opens the sheet's paid state, never "no price".
           if (serverMessage.indexOf(ALREADY_PAID_PHRASE) !== -1) {
             fillScanTotals();
             scanMode("paid");
@@ -557,11 +550,8 @@
     A.setTextById("scan-fee", money(currentFigures.fee));
     A.setTextById("scan-total-2", money(currentFigures.total));
   }
-  // The pay sheet serves every way this page pays. "abt": the address and
-  // the status line. "usdc": the wallet engine's block (usdc-pay.js) until
-  // the payment is confirmed, then the same status line ABT shows.
-  // "paid": the balance is already paid; the already-paid sentence and
-  // its reload, and "Check for the pull request".
+  // One sheet, three modes: "abt" (address and status line), "usdc"
+  // (usdc-pay.js, then the same status line on paid) and "paid".
   function scanMode(mode) {
     A.showById("scan-abt", mode === "abt");
     A.showById("scan-status", mode === "abt");
@@ -582,10 +572,7 @@
     openDialog("scan");
   }
 
-  // USDC-WEBb Make 4: the balance in USDC, the same wallet choice,
-  // outcomes and presses as the deposit page. On paid the sheet shows the
-  // post-payment state ABT shows: the status line and "Check for the pull
-  // request". The wallet asks twice, named with this payment's amounts.
+  // Make 4: the deposit page's wallet choice, outcomes and presses.
   function openUsdc() {
     if (paying) return;
     fillScanTotals();
@@ -605,8 +592,6 @@
       A.setTextById("scan-status", "The pull request opens once the operator submits the work.");
       A.showById("scan-status", true);
     },
-    // Paid already: the two-approvals line no longer describes anything
-    // left to do.
     onAlreadyPaid: function () { A.showById("scan-approvals-line", false); }
   });
 

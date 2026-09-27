@@ -1,11 +1,9 @@
 /* P8i deposit (P-12): a fully-agreed buyer pays the deposit and the
    agreement locks. No route in src/api/app.ts changes. Reads
-   GET /jobs/:jobId and offers only the currencies its payableRails names
-   (USDC-WEBb). ABT starts through POST .../payments/deposit/abt/start and
-   the buyer's own press of "I approved in my wallet" calls
-   POST /jobs/:jobId/confirm. USDC runs the whole payment in the browser
-   through usdc-pay.js and the wallet engine, and the press that started
-   it calls confirm once when the engine answers paid.
+   GET /jobs/:jobId and offers only its payableRails (USDC-WEBb). ABT
+   starts at .../payments/deposit/abt/start and "I approved in my wallet"
+   calls POST /jobs/:jobId/confirm, once per press. USDC pays in the
+   browser (usdc-pay.js), and on paid that same press confirms.
    RAIL_*_FEE_PERCENT are venue constants (ruling 3), pinned by a test
    against src/domain/payment.ts's fee-rate constants. No simulated
    settlement, ever: a 402 from confirm is the expected waiting state,
@@ -78,13 +76,8 @@
     var back = A.el("back-to-agreement");
     if (back) back.setAttribute("href", "/agreement?job=" + encodeURIComponent(job.id));
   }
-  // USDC-WEBb Make 1: only the currencies GET /jobs/:jobId says this job
-  // can be paid in. Both: both, ABT chosen (the markup's default). One:
-  // that one alone, chosen. None: no pay control and no total, because
-  // the fee depends on a currency nobody can pay in yet; one sentence
-  // pointing at the hire's conversation instead. The route sends the key
-  // on every proposed job with a price, which is the only state that
-  // reaches here; a response without it keeps both options.
+  // Make 1: one option per payable currency, ABT chosen when both; none
+  // hides Pay and the total and points at the hire's conversation.
   function offerPayableRails() {
     var rails = Array.isArray(job.payableRails)
       ? job.payableRails.filter(function (r) { return r === "abt" || r === "usdc"; })
@@ -161,9 +154,7 @@
       payBtn.textContent = "Pay " + money(figures.total) + " with your wallet";
       payBtn.disabled = paying;
     }
-    // Make 3: said before the Pay press, only while USDC is chosen. No
-    // figure: gas moves with the network, and a stale number is a claim.
-    A.showById("usdc-gas-note", chosenRail === "usdc");
+    A.showById("usdc-gas-note", chosenRail === "usdc"); // Make 3, before the press
   }
   function wireRailChooser() {
     var abtRadio = A.el("rail-abt"), usdcRadio = A.el("rail-usdc"), price = job.price;
@@ -274,8 +265,7 @@
         var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
         if (status !== 200) {
           var serverMessage = typeof body.error === "string" ? body.error : "";
-          // B54: a leg already paid answers 409 too. It reads as paid,
-          // never as "no agreed price".
+          // B54: an already-paid 409 reads as paid, never "no agreed price".
           if (serverMessage.indexOf(ALREADY_PAID_PHRASE) !== -1) { openAlreadyPaid(serverMessage); return; }
           var repository = status === 409 ? repositoryRefusal(serverMessage) : null;
           if (repository !== null) {
@@ -289,11 +279,8 @@
       });
     });
   }
-  // The scan sheet serves every way this page pays. "abt": the one-time
-  // address, one approval, then "I approved in my wallet". "usdc": no
-  // address (the wallet engine asks the wallet for both transfers) and
-  // usdc-pay.js draws the wallet choice and every outcome. "paid": the
-  // deposit is already paid, so only the confirm press is left.
+  // One sheet, three modes: "abt" (address, one approval, "I approved"),
+  // "usdc" (usdc-pay.js draws the wallet choice and outcomes) and "paid".
   var SCAN_HEADINGS = { abt: "Open this in your wallet", usdc: "Approve in your wallet", paid: "Already paid" };
   function openSheet(mode, approvalsLine) {
     var dialog = A.el("scan");
@@ -318,28 +305,22 @@
     if (copyBtn) copyBtn.setAttribute("data-copy", url);
     openSheet("abt", "Open your wallet with this address, and approve. One approval, for this whole payment.");
   }
-  // USDC-WEBb Make 2. The wallet asks twice, said in the wireframe's
-  // words with this payment's own amounts (spec/wireframe/deposit.html:256).
+  // Make 2: the wireframe's two-approvals line (deposit.html:256).
   function openUsdc() {
     if (paying) return;
     var figures = depositAndFee(job.price, RAIL_USDC_FEE_PERCENT);
     openSheet("usdc", "Two approvals, " + money(figures.deposit) + " then " + money(figures.fee) + ". Both are part of this one payment.");
     usdcPay.start();
   }
-  // Paid: the engine has seen the server confirm the deposit, so the same
-  // press carries on into ONE press of "I approved in my wallet", the
-  // same handler: a 200 goes to /jobs/<id>, and a 402 or a refusal shows
-  // that handler's own sentence with the button there to press again.
+  // Paid: the same press carries on into ONE press of "I approved in my
+  // wallet", so its 200, 402 and refusals all read as they always have.
   function confirmNow() {
     A.showById("approved-btn", true);
     var approvedBtn = A.el("approved-btn");
     if (approvedBtn) approvedBtn.click();
   }
-  // Already paid (either currency, B54): the server's own sentence and a
-  // reload, as it says. "I approved in my wallet" shows beside them and
-  // waits for a press: the deposit has arrived, and that press is what
-  // locks the agreement, so a buyer who reloaded after paying is never
-  // left with only a reload that shows the same screen again.
+  // Already paid (B54): the server's sentence, its reload, and "I approved
+  // in my wallet" waiting for a press, since that press locks the deal.
   function openAlreadyPaid(serverMessage) {
     openSheet("paid", "");
     usdcPay.alreadyPaid(serverMessage);
@@ -390,10 +371,7 @@
         var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
         if (status === 200) { window.location.href = "/jobs/" + encodeURIComponent(jobId); return; }
         if (status === 402) {
-          // The server itself says the deposit has not arrived, so no
-          // earlier sentence in the sheet saying it has may stay beside
-          // this one.
-          A.setTextById("usdc-status", "");
+          A.setTextById("usdc-status", ""); // "confirmed" cannot sit beside this
           A.showById("usdc-reload", false);
           showError("confirm-waiting", "The chain has not confirmed your payment yet. Wait a moment and press this again to check.");
           return;
