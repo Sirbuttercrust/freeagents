@@ -392,6 +392,12 @@ async function setup(seedSuffix: number): Promise<{ chainState: ChainState; h: H
 function walletEntry(id: string, provider: FakeWallet['provider']): { id: string; name: string; icon: string; provider: FakeWallet['provider'] } {
   return { id, name: 'Fake Wallet', icon: '', provider };
 }
+// Builds a fake wallet AND wraps it as a discover()-shaped entry in one
+// call, for the many sites below that never inspect wallet.sends/.calls
+// afterward.
+function fakeWalletEntry(id: string, opts: FakeWalletOptions): { id: string; name: string; icon: string; provider: FakeWallet['provider'] } {
+  return walletEntry(id, buildFakeWallet(opts).provider);
+}
 describe('the engine pays a deposit and a balance end to end against the real routes', () => {
   it('deposit: paid, both transfers land, and the settlement row exists', async () => {
     const { chainState, h, page } = await setup(1);
@@ -621,14 +627,12 @@ describe('every other outcome in Make 3', () => {
     markFeeConfirmed(chainState);
     // The buyer presses "send it again": resend: 'price' never sends
     // the stored (failed) hash again.
-    const retryWallet = buildFakeWallet({ chainState });
-    const retry = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w11', retryWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, resend: 'price', pollIntervalMs: 5, pollLimit: 5 });
+    const retry = await engineOf(page).pay({ window: page.window, wallet: fakeWalletEntry('w11', { chainState }), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, resend: 'price', pollIntervalMs: 5, pollLimit: 5 });
     expect(retry.outcome).toBe('paid');
   });
   it('fee still due: the price landed and the buyer refused the fee approval', async () => {
     const { chainState, h, page } = await setup(12);
-    const wallet = buildFakeWallet({ chainState, refuseFeeTransfer: true });
-    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w12', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const result = await engineOf(page).pay({ window: page.window, wallet: fakeWalletEntry('w12', { chainState, refuseFeeTransfer: true }), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(result.outcome).toBe('fee_due');
     expect(await h.settlementRepo.findByJobAndLeg(h.jobId, 'deposit')).toBeNull();
   });
@@ -637,8 +641,7 @@ describe('every other outcome in Make 3', () => {
     // legs.price.status answers not_confirmed. fee_due must never be
     // guessed from "the fee was refused" alone.
     const { chainState, h, page } = await setup(19);
-    const wallet = buildFakeWallet({ chainState, priceNeverConfirms: true, refuseFeeTransfer: true });
-    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w19', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const result = await engineOf(page).pay({ window: page.window, wallet: fakeWalletEntry('w19', { chainState, priceNeverConfirms: true, refuseFeeTransfer: true }), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(result.outcome).not.toBe('fee_due');
     expect(result.outcome).toBe('waiting_network');
     expect(await h.settlementRepo.findByJobAndLeg(h.jobId, 'deposit')).toBeNull();
@@ -730,8 +733,7 @@ describe('no wallet-response posts before both receipts exist', () => {
 describe('outcomes with no case before B49 review round 1 (defect 3)', () => {
   it('already_paid: the server\'s own already-paid refusal is forwarded and the stored record cleared', async () => {
     const { chainState, h, page } = await setup(21);
-    const wallet = buildFakeWallet({ chainState });
-    const first = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w21a', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const first = await engineOf(page).pay({ window: page.window, wallet: fakeWalletEntry('w21a', { chainState }), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(first.outcome).toBe('paid');
     // A second pay() call on the same already-settled leg.
     const secondWallet = buildFakeWallet({ chainState });
@@ -742,14 +744,12 @@ describe('outcomes with no case before B49 review round 1 (defect 3)', () => {
   });
   it('price_due: the fee landed and the price failed on the network', async () => {
     const { chainState, h, page } = await setup(22);
-    const wallet = buildFakeWallet({ chainState, failPriceOnChain: true });
-    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w22', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const result = await engineOf(page).pay({ window: page.window, wallet: fakeWalletEntry('w22', { chainState, failPriceOnChain: true }), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(result.outcome).toBe('price_due');
   });
   it('mismatched: a transfer landed on chain but did not pay what this leg expects', async () => {
     const { chainState, h, page } = await setup(23);
-    const wallet = buildFakeWallet({ chainState, mismatchPriceReceipt: true });
-    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w23', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const result = await engineOf(page).pay({ window: page.window, wallet: fakeWalletEntry('w23', { chainState, mismatchPriceReceipt: true }), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(result.outcome).toBe('mismatched');
     expect(await h.settlementRepo.findByJobAndLeg(h.jobId, 'deposit')).toBeNull();
   });
