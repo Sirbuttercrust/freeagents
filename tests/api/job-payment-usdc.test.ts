@@ -975,16 +975,10 @@ describe('B23: a wallet response replaying an already-recorded hash stays idempo
 });
 
 // Make 2 (B49 card): usdc/start carries the leg's half-paid record when
-// one exists, under its own top-level halfPaidRecord key, and absent
-// otherwise. Distinct from wallet-response's existing `halfPaid` boolean
-// (types.ts): the two names never carry the same shape.
-//
-// A STATEFUL fake half-paid storage, unlike the no-op fixture every
-// other describe block above uses (record/read/clear as three
-// independent no-ops): these tests need what confirm() actually WROTE to
-// come back out of read(), and clear() to actually remove it, so the
-// test proves usdc/start reads the real record rather than a stub that
-// always answers null.
+// one exists, under its own top-level halfPaidRecord key, absent
+// otherwise. Distinct from wallet-response's `halfPaid` boolean.
+// A STATEFUL fake (unlike the no-op fixture elsewhere): these tests
+// need what confirm() wrote to come back out of read().
 function fakeHalfPaidStorage(): UsdcHalfPaidStorage {
   const rows = new Map<string, UsdcHalfPaidRow>();
   function key(jobId: string, leg: 'deposit' | 'balance'): string {
@@ -1051,9 +1045,8 @@ describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a h
       expect(walletBody.confirmed).toBe(false);
       expect(walletBody.halfPaid).toBe(true);
 
-      // Same leg, still 'proposed' (a half-paid confirm never settles the
-      // gate), so start is reachable again -- and it now names the half
-      // paid record beside the transfers.
+      // Same leg, still 'proposed'; start is reachable again, and now
+      // names the half paid record beside the transfers.
       const secondStart = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
       expect(secondStart.status).toBe(200);
       const body = (await secondStart.json()) as Record<string, unknown>;
@@ -1063,9 +1056,7 @@ describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a h
       expect(halfPaidRecord?.priceStatus).toBe('confirmed');
       expect(halfPaidRecord?.feeTxHash).toBe('0xhalf-fee');
       expect(halfPaidRecord?.feeStatus).toBe('not_confirmed');
-      // Never spelled `halfPaid`: that name already answers a boolean on
-      // the wallet-response shape (types.ts), and one name must never
-      // carry two shapes.
+      // Never `halfPaid`: that name already answers a boolean elsewhere.
       expect(body.halfPaid).toBeUndefined();
     } finally {
       server.close();
@@ -1075,9 +1066,8 @@ describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a h
   it('cleared once a later call sees both legs confirmed', async () => {
     const priceHash = '0xhalf-clear-price';
     const feeHash = '0xhalf-clear-fee';
-    // A LIVE chain client, unlike fakeUsdcChainClient's snapshot-at-
-    // construction Map: this test needs the fee's receipt to change
-    // answer BETWEEN two wallet-response calls, to prove confirm()
+    // A LIVE chain client (unlike the snapshot Map): the fee's receipt
+    // must change BETWEEN two wallet-response calls, proving confirm()
     // re-observes the chain rather than trusting a cached verdict.
     const chainReceipts: Record<string, { status: number | null; transfer: UsdcObservedTransfer | null } | null> = {
       [priceHash]: { status: 1, transfer: depositPriceTransfer() },
@@ -1123,9 +1113,8 @@ describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a h
       const secondWalletBody = (await secondWalletResponse.json()) as Record<string, unknown>;
       expect(secondWalletBody.confirmed).toBe(true);
 
-      // The leg is now settled, so /start refuses (B49); the fact under
-      // test is that the half-paid record is gone, provable through the
-      // rail's own storage rather than a second /start call.
+      // The leg is now settled (B49 refuses /start); check the fact
+      // through the rail's own storage rather than a second call.
       expect(await usdcRail.readHalfPaidRecord(jobId, 'deposit')).toBeNull();
     } finally {
       server.close();
