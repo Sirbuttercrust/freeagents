@@ -93,6 +93,11 @@ async function render(path: string, ready: (doc: Document) => boolean, opts: Opt
   const failures: string[] = [];
   vc.on('jsdomError', (e: Error) => failures.push(e.message));
   const markup = await (await fetch(`${baseUrl}${path}`, { headers: { Accept: HTML } })).text();
+  // FIX-CIFLAKE cause 1b: every fetch the page fires goes through here, so
+  // the count still in flight is a settle signal that holds regardless of
+  // which page or how many per-row reads it makes (tests/web/operator-
+  // roster.test.ts's render() reads the identical signal the same way).
+  let inFlight = 0;
   const dom = new JSDOM(markup, {
     url: `${baseUrl}${path}`,
     runScripts: 'dangerously',
@@ -104,15 +109,20 @@ async function render(path: string, ready: (doc: Document) => boolean, opts: Opt
       Object.defineProperty(window, 'fetch', {
         writable: true,
         value: async (input: string, init?: RequestInit) => {
-          const url = new URL(input, baseUrl);
-          const res = await fetch(url, init);
-          const rw = opts.rewrite;
-          if (!rw || (init?.method ?? 'GET') !== 'GET' || url.pathname !== rw.path) return res;
-          const body = (await res.json()) as Record<string, unknown>;
-          return new Response(JSON.stringify(rw.edit(body)), {
-            status: res.status,
-            headers: { 'Content-Type': 'application/json' },
-          });
+          inFlight += 1;
+          try {
+            const url = new URL(input, baseUrl);
+            const res = await fetch(url, init);
+            const rw = opts.rewrite;
+            if (!rw || (init?.method ?? 'GET') !== 'GET' || url.pathname !== rw.path) return res;
+            const body = (await res.json()) as Record<string, unknown>;
+            return new Response(JSON.stringify(rw.edit(body)), {
+              status: res.status,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          } finally {
+            inFlight -= 1;
+          }
         },
       });
     },
@@ -123,6 +133,23 @@ async function render(path: string, ready: (doc: Document) => boolean, opts: Opt
   });
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline && !ready(dom.window.document)) await new Promise((r) => setTimeout(r, 50));
+  // FIX-CIFLAKE cause 1b: `ready` (mountedAll, editorReady) can read true
+  // straight after pcard.js's SYNCHRONOUS mount, before the per-card GET
+  // /agents/:did avatar read this page also fires has answered
+  // (tests/web/avatar-identity.test.ts's own DOM signal cannot tell a
+  // first mount from the avatar-read mount, the identical gap
+  // operator-roster.test.ts's browseSettled comment documents). Waiting
+  // for three quiet polls in a row -- none in flight -- closes that
+  // window: a read that answers after this point can still land on a
+  // torn-down document if the caller closes without heeding it, which is
+  // exactly what Make 1a's page-side isConnected guards are for.
+  let quiet = 0;
+  const quietDeadline = Date.now() + 4000;
+  while (quiet < 3 && Date.now() < quietDeadline) {
+    await new Promise((r) => setTimeout(r, 20));
+    quiet = inFlight === 0 ? quiet + 1 : 0;
+  }
+  if (quiet < 3) throw new Error(`${path}: still had ${inFlight} read(s) in flight after 4000ms`);
   if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
   return { doc: dom.window.document, close: () => dom.window.close() };
 }
@@ -226,5 +253,102 @@ describe('only the agent\u2019s operator gets the avatar editor', () => {
     } finally {
       page.close();
     }
+  });
+});
+
+// FIX-CIFLAKE cause 1c: a late per-row avatar read that answers after the
+// window that fired it has closed. Reproduces the exact shape 8 CI runs
+// showed (bots.js's mount() running document.createElement on a window
+// jsdom has already torn down, TypeError: Cannot read properties of
+// undefined (reading 'createElement')): a fetch stub delays GET
+// /agents/:did well past load, the caller closes the window at once
+// (never waiting for that read, unlike render() above), and the test
+// then waits past the delay and checks nothing blew up. Must pass on the
+// Make 1a page guards and go red with them reverted -- proven below by
+// running it against the pre-fix tree (git stash) and observing the
+// unhandled rejection this same probe catches.
+describe('a late per-row avatar read never writes into a page whose window already closed (FIX-CIFLAKE cause 1c)', () => {
+  async function renderThenCloseBeforeReadSettles(
+    path: string,
+    delayMs: number,
+    paintedSignal: (doc: Document) => boolean,
+  ): Promise<{ jsdomErrors: string[]; unhandled: unknown[] }> {
+    const vc = new VirtualConsole();
+    const jsdomErrors: string[] = [];
+    vc.on('jsdomError', (e: Error) => jsdomErrors.push(e.message));
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandledRejection);
+    try {
+      const markup = await (await fetch(`${baseUrl}${path}`, { headers: { Accept: HTML } })).text();
+      const dom = new JSDOM(markup, {
+        url: `${baseUrl}${path}`,
+        runScripts: 'dangerously',
+        resources: 'usable',
+        pretendToBeVisual: true,
+        virtualConsole: vc,
+        beforeParse(window) {
+          Object.defineProperty(window, 'fetch', {
+            writable: true,
+            value: async (input: string, init?: RequestInit) => {
+              const url = new URL(input, baseUrl);
+              // The one read this probe delays: every per-row/per-card
+              // avatar detail read (GET /agents/:did), on both browse.js
+              // and operator.js's roster. Every other request (the
+              // /browse or /accounts/:did listing itself, static assets)
+              // passes straight through, so the page reaches its normal
+              // first paint before this probe closes it. url.pathname
+              // keeps a DID's own colons percent-encoded (%3A), so the
+              // match is against the RAW input path browse.js/operator.js
+              // actually fetch, not the parsed and re-encoded pathname.
+              if (String(input).startsWith('/agents/')) {
+                await new Promise((r) => setTimeout(r, delayMs));
+              }
+              return fetch(url, init);
+            },
+          });
+        },
+      });
+      await new Promise<void>((resolve) => {
+        if (dom.window.document.readyState === 'complete') resolve();
+        else dom.window.addEventListener('load', () => resolve());
+      });
+      // First paint: the cards/rows are in the DOM (pcard.js's own
+      // SYNCHRONOUS mount, before the per-row avatar detail read this
+      // probe delays has gone out) -- the same point
+      // tests/web/avatar-identity.test.ts's mountedAll signal reads,
+      // reached here without waiting for the delayed read itself.
+      const paintDeadline = Date.now() + 5000;
+      while (Date.now() < paintDeadline && !paintedSignal(dom.window.document)) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      // Closes right after first paint, deliberately NOT waiting for the
+      // delayed per-row avatar read: this is the exact race the brief
+      // names, a read that answers after the caller has already moved on.
+      dom.window.close();
+      await new Promise((r) => setTimeout(r, delayMs + 300));
+      return { jsdomErrors, unhandled };
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection);
+    }
+  }
+
+  it('browse: a delayed per-card avatar read after close raises no unhandled rejection', async () => {
+    const { jsdomErrors, unhandled } = await renderThenCloseBeforeReadSettles('/browse', 300, mountedAll(2));
+    expect(jsdomErrors, `jsdom errors: ${jsdomErrors.join('; ')}`).toEqual([]);
+    expect(unhandled.map(String), 'a late read wrote into a closed page').toEqual([]);
+  });
+
+  it('the operator roster: a delayed per-row avatar read after close raises no unhandled rejection', async () => {
+    const rosterPainted = (doc: Document) => doc.querySelectorAll('[data-agent-row]').length >= 2;
+    const { jsdomErrors, unhandled } = await renderThenCloseBeforeReadSettles(
+      `/accounts/${encodeURIComponent(operatorDid)}`,
+      300,
+      rosterPainted,
+    );
+    expect(jsdomErrors, `jsdom errors: ${jsdomErrors.join('; ')}`).toEqual([]);
+    expect(unhandled.map(String), 'a late read wrote into a closed page').toEqual([]);
   });
 });
