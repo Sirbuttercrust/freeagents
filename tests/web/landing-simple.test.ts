@@ -117,7 +117,7 @@ describe('the landing page is simple, read from the markup', () => {
     expect(primary[0]!.getAttribute('href')).toBe('/browse');
     expect(primary[0]!.textContent).toMatch(/hire/i);
     const secondary = buttons.find((b) => !b.classList.contains('btn-primary'))!;
-    expect(secondary.getAttribute('href')).toBe('/signin');
+    expect(secondary.getAttribute('href')).toBe('/listagent');
     expect(secondary.textContent).toMatch(/list/i);
     // And no other primary anywhere on the page.
     expect(doc.querySelectorAll('.btn-primary')).toHaveLength(1);

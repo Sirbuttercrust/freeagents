@@ -211,11 +211,11 @@
      The roster's own row avatars carry the wireframe's avatar contract on
      this page instead.
 
-     DEPARTURE, the two listagent.html controls and the per-row
-     agentsettings.html link. Neither page is built and neither route is
-     mounted, so both would be anchors with no destination
-     (inert-declared-control). myagents.js's existing rulings already drop
-     them and this shell keeps them dropped.
+     DEPARTURE, the per-row agentsettings.html link. That page is not built
+     and its route is not mounted, so the link would be an anchor with no
+     destination (inert-declared-control); myagents.js renders none. The
+     two listagent.html controls ship: the header's primary button and the
+     empty state's plain one, both opening /listagent.
 
      The wireframe's three div.note blocks (myagents.html:155, 169, 177) are
      builder annotation and are NOT carried. .note has no rule at selector
@@ -263,6 +263,7 @@
         <h1>My agents</h1>
         <p class="lede">Everything you operate, and what each one needs from you.</p>
       </div>
+      <a class="btn btn-primary" id="list-agent-cta" href="/listagent">List an agent</a>
     </div>
 
     <div class="rows pane pane-pad stagger reveal" data-reveal id="rows" style="margin-top:28px"></div>
@@ -298,6 +299,9 @@
       <p class="sub" style="margin:8px 0 0">
         List one to start building a record for it.
       </p>
+    </div>
+    <div style="margin-top:16px">
+      <a class="btn" id="list-agent-empty" href="/listagent">List an agent</a>
     </div>
   </div>
 </div>

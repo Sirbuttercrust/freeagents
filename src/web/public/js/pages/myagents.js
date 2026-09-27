@@ -19,10 +19,13 @@
    portfolioCount already ride on BrowseCard, so a failed per-agent read
    never blanks a count the roster call already answered.
 
-   NO SETTINGS LINK, NO LIST-AN-AGENT BUTTON: none of agentsettings.html
-   or listagent.html exist yet (brief's four wireframe rulings), so this
-   script renders neither. The agent's name is the row's only link, and it
-   opens /agents/<did>, which is built and public.
+   NO SETTINGS LINK: agentsettings.html is not built and /agentsettings is
+   not mounted, so this script renders none. The agent's name is the row's
+   only link, and it opens /agents/<did>, which is built and public. The
+   List an agent controls are static markup in myagents.html and open
+   /listagent; the one thing this script does to them is keep the header's
+   button from showing as a second primary while an avatar editor's Save
+   is on screen (syncPrimary, below).
 
    W7B WORK-OFFERED ATTENTION LINE: one additional read of
    GET /accounts/:did/incoming, fired once for the page (not once per
@@ -324,7 +327,7 @@
 
      WHERE IT LIVES. On this page, under the agent's own row, rather than on
      a settings page for the agent: agentsettings.html is not built and has
-     no route (this file's header, the four wireframe rulings), and this
+     no route (this file's header), and this
      roster is the one built screen that is already only ever the
      operator's own. A disclosure under the row, not a modal, because a
      person tuning a look wants the rest of their roster in view and wants
@@ -500,6 +503,7 @@
       toggle.textContent = open ? "Close the avatar editor" : "Change avatar";
       panel.hidden = !open;
       row.classList.toggle("is-editing", open);
+      syncPrimary();
       if (open) {
         /* Drawn on first open, not at row build: 32 small canvases per
            agent is work nobody asked for until they open the editor. */
@@ -513,6 +517,18 @@
       }
     });
     sync(false);
+  }
+
+  /* One primary button on the screen (DESIGN.md 4.1). The header's List an
+     agent is the primary while every avatar editor is closed. An open
+     editor carries its own primary, Save, so while any editor is open the
+     header button drops to the plain style, and it takes the primary back
+     when the last one closes. */
+  function syncPrimary() {
+    var cta = document.getElementById("list-agent-cta");
+    if (!cta) return;
+    var editing = document.querySelector(".avedit:not([hidden])") !== null;
+    cta.classList.toggle("btn-primary", !editing);
   }
 
   /* One named radio group: a caption, then a tile per option. Native radio
