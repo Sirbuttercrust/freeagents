@@ -140,12 +140,25 @@ describe('createGithubAdapter, createStagingRepository (B14a, STG2 empty repo)',
   });
 });
 
-describe('createGithubAdapter, grantPush (B14a)', () => {
-  it('adds the verified GitHub login as a push collaborator on a platform-owned repo', async () => {
-    const { fetchImpl, calls } = scriptedFetch([jsonResponse(201, {})]);
+describe('createGithubAdapter, grantPush (B14a, FIX-B14b: reports what GitHub actually did)', () => {
+  it('a 201 (an invitation, still pending) answers { state: invited, invitationId, acceptUrl }, read off the body', async () => {
+    const { fetchImpl, calls } = scriptedFetch([
+      jsonResponse(201, {
+        // The html_url deliberately does NOT match the
+        // `https://github.com/${owner}/${repo}/invitations` shape the
+        // adapter's own input could build: it carries a trailing
+        // `/details` segment nothing in the PUT request supplies. If
+        // grantPush ever stopped reading html_url off this body and
+        // reconstructed the URL from input.owner/input.repo instead,
+        // this assertion is the one thing that would catch it.
+        id: 334930672,
+        html_url: 'https://github.com/freeagents-platform/staging-job_1/invitations/details',
+        permissions: 'write',
+      }),
+    ]);
     const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
 
-    await adapter.grantPush({
+    const result = await adapter.grantPush({
       owner: PLATFORM_LOGIN,
       repo: 'staging-job_1',
       githubLogin: 'agent-scout',
@@ -159,6 +172,39 @@ describe('createGithubAdapter, grantPush (B14a)', () => {
         body: { permission: 'push' },
       },
     ]);
+    expect(result).toEqual({
+      state: 'invited',
+      invitationId: '334930672',
+      acceptUrl: 'https://github.com/freeagents-platform/staging-job_1/invitations/details',
+    });
+  });
+
+  it('a 204 (already a collaborator) answers { state: active }, with no body to parse', async () => {
+    const { fetchImpl } = scriptedFetch([new Response(null, { status: 204 })]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    const result = await adapter.grantPush({
+      owner: PLATFORM_LOGIN,
+      repo: 'staging-job_1',
+      githubLogin: 'agent-scout',
+      verifiedGithubLogin: 'agent-scout',
+    });
+
+    expect(result).toEqual({ state: 'active' });
+  });
+
+  it('a non-2xx (e.g. 422) still throws, unchanged', async () => {
+    const { fetchImpl } = scriptedFetch([jsonResponse(422, { message: 'Validation Failed' })]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    await expect(
+      adapter.grantPush({
+        owner: PLATFORM_LOGIN,
+        repo: 'staging-job_1',
+        githubLogin: 'agent-scout',
+        verifiedGithubLogin: 'agent-scout',
+      }),
+    ).rejects.toThrow();
   });
 
   it('refuses a login that is not the agent\'s verified GitHub login, before any network call', async () => {
@@ -253,6 +299,60 @@ describe('createGithubAdapter, getCommit (B14a)', () => {
 
     await expect(
       adapter.getCommit({ owner: PLATFORM_LOGIN, repo: 'staging-job_1', sha: 'missing' }),
+    ).rejects.toThrow();
+  });
+});
+
+describe('createGithubAdapter, getCollaboratorPermission (FIX-B14b: read the fact live, no stored copy)', () => {
+  it('reads the permission field off the response body, pinned by method and URL', async () => {
+    const { fetchImpl, calls } = scriptedFetch([jsonResponse(200, { permission: 'write', role_name: 'write', user: null })]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    const permission = await adapter.getCollaboratorPermission({
+      owner: PLATFORM_LOGIN,
+      repo: 'staging-job_1',
+      githubLogin: 'agent-scout',
+    });
+
+    expect(calls).toEqual([
+      {
+        url: 'https://api.github.com/repos/freeagents-platform/staging-job_1/collaborators/agent-scout/permission',
+        method: 'GET',
+        body: undefined,
+      },
+    ]);
+    expect(permission).toBe('write');
+  });
+
+  it('reads none for a login never invited, straight off the body', async () => {
+    const { fetchImpl } = scriptedFetch([jsonResponse(200, { permission: 'none', role_name: 'none', user: null })]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    const permission = await adapter.getCollaboratorPermission({
+      owner: PLATFORM_LOGIN,
+      repo: 'staging-job_1',
+      githubLogin: 'never-invited',
+    });
+
+    expect(permission).toBe('none');
+  });
+
+  it('is read-only against a non-platform owner: no owner check applies', async () => {
+    const { fetchImpl, calls } = scriptedFetch([jsonResponse(200, { permission: 'read', role_name: 'read', user: null })]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    await expect(
+      adapter.getCollaboratorPermission({ owner: 'buyer', repo: 'target-repo', githubLogin: 'agent-scout' }),
+    ).resolves.toBe('read');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('a non-2xx response rejects rather than returning a guessed permission', async () => {
+    const { fetchImpl } = scriptedFetch([jsonResponse(404, { message: 'Not Found' })]);
+    const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
+
+    await expect(
+      adapter.getCollaboratorPermission({ owner: PLATFORM_LOGIN, repo: 'staging-job_1', githubLogin: 'agent-scout' }),
     ).rejects.toThrow();
   });
 });

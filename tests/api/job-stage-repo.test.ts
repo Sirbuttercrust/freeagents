@@ -13,7 +13,7 @@
 // throws on anything nobody registered, the same shape the real adapter's
 // 404 takes, so a route-level test can actually exercise the guard.
 import type { Server } from 'node:http';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
 import {
@@ -55,6 +55,8 @@ interface Started {
   readonly baseUrl: string;
   readonly jobRepo: MemoryJobRepository;
   readonly fixture: StagingLifecycleFixture;
+  readonly operatorRepo: MemoryAccountRepository;
+  readonly agentRepo: MemoryAgentRepository;
 }
 
 async function startApp(): Promise<Started> {
@@ -98,7 +100,7 @@ async function startApp(): Promise<Started> {
   if (address === null || typeof address === 'string') {
     throw new Error('expected server to listen on a port');
   }
-  return { server, baseUrl: `http://127.0.0.1:${address.port}`, jobRepo, fixture };
+  return { server, baseUrl: `http://127.0.0.1:${address.port}`, jobRepo, fixture, operatorRepo, agentRepo };
 }
 
 // Walks a fresh job to `confirmed`, which is what creates the staging
@@ -205,5 +207,112 @@ describe('POST /jobs/:jobId/stage: ancestry from baseCommit (B14a scope item 3)'
 
     const stage = await postSigned(active.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: baseCommit }, agent);
     expect(stage.status).toBe(200);
+  });
+});
+
+// FIX-B14b (bugs.md B14b): when the commit is not visible in the staging
+// repository, that can mean the commit genuinely was never pushed, OR it
+// can mean the agent never accepted the collaborator invitation confirm
+// sent it and so could never have pushed anything at all. Reading
+// getCollaboratorPermission tells the two apart and gives the operator
+// something actionable in the second case, rather than the same
+// undifferentiated "commit not found" message either way.
+describe('POST /jobs/:jobId/stage: reads push access when the commit is missing (FIX-B14b)', () => {
+  it('permission none: 409 names the accept page for this exact repository, not the commit-missing sentence', async () => {
+    active = await startApp();
+    const { jobId, owner, repo } = await walkToConfirmed(active.baseUrl);
+    active.fixture.setCollaboratorPermission(owner, repo, 'scout-stage-repo', 'none');
+
+    const stage = await postSigned(active.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'never-registered-sha' }, agent);
+    expect(stage.status).toBe(409);
+    const body = (await stage.json()) as { error: string };
+    expect(body.error).toContain(`${owner}/${repo}`);
+    expect(body.error).toContain(`https://github.com/${owner}/${repo}/invitations`);
+    expect(body.error).not.toContain('does not exist in the staging repository');
+  });
+
+  it('permission read: the same accept-page refusal as none', async () => {
+    active = await startApp();
+    const { jobId, owner, repo } = await walkToConfirmed(active.baseUrl);
+    active.fixture.setCollaboratorPermission(owner, repo, 'scout-stage-repo', 'read');
+
+    const stage = await postSigned(active.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'never-registered-sha' }, agent);
+    expect(stage.status).toBe(409);
+    const body = (await stage.json()) as { error: string };
+    expect(body.error).toContain(`https://github.com/${owner}/${repo}/invitations`);
+  });
+
+  it('permission write: today\'s exact sentence, unchanged (the fake\'s own default)', async () => {
+    active = await startApp();
+    const { jobId, owner, repo } = await walkToConfirmed(active.baseUrl);
+    // Never configured -- the fake answers 'write' by default.
+
+    const stage = await postSigned(active.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'never-registered-sha' }, agent);
+    expect(stage.status).toBe(409);
+    const body = (await stage.json()) as { error: string };
+    expect(body.error).toContain('never-registered-sha');
+    expect(body.error).toContain('does not exist in the staging repository');
+    expect(body.error).toContain(`${owner}/${repo}`);
+    expect(body.error).not.toContain('invitations');
+  });
+
+  it('permission admin: today\'s exact sentence, unchanged', async () => {
+    active = await startApp();
+    const { jobId, owner, repo } = await walkToConfirmed(active.baseUrl);
+    active.fixture.setCollaboratorPermission(owner, repo, 'scout-stage-repo', 'admin');
+
+    const stage = await postSigned(active.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'never-registered-sha' }, agent);
+    expect(stage.status).toBe(409);
+    const body = (await stage.json()) as { error: string };
+    expect(body.error).toContain('does not exist in the staging repository');
+  });
+
+  it('the permission read itself throws: today\'s sentence stands, and the read failure is logged', async () => {
+    active = await startApp();
+    const { jobId } = await walkToConfirmed(active.baseUrl);
+    const throwingGithub = {
+      ...active.fixture.github,
+      getCollaboratorPermission: () => Promise.reject(new Error('github outage reading permission')),
+    };
+    const throwingApp = createApp(
+      active.operatorRepo,
+      active.agentRepo,
+      undefined,
+      throwingGithub,
+      active.jobRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      alwaysSettledGate(),
+      anyCommitStagingObserver(),
+    );
+    const throwingServer = throwingApp.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => throwingServer.once('listening', resolve));
+    const throwingAddress = throwingServer.address();
+    if (throwingAddress === null || typeof throwingAddress === 'string') {
+      throw new Error('expected server to listen on a port');
+    }
+    const throwingBaseUrl = `http://127.0.0.1:${throwingAddress.port}`;
+    // active.jobRepo already holds the confirmed job from walkToConfirmed
+    // above, and this second app shares that same jobRepo, so no re-walk
+    // is needed -- only the github adapter differs, isolating the read
+    // failure to getCollaboratorPermission alone.
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const stage = await postSigned(throwingBaseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'never-registered-sha' }, agent);
+      expect(stage.status).toBe(409);
+      const body = (await stage.json()) as { error: string };
+      expect(body.error).toContain('does not exist in the staging repository');
+      expect(body.error).not.toContain('invitations');
+      expect(errorLog).toHaveBeenCalled();
+    } finally {
+      errorLog.mockRestore();
+      await new Promise<void>((resolve) => throwingServer.close(() => resolve()));
+    }
   });
 });

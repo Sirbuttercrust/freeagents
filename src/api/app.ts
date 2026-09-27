@@ -19,6 +19,7 @@ import {
   StagingComparisonTruncatedError,
   type Gist,
   type GithubAdapter,
+  type GrantPushResult,
   type PullRequestRef,
   type PullRequestSummary,
 } from '../adapters/github/types.js';
@@ -555,10 +556,10 @@ function jobProjection(row: Job): Record<string, unknown> {
   // together or neither (see that function's own header comment), so the
   // pair rides one conditional here the same way every other one-writer
   // pair in this projection does. Once confirm has created the platform's
-  // staging repository, the agent it just granted push to has to be told
-  // which repository that is -- the anchor's whole point is that the
-  // staged commit lives somewhere the platform named, and the wire is
-  // where that name has to surface.
+  // staging repository and invited (or added) the agent's login as a
+  // collaborator, the agent has to be told which repository that is --
+  // the anchor's whole point is that the staged commit lives somewhere
+  // the platform named, and the wire is where that name has to surface.
   const stagingRepoFacts =
     row.stagingRepo !== null && row.baseCommit !== null
       ? { stagingRepo: row.stagingRepo, baseCommit: row.baseCommit }
@@ -5950,6 +5951,7 @@ export function createApp(
       const sourceRepo = current.repository.slice(slashAt + 1);
 
       let withStagingRepo: Job;
+      let stagingGrant: GrantPushResult;
       try {
         const facts = await github.readRepository({ owner: sourceOwner, repo: sourceRepo });
         // FIX-B36 (Make item 3): the buyer may have moved the repository
@@ -5970,7 +5972,14 @@ export function createApp(
           sourceRepo,
           baseCommit: facts.sha,
         });
-        await github.grantPush({
+        // FIX-B14b: the PUT above never means the agent can push yet --
+        // GitHub answers 201 (a pending invitation) unless the login was
+        // already a collaborator (204). stagingGrant carries which one
+        // came back, read after persistence below to tell the agent's
+        // thread whether it must accept an invitation before it can push
+        // (bugs.md B14b: push readiness is measured live at stage time,
+        // never inferred from having called this route).
+        stagingGrant = await github.grantPush({
           owner: stagingRepo.owner,
           repo: stagingRepo.repo,
           githubLogin: agent.githubLogin,
@@ -6043,6 +6052,38 @@ export function createApp(
           } catch (err) {
             console.error(`${label}: failed to withdraw sibling ${sibling.id}`, err);
           }
+        }
+        // FIX-B14b: the row confirm's own thread gets whenever the push
+        // grant came back an invitation, not yet a collaborator. Written
+        // AFTER the job itself persists, best-effort and logged like
+        // every other system row in this file (recordSettlementSystemEvent,
+        // the staged row above): a failed thread write never turns a
+        // successful confirm into a 503, because the job row it describes
+        // is already durable by the time this runs. An `active` grant
+        // (already a collaborator, no invitation pending) writes nothing:
+        // there is no accept step to tell either party about.
+        if (stagingGrant.state === 'invited') {
+          try {
+            const systemRow = await messageRepo.create(
+              createSystemMessage(
+                {
+                  id: 'm-' + randomBytes(8).toString('hex'),
+                  jobId: row.id,
+                  body: `${row.repository}'s staging repository is waiting on a GitHub invitation. ${agent.githubLogin} must accept it at ${stagingGrant.acceptUrl} before it can push.`,
+                  systemEvent: { type: 'staging_invited', acceptUrl: stagingGrant.acceptUrl, githubLogin: agent.githubLogin },
+                },
+                new Date(),
+              ),
+            );
+            broadcastThreadEvent(row.id, 'message', messageProjection(systemRow));
+          } catch (err) {
+            console.error(`${label}: failed to write the staging_invited system row`, err);
+          }
+          // Either party may confirm (app.ts's own note above,
+          // confirmGate.did); the party that did NOT confirm is the one
+          // that needs telling, the same excludeDid stance every other
+          // thread-triggered notification in this file already takes.
+          await notifyJobParties(row, 'new_message', confirmGate.did);
         }
         res.status(200).json(jobProjection(row));
       } catch (err) {
@@ -6223,6 +6264,35 @@ export function createApp(
         await github.getCommit({ owner: stagingRepo.owner, repo: stagingRepo.repo, sha: stagedCommit });
       } catch (err) {
         console.error(`${label}: staged commit ${stagedCommit} not found in staging repository`, err);
+        // FIX-B14b (bugs.md B14b): the commit not being visible here can
+        // mean it was genuinely never pushed, OR it can mean the agent
+        // never accepted the collaborator invitation confirm sent it, so
+        // it never had anywhere to push TO. Reading the agent's real,
+        // current permission tells the two apart before answering --
+        // 'none' or 'read' names the fix (the accept link) instead of
+        // repeating the generic commit-missing sentence; 'write' or
+        // 'admin' means push access is fine, so the fault really is a
+        // missing commit, and today's exact sentence stands. If the
+        // permission read ITSELF throws, a check that cannot see must
+        // not change what the caller is told: today's sentence stands,
+        // and the read failure is logged separately from the commit
+        // failure above.
+        let permission: string | null = null;
+        try {
+          permission = await github.getCollaboratorPermission({
+            owner: stagingRepo.owner,
+            repo: stagingRepo.repo,
+            githubLogin: verifiedAgentGithubLogin,
+          });
+        } catch (permissionErr) {
+          console.error(`${label}: reading collaborator permission failed`, permissionErr);
+        }
+        if (permission === 'none' || permission === 'read') {
+          res.status(409).json({
+            error: `${verifiedAgentGithubLogin} does not have push access to ${stagingRepo.owner}/${stagingRepo.repo} yet; accept the invitation at https://github.com/${stagingRepo.owner}/${stagingRepo.repo}/invitations, push, then stage again`,
+          });
+          return;
+        }
         res.status(409).json({
           error: `staged commit ${stagedCommit} does not exist in the staging repository ${stagingRepo.owner}/${stagingRepo.repo}`,
         });
