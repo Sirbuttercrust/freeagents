@@ -4048,7 +4048,7 @@ export function createApp(
     } catch (err) {
       if (err instanceof PlatformSeedUnavailableError) {
         console.error('POST /agents/:agentDid/github-proof/start: FREEAGENTS_PLATFORM_SEED is not set; cannot derive the agent key', err);
-        res.status(503).json({ error: 'storage unavailable' });
+        res.status(503).json({ error: 'FREEAGENTS_PLATFORM_SEED is not configured on this deployment; cannot derive the agent key' });
         return;
       }
       throw err;

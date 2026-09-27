@@ -6,8 +6,10 @@
 // completeGitHubProofOAuth exist on the session adapter, but no route
 // calls them yet).
 import type { Server } from 'node:http';
+import * as nodeCrypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-key-2020';
 
 import { createApp } from '../../src/api/app.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
@@ -15,7 +17,7 @@ import { createKnownKeyStore } from '../../src/adapters/identity/did-abt-resolve
 import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import type { SessionAdapter } from '../../src/adapters/identity/session.js';
-import { fakeGitHubConfig, fakeGitHubFetch } from '../helpers/session-fixtures.js';
+import { fakeGitHubConfig, fakeGitHubFetch, failingGitHubFetch } from '../helpers/session-fixtures.js';
 import { signingIdentityFromSeed, type SigningIdentity } from '../helpers/sign-request.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import type { CreateGistInput, CreateGistResult, DeleteGistInput, DeleteGrantInput, Gist, GithubAdapter } from '../../src/adapters/github/types.js';
@@ -44,6 +46,10 @@ interface FakeProofGithubCalls {
   readonly createGist: CreateGistInput[];
   readonly deleteGist: DeleteGistInput[];
   readonly deleteGrant: DeleteGrantInput[];
+  // The cleanup-order defect (QA proof r1, D2): one shared log naming which
+  // of the three calls landed and in what order, so a test can assert
+  // ORDER, not just that each call happened once.
+  readonly order: string[];
 }
 
 // A GithubAdapter stand-in that records every call the proof callback can
@@ -59,10 +65,11 @@ function fakeProofGithub(options: {
   readonly createGistShouldFail?: boolean;
 }): { readonly github: GithubAdapter; readonly calls: FakeProofGithubCalls; readonly gists: Map<string, Gist> } {
   const gists = new Map<string, Gist>();
-  const calls: { createGist: CreateGistInput[]; deleteGist: DeleteGistInput[]; deleteGrant: DeleteGrantInput[] } = {
+  const calls: { createGist: CreateGistInput[]; deleteGist: DeleteGistInput[]; deleteGrant: DeleteGrantInput[]; order: string[] } = {
     createGist: [],
     deleteGist: [],
     deleteGrant: [],
+    order: [],
   };
   const github: GithubAdapter = {
     platformLogin: 'freeagents-platform',
@@ -82,6 +89,7 @@ function fakeProofGithub(options: {
     compareCommits: () => Promise.reject(new NotImplementedError('github', 'compareCommits')),
     createGist: (input: CreateGistInput): Promise<CreateGistResult> => {
       calls.createGist.push(input);
+      calls.order.push('createGist');
       if (options.createGistShouldFail === true) return Promise.reject(new Error('github: createGist failed'));
       const id = `fake-gist-${randomUUID()}`;
       const owner = options.tokenToLogin[input.token] ?? null;
@@ -90,11 +98,13 @@ function fakeProofGithub(options: {
     },
     deleteGist: (input: DeleteGistInput): Promise<void> => {
       calls.deleteGist.push(input);
+      calls.order.push('deleteGist');
       gists.delete(input.id);
       return Promise.resolve();
     },
     deleteGrant: (input: DeleteGrantInput): Promise<void> => {
       calls.deleteGrant.push(input);
+      calls.order.push('deleteGrant');
       return Promise.resolve();
     },
   };
@@ -114,7 +124,7 @@ interface Booted {
 
 const FAKE_TOKEN = 'fake-access-token'; // fakeGitHubFetch's own hard-coded exchanged token.
 
-async function bootWithDerivableAgent(login: string): Promise<Booted> {
+async function bootWithDerivableAgent(login: string, options: { readonly createGistShouldFail?: boolean; readonly fetchImpl?: typeof fetch } = {}): Promise<Booted> {
   process.env.FREEAGENTS_PLATFORM_SEED = freshSeed();
   const identity = createIdentityAdapter(createKnownKeyStore());
   const accountRepo = new MemoryAccountRepository();
@@ -148,8 +158,14 @@ async function bootWithDerivableAgent(login: string): Promise<Booted> {
     githubLogin: null,
   });
 
-  const sessionAdapter = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login, id: 12345 }) });
-  const githubFake = fakeProofGithub({ tokenToLogin: { [FAKE_TOKEN]: login } });
+  const sessionAdapter = createSessionAdapter({
+    github: fakeGitHubConfig(),
+    fetchImpl: options.fetchImpl ?? fakeGitHubFetch({ login, id: 12345 }),
+  });
+  const githubFake = fakeProofGithub({
+    tokenToLogin: { [FAKE_TOKEN]: login },
+    ...(options.createGistShouldFail !== undefined ? { createGistShouldFail: options.createGistShouldFail } : {}),
+  });
   const app = createApp(accountRepo, agentRepo, identity, githubFake.github, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter);
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -197,6 +213,67 @@ describe('GET /auth/github/callback, the one-click proof branch: the whole click
     const readBody = (await read.json()) as Record<string, unknown>;
     expect(readBody.proofStatus).toBe('verified');
     expect(readBody.githubLogin).toBe('octo-full-click');
+  });
+
+  // Brief test (c) / invariant 2 direction two, for the PUBLISHED gist
+  // specifically (account-proof-invariant2.test.ts proves the same
+  // invariant for a hand-authored statement; this proves it for the one
+  // this route composes and signs). A third party who has never called
+  // this service: its own line parser, its own canonical-bytes
+  // construction, and node:crypto alone against the public key the
+  // statement's own `key:` line names.
+  it('the published gist verifies independently with a third-party parser, node:crypto, and the key line the gist itself carries; a flipped byte fails', async () => {
+    const startRes = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
+    const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
+    const state = new URL(redirectUrl).searchParams.get('state')!;
+    const callbackRes = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
+    expect((await callbackRes.json())).toEqual({ outcome: 'verified', agentDid: booted.agentDid });
+
+    const publishedCalls = booted.githubFake.calls.createGist;
+    const published = publishedCalls[publishedCalls.length - 1]!;
+    const content = published.content;
+
+    // The third party's own reader: split lines, take the keys it knows,
+    // ignore the rest. Deliberately NOT src/domain/account-proof.js's
+    // parseGistStatement.
+    function thirdPartyReadsStatement(text: string): Record<string, string> {
+      const fields: Record<string, string> = {};
+      for (const line of text.split(/\r?\n/)) {
+        const at = line.indexOf(':');
+        if (at <= 0) continue;
+        fields[line.slice(0, at).trim().toLowerCase()] = line.slice(at + 1).trim();
+      }
+      return fields;
+    }
+
+    async function thirdPartyVerifies(text: string): Promise<boolean> {
+      const fields = thirdPartyReadsStatement(text);
+      const did = fields['did'];
+      const account = fields['github'];
+      const sig = fields['signature'];
+      const keyMultibase = fields['key'];
+      if (fields['version'] !== '1') return false;
+      if (did === undefined || account === undefined || sig === undefined || keyMultibase === undefined) return false;
+      const key = await Ed25519VerificationKey2020.fromFingerprint({ fingerprint: keyMultibase });
+      const raw = (key as unknown as { _publicKeyBuffer: Uint8Array })._publicKeyBuffer;
+      const publicKey = nodeCrypto.createPublicKey({
+        key: { kty: 'OKP', crv: 'Ed25519', x: Buffer.from(raw).toString('base64url') },
+        format: 'jwk',
+      });
+      // Rebuilt from the DID and account being checked, not trusted from
+      // the file: the same discipline account-proof-invariant2.test.ts
+      // uses for the hand-authored statement.
+      const bytes = `freeagents-github-proof v1\n${did}\n${account}\n`;
+      return nodeCrypto.verify(null, Buffer.from(bytes, 'utf8'), publicKey, Buffer.from(sig, 'base64'));
+    }
+
+    expect(await thirdPartyVerifies(content)).toBe(true);
+
+    // Mutation proof: flip one byte the signature covers (the DID) and
+    // watch the same independent check fail.
+    const tampered = content.replace(booted.agentDid, `${booted.agentDid}x`);
+    expect(tampered).not.toBe(content);
+    expect(await thirdPartyVerifies(tampered)).toBe(false);
   });
 });
 
@@ -341,7 +418,20 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     }
   });
 
-  it('failed: a gist that publishes but does not verify (author mismatch) is deleted with the same token before the grant, and the old binding is untouched (R-5 separation)', async () => {
+  // Shared by both R-5 separation cases below (author-mismatch and
+  // not-found): boots one agent, proves it once with a real verifying
+  // login so the binding starts verified, then runs a SECOND proof whose
+  // gist read-back is forced to the given override. Returns the second
+  // proof's outcome plus the second github fake's call log, so each case
+  // asserts its own outcome-specific detail while sharing the setup.
+  async function reproveAfterVerified(secondLogin: string, getPublicGistOverride: (ref: { readonly id: string }) => Promise<Gist>): Promise<{
+    readonly agentDid: string;
+    readonly firstLogin: string;
+    readonly baseUrl: string;
+    readonly server: Server;
+    readonly outcome: unknown;
+    readonly calls: FakeProofGithubCalls;
+  }> {
     process.env.FREEAGENTS_PLATFORM_SEED = freshSeed();
     const identity = createIdentityAdapter(createKnownKeyStore());
     const accountRepo = new MemoryAccountRepository();
@@ -394,43 +484,86 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     }
 
     // Second proof attempt: a DIFFERENT login, but its published gist is
-    // never reachable by the check (an override that always reports
-    // author-mismatch) -- a real failure, never a bypass.
-    const secondLogin = 'octo-r5-second-failing';
-    const sessionAdapterSecond = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: secondLogin, id: 5002 }) });
+    // never reachable by the check (the caller-supplied override) -- a
+    // real failure, never a bypass.
     const githubFakeSecond = fakeProofGithub({
       tokenToLogin: { [FAKE_TOKEN]: secondLogin },
-      getPublicGistOverride: async (ref) => ({ id: ref.id, owner: 'someone-else-entirely', files: { 'proof.txt': 'garbage' } }),
+      getPublicGistOverride,
     });
+    const sessionAdapterSecond = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: secondLogin, id: 5002 }) });
     const appSecond = createApp(accountRepo, agentRepo, identity, githubFakeSecond.github, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapterSecond);
-    const serverSecond = appSecond.listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => serverSecond.once('listening', resolve));
-    const addressSecond = serverSecond.address();
-    if (addressSecond === null || typeof addressSecond === 'string') throw new Error('expected a port');
-    const baseUrlSecond = `http://127.0.0.1:${addressSecond.port}`;
+    const server = appSecond.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('expected a port');
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    const startRes2 = await postSigned(baseUrl, `/agents/${agentDid}/github-proof/start`, {}, operator);
+    const { redirectUrl: redirectUrl2 } = (await startRes2.json()) as { redirectUrl: string };
+    const state2 = new URL(redirectUrl2).searchParams.get('state')!;
+    const callbackRes2 = await fetch(`${baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state2)}`);
+    expect(callbackRes2.status).toBe(200);
+    const outcome = await callbackRes2.json();
+
+    return { agentDid, firstLogin, baseUrl, server, outcome, calls: githubFakeSecond.calls };
+  }
+
+  it('failed: a gist that publishes but does not verify (author mismatch) is deleted with the same token before the grant, and the old binding is untouched (R-5 separation)', async () => {
+    const { agentDid, firstLogin, baseUrl, server, outcome, calls } = await reproveAfterVerified(
+      'octo-r5-second-failing',
+      async (ref) => ({ id: ref.id, owner: 'someone-else-entirely', files: { 'proof.txt': 'garbage' } }),
+    );
     try {
-      const startRes2 = await postSigned(baseUrlSecond, `/agents/${agentDid}/github-proof/start`, {}, operator);
-      const { redirectUrl: redirectUrl2 } = (await startRes2.json()) as { redirectUrl: string };
-      const state2 = new URL(redirectUrl2).searchParams.get('state')!;
-      const callbackRes2 = await fetch(`${baseUrlSecond}/auth/github/callback?code=any-code&state=${encodeURIComponent(state2)}`);
-      expect(callbackRes2.status).toBe(200);
-      const body2 = (await callbackRes2.json()) as Record<string, unknown>;
-      expect(body2).toEqual({ outcome: 'failed', agentDid });
+      expect(outcome).toEqual({ outcome: 'failed', agentDid });
 
       // Cleanup order: the created-but-unverified gist is deleted with the
-      // SAME token, and it happens before the grant deletion.
-      expect(githubFakeSecond.calls.createGist).toHaveLength(1);
-      expect(githubFakeSecond.calls.deleteGist).toHaveLength(1);
-      expect(githubFakeSecond.calls.deleteGist[0]!.token).toBe(FAKE_TOKEN);
-      expect(githubFakeSecond.calls.deleteGrant).toHaveLength(1);
+      // SAME token, and it happens BEFORE the grant deletion.
+      expect(calls.createGist).toHaveLength(1);
+      expect(calls.deleteGist).toHaveLength(1);
+      expect(calls.deleteGist[0]!.token).toBe(FAKE_TOKEN);
+      expect(calls.deleteGrant).toHaveLength(1);
+      expect(calls.order.indexOf('deleteGist')).toBeLessThan(calls.order.indexOf('deleteGrant'));
 
       // R-5 separation: the OLD verified binding stands exactly as it was.
-      const read = await fetch(`${baseUrlSecond}/agents/${agentDid}`);
+      const read = await fetch(`${baseUrl}/agents/${agentDid}`);
       const readBody = (await read.json()) as Record<string, unknown>;
       expect(readBody.proofStatus).toBe('verified');
       expect(readBody.githubLogin).toBe(firstLogin);
     } finally {
-      await new Promise<void>((resolve) => serverSecond.close(() => resolve()));
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  // QA proof r1, D1: the R-5 separation test above only ever drove
+  // checkOutcome.kind === 'author-mismatch', never 'not-found'. The brief's
+  // test (e) asks for a read-back that finds no gist as its own case: the
+  // gist the second proof just created is gone by the time getPublicGist
+  // reads it back (deleted out from under the check, mirroring a real
+  // "someone deleted the gist between publish and verify" race). Mutation
+  // proof: adding `if (checkOutcome.kind === 'not-found') updateGithubBinding(...,
+  // 'unverified')` to the proof branch's non-verified arm leaves this red
+  // (the binding would drop from verified to unverified) while every other
+  // test in this file stays green.
+  it('failed: a gist that publishes but reads back not-found is deleted with the same token before the grant, and the old binding is untouched (R-5 separation, the not-found case)', async () => {
+    const { agentDid, firstLogin, baseUrl, server, outcome, calls } = await reproveAfterVerified(
+      'octo-r5-second-notfound',
+      async (ref) => { throw new GistNotFoundError(ref.id); },
+    );
+    try {
+      expect(outcome).toEqual({ outcome: 'failed', agentDid });
+
+      expect(calls.createGist).toHaveLength(1);
+      expect(calls.deleteGist).toHaveLength(1);
+      expect(calls.deleteGist[0]!.token).toBe(FAKE_TOKEN);
+      expect(calls.deleteGrant).toHaveLength(1);
+      expect(calls.order.indexOf('deleteGist')).toBeLessThan(calls.order.indexOf('deleteGrant'));
+
+      const read = await fetch(`${baseUrl}/agents/${agentDid}`);
+      const readBody = (await read.json()) as Record<string, unknown>;
+      expect(readBody.proofStatus).toBe('verified');
+      expect(readBody.githubLogin).toBe(firstLogin);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
 
@@ -448,6 +581,71 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
       const bodyText = await res.text();
       expect(bodyText).not.toContain(FAKE_TOKEN);
       expect(res.headers.get('location')).toBeNull();
+
+      const loggedText = [...errSpy.mock.calls, ...warnSpy.mock.calls].map((args) => JSON.stringify(args)).join('\n');
+      expect(loggedText).not.toContain(FAKE_TOKEN);
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+      await new Promise<void>((resolve) => booted.server.close(() => resolve()));
+    }
+  });
+
+  // QA proof r1, D3: brief test (f) asks for a failed exchange and a
+  // failed gist write each as their own case, with no binding change and
+  // no token leak. createGistShouldFail (declared at the top of this file
+  // and never used before this) makes that half reachable.
+  it("failed: a failed token exchange (GitHub's own /login/oauth/access_token refuses it) gives 'failed' with no binding change and no token leak", async () => {
+    const booted = await bootWithDerivableAgent('octo-exchange-fails', { fetchImpl: failingGitHubFetch() });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const startRes = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
+      const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
+      const state = new URL(redirectUrl).searchParams.get('state')!;
+
+      const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toEqual({ outcome: 'failed', agentDid: booted.agentDid });
+      expect(booted.githubFake.calls.createGist).toHaveLength(0);
+      expect(booted.githubFake.calls.deleteGrant).toHaveLength(0);
+
+      const read = await fetch(`${booted.baseUrl}/agents/${booted.agentDid}`);
+      const readBody = (await read.json()) as Record<string, unknown>;
+      expect(readBody.proofStatus).toBe('unverified');
+      expect(readBody.githubLogin).toBeNull();
+
+      const loggedText = [...errSpy.mock.calls, ...warnSpy.mock.calls].map((args) => JSON.stringify(args)).join('\n');
+      expect(loggedText).not.toContain(FAKE_TOKEN);
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+      await new Promise<void>((resolve) => booted.server.close(() => resolve()));
+    }
+  });
+
+  it("failed: a failed gist publish (createGist rejects) gives 'failed' with no binding change, one deleteGrant, and no token leak", async () => {
+    const booted = await bootWithDerivableAgent('octo-createGist-fails', { createGistShouldFail: true });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const startRes = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
+      const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
+      const state = new URL(redirectUrl).searchParams.get('state')!;
+
+      const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toEqual({ outcome: 'failed', agentDid: booted.agentDid });
+      expect(booted.githubFake.calls.createGist).toHaveLength(1);
+      expect(booted.githubFake.calls.deleteGist).toHaveLength(0);
+      expect(booted.githubFake.calls.deleteGrant).toHaveLength(1);
+
+      const read = await fetch(`${booted.baseUrl}/agents/${booted.agentDid}`);
+      const readBody = (await read.json()) as Record<string, unknown>;
+      expect(readBody.proofStatus).toBe('unverified');
+      expect(readBody.githubLogin).toBeNull();
 
       const loggedText = [...errSpy.mock.calls, ...warnSpy.mock.calls].map((args) => JSON.stringify(args)).join('\n');
       expect(loggedText).not.toContain(FAKE_TOKEN);
@@ -508,6 +706,59 @@ describe('GET /auth/github/callback, the one-click proof branch: HTML landing (d
       const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
       expect(res.status).toBe(200);
       expect(String(res.headers.get('content-type'))).toContain('application/json');
+    } finally {
+      await new Promise<void>((resolve) => booted.server.close(() => resolve()));
+    }
+  });
+});
+
+// QA proof r1, D4/(d): the brief's cross-over refusals were tested inside
+// the adapter (session-github-proof.test.ts) but never over THIS route.
+// A sign-in state presented to the proof branch, and a proof state
+// presented to the ordinary sign-in path, both go through the identical
+// route this card wires; this drives both crossings over real HTTP,
+// against the real app, and asserts zero gist writes on the proof side.
+describe('GET /auth/github/callback, the one-click proof branch: route-level cross-over (decision 1)', () => {
+  it('a sign-in state presented at the callback never completes a proof and mints no session-shaped body for a proof caller: falls through to the ordinary sign-in success shape', async () => {
+    const booted = await bootWithDerivableAgent('octo-crossover-signin-state');
+    try {
+      // A sign-in state, minted the same way GET /auth/github/start does.
+      const signInStart = await booted.sessionAdapter.beginGitHubOAuth();
+
+      const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(signInStart.state)}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      // The ORDINARY sign-in shape (a Session), never a proof outcome:
+      // peekOAuthStatePurpose sees `kind: 'sign-in'`, so the proof branch's
+      // guard (`purpose.kind === 'proof'`) never fires, and the request
+      // falls through to completeGitHubOAuth exactly as it does today.
+      expect(body).toEqual({
+        subject: expect.any(String),
+        method: 'github-oauth',
+        token: expect.any(String),
+        issuedAt: expect.any(String),
+        expiresAt: expect.any(String),
+      });
+      expect(booted.githubFake.calls.createGist).toHaveLength(0);
+      expect(booted.githubFake.calls.deleteGrant).toHaveLength(0);
+    } finally {
+      await new Promise<void>((resolve) => booted.server.close(() => resolve()));
+    }
+  });
+
+  it('a proof state presented at the callback never mints a session: the proof branch runs and answers an outcome shape, never {subject, method, token}', async () => {
+    const booted = await bootWithDerivableAgent('octo-crossover-proof-state');
+    try {
+      const startRes = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
+      const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
+      const state = new URL(redirectUrl).searchParams.get('state')!;
+
+      const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toEqual({ outcome: 'verified', agentDid: booted.agentDid });
+      expect(Object.keys(body).sort()).toEqual(['agentDid', 'outcome']);
+      expect(body).not.toHaveProperty('token');
     } finally {
       await new Promise<void>((resolve) => booted.server.close(() => resolve()));
     }

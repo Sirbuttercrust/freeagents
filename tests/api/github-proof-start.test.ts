@@ -214,6 +214,74 @@ describe('POST /agents/:agentDid/github-proof/start, decision 2 (the platform mu
     }
   });
 
+  // QA proof r1, D4/(a): the OTHER agent shape that fails the re-derive
+  // comparison, a site agent that brought its own DID (FIX-B41a item 5,
+  // app.ts's `agentProof` branch). bootWithWalletAgent above only ever
+  // covers the wallet-path shape; this drives the real POST /agents
+  // site-path route with a signed-in owner and did+agentProof, so the
+  // stored delegation is the real issueSiteDelegation shape (decision 2's
+  // own comment: "the signer does not settle it"), never a hand-built
+  // fixture delegation.
+  it('409: a site agent that brought its own agent DID (the agentProof branch) is refused, naming path two', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = freshSeed();
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const accountRepo = new MemoryAccountRepository();
+    const agentRepo = new MemoryAgentRepository();
+    const sessionAdapter = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: 'octo-brought-own-did-owner', id: 9101 }) });
+    const app = createApp(accountRepo, agentRepo, identity, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter);
+    const server = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('expected a port');
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    try {
+      const start = await sessionAdapter.beginGitHubOAuth();
+      const session = await sessionAdapter.completeGitHubOAuth({ code: 'good-code', state: start.state });
+      if (session === null) throw new Error('expected a session');
+      const auth = { authorization: `Bearer ${session.token}` };
+
+      // The agent's own key, brought by the owner, over the exact string
+      // POST /agents' agentProof branch requires.
+      const ownerProbe = await fetch(`${baseUrl}/agents`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...auth },
+        body: JSON.stringify({ name: 'owner-probe', skills: ['triage'] }),
+      });
+      const ownerDid = String(((await ownerProbe.json()) as Record<string, unknown>).operatorDid);
+
+      const agentKey = await signingIdentityFromSeed(new Uint8Array(32).fill(216));
+      const payload = `freeagents:list-agent:v1:${agentKey.did}:${ownerDid}`;
+      const { sign } = await import('node:crypto');
+      const signature = sign(null, Buffer.from(payload, 'utf8'), agentKey.privateKey).toString('base64');
+      const publicKeyMultibase = agentKey.keyid.slice(agentKey.keyid.indexOf('#') + 1);
+
+      const listRes = await fetch(`${baseUrl}/agents`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...auth },
+        body: JSON.stringify({
+          name: 'own-key-agent',
+          skills: ['triage'],
+          did: agentKey.did,
+          agentProof: { signature, publicKeyMultibase },
+        }),
+      });
+      expect(listRes.status).toBe(201);
+      const agentDid = String(((await listRes.json()) as Record<string, unknown>).did);
+      expect(agentDid).toBe(agentKey.did);
+
+      const res = await fetch(`${baseUrl}/agents/${agentDid}/github-proof/start`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...auth },
+        body: '{}',
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(String(body.error)).toContain('/agents/:agentDid/account-proof');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it('409 fires even when GitHub OAuth is unconfigured on this deployment: a 503 must never mask it', async () => {
     process.env.FREEAGENTS_PLATFORM_SEED = freshSeed();
     const identity = createIdentityAdapter(createKnownKeyStore());
@@ -256,13 +324,15 @@ describe('POST /agents/:agentDid/github-proof/start, decision 2 (the platform mu
     }
   });
 
-  it('503: the platform seed is unset, so the platform cannot even attempt the re-derivation', async () => {
+  it('503: the platform seed is unset, so the platform cannot even attempt the re-derivation, naming the real cause', async () => {
     const booted = await bootWithDerivableAgent();
     const saved = process.env.FREEAGENTS_PLATFORM_SEED;
     delete process.env.FREEAGENTS_PLATFORM_SEED;
     try {
       const res = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
       expect(res.status).toBe(503);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(String(body.error)).toContain('FREEAGENTS_PLATFORM_SEED');
     } finally {
       process.env.FREEAGENTS_PLATFORM_SEED = saved;
       await new Promise<void>((resolve) => booted.server.close(() => resolve()));
