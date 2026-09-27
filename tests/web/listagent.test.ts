@@ -6,6 +6,7 @@
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -264,6 +265,7 @@ describe('(c) the GitHub box, and the ceiling', () => {
       await create(page);
       expect(posts(page)[0]!.body!.githubLogin).toBe('listagent-owner');
       expect(shown(page, 'ceiling')).toBe(false);
+      expect(shown(page, 'gh-confirm'), 'Confirm GitHub on a verified agent').toBe(false);
       const did = decodeURIComponent((page.document.getElementById('agent-link')?.getAttribute('href') ?? '').slice(8));
       expect((await readAgent(did)).proofStatus).toBe('verified');
     } finally {
@@ -302,6 +304,11 @@ describe('(c) the GitHub box, and the ceiling', () => {
     }
   });
 
+  it('the box carries no line saying it can only be set now: the account can be confirmed later', () => {
+    const src = readFileSync(join(here, '../../src/web/pages/listagent.html'), 'utf8');
+    expect(src).not.toContain('It can only be set now.');
+  });
+
   // GET /accounts/me answers the GitHub account's login for this token, but
   // the stored session does not prove it: it is not a GitHub sign-in, or it
   // names another login. The saved draft asks for the box ticked, so a page
@@ -321,6 +328,77 @@ describe('(c) the GitHub box, and the ceiling', () => {
       expect('githubLogin' in posts(page)[0]!.body!).toBe(false);
       expect(shown(page, 'ceiling')).toBe(true);
     } finally {
+      page.close();
+    }
+  });
+});
+
+// ----------------------------------------------------------------- (j)
+
+// FIX-B47c: the created state's Confirm GitHub, lettered after (i) and
+// kept beside (c), the ceiling it sits under. jsdom cannot follow a real
+// navigation; hire-flow.test.ts's seam (whatwg-url's parseURL) records the
+// URL the page asked to go to.
+const whatwgURL = createRequire(import.meta.url)('whatwg-url') as { parseURL: (v: string, o?: unknown) => unknown };
+function captureNavigations(): { calls: string[]; restore: () => void } {
+  const calls: string[] = [];
+  const original = whatwgURL.parseURL;
+  whatwgURL.parseURL = function (this: unknown, v: string, o?: unknown) { calls.push(v); return original.call(this, v, o); };
+  return { calls, restore: () => { whatwgURL.parseURL = original; } };
+}
+
+describe('(j) Confirm GitHub on the created state', () => {
+  it('an unverified agent: the button under the ceiling, the one primary; a press sends one start and goes to GitHub', async () => {
+    const page = await render('/listagent', passkeyOwner);
+    const nav = captureNavigations();
+    try {
+      type(page, 'nm', 'confirm-after');
+      type(page, 'sk', 'triage');
+      await create(page);
+      const did = decodeURIComponent((page.document.getElementById('agent-link')?.getAttribute('href') ?? '').slice(8));
+      const btn = page.document.getElementById('gh-confirm') as HTMLButtonElement;
+      expect(shown(page, 'ceiling')).toBe(true);
+      expect(shown(page, 'gh-confirm')).toBe(true);
+      expect(btn.textContent).toBe('Confirm GitHub');
+      const ceiling = page.document.getElementById('ceiling')!;
+      expect(ceiling.compareDocumentPosition(btn) & page.window.Node.DOCUMENT_POSITION_FOLLOWING, 'the button sits under the ceiling').toBeTruthy();
+      const primaries = Array.from(page.document.querySelectorAll('#created .btn-primary')).filter((el) => !(el as HTMLElement).closest('[hidden]'));
+      expect(primaries.map((el) => el.id)).toEqual(['gh-confirm']);
+      expect(page.document.getElementById('gh-error')?.getAttribute('role'), 'a live region before any sentence').toBe('alert');
+      btn.click();
+      btn.click();
+      await until(() => nav.calls.some((v) => v.startsWith('https://github.com/')));
+      await new Promise((r) => setTimeout(r, 150));
+      const starts = page.calls.filter((c) => c.method === 'POST' && c.path.endsWith('/github-proof/start'));
+      expect(starts.map((c) => c.path)).toEqual([`/agents/${encodeURIComponent(did)}/github-proof/start`]);
+      expect(starts[0]!.authed).toBe(true);
+      const went = nav.calls.filter((v) => v.startsWith('https://github.com/'));
+      expect(went).toHaveLength(1);
+      expect(new URL(went[0]!).pathname).toBe('/login/oauth/authorize');
+      expect(new URL(went[0]!).searchParams.get('scope')).toBe('gist');
+    } finally {
+      nav.restore();
+      page.close();
+    }
+  });
+
+  it('a refused press says its sentence under the buttons and goes nowhere', async () => {
+    const page = await render('/listagent', passkeyOwner);
+    const nav = captureNavigations();
+    try {
+      type(page, 'nm', 'confirm-refused');
+      type(page, 'sk', 'triage');
+      await create(page);
+      page.window.sessionStorage.setItem('fa_session', JSON.stringify({ ...passkeyOwner, token: 'no-such-token-listagent' }));
+      (page.document.getElementById('gh-confirm') as HTMLButtonElement).click();
+      await until(() => page.document.getElementById('gh-error')?.textContent !== '');
+      expect(page.document.getElementById('gh-error')?.textContent).toBe('Your session has expired. Sign in again to confirm it.');
+      expect(shown(page, 'gh-error')).toBe(true);
+      expect(nav.calls.filter((v) => v.startsWith('https://github.com/'))).toEqual([]);
+      expect((page.document.getElementById('gh-confirm') as HTMLButtonElement).disabled).toBe(false);
+      expect(machineWords(page)).toEqual([]);
+    } finally {
+      nav.restore();
       page.close();
     }
   });
@@ -569,7 +647,7 @@ interface Swept { scrollWidth: number; clientWidth: number; measured: number; sm
 const VIEWPORTS = [[320, true], [390, true], [1280, false]] as const;
 
 describe('(i) laid out right in real Chrome, under reduced motion', () => {
-  it.each(VIEWPORTS)('%ipx (touch: %s): empty form, a refusal, and the created state with the ceiling', async (width, touch) => {
+  it.each(VIEWPORTS)('%ipx (touch: %s): empty form, a refusal, and the created state with the ceiling and Confirm GitHub', async (width, touch) => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for the listagent layout sweep; skipping (see CHROME_BIN)');
       return;
@@ -611,7 +689,9 @@ describe('(i) laid out right in real Chrome, under reduced motion', () => {
       const deadline = Date.now() + 8000;
       while (Date.now() < deadline && !(await browser.evaluate<boolean>(`!document.getElementById('created').hidden`))) await new Promise((r) => setTimeout(r, 100));
       expect(await browser.evaluate<boolean>(`!document.getElementById('ceiling').hidden`), 'the ceiling on the created state').toBe(true);
-      await check('the created state', 2);
+      // Confirm GitHub, See its page, My agents.
+      await check('the created state', 3);
+      expect(await browser.evaluate<boolean>(`!document.getElementById('gh-confirm').hidden`), 'Confirm GitHub on the created state').toBe(true);
       await capture(browser, `listagent-created-ceiling-${width}`);
     } finally {
       await browser.close();

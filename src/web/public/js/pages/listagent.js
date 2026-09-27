@@ -8,6 +8,9 @@
    GitHub box show, and ticking it sends that login, which the server
    verifies at once (G1). A passkey account reads githubLogin null, so it
    never sees the box and never sends a login the session did not prove.
+   Every agent created without a verified login gets Confirm GitHub on the
+   created state instead (FIX-B47c), the one-click proof github-proof.js
+   runs, which can pick any GitHub account.
 
    REFUSALS. Everything the page can check is checked before any request:
    a name, at least one skill, and a price in dollars and cents. What the
@@ -167,12 +170,23 @@
 
   /* ---------------------------------------------------------- created */
 
+  /* The ceiling and Confirm GitHub show together, for an agent that does
+     not read verified. The press is github-proof.js's, the same one
+     /agentsettings runs; it either leaves for GitHub or shows its sentence
+     in #gh-error. */
   function created(agent) {
     clearDraft();
     A.showById("list-body", false);
     A.setTextById("created-name", A.agentName(agent));
     A.el("agent-link").setAttribute("href", "/agents/" + encodeURIComponent(agent.did));
-    A.showById("ceiling", agent.proofStatus !== "verified");
+    var unverified = agent.proofStatus !== "verified";
+    A.showById("ceiling", unverified);
+    A.showById("gh-confirm", unverified);
+    if (unverified) {
+      A.el("gh-confirm").addEventListener("click", function () {
+        window.FAGithubProof.press(agent.did, A.el("gh-confirm"), A.el("gh-error"));
+      });
+    }
     A.showById("created", true);
     A.el("created-heading").focus();
   }

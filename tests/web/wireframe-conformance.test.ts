@@ -361,15 +361,18 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // sample, the same reason browse's own "pellucid" entry above states.
     'seamline': "wireframe sample data (one of the wireframe's four example agent names, myagents.html:109); this page renders agent names live from GET /accounts/:did/agents, never a hardcoded sample",
     'hatchmark': "wireframe sample data (one of the wireframe's four example agent names, myagents.html:122); this page renders agent names live from GET /accounts/:did/agents, never a hardcoded sample",
-    // The wireframe's link points at provegithub.html (SITEMAP P-21), which
-    // is not built and has no route in src/web/static.ts; P-21 stays
-    // API-only for launch. The built page renders the attention line as
-    // plain text with no anchor (myagents.js, renderAttention), and
-    // tests/web/myagents.test.ts asserts the absence of the link. (The
-    // per-row Settings link is carried since FIX-B41d, rendered by
-    // myagents.js; its label is in SHARED_NAV, so this instrument never
-    // needed an entry for it.)
-    'confirm it': 'provegithub.html (P-21) is not built and /provegithub is not mounted; P-21 stays API-only for launch. The built attention line renders as plain text with no anchor (myagents.js renderAttention), asserted by tests/web/myagents.test.ts',
+    // The wireframe's link points at provegithub.html (SITEMAP P-21),
+    // which is built inside /agentsettings rather than as its own page
+    // (FIX-B47c). The built attention line carries the same words and the
+    // link, rendered by myagents.js's renderAttention and opening
+    // /agentsettings?agent=<did>, where the one-click proof's button is;
+    // tests/web/myagents.test.ts asserts the link and its target. This
+    // instrument reads the file on disk, which has only the empty #rows
+    // container, so it never sees a line the script appends. (The per-row
+    // Settings link is carried since FIX-B41d, rendered by myagents.js;
+    // its label is in SHARED_NAV, so this instrument never needed an
+    // entry for it.)
+    'confirm it': 'rendered by myagents.js renderAttention into #rows at run time, opening /agentsettings?agent=<did> (P-21 is built inside P-20); this instrument reads the file on disk and never sees what the script appends, and tests/web/myagents.test.ts asserts the link and its target',
     // The work-offered attention line ships (W7b), built inline in
     // agentRow at render time from a second read of
     // GET /accounts/:did/incoming, grouped by agentDid and counted
@@ -391,14 +394,16 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // The operator page's own "List an agent" block (operator.html) is
     // bugs.md B48, its own card, and is not touched here.
     //
-    // The GitHub step: provegithub.html (P-21) is not built and stays
-    // API-only for launch. A GitHub owner gets one checkbox on the form
-    // instead, which sends their own login and is verified at once (G1);
-    // every other owner sees the ceiling after Create. Showing "Prove
-    // GitHub now" would promise a page that does not exist.
-    'Then, prove GitHub': 'provegithub.html (P-21) is not built and stays API-only for launch; the built page offers a GitHub owner one checkbox that sends their own login (verified at once, G1) and shows every other owner the ceiling after Create, never a step that does not exist',
-    'Prove GitHub now': 'same reason as "Then, prove GitHub": its destination, provegithub.html, is not built',
-    'Skip for now': 'same reason as "Then, prove GitHub": with no proof step there is nothing to skip; the created state links My agents and the agent\u2019s own page instead',
+    // The GitHub step (FIX-B47c): the created state of an unconfirmed
+    // listing shows the ceiling and one button under it, Confirm GitHub,
+    // which runs the one-click proof (github-proof.js) at once. It is
+    // named the way the ceiling, /agentsettings and /myagents name the
+    // fact, so the wireframe's own label is not carried. A GitHub owner
+    // can also tick one checkbox on the form, which sends their own login
+    // and is verified at once (G1), and then sees no ceiling and no button.
+    'Then, prove GitHub': 'the created state is the GitHub step, with no heading of its own: under "<name> is listed." an unconfirmed listing shows the ceiling and Confirm GitHub, which starts the one-click proof at once',
+    'Prove GitHub now': 'carried as Confirm GitHub, the created state\u2019s one primary (FIX-B47c), named the way the ceiling, /agentsettings and /myagents name the same fact',
+    'Skip for now': 'the created state already links My agents and the agent\u2019s own page, and the proof stays one press away on /agentsettings, so a skip control would add a third way out and nothing else',
     // No technical details: the simplicity law, and no DID on the surface.
     // The agent's own page (/agents/<did>, linked from the created state)
     // already shows its identity to anyone who looks.
@@ -434,8 +439,9 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // were never given a card, all of them the operator's onboarding
     // path (listagent.html, provegithub.html, agentsettings.html,
     // priorwork.html, claim.html). FIX-B41c built the first as
-    // /listagent and FIX-B41d the third as /agentsettings; the other
-    // three have no route in src/web/static.ts.
+    // /listagent and FIX-B41d the third as /agentsettings; FIX-B47c built
+    // the second inside the third (the GitHub account section on
+    // /agentsettings). The other two have no route in src/web/static.ts.
     // That is a recorded launch-scope question for the operator, not a
     // defect for this card.
     //
@@ -455,20 +461,20 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // which is what the link was for.
     'What is this': 'nothing to link to (how.html has no wallet section); the explanation ships inline in method 03 on this page instead of behind a link with no destination',
     // The wireframe's whole section sends a person to provegithub.html
-    // and promises "One click, whenever you want". provegithub.html is
-    // not built and /provegithub is not mounted. The only route behind
-    // it is POST /agents/:agentDid/account-proof (src/api/app.ts:2083),
-    // which nothing in src/web/ calls. Shipping the heading and its copy
-    // would advertise a one-click path that does not exist.
-    'Proving your GitHub account': 'provegithub.html is not built and /provegithub is not mounted (part of the recorded operator-onboarding gap, PLAN 2026-09-08); shipping this heading would advertise a page that does not exist',
-    'See how the proof works': 'same reason as "Proving your GitHub account": the page this control would link to is not built',
-    // The wireframe's "After you sign in" section lists three rows: hire
-    // (true), list an agent (true), and "Prove you control your GitHub
-    // account, one click, whenever you want" (not true: S4/S5 above).
-    // Shipping the row list verbatim would state something that is not
-    // true through this site today. The first row is already answered,
-    // honestly, by #account-notice and "How signing in works".
-    'After you sign in': 'its third row promises the one-click GitHub proof (see "Proving your GitHub account" above), which is not true through this site today; the first row is already answered honestly by #account-notice and "How signing in works"',
+    // and promises "One click, whenever you want". The one click is real
+    // now, but it is per agent: it lives in each agent's settings
+    // (/agentsettings, the GitHub account section, FIX-B47c), reached from
+    // /listagent's created state and /myagents' "confirm it". Sign-in
+    // keeps one job, so the section is not carried here.
+    'Proving your GitHub account': 'the one-click proof is per agent, so it lives in each agent\u2019s settings (/agentsettings, reached from /listagent\u2019s created state and /myagents\u2019 \u201cconfirm it\u201d); sign-in keeps one job',
+    'See how the proof works': 'same reason as "Proving your GitHub account": the proof is explained where it is pressed, on the agent\u2019s settings, in one line',
+    // The wireframe's "After you sign in" section lists three rows: hire,
+    // list an agent, and "Prove you control your GitHub account, one
+    // click, whenever you want". The third is per agent and lives on the
+    // agent's settings (see above), so a sign-in page that listed it
+    // would point at no agent. The first row is already answered by
+    // #account-notice and "How signing in works".
+    'After you sign in': 'its third row is the GitHub proof, which is per agent and lives on each agent\u2019s settings (see \"Proving your GitHub account\"); sign-in keeps one job, and the first row is already answered by #account-notice and \"How signing in works\"',
   },
   settings: {
     // The wireframe's nav button (settings.html:45) points at
