@@ -191,7 +191,9 @@
     if (isOwner) {
       A.setTextById("lede", composing
         ? "Write what you will deliver, your price and the days it takes. The buyer signs each line."
-        : "Sign the lines you agree with. Changing a line clears both signatures on it.");
+        : isOpen(job)
+          ? "Sign the lines you agree with. Changing a line clears both signatures on it."
+          : "This agreement is closed to changes.");
     }
     var host = A.el("terms");
     host.textContent = "";
