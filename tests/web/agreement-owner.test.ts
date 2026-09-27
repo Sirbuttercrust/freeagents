@@ -56,6 +56,8 @@ interface Rendered {
   window: JSDOM['window'];
   document: Document;
   posts: Array<{ path: string; body: Record<string, unknown> }>;
+  // Script errors reported after load (an uncaught throw in a handler).
+  failures: string[];
   close: () => void;
 }
 
@@ -65,7 +67,7 @@ async function render(
   baseUrl: string,
   jobId: string,
   token: string,
-  opts: { fault?: (path: string) => Response | null; storage?: Record<string, string> } = {},
+  opts: { fault?: (path: string) => Response | null; storage?: Record<string, string>; setup?: (window: JSDOM['window']) => void } = {},
 ): Promise<Rendered> {
   const path = `/agreement?job=${encodeURIComponent(jobId)}`;
   const virtualConsole = new VirtualConsole();
@@ -82,6 +84,7 @@ async function render(
     beforeParse(window) {
       window.sessionStorage.setItem('fa_session', JSON.stringify({ token }));
       for (const [k, v] of Object.entries(opts.storage ?? {})) window.sessionStorage.setItem(k, v);
+      opts.setup?.(window);
       Object.defineProperty(window, 'fetch', {
         writable: true,
         value: (input: string, init?: RequestInit) => {
@@ -99,7 +102,7 @@ async function render(
   });
   await wait(350);
   if (failures.length > 0) throw new Error(`page script failed on ${path}: ${failures.join('; ')}`);
-  return { window: dom.window, document: dom.window.document, posts, close: () => dom.window.close() };
+  return { window: dom.window, document: dom.window.document, posts, failures, close: () => dom.window.close() };
 }
 
 function rows(page: Rendered): Element[] {
@@ -175,7 +178,11 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
       github: fakeGitHubConfig(),
       fetchImpl: ((input: string, init?: RequestInit) => fakeGitHubFetch({ login, id: login.length })(input, init)) as typeof fetch,
     });
-    server = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, adapter).listen(0, '127.0.0.1');
+    // Thirty-odd page loads in one file, each several reads, pass the
+    // default 300 reads a minute; the generous override is the one
+    // mobile-layout.test.ts uses, so no case is refused by the limiter.
+    server = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined,
+      { verify: 10_000, read: 10_000, write: 10_000, upstream: 10_000 }, undefined, undefined, adapter).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     ownerToken = await mintSessionToken(adapter);
@@ -183,6 +190,12 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
     buyerToken = await mintSessionToken(adapter);
 
     await jobRepo.create(jobFixture({ id: 'b40-draft', status: 'draft' }));
+    await jobRepo.create(jobFixture({ id: 'b40-draft-remove', status: 'draft' }));
+    await jobRepo.create(jobFixture({ id: 'b40-draft-reload', status: 'draft' }));
+    await jobRepo.create(jobFixture({ id: 'b40-draft-refuse', status: 'draft' }));
+    await jobRepo.create(jobFixture({ id: 'b40-draft-floor', status: 'draft' }));
+    await jobRepo.create(jobFixture({ id: 'b40-draft-storage', status: 'draft' }));
+    await jobRepo.create(jobFixture({ id: 'b40-draft-double', status: 'draft' }));
     await jobRepo.create(jobFixture({ id: 'b40-seat', status: 'proposed', criteria: [unsigned('Agent line'), unsigned('Buyer line', 'buyer')], priceUsd: '300.00', deliveryWindowDays: 4 }));
     await jobRepo.create(jobFixture({ id: 'b40-sign', status: 'proposed', criteria: [unsigned('Sign me')], priceUsd: '300.00', deliveryWindowDays: 4 }));
     await jobRepo.create(jobFixture({ id: 'b40-edit', status: 'proposed', criteria: [unsigned('One'), unsigned('Two'), unsigned('Three')], priceUsd: '300.00', deliveryWindowDays: 4 }));
@@ -251,34 +264,247 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
     });
   });
 
-  describe('(b) a draft job from the owner\u2019s side', () => {
-    it('the first line goes out through the propose field, then the unset price row sets the price with no rail', async () => {
+  describe('(b) the draft composer', () => {
+    it('the owner\u2019s draft shows the composer alone: no matrix, no lockbar, no propose field, and the composing lede', async () => {
+      const page = await render(baseUrl, 'b40-draft-refuse', ownerToken);
+      try {
+        expect(page.document.getElementById('compose-send')).not.toBeNull();
+        expect(page.document.getElementById('terms-pane')!.hidden).toBe(true);
+        expect(page.document.getElementById('lockbar')!.hidden).toBe(true);
+        expect(page.document.getElementById('propose-field')!.hidden).toBe(true);
+        expect(page.document.getElementById('lede')?.textContent).toBe('Write what you will deliver, your price and the days it takes. The buyer signs each line.');
+      } finally {
+        page.close();
+      }
+      // The buyer on the same draft keeps the propose field and gets no composer.
+      const buyer = await render(baseUrl, 'b40-draft-refuse', buyerToken);
+      try {
+        expect(buyer.document.getElementById('compose-send')).toBeNull();
+        expect(buyer.document.getElementById('propose-field')!.hidden).toBe(false);
+      } finally {
+        buyer.close();
+      }
+    });
+
+    it('a saved draft keeps only its string lines and terms', async () => {
+      const saved = JSON.stringify({ lines: ['Kept', 7, null, { text: 'object' }], price: 400, days: 5 });
+      const page = await render(baseUrl, 'b40-draft-refuse', ownerToken, { storage: { 'fa_quote_draft:b40-draft-refuse': saved } });
+      try {
+        const restored = Array.from(page.document.querySelectorAll('.compose-line input')).map((i) => (i as HTMLInputElement).value);
+        expect(restored).toEqual(['Kept']);
+        expect(page.document.querySelectorAll('.compose-rm').length).toBe(0);
+        // The reload case proves string terms come back; numbers do not.
+        expect((page.document.getElementById('compose-price') as HTMLInputElement).value).toBe('');
+        expect((page.document.getElementById('compose-days') as HTMLInputElement).value).toBe('');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a saved draft that is not JSON still opens an empty composer', async () => {
+      const page = await render(baseUrl, 'b40-draft-refuse', ownerToken, { storage: { 'fa_quote_draft:b40-draft-refuse': '{"lines": ["cut off' } });
+      try {
+        expect(page.document.getElementById('compose-send')).not.toBeNull();
+        const restored = Array.from(page.document.querySelectorAll('.compose-line input')).map((i) => (i as HTMLInputElement).value);
+        expect(restored).toEqual(['']);
+      } finally {
+        page.close();
+      }
+    });
+
+    it('storage that refuses every draft write throws nothing, and the quote still sends', async () => {
+      const setup = (window: JSDOM['window']) => {
+        const setItem = window.Storage.prototype.setItem;
+        window.Storage.prototype.setItem = function (this: Storage, key: string, value: string) {
+          if (key.startsWith('fa_quote_draft:')) throw new window.DOMException('storage is full', 'QuotaExceededError');
+          setItem.call(this, key, value);
+        };
+      };
+      const page = await render(baseUrl, 'b40-draft-storage', ownerToken, { setup });
+      try {
+        type(page, page.document.querySelector('.compose-line input'), 'Sent without a reload copy');
+        type(page, page.document.getElementById('compose-price'), '300');
+        type(page, page.document.getElementById('compose-days'), '4');
+        expect(page.window.sessionStorage.getItem('fa_quote_draft:b40-draft-storage')).toBeNull();
+        await click(page.document.getElementById('compose-send'));
+        expect(page.failures).toEqual([]);
+        const job = await readJob('b40-draft-storage');
+        expect(job.status).toBe('proposed');
+        expect(job.criteria.map((c: { text: string }) => c.text)).toEqual(['Sent without a reload copy']);
+        expect(job.price).toMatchObject({ priceUsd: '300.00', deliveryWindowDays: 4 });
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a double click on "Send the quote" makes exactly one request', async () => {
+      const page = await render(baseUrl, 'b40-draft-double', ownerToken);
+      try {
+        type(page, page.document.querySelector('.compose-line input'), 'Sent once');
+        type(page, page.document.getElementById('compose-price'), '300');
+        type(page, page.document.getElementById('compose-days'), '4');
+        const send = page.document.getElementById('compose-send') as HTMLElement;
+        send.click();
+        send.click();
+        await wait();
+        expect(page.posts.filter((p) => p.path === '/jobs/b40-draft-double/criteria').length).toBe(1);
+        expect((await readJob('b40-draft-double')).status).toBe('proposed');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('two lines, 400 and 5 days: exactly one POST carrying both lines, "400.00", 5 and no rail, and the job reads back proposed', async () => {
       const page = await render(baseUrl, 'b40-draft', ownerToken);
       try {
-        expect(page.document.getElementById('propose-field')!.hidden).toBe(false);
-        expect(page.document.getElementById('lede')?.textContent).toBe('Add what you will deliver, one line at a time, then set the price.');
-        expect(page.document.getElementById('lockbar')?.textContent).toContain('No lines yet.');
-        type(page, page.document.getElementById('newcrit'), 'The cart survives a refresh');
-        await click(page.document.getElementById('propose-submit'));
-        expect(page.posts.at(-1)!.body).toEqual({ criteria: [{ text: 'The cart survives a refresh', proposedBy: 'agent' }] });
-        let job = await readJob('b40-draft');
-        expect(job.status).toBe('proposed');
+        expect(page.document.getElementById('terms-pane')!.hidden).toBe(true);
+        type(page, page.document.querySelector('.compose-line input'), 'The cart survives a refresh');
+        await click(page.document.getElementById('compose-add'), 20);
+        type(page, page.document.querySelectorAll('.compose-line input')[1], 'No new lint errors');
+        type(page, page.document.getElementById('compose-price'), '400');
+        type(page, page.document.getElementById('compose-days'), '5');
+        await click(page.document.getElementById('compose-send'));
 
-        // The page re-rendered from the response: one line and a price row to set.
-        expect(rows(page).length).toBe(2);
-        expect(rows(page)[1]!.querySelector('.txt')?.textContent).toBe('Price: not set yet');
-        expect(rows(page)[1]!.querySelectorAll('button.sig').length).toBe(0);
-        expect(page.document.getElementById('lockbar')?.textContent).toContain('Waiting on you to set the price.');
-
-        await editRow(page, 1, '400');
-        expect(page.posts.at(-1)!.body).toEqual({
-          criteria: [{ text: 'The cart survives a refresh', proposedBy: 'agent' }],
+        const sends = page.posts.filter((p) => p.path === '/jobs/b40-draft/criteria');
+        expect(page.posts.length).toBe(1);
+        expect(sends.length).toBe(1);
+        expect(sends[0]!.body).toEqual({
+          criteria: [
+            { text: 'The cart survives a refresh', proposedBy: 'agent' },
+            { text: 'No new lint errors', proposedBy: 'agent' },
+          ],
           priceUsd: '400.00',
+          deliveryWindowDays: 5,
         });
-        job = await readJob('b40-draft');
-        expect(job.price).toMatchObject({ priceUsd: '400.00', rail: null });
-        expect(rows(page).length).toBe(3);
-        expect(rows(page)[1]!.querySelector('.txt')?.textContent).toBe('Price: $400.00');
+        expect('rail' in sends[0]!.body).toBe(false);
+
+        const job = await readJob('b40-draft');
+        expect(job.status).toBe('proposed');
+        expect(job.criteria.map((c: { text: string }) => c.text)).toEqual(['The cart survives a refresh', 'No new lint errors']);
+        expect(job.price).toMatchObject({ priceUsd: '400.00', deliveryWindowDays: 5, rail: null });
+        // The page re-rendered from the response: the matrix, not the composer.
+        expect(rows(page).length).toBe(4);
+        expect(page.document.getElementById('compose-send')).toBeNull();
+        // The saved draft is gone once the quote is sent.
+        expect(page.window.sessionStorage.getItem('fa_quote_draft:b40-draft')).toBeNull();
+      } finally {
+        page.close();
+      }
+    });
+
+    it('removing a line before the first send leaves it out of the send', async () => {
+      const page = await render(baseUrl, 'b40-draft-remove', ownerToken);
+      try {
+        // The composer always keeps one line, so a lone line has no remove control.
+        expect(page.document.querySelectorAll('.compose-rm').length).toBe(0);
+        type(page, page.document.querySelector('.compose-line input'), 'Keep one');
+        await click(page.document.getElementById('compose-add'), 20);
+        type(page, page.document.querySelectorAll('.compose-line input')[1], 'Drop me');
+        await click(page.document.getElementById('compose-add'), 20);
+        type(page, page.document.querySelectorAll('.compose-line input')[2], 'Keep two');
+        await click(page.document.querySelectorAll('.compose-rm')[1], 20);
+        expect(page.document.querySelectorAll('.compose-line').length).toBe(2);
+        type(page, page.document.getElementById('compose-price'), '250.5');
+        type(page, page.document.getElementById('compose-days'), '3');
+        await click(page.document.getElementById('compose-send'));
+        const job = await readJob('b40-draft-remove');
+        expect(job.criteria.map((c: { text: string }) => c.text)).toEqual(['Keep one', 'Keep two']);
+        expect(job.price.priceUsd).toBe('250.50');
+        expect(job.price.deliveryWindowDays).toBe(3);
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a half-written quote survives a reload, keyed to the job', async () => {
+      const first = await render(baseUrl, 'b40-draft-reload', ownerToken);
+      let saved: string | null;
+      try {
+        type(first, first.document.querySelector('.compose-line input'), 'Half written');
+        await click(first.document.getElementById('compose-add'), 20);
+        type(first, first.document.querySelectorAll('.compose-line input')[1], 'Second thought');
+        const stored = () => JSON.parse(first.window.sessionStorage.getItem('fa_quote_draft:b40-draft-reload') ?? '{}') as { price?: string; days?: string };
+        // Each field saves on its own input, read before the other is typed.
+        type(first, first.document.getElementById('compose-price'), '420');
+        expect(stored().price).toBe('420');
+        type(first, first.document.getElementById('compose-days'), '6');
+        expect(stored().days).toBe('6');
+        saved = first.window.sessionStorage.getItem('fa_quote_draft:b40-draft-reload');
+        expect(first.posts.length).toBe(0);
+      } finally {
+        first.close();
+      }
+      expect(saved).not.toBeNull();
+      const second = await render(baseUrl, 'b40-draft-reload', ownerToken, { storage: { 'fa_quote_draft:b40-draft-reload': saved! } });
+      try {
+        const restored = Array.from(second.document.querySelectorAll('.compose-line input')).map((i) => (i as HTMLInputElement).value);
+        expect(restored).toEqual(['Half written', 'Second thought']);
+        expect((second.document.getElementById('compose-price') as HTMLInputElement).value).toBe('420');
+        expect((second.document.getElementById('compose-days') as HTMLInputElement).value).toBe('6');
+        expect((await readJob('b40-draft-reload')).status).toBe('draft');
+      } finally {
+        second.close();
+      }
+    });
+
+    // Each check is the composer's own guard: with it gone, the quote
+    // would reach the server, so posts.length moves off 0.
+    it.each([
+      ['no line written', ['  '], '400', '5', 'Write at least one line.'],
+      ['"40.5.0" as the price', ['A line'], '40.5.0', '5', 'Enter the price in dollars, like 400 or 400.50.'],
+      ['a part-day window', ['A line'], '400', '2.5', 'Enter the window in whole days, like 5.'],
+    ] as const)('%s is refused before any request, and the job stays a draft', async (_label, texts, priceValue, daysValue, sentence) => {
+      const page = await render(baseUrl, 'b40-draft-refuse', ownerToken);
+      try {
+        texts.forEach((t, i) => {
+          if (i > 0) (page.document.getElementById('compose-add') as HTMLElement).click();
+          type(page, page.document.querySelectorAll('.compose-line input')[i], t);
+        });
+        type(page, page.document.getElementById('compose-price'), priceValue);
+        type(page, page.document.getElementById('compose-days'), daysValue);
+        await click(page.document.getElementById('compose-send'));
+        expect(page.posts.length).toBe(0);
+        expect(page.document.getElementById('compose-error')?.textContent).toBe(sentence);
+        expect((await readJob('b40-draft-refuse')).status).toBe('draft');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a send refused with 503 names what to do and leaves the quote as typed', async () => {
+      const fault = (p: string) => (p === '/jobs/b40-draft-refuse/criteria' ? new Response(JSON.stringify({ error: 'storage unavailable' }), { status: 503 }) : null);
+      const page = await render(baseUrl, 'b40-draft-refuse', ownerToken, { fault });
+      try {
+        type(page, page.document.querySelector('.compose-line input'), 'A line');
+        type(page, page.document.getElementById('compose-price'), '400');
+        type(page, page.document.getElementById('compose-days'), '5');
+        await click(page.document.getElementById('compose-send'));
+        expect(page.posts.length).toBe(1);
+        expect(page.document.getElementById('compose-error')?.textContent).toBe('Storage is unavailable just now. Try again in a moment.');
+        expect((page.document.querySelector('.compose-line input') as HTMLInputElement).value).toBe('A line');
+        expect((page.document.getElementById('compose-send') as HTMLButtonElement).disabled).toBe(false);
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a price under the floor shows the server\u2019s sentence; the job stays a draft and the quote stays as typed and saved', async () => {
+      const page = await render(baseUrl, 'b40-draft-floor', ownerToken);
+      try {
+        type(page, page.document.querySelector('.compose-line input'), 'Cheap line');
+        type(page, page.document.getElementById('compose-price'), '50');
+        type(page, page.document.getElementById('compose-days'), '3');
+        await click(page.document.getElementById('compose-send'));
+        expect(page.posts.length).toBe(1);
+        const error = page.document.getElementById('compose-error') as HTMLElement;
+        expect(error.hidden).toBe(false);
+        expect(error.textContent).toBe("proposed price 50.00 is below the agent's floor of 100.00");
+        expect((page.document.querySelector('.compose-line input') as HTMLInputElement).value).toBe('Cheap line');
+        expect((page.document.getElementById('compose-price') as HTMLInputElement).value).toBe('50');
+        expect(page.window.sessionStorage.getItem('fa_quote_draft:b40-draft-floor')).toContain('Cheap line');
+        const job = await readJob('b40-draft-floor');
+        expect(job.status).toBe('draft');
+        expect(job.criteria ?? []).toEqual([]);
       } finally {
         page.close();
       }
@@ -478,6 +704,7 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
         expect(rows(page).length).toBe(3);
         expect(page.document.querySelectorAll('#terms button').length).toBe(0);
         expect(page.document.getElementById('propose-field')!.hidden).toBe(true);
+        expect(page.document.getElementById('compose-send')).toBeNull();
         expect(page.document.querySelector('.line-edit')).toBeNull();
         expect(page.document.getElementById('lede')?.textContent).toBe('This agreement is closed to changes.');
       } finally {
@@ -487,7 +714,7 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
   });
 
   // (i) Real Chrome: no sideways scroll at 320, 390 (touch) and 1280 with
-  // a line edit, the price edit and the window edit open, measured against
+  // the composer, a line edit and the price edit open, measured against
   // the layout viewport (clientWidth) so a scrollbar's width is not read as
   // overflow; every control is 44px or more on touch; reduced motion leaves
   // every row finished and still.
@@ -511,17 +738,20 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
         // Linux Chrome draws one; a Mac overlays its scrollbar and would
         // hide a measurement tied to the nominal width.
         const classicScrollbar = touch ? '' : ` document.addEventListener('DOMContentLoaded', function () { var s = document.createElement('style'); s.textContent = '::-webkit-scrollbar { width: 15px; } ::-webkit-scrollbar-thumb { background: #888; }'; document.head.appendChild(s); });`;
+        // The composer opens half filled (two lines, so both carry a remove
+        // control and the 44px floor measures them).
+        const draft = JSON.stringify({ lines: ['The cart survives a refresh', 'No new lint errors'], price: '400', days: '' });
         await browser.send('Page.addScriptToEvaluateOnNewDocument', {
-          source: `window.sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify({ token: ownerToken }))});${classicScrollbar}`,
+          source: `window.sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify({ token: ownerToken }))});window.sessionStorage.setItem('fa_quote_draft:b40-draft-reload', ${JSON.stringify(draft)});${classicScrollbar}`,
         });
-        const states: Array<[string, string, string]> = [
+        const states: Array<[string, string, string | null]> = [
+          ['composer', '/agreement?job=b40-draft-reload', null],
           ['line edit', '/agreement?job=b40-seat', '#terms > li:nth-child(1) button.act'],
           ['price edit', '/agreement?job=b40-seat', '#terms > li:nth-child(3) button.act'],
-          ['window edit', '/agreement?job=b40-seat', '#terms > li:nth-child(4) button.act'],
         ];
         for (const [label, path, opener] of states) {
           await browser.goto(`${baseUrl}${path}`, 900);
-          await browser.evaluate(`document.querySelector(${JSON.stringify(opener)}).click()`);
+          if (opener) await browser.evaluate(`document.querySelector(${JSON.stringify(opener)}).click()`);
           await new Promise((r) => setTimeout(r, 200));
           const m = await browser.evaluate<{ scrollWidth: number; clientWidth: number; open: boolean; small: string[]; moving: string[] }>(`
             (function () {
@@ -529,13 +759,13 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
                 .filter(function (el) { var r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
               var small = controls.filter(function (el) { var r = el.getBoundingClientRect(); return r.width < 44 || r.height < 44; })
                 .map(function (el) { var r = el.getBoundingClientRect(); return (el.id || el.className || el.tagName) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height); });
-              var moving = Array.from(document.querySelectorAll('#terms > li, .line-edit'))
+              var moving = Array.from(document.querySelectorAll('#terms > li, .line-edit, .composer'))
                 .filter(function (el) { var s = getComputedStyle(el); return s.opacity !== '1' || parseFloat(s.transitionDuration) > 0; })
                 .map(function (el) { return el.className || el.tagName; });
               return {
                 scrollWidth: document.documentElement.scrollWidth,
                 clientWidth: document.documentElement.clientWidth,
-                open: !!document.querySelector('.line-edit'),
+                open: ${opener ? "!!document.querySelector('.line-edit')" : "!!document.getElementById('compose-send') && document.querySelectorAll('.compose-rm').length === 2"},
                 small: small, moving: moving
               };
             })()

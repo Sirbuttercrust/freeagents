@@ -323,4 +323,50 @@ export interface GithubAdapter {
   // Read-only. Throws StagingComparisonTruncatedError when the files
   // array reports GitHub's own 300-file cap.
   compareCommits(input: CompareCommitsInput): Promise<CompareCommitsResult>;
+  // FIX-B47a: publishes a public gist AS THE CALLER (their just-exchanged
+  // GitHub OAuth token, never the platform's own token) holding one file.
+  // This is the one write the one-click proof makes against the owner's
+  // own account; the platform never asks for `repo` and never touches a
+  // repository. Returns only the id, which the caller reads back through
+  // getPublicGist to run the SAME verify check path two already runs.
+  createGist(input: CreateGistInput): Promise<CreateGistResult>;
+  // FIX-B47a: deletes a gist as the caller, used to clean up when a
+  // published gist did not verify (Make item 4: "delete it with the same
+  // token before deleting the grant").
+  deleteGist(input: DeleteGistInput): Promise<void>;
+  // FIX-B47a: DELETE /applications/{client_id}/grant
+  // (docs.github.com/en/rest/apps/oauth-applications#delete-an-app-authorization),
+  // revoking the platform's whole OAuth grant on the caller's account --
+  // not merely the one token, so the `gist` scope itself is not left
+  // standing for a later, unrelated sign-in to silently inherit (GitHub's
+  // own documented behaviour for an omitted `scope` parameter: it
+  // completes with whatever the user already granted). Authenticates with
+  // HTTP Basic (client_id as the username, client_secret as the
+  // password), per the docs' own "Basic authentication" section for this
+  // endpoint -- never the caller's bearer token, which this call is
+  // revoking, not using.
+  deleteGrant(input: DeleteGrantInput): Promise<void>;
+}
+
+// FIX-B47a: the input createGist needs. token is the CALLER's own
+// just-exchanged OAuth token (gist scope), never the platform's
+// FREEAGENTS_GITHUB_TOKEN -- the whole point of the one-click flow is that
+// the gist is published as the account being proved, not as the platform.
+export interface CreateGistInput {
+  readonly token: string;
+  readonly filename: string;
+  readonly content: string;
+}
+
+export interface CreateGistResult {
+  readonly id: string;
+}
+
+export interface DeleteGistInput {
+  readonly token: string;
+  readonly id: string;
+}
+
+export interface DeleteGrantInput {
+  readonly token: string;
 }

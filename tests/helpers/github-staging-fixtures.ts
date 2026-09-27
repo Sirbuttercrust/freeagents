@@ -210,6 +210,9 @@ export function createStagingLifecycleGithubFake(
     // through this fake -- the same honest-about-the-gap stub every other
     // uncalled capability here uses.
     compareCommits: () => Promise.reject(new NotImplementedError('github', 'compareCommits')),
+    createGist: () => Promise.reject(new NotImplementedError('github', 'createGist')),
+    deleteGist: () => Promise.reject(new NotImplementedError('github', 'deleteGist')),
+    deleteGrant: () => Promise.reject(new NotImplementedError('github', 'deleteGrant')),
   };
 
   return {

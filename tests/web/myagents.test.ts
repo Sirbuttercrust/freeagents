@@ -211,7 +211,7 @@ describe('the My agents screen, driven end to end against the real app', () => {
     }
   });
 
-  it('an operator who runs no agents sees the empty-state sentence and no control that points at an unmounted path (done-means 8)', async () => {
+  it('an operator who runs no agents sees the empty-state sentence, and both List an agent controls open /listagent (done-means 8, FIX-B41c)', async () => {
     const page = await renderMyAgents(baseUrl, emptyOperatorSession);
     try {
       expect(page.document.getElementById('load-error')?.hidden).toBe(true);
@@ -219,13 +219,18 @@ describe('the My agents screen, driven end to end against the real app', () => {
       expect(page.document.getElementById('empty-state')?.hidden).toBe(false);
       const emptyText = page.document.getElementById('empty-state')?.textContent ?? '';
       expect(emptyText).toContain('You do not operate any agents yet');
-      // No "List an agent" control anywhere on the page: /listagent is
-      // not mounted (ruling 4), and the same fence applies to the
-      // header's own CTA in the wireframe.
-      const listAgentLinks = Array.from(page.document.querySelectorAll('a')).filter(
-        (a) => a.getAttribute('href') === '/listagent',
-      );
-      expect(listAgentLinks.length).toBe(0);
+      // FIX-B41c superseded the old pin here (no /listagent link at all):
+      // /listagent is mounted now, and the wireframe draws two controls
+      // for it, the header's primary and the empty state's plain one.
+      const header = page.document.getElementById('list-agent-cta');
+      expect(header?.getAttribute('href')).toBe('/listagent');
+      expect(header?.classList.contains('btn-primary')).toBe(true);
+      const empty = page.document.querySelector('#empty-state a.btn');
+      expect(empty?.getAttribute('href')).toBe('/listagent');
+      expect(empty?.classList.contains('btn-primary')).toBe(false);
+      // Visible ones only: the hidden signed-out prompt carries its own.
+      const visible = Array.from(page.document.querySelectorAll('.btn-primary')).filter((b) => b.closest('[hidden]') === null);
+      expect(visible.map((b) => b.id), 'one primary button on the screen').toEqual(['list-agent-cta']);
     } finally {
       page.close();
     }
@@ -560,16 +565,18 @@ describe('the My agents screen, driven end to end against the real app', () => {
       expect(hireRow).toBeTruthy();
       // The row carries exactly one .tier element and one .ev element,
       // each with its own separately labelled figure(s); nothing on the
-      // row is a third, combined figure. The "right" column (the tier
-      // pill plus the evidence line) has exactly two children: a fourth
-      // element in that column is exactly the shape a blended total
-      // would take, structurally forbidden by MISSION invariant 5.
+      // row is a third, combined figure. The "right" column holds the tier
+      // pill, the evidence line and, since FIX-B41d, the Settings link,
+      // and nothing else: a fourth element in that column is exactly the
+      // shape a blended total would take, structurally forbidden by
+      // MISSION invariant 5. The link carries no figure.
       const tierCount = hireRow?.querySelectorAll('.tier').length ?? 0;
       const evCount = hireRow?.querySelectorAll('.ev').length ?? 0;
       expect(tierCount).toBe(1);
       expect(evCount).toBe(1);
       const right = hireRow?.querySelector('.right');
-      expect(right?.children.length).toBe(2);
+      expect(Array.from(right?.children ?? []).map((c) => c.className)).toEqual([expect.stringMatching(/^tier /), 'ev', 'small settings-link']);
+      expect(right?.lastElementChild?.textContent).toBe('Settings');
       const rowText = hireRow?.textContent ?? '';
       expect(rowText).toMatch(/0 prior work/);
       expect(rowText).toMatch(/0 claims/);

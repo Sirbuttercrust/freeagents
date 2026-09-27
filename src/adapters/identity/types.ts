@@ -38,6 +38,14 @@ export interface SignedPayload {
   // for someone else's DID. When absent, verify() falls back to the
   // observed-key store exactly as before.
   readonly candidateKeyMultibase?: string;
+  // Ruling 2026-09-27 05:30 (FIX-B47a): sign() sets this to the SAME
+  // publicKeyMultibase createAgentDid's own DidKeyPair names for the
+  // identical operator/credential pair, so the caller can offer it back to
+  // verify() as a candidate key without a prior observation (the platform
+  // has never "observed" its own re-derived agent keys through an inbound
+  // request). Optional so every stand-in IdentityAdapter across the test
+  // suite that predates this field keeps compiling unchanged.
+  readonly publicKeyMultibase?: string;
 }
 
 export interface IdentityAdapter {
@@ -62,7 +70,17 @@ export interface IdentityAdapter {
   // (MISSION.md, "Who it is for").
   createAgentDid(operatorDid: string, credentialId: string): Promise<DidKeyPair>;
   resolveDid(did: string): Promise<DidDocument>;
-  sign(did: string, payload: string): Promise<SignedPayload>;
+  // FIX-B47a: signs `payload` with a SITE-LISTED agent's key, re-derived on
+  // the fly via createAgentDid(operatorDid, credentialId) -- never a newly
+  // minted or stored key. This is the narrow capability the one-click
+  // GitHub proof needs: the platform composes and signs the gist statement
+  // on the operator's behalf, then discards the derived key material the
+  // moment the signature exists. Throws PlatformSeedUnavailableError under
+  // the same condition createAgentDid does (no seed configured). Callers
+  // must already hold operatorDid and credentialId from the agent's own
+  // stored delegation (delegation.issuer and delegation.id respectively);
+  // this method does no storage lookup of its own.
+  sign(did: string, payload: string, operatorDid: string, credentialId: string): Promise<SignedPayload>;
   verify(signed: SignedPayload): Promise<boolean>;
   // R-2: does this delegation proof check out as signed by issuerDid for the
   // agent ownerDid? Total: a malformed or tampered proof is false, never a

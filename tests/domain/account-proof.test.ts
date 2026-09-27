@@ -5,6 +5,7 @@
 import * as nodeCrypto from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
+  buildGistStatement,
   didDocumentPointsAtGithubAccount,
   gistProofPayload,
   githubAccountUrl,
@@ -381,5 +382,49 @@ describe('statementBindsBinding', () => {
   it('is false for a null or half-built statement, never a throw', () => {
     expect(statementBindsBinding(null, 'did:abt:zAgentKeyHash', 'scout-agent')).toBe(false);
     expect(statementBindsBinding({ did: 42, github: 'x', signature: 'y' } as unknown as GistStatement, 'd', 'h')).toBe(false);
+  });
+});
+
+// FIX-B47a: the platform composes this text and publishes it as the gist
+// file. It must parse back through parseGistStatement into exactly the
+// GistStatement the route needs (did, github, signature, and the optional
+// key line PRF1 already defined), so a round trip through the platform's
+// own parser is the test, not a string-shape assertion.
+describe('buildGistStatement', () => {
+  const did = 'did:abt:zAgentKeyHashFixture';
+  const account = 'https://github.com/scout-agent';
+  const signature = 'c2lnbmF0dXJl';
+  const key = 'z6MkAgentKeyMultibaseFixture';
+
+  it('round-trips through parseGistStatement with all four fields, including the key line', () => {
+    const text = buildGistStatement({ did, github: account, signature, key });
+    const parsed = parseGistStatement(text);
+    expect(parsed).toEqual({ did, github: account, signature, key });
+  });
+
+  it('round-trips with no key line when key is omitted', () => {
+    const text = buildGistStatement({ did, github: account, signature });
+    const parsed = parseGistStatement(text);
+    expect(parsed).toEqual({ did, github: account, signature });
+    expect(text.toLowerCase()).not.toContain('key:');
+  });
+
+  it('the signature line covers gistProofPayload(did, github) when re-signed', () => {
+    const keys = nodeCrypto.generateKeyPairSync('ed25519');
+    const realSignature = nodeCrypto
+      .sign(null, Buffer.from(gistProofPayload(did, account), 'utf8'), keys.privateKey)
+      .toString('base64');
+    const text = buildGistStatement({ did, github: account, signature: realSignature });
+    const parsed = parseGistStatement(text);
+    expect(parsed).not.toBeNull();
+    if (parsed === null) throw new Error('statement failed to parse');
+    expect(
+      nodeCrypto.verify(
+        null,
+        Buffer.from(gistProofPayload(parsed.did, parsed.github), 'utf8'),
+        keys.publicKey,
+        Buffer.from(parsed.signature, 'base64'),
+      ),
+    ).toBe(true);
   });
 });

@@ -51,6 +51,33 @@ export function gistProofPayload(did: string, github: string): string {
   return `freeagents-github-proof v1\n${did}\n${github}\n`;
 }
 
+// FIX-B47a: the inverse of parseGistStatement, for the one caller that now
+// composes a statement instead of reading one (the platform, publishing on
+// the owner's behalf). Round-trips through parseGistStatement by
+// construction: every field this writes is a field that reader already
+// knows how to read, in the same v1 shape a hand-published gist uses, so a
+// platform-published gist and an operator-published one are indistinguishable
+// to a third party (invariant 2 stays true for gists this route writes,
+// not only the ones it reads).
+export function buildGistStatement(statement: {
+  readonly did: string;
+  readonly github: string;
+  readonly signature: string;
+  readonly key?: string;
+}): string {
+  const lines = [
+    'FreeAgents GitHub proof',
+    'version: 1',
+    `did: ${statement.did}`,
+    `github: ${statement.github}`,
+    `signature: ${statement.signature}`,
+  ];
+  if (statement.key !== undefined && statement.key.length > 0) {
+    lines.push(`key: ${statement.key}`);
+  }
+  return lines.join('\n') + '\n';
+}
+
 export interface GistStatement {
   readonly did: string;
   readonly github: string;

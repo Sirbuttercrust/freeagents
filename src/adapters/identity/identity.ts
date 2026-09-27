@@ -4,15 +4,12 @@ import * as vc from '@digitalbazaar/vc';
 import { Ed25519Signature2020 } from '@digitalbazaar/ed25519-signature-2020';
 import { fromPublicKey } from '@arcblock/did';
 import { didSuffix, type Delegation } from '../../domain/agent.js';
-import { NotImplementedError } from '../not-implemented.js';
 import { isValidPlatformSeedHex } from '../credentials/credentials.js';
 import type { ObservedKeyRepository } from '../storage/types.js';
 import { deriveDidFromSeed } from './did-from-seed.js';
 import { buildDidAbtLoader, createKnownKeyStore, type KnownKeyStore } from './did-abt-resolver.js';
 import { issueAgentDelegation } from './w3c-credentials.js';
 import type { DidDocument, DidKeyPair, IdentityAdapter, SignedPayload } from './types.js';
-
-const CAPABILITY = 'identity';
 
 // P8d: thrown when FREEAGENTS_PLATFORM_SEED is unset or malformed at the
 // moment a provisioning derivation is attempted. Named rather than a bare
@@ -72,6 +69,21 @@ export class CandidateKeyRejectedError extends Error {
   }
 }
 
+// Ruling 2026-09-27 05:30 (FIX-B47a): thrown by sign() when the given `did`
+// is not the DID that createAgentDid itself would re-derive for the same
+// operatorDid/credentialId pair. Two real kinds of agent fail this
+// comparison: a wallet-path agent (the platform never held any key for it)
+// and a site agent that brought its own DID (its stored delegation's
+// signer does not settle which key the platform can re-derive). Both must
+// be refused before anything is signed, never signed with a key that does
+// not actually belong to the claimed did.
+export class AgentKeyDerivationMismatchError extends Error {
+  constructor(did: string) {
+    super(`${did} is not the DID this operator/credential pair re-derives; the platform holds no signing key for it`);
+    this.name = 'AgentKeyDerivationMismatchError';
+  }
+}
+
 // Real implementation is @arcblock/did behind this factory. verifyDelegation
 // uses W3C Ed25519Signature2020 suite for third-party verifiability (invariant 2):
 // the verification uses only the credential itself, no DID resolution and no
@@ -81,7 +93,8 @@ export class CandidateKeyRejectedError extends Error {
 // (the R-34 signing-key resolver's binding check, recorded into knownKeys),
 // never fetched over a network and never guessed. createOperatorDid,
 // createAgentDid and issueSiteDelegation are real implementations as of
-// FIX-B41a; sign stays NotImplementedError: nothing on main calls it.
+// FIX-B41a; sign is a real implementation as of FIX-B47a (the one-click
+// GitHub proof, signing on a site-listed agent's re-derived key).
 //
 // FIX-B41a: the platform-seed read and the HKDF call are the same three
 // lines createOperatorDid always ran; factored out here so
@@ -94,6 +107,22 @@ function operatorSeedBytes(subject: string): Uint8Array {
   }
   const seedBytes = Buffer.from(hex.replace(/^0x/i, ''), 'hex');
   return new Uint8Array(hkdfSync('sha256', seedBytes, '', `${OPERATOR_DID_HKDF_INFO}:${subject}`, ED25519_SEED_LENGTH));
+}
+
+// Ruling 2026-09-27 05:30: the seed read and the HKDF call createAgentDid
+// has always run, factored out here so sign() re-derives through the
+// IDENTICAL call rather than a second, only-superficially-similar one --
+// the same discipline operatorSeedBytes above already keeps for the
+// operator side.
+function agentSeedBytes(operatorDid: string, credentialId: string): Uint8Array {
+  const hex = process.env.FREEAGENTS_PLATFORM_SEED;
+  if (hex === undefined || !isValidPlatformSeedHex(hex)) {
+    throw new PlatformSeedUnavailableError();
+  }
+  const seedBytes = Buffer.from(hex.replace(/^0x/i, ''), 'hex');
+  return new Uint8Array(
+    hkdfSync('sha256', seedBytes, '', `${AGENT_DID_HKDF_INFO}:${operatorDid}:${credentialId}`, ED25519_SEED_LENGTH),
+  );
 }
 
 export function createIdentityAdapter(
@@ -176,19 +205,8 @@ export function createIdentityAdapter(
     // (which carries credentialId as its own `id`) plus the seed, this
     // same DID re-derives with nothing else stored.
     async createAgentDid(operatorDid: string, credentialId: string): Promise<DidKeyPair> {
-      const hex = process.env.FREEAGENTS_PLATFORM_SEED;
-      if (hex === undefined || !isValidPlatformSeedHex(hex)) {
-        throw new PlatformSeedUnavailableError();
-      }
-      const seedBytes = Buffer.from(hex.replace(/^0x/i, ''), 'hex');
-      const derived = hkdfSync(
-        'sha256',
-        seedBytes,
-        '',
-        `${AGENT_DID_HKDF_INFO}:${operatorDid}:${credentialId}`,
-        ED25519_SEED_LENGTH,
-      );
-      const { did, publicKeyMultibase } = await deriveDidFromSeed(new Uint8Array(derived));
+      const derived = agentSeedBytes(operatorDid, credentialId);
+      const { did, publicKeyMultibase } = await deriveDidFromSeed(derived);
       return { did, publicKeyMultibase };
     },
     // R-3 completion (B5): construct the DID document locally from the
@@ -221,8 +239,33 @@ export function createIdentityAdapter(
         return doc;
       });
     },
-    sign(_did: string, _payload: string): Promise<SignedPayload> {
-      throw new NotImplementedError(CAPABILITY, 'sign');
+    // FIX-B47a: signs with a site-listed agent's key, re-derived through the
+    // identical call createAgentDid makes -- the platform seed, operatorDid
+    // and credentialId are the only inputs, so this signs with EXACTLY the
+    // key createAgentDid's own DidKeyPair.publicKeyMultibase names, never a
+    // fresh or stored one. Ed25519Signature2020's signer() (the same suite
+    // issueAgentDelegation already uses) wraps node:crypto's sign(null, ...)
+    // -- the identical primitive verify() checks against -- so a caller
+    // offering the returned signature to verify() with this key as a
+    // candidate reaches the same yes/no this route's real gist check will.
+    async sign(did: string, payload: string, operatorDid: string, credentialId: string): Promise<SignedPayload> {
+      const derived = agentSeedBytes(operatorDid, credentialId);
+      const { did: derivedDid, publicKeyMultibase } = await deriveDidFromSeed(derived);
+      if (derivedDid !== did) {
+        throw new AgentKeyDerivationMismatchError(did);
+      }
+      const key = await Ed25519VerificationKey2020.generate({
+        seed: derived,
+        controller: did,
+      });
+      const signer = (key as unknown as { signer(): { sign(input: { data: Uint8Array }): Promise<Uint8Array> } }).signer();
+      const signature = await signer.sign({ data: Buffer.from(payload, 'utf8') });
+      return {
+        payload,
+        signature: Buffer.from(signature).toString('base64'),
+        signerDid: did,
+        publicKeyMultibase,
+      };
     },
     // R-4 completion (B5): standard ed25519 verification of the payload
     // bytes against the signature, using the public key derived from the

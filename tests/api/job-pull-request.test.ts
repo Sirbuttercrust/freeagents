@@ -972,13 +972,25 @@ describe('pull-request, invariant 1 and Gate 2 (R-10, STG2)', () => {
     // branch to an arbitrary target, no method that opens a pull request,
     // no method that edits someone else's repository - by construction of
     // the type, not by discipline.
+    //
+    // FIX-B47a: createGist, deleteGist and deleteGrant join the surface
+    // here. Each authenticates with the CALLER's own exchanged OAuth token
+    // (never FREEAGENTS_GITHUB_TOKEN), and each acts only on the caller's
+    // own gist or the caller's own grant on this app - never a repository
+    // push, never a pull request, never someone else's account. The
+    // invariant this test pins stays true: nothing here reaches a
+    // /repos/ path or edits a repository the platform does not already
+    // read-only serve.
     const originalToken = process.env.FREEAGENTS_GITHUB_TOKEN;
     delete process.env.FREEAGENTS_GITHUB_TOKEN;
     try {
       const real = createGithubAdapter();
       expect(Object.keys(real).sort()).toEqual([
         'compareCommits',
+        'createGist',
         'createStagingRepository',
+        'deleteGist',
+        'deleteGrant',
         'getCommit',
         'getMergeCommitSignature',
         'getPublicGist',
