@@ -72,6 +72,12 @@ const MEASURE = `
         var r = el.getBoundingClientRect();
         return r.width < 44 || r.height < 44;
       }).map(function (el) { var r = el.getBoundingClientRect(); return (el.id || el.textContent.trim()) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height); }),
+      // Text or an icon running out of its own control, or an icon
+      // squeezed below the size it was given.
+      clipped: targets.filter(function (el) {
+        if (el.scrollWidth > el.clientWidth + 1) return true;
+        return [].some.call(el.querySelectorAll('img'), function (img) { return img.getBoundingClientRect().width < 20; });
+      }).map(function (el) { return (el.id || el.textContent.trim().slice(0, 30)) + ' ' + el.scrollWidth + '/' + el.clientWidth; }),
       covered: targets.filter(function (el) {
         var r = el.getBoundingClientRect();
         if (r.bottom < 0 || r.top > innerHeight) el.scrollIntoView({ block: 'center' });
@@ -82,7 +88,7 @@ const MEASURE = `
     };
   })()
 `;
-interface Measure { open: boolean; scrollWidth: number; clientWidth: number; sheetOverflow: number; measured: number; status: string; small: string[]; covered: string[] }
+interface Measure { open: boolean; scrollWidth: number; clientWidth: number; sheetOverflow: number; measured: number; status: string; small: string[]; clipped: string[]; covered: string[] }
 
 // The states, each reached from a fresh load by one Pay press.
 const STATES = ['pick', 'run', 'paid', 'already_paid', 'price_due', 'waiting_network', 'no_wallet', 'mismatched'];
@@ -123,12 +129,13 @@ describe('the USDC pay sheet in every open state, in real Chrome', () => {
             await new Promise((r) => setTimeout(r, 450));
             const m = await browser.evaluate<Measure>(MEASURE);
             const where = `${page} ${state} at ${width}`;
-            console.log(`${where}: scroll ${m.scrollWidth}/${m.clientWidth}, sheet overflow ${m.sheetOverflow}, ${m.measured} targets, small [${m.small.join(', ')}], covered [${m.covered.join(', ')}]`);
+            console.log(`${where}: scroll ${m.scrollWidth}/${m.clientWidth}, sheet overflow ${m.sheetOverflow}, ${m.measured} targets, small [${m.small.join(', ')}], clipped [${m.clipped.join(', ')}], covered [${m.covered.join(', ')}]`);
             expect(m.open, `${where}: the sheet did not open`).toBe(true);
             expect(m.measured, `${where}: nothing measured`).toBeGreaterThan(1);
             expect(m.scrollWidth, `${where}: sideways scroll`).toBe(m.clientWidth);
             expect(m.sheetOverflow, `${where}: the sheet scrolls sideways`).toBe(0);
             expect(m.small, `${where}: under 44px`).toEqual([]);
+            expect(m.clipped, `${where}: clipped`).toEqual([]);
             expect(m.covered, `${where}: drawn over`).toEqual([]);
             if (captureDir !== '') {
               mkdirSync(captureDir, { recursive: true });

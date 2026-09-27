@@ -87,17 +87,24 @@
       var btn = document.createElement("button");
       btn.type = "button";
       btn.className = "btn btn-block";
-      // 44px at every width: .btn alone is 40 above 760px (base.css).
+      // 44px at every width: .btn alone is 40 above 760px (base.css). A
+      // long wallet name wraps rather than running out of the button, and
+      // the icon keeps its size beside it.
       btn.style.minHeight = "44px";
+      btn.style.whiteSpace = "normal";
+      btn.style.padding = "8px 16px";
       if (typeof entry.icon === "string" && entry.icon.indexOf("data:image/") === 0) {
         var img = document.createElement("img");
         img.src = entry.icon;
         img.alt = "";
         img.style.width = "24px";
         img.style.height = "24px";
+        img.style.flex = "none";
         btn.appendChild(img);
       }
       var name = document.createElement("span");
+      name.style.minWidth = "0";
+      name.style.overflowWrap = "anywhere";
       name.textContent = typeof entry.name === "string" && entry.name !== "" ? entry.name : "Wallet";
       btn.appendChild(name);
       btn.addEventListener("click", function () { run(entry); });
