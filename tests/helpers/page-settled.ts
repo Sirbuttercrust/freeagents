@@ -35,3 +35,23 @@ export function receiptPageReady(document: Document): boolean {
   const error = document.getElementById('load-error') as HTMLElement | null;
   return (claim !== null && !claim.hasAttribute('data-pending')) || (error !== null && !error.hidden);
 }
+
+// FIX-CIFLAKE cause 3: the hire page (job.js) is done by the identical
+// signal receiptPageReady already reads -- render() removes #claim's
+// data-pending in the same synchronous call that sets every other
+// primary field (renderHeading, renderWhere, renderHistory, and so on
+// through render()'s own body), and failLoad shows #load-error on a
+// failed read. Named separately from receiptPageReady, rather than
+// reused, because the two pages are unrelated products (a hire's job
+// page vs. a credential document) that only happen to share this id
+// shape today; a future change to either page's markup should not have
+// to touch the other's test wait by accident. The secondary reads this
+// page fires after first paint (the identity strip's avatar, the
+// messages link's read-state check) are not part of this signal: no
+// test in tests/web/job.test.ts reads either, so waiting on them here
+// would only slow every render down for a signal nothing asserts on.
+export function jobPageReady(document: Document): boolean {
+  const claim = document.getElementById('claim');
+  const error = document.getElementById('load-error') as HTMLElement | null;
+  return (claim !== null && !claim.hasAttribute('data-pending')) || (error !== null && !error.hidden);
+}

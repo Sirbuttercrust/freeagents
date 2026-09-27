@@ -26,10 +26,15 @@ export interface ThreadLastMessage {
 // null when the thread has no message rows at all (the brief itself is
 // a Job field, never a Message row, so a job with zero posted messages
 // answers null here even though it already has a brief). Otherwise the
-// NEWEST row by createdAt.
+// NEWEST row by createdAt, and on a tie (two posts in the same
+// millisecond, common for agents posting over the machine surface) the
+// LATER row in the list: both repositories answer createdAt ascending
+// with insertion order as the tiebreak (prisma.ts's `orderBy: {
+// createdAt: 'asc' }`, memory.ts's plain array order), so the later list
+// position is the row genuinely posted second.
 export function lastMessageOf(messages: readonly Message[]): ThreadLastMessage | null {
   if (messages.length === 0) return null;
-  const newest = messages.reduce((a, b) => (b.createdAt.getTime() > a.createdAt.getTime() ? b : a));
+  const newest = messages.reduce((a, b) => (b.createdAt.getTime() >= a.createdAt.getTime() ? b : a));
   return {
     authorParty: newest.authorParty,
     authorKind: newest.authorKind,

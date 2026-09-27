@@ -5846,13 +5846,18 @@ export function createApp(
         };
       }
 
-      // B26 (bug ledger, C1 rehearsal s9): proposedBy names who WROTE the
-      // line, and that fact is the caller's own resolved seat on this job
-      // (gate.party, from resolveJobActingParty above), never the request
-      // body's own claim. A body naming the other seat is silently
-      // corrected to the signer's actual seat, matching how the price
-      // proposal below is credited: neither field trusts self-reported
-      // authorship.
+      // B26 (bug ledger, C1 rehearsal s9), narrowed by FIX-B45 (bugs.md
+      // B45): every input line here is stamped with the caller's own
+      // resolved seat (gate.party, from resolveJobActingParty above),
+      // never the request body's own claim. A body naming the other seat
+      // is silently corrected to the signer's actual seat, matching how
+      // the price proposal below is credited: neither field trusts
+      // self-reported authorship. That stamp is proposeCriteria's default
+      // for a NEW or CHANGED line only; a line whose trimmed text matches
+      // one already stored keeps that stored line's own proposedBy
+      // instead (the domain's matched branch), so this stamp decides
+      // authorship for what the sender actually wrote, not for every line
+      // their request happens to carry through unchanged.
       const attributedInput = (input as ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>).map(
         (criterion) => ({ text: criterion.text, proposedBy: gate.party }),
       );

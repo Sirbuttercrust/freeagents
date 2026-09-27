@@ -3,7 +3,7 @@
 // discipline tests/api/accounts-jobs.test.ts and
 // tests/api/accounts-incoming.test.ts already use.
 import type { Server } from 'node:http';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
@@ -19,6 +19,24 @@ import { createMessage, createSystemMessage, advanceReadState, type Message } fr
 import { resolveAvatar } from '../../src/domain/avatar-spec.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSessionToken } from '../helpers/session-fixtures.js';
+
+async function postJson(baseUrl: string, path: string, identity: SigningIdentity, body: Record<string, unknown>): Promise<Response> {
+  const targetUri = `${baseUrl}${path}`;
+  const bodyText = JSON.stringify(body);
+  const signed = signRequest(identity, 'POST', targetUri, { body: bodyText, components: ['@method', '@target-uri', 'content-digest'] });
+  return fetch(targetUri, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+    body: bodyText,
+  });
+}
+
 
 async function getSigned(baseUrl: string, path: string, identity: SigningIdentity): Promise<Response> {
   const targetUri = `${baseUrl}${path}`;
@@ -690,6 +708,48 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
       expect(ownerLast.authorParty).toBe('agent');
       expect(ownerLast.authorKind).toBe('owner');
       expect(ownerLast.createdAt).toBe(new Date('2026-08-02T00:03:00Z').toISOString());
+    } finally {
+      built.server.close();
+    }
+  });
+
+  // FIX-CIFLAKE cause 4: two POSTs to the real route stamped in the SAME
+  // clock millisecond (a pinned fake clock forces the tie; two agent-
+  // machine posts landing in one millisecond is the real-world shape this
+  // reproduces) must preview the message posted SECOND, never the one
+  // posted first. Red on main: lastMessageOf's `>` picks the first-
+  // reduced row on a tie, which here is the first POST's body.
+  it('two messages posted in the same clock millisecond preview the one posted second, through the real route', async () => {
+    const built = await buildApp();
+    try {
+      const buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(256));
+      const owner = await signingIdentityFromSeed(new Uint8Array(32).fill(257));
+      const agent = await signingIdentityFromSeed(new Uint8Array(32).fill(258));
+      await built.accountRepo.register({ did: buyer.did, githubLogin: 'threads-tie-buyer' });
+      await built.accountRepo.register({ did: owner.did, githubLogin: 'threads-tie-owner' });
+      await built.agentRepo.create({ did: agent.did, operatorDid: owner.did, delegation: delegationFixture(agent.did, owner.did) as never, name: 'tie-scout', skills: ['triage'], githubLogin: null });
+      await built.jobRepo.create(jobFixture({ id: 'job-millisecond-tie', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
+
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-09T12:00:00.750Z'));
+      try {
+        const first = await postJson(built.baseUrl, '/jobs/job-millisecond-tie/messages', buyer, { body: 'first in the pinned millisecond' });
+        expect(first.status).toBe(201);
+        const second = await postJson(built.baseUrl, '/jobs/job-millisecond-tie/messages', buyer, { body: 'second in the pinned millisecond' });
+        expect(second.status).toBe(201);
+        const firstBody = (await first.json()) as { createdAt: string };
+        const secondBody = (await second.json()) as { createdAt: string };
+        // Both posts really did land in the same millisecond: the pin
+        // held, so this proves the tie and not an accidental spread.
+        expect(secondBody.createdAt).toBe(firstBody.createdAt);
+      } finally {
+        vi.useRealTimers();
+      }
+
+      const res = await getSigned(built.baseUrl, `/accounts/${buyer.did}/threads`, buyer);
+      const body = (await res.json()) as { threads: Array<{ jobId: string; lastMessage: { bodyPreview: string } }> };
+      const row = body.threads.find((t) => t.jobId === 'job-millisecond-tie')!;
+      expect(row.lastMessage.bodyPreview).toBe('second in the pinned millisecond');
     } finally {
       built.server.close();
     }

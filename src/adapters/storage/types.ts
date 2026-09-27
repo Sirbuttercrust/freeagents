@@ -494,7 +494,14 @@ export interface SettlementRepository {
 // full-row overwrite of body/editedAt/editHistory, never a delete or an
 // unsend -- src/domain/message.ts's own header comment): no method here
 // removes a row. Ordered oldest-first on every list, mirroring every
-// other listing repository's own convention.
+// other listing repository's own convention, with insertion order as the
+// tiebreak for two rows sharing the same createdAt millisecond (FIX-
+// CIFLAKE cause 4): the Prisma driver orders by createdAt alone
+// (Message.id is random, so it cannot be a secondary sort key without a
+// schema change), and the memory driver answers in plain insertion
+// order, so a caller that wants the row posted second on a tie reads the
+// LATER entry in this list, never the earlier one (thread-list.ts's
+// lastMessageOf does exactly that).
 export interface MessageRepository {
   create(message: Message): Promise<Message>;
   // Null when the id is not stored, mirroring every other repository's

@@ -517,7 +517,13 @@
       });
     });
 
+    /* FIX-CIFLAKE cause 1: the SAME reads paintRosterAvatar guards above
+       also feed this aggregation, so a window closed while any one of
+       them is still out reaches this .then on a page that is already
+       gone (document deleted). Nothing here can render into a page that
+       no longer has one. */
     Promise.all(reads).then(function (pairs) {
+      if (typeof document === "undefined" || !document) return;
       renderGallery(collectGalleryItems(pairs));
     });
   }
@@ -527,9 +533,19 @@
      default, once that read has settled, the same call browse.js's own
      loadAvatar makes for its card. Painted here rather than through the
      generic [data-avatar] sweep because that sweep already ran at load,
-     before this fetch had anything to key on. */
+     before this fetch had anything to key on.
+
+     FIX-CIFLAKE cause 1: a read that answers after the PAGE ITSELF has
+     torn down (the jsdom tests close every window they render, which
+     deletes window.document) paints nothing rather than throwing into a
+     gone page. The document check is the only guard this function needs:
+     unlike loadAvatar's per-card call, it holds no row reference of its
+     own before the read settles, so it queries the live document fresh
+     right here, and a querySelector result is connected by definition
+     (there is no way for the row it just found to already be detached). */
   function paintRosterAvatar(did, result) {
     if (result.state !== "ok") return;
+    if (typeof document === "undefined" || !document) return;
     var host = document.querySelector('[data-agent-row="' + cssEscape(did) + '"] .pc-bot');
     if (!host || !window.FABots) return;
     window.FABots.mount(host, did, { spec: result.value.avatarSpec, size: AVATAR_SIZE });
