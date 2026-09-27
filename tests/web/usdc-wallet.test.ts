@@ -1,10 +1,10 @@
 // USDC-WEBa (Make 3): the browser wallet engine, driven in jsdom against the real
-// app -- exactly the discipline tests/web/deposit.test.ts holds to, extended for
-// a wallet protocol. No page loads the engine yet (USDC-WEBb): this proves it
-// directly, loading /js/pages/api.js and /js/usdc-wallet.js from the app's own
-// static mount and driving a fake EIP-1193 wallet whose receipts the server's
-// fake chain client answers, decoded from the data the wallet was given, so a
-// confirmed payment proves the engine asked for exactly what the server confirms.
+// app -- the discipline tests/web/deposit.test.ts holds to, for a wallet protocol.
+// No page loads the engine yet (USDC-WEBb): this proves it directly, loading
+// /js/pages/api.js and /js/usdc-wallet.js from the app's own static mount and
+// driving a fake EIP-1193 wallet whose receipts the fake chain client answers,
+// decoded from the data given, so a confirmed payment proves the engine asked
+// for exactly what the server confirms.
 import type { Server } from 'node:http';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -374,15 +374,11 @@ function countingProvider(raw: FakeWallet['provider']): { provider: FakeWallet['
 // Swaps page.window.fetch to count POSTs whose URL contains `fragment`.
 function spyOnPosts(page: EnginePage, fragment: string): { count: { value: number }; restore: () => void } {
   const count = { value: 0 };
-  const originalFetch = page.window.fetch;
-  Object.defineProperty(page.window, 'fetch', {
-    writable: true,
-    value: async (input: string, init?: RequestInit) => {
-      if (String(input).includes(fragment)) count.value += 1;
-      return (originalFetch as typeof fetch)(input, init);
-    },
+  const restore = mockFetch(page, async (input, init, callOriginal) => {
+    if (String(input).includes(fragment)) count.value += 1;
+    return callOriginal();
   });
-  return { count, restore: () => Object.defineProperty(page.window, 'fetch', { writable: true, value: originalFetch }) };
+  return { count, restore };
 }
 // Installs a fetch override on page.window; `handler` gets the raw input/init
 // plus a `callOriginal()` to reach the real request, for tests that need to
