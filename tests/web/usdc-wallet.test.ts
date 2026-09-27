@@ -148,15 +148,11 @@ interface FakeWallet {
   readonly provider: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> };
   readonly calls: string[];
   readonly sends: RecordedSend[];
-  addedChain: boolean;
-  switchedChain: string | null;
 }
 
 function buildFakeWallet(opts: FakeWalletOptions): FakeWallet {
   const calls: string[] = [];
   const sends: RecordedSend[] = [];
-  let addedChain = false;
-  let switchedChain: string | null = null;
   let switchAttempt = 0;
   const receiptReadCounts = new Map<string, number>();
 
@@ -167,7 +163,6 @@ function buildFakeWallet(opts: FakeWalletOptions): FakeWallet {
       case 'eth_requestAccounts':
         return [BUYER_FROM_ADDRESS];
       case 'wallet_switchEthereumChain': {
-        const target = (params[0] as { chainId: string }).chainId;
         if (opts.switchBehavior === 'always-fail') {
           throw { code: -32603, message: 'unrecognized chain id' };
         }
@@ -175,11 +170,9 @@ function buildFakeWallet(opts: FakeWalletOptions): FakeWallet {
           switchAttempt += 1;
           if (switchAttempt === 1) throw { code: -32603, message: 'unrecognized chain id' };
         }
-        switchedChain = target;
         return null;
       }
       case 'wallet_addEthereumChain':
-        addedChain = true;
         return null;
       case 'eth_sendTransaction': {
         const tx = params[0] as { from: string; to: string; data: string; value: string };
@@ -221,24 +214,7 @@ function buildFakeWallet(opts: FakeWalletOptions): FakeWallet {
     }
   }
 
-  return {
-    provider: { request },
-    calls,
-    sends,
-    get addedChain() {
-      return addedChain;
-    },
-    set addedChain(_v: boolean) {
-      /* read-only from the outside; kept as a getter/setter pair so the
-         interface above can declare it as a plain field. */
-    },
-    get switchedChain() {
-      return switchedChain;
-    },
-    set switchedChain(_v: string | null) {
-      /* see addedChain */
-    },
-  };
+  return { provider: { request }, calls, sends };
 }
 
 interface Harness {
