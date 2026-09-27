@@ -138,10 +138,12 @@ interface RecordedSend {
 }
 interface FakeWalletOptions {
   readonly chainState: ChainState;
-  readonly switchBehavior?: 'succeed' | 'fail-then-add-succeeds' | 'always-fail';
+  readonly switchBehavior?: 'succeed' | 'fail-then-add-succeeds' | 'always-fail' | 'refuse-with-4001';
   readonly refuseFeeTransfer?: boolean;
   readonly failPriceOnChain?: boolean;
   readonly feeNeverConfirms?: boolean;
+  readonly priceNeverConfirms?: boolean;
+  readonly mismatchPriceReceipt?: boolean;
   readonly pendingRounds?: number;
 }
 interface FakeWallet {
@@ -166,6 +168,9 @@ function buildFakeWallet(opts: FakeWalletOptions): FakeWallet {
         if (opts.switchBehavior === 'always-fail') {
           throw { code: -32603, message: 'unrecognized chain id' };
         }
+        if (opts.switchBehavior === 'refuse-with-4001') {
+          throw { code: 4001, message: 'User rejected' };
+        }
         if (opts.switchBehavior === 'fail-then-add-succeeds') {
           switchAttempt += 1;
           if (switchAttempt === 1) throw { code: -32603, message: 'unrecognized chain id' };
@@ -185,7 +190,27 @@ function buildFakeWallet(opts: FakeWalletOptions): FakeWallet {
         const hash = `0xsent${opts.chainState.hashCounter}`;
         sends.push({ to: tx.to, data: tx.data, recipient, amountBaseUnits: amount.toString() });
         const failThisOne = sends.length === 1 && opts.failPriceOnChain === true;
+        const isFirstSend = sends.length === 1;
         const isSecondSend = sends.length === 2;
+        if (isFirstSend && opts.priceNeverConfirms) {
+          // Mirrors feeNeverConfirms below, for the price transfer: a
+          // real chain that has not yet mined this transaction reads
+          // back null forever, which the server's legStatus reads as
+          // not_confirmed, never confirmed and never failed.
+          return hash;
+        }
+        if (isFirstSend && opts.mismatchPriceReceipt) {
+          // A receipt that lands, with status 1, but pays a DIFFERENT
+          // amount than what this leg expects: the server's own
+          // legStatus reads this as mismatched, never confirmed, a
+          // server-side fact this test controls directly rather than
+          // one the engine could ever compute itself.
+          opts.chainState.receipts.set(hash, {
+            status: 1,
+            transfer: { to: recipient.toLowerCase(), value: (amount + 1n).toString(), tokenContract: tx.to, chainId: USDC_CHAIN_ID },
+          });
+          return hash;
+        }
         if (isSecondSend && opts.feeNeverConfirms) {
           // Deliberately no receipt is ever written for this hash: a
           // real chain that never mines a transaction reads back null
@@ -478,6 +503,24 @@ describe('discovery: EIP-6963 announced wallets, window.ethereum only as a fallb
     expect(found[0]!.id).toBe('window.ethereum');
     expect(found[0]!.provider.marker).toBe('window.ethereum');
   });
+
+  it('window.ethereum is dropped when a wallet DOES announce (not merely appended)', async () => {
+    const { page } = await setup(28);
+    const win = page.window as unknown as {
+      addEventListener: (event: string, handler: () => void) => void;
+      dispatchEvent: (event: Event) => void;
+      CustomEvent: typeof CustomEvent;
+      ethereum: unknown;
+    };
+    win.ethereum = { marker: 'window.ethereum' };
+    win.addEventListener('eip6963:requestProvider', () => {
+      win.dispatchEvent(new (win as unknown as { CustomEvent: typeof CustomEvent }).CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'uuid-c', name: 'Wallet C' }, provider: {} } }));
+    });
+
+    const found = (await engineOf(page).discover({ window: page.window, discoveryWindowMs: 20 })) as Array<{ id: string; name: string }>;
+    expect(found).toHaveLength(1);
+    expect(found[0]!.id).toBe('uuid-c');
+  });
 });
 
 describe('chain switching (EIP-3326/3085)', () => {
@@ -540,6 +583,49 @@ describe('resume: a reload never sends the price transfer again', () => {
     expect(secondWallet.sends[0]!.recipient.toLowerCase()).toBe(USDC_FEE_ADDRESS.toLowerCase());
   });
 
+  it('resumes from localStorage ALONE: proven by a server that never learned about the price transfer at all', async () => {
+    // B49 review round 1, defect 3: the pre-existing localStorage test
+    // above also passes with readStored() deleted entirely, because the
+    // server's own confirm() records a halfPaidRecord on the very same
+    // call that leaves the fee due, so halfPaidRecord alone would carry
+    // the price hash too. This test isolates localStorage by making the
+    // FIRST pay() call's wallet-response POST fail to reach the server
+    // outright (a network drop after the price transfer already sent):
+    // the server never runs confirm() and so never learns the price
+    // landed, leaving startBody.halfPaidRecord entirely absent on the
+    // next call. Only this device's own localStorage record can resume it.
+    const { chainState, h, page } = await setup(29);
+
+    const firstWallet = buildFakeWallet({ chainState, refuseFeeTransfer: true });
+    const originalFetch = page.window.fetch;
+    let droppedOnce = false;
+    Object.defineProperty(page.window, 'fetch', {
+      writable: true,
+      value: async (input: string, init?: RequestInit) => {
+        if (!droppedOnce && String(input).includes('/usdc/wallet-response')) {
+          droppedOnce = true;
+          throw new Error('network drop');
+        }
+        return (originalFetch as typeof fetch)(input, init);
+      },
+    });
+
+    const first = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w29', firstWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    expect(first.outcome).toBe('server_refused');
+    expect(firstWallet.sends).toHaveLength(1);
+
+    // Restore normal fetch for the resume call. The server has NO
+    // half-paid row (confirm() never ran), so startBody.halfPaidRecord
+    // is absent: only localStorage, on this same device, knows the price
+    // transfer already landed.
+    Object.defineProperty(page.window, 'fetch', { writable: true, value: originalFetch });
+    const secondWallet = buildFakeWallet({ chainState });
+    const second = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w29', secondWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    expect(second.outcome).toBe('paid');
+    expect(secondWallet.sends).toHaveLength(1);
+    expect(secondWallet.sends[0]!.recipient.toLowerCase()).toBe(USDC_FEE_ADDRESS.toLowerCase());
+  });
+
   it('resumes on a clean device from the server\u2019s halfPaidRecord (no localStorage)', async () => {
     const { chainState, h, page: deviceAPage } = await setup(9);
 
@@ -557,6 +643,39 @@ describe('resume: a reload never sends the price transfer again', () => {
     expect(second.outcome).toBe('paid');
     expect(deviceBWallet.sends).toHaveLength(1);
     expect(deviceBWallet.sends[0]!.recipient.toLowerCase()).toBe(USDC_FEE_ADDRESS.toLowerCase());
+  });
+
+  it('never resends a transfer whose halfPaidRecord hash is only not_confirmed (still pending), not failed', async () => {
+    // The exact QA repro (PROBE1): device A's fee transfer lands on chain
+    // but has not mined by the time pay() gives up its bounded wait, so
+    // the server's half-paid row records feeStatus 'not_confirmed' with a
+    // real hash, not 'confirmed'. A device that only reuses a hash whose
+    // status is exactly 'confirmed' sends the fee transfer a second time.
+    const { chainState, h, page: deviceAPage } = await setup(18);
+
+    const deviceAWallet = buildFakeWallet({ chainState, feeNeverConfirms: true });
+    const first = await engineOf(deviceAPage).pay({ window: deviceAPage.window, wallet: walletEntry('wA18', deviceAWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 2 });
+    expect(first.outcome).toBe('waiting_network');
+    expect(deviceAWallet.sends).toHaveLength(2);
+    deviceAPage.close();
+
+    // The fee's receipt lands on chain after the fact, exactly like the
+    // "waiting on the network" case above -- the transaction was real,
+    // it was only slow. The server's stored half-paid row still says
+    // 'not_confirmed' because it was written before this landed.
+    chainState.receipts.set('0xsent2', {
+      status: 1,
+      transfer: { to: USDC_FEE_ADDRESS.toLowerCase(), value: '7500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID },
+    });
+
+    const deviceBPage = await loadEnginePage(h.baseUrl);
+    opened.push({ server: h.server, page: deviceBPage });
+    const deviceBWallet = buildFakeWallet({ chainState });
+    const second = await engineOf(deviceBPage).pay({ window: deviceBPage.window, wallet: walletEntry('wB18', deviceBWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    expect(second.outcome).toBe('paid');
+    // The device that resumed must not have sent anything: both hashes
+    // were already known, and only their receipts needed re-reading.
+    expect(deviceBWallet.sends).toHaveLength(0);
   });
 });
 
@@ -608,6 +727,19 @@ describe('every other outcome in Make 3', () => {
     expect(await h.settlementRepo.findByJobAndLeg(h.jobId, 'deposit')).toBeNull();
   });
 
+  it('never reports fee_due when the price itself has not confirmed yet (B49 review round 1, defect 2)', async () => {
+    // The price transfer landed on chain but has not mined by the time
+    // the wallet refuses the fee approval, so the server's own
+    // legs.price.status answers not_confirmed, not confirmed. fee_due
+    // must never be guessed from "the fee was refused" alone.
+    const { chainState, h, page } = await setup(19);
+    const wallet = buildFakeWallet({ chainState, priceNeverConfirms: true, refuseFeeTransfer: true });
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w19', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    expect(result.outcome).not.toBe('fee_due');
+    expect(result.outcome).toBe('waiting_network');
+    expect(await h.settlementRepo.findByJobAndLeg(h.jobId, 'deposit')).toBeNull();
+  });
+
   it('waiting on the network: not_confirmed after the bounded wait, check() posts once more without a timer', async () => {
     const { chainState, h, page } = await setup(13);
     const wallet = buildFakeWallet({ chainState, feeNeverConfirms: true });
@@ -648,17 +780,19 @@ describe('every other outcome in Make 3', () => {
 });
 
 describe('no wallet-response posts before both receipts exist', () => {
-  it('the wallet-response body always carries feeTx.signed true once the fee transfer was sent', async () => {
+  it('the wallet-response body always carries feeTx.signed true once the fee transfer was sent, and posts exactly once', async () => {
     const { chainState, h, page } = await setup(16);
-    const wallet = buildFakeWallet({ chainState });
+    const wallet = buildFakeWallet({ chainState, pendingRounds: 2 });
 
-    let walletResponseBody: Record<string, unknown> | null = null;
+    const walletResponseBodies: Array<Record<string, unknown>> = [];
+    let walletResponsePosts = 0;
     const originalFetch = page.window.fetch;
     Object.defineProperty(page.window, 'fetch', {
       writable: true,
       value: async (input: string, init?: RequestInit) => {
         if (String(input).includes('/usdc/wallet-response') && init?.body) {
-          walletResponseBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+          walletResponsePosts += 1;
+          walletResponseBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
         }
         return (originalFetch as typeof fetch)(input, init);
       },
@@ -666,9 +800,149 @@ describe('no wallet-response posts before both receipts exist', () => {
 
     const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w16', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
     expect(result.outcome).toBe('paid');
-    expect(walletResponseBody).not.toBeNull();
-    expect((walletResponseBody as unknown as { feeTx: { signed: boolean } }).feeTx.signed).toBe(true);
-    // Exactly one wallet-response POST for this one pay() call.
+    // Exactly one wallet-response POST for this one pay() call, never one
+    // per poll round: pendingRounds forces two pending reads before the
+    // receipt lands, so a POST fired per round would show up here as 2+.
+    expect(walletResponsePosts).toBe(1);
+    expect(walletResponseBodies[0]).not.toBeUndefined();
+    expect((walletResponseBodies[0] as unknown as { feeTx: { signed: boolean } }).feeTx.signed).toBe(true);
+  });
+
+  it('pay() never posts wallet-response on a bare setTimeout: the poll count matches pollLimit, not real time', async () => {
+    // Every wait pay() takes is through this engine's own bounded
+    // pollReceipts loop, driven by pollIntervalMs/pollLimit, never a
+    // free-running timer: a receipt that stays pending for the whole
+    // bounded window still ends the call (waiting_network), rather than
+    // pay() hanging or firing extra posts later.
+    const { chainState, h, page } = await setup(20);
+    const wallet = buildFakeWallet({ chainState, feeNeverConfirms: true });
+    let walletResponsePosts = 0;
+    const originalFetch = page.window.fetch;
+    Object.defineProperty(page.window, 'fetch', {
+      writable: true,
+      value: async (input: string, init?: RequestInit) => {
+        if (String(input).includes('/usdc/wallet-response')) walletResponsePosts += 1;
+        return (originalFetch as typeof fetch)(input, init);
+      },
+    });
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w20', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 1, pollLimit: 3 });
+    expect(result.outcome).toBe('waiting_network');
+    expect(walletResponsePosts).toBe(1);
+    // price + fee sent, each receipt read at least once per bounded round.
     expect(wallet.calls.filter((c) => c === 'eth_getTransactionReceipt').length).toBeGreaterThanOrEqual(2);
   });
+
+  it('the bounded poll loop actually retries: it reads each receipt more than once when the first read is pending', async () => {
+    // B49 review round 1, defect 3: the server's own confirm() reads the
+    // chain independently of this engine's local wait, so asserting on
+    // pay()'s outcome alone cannot tell a real retry loop apart from one
+    // whose retry `while` was deleted (the server confirms it anyway).
+    // The only fact that distinguishes them is how many times THIS
+    // engine's own poll actually read each receipt: pendingRounds forces
+    // the first read to answer null, so only a loop that runs a second
+    // round reads either hash more than once.
+    const { chainState, h, page } = await setup(30);
+    const wallet = buildFakeWallet({ chainState, pendingRounds: 1 });
+
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w30', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 1, pollLimit: 5 });
+    expect(result.outcome).toBe('paid');
+    // Two items (price, fee), each read at least twice (the pending
+    // first round, plus at least one retry round): a loop with its
+    // retry `while` deleted reads each exactly once (2 total).
+    expect(wallet.calls.filter((c) => c === 'eth_getTransactionReceipt').length).toBeGreaterThan(2);
+  });
 });
+
+describe('outcomes with no case before B49 review round 1 (defect 3)', () => {
+  it('already_paid: the server\'s own already-paid refusal is forwarded and the stored record cleared', async () => {
+    const { chainState, h, page } = await setup(21);
+    const wallet = buildFakeWallet({ chainState });
+
+    const first = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w21a', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    expect(first.outcome).toBe('paid');
+
+    // A second pay() call on the same already-settled leg: the door's
+    // own B49 refusal, forwarded as already_paid, never a fresh 200.
+    const secondWallet = buildFakeWallet({ chainState });
+    const second = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w21b', secondWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    expect(second.outcome).toBe('already_paid');
+    expect(second.message).toContain('already been paid');
+    // The already-paid refusal fires at usdc/start itself, before any
+    // wallet call beyond eth_requestAccounts: nothing is sent twice.
+    expect(secondWallet.sends).toHaveLength(0);
+  });
+
+  it('price_due: the fee landed and the price failed on the network', async () => {
+    const { chainState, h, page } = await setup(22);
+    const wallet = buildFakeWallet({ chainState, failPriceOnChain: true });
+
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w22', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    expect(result.outcome).toBe('price_due');
+  });
+
+  it('mismatched: a transfer landed on chain but did not pay what this leg expects', async () => {
+    const { chainState, h, page } = await setup(23);
+    const wallet = buildFakeWallet({ chainState, mismatchPriceReceipt: true });
+
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w23', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    expect(result.outcome).toBe('mismatched');
+    expect(await h.settlementRepo.findByJobAndLeg(h.jobId, 'deposit')).toBeNull();
+  });
+
+  it('refused by the server: usdc/start answers a non-200 with a sentence, no wallet transfer sent', async () => {
+    const { h, page } = await setup(24);
+    const wallet = buildFakeWallet({ chainState: newChainState() });
+
+    const originalFetch = page.window.fetch;
+    Object.defineProperty(page.window, 'fetch', {
+      writable: true,
+      value: async (input: string, init?: RequestInit) => {
+        if (String(input).includes('/usdc/start')) {
+          return new Response(JSON.stringify({ error: 'this job has no agreed price to pay against' }), { status: 409, headers: { 'content-type': 'application/json' } });
+        }
+        return (originalFetch as typeof fetch)(input, init);
+      },
+    });
+
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w24', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    expect(result.outcome).toBe('server_refused');
+    expect(result.message).toBe('this job has no agreed price to pay against');
+    expect(wallet.sends).toHaveLength(0);
+  });
+
+  it('4001 on switch: cancelled, nothing sent, matching the brief\'s "you closed the wallet before switching networks"', async () => {
+    const { chainState, h, page } = await setup(25);
+    const wallet = buildFakeWallet({ chainState, switchBehavior: 'refuse-with-4001' });
+
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w25', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    expect(result.outcome).toBe('cancelled');
+    expect(wallet.sends).toHaveLength(0);
+    expect(wallet.calls.filter((c) => c === 'wallet_addEthereumChain')).toHaveLength(0);
+  });
+
+  it('a stored record is cleared exactly when the payment is confirmed', async () => {
+    const { chainState, h, page } = await setup(26);
+    const wallet = buildFakeWallet({ chainState });
+    const result = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w26', wallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    expect(result.outcome).toBe('paid');
+    const raw = (page.window as unknown as { localStorage: { getItem: (key: string) => string | null } }).localStorage.getItem(`fa_usdc_wallet:${h.jobId}:deposit`);
+    expect(raw).toBeNull();
+  });
+
+  it('the uuid dedupe drops a second announcement with the same uuid', async () => {
+    const { page } = await setup(27);
+    const win = page.window as unknown as {
+      addEventListener: (event: string, handler: () => void) => void;
+      dispatchEvent: (event: Event) => void;
+      CustomEvent: typeof CustomEvent;
+    };
+    win.addEventListener('eip6963:requestProvider', () => {
+      win.dispatchEvent(new win.CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'uuid-dup', name: 'Wallet First' }, provider: {} } }));
+      win.dispatchEvent(new win.CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'uuid-dup', name: 'Wallet Second' }, provider: {} } }));
+    });
+    const found = (await engineOf(page).discover({ window: page.window, discoveryWindowMs: 20 })) as Array<{ id: string; name: string }>;
+    expect(found).toHaveLength(1);
+    expect(found[0]!.name).toBe('Wallet First');
+  });
+});
+

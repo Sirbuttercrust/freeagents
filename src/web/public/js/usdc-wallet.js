@@ -189,6 +189,7 @@
     }
     var price = receipts.price;
     var fee = receipts.fee;
+    var legs = body.legs || {};
     if (price && price.status === "failed" && fee && fee.status === "confirmed") {
       return { outcome: "price_due", message: "The fee transfer landed, but the price transfer did not. Send the price transfer again." };
     }
@@ -198,10 +199,15 @@
     if (fee && fee.status === "failed") {
       return { outcome: "transfer_failed", leg: "fee", message: "The fee transfer failed on the network. You can send it again." };
     }
-    if (feeRefused) {
+    // B49 review round 1, defect 2: fee_due claimed the price landed
+    // without checking it. The price transfer can still be unconfirmed
+    // (or mismatched) at the exact moment the fee is refused, and the
+    // server's own legs.price.status is the authoritative fact (never
+    // guessed from this device's own receipt read, which a device with no
+    // pending-poll data at all would not even have here).
+    if (feeRefused && legs.price && legs.price.status === "confirmed") {
       return { outcome: "fee_due", message: "The price transfer landed. The fee transfer is still due." };
     }
-    var legs = body.legs || {};
     if ((legs.price && legs.price.status === "mismatched") || (legs.fee && legs.fee.status === "mismatched")) {
       return { outcome: "mismatched", message: "One of the transfers did not pay what this job expects. Do not send anything else yet." };
     }
@@ -269,16 +275,27 @@
       return { outcome: "server_refused", message: "The payment service did not name both transfers." };
     }
 
+    // B49 review round 1, defect 1: a known hash is reused whenever one is
+    // known, not only when its LAST reported status was "confirmed". A
+    // transfer this device already sent can be merely still landing
+    // ("not_confirmed") rather than confirmed, and the server's
+    // confirmed/not_confirmed distinction cannot tell "still pending"
+    // apart from "failed on chain" (both read receipt.status !== 1 as
+    // not_confirmed). Only THIS engine's own receipt read can tell that
+    // apart, which is why the brief ties a resend to the buyer's own
+    // press after a transfer_failed outcome (resend), never to a status
+    // string alone. halfPaidRecord (server, any device) is preferred over
+    // this device's own storage because it is the more recent fact.
     var stored = readStored(win, jobId, leg) || {};
     var halfPaidRecord = startBody.halfPaidRecord;
     var priceHash =
       resend === "price"
         ? null
-        : (halfPaidRecord && halfPaidRecord.priceStatus === "confirmed" ? halfPaidRecord.priceTxHash : stored.priceTxHash) || null;
+        : (halfPaidRecord && halfPaidRecord.priceTxHash ? halfPaidRecord.priceTxHash : stored.priceTxHash) || null;
     var feeHash =
       resend === "fee"
         ? null
-        : (halfPaidRecord && halfPaidRecord.feeStatus === "confirmed" ? halfPaidRecord.feeTxHash : stored.feeTxHash) || null;
+        : (halfPaidRecord && halfPaidRecord.feeTxHash ? halfPaidRecord.feeTxHash : stored.feeTxHash) || null;
     var feeRefused = false;
 
     if (!priceHash) {
