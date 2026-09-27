@@ -183,6 +183,8 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
     buyerToken = await mintSessionToken(adapter);
 
     await jobRepo.create(jobFixture({ id: 'b40-draft', status: 'draft' }));
+    await jobRepo.create(jobFixture({ id: 'b40-draft-remove', status: 'draft' }));
+    await jobRepo.create(jobFixture({ id: 'b40-draft-reload', status: 'draft' }));
     await jobRepo.create(jobFixture({ id: 'b40-seat', status: 'proposed', criteria: [unsigned('Agent line'), unsigned('Buyer line', 'buyer')], priceUsd: '300.00', deliveryWindowDays: 4 }));
     await jobRepo.create(jobFixture({ id: 'b40-sign', status: 'proposed', criteria: [unsigned('Sign me')], priceUsd: '300.00', deliveryWindowDays: 4 }));
     await jobRepo.create(jobFixture({ id: 'b40-edit', status: 'proposed', criteria: [unsigned('One'), unsigned('Two'), unsigned('Three')], priceUsd: '300.00', deliveryWindowDays: 4 }));
@@ -250,36 +252,82 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
     });
   });
 
-  describe('(b) a draft job from the owner\u2019s side', () => {
-    it('the first line goes out through the propose field, then the unset price row sets the price with no rail', async () => {
+  describe('(b) the draft composer', () => {
+    it('two lines, 400 and 5 days: exactly one POST carrying both lines, "400.00", 5 and no rail, and the job reads back proposed', async () => {
       const page = await render(baseUrl, 'b40-draft', ownerToken);
       try {
-        expect(page.document.getElementById('propose-field')!.hidden).toBe(false);
-        expect(page.document.getElementById('lede')?.textContent).toBe('Add what you will deliver, one line at a time, then set the price.');
-        expect(page.document.getElementById('lockbar')?.textContent).toContain('No lines yet.');
-        type(page, page.document.getElementById('newcrit'), 'The cart survives a refresh');
-        await click(page.document.getElementById('propose-submit'));
-        expect(page.posts.at(-1)!.body).toEqual({ criteria: [{ text: 'The cart survives a refresh', proposedBy: 'agent' }] });
-        let job = await readJob('b40-draft');
-        expect(job.status).toBe('proposed');
+        expect(page.document.getElementById('terms-pane')!.hidden).toBe(true);
+        type(page, page.document.querySelector('.compose-line input'), 'The cart survives a refresh');
+        await click(page.document.getElementById('compose-add'), 20);
+        type(page, page.document.querySelectorAll('.compose-line input')[1], 'No new lint errors');
+        type(page, page.document.getElementById('compose-price'), '400');
+        type(page, page.document.getElementById('compose-days'), '5');
+        await click(page.document.getElementById('compose-send'));
 
-        // The page re-rendered from the response: one line and a price row to set.
-        expect(rows(page).length).toBe(2);
-        expect(rows(page)[1]!.querySelector('.txt')?.textContent).toBe('Price: not set yet');
-        expect(rows(page)[1]!.querySelectorAll('button.sig').length).toBe(0);
-        expect(page.document.getElementById('lockbar')?.textContent).toContain('Waiting on you to set the price.');
-
-        await editRow(page, 1, '400');
-        expect(page.posts.at(-1)!.body).toEqual({
-          criteria: [{ text: 'The cart survives a refresh', proposedBy: 'agent' }],
+        const sends = page.posts.filter((p) => p.path === '/jobs/b40-draft/criteria');
+        expect(page.posts.length).toBe(1);
+        expect(sends.length).toBe(1);
+        expect(sends[0]!.body).toEqual({
+          criteria: [
+            { text: 'The cart survives a refresh', proposedBy: 'agent' },
+            { text: 'No new lint errors', proposedBy: 'agent' },
+          ],
           priceUsd: '400.00',
+          deliveryWindowDays: 5,
         });
-        job = await readJob('b40-draft');
-        expect(job.price).toMatchObject({ priceUsd: '400.00', rail: null });
-        expect(rows(page).length).toBe(3);
-        expect(rows(page)[1]!.querySelector('.txt')?.textContent).toBe('Price: $400.00');
+        expect('rail' in sends[0]!.body).toBe(false);
+
+        const job = await readJob('b40-draft');
+        expect(job.status).toBe('proposed');
+        expect(job.criteria.map((c: { text: string }) => c.text)).toEqual(['The cart survives a refresh', 'No new lint errors']);
+        expect(job.price).toMatchObject({ priceUsd: '400.00', deliveryWindowDays: 5, rail: null });
+        // The page re-rendered from the response: the matrix, not the composer.
+        expect(rows(page).length).toBe(4);
+        expect(page.document.getElementById('compose-send')).toBeNull();
       } finally {
         page.close();
+      }
+    });
+
+    it('removing a line before the first send leaves it out of the send', async () => {
+      const page = await render(baseUrl, 'b40-draft-remove', ownerToken);
+      try {
+        type(page, page.document.querySelector('.compose-line input'), 'Keep one');
+        await click(page.document.getElementById('compose-add'), 20);
+        type(page, page.document.querySelectorAll('.compose-line input')[1], 'Drop me');
+        await click(page.document.getElementById('compose-add'), 20);
+        type(page, page.document.querySelectorAll('.compose-line input')[2], 'Keep two');
+        await click(page.document.querySelectorAll('.compose-rm')[1], 20);
+        expect(page.document.querySelectorAll('.compose-line').length).toBe(2);
+        type(page, page.document.getElementById('compose-price'), '250.5');
+        type(page, page.document.getElementById('compose-days'), '3');
+        await click(page.document.getElementById('compose-send'));
+        const job = await readJob('b40-draft-remove');
+        expect(job.criteria.map((c: { text: string }) => c.text)).toEqual(['Keep one', 'Keep two']);
+        expect(job.price.priceUsd).toBe('250.50');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a half-written quote survives a reload, keyed to the job', async () => {
+      const first = await render(baseUrl, 'b40-draft-reload', ownerToken);
+      let saved: string | null;
+      try {
+        type(first, first.document.querySelector('.compose-line input'), 'Half written');
+        type(first, first.document.getElementById('compose-price'), '420');
+        saved = first.window.sessionStorage.getItem('fa_quote_draft:b40-draft-reload');
+      } finally {
+        first.close();
+      }
+      expect(saved).not.toBeNull();
+      const second = await render(baseUrl, 'b40-draft-reload', ownerToken, { storage: { 'fa_quote_draft:b40-draft-reload': saved! } });
+      try {
+        expect((second.document.querySelector('.compose-line input') as HTMLInputElement).value).toBe('Half written');
+        expect((second.document.getElementById('compose-price') as HTMLInputElement).value).toBe('420');
+        expect((await readJob('b40-draft-reload')).status).toBe('draft');
+      } finally {
+        second.close();
       }
     });
   });
@@ -448,7 +496,7 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
         expect(rows(page).length).toBe(3);
         expect(page.document.querySelectorAll('#terms button').length).toBe(0);
         expect(page.document.getElementById('propose-field')!.hidden).toBe(true);
-        expect(page.document.querySelector('.line-edit')).toBeNull();
+        expect(page.document.getElementById('compose-send')).toBeNull();
       } finally {
         page.close();
       }
@@ -456,7 +504,7 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
   });
 
   // (i) Real Chrome: no sideways scroll at 320, 390 (touch) and 1280 with
-  // a line edit, the price edit and the window edit open; every control is
+  // the composer, a line edit and the price edit open; every control is
   // 44px or more on touch; reduced motion leaves every row finished and
   // still.
   describe('(i) real layout of the owner\u2019s open states', () => {
@@ -478,14 +526,14 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
         await browser.send('Page.addScriptToEvaluateOnNewDocument', {
           source: `window.sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify({ token: ownerToken }))});`,
         });
-        const states: Array<[string, string, string]> = [
+        const states: Array<[string, string, string | null]> = [
+          ['composer', '/agreement?job=b40-draft-reload', null],
           ['line edit', '/agreement?job=b40-seat', '#terms > li:nth-child(1) button.act'],
           ['price edit', '/agreement?job=b40-seat', '#terms > li:nth-child(3) button.act'],
-          ['window edit', '/agreement?job=b40-seat', '#terms > li:nth-child(4) button.act'],
         ];
         for (const [label, path, opener] of states) {
           await browser.goto(`${baseUrl}${path}`, 900);
-          await browser.evaluate(`document.querySelector(${JSON.stringify(opener)}).click()`);
+          if (opener) await browser.evaluate(`document.querySelector(${JSON.stringify(opener)}).click()`);
           await new Promise((r) => setTimeout(r, 200));
           const m = await browser.evaluate<{ scrollWidth: number; open: boolean; small: string[]; moving: string[] }>(`
             (function () {
@@ -493,12 +541,12 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
                 .filter(function (el) { var r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
               var small = controls.filter(function (el) { var r = el.getBoundingClientRect(); return r.width < 44 || r.height < 44; })
                 .map(function (el) { var r = el.getBoundingClientRect(); return (el.id || el.className || el.tagName) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height); });
-              var moving = Array.from(document.querySelectorAll('#terms > li, .line-edit'))
+              var moving = Array.from(document.querySelectorAll('#terms > li, .line-edit, .composer'))
                 .filter(function (el) { var s = getComputedStyle(el); return s.opacity !== '1' || parseFloat(s.transitionDuration) > 0; })
                 .map(function (el) { return el.className || el.tagName; });
               return {
                 scrollWidth: document.documentElement.scrollWidth,
-                open: !!document.querySelector('.line-edit'),
+                open: !!document.querySelector(${JSON.stringify(opener ? '.line-edit' : '#compose-send')}),
                 small: small, moving: moving
               };
             })()
