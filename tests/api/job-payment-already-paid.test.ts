@@ -105,6 +105,17 @@ interface Started {
   readonly baseUrl: string;
   readonly settlementRepo: MemorySettlementRepository;
 }
+// Runs fn against a started app, guaranteeing server.close() even on
+// failure -- the try/finally every describe block below would otherwise
+// repeat individually.
+async function withStarted(fn: (s: Started) => Promise<void>): Promise<void> {
+  const started = await startApp();
+  try {
+    await fn(started);
+  } finally {
+    await new Promise<void>((resolve) => started.server.close(() => resolve()));
+  }
+}
 async function startApp(): Promise<Started> {
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -205,132 +216,97 @@ async function recordSettledDeposit(settlementRepo: MemorySettlementRepository, 
   });
 }
 describe('B49: usdc/start refuses a leg that already has a settlement row', () => {
-  it('answers 409 naming the already-paid sentence, and starts nothing fresh', async () => {
-    const { server, baseUrl, settlementRepo } = await startApp();
-    try {
-      const jobId = await walkToProposed(baseUrl, 'usdc');
-      await recordSettledDeposit(settlementRepo, jobId, 'usdc');
-      const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
-      expect(res.status).toBe(409);
-      const body = (await res.json()) as Record<string, unknown>;
-      expect(String(body.error)).toContain('already been paid');
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-  });
-  it('a leg that is NOT settled still starts normally', async () => {
-    const { server, baseUrl } = await startApp();
-    try {
-      const jobId = await walkToProposed(baseUrl, 'usdc');
-      const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
-      expect(res.status).toBe(200);
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-  });
+  it('answers 409 naming the already-paid sentence, and starts nothing fresh', () => withStarted(async ({ baseUrl, settlementRepo }) => {
+    const jobId = await walkToProposed(baseUrl, 'usdc');
+    await recordSettledDeposit(settlementRepo, jobId, 'usdc');
+    const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(String(body.error)).toContain('already been paid');
+  }));
+  it('a leg that is NOT settled still starts normally', () => withStarted(async ({ baseUrl }) => {
+    const jobId = await walkToProposed(baseUrl, 'usdc');
+    const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
+    expect(res.status).toBe(200);
+  }));
 });
 describe('B49: abt/start refuses a leg that already has a settlement row', () => {
-  it('answers 409 naming the already-paid sentence, and mints no session', async () => {
-    const { server, baseUrl, settlementRepo } = await startApp();
-    try {
-      const jobId = await walkToProposed(baseUrl, 'abt');
-      await recordSettledDeposit(settlementRepo, jobId, 'abt');
-      const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/abt/start`, {}, buyer);
-      expect(res.status).toBe(409);
-      const body = (await res.json()) as Record<string, unknown>;
-      expect(String(body.error)).toContain('already been paid');
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-  });
+  it('answers 409 naming the already-paid sentence, and mints no session', () => withStarted(async ({ baseUrl, settlementRepo }) => {
+    const jobId = await walkToProposed(baseUrl, 'abt');
+    await recordSettledDeposit(settlementRepo, jobId, 'abt');
+    const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/abt/start`, {}, buyer);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(String(body.error)).toContain('already been paid');
+  }));
 });
 describe('B49: the token-mint door (/api/did/pay/token) refuses a leg that already has a settlement row', () => {
-  it('answers 409 naming the already-paid sentence, and mints no session', async () => {
-    const { server, baseUrl, settlementRepo } = await startApp();
-    try {
-      const jobId = await walkToProposed(baseUrl, 'abt');
-      await recordSettledDeposit(settlementRepo, jobId, 'abt');
-      const res = await getSigned(baseUrl, `/api/did/pay/token?jobId=${jobId}&leg=deposit`, buyer);
-      expect(res.status).toBe(409);
-      const body = (await res.json()) as Record<string, unknown>;
-      expect(String(body.error)).toContain('already been paid');
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-  });
+  it('answers 409 naming the already-paid sentence, and mints no session', () => withStarted(async ({ baseUrl, settlementRepo }) => {
+    const jobId = await walkToProposed(baseUrl, 'abt');
+    await recordSettledDeposit(settlementRepo, jobId, 'abt');
+    const res = await getSigned(baseUrl, `/api/did/pay/token?jobId=${jobId}&leg=deposit`, buyer);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(String(body.error)).toContain('already been paid');
+  }));
 });
 describe('B49: usdc/wallet-response refuses a fresh (non-replay) attempt on an already-settled leg', () => {
-  it('a different hash pair than the recorded settlement answers 409, and the row is unchanged', async () => {
-    const { server, baseUrl, settlementRepo } = await startApp();
-    try {
-      const jobId = await walkToProposed(baseUrl, 'usdc');
-      await recordSettledDeposit(settlementRepo, jobId, 'usdc');
-      const res = await postSigned(
-        baseUrl,
-        `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-        { priceTxHash: '0xdep-price', feeTx: { signed: true, hash: '0xdep-fee' } },
-        buyer,
-      );
-      expect(res.status).toBe(409);
-      const body = (await res.json()) as Record<string, unknown>;
-      expect(String(body.error)).toContain('already been paid');
-      const row = await settlementRepo.findByJobAndLeg(jobId, 'deposit');
-      expect(row?.hash).toBe(`already-paid-hash-${jobId}`);
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-  });
-  it('an exact replay of the recorded pair still answers what the first call answered (idempotency untouched)', async () => {
-    const { server, baseUrl, settlementRepo } = await startApp();
-    try {
-      const jobId = await walkToProposed(baseUrl, 'usdc');
-      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
-      const first = await postSigned(
-        baseUrl,
-        `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-        { priceTxHash: '0xdep-price', feeTx: { signed: true, hash: '0xdep-fee' } },
-        buyer,
-      );
-      expect(first.status).toBe(200);
-      const firstBody = (await first.json()) as Record<string, unknown>;
-      expect(firstBody.confirmed).toBe(true);
-      // Same recorded pair replayed: must still answer confirmed, not 409.
-      const replay = await postSigned(
-        baseUrl,
-        `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-        { priceTxHash: '0xdep-price', feeTx: { signed: true, hash: '0xdep-fee' } },
-        buyer,
-      );
-      expect(replay.status).toBe(200);
-      const replayBody = (await replay.json()) as Record<string, unknown>;
-      expect(replayBody.confirmed).toBe(true);
-      const row = await settlementRepo.findByJobAndLeg(jobId, 'deposit');
-      expect(row?.hash).toBe('0xdep-price');
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-  });
+  it('a different hash pair than the recorded settlement answers 409, and the row is unchanged', () => withStarted(async ({ baseUrl, settlementRepo }) => {
+    const jobId = await walkToProposed(baseUrl, 'usdc');
+    await recordSettledDeposit(settlementRepo, jobId, 'usdc');
+    const res = await postSigned(
+      baseUrl,
+      `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
+      { priceTxHash: '0xdep-price', feeTx: { signed: true, hash: '0xdep-fee' } },
+      buyer,
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(String(body.error)).toContain('already been paid');
+    const row = await settlementRepo.findByJobAndLeg(jobId, 'deposit');
+    expect(row?.hash).toBe(`already-paid-hash-${jobId}`);
+  }));
+  it('an exact replay of the recorded pair still answers what the first call answered (idempotency untouched)', () => withStarted(async ({ baseUrl, settlementRepo }) => {
+    const jobId = await walkToProposed(baseUrl, 'usdc');
+    await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
+    const first = await postSigned(
+      baseUrl,
+      `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
+      { priceTxHash: '0xdep-price', feeTx: { signed: true, hash: '0xdep-fee' } },
+      buyer,
+    );
+    expect(first.status).toBe(200);
+    const firstBody = (await first.json()) as Record<string, unknown>;
+    expect(firstBody.confirmed).toBe(true);
+    // Same recorded pair replayed: must still answer confirmed, not 409.
+    const replay = await postSigned(
+      baseUrl,
+      `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
+      { priceTxHash: '0xdep-price', feeTx: { signed: true, hash: '0xdep-fee' } },
+      buyer,
+    );
+    expect(replay.status).toBe(200);
+    const replayBody = (await replay.json()) as Record<string, unknown>;
+    expect(replayBody.confirmed).toBe(true);
+    const row = await settlementRepo.findByJobAndLeg(jobId, 'deposit');
+    expect(row?.hash).toBe('0xdep-price');
+  }));
 });
 describe('B49: onAuth (the ABT wallet callback) refuses to broadcast or settle a leg that settled in the meantime', () => {
-  it('a session minted while the leg was still open refuses once the leg settles before the wallet finishes', async () => {
-    const { server, baseUrl, settlementRepo } = await startApp();
-    try {
-      const jobId = await walkToProposed(baseUrl, 'abt');
-      // The session is minted while the deposit leg is still open (the
-      // ordinary /start call), so eligibility passes at MINT time -- the
-      // exact race B49 exists for: a second device, or a later settlement
-      // through a different session, lands before this wallet finishes.
-      const { sessionToken, authCallbackUrl } = await startAbtSession(baseUrl, buyer, { jobId, leg: 'deposit' });
-      await recordSettledDeposit(settlementRepo, jobId, 'abt');
-      const result = await continueAbtWalletProtocol(baseUrl, sessionToken, authCallbackUrl, fromRandom());
-      expect(result.confirmed).toBe(false);
-      expect(result.error).toContain('already been paid');
-      // Nothing was overwritten: the pre-existing settlement row still
-      // carries the hash this test itself wrote, never a broadcast hash.
-      const row = await settlementRepo.findByJobAndLeg(jobId, 'deposit');
-      expect(row?.hash).toBe(`already-paid-hash-${jobId}`);
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-  });
+  it('a session minted while the leg was still open refuses once the leg settles before the wallet finishes', () => withStarted(async ({ baseUrl, settlementRepo }) => {
+    const jobId = await walkToProposed(baseUrl, 'abt');
+    // The session is minted while the deposit leg is still open (the
+    // ordinary /start call), so eligibility passes at MINT time -- the
+    // exact race B49 exists for: a second device, or a later settlement
+    // through a different session, lands before this wallet finishes.
+    const { sessionToken, authCallbackUrl } = await startAbtSession(baseUrl, buyer, { jobId, leg: 'deposit' });
+    await recordSettledDeposit(settlementRepo, jobId, 'abt');
+    const result = await continueAbtWalletProtocol(baseUrl, sessionToken, authCallbackUrl, fromRandom());
+    expect(result.confirmed).toBe(false);
+    expect(result.error).toContain('already been paid');
+    // Nothing was overwritten: the pre-existing settlement row still
+    // carries the hash this test itself wrote, never a broadcast hash.
+    const row = await settlementRepo.findByJobAndLeg(jobId, 'deposit');
+    expect(row?.hash).toBe(`already-paid-hash-${jobId}`);
+  }));
 });
