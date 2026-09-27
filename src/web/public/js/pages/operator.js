@@ -538,16 +538,16 @@
      FIX-CIFLAKE cause 1: a read that answers after the PAGE ITSELF has
      torn down (the jsdom tests close every window they render, which
      deletes window.document) paints nothing rather than throwing into a
-     gone page. The document check comes first because this function, un-
-     like loadAvatar's per-card call, holds no row reference of its own
-     to test isConnected on until AFTER it has already queried the
-     document that may no longer exist; host.isConnected still guards the
-     narrower case where the document survives but this row does not. */
+     gone page. The document check is the only guard this function needs:
+     unlike loadAvatar's per-card call, it holds no row reference of its
+     own before the read settles, so it queries the live document fresh
+     right here, and a querySelector result is connected by definition
+     (there is no way for the row it just found to already be detached). */
   function paintRosterAvatar(did, result) {
     if (result.state !== "ok") return;
     if (typeof document === "undefined" || !document) return;
     var host = document.querySelector('[data-agent-row="' + cssEscape(did) + '"] .pc-bot');
-    if (!host || !host.isConnected || !window.FABots) return;
+    if (!host || !window.FABots) return;
     window.FABots.mount(host, did, { spec: result.value.avatarSpec, size: AVATAR_SIZE });
   }
 

@@ -212,9 +212,21 @@ describe('RealBrowser.launch: never passes Chrome a port it did not choose (FIX-
 
   // The brief's own reproduction: hold a port with a real listener (the
   // exact shape a losing race left Chrome bound to), then prove a launch
-  // still succeeds. With Chrome always requesting port 0 (above), no
-  // port RealBrowser hands it can already be held by this listener, so
-  // holding a port must never make a launch give up.
+  // still succeeds and never touches that port. Holding an UNRELATED
+  // random port proved nothing (qa proof r1 defect 1): freePort() picks
+  // its own random port, so an incidental listener almost never collides
+  // with it, and the old code passed this test too. The spy below forces
+  // the actual collision instead of hoping for one: it makes ANY
+  // net.createServer() call in the code under test resolve to the exact
+  // port the listener holds, which is what the old freePort()
+  // (bind-read-close-hand-to-Chrome) would have to do to reproduce the
+  // race. On the old code this drives Chrome's own --remote-debugging-port
+  // straight into the still-held port, its bind fails exactly as the
+  // brief's probe 1 recorded, and the launch hangs silently until
+  // PORT_WAIT_MS, well past this test's own budget below. The fix never
+  // calls net.createServer() at all (Chrome always gets port 0 and the
+  // real port is read back from its own DevToolsActivePort file), so the
+  // spy has nothing to intercept and the launch succeeds unaffected.
   it('a held port cannot make a real launch give up', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
@@ -229,6 +241,22 @@ describe('RealBrowser.launch: never passes Chrome a port it did not choose (FIX-
         else reject(new Error('could not hold a port'));
       });
     });
+    const createServerSpy = vi.spyOn(net, 'createServer').mockImplementation(() => {
+      const fakeServer = {
+        on: () => fakeServer,
+        unref: () => fakeServer,
+        listen: (_port: number, _host: string, cb?: () => void) => {
+          cb?.();
+          return fakeServer;
+        },
+        address: () => ({ port: heldPort, family: 'IPv4', address: '127.0.0.1' }),
+        close: (cb?: () => void) => {
+          cb?.();
+          return fakeServer;
+        },
+      } as unknown as net.Server;
+      return fakeServer;
+    });
     try {
       const browser = await RealBrowser.launch({ width: 1280, height: 900 });
       try {
@@ -238,11 +266,9 @@ describe('RealBrowser.launch: never passes Chrome a port it did not choose (FIX-
         await browser.close();
       }
     } finally {
+      createServerSpy.mockRestore();
       await new Promise<void>((resolve) => holder.close(() => resolve()));
     }
-    // The held port is asserted only to document that it stayed held
-    // (and therefore genuinely unavailable) throughout the launch above.
-    expect(heldPort).toBeGreaterThan(0);
   }, 30_000);
 });
 
