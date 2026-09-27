@@ -1366,6 +1366,114 @@ export function createApp(
     return row;
   }
 
+  // FIX-B47b, Make 1: the shared gist-check the account-proof route (path
+  // two) and a later proof-branch caller both run, moved into one closure
+  // so neither implements the check twice. Returns an outcome; the CALLER
+  // decides what to write (decision 5): path two keeps its R-5 downgrade
+  // on a missing gist. `label` names the calling route in every
+  // console.error this closure logs.
+  type GistCheckOutcome =
+    | { readonly kind: 'verified' }
+    | { readonly kind: 'not-found' }
+    | { readonly kind: 'github-unavailable' }
+    | { readonly kind: 'author-mismatch'; readonly author: string | null }
+    | { readonly kind: 'no-statement' }
+    | { readonly kind: 'malformed-signature' }
+    | { readonly kind: 'candidate-key-rejected' }
+    | { readonly kind: 'no-key-on-record' }
+    | { readonly kind: 'identity-unavailable' }
+    | { readonly kind: 'signature-invalid' };
+
+  async function checkSignedGist(label: string, did: string, handle: string, gistId: string): Promise<GistCheckOutcome> {
+    // R-4, direction two. Fetching the gist is a public, unauthenticated
+    // read. A deleted gist (GistNotFoundError) is not a failure at all: it
+    // is the check's answer, handled by the caller. Any other failure is a
+    // platform-side unavailability, not an operator error.
+    let gist: Gist;
+    try {
+      gist = await github.getPublicGist({ id: gistId });
+    } catch (err) {
+      if (err instanceof GistNotFoundError) {
+        // R-5 (ENT-5.3): the gist no longer exists. That is not an outage;
+        // it is the check resolving to "the proof no longer stands". What
+        // that means for an existing binding is the CALLER's decision
+        // (decision 5), never this closure's.
+        return { kind: 'not-found' };
+      }
+      console.error(`${label}: github unavailable`, err);
+      return { kind: 'github-unavailable' };
+    }
+
+    // The gist must be authored by the claimed account itself, not merely
+    // linked from it: a forked or quoted gist would otherwise pass.
+    if (gist.owner === null || gist.owner.toLowerCase() !== handle.toLowerCase()) {
+      return { kind: 'author-mismatch', author: gist.owner };
+    }
+
+    // The statement may sit in any file of the gist; the first well-formed
+    // one decides. A gist with no well-formed statement, or one that binds a
+    // different DID or account, is a conflict: the operator can fix the gist.
+    let statement: GistStatement | null = null;
+    for (const content of Object.values(gist.files)) {
+      statement = parseGistStatement(content);
+      if (statement !== null) break;
+    }
+    if (statement === null || !statementBindsBinding(statement, did, handle)) {
+      return { kind: 'no-statement' };
+    }
+
+    // A signature the verifier cannot even decode - bad base64, wrong length
+    // for ed25519 - is garbage in the gist, intrinsic to the input: reject it
+    // here, before letting a real verify primitive turn it into what reads as
+    // a platform outage.
+    if (!signatureIsWellFormed(statement.signature)) {
+      return { kind: 'malformed-signature' };
+    }
+
+    // The signature covers the canonical bytes built from the DID and the
+    // account URL, not the statement text as written: a third party
+    // reconstructs the same bytes from the gist alone (invariant 2).
+    //
+    // PRF1 (bugs.md B31): the statement's optional `key` line is passed
+    // through as a candidate. identityAdapter.verify only trusts it after
+    // checking it derives this agent's own DID (the same binding check
+    // buildDidAbtLoader already applies), so this is never a bypass, only
+    // a second source for a key the platform would otherwise need a prior
+    // agent-signed request to have already observed.
+    let checksOut: boolean;
+    try {
+      checksOut = await identityAdapter.verify({
+        payload: gistProofPayload(did, githubAccountUrl(handle)),
+        signature: statement.signature,
+        signerDid: did,
+        ...(statement.key !== undefined ? { candidateKeyMultibase: statement.key } : {}),
+      });
+    } catch (err) {
+      // PRF1 r1 (Proof review round 1, defect 1 and 2): an unresolvable DID
+      // has two different remedies, both the operator's to fix, and they
+      // differ. CandidateKeyRejectedError means a `key` line was present but
+      // named a key that does not derive this agent's own DID. DidNotResolvableError
+      // (per identity.ts's own contract, now only ever thrown when NO
+      // candidate was offered at all) is the original B31 gap: the platform
+      // genuinely has no key for this DID yet. Every other thrown error (the
+      // identity subsystem itself failing) is a real platform fault.
+      if (err instanceof CandidateKeyRejectedError) {
+        console.error(`${label}: candidate key rejected`, err);
+        return { kind: 'candidate-key-rejected' };
+      }
+      if (err instanceof DidNotResolvableError) {
+        console.error(`${label}: identity verification failed`, err);
+        return { kind: 'no-key-on-record' };
+      }
+      console.error(`${label}: identity verification failed`, err);
+      return { kind: 'identity-unavailable' };
+    }
+    if (!checksOut) {
+      return { kind: 'signature-invalid' };
+    }
+    return { kind: 'verified' };
+  }
+
   app.get('/health', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'ok' });
   });
@@ -1446,6 +1554,14 @@ export function createApp(
   // gets a page, and everything else -- `*/*` from fetch and curl, no
   // Accept header at all -- keeps the byte-identical JSON it answered
   // before this card, on every status code this route can answer.
+  //
+  // FIX-B47b (part one, this card): the session adapter now also mints
+  // proof-purpose states (beginGitHubProofOAuth, peekOAuthStatePurpose,
+  // completeGitHubProofOAuth), but nothing on this route reads them yet;
+  // decision 1's "one callback carries both flows" lands with a follow-up
+  // card. A proof-purpose state reaching this route today falls through
+  // to completeGitHubOAuth, whose own purpose check refuses it with the
+  // ordinary 401, never a session.
   app.get(
     '/auth/github/callback',
     (req: Request, res: Response, next: NextFunction) => {
@@ -3662,139 +3778,78 @@ export function createApp(
       return;
     }
 
-    // R-4, direction two. Fetching the gist is a public, unauthenticated
-    // read. A deleted gist (GistNotFoundError) is not a failure at all: it
-    // is the check's answer, handled below. Any other failure is a
-    // platform-side unavailability, not an operator error, so it is a 503
-    // and records nothing.
-    let gist: Gist;
-    try {
-      gist = await github.getPublicGist({ id: gistRef.id });
-    } catch (err) {
-      if (err instanceof GistNotFoundError) {
-        // R-5 (ENT-5.3): the gist no longer exists. That is not an outage; it
-        // is the check resolving to "the proof no longer stands". A verified
-        // binding drops to unverified (the handle is kept: the claim was
-        // made, it no longer holds). Anything weaker than verified has
-        // nothing to lose, and a missing gist is operator-fixable, so it is
-        // a 409.
-        if (row.proofStatus === 'verified') {
-          let updated: Agent | null;
-          try {
-            updated = await agentRepo.updateGithubBinding(did, {
-              handle,
-              status: 'unverified',
-            });
-          } catch (storageErr) {
-            console.error('POST /agents/:agentDid/account-proof: storage failed', storageErr);
-            res.status(503).json({ error: 'storage unavailable' });
-            return;
-          }
-          if (updated === null) {
-            res.status(404).json({ error: `agent ${did} is not registered` });
-            return;
-          }
-          res.status(200).json(agentProjection(updated));
+    const outcome = await checkSignedGist('POST /agents/:agentDid/account-proof', did, handle, gistRef.id);
+    if (outcome.kind === 'not-found') {
+      // R-5 (ENT-5.3): the gist no longer exists. That is not an outage; it
+      // is the check resolving to "the proof no longer stands". A verified
+      // binding drops to unverified (the handle is kept: the claim was
+      // made, it no longer holds). Anything weaker than verified has
+      // nothing to lose, and a missing gist is operator-fixable, so it is
+      // a 409.
+      if (row.proofStatus === 'verified') {
+        let updated: Agent | null;
+        try {
+          updated = await agentRepo.updateGithubBinding(did, {
+            handle,
+            status: 'unverified',
+          });
+        } catch (storageErr) {
+          console.error('POST /agents/:agentDid/account-proof: storage failed', storageErr);
+          res.status(503).json({ error: 'storage unavailable' });
           return;
         }
-        res.status(409).json({
-          error: 'direction two (signed gist): the gist no longer resolves: recreate it at the published URL',
-        });
+        if (updated === null) {
+          res.status(404).json({ error: `agent ${did} is not registered` });
+          return;
+        }
+        res.status(200).json(agentProjection(updated));
         return;
       }
-      console.error('POST /agents/:agentDid/account-proof: github unavailable', err);
-      res.status(503).json({ error: 'github unavailable' });
-      return;
-    }
-
-    // The gist must be authored by the claimed account itself, not merely
-    // linked from it: a forked or quoted gist would otherwise pass.
-    if (gist.owner === null || gist.owner.toLowerCase() !== handle.toLowerCase()) {
       res.status(409).json({
-        error: `direction two (signed gist): the gist author ${gist.owner ?? 'unknown'} does not match the claimed handle ${handle}`,
+        error: 'direction two (signed gist): the gist no longer resolves: recreate it at the published URL',
       });
       return;
     }
-
-    // The statement may sit in any file of the gist; the first well-formed
-    // one decides. A gist with no well-formed statement, or one that binds a
-    // different DID or account, is a conflict: the operator can fix the gist.
-    let statement: GistStatement | null = null;
-    for (const content of Object.values(gist.files)) {
-      statement = parseGistStatement(content);
-      if (statement !== null) break;
+    if (outcome.kind === 'github-unavailable') {
+      res.status(503).json({ error: 'github unavailable' });
+      return;
     }
-    if (statement === null || !statementBindsBinding(statement, did, handle)) {
+    if (outcome.kind === 'author-mismatch') {
+      res.status(409).json({
+        error: `direction two (signed gist): the gist author ${outcome.author ?? 'unknown'} does not match the claimed handle ${handle}`,
+      });
+      return;
+    }
+    if (outcome.kind === 'no-statement') {
       res.status(409).json({
         error: 'direction two (signed gist): the gist does not hold a well-formed statement binding this agent DID to this account',
       });
       return;
     }
-
-    // A signature the verifier cannot even decode - bad base64, wrong length
-    // for ed25519 - is garbage in the gist, intrinsic to the input: reject it
-    // here, where every other malformed-input path in this route lands,
-    // instead of letting a real verify primitive turn it into what reads as
-    // a platform outage.
-    if (!signatureIsWellFormed(statement.signature)) {
+    if (outcome.kind === 'malformed-signature') {
       res.status(409).json({
         error:
           'direction two (signed gist): the signature field is not a well-formed ed25519 signature (base64, 64 bytes)',
       });
       return;
     }
-
-    // The signature covers the canonical bytes built from the DID and the
-    // account URL, not the statement text as written: a third party
-    // reconstructs the same bytes from the gist alone (invariant 2).
-    //
-    // PRF1 (bugs.md B31): the statement's optional `key` line is passed
-    // through as a candidate. identityAdapter.verify only trusts it after
-    // checking it derives this agent's own DID (the same binding check
-    // buildDidAbtLoader already applies), so this is never a bypass, only
-    // a second source for a key the platform would otherwise need a prior
-    // agent-signed request to have already observed.
-    let checksOut: boolean;
-    try {
-      checksOut = await identityAdapter.verify({
-        payload: gistProofPayload(did, githubAccountUrl(handle)),
-        signature: statement.signature,
-        signerDid: did,
-        ...(statement.key !== undefined ? { candidateKeyMultibase: statement.key } : {}),
+    if (outcome.kind === 'candidate-key-rejected') {
+      res.status(409).json({
+        error: `direction two (signed gist): the key line does not derive ${did}; check the publicKeyMultibase on the key line matches this agent's own key`,
       });
-    } catch (err) {
-      // PRF1 r1 (Proof review round 1, defect 1 and 2): an unresolvable DID
-      // has two different remedies, both the operator's to fix, and they
-      // differ. CandidateKeyRejectedError means a `key` line was present but
-      // named a key that does not derive this agent's own DID: the gist is
-      // public and operator-authored, so this is a 409 naming the fix, not
-      // an outage. DidNotResolvableError (per identity.ts's own contract,
-      // now only ever thrown when NO candidate was offered at all) is the
-      // original B31 gap: the platform genuinely has no key for this DID
-      // yet, and the fix is to add the `key` line, so this is also a 409
-      // naming it, never a message that reads like a platform failure with
-      // no visible way out. Every other thrown error (the identity
-      // subsystem itself failing, as the dedicated verifier-down test
-      // simulates) is a real platform fault and stays a 503.
-      if (err instanceof CandidateKeyRejectedError) {
-        console.error('POST /agents/:agentDid/account-proof: candidate key rejected', err);
-        res.status(409).json({
-          error: `direction two (signed gist): the key line does not derive ${did}; check the publicKeyMultibase on the key line matches this agent's own key`,
-        });
-        return;
-      }
-      if (err instanceof DidNotResolvableError) {
-        console.error('POST /agents/:agentDid/account-proof: identity verification failed', err);
-        res.status(409).json({
-          error: 'direction two (signed gist): this agent has no key on record yet; add a `key: <publicKeyMultibase>` line to the gist statement naming the agent\'s own key',
-        });
-        return;
-      }
-      console.error('POST /agents/:agentDid/account-proof: identity verification failed', err);
+      return;
+    }
+    if (outcome.kind === 'no-key-on-record') {
+      res.status(409).json({
+        error: 'direction two (signed gist): this agent has no key on record yet; add a `key: <publicKeyMultibase>` line to the gist statement naming the agent\'s own key',
+      });
+      return;
+    }
+    if (outcome.kind === 'identity-unavailable') {
       res.status(503).json({ error: 'identity verification unavailable' });
       return;
     }
-    if (!checksOut) {
+    if (outcome.kind === 'signature-invalid') {
       res.status(409).json({
         error: 'direction two (signed gist): the signature does not check out against the agent key',
       });

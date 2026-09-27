@@ -59,12 +59,71 @@ export interface OAuthStart {
   readonly state: string;
 }
 
+// FIX-B47b: what a stored OAuth state is FOR. A sign-in state carries no
+// extra fields at all (decision 1: neither an account nor an agent DID is
+// bound at that point). A proof state names the account DID that started
+// it and the one agent DID it may verify -- both fixed at start, never
+// supplied again at completion, so a completed proof can only ever act on
+// the agent it was begun for.
+export type OAuthStatePurpose =
+  | { readonly kind: 'sign-in' }
+  | { readonly kind: 'proof'; readonly accountDid: string; readonly agentDid: string };
+
+// FIX-B47b: the outcome of completing a proof-purpose OAuth state.
+//   - 'ok': the exchange and the /user read both succeeded; the route still
+//     has to publish and verify the gist before recording anything.
+//   - 'invalid-state': the state was never issued, was already used, has
+//     expired, or names the WRONG purpose (a sign-in state presented here,
+//     decision 1's own guard). The same refusal for every one of those
+//     causes, exactly as completeGitHubOAuth answers null for all of its
+//     own failure shapes, so a caller cannot distinguish them by response.
+//   - 'exchange-failed': the state was valid and proof-purposed, but the
+//     provider's own token exchange or the /user read failed (a bad code,
+//     GitHub down, or the owner declining at GitHub's consent screen --
+//     GitHub answers `error=access_denied` with no code at all, which the
+//     ROUTE layer maps to its own 'refused' outcome before ever reaching
+//     this method; every other bad code reaches here as exchange-failed).
+export type GitHubProofCompletion =
+  | { readonly kind: 'ok'; readonly accountDid: string; readonly agentDid: string; readonly login: string; readonly token: string }
+  | { readonly kind: 'invalid-state' }
+  | { readonly kind: 'exchange-failed' };
+
 export interface SessionAdapter {
   beginGitHubOAuth(): Promise<OAuthStart>;
   completeGitHubOAuth(params: {
     readonly code: string;
     readonly state: string;
   }): Promise<Session | null>;
+
+  // FIX-B47b, decision 1 and 2: starts a proof-purpose OAuth state, bound
+  // to the account DID that may complete it and the one agent DID it may
+  // verify, asking for the `gist` scope and prompt=select_account so the
+  // owner picks which GitHub account the agent works from. Never a
+  // session: completing this state can only ever answer a
+  // GitHubProofCompletion, through completeGitHubProofOAuth below.
+  beginGitHubProofOAuth(accountDid: string, agentDid: string): Promise<OAuthStart>;
+
+  // FIX-B47b, decision 1: tells a caller what a state is FOR, without
+  // consuming it (the callback needs this to decide which completion
+  // method to call, before either one runs its own single-use check).
+  // null for a state never issued or already expired by TTL; a state
+  // already consumed by its own completion method still answers its
+  // original purpose here (peeking is read-only and carries no
+  // side effect), so the callback can tell "wrong purpose" apart from
+  // "this state is simply used up" if it ever needs to.
+  peekOAuthStatePurpose(state: string): OAuthStatePurpose | null;
+
+  // FIX-B47b: exchanges a proof-purpose state for the fields the route
+  // needs to compose, sign and publish the gist statement, and never
+  // mints a Session (decision 1, direction two). Single-use like
+  // completeGitHubOAuth: consumed on this attempt whether or not the
+  // exchange succeeds, so a reused state can never complete twice.
+  // Refuses (invalid-state) a sign-in-purpose state presented here,
+  // the mirror of completeGitHubOAuth refusing a proof-purpose state.
+  completeGitHubProofOAuth(params: {
+    readonly code: string;
+    readonly state: string;
+  }): Promise<GitHubProofCompletion>;
 
   // WebAuthn ceremonies. Options and responses are the JSON the browser
   // API produces, passed through opaque; the adapter validates.
@@ -81,6 +140,15 @@ export class NotImplementedSessionAdapter implements SessionAdapter {
   }
   completeGitHubOAuth(): Promise<Session | null> {
     throw new NotImplementedError('SessionAdapter', 'completeGitHubOAuth');
+  }
+  beginGitHubProofOAuth(): Promise<OAuthStart> {
+    throw new NotImplementedError('SessionAdapter', 'beginGitHubProofOAuth');
+  }
+  peekOAuthStatePurpose(): OAuthStatePurpose | null {
+    throw new NotImplementedError('SessionAdapter', 'peekOAuthStatePurpose');
+  }
+  completeGitHubProofOAuth(): Promise<GitHubProofCompletion> {
+    throw new NotImplementedError('SessionAdapter', 'completeGitHubProofOAuth');
   }
   registerPasskey(): Promise<{ optionsJson: string }> {
     throw new NotImplementedError('SessionAdapter', 'registerPasskey');
