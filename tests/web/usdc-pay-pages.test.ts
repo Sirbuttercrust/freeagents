@@ -364,3 +364,65 @@ describe('Make 4: the balance page pays in the job\u2019s own currency', () => {
     } finally { await page.close(); }
   });
 });
+
+// The same outcomes on the balance page, each with its sentence and press,
+// against the remainder leg's own routes.
+describe('every outcome on the balance page, against the remainder leg', () => {
+  const outcome = async (id: string, wallets: Parameters<typeof announceWallets>[1]): Promise<RenderedPage> => {
+    const page = await openStaged(id);
+    if (wallets.length > 0) announceWallets(page.window, wallets);
+    press(page, 'pay-btn');
+    await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
+    return page;
+  };
+  it('no wallet: the engine sentence, and Try again', async () => {
+    const page = await outcome(await stagedJob('usdc'), []);
+    try {
+      expect(status(page)).toBe('No wallet was found. Install a wallet extension, or open this page inside your wallet app.');
+      expect(presses(page)).toEqual(['usdc-retry']);
+    } finally { await page.close(); }
+  });
+  it('cancelled: the engine sentence, nothing sent, and Try again runs it again', async () => {
+    const wallet = buildPageWallet(h.chain, { refuseAccounts: true });
+    const page = await outcome(await stagedJob('usdc'), [{ uuid: 'w-sc', name: 'Refuser', wallet }]);
+    try {
+      expect(status(page)).toBe('You closed the wallet before approving.');
+      expect(wallet.sends).toHaveLength(0);
+      expect(presses(page)).toEqual(['usdc-retry']);
+      press(page, 'usdc-retry');
+      await waitFor(() => wallet.calls.filter((c) => c === 'eth_requestAccounts').length === 2, 'Try again did nothing');
+    } finally { await page.close(); }
+  });
+  it('transfer_failed: the engine sentence, and Send it again sends only the fee', async () => {
+    const id = await stagedJob('usdc');
+    const wallet = buildPageWallet(h.chain, { failFirstFee: true });
+    const page = await outcome(id, [{ uuid: 'w-sf', name: 'Flaky', wallet }]);
+    try {
+      expect(status(page)).toBe('The fee transfer failed on the network. You can send it again.');
+      expect(presses(page)).toEqual(['usdc-resend']);
+      press(page, 'usdc-resend');
+      await waitFor(() => status(page) === 'This payment is confirmed.', 'the resend never paid');
+      expect(wallet.sends).toHaveLength(3);
+      expect(wallet.sends[2]!.recipient).toBe(USDC_FEE_ADDRESS);
+      expect((await h.settlementRepo.findByJobAndLeg(id, 'remainder'))?.rail).toBe('usdc');
+    } finally { await page.close(); }
+  });
+  it('waiting_network: the engine sentence, Check again reads once on the press and never on a timer', async () => {
+    const id = await stagedJob('usdc');
+    const wallet = buildPageWallet(h.chain, { serverLags: true });
+    const page = await outcome(id, [{ uuid: 'w-sl', name: 'Slow chain', wallet }]);
+    try {
+      expect(status(page)).toBe('The network has not confirmed this payment yet. Check again shortly.');
+      expect(presses(page)).toEqual(['usdc-check']);
+      const responses = (): number => count(page, `POST /jobs/${id}/payments/remainder/usdc/wallet-response`);
+      expect(responses()).toBe(1);
+      await new Promise((r) => setTimeout(r, 1200));
+      expect(responses()).toBe(1);
+      wallet.release();
+      press(page, 'usdc-check');
+      await waitFor(() => status(page) === 'This payment is confirmed.', 'the check never paid');
+      expect(responses()).toBe(2);
+      expect(wallet.sends).toHaveLength(2);
+    } finally { await page.close(); }
+  });
+});
