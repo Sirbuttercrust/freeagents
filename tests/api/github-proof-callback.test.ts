@@ -214,8 +214,7 @@ describe('GET /auth/github/callback, the one-click proof branch: the whole click
     expect(readBody.githubLogin).toBe('octo-full-click');
   });
 
-  // Brief test (c): the PUBLISHED gist verifies with a third-party parser
-  // and node:crypto alone, never this route's own parseGistStatement.
+  // Brief test (c): verified with a third-party parser, node:crypto only.
   it('the published gist verifies independently with a third-party parser, node:crypto, and the key line the gist itself carries; a flipped byte fails', async () => {
     const startRes = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
     const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
@@ -389,8 +388,7 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     }
   });
 
-  // Boots one agent, proves it once (a real verifying login), then runs a
-  // SECOND proof whose gist read-back is forced to the given override.
+  // Boots and proves one agent, then re-proves through the given override.
   async function reproveAfterVerified(secondLogin: string, getPublicGistOverride: (ref: { readonly id: string }) => Promise<Gist>): Promise<{
     readonly agentDid: string;
     readonly firstLogin: string;
@@ -459,8 +457,7 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     return { agentDid, firstLogin, baseUrl, server, outcome, calls: githubFakeSecond.calls };
   }
 
-  // QA proof r1, D1/D2: R-5 separation for BOTH non-verified outcomes,
-  // and the cleanup order (deleteGist strictly before deleteGrant).
+  // QA proof r1, D1/D2: R-5 separation, both outcomes, and cleanup order.
   it.each([
     ['author mismatch', async (ref: { readonly id: string }) => ({ id: ref.id, owner: 'someone-else-entirely', files: { 'proof.txt': 'garbage' } })],
     ['not-found', async (ref: { readonly id: string }) => { throw new GistNotFoundError(ref.id); }],
@@ -507,8 +504,7 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     }
   });
 
-  // QA proof r1, D3: covers a failed exchange and a failed gist write
-  // (brief test (f)), each with no binding change and no token leak.
+  // QA proof r1, D3: a failed exchange and a failed gist write (test (f)).
   it.each([
     ['a failed token exchange', { fetchImpl: failingGitHubFetch() }, 0, 0],
     ['a failed gist publish', { createGistShouldFail: true }, 1, 1],
