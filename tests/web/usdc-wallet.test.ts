@@ -4,9 +4,9 @@
 // is USDC-WEBb): this proves it directly, loading /js/pages/api.js and
 // /js/usdc-wallet.js from the app's own static mount and driving a fake
 // EIP-1193 wallet. The server's fake chain client answers receipts for
-// the hashes the fake wallet itself returned, with the transfer decoded
-// from the data the wallet was given -- so a confirmed payment proves
-// the engine asked for exactly what the server confirms.
+// the hashes the fake wallet returned, with the transfer decoded from
+// the data the wallet was given, so a confirmed payment proves the
+// engine asked for exactly what the server confirms.
 import type { Server } from 'node:http';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -30,9 +30,9 @@ const USDC_CHAIN_ID = 421614;
 const BUYER_FROM_ADDRESS = '0x00000000000000000000000000000000000000EF';
 const TRANSFER_IFACE = new Interface(['function transfer(address,uint256)']);
 // A live, shared receipt store the server's chain client reads, written
-// only by the fake wallet's own eth_sendTransaction handler below --
-// this is what proves the receipt confirm() reads was actually the
-// transfer the engine's call data asked for, never invented by the test.
+// only by the fake wallet's eth_sendTransaction handler below: this
+// proves the receipt confirm() reads is the transfer the engine's call
+// data asked for, never invented by the test.
 interface ChainState {
   readonly receipts: Map<string, { status: number; transfer: { to: string; value: string; tokenContract: string; chainId: number } }>;
   hashCounter: number;
