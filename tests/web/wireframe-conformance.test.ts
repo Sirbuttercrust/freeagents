@@ -474,7 +474,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // agent's settings (see above), so a sign-in page that listed it
     // would point at no agent. The first row is already answered by
     // #account-notice and "How signing in works".
-    'After you sign in': 'its third row is the GitHub proof, which is per agent and lives on each agent\u2019s settings (see \"Proving your GitHub account\"); sign-in keeps one job, and the first row is already answered by #account-notice and \"How signing in works\"',
+    'After you sign in': 'its third row is the GitHub proof, which is per agent and lives on each agent\u2019s settings (see "Proving your GitHub account"); sign-in keeps one job, and the first row is already answered by #account-notice and "How signing in works"',
   },
   settings: {
     // The wireframe's nav button (settings.html:45) points at
