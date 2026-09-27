@@ -51,6 +51,15 @@ interface ChainState {
   readonly receipts: Map<string, { status: number; transfer: { to: string; value: string; tokenContract: string; chainId: number } }>;
   hashCounter: number;
 }
+type Eip6963Window = {
+  addEventListener: (event: string, handler: () => void) => void;
+  dispatchEvent: (event: Event) => void;
+  CustomEvent: typeof CustomEvent;
+  ethereum?: unknown;
+};
+function announceWallet(win: Eip6963Window, uuid: string, name: string): void {
+  win.dispatchEvent(new win.CustomEvent('eip6963:announceProvider', { detail: { info: { uuid, name }, provider: {} } }));
+}
 function newChainState(): ChainState {
   return { receipts: new Map(), hashCounter: 0 };
 }
@@ -436,14 +445,10 @@ describe('invariant 2: the call data decodes, with no call to this service, to w
 describe('discovery: EIP-6963 announced wallets, window.ethereum only as a fallback', () => {
   it('two announced wallets are both listed by name and id', async () => {
     const { page } = await setup(5);
-    const win = page.window as unknown as {
-      addEventListener: (event: string, handler: () => void) => void;
-      dispatchEvent: (event: Event) => void;
-      CustomEvent: typeof CustomEvent;
-    };
+    const win = page.window as unknown as Eip6963Window;
     win.addEventListener('eip6963:requestProvider', () => {
-      win.dispatchEvent(new win.CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'uuid-a', name: 'Wallet A' }, provider: {} } }));
-      win.dispatchEvent(new win.CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'uuid-b', name: 'Wallet B' }, provider: {} } }));
+      announceWallet(win, 'uuid-a', 'Wallet A');
+      announceWallet(win, 'uuid-b', 'Wallet B');
     });
     const found = (await engineOf(page).discover({ window: page.window, discoveryWindowMs: 20 })) as Array<{ id: string; name: string }>;
     expect(found.map((w) => w.id).sort()).toEqual(['uuid-a', 'uuid-b']);
@@ -459,16 +464,9 @@ describe('discovery: EIP-6963 announced wallets, window.ethereum only as a fallb
   });
   it('window.ethereum is dropped when a wallet DOES announce (not merely appended)', async () => {
     const { page } = await setup(28);
-    const win = page.window as unknown as {
-      addEventListener: (event: string, handler: () => void) => void;
-      dispatchEvent: (event: Event) => void;
-      CustomEvent: typeof CustomEvent;
-      ethereum: unknown;
-    };
+    const win = page.window as unknown as Eip6963Window;
     win.ethereum = { marker: 'window.ethereum' };
-    win.addEventListener('eip6963:requestProvider', () => {
-      win.dispatchEvent(new (win as unknown as { CustomEvent: typeof CustomEvent }).CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'uuid-c', name: 'Wallet C' }, provider: {} } }));
-    });
+    win.addEventListener('eip6963:requestProvider', () => announceWallet(win, 'uuid-c', 'Wallet C'));
     const found = (await engineOf(page).discover({ window: page.window, discoveryWindowMs: 20 })) as Array<{ id: string; name: string }>;
     expect(found).toHaveLength(1);
     expect(found[0]!.id).toBe('uuid-c');
@@ -791,14 +789,10 @@ describe('outcomes with no case before B49 review round 1 (defect 3)', () => {
   });
   it('the uuid dedupe drops a second announcement with the same uuid', async () => {
     const { page } = await setup(27);
-    const win = page.window as unknown as {
-      addEventListener: (event: string, handler: () => void) => void;
-      dispatchEvent: (event: Event) => void;
-      CustomEvent: typeof CustomEvent;
-    };
+    const win = page.window as unknown as Eip6963Window;
     win.addEventListener('eip6963:requestProvider', () => {
-      win.dispatchEvent(new win.CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'uuid-dup', name: 'Wallet First' }, provider: {} } }));
-      win.dispatchEvent(new win.CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'uuid-dup', name: 'Wallet Second' }, provider: {} } }));
+      announceWallet(win, 'uuid-dup', 'Wallet First');
+      announceWallet(win, 'uuid-dup', 'Wallet Second');
     });
     const found = (await engineOf(page).discover({ window: page.window, discoveryWindowMs: 20 })) as Array<{ id: string; name: string }>;
     expect(found).toHaveLength(1);
