@@ -442,6 +442,50 @@ export function isTerminal(status: JobStatus): boolean {
   return TERMINAL_STATUSES.includes(status);
 }
 
+// FIX-B37 (bugs.md B37): the agreement rule confirm has always enforced,
+// lifted into a pure function so a deposit door can ask the identical
+// question BEFORE any money moves (route-support.ts's checkAgreementReady
+// and checkDepositReadiness are the callers on that side; confirmSpec below
+// is the other). Answers null once every criterion (at least one) and the
+// price are accepted by both parties; otherwise names the FIRST gap, in
+// the same order confirmSpec has always checked them: no criteria, some
+// criteria outstanding, no price, the price not accepted (and by which
+// party). Deliberately never asks about job.rail: since FIX-B39 a quote
+// may leave the currency open and the deposit itself fixes it (confirm
+// backfills it before this function or confirmSpec's own rail check ever
+// runs), so a rail gap is not an agreement gap -- confirmSpec keeps that
+// check as its own separate step, right where it always lived.
+export type AgreementGap =
+  | { readonly kind: 'no-criteria' }
+  | { readonly kind: 'criteria-outstanding'; readonly outstanding: number; readonly total: number }
+  | { readonly kind: 'no-price' }
+  | { readonly kind: 'price-not-accepted'; readonly missing: 'buyer' | 'agent' | 'both' };
+
+export function agreementGap(job: Job): AgreementGap | null {
+  if (job.criteria.length === 0) {
+    return { kind: 'no-criteria' };
+  }
+  const outstanding = job.criteria.filter(
+    (criterion) => !criterion.acceptedByBuyer || !criterion.acceptedByAgent,
+  ).length;
+  if (outstanding > 0) {
+    return { kind: 'criteria-outstanding', outstanding, total: job.criteria.length };
+  }
+  if (job.priceUsd === null) {
+    return { kind: 'no-price' };
+  }
+  if (!job.priceAcceptedByBuyer || !job.priceAcceptedByAgent) {
+    const missing =
+      !job.priceAcceptedByBuyer && !job.priceAcceptedByAgent
+        ? 'both'
+        : !job.priceAcceptedByBuyer
+          ? 'buyer'
+          : 'agent';
+    return { kind: 'price-not-accepted', missing };
+  }
+  return null;
+}
+
 // Confirm computes specHash itself (ENT-4.2): a caller-supplied digest would
 // let the wire disagree with what was agreed. The gates run after the
 // transition check so wrong-status stays a state conflict, not content
@@ -449,17 +493,25 @@ export function isTerminal(status: JobStatus): boolean {
 // criterion counts as agreed only once BOTH acceptedByBuyer and
 // acceptedByAgent are true, so one party accepting every line is refused
 // here exactly like an unaccepted line would be.
+//
+// FIX-B37: every throw below is unchanged (same classes, same messages,
+// same order); only the criteria/price READING moved into agreementGap
+// above, which this function now calls instead of re-deriving the same
+// facts inline. The rail check stays its own step, never folded into
+// agreementGap (see that function's own header comment for why), and it
+// runs in the same position it always did: after the criteria gate, and
+// combined with the "no price" case into the same thrown message, exactly
+// as the original single `job.priceUsd === null || job.rail === null`
+// check did -- gap.kind === 'no-price' OR job.rail === null triggers it.
 export function confirmSpec(job: Job, now: Date): Job {
   validateJobTransition(job.status, 'confirmed');
-  if (job.criteria.length === 0) {
+  const gap = agreementGap(job);
+  if (gap?.kind === 'no-criteria') {
     throw new JobError('confirm needs at least one acceptance criterion: nothing was agreed');
   }
-  const outstanding = job.criteria.filter(
-    (criterion) => !criterion.acceptedByBuyer || !criterion.acceptedByAgent,
-  ).length;
-  if (outstanding > 0) {
+  if (gap?.kind === 'criteria-outstanding') {
     throw new JobError(
-      `confirm needs every criterion accepted by both parties: ${outstanding} of ${job.criteria.length} outstanding`,
+      `confirm needs every criterion accepted by both parties: ${gap.outstanding} of ${gap.total} outstanding`,
     );
   }
   // P1 anchor: a hire cannot confirm without a price both parties signed.
@@ -467,12 +519,12 @@ export function confirmSpec(job: Job, now: Date): Job {
   // ordering: transition first, content gates after), so a caller sees the
   // criteria problem before the price problem when both are outstanding --
   // one failure at a time, the earlier one in the agreement first.
-  if (job.priceUsd === null || job.rail === null) {
+  if (gap?.kind === 'no-price' || job.rail === null) {
     throw new JobPriceError(
       'confirm needs an agreed price: no price has been proposed for this job yet',
     );
   }
-  if (!job.priceAcceptedByBuyer || !job.priceAcceptedByAgent) {
+  if (gap?.kind === 'price-not-accepted') {
     throw new JobPriceError(
       'confirm needs the price accepted by both parties before the agreement is final',
     );

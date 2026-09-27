@@ -62,7 +62,7 @@ import {
   createReviewRepository,
   createObservedKeyRepository,
 } from '../adapters/storage/storage.js';
-import { delegationConsistent, isAgentOperator, agentMayNegotiate, descriptionWellFormed, didSuffix, verifiedGithubLogin, type Agent, type Delegation } from '../domain/agent.js';
+import { delegationConsistent, isAgentOperator, agentMayNegotiate, descriptionWellFormed, didSuffix, type Agent, type Delegation } from '../domain/agent.js';
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
 import { buildAttestation, AttestationError } from '../domain/attestation.js';
 import { lastHireCompletedAt, recordLastChangedAt } from '../domain/freshness.js';
@@ -147,9 +147,9 @@ import { createAbtPaymentRailOrNull, createUsdcPaymentRailOrNull } from '../adap
 import { attachAbtPaymentHandlers, type AbtTxEncoder } from '../adapters/payment/abt-did-connect.js';
 import { createTxEncoder as createAbtTxEncoder } from '@ocap/client/encode';
 import {
+  checkDepositReadiness,
   checkRailDoorEligible,
   confirmPayment,
-  checkRepositoryReady,
   legStatusConflictMessage,
   legStatusEligible,
   processWalletResponse,
@@ -6757,22 +6757,26 @@ export function createApp(
         res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
         return;
       }
-      // FIX-B36 (Make item 2): before a DEPOSIT leg starts, on all three
+      // FIX-B37 (Make item 2): before a DEPOSIT leg starts, on all three
       // doors -- this is the token-mint door, the second door onto the
       // same session did-connect-js's own /api/did/pay/token would
-      // otherwise mint unguarded. The remainder leg is not checked here:
-      // the repository was already proven at confirm (Not this card
-      // section, brief). Runs after the party/rail/status checks above
-      // and before anything is minted, so a repository that is not ready
-      // starts nothing.
+      // otherwise mint unguarded. Runs after the party/rail/status checks
+      // above and before anything is minted: a sibling already confirmed,
+      // an unsigned agreement, a not-ready repository (FIX-B36, unchanged)
+      // or an unverified agent GitHub login (B42) each start nothing. The
+      // remainder leg is not checked here: the repository, agreement and
+      // sibling facts were already proven at confirm (Not this card
+      // section, brief).
       if (leg === 'deposit') {
-        const repositoryCheck = await checkRepositoryReady(github, {
-          repository: gate.job.repository,
-          jobId: gate.job.id,
-          agentGithubLogin: verifiedGithubLogin(await agentRepo.findByDid(gate.job.agentDid)),
+        const readiness = await checkDepositReadiness({
+          label: 'GET/POST /api/did/pay/token',
+          job: gate.job,
+          jobRepo,
+          github,
+          agent: await agentRepo.findByDid(gate.job.agentDid),
         });
-        if (!repositoryCheck.ok) {
-          res.status(repositoryCheck.status).json({ error: repositoryCheck.message });
+        if (!readiness.ok) {
+          res.status(readiness.status).json({ error: readiness.message });
           return;
         }
       }
@@ -6879,18 +6883,23 @@ export function createApp(
         res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
         return;
       }
-      // FIX-B36 (Make item 2): before a DEPOSIT leg starts, the platform
-      // reads the job's repository and refuses (409, nothing minted) one
-      // that is not ready. Runs after the party/price/rail/status checks
-      // above and before generateSession ever mints a wallet session.
+      // FIX-B37 (Make item 2): before a DEPOSIT leg starts, the platform
+      // checks the whole deposit-readiness surface and refuses (409,
+      // nothing minted) a sibling already confirmed, an unsigned
+      // agreement, a not-ready repository (FIX-B36, unchanged) or an
+      // unverified agent GitHub login (B42). Runs after the
+      // party/price/rail/status checks above and before generateSession
+      // ever mints a wallet session.
       if (leg === 'deposit') {
-        const repositoryCheck = await checkRepositoryReady(github, {
-          repository: gate.job.repository,
-          jobId: gate.job.id,
-          agentGithubLogin: verifiedGithubLogin(await agentRepo.findByDid(gate.job.agentDid)),
+        const readiness = await checkDepositReadiness({
+          label,
+          job: gate.job,
+          jobRepo,
+          github,
+          agent: await agentRepo.findByDid(gate.job.agentDid),
         });
-        if (!repositoryCheck.ok) {
-          res.status(repositoryCheck.status).json({ error: repositoryCheck.message });
+        if (!readiness.ok) {
+          res.status(readiness.status).json({ error: readiness.message });
           return;
         }
       }
@@ -6992,18 +7001,23 @@ export function createApp(
         res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
         return;
       }
-      // FIX-B36 (Make item 2): before a DEPOSIT leg starts, the platform
-      // reads the job's repository and refuses (409, nothing quoted) one
-      // that is not ready. Runs after the party/price/rail/status checks
-      // above and before the rail is ever asked to quote.
+      // FIX-B37 (Make item 2): before a DEPOSIT leg starts, the platform
+      // checks the whole deposit-readiness surface and refuses (409,
+      // nothing quoted) a sibling already confirmed, an unsigned
+      // agreement, a not-ready repository (FIX-B36, unchanged) or an
+      // unverified agent GitHub login (B42). Runs after the
+      // party/price/rail/status checks above and before the rail is ever
+      // asked to quote.
       if (leg === 'deposit') {
-        const repositoryCheck = await checkRepositoryReady(github, {
-          repository: gate.job.repository,
-          jobId: gate.job.id,
-          agentGithubLogin: verifiedGithubLogin(await agentRepo.findByDid(gate.job.agentDid)),
+        const readiness = await checkDepositReadiness({
+          label,
+          job: gate.job,
+          jobRepo,
+          github,
+          agent: await agentRepo.findByDid(gate.job.agentDid),
         });
-        if (!repositoryCheck.ok) {
-          res.status(repositoryCheck.status).json({ error: repositoryCheck.message });
+        if (!readiness.ok) {
+          res.status(readiness.status).json({ error: readiness.message });
           return;
         }
       }

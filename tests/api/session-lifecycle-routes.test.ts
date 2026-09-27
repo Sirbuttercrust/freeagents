@@ -856,7 +856,7 @@ describe('P8a: the payment start routes accept a session for the buyer, still re
       const agentRepo = new MemoryAgentRepository();
       const AGENT_DID = 'did:abt:p8a-usdc-agent';
       const AGENT_OPERATOR_DID = 'did:abt:p8a-usdc-operator';
-      await createAgent(agentRepo, AGENT_DID, AGENT_OPERATOR_DID);
+      await createAgent(agentRepo, AGENT_DID, AGENT_OPERATOR_DID, 'p8a-usdc-agent-login');
       // S3: the USDC recipient is resolved from the hired agent's operator
       // account, so that account has to be registered and carry an
       // operatorAddressEvm or start refuses 409 before this test's own
@@ -912,6 +912,31 @@ describe('P8a: the payment start routes accept a session for the buyer, still re
           }),
         });
         expect(proposed.status).toBe(200);
+
+        // FIX-B37 (bugs.md B37): the deposit door now checks the same
+        // agreement rule confirm has always enforced (agreementGap),
+        // before a session ever reaches the rail. This test is about
+        // session authentication for the BUYER side of the payment
+        // surface, not the negotiation flow, and AGENT_DID here is a
+        // bare literal DID with no real signing key behind it (unlike
+        // every other fixture agent in this file), so there is no
+        // signature this test could produce for the agent's own
+        // acceptance. Sets both acceptances directly through the memory
+        // repository instead -- the exact state a fully negotiated
+        // agreement leaves, reached here without inventing a signature
+        // (FACTORY_RULES 2.1: setup superseded, not the assertion).
+        const negotiatedJob = await jobRepo.findById(jobId);
+        if (negotiatedJob === null) throw new Error('expected the job to exist');
+        await jobRepo.update({
+          ...negotiatedJob,
+          criteria: negotiatedJob.criteria.map((criterion) => ({
+            ...criterion,
+            acceptedByBuyer: true,
+            acceptedByAgent: true,
+          })),
+          priceAcceptedByBuyer: true,
+          priceAcceptedByAgent: true,
+        });
 
         const start = await fetch(`${baseUrl}/jobs/${jobId}/payments/deposit/usdc/start`, {
           method: 'POST',
