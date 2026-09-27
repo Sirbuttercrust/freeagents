@@ -367,6 +367,17 @@ type FAUsdcWallet = {
 function engineOf(page: EnginePage): FAUsdcWallet {
   return (page.window as unknown as { FAUsdcWallet: FAUsdcWallet }).FAUsdcWallet;
 }
+// The default pay() call shape almost every test below uses: the
+// deposit leg, a 5ms/5-round bounded poll. Overrides (leg, resend,
+// pollLimit, ...) merge on top for the handful of tests that differ.
+function payDeposit(
+  page: EnginePage,
+  h: Harness,
+  wallet: { id: string; name: string; icon: string; provider: FakeWallet['provider'] } | null,
+  overrides: Record<string, unknown> = {},
+): Promise<{ outcome: string; message: string; leg?: string }> {
+  return engineOf(page).pay({ window: page.window, wallet, jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5, ...overrides });
+}
 const opened: Array<{ server: Server; page?: EnginePage }> = [];
 afterEach(async () => {
   while (opened.length > 0) {
@@ -401,8 +412,7 @@ function fakeWalletEntry(id: string, opts: FakeWalletOptions): { id: string; nam
 describe('the engine pays a deposit and a balance end to end against the real routes', () => {
   it('deposit: paid, both transfers land, and the settlement row exists', async () => {
     const { chainState, h, page } = await setup(1);
-    const wallet = walletEntry('w1', buildFakeWallet({ chainState }).provider);
-    const result = await engineOf(page).pay({ window: page.window, wallet, jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const result = await payDeposit(page, h, fakeWalletEntry('w1', { chainState }));
     expect(result.outcome).toBe('paid');
     const row = await h.settlementRepo.findByJobAndLeg(h.jobId, 'deposit');
     expect(row).not.toBeNull();
@@ -410,15 +420,13 @@ describe('the engine pays a deposit and a balance end to end against the real ro
   });
   it('balance: paid once the job is staged, and the settlement row exists', async () => {
     const { chainState, h, page } = await setup(2);
-    const depositWallet = buildFakeWallet({ chainState });
-    const depositResult = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w2', depositWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const depositResult = await payDeposit(page, h, fakeWalletEntry('w2', { chainState }));
     expect(depositResult.outcome).toBe('paid');
     const confirm = await postSigned(h.baseUrl, `/jobs/${h.jobId}/confirm`, {}, h.buyer);
     expect(confirm.status).toBe(200);
     const stage = await postSigned(h.baseUrl, `/jobs/${h.jobId}/stage`, { stagedCommit: 'commit-usdc-engine' }, h.agent);
     expect(stage.status).toBe(200);
-    const balanceWallet = buildFakeWallet({ chainState });
-    const balanceResult = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w2', balanceWallet.provider), jobId: h.jobId, leg: 'remainder', token: h.buyerToken, pollIntervalMs: 5, pollLimit: 5 });
+    const balanceResult = await payDeposit(page, h, fakeWalletEntry('w2', { chainState }), { leg: 'remainder' });
     expect(balanceResult.outcome).toBe('paid');
     const row = await h.settlementRepo.findByJobAndLeg(h.jobId, 'remainder');
     expect(row).not.toBeNull();
