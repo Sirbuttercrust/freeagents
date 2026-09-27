@@ -369,6 +369,101 @@ describe('job criteria exchange (R-8)', () => {
     ]);
   });
 
+  // FIX-B45 (bugs.md B45): a re-proposed line keeps its author. B26 still
+  // wins for a NEW or CHANGED line - the sender's own resolved seat labels
+  // it, whatever the body claims - but a line whose trimmed text matches
+  // an existing line is unchanged, and an unchanged line's author does not
+  // move just because someone else sent the next envelope.
+  it("a re-sent line (same trimmed text) keeps its author; only the new line takes the sender's seat", async () => {
+    const seed = await postSigned('/jobs', {
+      agentDid: agent.did,
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    }, buyer);
+    const jobId = String(((await seed.json()) as Record<string, unknown>).id);
+
+    const first = await postSigned(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'Agent line', proposedBy: 'agent' }] }, agent);
+    expect(first.status).toBe(200);
+    const accepted = await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, agent);
+    expect(accepted.status).toBe(200);
+
+    // The buyer re-sends the agent's line with surrounding whitespace, plus
+    // a genuinely new line whose body falsely claims 'agent'.
+    const again = await postSigned(
+      `/jobs/${jobId}/criteria`,
+      {
+        criteria: [
+          { text: '  Agent line  ', proposedBy: 'buyer' },
+          { text: 'Buyer line', proposedBy: 'agent' },
+        ],
+      },
+      buyer,
+    );
+    expect(again.status).toBe(200);
+    const againBody = (await again.json()) as Record<string, unknown>;
+    expect(againBody.criteria).toEqual([
+      { text: 'Agent line', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: true },
+      { text: 'Buyer line', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false },
+    ]);
+  });
+
+  it("the reverse direction: the buyer's line keeps its author when the agent re-sends it plus a new line", async () => {
+    const seed = await postSigned('/jobs', {
+      agentDid: agent.did,
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    }, buyer);
+    const jobId = String(((await seed.json()) as Record<string, unknown>).id);
+
+    const first = await postSigned(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'Buyer line', proposedBy: 'buyer' }] }, buyer);
+    expect(first.status).toBe(200);
+
+    const again = await postSigned(
+      `/jobs/${jobId}/criteria`,
+      {
+        criteria: [
+          { text: 'Buyer line', proposedBy: 'agent' },
+          { text: 'Agent line', proposedBy: 'buyer' },
+        ],
+      },
+      agent,
+    );
+    expect(again.status).toBe(200);
+    const againBody = (await again.json()) as Record<string, unknown>;
+    expect(againBody.criteria).toEqual([
+      { text: 'Buyer line', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false },
+      { text: 'Agent line', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
+    ]);
+  });
+
+  it('an edited line (text changed, not just whitespace) takes the sender\'s seat and starts unaccepted', async () => {
+    const seed = await postSigned('/jobs', {
+      agentDid: agent.did,
+      repository: 'buyer/target-repo',
+      brief: 'Fix the login bug',
+    }, buyer);
+    const jobId = String(((await seed.json()) as Record<string, unknown>).id);
+
+    const first = await postSigned(`/jobs/${jobId}/criteria`, { criteria: [{ text: 'Agent line', proposedBy: 'agent' }] }, agent);
+    expect(first.status).toBe(200);
+    const accepted = await postSigned(`/jobs/${jobId}/criteria/0/accept`, {}, buyer);
+    expect(accepted.status).toBe(200);
+
+    // The buyer sends an edited version of the text (not just whitespace),
+    // falsely claiming 'agent'. It is a new entry from the domain's own
+    // point of view, so it takes the actual sender's seat and resets.
+    const edited = await postSigned(
+      `/jobs/${jobId}/criteria`,
+      { criteria: [{ text: 'Agent line, revised', proposedBy: 'agent' }] },
+      buyer,
+    );
+    expect(edited.status).toBe(200);
+    const editedBody = (await edited.json()) as Record<string, unknown>;
+    expect(editedBody.criteria).toEqual([
+      { text: 'Agent line, revised', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false },
+    ]);
+  });
+
   it('answers 503 with a session but no platform seed configured, and 403 for a signed stranger', async () => {
     const seed = await postSigned('/jobs', {
       agentDid: agent.did,

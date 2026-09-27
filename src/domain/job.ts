@@ -66,7 +66,9 @@ const TERMINAL_STATUSES: readonly JobStatus[] = [
 
 // A party to the hire loop: whoever is doing the accepting. Named apart
 // from Criterion.proposedBy on purpose, even though it takes the same two
-// values - proposedBy records who WROTE a line, acceptedByBuyer /
+// values - proposedBy records who WROTE the current text of a line (FIX-B45:
+// a re-propose that carries a line through unchanged keeps that line's own
+// proposedBy, whatever seat sent the new envelope), acceptedByBuyer /
 // acceptedByAgent record who has AGREED to it, and those are independent
 // facts (the proposer of a line has not thereby accepted it; see
 // proposeCriteria below, which leaves a fresh line unaccepted by both).
@@ -1046,17 +1048,22 @@ export interface PriceProposal {
 // (design review, 2026-08-29: "editing one line resets only that line"). A new
 // entry is matched against the CURRENT criteria by exact trimmed text: an
 // unchanged line keeps whatever acceptedByBuyer/acceptedByAgent it already
-// carried, because nothing about it changed. A line whose text differs from
-// every current entry - whether it is a genuinely new criterion or an edit
-// of an existing one - has no honest way to tell those two cases apart from
-// the text alone, and BOTH cases mean the parties have not agreed on this
-// exact wording yet, so both start unaccepted by both parties. Removing a
-// criterion (striking it) is simply not carrying its text into the new
-// list; it disappears, and every other line's match (and therefore its
-// acceptance) is untouched, which is the "neighbouring acceptances" this
-// issue asked to be decided. Each stored entry is consumed by at most one
-// match, so two lines with identical text cannot both inherit the same
-// acceptance history.
+// carried, because nothing about it changed - and (FIX-B45, bugs.md B45) it
+// keeps whoever the stored line already named as proposedBy too, since an
+// unchanged line was not authored again just because someone else's request
+// happened to carry it forward. A line whose text differs from every current
+// entry - whether it is a genuinely new criterion or an edit of an existing
+// one - has no honest way to tell those two cases apart from the text alone,
+// and BOTH cases mean the parties have not agreed on this exact wording yet,
+// so both start unaccepted by both parties AND both take the sender's own
+// seat as proposedBy (the route's B26 rule: whatever the request body
+// claims, only the caller's resolved seat can be the actual author of a new
+// or changed line). Removing a criterion (striking it) is simply not
+// carrying its text into the new list; it disappears, and every other
+// line's match (and therefore its acceptance and its author) is untouched,
+// which is the "neighbouring acceptances" this issue asked to be decided.
+// Each stored entry is consumed by at most one match, so two lines with
+// identical text cannot both inherit the same acceptance history or author.
 //
 // P1: the agent's proposal (POST /jobs/:jobId/criteria) may carry a price
 // beside the criteria (scope item 2). Accepting the price is a line in the
@@ -1093,7 +1100,12 @@ export function proposeCriteria(
     const existing = pool[matchIndex];
     return {
       text,
-      proposedBy: criterion.proposedBy,
+      // FIX-B45 (bugs.md B45): a matched line is unchanged text, so it
+      // keeps the stored line's own author along with its marks. Only a
+      // new or changed line (the matchIndex === -1 branch above) takes the
+      // input's proposedBy, which is the sender's seat by the time this
+      // function sees it (the route's B26 rule).
+      proposedBy: existing?.proposedBy ?? criterion.proposedBy,
       acceptedByBuyer: existing?.acceptedByBuyer ?? false,
       acceptedByAgent: existing?.acceptedByAgent ?? false,
     };
