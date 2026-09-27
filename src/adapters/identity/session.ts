@@ -79,10 +79,13 @@ export type OAuthStatePurpose =
 //     own failure shapes, so a caller cannot distinguish them by response.
 //   - 'exchange-failed': the state was valid and proof-purposed, but the
 //     provider's own token exchange or the /user read failed (a bad code,
-//     GitHub down, or the owner declining at GitHub's consent screen --
-//     GitHub answers `error=access_denied` with no code at all, which the
-//     ROUTE layer maps to its own 'refused' outcome before ever reaching
-//     this method; every other bad code reaches here as exchange-failed).
+//     or GitHub down). The owner declining at GitHub's consent screen never
+//     reaches this method at all: GitHub sends that case back as
+//     `error=access_denied` with no code, so nothing here ever sees it.
+//     On this head no route calls completeGitHubProofOAuth yet; the
+//     callback's proof branch (FIX-B47b part two) reads `error` off the
+//     query string ahead of any code exchange and answers its own
+//     'refused' outcome for access_denied without ever calling this method.
 export type GitHubProofCompletion =
   | { readonly kind: 'ok'; readonly accountDid: string; readonly agentDid: string; readonly login: string; readonly token: string }
   | { readonly kind: 'invalid-state' }

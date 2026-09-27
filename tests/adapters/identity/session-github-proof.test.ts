@@ -31,6 +31,16 @@ describe('beginGitHubProofOAuth (FIX-B47b)', () => {
     const adapter = createSessionAdapter({ github: { clientId: '', clientSecret: '', redirectUri: 'http://localhost:3000/auth/github/callback' } });
     await expect(adapter.beginGitHubProofOAuth('did:abt:zOwner', 'did:abt:zAgent')).rejects.toThrow();
   });
+
+  it('rejects when the client secret alone is empty, even with a client id set', async () => {
+    const adapter = createSessionAdapter({ github: { clientId: 'test-client-id', clientSecret: '', redirectUri: 'http://localhost:3000/auth/github/callback' } });
+    await expect(adapter.beginGitHubProofOAuth('did:abt:zOwner', 'did:abt:zAgent')).rejects.toThrow();
+  });
+
+  it('rejects when the client id alone is empty, even with a client secret set', async () => {
+    const adapter = createSessionAdapter({ github: { clientId: '', clientSecret: 'test-client-secret', redirectUri: 'http://localhost:3000/auth/github/callback' } });
+    await expect(adapter.beginGitHubProofOAuth('did:abt:zOwner', 'did:abt:zAgent')).rejects.toThrow();
+  });
 });
 
 describe('peekOAuthStatePurpose (FIX-B47b)', () => {
@@ -59,6 +69,19 @@ describe('peekOAuthStatePurpose (FIX-B47b)', () => {
   it('answers null for a state never issued', async () => {
     const adapter = createSessionAdapter({ github: fakeGitHubConfig() });
     expect(adapter.peekOAuthStatePurpose('never-issued')).toBeNull();
+  });
+
+  it('answers null for an expired state, without consuming it for a real completion', async () => {
+    let now = new Date('2026-09-27T00:00:00Z').getTime();
+    const adapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: fakeGitHubFetch({ login: 'octo-proof', id: 58 }),
+      oauthStateTtlMs: 1000,
+      now: () => now,
+    });
+    const start = await adapter.beginGitHubProofOAuth('did:abt:zOwner', 'did:abt:zAgent');
+    now += 1001;
+    expect(adapter.peekOAuthStatePurpose(start.state)).toBeNull();
   });
 });
 
