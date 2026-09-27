@@ -286,15 +286,16 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
       }
     });
 
-    it('a saved draft keeps only its string lines', async () => {
-      const saved = JSON.stringify({ lines: ['Kept', 7, null, { text: 'object' }], price: 400, days: '5' });
+    it('a saved draft keeps only its string lines and terms', async () => {
+      const saved = JSON.stringify({ lines: ['Kept', 7, null, { text: 'object' }], price: 400, days: 5 });
       const page = await render(baseUrl, 'b40-draft-refuse', ownerToken, { storage: { 'fa_quote_draft:b40-draft-refuse': saved } });
       try {
         const restored = Array.from(page.document.querySelectorAll('.compose-line input')).map((i) => (i as HTMLInputElement).value);
         expect(restored).toEqual(['Kept']);
         expect(page.document.querySelectorAll('.compose-rm').length).toBe(0);
+        // The reload case proves string terms come back; numbers do not.
         expect((page.document.getElementById('compose-price') as HTMLInputElement).value).toBe('');
-        expect((page.document.getElementById('compose-days') as HTMLInputElement).value).toBe('5');
+        expect((page.document.getElementById('compose-days') as HTMLInputElement).value).toBe('');
       } finally {
         page.close();
       }

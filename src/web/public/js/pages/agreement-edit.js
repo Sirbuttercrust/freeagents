@@ -143,8 +143,8 @@
      edit, add and removal (agreement.js keeps it in sessionStorage per
      job), send({ lines, priceUsd, deliveryWindowDays }) -> promise of null
      or a sentence. A saved draft is read back only as far as it holds
-     strings, and the composer always shows at least one line, so the last
-     line has no remove control. */
+     strings (lines, price and days), and the composer always shows at
+     least one line, so the last line has no remove control. */
   function composer(opts) {
     var saved = opts.saved || {};
     var lines = (Array.isArray(saved.lines) ? saved.lines : []).filter(function (t) { return typeof t === "string"; });
