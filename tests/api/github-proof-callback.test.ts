@@ -47,9 +47,7 @@ interface FakeProofGithubCalls {
   readonly createGist: CreateGistInput[];
   readonly deleteGist: DeleteGistInput[];
   readonly deleteGrant: DeleteGrantInput[];
-  // The cleanup-order defect (QA proof r1, D2): one shared log naming which
-  // of the three calls landed and in what order, so a test can assert
-  // ORDER, not just that each call happened once.
+  // Which of the three calls landed and in what order (QA proof r1, D2).
   readonly order: string[];
 }
 
@@ -125,10 +123,8 @@ interface Booted {
 
 const FAKE_TOKEN = 'fake-access-token'; // fakeGitHubFetch's own hard-coded exchanged token.
 
-// A delegation shaped like the real site path's own (app.ts :3395):
-// issuer is the operator's DID, credentialId is the delegation's own `id`.
-// Shared by every describe below that needs a derivable agent, so the
-// same fixture shape is not hand-copied per test.
+// A delegation shaped like the site path's own (app.ts :3395), shared by
+// every describe below that needs a derivable agent.
 function platformDelegation(operatorDid: string, agentDid: string, credentialId: string): Delegation {
   return {
     '@context': ['https://www.w3.org/2018/credentials/v1'],
@@ -167,14 +163,8 @@ async function bootWithDerivableAgent(login: string, options: { readonly createG
     githubLogin: null,
   });
 
-  const sessionAdapter = createSessionAdapter({
-    github: fakeGitHubConfig(),
-    fetchImpl: options.fetchImpl ?? fakeGitHubFetch({ login, id: 12345 }),
-  });
-  const githubFake = fakeProofGithub({
-    tokenToLogin: { [FAKE_TOKEN]: login },
-    ...(options.createGistShouldFail !== undefined ? { createGistShouldFail: options.createGistShouldFail } : {}),
-  });
+  const sessionAdapter = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: options.fetchImpl ?? fakeGitHubFetch({ login, id: 12345 }) });
+  const githubFake = fakeProofGithub({ tokenToLogin: { [FAKE_TOKEN]: login }, ...(options.createGistShouldFail !== undefined ? { createGistShouldFail: options.createGistShouldFail } : {}) });
   const app = createApp(accountRepo, agentRepo, identity, githubFake.github, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter);
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -399,12 +389,8 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     }
   });
 
-  // Shared by both R-5 separation cases below (author-mismatch and
-  // not-found): boots one agent, proves it once with a real verifying
-  // login so the binding starts verified, then runs a SECOND proof whose
-  // gist read-back is forced to the given override. Returns the second
-  // proof's outcome plus the second github fake's call log, so each case
-  // asserts its own outcome-specific detail while sharing the setup.
+  // Boots one agent, proves it once (a real verifying login), then runs a
+  // SECOND proof whose gist read-back is forced to the given override.
   async function reproveAfterVerified(secondLogin: string, getPublicGistOverride: (ref: { readonly id: string }) => Promise<Gist>): Promise<{
     readonly agentDid: string;
     readonly firstLogin: string;
@@ -450,9 +436,7 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
       await new Promise<void>((resolve) => serverFirst.close(() => resolve()));
     }
 
-    // Second proof attempt: a DIFFERENT login, but its published gist is
-    // never reachable by the check (the caller-supplied override) -- a
-    // real failure, never a bypass.
+    // A DIFFERENT login, its published gist forced to the given override.
     const githubFakeSecond = fakeProofGithub({
       tokenToLogin: { [FAKE_TOKEN]: secondLogin },
       getPublicGistOverride,
@@ -475,9 +459,8 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     return { agentDid, firstLogin, baseUrl, server, outcome, calls: githubFakeSecond.calls };
   }
 
-  // QA proof r1, D1 and D2: R-5 separation on BOTH non-verified outcomes
-  // (author-mismatch and not-found), and the cleanup order pinned by an
-  // ordered call log (deleteGist strictly before deleteGrant).
+  // QA proof r1, D1/D2: R-5 separation for BOTH non-verified outcomes,
+  // and the cleanup order (deleteGist strictly before deleteGrant).
   it.each([
     ['author mismatch', async (ref: { readonly id: string }) => ({ id: ref.id, owner: 'someone-else-entirely', files: { 'proof.txt': 'garbage' } })],
     ['not-found', async (ref: { readonly id: string }) => { throw new GistNotFoundError(ref.id); }],
