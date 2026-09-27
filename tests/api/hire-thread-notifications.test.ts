@@ -542,4 +542,137 @@ describe('HT1 Part B (STEER item 4): the webhook gate stays closed unless BOTH c
       started.server.close();
     }
   });
+
+  // FIX-B56 (bugs.md B56): FIX-PUSH's service worker can only open the
+  // conversation a notification is about if the push payload names which
+  // job that is. Each test here captures the payload PushSender.send
+  // actually receives, through a real subscription made via the real
+  // POST /accounts/:did/push-subscriptions route, and asserts the WHOLE
+  // object with toEqual so a key added later (message text, a name) turns
+  // this test red too -- message text never rides in a push (MISSION
+  // invariant 3 keeps message bodies out of every record broadcast past
+  // the thread itself, and a push can sit on a lock screen).
+  describe('FIX-B56: every push names the job it is about', () => {
+    interface CapturedPush {
+      readonly title: string;
+      readonly body: string;
+      readonly jobId?: string;
+    }
+
+    function capturingPushSender(): { sender: PushSender; captured: CapturedPush[] } {
+      const captured: CapturedPush[] = [];
+      return {
+        captured,
+        sender: {
+          publicKey: null,
+          async send(_subscription, payload) {
+            captured.push(payload as CapturedPush);
+          },
+        },
+      };
+    }
+
+    async function postMessage(base: string, from: SigningIdentity, jobId: string, body: string): Promise<void> {
+      const bodyText = JSON.stringify({ body });
+      const targetUri = `${base}/jobs/${jobId}/messages`;
+      const signed = signRequest(from, 'POST', targetUri, { body: bodyText });
+      const res = await fetch(targetUri, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'signature-input': signed['signature-input'],
+          signature: signed.signature,
+          'content-digest': signed['content-digest'],
+        },
+        body: bodyText,
+      });
+      if (res.status !== 201) {
+        throw new Error(`postMessage: expected 201, got ${res.status}`);
+      }
+    }
+
+    async function postQuote(base: string, from: SigningIdentity, jobId: string, priceUsd: string): Promise<void> {
+      const bodyText = JSON.stringify({ criteria: [{ text: 'The bug is fixed', proposedBy: 'agent' }], priceUsd, rail: 'usdc' });
+      const targetUri = `${base}/jobs/${jobId}/criteria`;
+      const signed = signRequest(from, 'POST', targetUri, { body: bodyText });
+      const res = await fetch(targetUri, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'signature-input': signed['signature-input'],
+          signature: signed.signature,
+          'content-digest': signed['content-digest'],
+        },
+        body: bodyText,
+      });
+      if (res.status !== 200) {
+        throw new Error(`postQuote: expected 200, got ${res.status}`);
+      }
+    }
+
+    it('a new brief pushes the operator a payload naming that job', async () => {
+      const { sender, captured } = capturingPushSender();
+      const started = await startWithAgent({ notifyWebhookUrl: null, negotiatesOnOwnersBehalf: false }, { pushSender: sender });
+      try {
+        await subscribeForPush(started.baseUrl, started.operator, 'https://push.example/endpoint/b56-brief-operator');
+        const jobId = await postDraft(started.baseUrl, started.buyer, started.agent);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const push = captured.find((p) => p.body === 'You have a new brief.');
+        expect(push).toEqual({ title: 'FreeAgents', body: 'You have a new brief.', jobId });
+      } finally {
+        started.server.close();
+      }
+    });
+
+    it('a message the buyer posts pushes the operator a payload naming that job', async () => {
+      const { sender, captured } = capturingPushSender();
+      const started = await startWithAgent({ notifyWebhookUrl: null, negotiatesOnOwnersBehalf: false }, { pushSender: sender });
+      try {
+        await subscribeForPush(started.baseUrl, started.operator, 'https://push.example/endpoint/b56-message-operator');
+        const jobId = await postDraft(started.baseUrl, started.buyer, started.agent);
+        captured.length = 0;
+        await postMessage(started.baseUrl, started.buyer, jobId, 'Any update?');
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const push = captured.find((p) => p.body === 'You have a new message.');
+        expect(push).toEqual({ title: 'FreeAgents', body: 'You have a new message.', jobId });
+      } finally {
+        started.server.close();
+      }
+    });
+
+    it('a quote the operator sends pushes the buyer a payload naming that job', async () => {
+      const { sender, captured } = capturingPushSender();
+      const started = await startWithAgent({ notifyWebhookUrl: null, negotiatesOnOwnersBehalf: false }, { pushSender: sender });
+      try {
+        await subscribeForPush(started.baseUrl, started.buyer, 'https://push.example/endpoint/b56-quote-buyer');
+        const jobId = await postDraft(started.baseUrl, started.buyer, started.agent);
+        captured.length = 0;
+        await postQuote(started.baseUrl, started.operator, jobId, '500.00');
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const push = captured.find((p) => p.body === 'A quote changed on one of your jobs.');
+        expect(push).toEqual({ title: 'FreeAgents', body: 'A quote changed on one of your jobs.', jobId });
+      } finally {
+        started.server.close();
+      }
+    });
+
+    it('two jobs under one subscription: each push names its own job, never the other', async () => {
+      const { sender, captured } = capturingPushSender();
+      const started = await startWithAgent({ notifyWebhookUrl: null, negotiatesOnOwnersBehalf: false }, { pushSender: sender });
+      try {
+        await subscribeForPush(started.baseUrl, started.operator, 'https://push.example/endpoint/b56-two-jobs-operator');
+        const jobIdOne = await postDraft(started.baseUrl, started.buyer, started.agent);
+        const jobIdTwo = await postDraft(started.baseUrl, started.buyer, started.agent);
+        expect(jobIdOne).not.toBe(jobIdTwo);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const briefPushes = captured.filter((p) => p.body === 'You have a new brief.');
+        expect(briefPushes).toEqual([
+          { title: 'FreeAgents', body: 'You have a new brief.', jobId: jobIdOne },
+          { title: 'FreeAgents', body: 'You have a new brief.', jobId: jobIdTwo },
+        ]);
+      } finally {
+        started.server.close();
+      }
+    });
+  });
 });

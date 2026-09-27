@@ -21,7 +21,15 @@ export interface PushSender {
   // Fire-and-forget, same stance as the webhook sender: a push failure
   // (an expired subscription, a network error) never propagates past
   // this call, and never blocks the request that triggered it.
-  send(subscription: StoredPushSubscription, payload: { readonly title: string; readonly body: string }): Promise<void>;
+  //
+  // FIX-B56 (bugs.md B56): jobId names the job the notification is
+  // about, so the site's service worker can open that job's conversation
+  // when the notification is clicked. Message text never rides here
+  // (title and body are the fixed per-event-type sentences notify()
+  // already sends, never the message body itself) -- a push can sit on
+  // a lock screen, and MISSION invariant 3 keeps message bodies out of
+  // every record broadcast past the thread itself.
+  send(subscription: StoredPushSubscription, payload: { readonly title: string; readonly body: string; readonly jobId: string }): Promise<void>;
   readonly publicKey: string | null;
 }
 
