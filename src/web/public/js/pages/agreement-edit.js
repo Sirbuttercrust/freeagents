@@ -4,7 +4,7 @@
    the send callback agreement.js passes in, so this file never talks to
    the server and never decides what a send carries.
 
-   Both builders resolve a send the same way: the callback returns a
+   Every builder resolves a send the same way: the callback returns a
    promise of null on success (agreement.js has already re-rendered the
    page from the response) or of the sentence to show on refusal. A refusal
    leaves every field as typed, so a failed send changes nothing on the
@@ -140,12 +140,15 @@
      could lock an agreement on a set the buyer never saw whole).
 
      opts: saved ({ lines, price, days } or null), onChange(state) on every
-     keystroke (agreement.js keeps it in sessionStorage per job), send({
-     lines, priceUsd, deliveryWindowDays }) -> promise of null or a
-     sentence. */
+     edit, add and removal (agreement.js keeps it in sessionStorage per
+     job), send({ lines, priceUsd, deliveryWindowDays }) -> promise of null
+     or a sentence. A saved draft is read back only as far as it holds
+     strings, and the composer always shows at least one line, so the last
+     line has no remove control. */
   function composer(opts) {
-    var saved = opts.saved || {};
-    var lines = Array.isArray(saved.lines) && saved.lines.length > 0 ? saved.lines.slice() : [""];
+    var saved = opts.saved && typeof opts.saved === "object" ? opts.saved : {};
+    var lines = (Array.isArray(saved.lines) ? saved.lines : []).filter(function (t) { return typeof t === "string"; });
+    if (lines.length === 0) lines = [""];
     var box = node("div", "composer pane pane-pad");
     var list = node("ol", "compose-lines");
     var add = button("btn btn-sm", "Add a line", function () {
@@ -213,18 +216,22 @@
         input.setAttribute("spellcheck", "false");
         input.addEventListener("input", function () { lines[i] = input.value; changed(); });
         li.appendChild(input);
-        var rm = button("compose-rm", "", function () {
-          lines.splice(i, 1);
-          drawLines();
-          changed();
-        });
-        rm.setAttribute("aria-label", "Remove line " + padNum(i + 1));
-        rm.setAttribute("title", "Remove line " + padNum(i + 1));
-        rm.appendChild(icon("trash"));
-        li.appendChild(rm);
+        if (lines.length > 1) li.appendChild(removeControl(i));
         list.appendChild(li);
       });
       if (window.FAIcon) window.FAIcon.paint(list);
+    }
+
+    function removeControl(i) {
+      var rm = button("compose-rm", "", function () {
+        lines.splice(i, 1);
+        drawLines();
+        changed();
+      });
+      rm.setAttribute("aria-label", "Remove line " + padNum(i + 1));
+      rm.setAttribute("title", "Remove line " + padNum(i + 1));
+      rm.appendChild(icon("trash"));
+      return rm;
     }
 
     drawLines();

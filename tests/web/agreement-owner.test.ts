@@ -185,6 +185,8 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
     await jobRepo.create(jobFixture({ id: 'b40-draft', status: 'draft' }));
     await jobRepo.create(jobFixture({ id: 'b40-draft-remove', status: 'draft' }));
     await jobRepo.create(jobFixture({ id: 'b40-draft-reload', status: 'draft' }));
+    await jobRepo.create(jobFixture({ id: 'b40-draft-refuse', status: 'draft' }));
+    await jobRepo.create(jobFixture({ id: 'b40-draft-floor', status: 'draft' }));
     await jobRepo.create(jobFixture({ id: 'b40-seat', status: 'proposed', criteria: [unsigned('Agent line'), unsigned('Buyer line', 'buyer')], priceUsd: '300.00', deliveryWindowDays: 4 }));
     await jobRepo.create(jobFixture({ id: 'b40-sign', status: 'proposed', criteria: [unsigned('Sign me')], priceUsd: '300.00', deliveryWindowDays: 4 }));
     await jobRepo.create(jobFixture({ id: 'b40-edit', status: 'proposed', criteria: [unsigned('One'), unsigned('Two'), unsigned('Three')], priceUsd: '300.00', deliveryWindowDays: 4 }));
@@ -285,6 +287,8 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
         // The page re-rendered from the response: the matrix, not the composer.
         expect(rows(page).length).toBe(4);
         expect(page.document.getElementById('compose-send')).toBeNull();
+        // The saved draft is gone once the quote is sent.
+        expect(page.window.sessionStorage.getItem('fa_quote_draft:b40-draft')).toBeNull();
       } finally {
         page.close();
       }
@@ -293,6 +297,8 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
     it('removing a line before the first send leaves it out of the send', async () => {
       const page = await render(baseUrl, 'b40-draft-remove', ownerToken);
       try {
+        // The composer always keeps one line, so a lone line has no remove control.
+        expect(page.document.querySelectorAll('.compose-rm').length).toBe(0);
         type(page, page.document.querySelector('.compose-line input'), 'Keep one');
         await click(page.document.getElementById('compose-add'), 20);
         type(page, page.document.querySelectorAll('.compose-line input')[1], 'Drop me');
@@ -316,19 +322,88 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
       let saved: string | null;
       try {
         type(first, first.document.querySelector('.compose-line input'), 'Half written');
+        await click(first.document.getElementById('compose-add'), 20);
+        type(first, first.document.querySelectorAll('.compose-line input')[1], 'Second thought');
         type(first, first.document.getElementById('compose-price'), '420');
+        type(first, first.document.getElementById('compose-days'), '6');
         saved = first.window.sessionStorage.getItem('fa_quote_draft:b40-draft-reload');
+        expect(first.posts.length).toBe(0);
       } finally {
         first.close();
       }
       expect(saved).not.toBeNull();
       const second = await render(baseUrl, 'b40-draft-reload', ownerToken, { storage: { 'fa_quote_draft:b40-draft-reload': saved! } });
       try {
-        expect((second.document.querySelector('.compose-line input') as HTMLInputElement).value).toBe('Half written');
+        const restored = Array.from(second.document.querySelectorAll('.compose-line input')).map((i) => (i as HTMLInputElement).value);
+        expect(restored).toEqual(['Half written', 'Second thought']);
         expect((second.document.getElementById('compose-price') as HTMLInputElement).value).toBe('420');
+        expect((second.document.getElementById('compose-days') as HTMLInputElement).value).toBe('6');
         expect((await readJob('b40-draft-reload')).status).toBe('draft');
       } finally {
         second.close();
+      }
+    });
+
+    // Each check is the composer's own guard: with it gone, the quote
+    // would reach the server, so posts.length moves off 0.
+    it.each([
+      ['no line written', ['  '], '400', '5', 'Write at least one line.'],
+      ['"40.5.0" as the price', ['A line'], '40.5.0', '5', 'Enter the price in dollars, like 400 or 400.50.'],
+      ['a part-day window', ['A line'], '400', '2.5', 'Enter the window in whole days, like 5.'],
+    ] as const)('%s is refused before any request, and the job stays a draft', async (_label, texts, priceValue, daysValue, sentence) => {
+      const page = await render(baseUrl, 'b40-draft-refuse', ownerToken);
+      try {
+        texts.forEach((t, i) => {
+          if (i > 0) (page.document.getElementById('compose-add') as HTMLElement).click();
+          type(page, page.document.querySelectorAll('.compose-line input')[i], t);
+        });
+        type(page, page.document.getElementById('compose-price'), priceValue);
+        type(page, page.document.getElementById('compose-days'), daysValue);
+        await click(page.document.getElementById('compose-send'));
+        expect(page.posts.length).toBe(0);
+        expect(page.document.getElementById('compose-error')?.textContent).toBe(sentence);
+        expect((await readJob('b40-draft-refuse')).status).toBe('draft');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a send refused with 503 names what to do and leaves the quote as typed', async () => {
+      const fault = (p: string) => (p === '/jobs/b40-draft-refuse/criteria' ? new Response(JSON.stringify({ error: 'storage unavailable' }), { status: 503 }) : null);
+      const page = await render(baseUrl, 'b40-draft-refuse', ownerToken, { fault });
+      try {
+        type(page, page.document.querySelector('.compose-line input'), 'A line');
+        type(page, page.document.getElementById('compose-price'), '400');
+        type(page, page.document.getElementById('compose-days'), '5');
+        await click(page.document.getElementById('compose-send'));
+        expect(page.posts.length).toBe(1);
+        expect(page.document.getElementById('compose-error')?.textContent).toBe('Storage is unavailable just now. Try again in a moment.');
+        expect((page.document.querySelector('.compose-line input') as HTMLInputElement).value).toBe('A line');
+        expect((page.document.getElementById('compose-send') as HTMLButtonElement).disabled).toBe(false);
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a price under the floor shows the server\u2019s sentence; the job stays a draft and the quote stays as typed and saved', async () => {
+      const page = await render(baseUrl, 'b40-draft-floor', ownerToken);
+      try {
+        type(page, page.document.querySelector('.compose-line input'), 'Cheap line');
+        type(page, page.document.getElementById('compose-price'), '50');
+        type(page, page.document.getElementById('compose-days'), '3');
+        await click(page.document.getElementById('compose-send'));
+        expect(page.posts.length).toBe(1);
+        const error = page.document.getElementById('compose-error') as HTMLElement;
+        expect(error.hidden).toBe(false);
+        expect(error.textContent).toBe("proposed price 50.00 is below the agent's floor of 100.00");
+        expect((page.document.querySelector('.compose-line input') as HTMLInputElement).value).toBe('Cheap line');
+        expect((page.document.getElementById('compose-price') as HTMLInputElement).value).toBe('50');
+        expect(page.window.sessionStorage.getItem('fa_quote_draft:b40-draft-floor')).toContain('Cheap line');
+        const job = await readJob('b40-draft-floor');
+        expect(job.status).toBe('draft');
+        expect(job.criteria ?? []).toEqual([]);
+      } finally {
+        page.close();
       }
     });
   });
@@ -560,8 +635,11 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
         // Linux Chrome draws one; a Mac overlays its scrollbar and would
         // hide a measurement tied to the nominal width.
         const classicScrollbar = touch ? '' : ` document.addEventListener('DOMContentLoaded', function () { var s = document.createElement('style'); s.textContent = '::-webkit-scrollbar { width: 15px; } ::-webkit-scrollbar-thumb { background: #888; }'; document.head.appendChild(s); });`;
+        // The composer opens half filled (two lines, so both carry a remove
+        // control and the 44px floor measures them).
+        const draft = JSON.stringify({ lines: ['The cart survives a refresh', 'No new lint errors'], price: '400', days: '' });
         await browser.send('Page.addScriptToEvaluateOnNewDocument', {
-          source: `window.sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify({ token: ownerToken }))});${classicScrollbar}`,
+          source: `window.sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify({ token: ownerToken }))});window.sessionStorage.setItem('fa_quote_draft:b40-draft-reload', ${JSON.stringify(draft)});${classicScrollbar}`,
         });
         const states: Array<[string, string, string | null]> = [
           ['composer', '/agreement?job=b40-draft-reload', null],
@@ -584,7 +662,7 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
               return {
                 scrollWidth: document.documentElement.scrollWidth,
                 clientWidth: document.documentElement.clientWidth,
-                open: !!document.querySelector(${JSON.stringify(opener ? '.line-edit' : '#compose-send')}),
+                open: ${opener ? "!!document.querySelector('.line-edit')" : "!!document.getElementById('compose-send') && document.querySelectorAll('.compose-rm').length === 2"},
                 small: small, moving: moving
               };
             })()
