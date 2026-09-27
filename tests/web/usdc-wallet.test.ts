@@ -101,6 +101,7 @@ interface FakeWalletOptions {
   readonly switchBehavior?: 'succeed' | 'fail-then-add-succeeds' | 'always-fail' | 'refuse-with-4001';
   readonly refuseFeeTransfer?: boolean;
   readonly failPriceOnChain?: boolean;
+  readonly failFeeOnChain?: boolean;
   readonly feeNeverConfirms?: boolean;
   readonly priceNeverConfirms?: boolean;
   readonly mismatchPriceReceipt?: boolean;
@@ -147,7 +148,7 @@ function buildFakeWallet(opts: FakeWalletOptions): FakeWallet {
         opts.chainState.hashCounter += 1;
         const hash = `0xsent${opts.chainState.hashCounter}`;
         sends.push({ to: tx.to, data: tx.data, recipient, amountBaseUnits: amount.toString() });
-        const failThisOne = sends.length === 1 && opts.failPriceOnChain === true;
+        const failThisOne = (sends.length === 1 && opts.failPriceOnChain === true) || (sends.length === 2 && opts.failFeeOnChain === true);
         const isFirstSend = sends.length === 1;
         const isSecondSend = sends.length === 2;
         if (isFirstSend && opts.priceNeverConfirms) {
@@ -604,6 +605,23 @@ describe('every other outcome in Make 3', () => {
     const retry = await engineOf(page).pay({ window: page.window, wallet: walletEntry('w11', retryWallet.provider), jobId: h.jobId, leg: 'deposit', token: h.buyerToken, resend: 'price', pollIntervalMs: 5, pollLimit: 5 });
     expect(retry.outcome).toBe('paid');
     expect(retryWallet.sends).toHaveLength(1);
+    expect(retryWallet.sends[0]!.recipient.toLowerCase()).toBe(USDC_OPERATOR_ADDRESS.toLowerCase());
+  });
+  it('the fee transfer fails on the network: transfer_failed names the fee, nothing is sent again without a press, and the press sends only the fee', async () => {
+    const { chainState, h, page } = await setup(31);
+    const first = await payDeposit(page, h, fakeWalletEntry('w31', { chainState, failFeeOnChain: true }));
+    expect(first.outcome).toBe('transfer_failed');
+    expect(first.leg).toBe('fee');
+    const noPressWallet = buildFakeWallet({ chainState });
+    const noPress = await payDeposit(page, h, walletEntry('w31', noPressWallet.provider));
+    expect(noPress.outcome).toBe('transfer_failed');
+    expect(noPressWallet.sends).toHaveLength(0);
+    const retryWallet = buildFakeWallet({ chainState });
+    const retry = await payDeposit(page, h, walletEntry('w31', retryWallet.provider), { resend: 'fee' });
+    expect(retry.outcome).toBe('paid');
+    expect(retryWallet.sends).toHaveLength(1);
+    expect(retryWallet.sends[0]!.recipient.toLowerCase()).toBe(USDC_FEE_ADDRESS.toLowerCase());
+    expect(await h.settlementRepo.findByJobAndLeg(h.jobId, 'deposit')).not.toBeNull();
   });
   it('fee still due: the price landed and the buyer refused the fee approval', async () => {
     const { chainState, h, page } = await setup(12);
