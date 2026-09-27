@@ -38,6 +38,14 @@ export interface SignedPayload {
   // for someone else's DID. When absent, verify() falls back to the
   // observed-key store exactly as before.
   readonly candidateKeyMultibase?: string;
+  // Ruling 2026-09-27 05:30 (FIX-B47a): sign() sets this to the SAME
+  // publicKeyMultibase createAgentDid's own DidKeyPair names for the
+  // identical operator/credential pair, so the caller can offer it back to
+  // verify() as a candidate key without a prior observation (the platform
+  // has never "observed" its own re-derived agent keys through an inbound
+  // request). Optional so every stand-in IdentityAdapter across the test
+  // suite that predates this field keeps compiling unchanged.
+  readonly publicKeyMultibase?: string;
 }
 
 export interface IdentityAdapter {

@@ -12,7 +12,12 @@ import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-
 import { fromRandom } from '@ocap/wallet';
 import { fromPublicKey } from '@arcblock/did';
 
-import { createIdentityAdapter, CandidateKeyRejectedError, DidNotResolvableError } from '../../../src/adapters/identity/identity.js';
+import {
+  createIdentityAdapter,
+  AgentKeyDerivationMismatchError,
+  CandidateKeyRejectedError,
+  DidNotResolvableError,
+} from '../../../src/adapters/identity/identity.js';
 import type { Delegation } from '../../../src/domain/agent.js';
 import { createKnownKeyStore } from '../../../src/adapters/identity/did-abt-resolver.js';
 import { MemoryObservedKeyRepository } from '../../../src/adapters/storage/memory.js';
@@ -587,5 +592,38 @@ describe('createIdentityAdapter, sign (FIX-B47a)', () => {
     await expect(identity.sign('did:abt:zAgent', 'x', 'did:abt:zOwner', 'urn:uuid:no-seed')).rejects.toThrow(
       /FREEAGENTS_PLATFORM_SEED/,
     );
+  });
+
+  // Ruling 2026-09-27 05:30 ("sign() refuses a did that its own derivation
+  // does not produce"): a wallet-path agent or a site agent that brought
+  // its own DID has no key the platform can re-derive, so a caller naming
+  // the WRONG did for a given operator/credential pair must be refused
+  // before anything is signed, never silently signed with a key that does
+  // not actually belong to that did.
+  it('refuses to sign when the given did does not match its own re-derivation for this operator/credential pair', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = 'a1'.repeat(32);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const owner = await identity.createOperatorDid('mismatch-owner-subject');
+    await identity.createAgentDid(owner.did, 'urn:uuid:mismatch-me');
+
+    await expect(
+      identity.sign('did:abt:zSomeOtherAgentEntirely', 'x', owner.did, 'urn:uuid:mismatch-me'),
+    ).rejects.toThrow(AgentKeyDerivationMismatchError);
+  });
+
+  // Ruling 2026-09-27 05:30: sign() also sets publicKeyMultibase on the
+  // SignedPayload it answers (the optional field PRF1 added to
+  // SignedPayload), and it must be EXACTLY the same key createAgentDid's
+  // own DidKeyPair names for the identical operator/credential pair --
+  // never a fresh or differently-derived one.
+  it('sets publicKeyMultibase on the returned SignedPayload, matching createAgentDid\'s own value for the identical pair', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = 'b2'.repeat(32);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const owner = await identity.createOperatorDid('pubkey-owner-subject');
+    const { did: agentDid, publicKeyMultibase } = await identity.createAgentDid(owner.did, 'urn:uuid:pubkey-me');
+
+    const signed = await identity.sign(agentDid, 'a payload to sign', owner.did, 'urn:uuid:pubkey-me');
+
+    expect(signed.publicKeyMultibase).toBe(publicKeyMultibase);
   });
 });

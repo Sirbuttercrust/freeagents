@@ -69,6 +69,21 @@ export class CandidateKeyRejectedError extends Error {
   }
 }
 
+// Ruling 2026-09-27 05:30 (FIX-B47a): thrown by sign() when the given `did`
+// is not the DID that createAgentDid itself would re-derive for the same
+// operatorDid/credentialId pair. Two real kinds of agent fail this
+// comparison: a wallet-path agent (the platform never held any key for it)
+// and a site agent that brought its own DID (its stored delegation's
+// signer does not settle which key the platform can re-derive). Both must
+// be refused before anything is signed, never signed with a key that does
+// not actually belong to the claimed did.
+export class AgentKeyDerivationMismatchError extends Error {
+  constructor(did: string) {
+    super(`${did} is not the DID this operator/credential pair re-derives; the platform holds no signing key for it`);
+    this.name = 'AgentKeyDerivationMismatchError';
+  }
+}
+
 // Real implementation is @arcblock/did behind this factory. verifyDelegation
 // uses W3C Ed25519Signature2020 suite for third-party verifiability (invariant 2):
 // the verification uses only the credential itself, no DID resolution and no
@@ -92,6 +107,22 @@ function operatorSeedBytes(subject: string): Uint8Array {
   }
   const seedBytes = Buffer.from(hex.replace(/^0x/i, ''), 'hex');
   return new Uint8Array(hkdfSync('sha256', seedBytes, '', `${OPERATOR_DID_HKDF_INFO}:${subject}`, ED25519_SEED_LENGTH));
+}
+
+// Ruling 2026-09-27 05:30: the seed read and the HKDF call createAgentDid
+// has always run, factored out here so sign() re-derives through the
+// IDENTICAL call rather than a second, only-superficially-similar one --
+// the same discipline operatorSeedBytes above already keeps for the
+// operator side.
+function agentSeedBytes(operatorDid: string, credentialId: string): Uint8Array {
+  const hex = process.env.FREEAGENTS_PLATFORM_SEED;
+  if (hex === undefined || !isValidPlatformSeedHex(hex)) {
+    throw new PlatformSeedUnavailableError();
+  }
+  const seedBytes = Buffer.from(hex.replace(/^0x/i, ''), 'hex');
+  return new Uint8Array(
+    hkdfSync('sha256', seedBytes, '', `${AGENT_DID_HKDF_INFO}:${operatorDid}:${credentialId}`, ED25519_SEED_LENGTH),
+  );
 }
 
 export function createIdentityAdapter(
@@ -174,19 +205,8 @@ export function createIdentityAdapter(
     // (which carries credentialId as its own `id`) plus the seed, this
     // same DID re-derives with nothing else stored.
     async createAgentDid(operatorDid: string, credentialId: string): Promise<DidKeyPair> {
-      const hex = process.env.FREEAGENTS_PLATFORM_SEED;
-      if (hex === undefined || !isValidPlatformSeedHex(hex)) {
-        throw new PlatformSeedUnavailableError();
-      }
-      const seedBytes = Buffer.from(hex.replace(/^0x/i, ''), 'hex');
-      const derived = hkdfSync(
-        'sha256',
-        seedBytes,
-        '',
-        `${AGENT_DID_HKDF_INFO}:${operatorDid}:${credentialId}`,
-        ED25519_SEED_LENGTH,
-      );
-      const { did, publicKeyMultibase } = await deriveDidFromSeed(new Uint8Array(derived));
+      const derived = agentSeedBytes(operatorDid, credentialId);
+      const { did, publicKeyMultibase } = await deriveDidFromSeed(derived);
       return { did, publicKeyMultibase };
     },
     // R-3 completion (B5): construct the DID document locally from the
@@ -229,20 +249,13 @@ export function createIdentityAdapter(
     // offering the returned signature to verify() with this key as a
     // candidate reaches the same yes/no this route's real gist check will.
     async sign(did: string, payload: string, operatorDid: string, credentialId: string): Promise<SignedPayload> {
-      const hex = process.env.FREEAGENTS_PLATFORM_SEED;
-      if (hex === undefined || !isValidPlatformSeedHex(hex)) {
-        throw new PlatformSeedUnavailableError();
+      const derived = agentSeedBytes(operatorDid, credentialId);
+      const { did: derivedDid, publicKeyMultibase } = await deriveDidFromSeed(derived);
+      if (derivedDid !== did) {
+        throw new AgentKeyDerivationMismatchError(did);
       }
-      const seedBytes = Buffer.from(hex.replace(/^0x/i, ''), 'hex');
-      const derived = hkdfSync(
-        'sha256',
-        seedBytes,
-        '',
-        `${AGENT_DID_HKDF_INFO}:${operatorDid}:${credentialId}`,
-        ED25519_SEED_LENGTH,
-      );
       const key = await Ed25519VerificationKey2020.generate({
-        seed: new Uint8Array(derived),
+        seed: derived,
         controller: did,
       });
       const signer = (key as unknown as { signer(): { sign(input: { data: Uint8Array }): Promise<Uint8Array> } }).signer();
@@ -251,6 +264,7 @@ export function createIdentityAdapter(
         payload,
         signature: Buffer.from(signature).toString('base64'),
         signerDid: did,
+        publicKeyMultibase,
       };
     },
     // R-4 completion (B5): standard ed25519 verification of the payload

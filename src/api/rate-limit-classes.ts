@@ -90,12 +90,6 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   { method: 'GET', pattern: '/agents/:agentDid', classification: 'read' },
   // GitHub-calling (security sweep's own upstream list).
   { method: 'POST', pattern: '/agents/:agentDid/account-proof', classification: 'upstream' },
-  // FIX-B47a: the operator-only start of the one-click GitHub proof.
-  // Authenticated, calls nothing upstream at request time (it only mints a
-  // state and builds a redirect URL) -- the nearest neighbour Make item 1
-  // names is POST /auth/passkey/register, also `write`. The actual GitHub
-  // calls happen on the callback, already classified `verify` above.
-  { method: 'POST', pattern: '/agents/:agentDid/github-proof/start', classification: 'write' },
   { method: 'POST', pattern: '/agents/:agentDid/key-rotation', classification: 'write' },
   { method: 'PUT', pattern: '/agents/:agentDid/avatar', classification: 'write' },
   { method: 'DELETE', pattern: '/agents/:agentDid/avatar', classification: 'write' },
