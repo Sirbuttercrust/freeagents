@@ -78,8 +78,11 @@ export interface IdentityAdapter {
   // moment the signature exists. Throws PlatformSeedUnavailableError under
   // the same condition createAgentDid does (no seed configured). Callers
   // must already hold operatorDid and credentialId from the agent's own
-  // stored delegation (delegation.issuer and delegation.id respectively);
-  // this method does no storage lookup of its own.
+  // stored row (row.operatorDid and row.delegation.id respectively; FIX-B47b
+  // decision 2: operatorDid is the row's own field, never
+  // row.delegation.issuer, which the site-listing route compares with the
+  // acting party by SUFFIX only and can differ from the value that fed the
+  // derivation); this method does no storage lookup of its own.
   sign(did: string, payload: string, operatorDid: string, credentialId: string): Promise<SignedPayload>;
   verify(signed: SignedPayload): Promise<boolean>;
   // R-2: does this delegation proof check out as signed by issuerDid for the

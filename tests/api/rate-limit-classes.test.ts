@@ -34,6 +34,12 @@ describe('classifyRoute: upstream (GitHub- and chain-calling routes)', () => {
     expect(classifyRoute('POST', '/agents/did:abt:zAgent/account-proof')).toBe('upstream');
   });
 
+  // FIX-B47b2: pinned on its own so dropping the ROUTE_TABLE entry turns
+  // this red as a real classification miss, not only the router walk.
+  it('classifies POST /agents/:agentDid/github-proof/start as write, never upstream', () => {
+    expect(classifyRoute('POST', '/agents/did:abt:zAgent/github-proof/start')).toBe('write');
+  });
+
   it('classifies POST /jobs/:jobId/confirm, /decline, /stage, /redo-refuse, /pull-request, /merge as upstream (GitHub)', () => {
     expect(classifyRoute('POST', '/jobs/j-1/confirm')).toBe('upstream');
     expect(classifyRoute('POST', '/jobs/j-1/decline')).toBe('upstream');
