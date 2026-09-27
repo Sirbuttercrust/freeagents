@@ -501,16 +501,10 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     }
   });
 
-  // QA proof r1, D1: the R-5 separation test above only ever drove
-  // checkOutcome.kind === 'author-mismatch', never 'not-found'. The brief's
-  // test (e) asks for a read-back that finds no gist as its own case: the
-  // gist the second proof just created is gone by the time getPublicGist
-  // reads it back (deleted out from under the check, mirroring a real
-  // "someone deleted the gist between publish and verify" race). Mutation
-  // proof: adding `if (checkOutcome.kind === 'not-found') updateGithubBinding(...,
-  // 'unverified')` to the proof branch's non-verified arm leaves this red
-  // (the binding would drop from verified to unverified) while every other
-  // test in this file stays green.
+  // QA proof r1, D1: adds the not-found case for R-5 separation (the
+  // gist is created but getPublicGist finds it gone by read-back).
+  // Mutation proof: writing an 'unverified' binding on not-found turns
+  // this red while every other test here stays green.
   it('failed: a gist that publishes but reads back not-found is deleted with the same token before the grant, and the old binding is untouched (R-5 separation, the not-found case)', async () => {
     const { agentDid, firstLogin, baseUrl, server, outcome, calls } = await reproveAfterVerified(
       'octo-r5-second-notfound',
@@ -558,10 +552,8 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     }
   });
 
-  // QA proof r1, D3: brief test (f) asks for a failed exchange and a
-  // failed gist write each as their own case, with no binding change and
-  // no token leak. createGistShouldFail (declared at the top of this file
-  // and never used before this) makes that half reachable.
+  // QA proof r1, D3: covers a failed exchange and a failed gist write
+  // (brief test (f)), each with no binding change and no token leak.
   it("failed: a failed token exchange (GitHub's own /login/oauth/access_token refuses it) gives 'failed' with no binding change and no token leak", async () => {
     const booted = await bootWithDerivableAgent('octo-exchange-fails', { fetchImpl: failingGitHubFetch() });
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -679,12 +671,9 @@ describe('GET /auth/github/callback, the one-click proof branch: HTML landing (d
   });
 });
 
-// QA proof r1, D4/(d): the brief's cross-over refusals were tested inside
-// the adapter (session-github-proof.test.ts) but never over THIS route.
-// A sign-in state presented to the proof branch, and a proof state
-// presented to the ordinary sign-in path, both go through the identical
-// route this card wires; this drives both crossings over real HTTP,
-// against the real app, and asserts zero gist writes on the proof side.
+// QA proof r1, D4/(d): route-level cross-over (the adapter's own
+// refusals were tested, but never over this route). Asserts zero gist
+// writes on the proof side.
 describe('GET /auth/github/callback, the one-click proof branch: route-level cross-over (decision 1)', () => {
   it('a sign-in state presented at the callback never completes a proof and mints no session-shaped body for a proof caller: falls through to the ordinary sign-in success shape', async () => {
     const booted = await bootWithDerivableAgent('octo-crossover-signin-state');
@@ -695,10 +684,7 @@ describe('GET /auth/github/callback, the one-click proof branch: route-level cro
       const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(signInStart.state)}`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
-      // The ORDINARY sign-in shape (a Session), never a proof outcome:
-      // peekOAuthStatePurpose sees `kind: 'sign-in'`, so the proof branch's
-      // guard (`purpose.kind === 'proof'`) never fires, and the request
-      // falls through to completeGitHubOAuth exactly as it does today.
+      // The ordinary sign-in shape (a Session), never a proof outcome.
       expect(body).toEqual({
         subject: expect.any(String),
         method: 'github-oauth',
