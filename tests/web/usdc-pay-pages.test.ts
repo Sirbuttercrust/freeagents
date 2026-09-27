@@ -6,9 +6,12 @@
 // through EIP-6963 in the page's own window. Its receipts are the
 // transfers the page asked it to sign, so a confirmed payment proves the
 // page asked for exactly what the server checks. Every sentence asserted
-// below is the engine's or the server's, read out of the live region.
+// below is the engine's or the server's, read out of the live region,
+// except where a page maps a refusal to its own sentence, read where the
+// page shows it.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { repositoryPersonalAccountMessage } from '../../src/adapters/payment/route-support.js';
 import { USDC_FEE_RATE_PERCENT, ABT_FEE_RATE_PERCENT, calculateFee, depositUsd, remainderUsd } from '../../src/domain/payment.js';
 import {
   UNPAID_AGENT_DID, USDC_FEE_ADDRESS, USDC_OPERATOR_ADDRESS,
@@ -146,6 +149,32 @@ describe('Make 2 and 3: a deposit paid in USDC from the page', () => {
     } finally { await page.close(); }
   });
 
+  it('the USDC start door refuses a repository that is not ready: the page sentence and its link, as on ABT', async () => {
+    const id = await depositJob();
+    const page = await openDeposit(id);
+    try {
+      choose(page, 'usdc');
+      announceWallets(page.window, [{ uuid: 'w-r', name: 'Wallet', wallet: buildPageWallet(h.chain) }]);
+      // The repository check reads GitHub; its refusal is stubbed at the
+      // door with the route's own sentence, built by the route's function.
+      const refusal = repositoryPersonalAccountMessage(id);
+      const realFetch = page.window.fetch;
+      Object.defineProperty(page.window, 'fetch', {
+        writable: true,
+        value: (input: string, init?: RequestInit) => String(input).endsWith('/usdc/start')
+          ? Promise.resolve(new Response(JSON.stringify({ error: refusal }), { status: 409, headers: { 'content-type': 'application/json' } }))
+          : realFetch(input, init),
+      });
+      press(page, 'pay-btn');
+      await waitFor(() => shown(page.document, 'pay-error'), 'the refusal never showed');
+      expect(text(page.document, 'pay-error-detail')).toContain('This private repository is on a personal account.');
+      expect(page.document.getElementById('pay-private-repos-link')!.getAttribute('href')).toBe(`/private-repos?job=${id}`);
+      expect(status(page)).toBe('');
+      expect(presses(page)).toEqual([]);
+      expect((page.document.getElementById('scan') as HTMLDialogElement).open).toBe(false);
+    } finally { await page.close(); }
+  });
+
   it('two wallets announced: the buyer picks one and only that one is asked; an icon that is not a data:image URI is never drawn', async () => {
     const id = await depositJob();
     const page = await openDeposit(id);
@@ -223,6 +252,39 @@ describe('every outcome shows its own sentence in the live region, with its one 
       expect(wallet.sends).toHaveLength(3);
       expect(wallet.sends[2]!.recipient).toBe(USDC_FEE_ADDRESS);
       expect((await h.settlementRepo.findByJobAndLeg(id, 'deposit'))).not.toBeNull();
+    } finally { await page.close(); }
+  });
+  it('price_due: the engine sentence, and Send it again sends only the price, which pays', async () => {
+    const id = await depositJob();
+    const page = await openDeposit(id);
+    try {
+      choose(page, 'usdc');
+      const wallet = buildPageWallet(h.chain, { failFirstPrice: true });
+      announceWallets(page.window, [{ uuid: 'w-pd', name: 'Flaky price', wallet }]);
+      press(page, 'pay-btn');
+      await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
+      expect(status(page)).toBe('The fee transfer landed, but the price transfer did not. Send the price transfer again.');
+      expect(presses(page)).toEqual(['usdc-resend']);
+      expect(wallet.sends).toHaveLength(2);
+      press(page, 'usdc-resend');
+      await waitFor(() => count(page, `POST /jobs/${id}/confirm`) === 1 || presses(page).length > 0, 'the resend never settled');
+      expect(wallet.sends.slice(2).map((s) => s.recipient)).toEqual([USDC_OPERATOR_ADDRESS]);
+      expect(count(page, `POST /jobs/${id}/confirm`)).toBe(1);
+      expect((await h.settlementRepo.findByJobAndLeg(id, 'deposit'))?.rail).toBe('usdc');
+    } finally { await page.close(); }
+  });
+  it('mismatched: the engine sentence, and no press at all (it says to send nothing else)', async () => {
+    const id = await depositJob();
+    const page = await openDeposit(id);
+    try {
+      choose(page, 'usdc');
+      const wallet = buildPageWallet(h.chain, { shortPrice: true });
+      announceWallets(page.window, [{ uuid: 'w-m', name: 'Short', wallet }]);
+      press(page, 'pay-btn');
+      await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
+      expect(status(page)).toBe('One of the transfers did not pay what this job expects. Do not send anything else yet.');
+      expect(presses(page)).toEqual([]);
+      expect(count(page, `POST /jobs/${id}/confirm`)).toBe(0);
     } finally { await page.close(); }
   });
   it('waiting_network: the engine sentence, Check again reads once on the press and never on a timer', async () => {
@@ -375,6 +437,35 @@ describe('every outcome on the balance page, against the remainder leg', () => {
     await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
     return page;
   };
+  it('the live region is polite and a status', async () => {
+    const page = await openStaged(await stagedJob('usdc'));
+    try {
+      const region = page.document.getElementById('usdc-status')!;
+      expect(region.getAttribute('role')).toBe('status');
+      expect(region.getAttribute('aria-live')).toBe('polite');
+    } finally { await page.close(); }
+  });
+  it('mismatched: the engine sentence, and no press at all', async () => {
+    const page = await outcome(await stagedJob('usdc'), [{ uuid: 'w-sm', name: 'Short', wallet: buildPageWallet(h.chain, { shortPrice: true }) }]);
+    try {
+      expect(status(page)).toBe('One of the transfers did not pay what this job expects. Do not send anything else yet.');
+      expect(presses(page)).toEqual([]);
+    } finally { await page.close(); }
+  });
+  it('price_due: Send it again sends only the price, which pays', async () => {
+    const id = await stagedJob('usdc');
+    const wallet = buildPageWallet(h.chain, { failFirstPrice: true });
+    const page = await outcome(id, [{ uuid: 'w-spd', name: 'Flaky price', wallet }]);
+    try {
+      expect(status(page)).toBe('The fee transfer landed, but the price transfer did not. Send the price transfer again.');
+      expect(presses(page)).toEqual(['usdc-resend']);
+      press(page, 'usdc-resend');
+      await waitFor(() => presses(page).length > 0 || status(page) === 'This payment is confirmed.', 'the resend never settled');
+      expect(wallet.sends.slice(2).map((s) => s.recipient)).toEqual([USDC_OPERATOR_ADDRESS]);
+      expect(status(page)).toBe('This payment is confirmed.');
+      expect((await h.settlementRepo.findByJobAndLeg(id, 'remainder'))?.rail).toBe('usdc');
+    } finally { await page.close(); }
+  });
   it('no wallet: the engine sentence, and Try again', async () => {
     const page = await outcome(await stagedJob('usdc'), []);
     try {

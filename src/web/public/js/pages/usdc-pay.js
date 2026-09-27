@@ -4,7 +4,8 @@
    (#usdc-retry, #usdc-resend, #usdc-check, #usdc-reload), at most one
    shown, none while a payment runs. Sentences are the engine's, word for
    word, first letter raised. The page decides what follows paid and
-   already_paid. No timers. textContent only (api.js rule 3); an icon is
+   already_paid, and may show a server refusal its own way (onRefused).
+   No timers. textContent only (api.js rule 3); an icon is
    drawn only when it is a data:image URI, and only as an <img src>. */
 (function () {
   "use strict";
@@ -14,7 +15,9 @@
     var s = typeof text === "string" ? text : "";
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
-  // opts: { jobId, token, leg, onBusy(bool), onPaid(), onAlreadyPaid() }.
+  // opts: { jobId, token, leg, onBusy(bool), onPaid(), onAlreadyPaid(),
+  // onRefused(message) }. onRefused answers true when the page shows a
+  // server refusal its own way; the sheet then stays empty.
   function create(opts) {
     var engine = window.FAUsdcWallet, wallet = null, resendLeg = null;
     function setBusy(on) { A.showById("scan-waiting", on); if (opts.onBusy) opts.onBusy(on); }
@@ -28,6 +31,7 @@
     function settle(result) {
       var outcome = result.outcome;
       setBusy(false);
+      if (outcome === "server_refused" && opts.onRefused && opts.onRefused(result.message)) { clear(); return; }
       status(result.message);
       resendLeg = outcome === "price_due" ? "price" : result.leg;
       if (outcome === "paid") { showOnly(null); if (opts.onPaid) opts.onPaid(); return; }

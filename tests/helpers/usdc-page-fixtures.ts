@@ -68,6 +68,12 @@ export interface PageWalletOptions {
   readonly refuseAccounts?: boolean;
   // The first fee transfer lands with status 0: transfer_failed, fee.
   readonly failFirstFee?: boolean;
+  // The first price transfer lands with status 0 and the fee lands:
+  // price_due. A resend of the price then lands.
+  readonly failFirstPrice?: boolean;
+  // The price transfer lands paying one base unit less than asked, so the
+  // server reads it as mismatched while this wallet saw it confirm.
+  readonly shortPrice?: boolean;
   // Receipts reach this wallet at once but the server's chain only on
   // release(): the engine answers waiting_network.
   readonly serverLags?: boolean;
@@ -78,7 +84,7 @@ export function buildPageWallet(chain: ChainState, opts: PageWalletOptions = {})
   const sends: WalletSend[] = [];
   const local = new Map<string, number>();
   const held: Array<[string, Receipt]> = [];
-  let feeFailed = false;
+  let feeFailed = false, priceFailed = false;
   async function request(args: { method: string; params?: unknown[] }): Promise<unknown> {
     calls.push(args.method);
     switch (args.method) {
@@ -95,9 +101,12 @@ export function buildPageWallet(chain: ChainState, opts: PageWalletOptions = {})
         chain.count += 1;
         const hash = `0xpage${chain.count}`;
         const isFee = recipient.toLowerCase() === USDC_FEE_ADDRESS;
-        const status = isFee && opts.failFirstFee && !feeFailed ? 0 : 1;
+        const failPrice = !isFee && opts.failFirstPrice === true && !priceFailed;
+        const status = (isFee && opts.failFirstFee && !feeFailed) || failPrice ? 0 : 1;
         if (isFee && status === 0) feeFailed = true;
-        const receipt: Receipt = { status, transfer: { to: recipient.toLowerCase(), value: amount.toString(), tokenContract: tx.to, chainId: USDC_CHAIN_ID } };
+        if (failPrice) priceFailed = true;
+        const landed = !isFee && opts.shortPrice ? amount - 1n : amount;
+        const receipt: Receipt = { status, transfer: { to: recipient.toLowerCase(), value: landed.toString(), tokenContract: tx.to, chainId: USDC_CHAIN_ID } };
         local.set(hash, status);
         if (opts.serverLags) held.push([hash, receipt]);
         else chain.receipts.set(hash, receipt);

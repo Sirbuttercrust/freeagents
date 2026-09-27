@@ -336,8 +336,19 @@
       jobId: jobId, token: token, leg: "deposit",
       onBusy: function (on) { paying = on; var payBtn = A.el("pay-btn"); if (payBtn) payBtn.disabled = on; },
       onPaid: confirmNow,
-      onAlreadyPaid: showAlreadyPaidPresses
+      onAlreadyPaid: showAlreadyPaidPresses,
+      onRefused: usdcRepositoryRefusal
     });
+  }
+  // The USDC start door refuses a repository that is not ready the way the
+  // ABT door does, so it reads the same: the sheet closes and the page's
+  // own sentence and link show beside Pay.
+  function usdcRepositoryRefusal(serverMessage) {
+    var repository = repositoryRefusal(serverMessage);
+    if (repository === null) return false;
+    closeScan();
+    showRepositoryRefusal("pay", repository);
+    return true;
   }
   function closeScan() {
     var dialog = A.el("scan");
