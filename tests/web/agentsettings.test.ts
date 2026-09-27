@@ -15,13 +15,18 @@ import { fileURLToPath } from 'node:url';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { sign } from 'node:crypto';
+import { createRequire } from 'node:module';
+
 import { createApp } from '../../src/api/app.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import { createKnownKeyStore } from '../../src/adapters/identity/did-abt-resolver.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import type { Session } from '../../src/adapters/identity/session.js';
+import { GistNotFoundError, type Gist, type GithubAdapter } from '../../src/adapters/github/types.js';
 import { MemoryAccountRepository, MemoryAgentRepository } from '../../src/adapters/storage/memory.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSession } from '../helpers/session-fixtures.js';
+import { signingIdentityFromSeed } from '../helpers/sign-request.js';
 import { createPasskeyFixture } from '../helpers/webauthn-fixtures.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
@@ -48,10 +53,31 @@ let tightOwner: Session;
 let nextLogin = '';
 let sessions: ReturnType<typeof createSessionAdapter>;
 
+// FIX-B47c: a fake GitHub for the proof's own calls, the shape
+// tests/api/github-proof-callback.test.ts builds. A gist is published as
+// whichever account the fake OAuth exchange answered (nextLogin at that
+// moment), so the real callback's own check reads it back and verifies.
+const gists = new Map<string, Gist>();
+const fakeGithub = {
+  platformLogin: 'freeagents-platform',
+  getPublicGist: async (ref: { readonly id: string }): Promise<Gist> => {
+    const gist = gists.get(ref.id);
+    if (gist === undefined) throw new GistNotFoundError(ref.id);
+    return gist;
+  },
+  createGist: async (input: { readonly filename: string; readonly content: string }): Promise<{ id: string }> => {
+    const id = `settings-gist-${gists.size + 1}`;
+    gists.set(id, { id, owner: nextLogin, files: { [input.filename]: input.content } });
+    return { id };
+  },
+  deleteGist: async (input: { readonly id: string }): Promise<void> => { gists.delete(input.id); },
+  deleteGrant: async (): Promise<void> => undefined,
+} as unknown as GithubAdapter;
+
 async function start(repo: MemoryAgentRepository, write: number, adapter: ReturnType<typeof createSessionAdapter>): Promise<[Server, string]> {
   const s = createApp(
     new MemoryAccountRepository(), repo, createIdentityAdapter(createKnownKeyStore()),
-    undefined, undefined, undefined, undefined, undefined,
+    fakeGithub, undefined, undefined, undefined, undefined,
     { verify: 10_000, read: 10_000, write, upstream: 10_000 }, undefined, undefined, adapter,
   ).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => s.once('listening', resolve));
@@ -116,9 +142,11 @@ async function readAgent(did: string): Promise<Record<string, unknown>> {
   return (await res.json()) as Record<string, unknown>;
 }
 
-interface Call { readonly path: string; readonly method: string; readonly body: Record<string, unknown> | null; readonly authed: boolean }
+interface Call { readonly path: string; readonly method: string; readonly body: Record<string, unknown> | null; readonly authed: boolean; readonly auth: string }
 interface Page {
   window: JSDOM['window']; document: Document; calls: Call[];
+  // FIX-B47c: what POST .../github-proof/start answered, in order.
+  starts: { status: number; body: Record<string, unknown> }[];
   // When set, a matching request rejects the way fetch does offline.
   reject: ((path: string, method: string) => boolean) | null;
   close: () => void;
@@ -136,7 +164,7 @@ async function render(path: string, session: Session | null, opts: { base?: stri
   virtualConsole.on('jsdomError', (e: Error) => failures.push(e.message));
   const markup = await (await fetch(`${base}${path}`, { headers: { Accept: HTML } })).text();
   const calls: Call[] = [];
-  const page = { calls, reject: opts.reject ?? null } as Page;
+  const page = { calls, starts: [], reject: opts.reject ?? null } as unknown as Page;
   const dom = new JSDOM(markup, {
     url: `${base}${path}`, runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true, virtualConsole,
     beforeParse(window) {
@@ -150,13 +178,21 @@ async function render(path: string, session: Session | null, opts: { base?: stri
             path: String(input), method,
             body: typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : null,
             authed: typeof headers.Authorization === 'string',
+            auth: headers.Authorization ?? '',
           });
           if (page.reject?.(String(input), method)) return Promise.reject(new TypeError('Failed to fetch'));
           // When set, a matching request waits for the returned promise
           // before it goes out, so a test can close the window first.
+          const go = (): Promise<Response> => {
+            if (!String(input).endsWith('/github-proof/start')) return fetch(new URL(input, base), init);
+            return fetch(new URL(input, base), init).then(async (res) => {
+              page.starts.push({ status: res.status, body: (await res.clone().json()) as Record<string, unknown> });
+              return res;
+            });
+          };
           const held = opts.hold?.(String(input), method) ?? null;
-          if (held !== null) return held.then(() => fetch(new URL(input, base), init));
-          return fetch(new URL(input, base), init);
+          if (held !== null) return held.then(go);
+          return go();
         },
       });
     },
@@ -590,6 +626,318 @@ describe('(h) /myagents opens every agent\u2019s settings', () => {
   });
 });
 
+// ------------------------------------------------ FIX-B47c: GitHub proof
+
+// jsdom cannot follow a real navigation; hire-flow.test.ts's seam
+// (whatwg-url's parseURL) records the URL a page asked to go to.
+const whatwgURL = createRequire(import.meta.url)('whatwg-url') as { parseURL: (v: string, o?: unknown) => unknown };
+function captureNavigations(): { calls: string[]; restore: () => void } {
+  const calls: string[] = [];
+  const original = whatwgURL.parseURL;
+  whatwgURL.parseURL = function (this: unknown, v: string, o?: unknown) { calls.push(v); return original.call(this, v, o); };
+  return { calls, restore: () => { whatwgURL.parseURL = original; } };
+}
+const toGithub = (calls: string[]): string[] => calls.filter((v) => v.startsWith('https://github.com/login/oauth/authorize'));
+const startsOf = (page: Page): Call[] => page.calls.filter((c) => c.method === 'POST' && c.path.endsWith('/github-proof/start'));
+const GH_WORDS = 'GitHub account Nobody can pay this agent until its GitHub account is confirmed. On GitHub, pick the account it works from. FreeAgents posts one public gist there, then its access ends. Confirm GitHub';
+
+function sectionWords(page: Page): string {
+  const section = page.document.getElementById('gh-section')!.cloneNode(true) as HTMLElement;
+  section.querySelectorAll('[hidden]').forEach((el) => el.remove());
+  return (section.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
+
+// Presses Confirm GitHub and waits until the start has answered and the
+// page has acted on it (left for GitHub, or said a sentence).
+async function press(page: Page, nav: { calls: string[] }): Promise<void> {
+  const before = startsOf(page).length;
+  (page.document.getElementById('gh-confirm') as HTMLButtonElement).click();
+  await until(() => startsOf(page).length > before);
+  await until(() => toGithub(nav.calls).length > 0 || text(page, 'gh-error') !== '');
+}
+
+// A site agent that brought its own DID: the platform never held its key.
+async function listOwnKeyAgent(owner: Session): Promise<string> {
+  const me = (await (await fetch(`${baseUrl}/accounts/me`, { headers: { Accept: 'application/json', Authorization: `Bearer ${owner.token}` } })).json()) as { did: string };
+  const key = await signingIdentityFromSeed(new Uint8Array(32).fill(47));
+  const signature = sign(null, Buffer.from(`freeagents:list-agent:v1:${key.did}:${me.did}`, 'utf8'), key.privateKey).toString('base64');
+  return listAgent(owner, { name: 'own-key', skills: ['triage'], did: key.did, agentProof: { signature, publicKeyMultibase: key.keyid.slice(key.keyid.indexOf('#') + 1) } });
+}
+
+describe('(l) the GitHub account section', () => {
+  it('an unverified agent: the words and the button, no outcome line; the section says at most 35 words and no machine word', async () => {
+    const did = await listAgent(passkeyOwner, { name: 'unconfirmed', skills: ['triage'] });
+    const page = await render(settingsPath(did), passkeyOwner);
+    try {
+      expect(shown(page, 'gh-unverified')).toBe(true);
+      expect(shown(page, 'gh-confirmed')).toBe(false);
+      const btn = page.document.getElementById('gh-confirm') as HTMLButtonElement;
+      expect(btn.textContent).toBe('Confirm GitHub');
+      expect(btn.className, 'Save is the one primary here').toBe('btn');
+      expect(text(page, 'gh-outcome')).toBe('');
+      expect(sectionWords(page)).toBe(GH_WORDS);
+      expect(sectionWords(page).split(' ').length).toBeLessThanOrEqual(35);
+      expect(sectionWords(page)).not.toMatch(/\b(OAuth|token|scope|statement|DID|key|delegation)\b/i);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('a verified agent (the GitHub box ticked at listing): "Confirmed: @login" and no button', async () => {
+    const did = await listAgent(githubOwner, { name: 'confirmed', skills: ['triage'], githubLogin: 'settings-owner' });
+    const page = await render(settingsPath(did), githubOwner);
+    try {
+      expect(shown(page, 'gh-confirmed')).toBe(true);
+      expect(text(page, 'gh-confirmed')).toBe('Confirmed: @settings-owner');
+      expect(shown(page, 'gh-unverified')).toBe(false);
+      expect(page.document.getElementById('gh-confirm')?.closest('[hidden]')).not.toBeNull();
+    } finally {
+      page.close();
+    }
+  });
+
+  it.each([
+    ['a stranger', () => stranger, 'stranger'],
+    ['a signed-out visitor', () => null, 'signin-required'],
+  ])('%s sees no section', async (_label, who, state) => {
+    const did = await listAgent(passkeyOwner, { name: 'no-section', skills: ['triage'] });
+    const page = await render(settingsPath(did), who());
+    try {
+      expect(shown(page, state)).toBe(true);
+      expect(page.document.getElementById('gh-section')?.closest('[hidden]')).not.toBeNull();
+    } finally {
+      page.close();
+    }
+  });
+
+  it('a missing agent sees no section', async () => {
+    const page = await render(settingsPath('did:abt:zNoSuchProofAgent'), passkeyOwner);
+    try {
+      expect(shown(page, 'missing')).toBe(true);
+      expect(page.document.getElementById('gh-section')?.closest('[hidden]')).not.toBeNull();
+    } finally {
+      page.close();
+    }
+  });
+
+  it('every sentence node is a live region before it is first shown', async () => {
+    const did = await listAgent(passkeyOwner, { name: 'live-regions', skills: ['triage'] });
+    const page = await render(settingsPath(did), passkeyOwner);
+    try {
+      expect(text(page, 'gh-error')).toBe('');
+      expect(page.document.getElementById('gh-error')?.getAttribute('role')).toBe('alert');
+      expect(text(page, 'gh-outcome')).toBe('');
+      expect(page.document.getElementById('gh-outcome')?.getAttribute('role')).toBe('status');
+      expect(page.document.getElementById('gh-confirmed')?.getAttribute('role')).toBe('status');
+    } finally {
+      page.close();
+    }
+  });
+});
+
+describe('(m) the press', () => {
+  it.each([['a passkey owner', () => passkeyOwner], ['a GitHub owner', () => githubOwner]])('%s: one start with the session\u2019s token, then exactly the redirectUrl it answered', async (_label, owner) => {
+    const did = await listAgent(owner(), { name: 'press-once', skills: ['triage'] });
+    const page = await render(settingsPath(did), owner());
+    const nav = captureNavigations();
+    try {
+      const btn = page.document.getElementById('gh-confirm') as HTMLButtonElement;
+      btn.click();
+      expect(btn.disabled, 'the button is off while the start is out').toBe(true);
+      expect(btn.getAttribute('data-busy')).toBe('true');
+      btn.click();
+      await until(() => toGithub(nav.calls).length > 0);
+      await new Promise((r) => setTimeout(r, 150));
+      expect(startsOf(page)).toHaveLength(1);
+      expect(startsOf(page)[0]!.path).toBe(`/agents/${encodeURIComponent(did)}/github-proof/start`);
+      expect(startsOf(page)[0]!.auth).toBe(`Bearer ${owner().token}`);
+      expect(page.starts).toHaveLength(1);
+      expect(page.starts[0]!.status).toBe(200);
+      expect(toGithub(nav.calls)).toEqual([page.starts[0]!.body.redirectUrl]);
+      expect(text(page, 'gh-error')).toBe('');
+    } finally {
+      nav.restore();
+      page.close();
+    }
+  });
+
+  it('coming back from GitHub through the browser\u2019s page cache gives the button back', async () => {
+    const did = await listAgent(passkeyOwner, { name: 'back-button', skills: ['triage'] });
+    const page = await render(settingsPath(did), passkeyOwner);
+    try {
+      const btn = page.document.getElementById('gh-confirm') as HTMLButtonElement;
+      btn.disabled = true;
+      btn.setAttribute('data-busy', 'true');
+      const shownAgain = new page.window.Event('pageshow');
+      Object.defineProperty(shownAgain, 'persisted', { value: true });
+      page.window.dispatchEvent(shownAgain);
+      expect(btn.disabled).toBe(false);
+      expect(btn.hasAttribute('data-busy')).toBe(false);
+    } finally {
+      page.close();
+    }
+  });
+});
+
+describe('(n) each refusal leaves the page where it is and says one sentence', () => {
+  async function refusedWith(page: Page, nav: { calls: string[] }, sentence: string, status: number | null): Promise<void> {
+    await press(page, nav);
+    await new Promise((r) => setTimeout(r, 100));
+    if (status !== null) expect(page.starts.map((s) => s.status)).toEqual([status]);
+    expect(text(page, 'gh-error')).toBe(sentence);
+    expect(shown(page, 'gh-error')).toBe(true);
+    expect(toGithub(nav.calls), 'a refusal navigated').toEqual([]);
+    const btn = page.document.getElementById('gh-confirm') as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    expect(btn.hasAttribute('data-busy')).toBe(false);
+    expect(shown(page, 'gh-unverified')).toBe(true);
+    expect(machineWords(page)).toEqual([]);
+  }
+
+  it.each([
+    ['401: an unknown token', () => 'no-such-token-at-proof', 401, 'Your session has expired. Sign in again to confirm it.'],
+    ['403: a stranger\u2019s token', () => stranger.token, 403, 'Only this agent\u2019s owner can confirm its GitHub account. Sign in with the account that listed it.'],
+  ])('%s swapped in between load and press', async (_label, token, status, sentence) => {
+    const did = await listAgent(passkeyOwner, { name: 'swapped-proof', skills: ['triage'] });
+    const page = await render(settingsPath(did), passkeyOwner);
+    const nav = captureNavigations();
+    try {
+      page.window.sessionStorage.setItem('fa_session', JSON.stringify({ ...passkeyOwner, token: token() }));
+      await refusedWith(page, nav, sentence, status);
+    } finally {
+      nav.restore();
+      page.close();
+    }
+  });
+
+  it('409: a site agent that brought its own DID', async () => {
+    const did = await listOwnKeyAgent(githubOwner);
+    const page = await render(settingsPath(did), githubOwner);
+    const nav = captureNavigations();
+    try {
+      await refusedWith(page, nav, 'This agent was registered with its own identity, so it confirms its GitHub account through the API.', 409);
+    } finally {
+      nav.restore();
+      page.close();
+    }
+  });
+
+  it('503: the platform seed unset between load and press; the next press, with it back, goes through', async () => {
+    const did = await listAgent(passkeyOwner, { name: 'no-seed', skills: ['triage'] });
+    const page = await render(settingsPath(did), passkeyOwner);
+    const nav = captureNavigations();
+    try {
+      delete process.env.FREEAGENTS_PLATFORM_SEED;
+      await refusedWith(page, nav, 'Confirming GitHub is not available just now. Try again later.', 503);
+      process.env.FREEAGENTS_PLATFORM_SEED = PLATFORM_SEED;
+      await press(page, nav);
+      expect(toGithub(nav.calls)).toHaveLength(1);
+      expect(shown(page, 'gh-error'), 'the old sentence beside a start that went through').toBe(false);
+    } finally {
+      process.env.FREEAGENTS_PLATFORM_SEED = PLATFORM_SEED;
+      nav.restore();
+      page.close();
+    }
+  });
+
+  it('a status with no sentence of its own (a real 429) gets the default sentence', async () => {
+    // The tight app allows one write a minute, and (g)'s 429 case spent it
+    // on its listing, so this reuses that agent; run alone, it lists one.
+    const listed = (await tightAgentRepo.listAll()).find((a) => a.name === 'rate-limited');
+    const did = listed?.did ?? await listAgent(tightOwner, { name: 'rate-limited', skills: ['triage'] }, tightUrl);
+    const page = await render(settingsPath(did), tightOwner, { base: tightUrl });
+    const nav = captureNavigations();
+    try {
+      await refusedWith(page, nav, 'That did not go through. Try again in a moment.', 429);
+    } finally {
+      nav.restore();
+      page.close();
+    }
+  });
+
+  it('a start that never reaches the server', async () => {
+    const did = await listAgent(passkeyOwner, { name: 'proof-offline', skills: ['triage'] });
+    const page = await render(settingsPath(did), passkeyOwner, { reject: (p) => p.endsWith('/github-proof/start') });
+    const nav = captureNavigations();
+    try {
+      (page.document.getElementById('gh-confirm') as HTMLButtonElement).click();
+      await until(() => text(page, 'gh-error') !== '');
+      expect(startsOf(page)).toHaveLength(1);
+      await refusedWith(page, nav, 'That did not reach the server. Check your connection and try again.', null);
+    } finally {
+      nav.restore();
+      page.close();
+    }
+  });
+});
+
+describe('(o) the landing from GitHub', () => {
+  const landingOf = (page: Page): string => page.window.location.pathname + page.window.location.search;
+
+  it('verified: the whole click through the real start and callback, with a fake GitHub, ends "GitHub confirmed."', async () => {
+    const did = await listAgent(passkeyOwner, { name: 'whole-click', skills: ['triage'] });
+    const page = await render(settingsPath(did), passkeyOwner);
+    const nav = captureNavigations();
+    let redirectUrl = '';
+    try {
+      await press(page, nav);
+      redirectUrl = toGithub(nav.calls)[0]!;
+    } finally {
+      nav.restore();
+      page.close();
+    }
+    nextLogin = 'proof-picked-account';
+    const state = new URL(redirectUrl).searchParams.get('state')!;
+    const back = await fetch(`${baseUrl}/auth/github/callback?code=any&state=${encodeURIComponent(state)}`, { headers: { Accept: HTML }, redirect: 'manual' });
+    expect(back.status).toBe(302);
+    const landing = back.headers.get('location')!;
+    expect(landing).toBe(`${settingsPath(did)}&github=verified`);
+    expect(await readAgent(did)).toMatchObject({ proofStatus: 'verified', githubLogin: 'proof-picked-account' });
+    const after = await render(landing, passkeyOwner);
+    try {
+      expect(text(after, 'gh-outcome')).toBe('GitHub confirmed.');
+      expect(text(after, 'gh-confirmed')).toBe('Confirmed: @proof-picked-account');
+      expect(shown(after, 'gh-unverified')).toBe(false);
+      expect(landingOf(after)).toBe(settingsPath(did));
+      expect(machineWords(after)).toEqual([]);
+    } finally {
+      after.close();
+    }
+  });
+
+  it.each([
+    ['verified, on an agent that still reads unverified', 'verified', ''],
+    ['refused', 'refused', 'Nothing changed. You can confirm it whenever you are ready.'],
+    ['failed', 'failed', 'That did not work, and nothing changed. Try again.'],
+    ['an unknown value', 'maybe', ''],
+    // A name every object inherits: the lookup must be the table's own.
+    ['a built-in name', 'toString', ''],
+  ])('%s', async (_label, outcome, sentence) => {
+    const did = await listAgent(passkeyOwner, { name: `landing-${outcome}`, skills: ['triage'] });
+    const page = await render(`${settingsPath(did)}&github=${outcome}`, passkeyOwner);
+    try {
+      expect(text(page, 'gh-outcome')).toBe(sentence);
+      expect(shown(page, 'gh-unverified'), 'the button stays').toBe(true);
+      expect(shown(page, 'gh-confirmed')).toBe(false);
+      expect(landingOf(page)).toBe(settingsPath(did));
+      expect(machineWords(page)).toEqual([]);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('a stranger landing with ?github=verified sees no outcome sentence', async () => {
+    const did = await listAgent(githubOwner, { name: 'landing-stranger', skills: ['triage'], githubLogin: 'settings-owner' });
+    const page = await render(`${settingsPath(did)}&github=verified`, stranger);
+    try {
+      expect(shown(page, 'stranger')).toBe(true);
+      expect(text(page, 'gh-outcome')).toBe('');
+    } finally {
+      page.close();
+    }
+  });
+});
+
 // ----------------------------------------------------------------- (j)
 
 // static_words.py's rule, ported line for line (tests/web/past-work-simple.test.ts).
@@ -683,7 +1031,7 @@ async function launch(width: number, touch: boolean): Promise<RealBrowser> {
 }
 
 describe('(k) laid out right in real Chrome, under reduced motion', () => {
-  it.each(VIEWPORTS)('%ipx (touch: %s): the filled form, a refusal, and the saved state', async (width, touch) => {
+  it.each(VIEWPORTS)('%ipx (touch: %s): the filled form, a refusal, the saved state, a GitHub refusal and each GitHub landing', async (width, touch) => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for the agentsettings layout sweep; skipping (see CHROME_BIN)');
       return;
@@ -691,10 +1039,11 @@ describe('(k) laid out right in real Chrome, under reduced motion', () => {
     const did = await listAgent(githubOwner, { name: `layout-agent-${width}`, description: 'Turns a Figma file into a typed React component.', skills: ['React', 'TypeScript', 'Accessibility'], floorPriceUsd: '40.00' });
     const browser = await launch(width, touch);
     try {
-      const check = async (state: string): Promise<void> => {
+      const check = async (state: string, controls = 7): Promise<void> => {
         const got = await browser.evaluate<Swept>(SWEEP);
-        // Back to my agents, four fields, Save changes.
-        expect(got.measured, `${state}: the controls measured`).toBe(6);
+        // Back to my agents, four fields, Save changes, and Confirm GitHub
+        // while the agent is unconfirmed.
+        expect(got.measured, `${state}: the controls measured`).toBe(controls);
         expect(got.scrollWidth, `${state} at ${width}: sideways scroll`).toBe(got.clientWidth);
         // The page sets its 44px floor at every width, so it is held at
         // 1280 with a mouse too, not only on touch.
@@ -713,12 +1062,30 @@ describe('(k) laid out right in real Chrome, under reduced motion', () => {
       expect(await wait(browser, `document.getElementById('saved').textContent === 'Saved.'`), 'the saved state').toBe(true);
       await check('the saved state');
       await capture(browser, `agentsettings-saved-${width}`);
+      // FIX-B47c: the GitHub section refused (a stale token), then each
+      // landing sentence GitHub's callback can bring the owner back to.
+      await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify({ ...githubOwner, token: 'no-such-token-layout' }))}); document.getElementById('gh-confirm').click()`);
+      expect(await wait(browser, `document.getElementById('gh-error').textContent !== ''`), 'the GitHub refusal').toBe(true);
+      await check('the GitHub refusal');
+      await capture(browser, `agentsettings-github-refusal-${width}`);
+      await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(githubOwner))})`);
+      for (const outcome of ['refused', 'failed']) {
+        await browser.goto(`${baseUrl}${settingsPath(did)}&github=${outcome}`, 600);
+        expect(await wait(browser, `document.getElementById('gh-outcome').textContent !== ''`), `the ${outcome} landing`).toBe(true);
+        await check(`the ${outcome} landing`);
+        await capture(browser, `agentsettings-github-${outcome}-${width}`);
+      }
+      const confirmed = await listAgent(githubOwner, { name: `layout-confirmed-${width}`, skills: ['React'], githubLogin: 'settings-owner' });
+      await browser.goto(`${baseUrl}${settingsPath(confirmed)}&github=verified`, 600);
+      expect(await wait(browser, `document.getElementById('gh-outcome').textContent === 'GitHub confirmed.'`), 'the verified landing').toBe(true);
+      await check('the verified landing', 6);
+      await capture(browser, `agentsettings-github-verified-${width}`);
     } finally {
       await browser.close();
     }
   }, BROWSER_TIMEOUT_MS);
 
-  it.each([[320], [390]])('/myagents at %ipx on touch: the Settings link is 44px and nothing scrolls sideways', async (width) => {
+  it.each([[320], [390]])('/myagents at %ipx on touch: the Settings and "confirm it" links are 44px and nothing scrolls sideways', async (width) => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for the agentsettings layout sweep; skipping (see CHROME_BIN)');
       return;
@@ -726,9 +1093,9 @@ describe('(k) laid out right in real Chrome, under reduced motion', () => {
     const browser = await launch(width, true);
     try {
       await browser.goto(`${baseUrl}/myagents`, 600);
-      expect(await wait(browser, `document.querySelectorAll('.arow .settings-link').length > 0`), 'a row\u2019s Settings link').toBe(true);
+      expect(await wait(browser, `document.querySelectorAll('.arow .settings-link').length > 0 && document.querySelectorAll('.arow .attn a[href^="/agentsettings"]').length > 0`), 'a row\u2019s Settings and confirm it links').toBe(true);
       const got = await browser.evaluate<{ sizes: number[][]; scrollWidth: number; clientWidth: number; running: number }>(`(function () {
-        var links = [].slice.call(document.querySelectorAll('.arow .settings-link'));
+        var links = [].slice.call(document.querySelectorAll('.arow .settings-link, .arow .attn a[href^="/agentsettings"]'));
         return {
           sizes: links.map(function (a) { var r = a.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; }),
           scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth,
@@ -737,8 +1104,8 @@ describe('(k) laid out right in real Chrome, under reduced motion', () => {
       })()`);
       expect(got.sizes.length).toBeGreaterThan(0);
       for (const [w, h] of got.sizes) {
-        expect(w, 'Settings link width').toBeGreaterThanOrEqual(44);
-        expect(h, 'Settings link height').toBeGreaterThanOrEqual(44);
+        expect(w, 'link width').toBeGreaterThanOrEqual(44);
+        expect(h, 'link height').toBeGreaterThanOrEqual(44);
       }
       expect(got.scrollWidth, `/myagents at ${width}: sideways scroll`).toBe(got.clientWidth);
       expect(got.running).toBe(0);

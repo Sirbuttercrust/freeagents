@@ -350,7 +350,10 @@ describe('the My agents screen, driven end to end against the real app', () => {
     }
   });
 
-  it('an agent whose proofStatus is verified shows no attention line, and one whose proofStatus is not verified shows "GitHub not confirmed" with no link (done-means 4, mutation proof 1)', async () => {
+  // FIX-B47c superseded this test's "with no link" pin: the line now
+  // carries the wireframe's "confirm it" (myagents.html:87), opening the
+  // agent's settings, where the one-click proof's button lives.
+  it('an agent whose proofStatus is verified shows no attention line, and one whose proofStatus is not verified shows "GitHub not confirmed · confirm it", the link opening its settings (done-means 4, mutation proof 1)', async () => {
     await agentRepo.create({
       did: UNVERIFIED_AGENT_DID,
       operatorDid: rosterOperatorDid,
@@ -370,8 +373,12 @@ describe('the My agents screen, driven end to end against the real app', () => {
       const unverifiedRow = rows.find((r) => r.querySelector('a.nm')?.getAttribute('href') === `/agents/${encodeURIComponent(UNVERIFIED_AGENT_DID)}`);
       expect(unverifiedRow, 'the unverified row must exist').toBeTruthy();
       const attn = unverifiedRow?.querySelector('.attn');
-      expect(attn?.textContent).toContain('GitHub not confirmed');
-      expect(attn?.querySelector('a')).toBeNull();
+      expect(attn?.textContent).toBe('GitHub not confirmed \u00b7 confirm it');
+      const confirm = attn?.querySelector('a');
+      expect(confirm?.textContent).toBe('confirm it');
+      expect(confirm?.getAttribute('href')).toBe(`/agentsettings?agent=${encodeURIComponent(UNVERIFIED_AGENT_DID)}`);
+      const landed = await fetch(`${baseUrl}${confirm!.getAttribute('href')}`, { headers: { Accept: 'text/html' } });
+      expect(landed.status, 'the link lands on a mounted page').toBe(200);
     } finally {
       page.close();
     }

@@ -31,15 +31,21 @@
 
      1. No Discipline select. Work kinds are skills now (browse's chips set
         ?skill=), and POST /agents has no discipline field.
-     2. No "Prove GitHub now" step. provegithub.html is not built. A GitHub
-        owner gets one checkbox instead, which sends their own login and is
-        verified at once. Every other owner sees the ceiling after Create.
+     2. The GitHub step is the created state's own button, Confirm GitHub
+        (the wireframe's "Prove GitHub now", named the way every other page
+        names the fact), shown exactly when the ceiling shows. It runs the
+        one-click proof through github-proof.js, the same press
+        /agentsettings runs. There is no "Skip for now": My agents already
+        leaves, and the proof can be done later from the agent's settings.
+        A GitHub owner also gets one checkbox on the form, which sends
+        their own login and is verified at once, with no button after.
      3. No technical details panel. The agent's own page shows its identity.
      4. The two buyer filters stay API-only.
      The wireframe's .note blocks are notes to a reader and never ship.
 
      One .btn-primary per state: Sign in when signed out, Create while the
-     form shows, none once the listing exists. */
+     form shows, Confirm GitHub once an unconfirmed listing exists, none
+     once a confirmed one does. */
 
   .narrow { max-width: 560px; }
   .ceiling {
@@ -59,6 +65,9 @@
      (DESIGN.md 5.3 names no mouse exemption). */
   #create-btn, #signin-link, .done-links .btn, #list-form .input { min-height: 44px; }
   .done-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+  /* A refused press reads as a refusal: the error token's rule, as the
+     form's own refusals take on /agentsettings. */
+  #gh-error { color: var(--fg); font-size: 13px; margin-top: 14px; border-left: 2px solid var(--bad); padding: 2px 0 2px 12px; }
 </style>
 </head>
 <body>
@@ -116,12 +125,12 @@
         <input class="input" id="fl" name="floor" inputmode="decimal" autocomplete="off" placeholder="40.00">
       </div>
       <!-- Departure 2. Shown only to an owner signed in with GitHub, and left
-           unticked: the agent may work from another account. The line under
-           it is true because no route verifies a site-listed agent's GitHub
-           after creation (PATCH ignores githubLogin, DATA-CONTRACT 2.2). -->
+           unticked: the agent may work from another account. Ticking it
+           verifies the owner's own account at once, with no second trip to
+           GitHub. Unticked, the created state offers Confirm GitHub, which
+           can pick any account, now or later from the agent's settings. -->
       <div class="field" id="gh-field" hidden>
         <label class="check"><input type="checkbox" id="gh"><span>This agent works from my GitHub account (@<span id="gh-login"></span>)</span></label>
-        <p class="sub">It can only be set now.</p>
       </div>
 
       <div class="empty warn" id="form-error" role="alert" hidden style="margin-bottom:16px">
@@ -137,9 +146,11 @@
       <h1 id="created-heading" tabindex="-1" style="font-size:22px; margin:0"><span id="created-name"></span> is listed.</h1>
       <p class="ceiling" id="ceiling" hidden>Until its GitHub account is confirmed, nobody can pay for this agent's work.</p>
       <div class="done-links">
+        <button class="btn btn-primary" type="button" id="gh-confirm" data-github-proof hidden>Confirm GitHub</button>
         <a class="btn" id="agent-link">See its page</a>
         <a class="btn" href="/myagents">My agents</a>
       </div>
+      <div class="empty warn" id="gh-error" role="alert" hidden></div>
     </div>
   </div>
 
@@ -159,6 +170,7 @@
 <script src="/js/pages/nav.js"></script>
 <script src="/js/office.js"></script>
 <script src="/js/polish.js"></script>
+<script src="/js/pages/github-proof.js"></script>
 <script src="/js/pages/listagent.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>

@@ -323,7 +323,7 @@
       if (result.state !== "ok") return;
       var detail = result.value;
       paintAvatar(row, agent.did, detail.avatarSpec);
-      if (detail.proofStatus !== "verified") renderAttention(row);
+      if (detail.proofStatus !== "verified") renderAttention(row, agent.did);
       renderAvatarEditor(row, agent, detail);
     });
   }
@@ -595,12 +595,20 @@
       },
     };
   }
-  function renderAttention(row) {
+  /* The wireframe's own line (myagents.html:87): "GitHub not confirmed ·
+     confirm it", the link opening this agent's settings, where the
+     one-click proof's button lives (FIX-B47c). The .attn a rules in
+     myagents.html give the link its 44px on touch. */
+  function renderAttention(row, agentDid) {
     var body = row.children[1];
     if (!body) return;
     var attn = document.createElement("div");
     attn.className = "attn";
-    attn.textContent = "GitHub not confirmed";
+    attn.appendChild(document.createTextNode("GitHub not confirmed \u00b7 "));
+    var confirm = document.createElement("a");
+    confirm.href = "/agentsettings?agent=" + encodeURIComponent(agentDid);
+    confirm.textContent = "confirm it";
+    attn.appendChild(confirm);
     // The wireframe's own order is GitHub first (myagents.html:83,97): a
     // row already carrying the work-offered line (rendered synchronously
     // in agentRow, before this async callback ever runs) gets GitHub
