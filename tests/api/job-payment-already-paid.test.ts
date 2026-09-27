@@ -1,16 +1,14 @@
-// B49 (bugs.md, this card): a leg that has already been paid can be paid
-// again. Measured on 2e27cf2: with the USDC deposit settled (its
-// settlement row written) and the job still 'proposed', POST
-// .../deposit/usdc/start answered 200 with fresh transfer intents, so a
+// B49 (bugs.md, this card): a leg already paid could be paid again. Measured
+// on 2e27cf2: with the USDC deposit settled and the job still 'proposed',
+// POST .../deposit/usdc/start answered 200 with fresh transfer intents, so a
 // buyer who reloaded checkout before confirm was offered a second full
-// payment. The ABT doors have the same shape: they check the job's
-// status through legStatusEligible, never whether the leg already settled.
-// Five places refuse a settled leg here: the token-mint door
-// (/api/did/pay/token), abt/start, usdc/start, usdc/wallet-response's
-// non-replay path, and onAuth (abt-did-connect.ts) before it broadcasts.
-// Each place's own test goes red when that place's checkLegNotAlready-
-// Settled call is removed, and an exact replay of a recorded USDC pair
-// still answers what the first call answered (idempotency untouched).
+// payment. The ABT doors have the same shape: legStatusEligible checks the
+// job's status, never whether the leg already settled. Five places refuse a
+// settled leg here: the token-mint door (/api/did/pay/token), abt/start,
+// usdc/start, usdc/wallet-response's non-replay path, and onAuth
+// (abt-did-connect.ts) before it broadcasts. Each place's own test goes red
+// when that place's checkLegNotAlreadySettled call is removed, and an exact
+// replay of a recorded USDC pair still answers what the first call answered.
 import type { Server } from 'node:http';
 import { describe, expect, it } from 'vitest';
 import { fromRandom } from '@ocap/wallet';
