@@ -361,15 +361,15 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // sample, the same reason browse's own "pellucid" entry above states.
     'seamline': "wireframe sample data (one of the wireframe's four example agent names, myagents.html:109); this page renders agent names live from GET /accounts/:did/agents, never a hardcoded sample",
     'hatchmark': "wireframe sample data (one of the wireframe's four example agent names, myagents.html:122); this page renders agent names live from GET /accounts/:did/agents, never a hardcoded sample",
-    // The wireframe's link points at provegithub.html, which is not
-    // built and has no route in src/web/static.ts: one of the five
-    // wireframed operator-onboarding screens PLAN 2026-09-08 records as
-    // never given a card (listagent.html, provegithub.html,
-    // agentsettings.html, priorwork.html, claim.html), the same reason
-    // signin's own entries cite. The built page renders the attention
-    // line as plain text with no anchor (myagents.js:251), and
-    // tests/web/myagents.test.ts:361 asserts the absence of the link.
-    'confirm it': 'provegithub.html is not built and /provegithub is not mounted (the recorded operator-onboarding gap, PLAN 2026-09-08); the built attention line renders as plain text with no anchor (myagents.js:251), asserted by tests/web/myagents.test.ts:361',
+    // The wireframe's link points at provegithub.html (SITEMAP P-21), which
+    // is not built and has no route in src/web/static.ts; P-21 stays
+    // API-only for launch. The per-row agentsettings.html link is not
+    // carried either: that page (P-20) is FIX-B41d, and its "Settings"
+    // label is already excused by SHARED_NAV. The built page renders the
+    // attention line as plain text with no anchor (myagents.js,
+    // renderAttention), and tests/web/myagents.test.ts asserts the
+    // absence of the link.
+    'confirm it': 'provegithub.html (P-21) is not built and /provegithub is not mounted; P-21 stays API-only for launch. The built attention line renders as plain text with no anchor (myagents.js renderAttention), asserted by tests/web/myagents.test.ts',
     // The work-offered attention line ships (W7b), built inline in
     // agentRow at render time from a second read of
     // GET /accounts/:did/incoming, grouped by agentDid and counted
@@ -380,14 +380,40 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // carry.
     '1 job waiting on a reply': 'built inline in agentRow at render time from GET /accounts/:did/incoming, grouped by agentDid and counted (myagents.js:82-95, myagents.js:170-178); this instrument reads the file on disk and never sees what renderRows appends into #rows live',
   },
+  listagent: {
+    // FIX-B41c's departures, each decided on the card. The first three
+    // keys are not headings or controls this instrument reads (a label
+    // and two API fields), so they excuse nothing it would otherwise
+    // flag; they are here so every departure is written down in one place.
+    'Discipline': 'the wireframe\u2019s select predates SCOPE1: work kinds are skills now (browse\u2019s chips set ?skill=) and POST /agents has no discipline field (DATA-CONTRACT 2.1), so the page carries skills only',
+    'minBuyerMerges': 'the P7 buyer filters stay API-only for launch (DATA-CONTRACT 2.1); the page sends neither',
+    'maxWalkedAfterConfirm': 'same reason as "minBuyerMerges": a P7 filter that stays API-only',
+    // The operator page's own "List an agent" block (operator.html) is
+    // bugs.md B48, its own card, and is not touched here.
+    //
+    // The GitHub step: provegithub.html (P-21) is not built and stays
+    // API-only for launch. A GitHub owner gets one checkbox on the form
+    // instead, which sends their own login and is verified at once (G1);
+    // every other owner sees the ceiling after Create. Showing "Prove
+    // GitHub now" would promise a page that does not exist.
+    'Then, prove GitHub': 'provegithub.html (P-21) is not built and stays API-only for launch; the built page offers a GitHub owner one checkbox that sends their own login (verified at once, G1) and shows every other owner the ceiling after Create, never a step that does not exist',
+    'Prove GitHub now': 'same reason as "Then, prove GitHub": its destination, provegithub.html, is not built',
+    'Skip for now': 'same reason as "Then, prove GitHub": with no proof step there is nothing to skip; the created state links My agents and the agent\u2019s own page instead',
+    // No technical details: the simplicity law, and no DID on the surface.
+    // The agent's own page (/agents/<did>, linked from the created state)
+    // already shows its identity to anyone who looks.
+    'Show technical details': 'the simplicity law and the no-DID-on-the-surface rule drop it; the agent\u2019s own page (/agents/<did>, linked from the created state as "See its page") shows its identity',
+    'Copy': 'same reason as "Show technical details": the copy button sat inside that panel, beside the DID',
+  },
   signin: {
     // All four excuses below share one root, already on the record: PLAN
     // 2026-09-08 (the P8 close-out) names five wireframed screens that
     // were never given a card, all of them the operator's onboarding
     // path (listagent.html, provegithub.html, agentsettings.html,
-    // priorwork.html, claim.html). None is built, none has a route in
-    // src/web/static.ts. That is a recorded launch-scope question for
-    // the operator, not a defect for this card.
+    // priorwork.html, claim.html). FIX-B41c built the first as
+    // /listagent; the other four have no route in src/web/static.ts.
+    // That is a recorded launch-scope question for the operator, not a
+    // defect for this card.
     //
     // MISSION invariant 8: "Sign-in is GitHub OAuth or a passkey." The
     // auth surface is exactly /auth/github/start, /auth/github/callback,
