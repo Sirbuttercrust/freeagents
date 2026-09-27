@@ -1005,12 +1005,7 @@ describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a h
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
       await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
-      const walletResponse = await postSigned(
-        baseUrl,
-        `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
-        { priceTxHash: '0xhalf-price', feeTx: { signed: true, hash: '0xhalf-fee' } },
-        buyer,
-      );
+      const walletResponse = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/wallet-response`, { priceTxHash: '0xhalf-price', feeTx: { signed: true, hash: '0xhalf-fee' } }, buyer);
       expect(walletResponse.status).toBe(200);
       const walletBody = (await walletResponse.json()) as Record<string, unknown>;
       expect(walletBody.confirmed).toBe(false);
