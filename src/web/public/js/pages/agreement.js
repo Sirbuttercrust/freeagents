@@ -1,18 +1,19 @@
-/* W11 agreement (SITEMAP P-11): buyer's screen only, agent side is P-25.
-   No src/api/app.ts route changes for marking: reads GET /jobs/:jobId,
-   marks a line via POST /jobs/:jobId/criteria/:index/accept or
-   POST /jobs/:jobId/price/accept, never calls POST /jobs/:jobId/confirm.
-   P1's genuine new capability: POST /jobs/:jobId/criteria, which this
-   build uses to propose an additional criterion (the wireframe's "Propose
-   your own criterion" field).
+/* W11 agreement (SITEMAP P-11): one page, two seats. The buyer reads and
+   signs; the agent's owner (its operator, signed in) writes the quote,
+   changes lines, the price and the window, and signs the agent's side
+   (FIX-B40). Reads GET /jobs/:jobId, marks a line via POST
+   /jobs/:jobId/criteria/:index/accept or POST /jobs/:jobId/price/accept
+   (the server takes the side from the session), sends lines and the price
+   via POST /jobs/:jobId/criteria, and never calls POST /jobs/:jobId/confirm.
+   agreement-edit.js builds the owner's fields; every request is made here.
 
-   PARTY PROBE: GET /jobs/:jobId/attestations already runs the exact
-   identity gate this page needs (resolveJobActingParty, app.ts:2790) with
-   no side effect, reused rather than adding a fifth route. Every resolved
-   party is a buyer: this build offers no wallet or signature, only a
-   session, and an Account's DID can never equal an agent's DID (POST
-   /accounts and POST /agents each refuse to claim a DID the other holds).
-   A signed-request path for the agent is the one open seam this leaves.
+   PARTY PROBE: GET /jobs/:jobId/attestations runs the job's identity gate
+   (resolveJobActingParty) with no side effect: 401, 403, or a party. It
+   does not say which side, so GET /accounts/me supplies the caller's DID:
+   the buyer's side when it equals job.buyerDid (the server's own order,
+   partyForDid checks the buyer first), the owner's side for any other
+   party. If /accounts/me does not answer, the page shows the load error
+   and renders no control rather than guessing a side.
 
    REBUILT ON THE POLISHED WIREFRAME (spec/wireframe/agreement.html,
    spec/wireframe/agreement.css). The retired vocabulary this file no
@@ -29,6 +30,13 @@
   var jobId = "";
   var token = "";
   var agentDisplayName = "the agent";
+  /* isOwner: the agent's side. buyerName: "@login", or null for "the
+     buyer". openEdit: which row's editor is open ("c0", "price", "days"). */
+  var isOwner = false;
+  var buyerName = null;
+  var openEdit = null;
+  var currentJob = null;
+  var E = window.FAAgreementEdit;
 
   function start() {
     jobId = new URLSearchParams(window.location.search).get("job") || "";
@@ -38,13 +46,15 @@
     token = session.token;
     Promise.all([
       A.get("/jobs/" + encodeURIComponent(jobId)),
-      A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/attestations", token)
+      A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/attestations", token),
+      A.getAuthed("/accounts/me", token)
     ]).then(onLoaded);
   }
 
   function onLoaded(results) {
     var jobResult = results[0];
     var gate = results[1];
+    var me = results[2];
     if (jobResult.state === "absent") { failLoad("There is no hire at that address."); return; }
     if (jobResult.state !== "ok") { failLoad("The record could not be loaded just now. Reloading may work."); return; }
     if (gate.state !== "ok") { failLoad("Could not confirm your access to this hire just now. Reloading may work."); return; }
@@ -62,19 +72,38 @@
     }
     if (status === 404) { failLoad("There is no hire at that address."); return; }
     if (status !== 200) { failLoad("Your access to this hire could not be confirmed just now. Reloading may work."); return; }
-    A.showById("agreement-body", true);
     var job = jobResult.value;
+    if (me.state !== "ok" || me.value.status !== 200 || !me.value.body || typeof me.value.body.did !== "string") {
+      failLoad("Could not tell which side of this hire you are on just now. Reloading may work.");
+      return;
+    }
+    isOwner = me.value.body.did !== job.buyerDid;
+    if (!isOwner) { showBody(job); return; }
+    A.get("/accounts/" + encodeURIComponent(job.buyerDid)).then(function (r) {
+      var login = r.state === "ok" && r.value ? r.value.githubLogin : null;
+      buyerName = typeof login === "string" && login !== "" ? "@" + login : null;
+      showBody(job);
+    });
+  }
+
+  function showBody(job) {
+    A.showById("agreement-body", true);
+    /* The job's own record for the buyer; the operator's page for the
+       owner, which carries the brief too. */
     var back = A.el("back-link");
-    /* Group 3 of the five failing strings: label only. The href this
-       control carries is UNCHANGED (brief: "The href behaviour it
-       asserts does not change") -- still the job's own record, not
-       /hire, because that is what pinned test coverage already verifies
-       for this build. */
-    if (back) back.setAttribute("href", "/jobs/" + encodeURIComponent(job.id));
+    var own = "/operatorjob?job=" + encodeURIComponent(job.id);
+    if (back) back.setAttribute("href", isOwner ? own : "/jobs/" + encodeURIComponent(job.id));
+    if (isOwner) {
+      A.el("s1-link").setAttribute("href", own);
+      A.el("leave-link").setAttribute("href", "/incoming");
+      A.setTextById("h-them", buyerName || "Buyer");
+    }
     renderWho(job);
     renderAll(job);
-    wireProposeForm(job);
+    wireProposeForm();
   }
+
+  function them(capital) { return buyerName || (capital ? "The buyer" : "the buyer"); }
 
   function failLoad(detail) {
     A.showById("load-error", true);
@@ -115,58 +144,156 @@
   /* One ordered list (DATA-CONTRACT 8.1: never three lists). Price and
      delivery share ONE acceptance pair -- POST /jobs/:jobId/price/accept
      carries no index -- a named departure from the wireframe's two
-     independently-signable rows 06/07. */
+     independently-signable rows 06/07. `you` is the reader's own mark:
+     the buyer's on the buyer's side, the agent's on the owner's. */
   function agreementLines(job) {
     var lines = [];
+    function mine(buyerMark, agentMark) { return isOwner ? agentMark === true : buyerMark === true; }
+    function theirs(buyerMark, agentMark) { return isOwner ? buyerMark === true : agentMark === true; }
     (Array.isArray(job.criteria) ? job.criteria : []).forEach(function (c, i) {
       lines.push({
         kind: "criterion",
         index: i,
         text: typeof c.text === "string" ? c.text : "",
         proposedBy: c.proposedBy === "buyer" || c.proposedBy === "agent" ? c.proposedBy : null,
-        you: c.acceptedByBuyer === true,
-        them: c.acceptedByAgent === true,
+        you: mine(c.acceptedByBuyer, c.acceptedByAgent),
+        them: theirs(c.acceptedByBuyer, c.acceptedByAgent),
       });
     });
     var price = job.price && typeof job.price === "object" ? job.price : null;
     if (price !== null) {
-      var you = price.acceptedByBuyer === true;
-      var them = price.acceptedByAgent === true;
+      var you = mine(price.acceptedByBuyer, price.acceptedByAgent);
+      var them = theirs(price.acceptedByBuyer, price.acceptedByAgent);
       lines.push({ kind: "price", priceUsd: price.priceUsd, rail: price.rail, you: you, them: them });
       if (typeof price.deliveryWindowDays === "number") {
         lines.push({ kind: "delivery", deliveryWindowDays: price.deliveryWindowDays, you: you, them: them });
       }
+    } else if (isOwner && job.status === "proposed") {
+      /* No price yet (the buyer sent lines first): a row to set one, with
+         no marks, since there is nothing to sign until a price exists. */
+      lines.push({ kind: "price", priceUsd: null, unset: true, you: false, them: false });
     }
     return lines;
   }
 
   function padNum(n) { return n < 10 ? "0" + n : String(n); }
 
+  function isOpen(job) { return job.status === "proposed"; }
+
   function renderAll(job) {
+    currentJob = job;
     var lines = agreementLines(job);
+    A.show(A.el("propose-field"), isOpen(job) || job.status === "draft");
+    if (isOwner) A.setTextById("lede", "Sign the lines you agree with. Changing a line clears both signatures on it.");
     var host = A.el("terms");
     host.textContent = "";
-    lines.forEach(function (line, i) { host.appendChild(termRow(line, i + 1, i)); });
+    lines.forEach(function (line, i) { host.appendChild(termRow(line, i + 1, i, job)); });
     renderLockbar(job, lines);
     renderFixedTerms(job);
     renderRawList(job, lines);
     /* QA round 2, D2 script-rendered-icon-never-painted: icons.js paints
        once on DOMContentLoaded and polish.js once in init(), both before
-       this fetch resolves, so every host this function builds (the eight
-       .sigdot marks, the .from proposer arrow) would otherwise stay
-       empty forever, including after a re-render on sign or propose.
-       Same guarded call polish.js:66 already uses for script-inserted
-       toast nodes. */
+       this fetch resolves, so every host this function builds (the
+       .sigdot marks, the .from proposer arrow, the .act edit glyph) would
+       otherwise stay empty forever, including after a re-render on sign
+       or send. Same guarded call polish.js:66 already uses for
+       script-inserted toast nodes. */
     if (window.FAIcon) window.FAIcon.paint(host);
+    var editor = host.querySelector(".line-edit");
+    if (editor && editor.focusField) editor.focusField();
+  }
+
+  /* The current list as the route wants it: every line, text unchanged,
+     so the server's diff keeps every mark a send does not touch. */
+  function currentCriteria(job) {
+    return (Array.isArray(job.criteria) ? job.criteria : []).map(function (c) {
+      return { text: c.text, proposedBy: c.proposedBy };
+    });
+  }
+
+  /* One POST /jobs/:jobId/criteria from the owner's side. Resolves null
+     once the page has re-rendered from the response, or the sentence for
+     a refusal (the page is left as it was). Never sends rail: the quote
+     leaves the currency open and the buyer picks at checkout. */
+  function sendQuote(body) {
+    A.showById("submit-error", false);
+    return A.postAuthed("/jobs/" + encodeURIComponent(jobId) + "/criteria", token, body).then(function (result) {
+      if (result.state !== "ok") return "Could not reach the server just now. Try again in a moment.";
+      var status = result.value.status;
+      if (status === 200) { openEdit = null; renderAll(result.value.body); return null; }
+      var b = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
+      return sendRefusal(status, typeof b.error === "string" ? b.error : "");
+    });
+  }
+
+  function sendRefusal(status, serverMessage) {
+    if (status === 401) return "Your session has expired. Sign in again to send this.";
+    if (status === 409) return "This agreement changed since the page loaded. Reload the page to see the latest state.";
+    if (status === 503) return "Storage is unavailable just now. Try again in a moment.";
+    if (status === 403) return serverMessage || "This account can no longer change this agreement. Sign in as the agent's owner.";
+    return serverMessage || "That could not be sent just now. Try again in a moment.";
+  }
+
+  /* The price and the window travel together: a send naming a price
+     without the window resets the window to the server's default, so
+     each edit carries the other value unchanged. */
+  function priceBody(job, priceUsd, days) {
+    var body = { criteria: currentCriteria(job), priceUsd: priceUsd };
+    if (typeof days === "number") body.deliveryWindowDays = days;
+    return body;
+  }
+
+  function rowEditor(line, key, job) {
+    function close() { openEdit = null; renderAll(currentJob); }
+    var price = job.price || {};
+    if (line.kind === "criterion") {
+      return E.lineEditor("Line " + padNum(line.index + 1), line.text, function (text) {
+        var criteria = currentCriteria(job);
+        criteria[line.index] = { text: text, proposedBy: "agent" };
+        return sendQuote({ criteria: criteria });
+      }, close);
+    }
+    if (line.kind === "price") {
+      return E.priceEditor(line.priceUsd || "", function (usd) {
+        return sendQuote(priceBody(job, usd, price.deliveryWindowDays));
+      }, close);
+    }
+    return E.daysEditor(line.deliveryWindowDays, function (days) {
+      return sendQuote(priceBody(job, price.priceUsd, days));
+    }, close);
+  }
+
+  function actControl(line, num, key) {
+    var btn = document.createElement("button");
+    btn.className = "act";
+    btn.type = "button";
+    var label = line.kind === "criterion" ? "Propose a change to line " + padNum(num)
+      : line.kind === "price" ? "Propose a different price" : "Propose a different window";
+    btn.setAttribute("title", label);
+    btn.setAttribute("aria-label", label);
+    btn.setAttribute("aria-expanded", openEdit === key ? "true" : "false");
+    var ico = document.createElement("span");
+    ico.className = "ico";
+    ico.setAttribute("data-ico", "edit");
+    btn.appendChild(ico);
+    btn.addEventListener("click", function () {
+      openEdit = openEdit === key ? null : key;
+      renderAll(currentJob);
+    });
+    return btn;
   }
 
   /* One <li> per line, the wireframe's five-column matrix grid
      (agreement.css .terms > li: num, text, your mark, their mark, act).
-     Ruling 2 (P8h, still standing): editing is not in this card. The
-     column keeps the wireframe's position and grid; the cell carries the
-     "not yet" text, never a button, so nothing here teaches a capability
-     the screen does not have. */
-  function termRow(line, num, styleIndex) {
+     The act column: on the owner's side of an open agreement, the edit
+     control that opens this row's editor under it (the wireframe's
+     "Propose a change to line NN"), and an empty cell once the agreement
+     is closed. The buyer's side keeps the "not yet" text, never a button,
+     because the buyer adds lines but does not rewrite the owner's. A line
+     can be changed but never removed: a send that omits a line drops it
+     while every other line keeps its signatures, so a removal could lock
+     an agreement on a set the other side never saw whole. */
+  function termRow(line, num, styleIndex, job) {
     var li = document.createElement("li");
     li.style.setProperty("--i", String(styleIndex));
     li.appendChild(spanWith("num", padNum(num)));
@@ -176,17 +303,17 @@
     if (line.kind === "criterion") {
       txt.textContent = line.text;
     } else if (line.kind === "price") {
-      txt.textContent = "Price: " + (typeof line.priceUsd === "string" ? "$" + line.priceUsd : "not recorded") + (typeof line.rail === "string" ? " (" + line.rail + ")" : "");
+      txt.textContent = "Price: " + (typeof line.priceUsd === "string" ? "$" + line.priceUsd : line.unset ? "not set yet" : "not recorded") + (typeof line.rail === "string" ? " (" + line.rail + ")" : "");
     } else {
       txt.textContent = "Ready in " + A.plural(line.deliveryWindowDays, "day", "days");
     }
     textHost.appendChild(txt);
     /* Provenance: only a criterion carries proposedBy, and only a line
-       the buyer themselves proposed is worth saying so about -- a line
-       the agent proposed is the default expectation of this screen and
-       needs no annotation (ENT-6.2, wireframe row 05's "you proposed
-       this"). No .from for price/delivery: those carry no proposedBy
-       field to read honestly. */
+       the buyer proposed is worth saying so about -- a line the agent
+       proposed is the default expectation of this screen and needs no
+       annotation (ENT-6.2, wireframe row 05's "you proposed this"). The
+       owner's side reads the same fact from the other side. No .from for
+       price/delivery: those carry no proposedBy field to read honestly. */
     if (line.kind === "criterion" && line.proposedBy === "buyer") {
       var from = document.createElement("span");
       from.className = "from";
@@ -194,19 +321,28 @@
       ico.className = "ico";
       ico.setAttribute("data-ico", "arrow-right");
       from.appendChild(ico);
-      from.appendChild(document.createTextNode("you proposed this"));
+      from.appendChild(document.createTextNode(isOwner ? them(true) + " proposed this" : "you proposed this"));
       textHost.appendChild(from);
     }
     li.appendChild(textHost);
 
-    li.appendChild(sigCell(line, num, true));
-    li.appendChild(sigCell(line, num, false));
+    if (line.unset) {
+      li.appendChild(spanWith("sigcell", ""));
+      li.appendChild(spanWith("sigcell", ""));
+    } else {
+      li.appendChild(sigCell(line, num, true));
+      li.appendChild(sigCell(line, num, false));
+    }
 
-    /* No .act button: this screen has no per-line edit capability
-       (P8h ruling, src/web/pages/agreement.html handoff, carried
-       forward here). A plain span keeps the grid column without
-       teaching a control that does nothing. */
-    li.appendChild(spanWith("act", "not yet"));
+    var key = line.kind === "criterion" ? "c" + line.index : line.kind;
+    if (!isOwner) {
+      li.appendChild(spanWith("act", "not yet"));
+    } else if (isOpen(job)) {
+      li.appendChild(actControl(line, num, key));
+      if (openEdit === key) li.appendChild(rowEditor(line, key, job));
+    } else {
+      li.appendChild(spanWith("act", ""));
+    }
     return li;
   }
 
@@ -228,7 +364,7 @@
     var cell = document.createElement("span");
     cell.className = "sigcell";
     var signed = isYours ? line.you : line.them;
-    var party = isYours ? "you" : agentDisplayName;
+    var party = isYours ? "you" : isOwner ? them(false) : agentDisplayName;
 
     if (isYours && !signed) {
       var btn = document.createElement("button");
@@ -298,15 +434,15 @@
     A.showById("submit-error", true);
   }
 
-  /* Group 5 (the card's one genuine new capability): "Propose your own
-     criterion". POST /jobs/:jobId/criteria takes the FULL list, so a
-     propose sends the current criteria's text unchanged (letting the
-     server's own diff by exact trimmed text keep every existing line's
-     acceptance flags where they are) plus the new line with
-     proposedBy: "buyer". A re-propose while status is already
-     "proposed" stays in "proposed", no transition (src/domain/job.ts
-     proposeCriteria). */
-  function wireProposeForm(job) {
+  /* "Propose your own criterion", from either side. POST
+     /jobs/:jobId/criteria takes the FULL list, so a propose sends the
+     current criteria's text unchanged (letting the server's own diff by
+     exact trimmed text keep every existing line's acceptance flags where
+     they are) plus the new line, proposed by the reader's side. A
+     re-propose while status is already "proposed" stays in "proposed", no
+     transition (src/domain/job.ts proposeCriteria). Reads currentJob, so
+     a line added after any other send carries that send's list. */
+  function wireProposeForm() {
     var input = A.el("newcrit");
     var btn = A.el("propose-submit");
     if (!input || !btn) return;
@@ -319,10 +455,8 @@
         return;
       }
       btn.disabled = true;
-      var criteria = (Array.isArray(job.criteria) ? job.criteria : []).map(function (c) {
-        return { text: c.text, proposedBy: c.proposedBy };
-      });
-      criteria.push({ text: text, proposedBy: "buyer" });
+      var criteria = currentCriteria(currentJob);
+      criteria.push({ text: text, proposedBy: isOwner ? "agent" : "buyer" });
       A.postAuthed("/jobs/" + encodeURIComponent(jobId) + "/criteria", token, { criteria: criteria }).then(function (result) {
         btn.disabled = false;
         if (result.state !== "ok") {
@@ -332,13 +466,13 @@
         }
         var status = result.value.status;
         if (status === 200) {
-          job = result.value.body;
           input.value = "";
-          renderAll(job);
+          renderAll(result.value.body);
           return;
         }
         var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
-        var message = typeof body.error === "string" && body.error !== "" ? body.error : refusalSentence(status, "");
+        var serverMessage = typeof body.error === "string" ? body.error : "";
+        var message = isOwner ? sendRefusal(status, serverMessage) : serverMessage !== "" ? serverMessage : refusalSentence(status, "");
         A.setTextById("propose-error", message);
         A.showById("propose-error", true);
       });
@@ -348,9 +482,11 @@
   /* The outstanding panel reborn as the wireframe's .lockbar: a count and
      a bar instead of a paragraph naming row numbers (agreement.css's own
      header comment on .lockprog explains why). is-open while anything is
-     outstanding, is-locked when every line carries both marks; the
-     deposit link (a named departure from the wireframe, which draws no
-     button on this screen at all) appears only once fully agreed. */
+     outstanding, is-locked when every line carries both marks. On the
+     buyer's side the deposit link (a named departure from the wireframe,
+     which draws no button on this screen at all) appears once fully
+     agreed; the owner's side says the buyer pays it next, with no link,
+     because paying it is the buyer's act. */
   function renderLockbar(job, lines) {
     var bar = A.el("lockbar");
     var mainEl = A.el("lockmain");
@@ -361,6 +497,7 @@
     var depositRow = A.el("deposit-row");
     if (!bar) return;
     depositRow.hidden = true;
+    var other = isOwner ? them(true) : "The agent";
 
     function setCount(collected, needed) {
       countEl.textContent = "";
@@ -373,6 +510,13 @@
       meterHost.setAttribute("aria-label", collected + " of " + needed + " signatures collected");
     }
 
+    if (isOwner && job.status === "draft") {
+      bar.className = "lockbar reveal is-open";
+      A.setText(mainEl, "No lines yet.");
+      A.setText(subEl, "Add the first line below, then set the price.");
+      setCount(0, 0);
+      return;
+    }
     if (job.status !== "proposed") {
       bar.className = "lockbar reveal is-open";
       A.setText(mainEl, "This agreement is no longer open for changes.");
@@ -387,6 +531,8 @@
       setCount(0, 0);
       return;
     }
+    var unset = lines.some(function (line) { return line.unset; });
+    lines = lines.filter(function (line) { return !line.unset; });
 
     var needed = lines.length * 2;
     var collected = 0;
@@ -398,25 +544,35 @@
     });
     setCount(collected, needed);
 
+    if (unset) {
+      bar.className = "lockbar reveal is-open";
+      A.setText(mainEl, "Waiting on you to set the price.");
+      A.setText(subEl, other + " signs it once it is set.");
+      return;
+    }
     if (outstandingForYouCount > 0) {
       bar.className = "lockbar reveal is-open";
       A.setText(mainEl, A.plural(outstandingForYouCount, "signature", "signatures") + " to go, waiting on you");
       A.setText(
         subEl,
         signedByThem === lines.length
-          ? "The agent has signed every line."
-          : "The agent has signed " + signedByThem + " of " + lines.length + " lines."
+          ? other + " has signed every line."
+          : other + " has signed " + signedByThem + " of " + lines.length + " lines."
       );
       return;
     }
     if (signedByThem < lines.length) {
       bar.className = "lockbar reveal is-open";
-      A.setText(mainEl, "Waiting on the agent to sign the rest.");
+      A.setText(mainEl, "Waiting on " + (isOwner ? them(false) : "the agent") + " to sign the rest.");
       A.setText(subEl, "You have signed every line.");
       return;
     }
     bar.className = "lockbar reveal is-locked";
     A.setText(mainEl, "This agreement is fully agreed.");
+    if (isOwner) {
+      A.setText(subEl, other + " pays the deposit next.");
+      return;
+    }
     A.setText(subEl, "The deposit is next.");
     var depositLink = A.el("deposit-link");
     if (depositLink) depositLink.setAttribute("href", "/deposit?job=" + encodeURIComponent(job.id));
@@ -456,7 +612,7 @@
     var host = A.el("rawlist-items");
     if (!host) return;
     host.textContent = "";
-    lines.forEach(function (line, i) {
+    lines.filter(function (line) { return !line.unset; }).forEach(function (line, i) {
       var li = document.createElement("li");
       var text = line.kind === "criterion"
         ? line.text
@@ -467,7 +623,7 @@
       var marks = document.createElement("span");
       marks.className = "mono";
       marks.style.color = "var(--fg-3)";
-      marks.textContent = " \u00b7 you: " + (line.you ? "signed" : "not yet signed") + " \u00b7 agent: " + (line.them ? "signed" : "not yet signed");
+      marks.textContent = " \u00b7 you: " + (line.you ? "signed" : "not yet signed") + " \u00b7 " + (isOwner ? "buyer" : "agent") + ": " + (line.them ? "signed" : "not yet signed");
       li.appendChild(marks);
       host.appendChild(li);
     });

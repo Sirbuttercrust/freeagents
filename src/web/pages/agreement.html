@@ -158,11 +158,11 @@
            never paragraph text, so this departure is not gated and is
            named here instead. -->
       <h1 class="pname">Agree the terms</h1>
-      <p class="lede">Read every line and sign the ones you agree with, one at a time. Editing a line is not available on this screen yet; a change goes back through the agent, who can send a revised line. Once both of you have signed every line, the agreement is fully agreed and the deposit is next; the deposit settles before anything here is locked.</p>
+      <p class="lede" id="lede">Read every line and sign the ones you agree with, one at a time. Editing a line is not available on this screen yet; a change goes back through the agent, who can send a revised line. Once both of you have signed every line, the agreement is fully agreed and the deposit is next; the deposit settles before anything here is locked.</p>
 
       <div class="pane pane-pad reveal" style="margin-top:24px">
         <div class="terms-head" aria-hidden="true">
-          <span></span><span>Term</span><span class="h-you">You</span><span class="h-them">Agent</span><span></span>
+          <span></span><span>Term</span><span class="h-you">You</span><span class="h-them" id="h-them">Agent</span><span></span>
         </div>
         <ul class="terms stagger" id="terms"></ul>
       </div>
@@ -178,12 +178,13 @@
         </div>
       </div>
 
-      <!-- Group 5: "Propose your own criterion" (wireframe lines 215-222).
-           POST /jobs/:jobId/criteria takes the FULL list; proposeSubmit
-           below sends the current criteria unchanged plus this new one
-           with proposedBy: "buyer", which is exactly what
-           src/domain/job.ts's proposeCriteria diffs by text. -->
-      <div class="field" style="max-width:540px; margin-top:26px">
+      <!-- "Propose your own criterion" (wireframe lines 215-222), from
+           either side. POST /jobs/:jobId/criteria takes the FULL list;
+           agreement.js sends the current criteria unchanged plus this new
+           one, which is exactly what src/domain/job.ts's proposeCriteria
+           diffs by text. On a draft job it is how either side writes the
+           first line. -->
+      <div class="field" id="propose-field" style="max-width:540px; margin-top:26px">
         <label for="newcrit">Propose your own criterion</label>
         <div class="row">
           <input class="input" id="newcrit" spellcheck="false"
@@ -275,6 +276,7 @@
 <script src="/js/office.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/polish.js"></script>
+<script src="/js/pages/agreement-edit.js"></script>
 <script src="/js/pages/agreement.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
