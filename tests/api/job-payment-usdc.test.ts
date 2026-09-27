@@ -14,6 +14,7 @@ import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
 import { createUsdcPaymentRail, type UsdcChainClient, type UsdcObservedTransfer } from '../../src/adapters/payment/usdc.js';
 import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from '../../src/adapters/payment/usdc-spent-transfer-storage-types.js';
 import { MemorySettlementRepository } from '../../src/adapters/storage/memory.js';
+import { fakeHalfPaidStorage } from '../helpers/usdc-half-paid-fixtures.js';
 import {
   MemoryAgentRepository,
   MemoryJobRepository,
@@ -967,6 +968,100 @@ describe('B23: a wallet response replaying an already-recorded hash stays idempo
       const row = await settlementRepo.findByJobAndLeg(jobId, 'deposit');
       expect(row?.hash).toBe('0xidem-price');
       expect(row?.secondaryHash).toBe('0xidem-fee');
+    } finally {
+      server.close();
+    }
+  });
+});
+// Make 2 (B49 card): usdc/start carries the leg's half-paid record when one
+// exists, under its own top-level halfPaidRecord key, absent otherwise.
+// Distinct from wallet-response's `halfPaid` boolean. fakeHalfPaidStorage
+// (shared, tests/helpers/usdc-half-paid-fixtures.ts) is STATEFUL, unlike the
+// no-op fixture elsewhere in this file: these tests need what confirm()
+// wrote to come back out of read(). Every test below builds a rail with a
+// fresh half-paid store on its own chain client, replacing the repeated
+// withUsdcEnv + createUsdcPaymentRail wrapper each test would write out.
+function halfPaidRail(chainClient: UsdcChainClient): ReturnType<typeof createUsdcPaymentRail> {
+  return withUsdcEnv(() => createUsdcPaymentRail({
+    chainClient, rateSource: async () => '1', halfPaidStorage: fakeHalfPaidStorage(), spentTransferStorage: fakeSpentTransferStorage(),
+  }));
+}
+describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a half-paid record', () => {
+  it('absent when the leg has never gone half-paid', async () => {
+    const { server, baseUrl, buyer, agent } = await startApp(halfPaidRail(fakeUsdcChainClient()));
+    try {
+      const jobId = await walkToConfirmed(baseUrl, buyer, agent);
+      const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.halfPaidRecord).toBeUndefined();
+    } finally {
+      server.close();
+    }
+  });
+  it('present, with both hashes and statuses, once the price confirmed and the fee did not', async () => {
+    const rail = halfPaidRail(fakeUsdcChainClient({ '0xhalf-price': { status: 1, transfer: depositPriceTransfer() } }));
+    const { server, baseUrl, buyer, agent } = await startApp(rail);
+    try {
+      const jobId = await walkToConfirmed(baseUrl, buyer, agent);
+      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
+      const walletResponse = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/wallet-response`, { priceTxHash: '0xhalf-price', feeTx: { signed: true, hash: '0xhalf-fee' } }, buyer);
+      expect(walletResponse.status).toBe(200);
+      const walletBody = (await walletResponse.json()) as Record<string, unknown>;
+      expect(walletBody.confirmed).toBe(false);
+      expect(walletBody.halfPaid).toBe(true);
+      // Same leg, still 'proposed'; start is reachable again, and now
+      // names the half paid record beside the transfers.
+      const secondStart = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
+      expect(secondStart.status).toBe(200);
+      const body = (await secondStart.json()) as Record<string, unknown>;
+      const halfPaidRecord = body.halfPaidRecord as Record<string, unknown> | undefined;
+      expect(halfPaidRecord).toBeDefined();
+      expect(halfPaidRecord?.priceTxHash).toBe('0xhalf-price');
+      expect(halfPaidRecord?.priceStatus).toBe('confirmed');
+      expect(halfPaidRecord?.feeTxHash).toBe('0xhalf-fee');
+      expect(halfPaidRecord?.feeStatus).toBe('not_confirmed');
+      // Never `halfPaid`: that name already answers a boolean elsewhere.
+      expect(body.halfPaid).toBeUndefined();
+    } finally {
+      server.close();
+    }
+  });
+  it('cleared once a later call sees both legs confirmed', async () => {
+    const priceHash = '0xhalf-clear-price';
+    const feeHash = '0xhalf-clear-fee';
+    // A LIVE chain client (unlike the snapshot Map): the fee's receipt
+    // must change BETWEEN two wallet-response calls, proving confirm()
+    // re-observes the chain rather than trusting a cached verdict.
+    const chainReceipts: Record<string, { status: number | null; transfer: UsdcObservedTransfer | null } | null> = {
+      [priceHash]: { status: 1, transfer: depositPriceTransfer() },
+      [feeHash]: null,
+    };
+    const liveChainClient: UsdcChainClient = {
+      decimals: async () => 6,
+      getTransactionReceipt: async (hash: string) => chainReceipts[hash.toLowerCase()] ?? null,
+    };
+    const usdcRail = halfPaidRail(liveChainClient);
+    const { server, baseUrl, buyer, agent } = await startApp(usdcRail);
+    try {
+      const jobId = await walkToConfirmed(baseUrl, buyer, agent);
+      const walletResponsePath = `/jobs/${jobId}/payments/deposit/usdc/wallet-response`;
+      await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
+      // First call: price lands, fee has not yet -- half-paid.
+      await postSigned(baseUrl, walletResponsePath, { priceTxHash: priceHash, feeTx: { signed: true, hash: feeHash } }, buyer);
+      const halfPaidStart = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
+      const halfPaidBody = (await halfPaidStart.json()) as Record<string, unknown>;
+      expect(halfPaidBody.halfPaidRecord).toBeDefined();
+      // The fee now lands too: a later confirm sees both legs confirmed
+      // and clears the half-paid row.
+      chainReceipts[feeHash] = { status: 1, transfer: depositFeeTransfer() };
+      const secondWalletResponse = await postSigned(baseUrl, walletResponsePath, { priceTxHash: priceHash, feeTx: { signed: true, hash: feeHash } }, buyer);
+      expect(secondWalletResponse.status).toBe(200);
+      const secondWalletBody = (await secondWalletResponse.json()) as Record<string, unknown>;
+      expect(secondWalletBody.confirmed).toBe(true);
+      // The leg is now settled (B49 refuses /start); check the fact
+      // through the rail's own storage rather than a second call.
+      expect(await usdcRail.readHalfPaidRecord(jobId, 'deposit')).toBeNull();
     } finally {
       server.close();
     }
