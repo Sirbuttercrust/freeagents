@@ -5,7 +5,8 @@
    #scan-waiting, #usdc-status (the live region every outcome's own
    sentence lands in) and four footer presses, #usdc-retry, #usdc-resend,
    #usdc-check and #usdc-reload. At most one press shows at a time, and
-   none while a payment runs.
+   none while a payment runs: each run hides them first, and the page's
+   own Pay stays disabled until the outcome is in (onBusy).
 
    The sentences are the engine's, word for word (only the first letter
    is raised, since the server's already-paid sentence starts lower
@@ -29,10 +30,9 @@
   // onAlreadyPaid(result) }.
   function create(opts) {
     var engine = window.FAUsdcWallet;
-    var wallet = null, busy = false, resendLeg = null;
+    var wallet = null, resendLeg = null;
 
     function setBusy(on) {
-      busy = on;
       A.showById("scan-waiting", on);
       if (typeof opts.onBusy === "function") opts.onBusy(on);
     }
@@ -40,6 +40,11 @@
       PRESSES.forEach(function (p) { A.showById(p, p === id); });
     }
     function status(text) { A.setTextById("usdc-status", sentence(text)); }
+    function clear() {
+      A.showById("usdc-pick", false);
+      showOnly(null);
+      status("");
+    }
 
     // Outcome to next step. Every outcome keeps its own sentence; the
     // press shown is the one thing that sentence says to do.
@@ -49,7 +54,11 @@
       resendLeg = null;
       var outcome = result.outcome;
       if (outcome === "paid") { showOnly(null); if (opts.onPaid) opts.onPaid(result); return; }
-      if (outcome === "already_paid") { showOnly("usdc-reload"); if (opts.onAlreadyPaid) opts.onAlreadyPaid(result); return; }
+      if (outcome === "already_paid") {
+        showOnly("usdc-reload");
+        if (opts.onAlreadyPaid) opts.onAlreadyPaid(result);
+        return;
+      }
       // Both name one transfer to send again; the press sends only that.
       if (outcome === "transfer_failed" || outcome === "price_due") {
         resendLeg = outcome === "price_due" ? "price" : result.leg;
@@ -66,11 +75,8 @@
     }
 
     function run(chosen, resend) {
-      if (busy) return;
       wallet = chosen;
-      A.showById("usdc-pick", false);
-      showOnly(null);
-      status("");
+      clear();
       setBusy(true);
       var payOpts = { wallet: wallet, jobId: opts.jobId, leg: opts.leg, token: opts.token };
       if (resend) payOpts.resend = resend;
@@ -102,11 +108,8 @@
     // no_wallet sentence, read from pay() with no wallet (it answers
     // that before any network call).
     function start() {
-      if (busy) return;
       wallet = null;
-      A.showById("usdc-pick", false);
-      showOnly(null);
-      status("");
+      clear();
       setBusy(true);
       engine.discover().then(function (found) {
         setBusy(false);
@@ -121,34 +124,31 @@
 
     function press(id, fn) {
       var btn = A.el(id);
-      if (btn) btn.addEventListener("click", function () { if (!busy) fn(); });
+      if (btn) btn.addEventListener("click", fn);
     }
+    // With no wallet found last time, Try again looks again.
     press("usdc-retry", function () { if (wallet === null) start(); else run(wallet); });
-    press("usdc-resend", function () { if (wallet !== null && resendLeg !== null) run(wallet, resendLeg); });
+    press("usdc-resend", function () { run(wallet, resendLeg); });
     press("usdc-check", function () {
-      if (wallet === null) return;
-      showOnly(null);
-      status("");
+      clear();
       setBusy(true);
       engine.check({ wallet: wallet, jobId: opts.jobId, leg: opts.leg, token: opts.token }).then(settle);
     });
-    press("usdc-reload", function () { window.location.reload(); });
+    // The already-paid sentence says to reload; this link is that, to the
+    // same page with the same hire.
+    var reloadLink = A.el("usdc-reload");
+    if (reloadLink) reloadLink.setAttribute("href", window.location.pathname + window.location.search);
 
-    // reset(): the sheet opened for the other currency; nothing of this
-    // block may show there.
-    function reset() {
-      A.showById("usdc-pick", false);
-      showOnly(null);
-      status("");
-    }
     // alreadyPaid(message): an ABT start door refused an already-paid
     // leg. Same sentence place and the same reload press as the USDC
     // already_paid outcome, so both currencies read the same.
     function alreadyPaid(message) {
-      reset();
+      clear();
       settle({ outcome: "already_paid", message: message });
     }
-    return { start: start, reset: reset, alreadyPaid: alreadyPaid, busy: function () { return busy; } };
+    // reset(): the sheet opened another way; nothing of this block from
+    // an earlier payment may show there.
+    return { start: start, reset: clear, alreadyPaid: alreadyPaid };
   }
 
   window.FAUsdcPay = { create: create, sentence: sentence };

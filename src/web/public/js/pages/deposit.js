@@ -18,7 +18,7 @@
   var A = window.FAApi;
   var RAIL_ABT_FEE_PERCENT = 3, RAIL_USDC_FEE_PERCENT = 6;
   var ALREADY_PAID_PHRASE = "already been paid";
-  var jobId = "", token = "", job = null, chosenRail = "abt", confirmInFlight = false, usdcPay = null;
+  var jobId = "", token = "", job = null, chosenRail = "abt", confirmInFlight = false, usdcPay = null, paying = false;
   function start() {
     jobId = new URLSearchParams(window.location.search).get("job") || "";
     if (!jobId) { failLoad("This address does not name a hire."); return; }
@@ -159,7 +159,7 @@
     var payBtn = A.el("pay-btn");
     if (payBtn) {
       payBtn.textContent = "Pay " + money(figures.total) + " with your wallet";
-      payBtn.disabled = usdcPay !== null && usdcPay.busy();
+      payBtn.disabled = paying;
     }
     // Make 3: said before the Pay press, only while USDC is chosen. No
     // figure: gas moves with the network, and a stale number is a claim.
@@ -321,7 +321,7 @@
   // USDC-WEBb Make 2. The wallet asks twice, said in the wireframe's
   // words with this payment's own amounts (spec/wireframe/deposit.html:256).
   function openUsdc() {
-    if (usdcPay === null || usdcPay.busy()) return;
+    if (paying) return;
     var figures = depositAndFee(job.price, RAIL_USDC_FEE_PERCENT);
     openSheet("usdc", "Two approvals, " + money(figures.deposit) + " then " + money(figures.fee) + ". Both are part of this one payment.");
     usdcPay.start();
@@ -351,7 +351,7 @@
   function wireUsdc() {
     usdcPay = window.FAUsdcPay.create({
       jobId: jobId, token: token, leg: "deposit",
-      onBusy: function (on) { var payBtn = A.el("pay-btn"); if (payBtn) payBtn.disabled = on; },
+      onBusy: function (on) { paying = on; var payBtn = A.el("pay-btn"); if (payBtn) payBtn.disabled = on; },
       onPaid: confirmNow,
       onAlreadyPaid: showAlreadyPaidPresses
     });

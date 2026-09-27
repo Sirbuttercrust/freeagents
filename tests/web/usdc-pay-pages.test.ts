@@ -162,7 +162,7 @@ describe('every outcome shows its own sentence in the live region, with its one 
     try {
       choose(page, 'usdc');
       press(page, 'pay-btn');
-      await waitFor(() => status(page) !== '', 'no sentence');
+      await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
       expect(status(page)).toBe('No wallet was found. Install a wallet extension, or open this page inside your wallet app.');
       expect(presses(page)).toEqual(['usdc-retry']);
     } finally { await page.close(); }
@@ -174,7 +174,7 @@ describe('every outcome shows its own sentence in the live region, with its one 
       const wallet = buildPageWallet(h.chain, { refuseAccounts: true });
       announceWallets(page.window, [{ uuid: 'w-c', name: 'Refuser', wallet }]);
       press(page, 'pay-btn');
-      await waitFor(() => status(page) !== '', 'no sentence');
+      await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
       expect(status(page)).toBe('You closed the wallet before approving.');
       expect(wallet.sends).toHaveLength(0);
       expect(presses(page)).toEqual(['usdc-retry']);
@@ -190,7 +190,7 @@ describe('every outcome shows its own sentence in the live region, with its one 
       const wallet = buildPageWallet(h.chain, { failFirstFee: true });
       announceWallets(page.window, [{ uuid: 'w-f', name: 'Flaky', wallet }]);
       press(page, 'pay-btn');
-      await waitFor(() => status(page) !== '', 'no sentence');
+      await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
       expect(status(page)).toBe('The fee transfer failed on the network. You can send it again.');
       expect(presses(page)).toEqual(['usdc-resend']);
       expect(wallet.sends).toHaveLength(2);
@@ -209,7 +209,7 @@ describe('every outcome shows its own sentence in the live region, with its one 
       const wallet = buildPageWallet(h.chain, { serverLags: true });
       announceWallets(page.window, [{ uuid: 'w-l', name: 'Slow chain', wallet }]);
       press(page, 'pay-btn');
-      await waitFor(() => status(page) !== '', 'no sentence');
+      await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
       expect(status(page)).toBe('The network has not confirmed this payment yet. Check again shortly.');
       expect(presses(page)).toEqual(['usdc-check']);
       const responses = (): number => count(page, `POST /jobs/${id}/payments/deposit/usdc/wallet-response`);
@@ -220,6 +220,7 @@ describe('every outcome shows its own sentence in the live region, with its one 
       press(page, 'usdc-check');
       await waitFor(() => count(page, `POST /jobs/${id}/confirm`) === 1, 'the check never paid');
       expect(responses()).toBe(2);
+      expect(count(page, `POST /jobs/${id}/payments/deposit/usdc/start`)).toBe(1);
       expect(wallet.sends).toHaveLength(2);
     } finally { await page.close(); }
   });
@@ -230,7 +231,7 @@ describe('every outcome shows its own sentence in the live region, with its one 
     try {
       announceWallets(page.window, [{ uuid: 'w-p', name: 'Paid', wallet: buildPageWallet(h.chain) }]);
       press(page, 'pay-btn');
-      await waitFor(() => status(page) !== '', 'no sentence');
+      await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
       expect(status(page)).toBe('The deposit leg has already been paid; reload this page to see the confirmed payment');
       expect(presses(page)).toEqual(['usdc-reload']);
       expect(shown(page.document, 'approved-btn')).toBe(true);
@@ -250,13 +251,14 @@ describe('Make 5 (B54): an already-paid leg on the ABT door reads as already pai
     const page = await openDeposit(id);
     try {
       press(page, 'pay-btn');
-      await waitFor(() => status(page) !== '', 'no sentence');
+      await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
       expect(status(page)).toBe('The deposit leg has already been paid; reload this page to see the confirmed payment');
       expect(page.document.body.textContent).not.toContain('no agreed price');
       expect(shown(page.document, 'pay-error')).toBe(false);
       expect(presses(page)).toEqual(['usdc-reload']);
       expect(shown(page.document, 'approved-btn')).toBe(true);
       expect(text(page.document, 'scanh')).toBe('Already paid');
+      expect(page.document.getElementById('usdc-reload')!.getAttribute('href')).toBe(`/deposit?job=${id}`);
     } finally { await page.close(); }
   });
   it('on the balance page', async () => {
@@ -265,7 +267,7 @@ describe('Make 5 (B54): an already-paid leg on the ABT door reads as already pai
     const page = await openStaged(id);
     try {
       press(page, 'pay-btn');
-      await waitFor(() => status(page) !== '', 'no sentence');
+      await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
       expect(status(page)).toBe('The remainder leg has already been paid; reload this page to see the confirmed payment');
       expect(page.document.body.textContent).not.toContain('no agreed price');
       expect(shown(page.document, 'pay-error')).toBe(false);
@@ -310,7 +312,7 @@ describe('Make 4: the balance page pays in the job\u2019s own currency', () => {
       const wallet = buildPageWallet(h.chain);
       announceWallets(page.window, [{ uuid: 'w-s', name: 'Balance wallet', wallet }]);
       press(page, 'pay-btn');
-      await waitFor(() => status(page) !== '', 'no sentence');
+      await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
       expect(status(page)).toBe('This payment is confirmed.');
       const remainder = remainderUsd(PRICE, 25), fee = calculateFee(remainder, USDC_FEE_RATE_PERCENT);
       expect(wallet.sends.map((s) => [s.recipient, s.amountBaseUnits])).toEqual([[USDC_OPERATOR_ADDRESS, usdc(remainder)], [USDC_FEE_ADDRESS, usdc(fee)]]);
@@ -329,7 +331,7 @@ describe('Make 4: the balance page pays in the job\u2019s own currency', () => {
     try {
       announceWallets(page.window, [{ uuid: 'w-sp', name: 'Paid', wallet: buildPageWallet(h.chain) }]);
       press(page, 'pay-btn');
-      await waitFor(() => status(page) !== '', 'no sentence');
+      await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
       expect(status(page)).toBe('The remainder leg has already been paid; reload this page to see the confirmed payment');
       expect(presses(page)).toEqual(['usdc-reload']);
     } finally { await page.close(); }

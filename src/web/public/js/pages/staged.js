@@ -43,7 +43,7 @@
   var A = window.FAApi;
   var LAPSE_AT_STAGED_AFTER_DAYS = 7, REDO_LAPSE_EXTENSION_DAYS = 7, ABT_FEE_RATE_PERCENT = 3, USDC_FEE_RATE_PERCENT = 6, MS_PER_DAY = 86400000;
   var ALREADY_PAID_PHRASE = "already been paid";
-  var jobId = "", token = "", job = null, currentFigures = null, redoSelectedIndex = null, usdcPay = null;
+  var jobId = "", token = "", job = null, currentFigures = null, redoSelectedIndex = null, usdcPay = null, paying = false;
   // Round 1 fix (qa D1): whether the signed-in session IS this job's
   // buyer, resolved from GET /accounts/:did (already mounted,
   // unauthenticated, app.ts:1300) against the stored session's own
@@ -301,7 +301,7 @@
     currentFigures = figures;
     var payBtn = A.el("pay-btn");
     if (payBtn) {
-      if (figures !== null) { payBtn.textContent = "Pay the balance, " + money(figures.total); payBtn.disabled = usdcPay !== null && usdcPay.busy(); }
+      if (figures !== null) { payBtn.textContent = "Pay the balance, " + money(figures.total); payBtn.disabled = paying; }
       else { payBtn.textContent = "No agreed price to pay against"; payBtn.disabled = true; }
     }
     // USDC-WEBb Make 3: before the press, only on a USDC hire.
@@ -587,7 +587,7 @@
   // post-payment state ABT shows: the status line and "Check for the pull
   // request". The wallet asks twice, named with this payment's amounts.
   function openUsdc() {
-    if (usdcPay === null || usdcPay.busy()) return;
+    if (paying) return;
     fillScanTotals();
     scanMode("usdc");
     A.setTextById("scan-approvals-line", "Two approvals, " + money(currentFigures.remainder) + " then " + money(currentFigures.fee) + ". Both are part of this one payment.");
@@ -599,7 +599,7 @@
     get jobId() { return jobId; },
     get token() { return token; },
     leg: "remainder",
-    onBusy: function (on) { if (payBtn) payBtn.disabled = on || currentFigures === null; },
+    onBusy: function (on) { paying = on; if (payBtn) payBtn.disabled = on || currentFigures === null; },
     onPaid: function () {
       A.showById("scan-approvals-line", false);
       A.setTextById("scan-status", "The pull request opens once the operator submits the work.");
