@@ -32,7 +32,7 @@ import {
   type WalletResponseInput,
 } from './types.js';
 import { createPrismaUsdcHalfPaidStorage } from './usdc-half-paid-storage-prisma.js';
-import type { UsdcHalfPaidStorage } from './usdc-half-paid-storage-types.js';
+import type { UsdcHalfPaidStorage, UsdcTransferStatus } from './usdc-half-paid-storage-types.js';
 import { createPrismaUsdcSpentTransferStorage } from './usdc-spent-transfer-storage-prisma.js';
 import type { UsdcSpentTransferStorage, UsdcTransferRole } from './usdc-spent-transfer-storage-types.js';
 
@@ -191,6 +191,23 @@ export interface UsdcPaymentRailShim {
   createRequest(input: CreateRequestInput): Promise<UsdcPaymentRequest>;
   onWalletResponse(input: UsdcWalletResponseInput): Promise<UsdcPaymentRef>;
   confirm(ref: UsdcPaymentRef): Promise<Confirmation>;
+  // Make 2 (B49 card): the leg's half-paid record, read straight from the
+  // rail's own storage, or null when the leg has never gone half-paid.
+  // route-support.ts's usdcHalfPaidRecordFor is the one narrow accessor a
+  // route file calls; this method exists so that wrapper never has to
+  // reach past the rail into halfPaidStorage itself.
+  readHalfPaidRecord(jobId: string, leg: 'deposit' | 'balance'): Promise<UsdcHalfPaidRecord | null>;
+}
+
+// Make 2: the shape usdc/start answers under its new top-level
+// `halfPaidRecord` key. Deliberately NOT named `halfPaid` (types.ts's
+// Confirmation already answers a boolean under that exact name, and one
+// name must never carry two shapes across this rail's surface).
+export interface UsdcHalfPaidRecord {
+  readonly priceTxHash: string;
+  readonly priceStatus: UsdcTransferStatus;
+  readonly feeTxHash: string | null;
+  readonly feeStatus: UsdcTransferStatus;
 }
 
 // S1: the base-unit amounts a leg's two transfers must carry, computed
@@ -365,6 +382,21 @@ export function createUsdcPaymentRail(options: CreateUsdcPaymentRailOptions = {}
         confirmed,
         legs: { price, fee },
         halfPaid,
+      };
+    },
+
+    // Make 2 (B49 card): a narrow read of this rail's own half-paid
+    // storage, keyed by (jobId, leg). Null when the leg has never gone
+    // half-paid; the row shape maps 1:1 onto UsdcHalfPaidRecord, since
+    // both are read from and written to the SAME UsdcHalfPaidRow.
+    async readHalfPaidRecord(jobId: string, leg: 'deposit' | 'balance') {
+      const row = await halfPaidStorage.read(jobId, leg);
+      if (row === null) return null;
+      return {
+        priceTxHash: row.priceTxHash,
+        priceStatus: row.priceStatus,
+        feeTxHash: row.feeTxHash,
+        feeStatus: row.feeStatus,
       };
     },
   };

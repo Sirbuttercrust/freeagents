@@ -17,6 +17,7 @@ import type {
   UsdcTransferIntent,
   WalletResponseInput,
 } from './types.js';
+import type { UsdcHalfPaidRecord, UsdcPaymentRailShim } from './usdc.js';
 import { agreementGap, LAPSE_AT_STAGED_STATUSES, type AgreementGap, type Job, type JobStatus } from '../../domain/job.js';
 import { verifiedGithubLogin, type Agent } from '../../domain/agent.js';
 import { publicBaseUrlFromEnv } from '../credentials/credentials.js';
@@ -153,6 +154,32 @@ export async function checkRailDoorEligible(input: {
   return { ok: true };
 }
 
+// B49 (bugs.md, this card): a leg that already has a settlement row must
+// never be paid again. Before this check, a buyer who reloaded checkout
+// before confirm was offered a fresh full payment for a leg that had
+// already settled. Shared here for the same reason legStatusEligible and
+// checkRailDoorEligible above are shared: every door onto the payment
+// surface (both /start routes, the token-mint door, the USDC
+// wallet-response route's non-replay path, and the ABT onAuth callback
+// before it broadcasts) applies the identical rule. The sentence names
+// the one phrase ("already been paid") a page tells this refusal apart
+// by, and tells the buyer what to do next: reload rather than retry.
+export function legAlreadySettledMessage(leg: RouteLeg): string {
+  return `the ${leg} leg has already been paid; reload this page to see the confirmed payment`;
+}
+
+export async function checkLegNotAlreadySettled(input: {
+  readonly jobId: string;
+  readonly leg: RouteLeg;
+  readonly settlementRepo: SettlementRepository;
+}): Promise<RailDoorEligibilityResult | RailDoorEligibilityRefusal> {
+  const settled = await input.settlementRepo.findByJobAndLeg(input.jobId, input.leg);
+  if (settled !== null) {
+    return { ok: false, status: 409, message: legAlreadySettledMessage(input.leg) };
+  }
+  return { ok: true };
+}
+
 // Wraps rail.createRequest so the route layer supplies 'deposit' |
 // 'remainder' and never writes the literal 'balance' itself.
 export async function requestPayment(
@@ -202,6 +229,18 @@ export function usdcTransferIntents(
   request: Extract<PaymentRequest, { rail: 'usdc' }>,
 ): readonly [UsdcTransferIntent, UsdcTransferIntent] {
   return request.transfers;
+}
+
+// Make 2 (this card): usdc/start carries the leg's half-paid record when
+// one exists, so any device can finish a half-paid payment by sending
+// only the missing transfer. Wrapped here, the one place that writes the
+// rail's internal 'balance' spelling, exactly like requestPayment above.
+export async function usdcHalfPaidRecordFor(
+  rail: UsdcPaymentRailShim,
+  jobId: string,
+  leg: RouteLeg,
+): Promise<UsdcHalfPaidRecord | null> {
+  return rail.readHalfPaidRecord(jobId, toRailLeg(leg));
 }
 
 // confirm() is payment-safe already (Confirmation carries no banned

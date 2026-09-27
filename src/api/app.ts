@@ -149,6 +149,7 @@ import { attachAbtPaymentHandlers, type AbtTxEncoder } from '../adapters/payment
 import { createTxEncoder as createAbtTxEncoder } from '@ocap/client/encode';
 import {
   checkDepositReadiness,
+  checkLegNotAlreadySettled,
   checkRailDoorEligible,
   confirmPayment,
   legStatusConflictMessage,
@@ -156,6 +157,7 @@ import {
   processWalletResponse,
   repositoryNotAccessibleMessage,
   requestPayment,
+  usdcHalfPaidRecordFor,
   type RouteLeg,
 } from '../adapters/payment/route-support.js';
 import type { PaymentRef, PaymentRequest } from '../adapters/payment/types.js';
@@ -6843,6 +6845,18 @@ export function createApp(
         res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
         return;
       }
+      // B49 (bugs.md, this card): a leg that already settled must never be
+      // paid again. This door mints a payment session for the SAME leg
+      // /start would start, so it needs the identical refusal.
+      const tokenDoorAlreadySettled = await checkLegNotAlreadySettled({
+        jobId: gate.job.id,
+        leg,
+        settlementRepo,
+      });
+      if (!tokenDoorAlreadySettled.ok) {
+        res.status(tokenDoorAlreadySettled.status).json({ error: tokenDoorAlreadySettled.message });
+        return;
+      }
       // FIX-B37 (Make item 2): before a DEPOSIT leg starts, on all three
       // doors -- this is the token-mint door, the second door onto the
       // same session did-connect-js's own /api/did/pay/token would
@@ -6969,6 +6983,17 @@ export function createApp(
         res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
         return;
       }
+      // B49 (bugs.md, this card): a leg that already settled must never be
+      // paid again, on either rail.
+      const abtAlreadySettled = await checkLegNotAlreadySettled({
+        jobId: gate.job.id,
+        leg,
+        settlementRepo,
+      });
+      if (!abtAlreadySettled.ok) {
+        res.status(abtAlreadySettled.status).json({ error: abtAlreadySettled.message });
+        return;
+      }
       // FIX-B37 (Make item 2): before a DEPOSIT leg starts, the platform
       // checks the whole deposit-readiness surface and refuses (409,
       // nothing minted) a sibling already confirmed, an unsigned
@@ -7087,6 +7112,17 @@ export function createApp(
         res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
         return;
       }
+      // B49 (bugs.md, this card): a leg that already settled must never be
+      // paid again.
+      const usdcStartAlreadySettled = await checkLegNotAlreadySettled({
+        jobId: gate.job.id,
+        leg,
+        settlementRepo,
+      });
+      if (!usdcStartAlreadySettled.ok) {
+        res.status(usdcStartAlreadySettled.status).json({ error: usdcStartAlreadySettled.message });
+        return;
+      }
       // FIX-B37 (Make item 2): before a DEPOSIT leg starts, the platform
       // checks the whole deposit-readiness surface and refuses (409,
       // nothing quoted) a sibling already confirmed, an unsigned
@@ -7138,7 +7174,12 @@ export function createApp(
         res.status(503).json({ error: 'the usdc payment rail is unavailable' });
         return;
       }
-      res.status(200).json(request);
+      // Make 2 (B49 card): the leg's half-paid record, when one exists,
+      // rides beside the transfers under its own top-level key so any
+      // device can finish a half-paid payment by sending only the
+      // missing transfer. Absent when the leg has never gone half-paid.
+      const halfPaidRecord = await usdcHalfPaidRecordFor(usdcPaymentRail, gate.job.id, leg);
+      res.status(200).json(halfPaidRecord === null ? request : { ...request, halfPaidRecord });
     }),
   );
 
@@ -7229,6 +7270,19 @@ export function createApp(
         // never treated as a late-but-honoured payment.
         if (!legStatusEligible(leg, gate.job.status)) {
           res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
+          return;
+        }
+        // B49 (bugs.md, this card): a leg that already settled must never
+        // be paid again. isIdempotentReplay above already lets the exact
+        // recorded pair through unchanged; anything else touching a
+        // settled leg is a fresh attempt and is refused here.
+        const walletResponseAlreadySettled = await checkLegNotAlreadySettled({
+          jobId: gate.job.id,
+          leg,
+          settlementRepo,
+        });
+        if (!walletResponseAlreadySettled.ok) {
+          res.status(walletResponseAlreadySettled.status).json({ error: walletResponseAlreadySettled.message });
           return;
         }
       }
