@@ -22,6 +22,7 @@ import { signingIdentityFromSeed, type SigningIdentity } from '../helpers/sign-r
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import type { CreateGistInput, CreateGistResult, DeleteGistInput, DeleteGrantInput, Gist, GithubAdapter } from '../../src/adapters/github/types.js';
 import { GistNotFoundError } from '../../src/adapters/github/types.js';
+import type { Delegation } from '../../src/domain/agent.js';
 
 const ORIGINAL_SEED = process.env.FREEAGENTS_PLATFORM_SEED;
 let seedCounter = 0;
@@ -124,6 +125,28 @@ interface Booted {
 
 const FAKE_TOKEN = 'fake-access-token'; // fakeGitHubFetch's own hard-coded exchanged token.
 
+// A delegation shaped like the real site path's own (app.ts :3395):
+// issuer is the operator's DID, credentialId is the delegation's own `id`.
+// Shared by every describe below that needs a derivable agent, so the
+// same fixture shape is not hand-copied per test.
+function platformDelegation(operatorDid: string, agentDid: string, credentialId: string): Delegation {
+  return {
+    '@context': ['https://www.w3.org/2018/credentials/v1'],
+    id: credentialId,
+    type: ['VerifiableCredential', 'AgentDelegation'],
+    issuer: operatorDid,
+    issuanceDate: '2026-01-01T00:00:00Z',
+    credentialSubject: { id: agentDid, delegationSignedBy: 'platform' },
+    proof: {
+      type: 'Ed25519Signature2020',
+      created: '2026-01-01T00:00:00Z',
+      verificationMethod: `${operatorDid}#zPlatformKeyHash`,
+      proofPurpose: 'assertionMethod',
+      proofValue: 'zfixture-not-verified-here',
+    },
+  };
+}
+
 async function bootWithDerivableAgent(login: string, options: { readonly createGistShouldFail?: boolean; readonly fetchImpl?: typeof fetch } = {}): Promise<Booted> {
   process.env.FREEAGENTS_PLATFORM_SEED = freshSeed();
   const identity = createIdentityAdapter(createKnownKeyStore());
@@ -138,21 +161,7 @@ async function bootWithDerivableAgent(login: string, options: { readonly createG
   await agentRepo.create({
     did: agentDid,
     operatorDid: operator.did,
-    delegation: {
-      '@context': ['https://www.w3.org/2018/credentials/v1'],
-      id: credentialId,
-      type: ['VerifiableCredential', 'AgentDelegation'],
-      issuer: operator.did,
-      issuanceDate: '2026-01-01T00:00:00Z',
-      credentialSubject: { id: agentDid, delegationSignedBy: 'platform' },
-      proof: {
-        type: 'Ed25519Signature2020',
-        created: '2026-01-01T00:00:00Z',
-        verificationMethod: `${operator.did}#zPlatformKeyHash`,
-        proofPurpose: 'assertionMethod',
-        proofValue: 'zfixture-not-verified-here',
-      },
-    },
+    delegation: platformDelegation(operator.did, agentDid, credentialId),
     name: 'scout',
     skills: ['triage'],
     githubLogin: null,
@@ -215,13 +224,8 @@ describe('GET /auth/github/callback, the one-click proof branch: the whole click
     expect(readBody.githubLogin).toBe('octo-full-click');
   });
 
-  // Brief test (c) / invariant 2 direction two, for the PUBLISHED gist
-  // specifically (account-proof-invariant2.test.ts proves the same
-  // invariant for a hand-authored statement; this proves it for the one
-  // this route composes and signs). A third party who has never called
-  // this service: its own line parser, its own canonical-bytes
-  // construction, and node:crypto alone against the public key the
-  // statement's own `key:` line names.
+  // Brief test (c): the PUBLISHED gist verifies with a third-party parser
+  // and node:crypto alone, never this route's own parseGistStatement.
   it('the published gist verifies independently with a third-party parser, node:crypto, and the key line the gist itself carries; a flipped byte fails', async () => {
     const startRes = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
     const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
@@ -233,9 +237,6 @@ describe('GET /auth/github/callback, the one-click proof branch: the whole click
     const published = publishedCalls[publishedCalls.length - 1]!;
     const content = published.content;
 
-    // The third party's own reader: split lines, take the keys it knows,
-    // ignore the rest. Deliberately NOT src/domain/account-proof.js's
-    // parseGistStatement.
     function thirdPartyReadsStatement(text: string): Record<string, string> {
       const fields: Record<string, string> = {};
       for (const line of text.split(/\r?\n/)) {
@@ -260,17 +261,11 @@ describe('GET /auth/github/callback, the one-click proof branch: the whole click
         key: { kty: 'OKP', crv: 'Ed25519', x: Buffer.from(raw).toString('base64url') },
         format: 'jwk',
       });
-      // Rebuilt from the DID and account being checked, not trusted from
-      // the file: the same discipline account-proof-invariant2.test.ts
-      // uses for the hand-authored statement.
       const bytes = `freeagents-github-proof v1\n${did}\n${account}\n`;
       return nodeCrypto.verify(null, Buffer.from(bytes, 'utf8'), publicKey, Buffer.from(sig, 'base64'));
     }
 
     expect(await thirdPartyVerifies(content)).toBe(true);
-
-    // Mutation proof: flip one byte the signature covers (the DID) and
-    // watch the same independent check fail.
     const tampered = content.replace(booted.agentDid, `${booted.agentDid}x`);
     expect(tampered).not.toBe(content);
     expect(await thirdPartyVerifies(tampered)).toBe(false);
@@ -364,21 +359,7 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     await agentRepo.create({
       did: agentDid,
       operatorDid: operator.did,
-      delegation: {
-        '@context': ['https://www.w3.org/2018/credentials/v1'],
-        id: credentialId,
-        type: ['VerifiableCredential', 'AgentDelegation'],
-        issuer: operator.did,
-        issuanceDate: '2026-01-01T00:00:00Z',
-        credentialSubject: { id: agentDid, delegationSignedBy: 'platform' },
-        proof: {
-          type: 'Ed25519Signature2020',
-          created: '2026-01-01T00:00:00Z',
-          verificationMethod: `${operator.did}#zPlatformKeyHash`,
-          proofPurpose: 'assertionMethod',
-          proofValue: 'zfixture-not-verified-here',
-        },
-      },
+      delegation: platformDelegation(operator.did, agentDid, credentialId),
       name: 'scout',
       skills: ['triage'],
       githubLogin: null,
@@ -444,21 +425,7 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     await agentRepo.create({
       did: agentDid,
       operatorDid: operator.did,
-      delegation: {
-        '@context': ['https://www.w3.org/2018/credentials/v1'],
-        id: credentialId,
-        type: ['VerifiableCredential', 'AgentDelegation'],
-        issuer: operator.did,
-        issuanceDate: '2026-01-01T00:00:00Z',
-        credentialSubject: { id: agentDid, delegationSignedBy: 'platform' },
-        proof: {
-          type: 'Ed25519Signature2020',
-          created: '2026-01-01T00:00:00Z',
-          verificationMethod: `${operator.did}#zPlatformKeyHash`,
-          proofPurpose: 'assertionMethod',
-          proofValue: 'zfixture-not-verified-here',
-        },
-      },
+      delegation: platformDelegation(operator.did, agentDid, credentialId),
       name: 'scout',
       skills: ['triage'],
       githubLogin: null,
