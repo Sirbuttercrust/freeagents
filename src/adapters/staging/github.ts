@@ -30,6 +30,7 @@ import {
   isTestFilePath,
 } from '../../domain/diff-classification.js';
 import type { StagingObserveInput, StagingObserver } from './types.js';
+import { chainIdentifiersMatch } from '../../domain/chain-identifiers.js';
 
 // diffHash = sha256 over the sorted list of (path, patch) pairs, so a
 // stranger holding the same compare response can recompute this exact
@@ -88,11 +89,14 @@ export function createGithubStagingObserver(github: GithubAdapter): StagingObser
 
       // A signer matches the agent DID only when BOTH GitHub's own
       // cryptographic verification passed AND the commit's GitHub author
-      // is the agent's verified login -- a verified-but-someone-else's
+      // is the agent's verified login -- compared case-insensitively
+      // through chainIdentifiersMatch (B35), since GitHub reports the
+      // author in its own canonical case while the stored verified login
+      // keeps the spelling the owner typed. A verified-but-someone-else's
       // signature is not the agent's signature, and an unverified commit
       // from the right login is not a verified signer either.
       const commitSigners = comparison.commits.map((commit) => ({
-        matchesAgentDid: commit.verified && commit.authorLogin === input.verifiedAgentGithubLogin,
+        matchesAgentDid: commit.verified && chainIdentifiersMatch(commit.authorLogin, input.verifiedAgentGithubLogin),
       }));
 
       return {

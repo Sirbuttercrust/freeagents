@@ -253,6 +253,34 @@ describe('job pull-request (R-10, STG2)', () => {
     expect(String(template.body)).toContain('opened by the agent from its own fork');
   });
 
+  it('a STAGED job (not yet submitted) already projects pullRequestTemplate, before any pull request exists', async () => {
+    // The agent needs the template to open the PR from its own fork, which
+    // means the template must exist BEFORE the pull-request route is ever
+    // called. This job stops at staged (walkToConfirm, then walkToStaged,
+    // never the pull-request route) and reads GET /jobs/:id directly, so a
+    // regression that only reveals the template once a pull request lands
+    // (a mutant gating jobProjection's template condition on
+    // `row.status !== 'staged'`) is caught here rather than passing every
+    // other test in this file, all of which read the template on a job
+    // already submitted.
+    const { jobId, briefHash } = await openDraft('Fix the flaky staging build');
+    const confirmedBody = await walkToConfirm(jobId);
+    const specHash = confirmedBody.specHash;
+    await walkToStaged(jobId);
+
+    const read = await get(`/jobs/${jobId}`);
+    expect(read.status).toBe(200);
+    const body = (await read.json()) as Record<string, unknown>;
+    expect(body.status).toBe('staged');
+    expect(body.pullRequestTemplate).toBeDefined();
+    const template = body.pullRequestTemplate as Record<string, unknown>;
+    expect(template.title).toContain(jobId);
+    expect(String(template.body)).toContain(`Job: ${jobId}`);
+    expect(String(template.body)).toContain(String(briefHash));
+    expect(String(template.body)).toContain(String(specHash));
+    expect(String(template.body)).toContain('opened by the agent from its own fork');
+  });
+
   it('answers 404 for an unknown id, with zero adapter calls', async () => {
     const before = fixture.calls.getPullRequest.length;
     const nowhere = await postSigned('/jobs/j-nowhere/pull-request', { pullRequestUrl: 'https://github.com/buyer/target-repo/pull/999' }, agent);
