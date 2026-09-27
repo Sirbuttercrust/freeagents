@@ -775,8 +775,7 @@ describe('outcomes with no case before B49 review round 1 (defect 3)', () => {
   });
   it('a stored record is cleared exactly when the payment is confirmed', async () => {
     const { chainState, h, page } = await setup(26);
-    const wallet = buildFakeWallet({ chainState });
-    const result = await payDeposit(page, h, walletEntry('w26', wallet.provider));
+    const result = await payDeposit(page, h, fakeWalletEntry('w26', { chainState }));
     expect(result.outcome).toBe('paid');
     const raw = (page.window as unknown as { localStorage: { getItem: (key: string) => string | null } }).localStorage.getItem(`fa_usdc_wallet:${h.jobId}:deposit`);
     expect(raw).toBeNull();
