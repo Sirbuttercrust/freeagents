@@ -228,7 +228,9 @@ describe('the My agents screen, driven end to end against the real app', () => {
       const empty = page.document.querySelector('#empty-state a.btn');
       expect(empty?.getAttribute('href')).toBe('/listagent');
       expect(empty?.classList.contains('btn-primary')).toBe(false);
-      expect(page.document.querySelectorAll('.btn-primary').length, 'one primary button on the screen').toBe(1);
+      // Visible ones only: the hidden signed-out prompt carries its own.
+      const visible = Array.from(page.document.querySelectorAll('.btn-primary')).filter((b) => b.closest('[hidden]') === null);
+      expect(visible.map((b) => b.id), 'one primary button on the screen').toEqual(['list-agent-cta']);
     } finally {
       page.close();
     }
