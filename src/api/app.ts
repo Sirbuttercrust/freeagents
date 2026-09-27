@@ -67,6 +67,7 @@ import {
 import { delegationConsistent, isAgentOperator, agentMayNegotiate, descriptionWellFormed, didSuffix, type Agent, type Delegation } from '../domain/agent.js';
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
 import { buildAttestation, AttestationError } from '../domain/attestation.js';
+import { chainIdentifiersMatch } from '../domain/chain-identifiers.js';
 import { lastHireCompletedAt, recordLastChangedAt } from '../domain/freshness.js';
 import { isHttpsUrl } from '../domain/notification.js';
 import {
@@ -248,20 +249,10 @@ function notImplemented(_req: Request, res: Response): void {
   res.status(501).json({ error: 'not implemented' });
 }
 
-// QA round 1, defect 1 (HIGH): GitHub reports a repository owner, a repo
-// name, a user login and a commit sha in ITS OWN canonical case, regardless
-// of the spelling a caller typed when the fact was first stored (POST
-// /jobs's repository, account-proof's githubLogin, stage's stagedCommit).
-// GitHub itself treats all four identifiers case-insensitively -- the same
-// stance account-proof's own gist-owner check already takes (app.ts:2238,
-// 2292). Comparing any of them with a bare !== refuses an honest, fully
-// paid pull request forever whenever the stored spelling and GitHub's
-// reported spelling merely differ in case. Every chain-identifier compare
-// in the pull-request and merge routes goes through this one function.
-function chainIdentifiersMatch(a: string | null, b: string | null): boolean {
-  if (a === null || b === null) return a === b;
-  return a.toLowerCase() === b.toLowerCase();
-}
+// QA round 1, defect 1 (HIGH): chainIdentifiersMatch moved to
+// src/domain/chain-identifiers.ts (STG2T) so the staging adapter's
+// commit-signer check can share it instead of comparing logins with a
+// bare ===.
 
 // The Account record projection is the whole response. Exactly these six
 // fields, nothing more: tests/api/account-invariant2.test.ts asserts the

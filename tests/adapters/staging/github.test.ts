@@ -169,6 +169,70 @@ describe('createGithubStagingObserver: git facts, no execution', () => {
     ]);
   });
 
+  it('commitSigners: matchesAgentDid true when the verified author differs from the verified login only in letter case', async () => {
+    // GitHub reports the author in its own canonical case; the stored
+    // verified login keeps whatever spelling the owner typed. A verified
+    // commit by the same account under a different case is still the
+    // agent's commit.
+    const github = fakeGithub({
+      compareCommits: () =>
+        Promise.resolve({
+          files: [],
+          commits: [{ sha: 'c1', authorLogin: 'Scout-Agent', verified: true }],
+        }),
+    });
+    const observer = createGithubStagingObserver(github);
+
+    const observation = await observer.observe(INPUT);
+
+    expect(observation.commitSigners).toEqual([{ matchesAgentDid: true }]);
+  });
+
+  it('commitSigners: matchesAgentDid false when the case-insensitive login match is on an UNVERIFIED commit', async () => {
+    const github = fakeGithub({
+      compareCommits: () =>
+        Promise.resolve({
+          files: [],
+          commits: [{ sha: 'c1', authorLogin: 'Scout-Agent', verified: false }],
+        }),
+    });
+    const observer = createGithubStagingObserver(github);
+
+    const observation = await observer.observe(INPUT);
+
+    expect(observation.commitSigners).toEqual([{ matchesAgentDid: false }]);
+  });
+
+  it('commitSigners: matchesAgentDid false for a verified commit by a different login entirely', async () => {
+    const github = fakeGithub({
+      compareCommits: () =>
+        Promise.resolve({
+          files: [],
+          commits: [{ sha: 'c1', authorLogin: 'someone-else', verified: true }],
+        }),
+    });
+    const observer = createGithubStagingObserver(github);
+
+    const observation = await observer.observe(INPUT);
+
+    expect(observation.commitSigners).toEqual([{ matchesAgentDid: false }]);
+  });
+
+  it('commitSigners: matchesAgentDid false when GitHub reports no linked account (authorLogin null)', async () => {
+    const github = fakeGithub({
+      compareCommits: () =>
+        Promise.resolve({
+          files: [],
+          commits: [{ sha: 'c1', authorLogin: null, verified: true }],
+        }),
+    });
+    const observer = createGithubStagingObserver(github);
+
+    const observation = await observer.observe(INPUT);
+
+    expect(observation.commitSigners).toEqual([{ matchesAgentDid: false }]);
+  });
+
   it('diffHash is deterministic and recomputable by a stranger from (path, patch) pairs alone', async () => {
     const files = [
       { path: 'src/b.ts', status: 'modified', additions: 1, deletions: 0, patch: '@@ -1 +1 @@\n+b' },
