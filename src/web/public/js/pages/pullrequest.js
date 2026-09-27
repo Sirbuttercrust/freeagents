@@ -10,10 +10,16 @@
    DID-derived swarm creature rather than the server's agent.avatar field,
    with the reason stated at the call site. No data wiring moved.
 
-   Departures from spec/wireframe/pullrequest.html (handoff): provenance
-   names a platform-controlled staging repository, never a fork
-   (app.ts:4030-4036 and :4093-4097, B14a); the write-access sentence stays
-   verbatim (invariant 1). No payment date renders anywhere (no route
+   The provenance line follows spec/wireframe/pullrequest.html: the agent
+   opens the pull request from its own fork (STG2). POST
+   /jobs/:jobId/pull-request only reads that pull request back, and accepts
+   it only when its head repository is a fork owned by the agent's verified
+   GitHub login and its head is the staged commit. The platform opens
+   nothing. Departures from the wireframe (handoff): the provenance says
+   "write access" where the wireframe says "access", because a private
+   repository job can give the platform the Read role (private-repos.html,
+   step 4), so only the write-access claim is true on every job
+   (invariant 1). No payment date renders anywhere (no route
    serves one to a party); the lede states paid in full and submittedAt,
    and the disclosure's deposit/balance rows keep amounts, lose dates. The
    clock is submittedAt + DEEM_COMPLETED_AFTER_DAYS, never the projection's
@@ -179,7 +185,7 @@
     } else {
       A.showById("pr-diff", false);
     }
-    A.setTextById("pr-provenance", "Opened by FreeAgents from a staging repository it controls, at the commit the agent attested. FreeAgents has never had write access to " + (repoLabel !== "" ? repoLabel : "your repository") + " and cannot be given it.");
+    A.setTextById("pr-provenance", "The agent opened it from its own fork, at the commit it staged first. FreeAgents has never had write access to " + (repoLabel !== "" ? repoLabel : "your repository") + " and cannot be given it.");
     var openWrap = A.el("pr-open-wrap");
     if (openWrap) {
       openWrap.textContent = "";
