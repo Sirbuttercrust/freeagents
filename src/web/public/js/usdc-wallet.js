@@ -1,21 +1,16 @@
-/* USDC-WEBa: the browser wallet engine (brief, "the engine and the
-   already-paid guard"). A plain script like its neighbours: ES2020, no
-   build step, no dependency. Pays a deposit or a balance leg in USDC by
-   connecting any EIP-1193 wallet, signing the two ERC-20 transfers the
-   server already priced (price, then fee), and reporting both hashes to
-   the existing USDC routes (POST .../usdc/start, POST .../usdc/wallet-
-   response).
+/* USDC-WEBa: the browser wallet engine. Plain script, ES2020, no build
+   step, no dependency. Pays a deposit or a balance leg in USDC: connects
+   an EIP-1193 wallet, signs the two ERC-20 transfers the server already
+   priced (price, then fee), and reports both hashes to the existing
+   USDC routes (POST .../usdc/start, POST .../usdc/wallet-response).
 
-   No page loads this yet (that is the next card): every call here goes
-   straight at the real routes, proven by tests/web/usdc-wallet.test.ts.
+   No page loads this yet: every call here goes straight at the real
+   routes, proven by tests/web/usdc-wallet.test.ts.
 
-   THE ONE RULE EVERY OUTCOME OBEYS: a refused or failed step never
-   reports paid, and confirmed is only ever set from the server's own
-   { confirmed: true } answer -- never guessed from a hash existing.
-
-   THE OTHER RULE: no user-facing string here ever says "hash", "rail",
-   "settlement", "credential" or a DID. A buyer reads a plain sentence
-   about a price and a fee, never the machinery underneath them. */
+   THE RULE: a refused or failed step never reports paid. confirmed is
+   only ever set from the server's own { confirmed: true } answer, never
+   guessed from a hash existing. No user-facing string here ever says
+   "hash", "rail", "settlement", "credential" or a DID. */
 
 (function () {
   "use strict";
@@ -24,31 +19,23 @@
   var ALREADY_PAID_PHRASE = "already been paid";
   var TRANSFER_SELECTOR = "0xa9059cbb";
 
-  // Measured 2026-09-27 (this card's brief): the two chains this engine
-  // ever switches to, keyed by the chain id the server's usdc/start
-  // answer names. wallet_addEthereumChain's own parameter shape.
+  // Measured 2026-09-27: the two chains this engine ever switches to,
+  // keyed by the chain id usdc/start names. wallet_addEthereumChain's
+  // own parameter shape.
   var KNOWN_CHAINS = {
     42161: {
-      chainId: "0xa4b1",
-      chainName: "Arbitrum One",
+      chainId: "0xa4b1", chainName: "Arbitrum One",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-      rpcUrls: ["https://arb1.arbitrum.io/rpc"],
-      blockExplorerUrls: ["https://arbiscan.io"]
+      rpcUrls: ["https://arb1.arbitrum.io/rpc"], blockExplorerUrls: ["https://arbiscan.io"]
     },
     421614: {
-      chainId: "0x66eee",
-      chainName: "Arbitrum Sepolia",
+      chainId: "0x66eee", chainName: "Arbitrum Sepolia",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-      rpcUrls: ["https://sepolia-rollup.arbitrum.io/rpc"],
-      blockExplorerUrls: ["https://sepolia.arbiscan.io"]
+      rpcUrls: ["https://sepolia-rollup.arbitrum.io/rpc"], blockExplorerUrls: ["https://sepolia.arbiscan.io"]
     }
   };
 
-  /* ------------------------------------------------------------ storage */
-
-  function storageKey(jobId, leg) {
-    return STORAGE_PREFIX + jobId + ":" + leg;
-  }
+  function storageKey(jobId, leg) { return STORAGE_PREFIX + jobId + ":" + leg; }
 
   function readStored(win, jobId, leg) {
     try {
@@ -61,24 +48,20 @@
     }
   }
 
+  // A wallet with storage disabled still completes the payment; it only
+  // loses the resume-after-reload convenience, so both writers below
+  // swallow their own errors rather than failing the payment over them.
   function writeStored(win, jobId, leg, record) {
     try {
       win.localStorage.setItem(storageKey(jobId, leg), JSON.stringify(record));
-    } catch (e) {
-      /* a wallet with storage disabled still completes the payment; it
-         only loses the resume-after-reload convenience. */
-    }
+    } catch (e) { /* see above */ }
   }
 
   function clearStored(win, jobId, leg) {
     try {
       win.localStorage.removeItem(storageKey(jobId, leg));
-    } catch (e) {
-      /* nothing to do: see writeStored. */
-    }
+    } catch (e) { /* see writeStored */ }
   }
-
-  /* --------------------------------------------------------- discovery */
 
   // EIP-6963 (Final): every wallet that answers within the window,
   // deduped by uuid. window.ethereum is listed only when nothing
@@ -108,8 +91,6 @@
       }, discoveryWindowMs);
     });
   }
-
-  /* ------------------------------------------------------------- chain */
 
   function walletErrorMessage(err) {
     if (err && typeof err.message === "string" && err.message !== "") return err.message;
@@ -141,8 +122,6 @@
     }
   }
 
-  /* --------------------------------------------------------- call data */
-
   // transfer(address,uint256): the selector, the recipient left-padded
   // to 32 bytes, the amount from the base-unit decimal string through
   // BigInt so an amount above 2^53 base units survives exactly (never a
@@ -153,12 +132,6 @@
     return TRANSFER_SELECTOR + addr + amount;
   }
 
-  /* ------------------------------------------------------------ chain reads */
-
-  // Reads each hash's receipt once. Bounded polling (pay()) calls this
-  // in a loop with a sleep between rounds; check() calls it with
-  // limit 0, which reads once and returns, per its own contract ("reads
-  // the receipts once").
   function receiptStatus(receipt) {
     if (!receipt || receipt.status === undefined || receipt.status === null) return "pending";
     var value = typeof receipt.status === "string" ? parseInt(receipt.status, 16) : receipt.status;
@@ -166,34 +139,25 @@
   }
 
   function sleep(ms) {
-    return new Promise(function (resolve) {
-      setTimeout(resolve, ms);
-    });
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
 
+  // Reads each hash's receipt once per round. pay() calls this bounded
+  // (interval, limit); check() calls it with limit 0, which reads once
+  // and returns, per its own "reads the receipts once" contract.
   async function pollReceipts(provider, items, intervalMs, limit) {
     var result = {};
-    items.forEach(function (item) {
-      result[item.role] = { hash: item.hash, status: "pending" };
-    });
+    items.forEach(function (item) { result[item.role] = { hash: item.hash, status: "pending" }; });
     async function pollOnce() {
-      var pending = items.filter(function (item) {
-        return result[item.role].status === "pending";
-      });
+      var pending = items.filter(function (item) { return result[item.role].status === "pending"; });
       for (var i = 0; i < pending.length; i += 1) {
-        var item = pending[i];
-        var receipt = await provider.request({ method: "eth_getTransactionReceipt", params: [item.hash] });
-        result[item.role].status = receiptStatus(receipt);
+        var receipt = await provider.request({ method: "eth_getTransactionReceipt", params: [pending[i].hash] });
+        result[pending[i].role].status = receiptStatus(receipt);
       }
     }
     await pollOnce();
     var attempt = 0;
-    while (
-      attempt < limit &&
-      items.some(function (item) {
-        return result[item.role].status === "pending";
-      })
-    ) {
+    while (attempt < limit && items.some(function (item) { return result[item.role].status === "pending"; })) {
       attempt += 1;
       await sleep(intervalMs);
       await pollOnce();
@@ -201,13 +165,11 @@
     return result;
   }
 
-  /* --------------------------------------------------------- the outcome */
-
   // The one outcome-mapping function pay() and check() both end on: the
-  // server's own Confirmation, read against what this device itself
-  // observed on chain (receipts), so a transfer this device just watched
-  // fail on the network reads as failed even where the server's own
-  // not_confirmed cannot tell that apart from still-pending.
+  // server's own Confirmation, read against what this device observed
+  // on chain (receipts), so a transfer this device watched fail on the
+  // network reads as failed even where not_confirmed alone cannot tell
+  // that apart from still-pending.
   function outcomeFromResponse(win, jobId, leg, result, receipts, feeRefused) {
     if (result.state !== "ok") {
       return { outcome: "server_refused", message: "Could not reach the payment service. Try again in a moment." };
@@ -249,14 +211,12 @@
     return { outcome: "waiting_network", message: "The network has not confirmed this payment yet. Check again shortly." };
   }
 
-  /* -------------------------------------------------------------- pay */
-
   // pay({ wallet, jobId, leg, token, resend }): wallet is one entry from
   // discover(). leg is 'deposit' or 'remainder'. resend is 'price' |
   // 'fee', set only on the buyer's own press after a transfer_failed
-  // outcome named that leg -- absent, a transfer already known (from
-  // this device's own storage or the server's halfPaidRecord) is never
-  // sent again.
+  // outcome named that leg; absent, a transfer already known (from this
+  // device's own storage or the server's halfPaidRecord) is never sent
+  // again.
   async function pay(opts) {
     opts = opts || {};
     var win = opts.window || window;
@@ -342,10 +302,9 @@
         });
         writeStored(win, jobId, leg, { priceTxHash: priceHash, feeTxHash: feeHash });
       } catch (err) {
-        // Either the buyer refused, or the wallet failed for some other
-        // reason: the price already sent, so this is reported as the
-        // fee still being due, never as a cancellation that would imply
-        // nothing happened.
+        // Either the buyer refused, or the wallet failed some other way:
+        // the price already sent, so this reports as the fee still due,
+        // never as a cancellation implying nothing happened.
         feeRefused = true;
       }
     }
@@ -360,12 +319,10 @@
     return outcomeFromResponse(win, jobId, leg, responseResult, receipts, feeRefused);
   }
 
-  /* ------------------------------------------------------------- check */
-
   // check({ wallet, jobId, leg, token }): reads this device's own stored
   // hashes, reads their receipts ONCE (never a timer), and posts
-  // usdc/wallet-response once. For a payment left "waiting on the
-  // network" by pay(): the buyer's own later press, never a poll loop.
+  // usdc/wallet-response once. For a payment pay() left "waiting on the
+  // network": the buyer's own later press, never a poll loop.
   async function check(opts) {
     opts = opts || {};
     var win = opts.window || window;
@@ -391,10 +348,5 @@
     return outcomeFromResponse(win, jobId, leg, responseResult, receipts, feeRefused);
   }
 
-  window.FAUsdcWallet = {
-    discover: discover,
-    pay: pay,
-    check: check,
-    transferCallData: transferCallData
-  };
+  window.FAUsdcWallet = { discover: discover, pay: pay, check: check, transferCallData: transferCallData };
 })();
