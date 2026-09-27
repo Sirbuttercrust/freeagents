@@ -17,9 +17,10 @@ import type {
   UsdcTransferIntent,
   WalletResponseInput,
 } from './types.js';
-import { LAPSE_AT_STAGED_STATUSES, type JobStatus } from '../../domain/job.js';
+import { agreementGap, LAPSE_AT_STAGED_STATUSES, type AgreementGap, type Job, type JobStatus } from '../../domain/job.js';
+import { verifiedGithubLogin, type Agent } from '../../domain/agent.js';
 import { publicBaseUrlFromEnv } from '../credentials/credentials.js';
-import type { SettlementRepository } from '../storage/types.js';
+import type { JobRepository, SettlementRepository } from '../storage/types.js';
 import {
   RepositoryEmptyError,
   RepositoryNotAccessibleError,
@@ -338,4 +339,166 @@ export async function checkRepositoryReady(
     return { ok: false, status: 409, message: repositoryForkingOffMessage(input.jobId) };
   }
   return { ok: true };
+}
+
+// FIX-B37 (bugs.md B37 + B42): confirm refuses more than the deposit doors
+// ever checked (the brief's own measured gap). Everything below is the
+// deposit-readiness surface that closes it, shared by every door onto the
+// payment surface the same way checkRepositoryReady already is.
+export type DepositReadinessResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly status: 409 | 503; readonly message: string };
+
+// Sentence 1: no criteria at all yet. Ends on the agreement page so the
+// buyer has somewhere to go regardless of which gap they hit.
+export function agreementNoCriteriaMessage(jobId: string): string {
+  return `the deposit can start only once the agreement has at least one line: ${publicBaseUrlFromEnv()}/agreement?job=${jobId}`;
+}
+
+// Sentence 2: some lines exist but are not accepted by both parties yet.
+export function agreementCriteriaOutstandingMessage(jobId: string, outstanding: number, total: number): string {
+  return (
+    `the deposit can start only once both parties have signed every line of the agreement; ` +
+    `${outstanding} of ${total} lines still need both signatures: ${publicBaseUrlFromEnv()}/agreement?job=${jobId}`
+  );
+}
+
+// Sentence 3: no price has been proposed. Kept word for word identical to
+// the wording the three doors already used before this card (the token
+// door gains it here for the first time), so no existing assertion on this
+// exact string moves.
+export function agreementNoPriceMessage(): string {
+  return 'this job has no agreed price to pay against';
+}
+
+// Sentence 4: a price exists but is not accepted by both parties. Names
+// exactly who is still to sign, so the buyer knows whether the ball is in
+// their own court or the agent's.
+export function agreementPriceNotAcceptedMessage(jobId: string, missing: 'buyer' | 'agent' | 'both'): string {
+  const who = missing === 'both' ? 'the buyer and the agent' : missing === 'buyer' ? 'the buyer' : 'the agent';
+  return (
+    `the deposit can start only once both parties have signed the price; still to sign: ${who}: ` +
+    `${publicBaseUrlFromEnv()}/agreement?job=${jobId}`
+  );
+}
+
+// Turns one AgreementGap (job.ts's agreementGap, the SAME rule confirmSpec
+// enforces) into the buyer-facing sentence above. The order this function
+// is called in never matters here -- agreementGap itself already names the
+// FIRST gap, matching confirmSpec's own single-failure-at-a-time reading
+// order.
+export function agreementGapMessage(jobId: string, gap: AgreementGap): string {
+  switch (gap.kind) {
+    case 'no-criteria':
+      return agreementNoCriteriaMessage(jobId);
+    case 'criteria-outstanding':
+      return agreementCriteriaOutstandingMessage(jobId, gap.outstanding, gap.total);
+    case 'no-price':
+      return agreementNoPriceMessage();
+    case 'price-not-accepted':
+      return agreementPriceNotAcceptedMessage(jobId, gap.missing);
+  }
+}
+
+// Sentence 5: a sibling from the same brief already confirmed (HT1 Part
+// A2). Distinct wording from confirm's own sibling-conflict message
+// ("...can no longer be confirmed") because this refusal fires BEFORE any
+// money moves, not at confirm itself -- "can no longer take a deposit" is
+// the true fact at this point in the loop.
+export function siblingAlreadyConfirmedMessage(): string {
+  return 'a sibling job from the same brief has already been confirmed; this job can no longer take a deposit';
+}
+
+// Sentence 6 (B42): the agent has no verified GitHub login on record.
+// Distinct wording from confirm's own login refusal (app.ts's "confirm
+// needs the agent to have a verified GitHub login") because this fires at
+// the deposit door, before confirm is ever reachable, and tells the buyer
+// there is something to wait for, not just something confirm will refuse
+// later.
+export function agentGithubLoginUnverifiedMessage(): string {
+  return (
+    "the agent has not verified its GitHub account yet; the deposit can start once it has, " +
+    'because the work is delivered through that account'
+  );
+}
+
+// Step 1 (Make item 2, order 1): a sibling opened by the same brief
+// (job.requestId not null) that has already confirmed refuses this job's
+// deposit -- the buyer already chose a different agent for this brief. A
+// storage driver without findByRequestId, or one whose lookup throws,
+// fails closed (503, logged), mirroring confirm's own sibling check
+// (app.ts POST /jobs/:jobId/confirm) exactly, including the log line
+// shape, so an operator grepping logs sees the same signature from either
+// caller.
+export async function checkNoConfirmedSibling(
+  jobRepo: JobRepository,
+  job: Pick<Job, 'id' | 'requestId'>,
+  label: string,
+): Promise<DepositReadinessResult> {
+  if (job.requestId === null) return { ok: true };
+  if (typeof jobRepo.findByRequestId !== 'function') {
+    console.error(`${label}: storage does not support findByRequestId`);
+    return { ok: false, status: 503, message: 'storage unavailable' };
+  }
+  let siblings: readonly Job[];
+  try {
+    siblings = await jobRepo.findByRequestId(job.requestId);
+  } catch (err) {
+    console.error(`${label}: storage failed reading siblings`, err);
+    return { ok: false, status: 503, message: 'storage unavailable' };
+  }
+  const confirmedSibling = siblings.some((sibling) => sibling.id !== job.id && sibling.confirmedAt !== null);
+  if (confirmedSibling) {
+    return { ok: false, status: 409, message: siblingAlreadyConfirmedMessage() };
+  }
+  return { ok: true };
+}
+
+// Step 2 (Make item 2, order 2): the agreement rule confirm has always
+// enforced (job.ts's agreementGap, the same function confirmSpec now
+// calls), asked BEFORE any money moves.
+export function checkAgreementReady(job: Job): DepositReadinessResult {
+  const gap = agreementGap(job);
+  if (gap === null) return { ok: true };
+  return { ok: false, status: 409, message: agreementGapMessage(job.id, gap) };
+}
+
+// Step 4 (Make item 2, order 4): B42. The agent's VERIFIED GitHub login,
+// through the one function every login-naming caller in this codebase
+// already shares (domain/agent.ts's verifiedGithubLogin), so an absent
+// login and a merely-claimed-but-unverified one are refused identically.
+export function checkAgentGithubVerified(agent: Agent | null): DepositReadinessResult {
+  if (verifiedGithubLogin(agent) === null) {
+    return { ok: false, status: 409, message: agentGithubLoginUnverifiedMessage() };
+  }
+  return { ok: true };
+}
+
+// The full four-step order (Make item 2): sibling, agreement, repository
+// (FIX-B36's checkRepositoryReady, unchanged), then the GitHub login --
+// login LAST so a GitHub outage never hides the agreement or sibling
+// refusals behind a 503 that says nothing about them. Called by all three
+// deposit-start doors for the deposit leg only, in place of their own
+// checkRepositoryReady call. onAuth (abt-did-connect.ts) does NOT call
+// this: it runs steps 1, 2 and 4 only (its own comment says why step 3 is
+// skipped there), so it composes checkNoConfirmedSibling,
+// checkAgreementReady and checkAgentGithubVerified directly instead.
+export async function checkDepositReadiness(input: {
+  readonly label: string;
+  readonly job: Job;
+  readonly jobRepo: JobRepository;
+  readonly github: GithubAdapter;
+  readonly agent: Agent | null;
+}): Promise<DepositReadinessResult> {
+  const sibling = await checkNoConfirmedSibling(input.jobRepo, input.job, input.label);
+  if (!sibling.ok) return sibling;
+  const agreement = checkAgreementReady(input.job);
+  if (!agreement.ok) return agreement;
+  const repository = await checkRepositoryReady(input.github, {
+    repository: input.job.repository,
+    jobId: input.job.id,
+    agentGithubLogin: verifiedGithubLogin(input.agent),
+  });
+  if (!repository.ok) return repository;
+  return checkAgentGithubVerified(input.agent);
 }

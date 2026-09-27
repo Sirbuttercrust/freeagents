@@ -33,7 +33,18 @@ import { depositUsd, remainderUsd } from '../../domain/payment.js';
 import type { AccountRepository, AgentRepository, JobRepository } from '../storage/types.js';
 import type { SettlementRepository } from '../storage/types.js';
 import type { AbtPaymentRail } from './abt.js';
-import { confirmPayment, legStatusConflictMessage, legStatusEligible, processWalletResponse, requestPayment, type RouteLeg, checkRailDoorEligible } from './route-support.js';
+import {
+  checkAgentGithubVerified,
+  checkAgreementReady,
+  checkNoConfirmedSibling,
+  confirmPayment,
+  legStatusConflictMessage,
+  legStatusEligible,
+  processWalletResponse,
+  requestPayment,
+  type RouteLeg,
+  checkRailDoorEligible,
+} from './route-support.js';
 import { createDidConnectSessionStorage } from './session-storage.js';
 import type { DidConnectSessionStorage } from './session-storage-types.js';
 
@@ -280,6 +291,34 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       });
       if (!eligibility.ok) {
         return { confirmed: false, error: eligibility.message };
+      }
+      // FIX-B37 (Make item 3, B37 + B42): re-checks the deposit-readiness
+      // surface right before settling, for the deposit leg only -- the
+      // whole reason this card exists: a session minted while the job was
+      // ready can still be COMPLETED after the agreement changed (the
+      // owner re-proposed the price, resetting both acceptances) or after
+      // the agent's GitHub verification lapsed, and /start read the
+      // agreement moments before this callback runs, not at the instant it
+      // runs. Steps 1 (sibling), 2 (agreement) and 4 (GitHub login) only:
+      // step 3, the repository, is skipped here on purpose -- /start read
+      // it moments earlier, and onAuth holds no GitHub adapter to re-read
+      // it with. Runs before processWalletResponse, which broadcasts:
+      // nothing is broadcast and no settlement row is written on a
+      // refusal here.
+      if (leg === 'deposit') {
+        const sibling = await checkNoConfirmedSibling(options.jobRepo, job, 'onAuth');
+        if (!sibling.ok) {
+          return { confirmed: false, error: sibling.message };
+        }
+        const agreement = checkAgreementReady(job);
+        if (!agreement.ok) {
+          return { confirmed: false, error: agreement.message };
+        }
+        const hiredAgent = await options.agentRepo.findByDid(job.agentDid);
+        const login = checkAgentGithubVerified(hiredAgent);
+        if (!login.ok) {
+          return { confirmed: false, error: login.message };
+        }
       }
       // RULE (S3, P8c): the expected operator address is resolved from
       // the hired agent's operator, the identical derivation prepareTx

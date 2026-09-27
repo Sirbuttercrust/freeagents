@@ -104,9 +104,19 @@ async function startAbtApp(
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
-      githubLogin: null,
+      // FIX-B37 (bugs.md B37 + B42): confirm has always refused an agent
+      // with no verified GitHub login, and the deposit doors this file
+      // exercises now check the identical fact before a session ever
+      // mints (route-support.ts's checkAgentGithubVerified). This
+      // fixture's own tests are about the ABT payment surface, not
+      // about B42, so the fixture agent now carries a verified login
+      // the same way tests/api/job-payment-usdc.test.ts's own fixture
+      // agents already do (FACTORY_RULES 2.1: setup superseded, not the
+      // assertion).
+      githubLogin: 'scout-abt-surface',
       negotiatesOnOwnersBehalf: true,
     });
+    await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-abt-surface', status: 'verified' });
     // P8c: the ABT rail now reads operatorAddressAbt, never the DID
     // suffix, so this agent's operator needs a real account row carrying
     // one. Set to the SAME value the old suffix derivation would have
@@ -348,9 +358,12 @@ describe('POST /jobs/:jobId/payments/deposit/abt/start: an unconfigured rail ref
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
-      githubLogin: null,
+      // FIX-B37 (bugs.md B37 + B42): see the identical comment on the
+      // first startAbtApp fixture above.
+      githubLogin: 'scout-abt-unconfigured',
       negotiatesOnOwnersBehalf: true,
     });
+    await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-abt-unconfigured', status: 'verified' });
     const jobRepo = new MemoryJobRepository();
     const settlementRepo = new MemorySettlementRepository();
     const gate = new PrismaSettlementGate(settlementRepo);
@@ -702,9 +715,12 @@ describe('S3, Trap 1: self-hire settles normally on ABT, paying the buyer\'s own
         delegation: { fixture: true } as never,
         name: 'self-hired-scout',
         skills: ['triage'],
-        githubLogin: null,
+        // FIX-B37 (bugs.md B37 + B42): see the identical comment on the
+        // first startAbtApp fixture above.
+        githubLogin: 'self-hired-scout-login',
         negotiatesOnOwnersBehalf: true,
       });
+      await agentRepo.updateGithubBinding(agentIdentity.did, { handle: 'self-hired-scout-login', status: 'verified' });
       const jobRepo = new MemoryJobRepository();
       const settlementRepo = new MemorySettlementRepository();
       const gate = new PrismaSettlementGate(settlementRepo);
@@ -805,9 +821,12 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
         delegation: { fixture: true } as never,
         name: 'scout',
         skills: ['triage'],
-        githubLogin: null,
+        // FIX-B37 (bugs.md B37 + B42): see the identical comment on the
+        // first startAbtApp fixture above.
+        githubLogin: 'scout-abt-unset',
         negotiatesOnOwnersBehalf: true,
       });
+      await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-abt-unset', status: 'verified' });
       await operatorRepo.register({ did: 'did:abt:op-abt-unset', githubLogin: 'operator-abt-unset' });
 
       const jobRepo = new MemoryJobRepository();
@@ -909,9 +928,12 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
         delegation: { fixture: true } as never,
         name: 'scout',
         skills: ['triage'],
-        githubLogin: null,
+        // FIX-B37 (bugs.md B37 + B42): see the identical comment on the
+        // first startAbtApp fixture above.
+        githubLogin: 'scout-abt-set',
         negotiatesOnOwnersBehalf: true,
       });
+      await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-abt-set', status: 'verified' });
       await operatorRepo.register({ did: 'did:abt:op-abt-set', githubLogin: 'operator-abt-set' });
       // The stored address deliberately differs from the DID suffix
       // (didSuffix('did:abt:op-abt-set')), so a passing test proves the

@@ -272,9 +272,19 @@ async function setupAbtJobWithProvisionedOperator(
         delegation: delegationFixture(agent.did),
         name: 'scout',
         skills: ['triage'],
-        githubLogin: null,
+        // FIX-B37 (bugs.md B37 + B42): confirm has always refused an
+        // agent with no verified GitHub login, and this file's own ABT
+        // custody-fence tests drive a deposit through the shared payment
+        // rail (via tests/helpers/abt-fixtures.ts), which now checks the
+        // identical fact before starting one. This fixture agent is not
+        // what this file's tests are about, so it gains a verified
+        // login the same way tests/api/job-deposit-repository-check.test.ts's
+        // fixture agents already do (FACTORY_RULES 2.1: setup superseded,
+        // not the assertion).
+        githubLogin: 'p8d-abt-boundary-agent',
         negotiatesOnOwnersBehalf: true,
       });
+      await agentRepo.updateGithubBinding(agent.did, { handle: 'p8d-abt-boundary-agent', status: 'verified' });
 
       const buyerWallet = fromRandom();
       const buyer = await signingIdentityFromWallet(buyerWallet);

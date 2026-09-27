@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   acceptCriterion,
   acceptPrice,
+  agreementGap,
   completeJob,
   confirmSpec,
   createJob,
@@ -814,5 +815,76 @@ describe('followRepositoryMove', () => {
   it('refuses to follow a move on a job still proposed (before confirmed)', () => {
     const proposed = proposedJob({ status: 'proposed', repository: 'buyer/app' });
     expect(() => followRepositoryMove(proposed, 'buyer-org/app')).toThrow(JobTransitionError);
+  });
+});
+
+// FIX-B37 (bugs.md B37): agreementGap is the SAME rule confirmSpec has
+// always enforced, lifted out so a deposit door can ask it before any
+// money moves (route-support.ts's checkAgreementReady). Every gap kind,
+// in the order confirmSpec has always checked them, and null once a job
+// is fully signed -- including with the currency left open (FIX-B39):
+// agreementGap never asks about rail, that stays confirmSpec's own step.
+describe('agreementGap', () => {
+  it('names no-criteria when the job carries no criteria at all', () => {
+    const job = proposedJob({ criteria: [] });
+    expect(agreementGap(job)).toEqual({ kind: 'no-criteria' });
+  });
+
+  it('names criteria-outstanding with the exact outstanding and total counts', () => {
+    const job = proposedJob({
+      criteria: [
+        { text: 'Line one', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true },
+        { text: 'Line two', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: false },
+        { text: 'Line three', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
+      ],
+    });
+    expect(agreementGap(job)).toEqual({ kind: 'criteria-outstanding', outstanding: 2, total: 3 });
+  });
+
+  it('names no-price once every criterion is accepted but no price was ever proposed', () => {
+    const job = proposedJob({
+      criteria: [{ text: 'Line one', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+      priceUsd: null,
+    });
+    expect(agreementGap(job)).toEqual({ kind: 'no-price' });
+  });
+
+  it('names price-not-accepted with missing "buyer" when only the agent accepted', () => {
+    const job = proposedJob({
+      criteria: [{ text: 'Line one', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+      priceUsd: '500.00',
+      priceAcceptedByBuyer: false,
+      priceAcceptedByAgent: true,
+    });
+    expect(agreementGap(job)).toEqual({ kind: 'price-not-accepted', missing: 'buyer' });
+  });
+
+  it('names price-not-accepted with missing "agent" when only the buyer accepted', () => {
+    const job = proposedJob({
+      criteria: [{ text: 'Line one', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+      priceUsd: '500.00',
+      priceAcceptedByBuyer: true,
+      priceAcceptedByAgent: false,
+    });
+    expect(agreementGap(job)).toEqual({ kind: 'price-not-accepted', missing: 'agent' });
+  });
+
+  it('names price-not-accepted with missing "both" when neither party accepted', () => {
+    const job = proposedJob({
+      criteria: [{ text: 'Line one', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+      priceUsd: '500.00',
+      priceAcceptedByBuyer: false,
+      priceAcceptedByAgent: false,
+    });
+    expect(agreementGap(job)).toEqual({ kind: 'price-not-accepted', missing: 'both' });
+  });
+
+  it('answers null for a fully signed job, even with the currency left open (FIX-B39)', () => {
+    const job = acceptedProposalJob({ rail: null });
+    expect(agreementGap(job)).toBeNull();
+  });
+
+  it('answers null for a fully signed job with a rail set', () => {
+    expect(agreementGap(acceptedProposalJob())).toBeNull();
   });
 });
