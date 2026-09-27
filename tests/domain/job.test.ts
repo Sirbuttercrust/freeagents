@@ -538,6 +538,51 @@ describe('criteria exchange', () => {
     ]);
   });
 
+  // FIX-B45 (bugs.md B45): a matched line's author is part of its stored
+  // record, exactly like its marks. The route's B26 rule still labels every
+  // INPUT line with the sender's seat before this call ever runs, but a
+  // line that matches an existing stored line by trimmed text is unchanged
+  // and keeps the stored line's own proposedBy, whatever the input claims.
+  it("proposeCriteria keeps a matched line's stored proposedBy whatever the input names", () => {
+    const job = proposeCriteria(draft(), [{ text: 'The login bug is fixed', proposedBy: 'agent' }]);
+
+    // The re-send's own proposedBy claims 'buyer', as B26's attributedInput
+    // would set it for a buyer re-send in the route. The text is unchanged,
+    // so the stored author ('agent') must survive.
+    const revised = proposeCriteria(job, [{ text: 'The login bug is fixed', proposedBy: 'buyer' }]);
+
+    expect(revised.criteria).toEqual([
+      { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
+    ]);
+  });
+
+  it("an unmatched line takes the input's own proposedBy", () => {
+    const job = proposeCriteria(draft(), [{ text: 'The login bug is fixed', proposedBy: 'agent' }]);
+
+    const revised = proposeCriteria(job, [{ text: 'A brand new criterion', proposedBy: 'buyer' }]);
+
+    expect(revised.criteria).toEqual([
+      { text: 'A brand new criterion', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false },
+    ]);
+  });
+
+  it('two incoming lines with the same text as one stored line: the first keeps the stored author, the second takes the input\'s', () => {
+    const job = proposeCriteria(draft(), [{ text: 'The login bug is fixed', proposedBy: 'agent' }]);
+
+    // Both incoming lines carry identical trimmed text; only one stored
+    // line exists to match against, so each stored line is consumed once
+    // (the marks already work this way - see matchIndex/consumed above).
+    const revised = proposeCriteria(job, [
+      { text: 'The login bug is fixed', proposedBy: 'buyer' },
+      { text: 'The login bug is fixed', proposedBy: 'buyer' },
+    ]);
+
+    expect(revised.criteria).toEqual([
+      { text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false },
+      { text: 'The login bug is fixed', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false },
+    ]);
+  });
+
   it('requestChanges leaves the criteria and their acceptances untouched, and only validates status', () => {
     let job = proposeCriteria(draft(), proposal());
     job = acceptCriterion(job, 0, 'buyer');
