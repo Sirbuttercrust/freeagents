@@ -454,8 +454,8 @@ describe('the deposit screen, driven end to end against the real app', () => {
   });
 
   // USDC-WEBb supersedes ruling 1 ("USDC never starts a payment from this
-  // page"). Keaton, 2026-09-25: "We should definitely get the USDC payment
-  // built before we launch." This pins the new truth in the old one's
+  // page"): the product call on 2026-09-25 was to ship USDC payment
+  // before launch. This pins the new truth in the old one's
   // place: choosing USDC leaves Pay pressable, and the press goes to the
   // USDC start route and never to the ABT one.
   describe('the USDC pay control starts a USDC payment, never an ABT one (mutation proof 8)', () => {
