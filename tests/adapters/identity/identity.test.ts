@@ -12,7 +12,12 @@ import { Ed25519VerificationKey2020 } from '@digitalbazaar/ed25519-verification-
 import { fromRandom } from '@ocap/wallet';
 import { fromPublicKey } from '@arcblock/did';
 
-import { createIdentityAdapter, CandidateKeyRejectedError, DidNotResolvableError } from '../../../src/adapters/identity/identity.js';
+import {
+  createIdentityAdapter,
+  AgentKeyDerivationMismatchError,
+  CandidateKeyRejectedError,
+  DidNotResolvableError,
+} from '../../../src/adapters/identity/identity.js';
 import type { Delegation } from '../../../src/domain/agent.js';
 import { createKnownKeyStore } from '../../../src/adapters/identity/did-abt-resolver.js';
 import { MemoryObservedKeyRepository } from '../../../src/adapters/storage/memory.js';
@@ -528,5 +533,97 @@ describe('createIdentityAdapter, issueSiteDelegation (FIX-B41a)', () => {
       credentialSubject: { ...delegation.credentialSubject, id: 'did:abt:zTamperedAgent' },
     };
     await expect(identity.verifyDelegation(tampered, 'did:abt:zTamperedAgent', owner.did)).resolves.toBe(false);
+  });
+});
+
+// FIX-B47a: the narrowest signing method the one-click proof needs -- sign
+// the gist statement payload with a site-listed agent's RE-DERIVED key
+// (createAgentDid's own derivation, never a new one), so the platform can
+// publish a gist that verifies through the identical check path two
+// already runs. No private key is ever stored: sign() re-derives the same
+// bytes createAgentDid did and discards them once the signature exists.
+describe('createIdentityAdapter, sign (FIX-B47a)', () => {
+  const ORIGINAL_SEED = process.env.FREEAGENTS_PLATFORM_SEED;
+
+  afterEach(() => {
+    if (ORIGINAL_SEED === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
+    else process.env.FREEAGENTS_PLATFORM_SEED = ORIGINAL_SEED;
+  });
+
+  it('signs with the exact key createAgentDid re-derives for this operator/credential pair, verifiable by verify()', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = '8'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const owner = await identity.createOperatorDid('sign-owner-subject');
+    const { did: agentDid, publicKeyMultibase } = await identity.createAgentDid(owner.did, 'urn:uuid:sign-me');
+
+    const payload = 'freeagents-github-proof v1\n' + agentDid + '\nhttps://github.com/scout-agent\n';
+    const signed = await identity.sign(agentDid, payload, owner.did, 'urn:uuid:sign-me');
+
+    expect(signed.signerDid).toBe(agentDid);
+    expect(signed.payload).toBe(payload);
+    // Verified the same way any other agent-signed payload is: through the
+    // adapter's own verify(), with the re-derived key offered as a
+    // candidate (the platform has never "observed" its own re-derived
+    // agent keys through a prior inbound request).
+    await expect(
+      identity.verify({ payload, signature: signed.signature, signerDid: agentDid, candidateKeyMultibase: publicKeyMultibase }),
+    ).resolves.toBe(true);
+  });
+
+  it('is deterministic: the same owner/credential pair signs with the same key every call', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = '9'.repeat(64);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const owner = await identity.createOperatorDid('sign-owner-subject-2');
+    const { did: agentDid } = await identity.createAgentDid(owner.did, 'urn:uuid:sign-me-2');
+
+    const payload = 'same payload both times';
+    const first = await identity.sign(agentDid, payload, owner.did, 'urn:uuid:sign-me-2');
+    const second = await identity.sign(agentDid, payload, owner.did, 'urn:uuid:sign-me-2');
+
+    // Ed25519 is deterministic: identical key + identical payload always
+    // produces the identical signature bytes.
+    expect(first.signature).toBe(second.signature);
+  });
+
+  it('fails closed, naming FREEAGENTS_PLATFORM_SEED, when the seed is unset', async () => {
+    delete process.env.FREEAGENTS_PLATFORM_SEED;
+    const identity = createIdentityAdapter(createKnownKeyStore());
+
+    await expect(identity.sign('did:abt:zAgent', 'x', 'did:abt:zOwner', 'urn:uuid:no-seed')).rejects.toThrow(
+      /FREEAGENTS_PLATFORM_SEED/,
+    );
+  });
+
+  // Ruling 2026-09-27 05:30 ("sign() refuses a did that its own derivation
+  // does not produce"): a wallet-path agent or a site agent that brought
+  // its own DID has no key the platform can re-derive, so a caller naming
+  // the WRONG did for a given operator/credential pair must be refused
+  // before anything is signed, never silently signed with a key that does
+  // not actually belong to that did.
+  it('refuses to sign when the given did does not match its own re-derivation for this operator/credential pair', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = 'a1'.repeat(32);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const owner = await identity.createOperatorDid('mismatch-owner-subject');
+    await identity.createAgentDid(owner.did, 'urn:uuid:mismatch-me');
+
+    await expect(
+      identity.sign('did:abt:zSomeOtherAgentEntirely', 'x', owner.did, 'urn:uuid:mismatch-me'),
+    ).rejects.toThrow(AgentKeyDerivationMismatchError);
+  });
+
+  // Ruling 2026-09-27 05:30: sign() also sets publicKeyMultibase on the
+  // SignedPayload it answers (the optional field PRF1 added to
+  // SignedPayload), and it must be EXACTLY the same key createAgentDid's
+  // own DidKeyPair names for the identical operator/credential pair --
+  // never a fresh or differently-derived one.
+  it('sets publicKeyMultibase on the returned SignedPayload, matching createAgentDid\'s own value for the identical pair', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = 'b2'.repeat(32);
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const owner = await identity.createOperatorDid('pubkey-owner-subject');
+    const { did: agentDid, publicKeyMultibase } = await identity.createAgentDid(owner.did, 'urn:uuid:pubkey-me');
+
+    const signed = await identity.sign(agentDid, 'a payload to sign', owner.did, 'urn:uuid:pubkey-me');
+
+    expect(signed.publicKeyMultibase).toBe(publicKeyMultibase);
   });
 });
