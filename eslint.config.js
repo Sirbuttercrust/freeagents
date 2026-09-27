@@ -154,6 +154,12 @@ export default tseslint.config(
         XMLHttpRequest: 'readonly',
         FileReader: 'readonly',
         CSS: 'readonly',
+        // USDC-WEBa: the browser wallet engine (usdc-wallet.js).
+        // BigInt for base-unit amounts that exceed 2^53, and Event to
+        // dispatch/announce EIP-6963 discovery requests.
+        BigInt: 'readonly',
+        Event: 'readonly',
+        localStorage: 'readonly',
         // The landing page's own globals, each defined by one script in
         // src/web/public/js/landing and read by the others.
         FA: 'readonly',

@@ -36,6 +36,7 @@ import type { AbtPaymentRail } from './abt.js';
 import {
   checkAgentGithubVerified,
   checkAgreementReady,
+  checkLegNotAlreadySettled,
   checkNoConfirmedSibling,
   confirmPayment,
   legStatusConflictMessage,
@@ -291,6 +292,16 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       });
       if (!eligibility.ok) {
         return { confirmed: false, error: eligibility.message };
+      }
+      // B49 (bugs.md, this card): a leg that already settled must never be
+      // paid again. Refused before anything is broadcast or recorded.
+      const alreadySettled = await checkLegNotAlreadySettled({
+        jobId,
+        leg,
+        settlementRepo: options.settlementRepo,
+      });
+      if (!alreadySettled.ok) {
+        return { confirmed: false, error: alreadySettled.message };
       }
       // FIX-B37 (Make item 3, B37 + B42): re-checks the deposit-readiness
       // surface right before settling, for the deposit leg only -- the
