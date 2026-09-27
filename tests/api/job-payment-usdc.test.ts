@@ -973,7 +973,6 @@ describe('B23: a wallet response replaying an already-recorded hash stays idempo
     }
   });
 });
-
 // Make 2 (B49 card): usdc/start carries the leg's half-paid record when
 // one exists, under its own top-level halfPaidRecord key, absent
 // otherwise. Distinct from wallet-response's `halfPaid` boolean.
@@ -996,7 +995,6 @@ function fakeHalfPaidStorage(): UsdcHalfPaidStorage {
     },
   };
 }
-
 describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a half-paid record', () => {
   it('absent when the leg has never gone half-paid', async () => {
     const usdcRail = withUsdcEnv(() =>
@@ -1018,7 +1016,6 @@ describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a h
       server.close();
     }
   });
-
   it('present, with both hashes and statuses, once the price confirmed and the fee did not', async () => {
     const usdcRail = withUsdcEnv(() =>
       createUsdcPaymentRail({
@@ -1044,7 +1041,6 @@ describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a h
       const walletBody = (await walletResponse.json()) as Record<string, unknown>;
       expect(walletBody.confirmed).toBe(false);
       expect(walletBody.halfPaid).toBe(true);
-
       // Same leg, still 'proposed'; start is reachable again, and now
       // names the half paid record beside the transfers.
       const secondStart = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
@@ -1062,7 +1058,6 @@ describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a h
       server.close();
     }
   });
-
   it('cleared once a later call sees both legs confirmed', async () => {
     const priceHash = '0xhalf-clear-price';
     const feeHash = '0xhalf-clear-fee';
@@ -1099,7 +1094,6 @@ describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a h
       const halfPaidStart = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer);
       const halfPaidBody = (await halfPaidStart.json()) as Record<string, unknown>;
       expect(halfPaidBody.halfPaidRecord).toBeDefined();
-
       // The fee now lands too: a later confirm sees both legs confirmed
       // and clears the half-paid row.
       chainReceipts[feeHash] = { status: 1, transfer: depositFeeTransfer() };
@@ -1112,7 +1106,6 @@ describe('Make 2: usdc/start answers halfPaidRecord exactly when the leg has a h
       expect(secondWalletResponse.status).toBe(200);
       const secondWalletBody = (await secondWalletResponse.json()) as Record<string, unknown>;
       expect(secondWalletBody.confirmed).toBe(true);
-
       // The leg is now settled (B49 refuses /start); check the fact
       // through the rail's own storage rather than a second call.
       expect(await usdcRail.readHalfPaidRecord(jobId, 'deposit')).toBeNull();
