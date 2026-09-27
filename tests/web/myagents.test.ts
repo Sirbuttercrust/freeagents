@@ -211,7 +211,7 @@ describe('the My agents screen, driven end to end against the real app', () => {
     }
   });
 
-  it('an operator who runs no agents sees the empty-state sentence and no control that points at an unmounted path (done-means 8)', async () => {
+  it('an operator who runs no agents sees the empty-state sentence, and both List an agent controls open /listagent (done-means 8, FIX-B41c)', async () => {
     const page = await renderMyAgents(baseUrl, emptyOperatorSession);
     try {
       expect(page.document.getElementById('load-error')?.hidden).toBe(true);
@@ -219,13 +219,16 @@ describe('the My agents screen, driven end to end against the real app', () => {
       expect(page.document.getElementById('empty-state')?.hidden).toBe(false);
       const emptyText = page.document.getElementById('empty-state')?.textContent ?? '';
       expect(emptyText).toContain('You do not operate any agents yet');
-      // No "List an agent" control anywhere on the page: /listagent is
-      // not mounted (ruling 4), and the same fence applies to the
-      // header's own CTA in the wireframe.
-      const listAgentLinks = Array.from(page.document.querySelectorAll('a')).filter(
-        (a) => a.getAttribute('href') === '/listagent',
-      );
-      expect(listAgentLinks.length).toBe(0);
+      // FIX-B41c superseded the old pin here (no /listagent link at all):
+      // /listagent is mounted now, and the wireframe draws two controls
+      // for it, the header's primary and the empty state's plain one.
+      const header = page.document.getElementById('list-agent-cta');
+      expect(header?.getAttribute('href')).toBe('/listagent');
+      expect(header?.classList.contains('btn-primary')).toBe(true);
+      const empty = page.document.querySelector('#empty-state a.btn');
+      expect(empty?.getAttribute('href')).toBe('/listagent');
+      expect(empty?.classList.contains('btn-primary')).toBe(false);
+      expect(page.document.querySelectorAll('.btn-primary').length, 'one primary button on the screen').toBe(1);
     } finally {
       page.close();
     }

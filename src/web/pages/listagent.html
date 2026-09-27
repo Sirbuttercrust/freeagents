@@ -48,11 +48,16 @@
   }
   .field .sub { margin-top: 6px; }
   /* The checkbox row. base.css gives a label wrapping a checkbox 44px on
-     touch; this sets it at every width, so a mouse gets the same target. */
-  .check { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; font-size: 14px; }
-  .check input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--action); }
-  /* The page's own buttons clear 44px at every width, not only on touch. */
-  #create-btn, #signin-link, .done-links .btn { min-height: 44px; }
+     touch; this sets it at every width, so a mouse gets the same target.
+     `.field .check`, not `.check`: base.css's `.field label` (display:
+     block) outranks a single class and would stack the box on its words.
+     color-scheme draws the unticked box dark, to match the inputs. */
+  .field .check { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 0; cursor: pointer; font-size: 14px; color: var(--fg); }
+  .check input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--action); color-scheme: dark; }
+  #gh-field .sub { margin-top: 2px; }
+  /* The page's own controls clear 44px at every width, not only on touch
+     (DESIGN.md 5.3 names no mouse exemption). */
+  #create-btn, #signin-link, .done-links .btn, #list-form .input { min-height: 44px; }
   .done-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
 </style>
 </head>
