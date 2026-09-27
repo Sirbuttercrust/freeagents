@@ -499,13 +499,20 @@ describe('4. not one of the wireframe\u2019s three builder notes is rendered', (
 
   it('ships no control pointing at a page this app does not mount', async () => {
     const markup = await servedMarkup();
-    // Every href the page ships lands on a route the app mounts. FIX-B41c
-    // mounted /listagent, so the page now links it; the per-row Settings
-    // link's /agentsettings is still unmounted (FIX-B41d) and stays absent.
-    expect(markup.includes('href="/agentsettings'), 'the page links /agentsettings, a route this app does not mount').toBe(false);
+    // Every href the page ships lands on a route the app mounts: the static
+    // shell's own links, and every link myagents.js renders into the roster
+    // (FIX-B41d added the per-row Settings link, /agentsettings?agent=<did>).
+    // The rendered links are read out of the script's own href strings,
+    // so a new link pointing anywhere unmounted turns this red.
+    const script = readFileSync(scriptPath, 'utf8');
+    // A literal that ends in "/" takes the agent's DID after it; fetch it
+    // with a real one, the page's own first row.
+    const rendered = [...script.matchAll(/(?:href\s*=|setAttribute\("href",)\s*"(\/[^"#?]*)/g)]
+      .map((m) => (m[1]!.endsWith('/') ? m[1]! + encodeURIComponent(HIRE_DID) : m[1]!));
+    expect(rendered, 'the links myagents.js renders').toEqual([`/agents/${encodeURIComponent(HIRE_DID)}`, '/incoming', '/agentsettings']);
     const hrefs = [...markup.matchAll(/href="(\/[^"#?]*)/g)].map((m) => m[1]!).filter((h) => !/\.(css|ico|svg|png|webmanifest)$/.test(h));
     expect(hrefs).toContain('/listagent');
-    for (const href of new Set(hrefs)) {
+    for (const href of new Set([...hrefs, ...rendered])) {
       const res = await fetch(`${baseUrl}${href}`, { headers: { Accept: 'text/html' } });
       expect(res.status, `${href} is linked from /myagents and answers ${res.status}`).toBe(200);
     }

@@ -565,16 +565,18 @@ describe('the My agents screen, driven end to end against the real app', () => {
       expect(hireRow).toBeTruthy();
       // The row carries exactly one .tier element and one .ev element,
       // each with its own separately labelled figure(s); nothing on the
-      // row is a third, combined figure. The "right" column (the tier
-      // pill plus the evidence line) has exactly two children: a fourth
-      // element in that column is exactly the shape a blended total
-      // would take, structurally forbidden by MISSION invariant 5.
+      // row is a third, combined figure. The "right" column holds the tier
+      // pill, the evidence line and, since FIX-B41d, the Settings link,
+      // and nothing else: a fourth element in that column is exactly the
+      // shape a blended total would take, structurally forbidden by
+      // MISSION invariant 5. The link carries no figure.
       const tierCount = hireRow?.querySelectorAll('.tier').length ?? 0;
       const evCount = hireRow?.querySelectorAll('.ev').length ?? 0;
       expect(tierCount).toBe(1);
       expect(evCount).toBe(1);
       const right = hireRow?.querySelector('.right');
-      expect(right?.children.length).toBe(2);
+      expect(Array.from(right?.children ?? []).map((c) => c.className)).toEqual([expect.stringMatching(/^tier /), 'ev', 'small settings-link']);
+      expect(right?.lastElementChild?.textContent).toBe('Settings');
       const rowText = hireRow?.textContent ?? '';
       expect(rowText).toMatch(/0 prior work/);
       expect(rowText).toMatch(/0 claims/);

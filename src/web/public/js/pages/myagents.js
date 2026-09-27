@@ -19,13 +19,14 @@
    portfolioCount already ride on BrowseCard, so a failed per-agent read
    never blanks a count the roster call already answered.
 
-   NO SETTINGS LINK: agentsettings.html is not built and /agentsettings is
-   not mounted, so this script renders none. The agent's name is the row's
-   only link, and it opens /agents/<did>, which is built and public. The
-   List an agent controls are static markup in myagents.html and open
-   /listagent; the one thing this script does to them is keep the header's
-   button from showing as a second primary while an avatar editor's Save
-   is on screen (syncPrimary, below).
+   THE SETTINGS LINK: each row's .right column ends in the wireframe's
+   Settings link, opening /agentsettings?agent=<did>, where the owner edits
+   the listing's name, description, skills and lowest price. The agent's
+   name opens /agents/<did>, which is built and public. The List an agent
+   controls are static markup in myagents.html and open /listagent; the one
+   thing this script does to them is keep the header's button from showing
+   as a second primary while an avatar editor's Save is on screen
+   (syncPrimary, below).
 
    W7B WORK-OFFERED ATTENTION LINE: one additional read of
    GET /accounts/:did/incoming, fired once for the page (not once per
@@ -257,6 +258,15 @@
     ev.textContent = evPrior + " \u00b7 " + A.plural(portfolioCount, "claim", "claims");
     right.appendChild(ev);
 
+    /* The wireframe's per-row Settings link (myagents.html:92). Named for
+       its agent, since every row carries the same visible word. */
+    var settings = document.createElement("a");
+    settings.className = "small settings-link";
+    settings.setAttribute("href", "/agentsettings?agent=" + encodeURIComponent(agent.did));
+    settings.setAttribute("aria-label", "Settings for " + name.textContent);
+    settings.textContent = "Settings";
+    right.appendChild(settings);
+
     row.appendChild(right);
 
     return row;
@@ -300,9 +310,16 @@
      be read should not assert an identity this page could not confirm: a
      failed read leaves the box exactly as it started, data-pending and
      empty, and offers no editor either. The roster row does not know
-     whether the agent has a job in progress, so the bot never works here. */
+     whether the agent has a job in progress, so the bot never works here.
+
+     A read that answers after its row has left the document paints
+     nothing. Nothing on this page removes a row, so this only happens when
+     the page itself is torn down while reads are out (the jsdom tests close
+     every window they render, and a closed window has no document for
+     bots.js to draw into). */
   function loadDetail(agent, row) {
     A.get("/agents/" + encodeURIComponent(agent.did)).then(function (result) {
+      if (!row.isConnected) return;
       if (result.state !== "ok") return;
       var detail = result.value;
       paintAvatar(row, agent.did, detail.avatarSpec);
@@ -326,8 +343,8 @@
   /* ------------------------------------------------------ the avatar editor
 
      WHERE IT LIVES. On this page, under the agent's own row, rather than on
-     a settings page for the agent: agentsettings.html is not built and has
-     no route (this file's header), and this
+     the agent's settings page: that page (/agentsettings) edits the words a
+     listing says about itself and carries no avatar picker, and this
      roster is the one built screen that is already only ever the
      operator's own. A disclosure under the row, not a modal, because a
      person tuning a look wants the rest of their roster in view and wants
