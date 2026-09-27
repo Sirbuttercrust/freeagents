@@ -145,6 +145,15 @@ export default tseslint.config(
         OffscreenCanvas: 'readonly',
         TextEncoder: 'readonly',
         devicePixelRatio: 'readonly',
+        // The hire conversation (messages.js): the live stream is read with
+        // fetch and a reader it can abort, an upload reports progress
+        // through XMLHttpRequest (fetch cannot), a picked file is read as
+        // base64 by FileReader, and CSS.escape keeps a message id safe in a
+        // selector.
+        AbortController: 'readonly',
+        XMLHttpRequest: 'readonly',
+        FileReader: 'readonly',
+        CSS: 'readonly',
         // The landing page's own globals, each defined by one script in
         // src/web/public/js/landing and read by the others.
         FA: 'readonly',
@@ -186,8 +195,8 @@ export default tseslint.config(
   // number a *different*, unrelated process already holds fixed to
   // 127.0.0.1, and the test's own `fetch('http://127.0.0.1:<port>/...')`
   // then silently reaches that foreign process instead of the test's own
-  // server. Proof measured 5 mismatches / 4000 cycles bare vs 0 / 4000 with
-  // the host pinned, confirmed via lsof that the collisions were real
+  // server. The review measured 5 mismatches / 4000 cycles bare vs 0 / 4000
+  // with the host pinned, confirmed via lsof that the collisions were real
   // foreign listeners. Nothing stopped a new test file from reintroducing
   // the bare form, so it is enforced here instead of re-discovered by hand.
   //

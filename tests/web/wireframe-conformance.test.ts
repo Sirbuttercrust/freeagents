@@ -44,12 +44,15 @@ const WIREFRAME_FOR: Record<string, string | null> = {
   // (same head, nav, footer, stylesheets and office footer), and
   // tests/web/private-repos.test.ts measures it.
   'private-repos': null,
-  // HT1 Part B: this card's own scope limit is "build only the
-  // operator's unread badge and a plain notification list on the site,
-  // nothing more elaborate"; the conversation screen AND its design
-  // board (MSG0, assignee burnish) are a separate card. No wireframe
-  // exists yet for this deliberately plain page.
+  // HT1 Part B built this plain list of events. No wireframe exists for
+  // it. MSG1b moved the nav's link from here to /messages (the hire
+  // conversation, see below); this page is still served and nothing new
+  // links to it.
   notifications: null,
+  // MSG1b: the hire conversation. Built from the MSG0 design board's
+  // direction A ("Pinned"), which the review passed and the design owner chose,
+  // not from a spec/wireframe file; tests/web/messages.test.ts measures it.
+  messages: null,
 };
 
 // Justified departures, per page, each with the reason. A heading or control
@@ -71,7 +74,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Hires 12': 'same reason as "All 45": a live count, never the wireframe\u2019s sample digit',
     'Prior 31': 'same reason as "All 45": a live count, never the wireframe\u2019s sample digit',
     'Claims 2': 'same reason as "All 45": a live count, never the wireframe\u2019s sample digit',
-    // Proof round 2, D1 (conformance-satisfied-by-dead-markup): these two
+    // Review round 2, D1 (conformance-satisfied-by-dead-markup): these two
     // prior-work controls used to sit inside <template> elements that
     // nothing cloned, so removed conformance-agent-carries-every-control's
     // pass by neither a page change nor an honest absence. R-17's three
@@ -94,9 +97,9 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // "gist proof" above documents), so no gallery card for that tier is
     // ever built at runtime; a <template> carrying these two controls with
     // nothing that ever clones them is exactly the conformance-satisfied-
-    // by-dead-markup defect Proof round 2 (D1) already found and fixed once
+    // by-dead-markup defect review round 2 (D1) already found and fixed once
     // in this file, for the row-level verify affordance.
-    'See the commits': 'ENT-11 not wired (verifiedPriorWork is always [], agent-work-record.ts); no prior-work gallery card is ever built for this control to sit on, and a template nothing clones is the dead-markup defect Proof round 2 (D1) already fixed once in this file',
+    'See the commits': 'ENT-11 not wired (verifiedPriorWork is always [], agent-work-record.ts); no prior-work gallery card is ever built for this control to sit on, and a template nothing clones is the dead-markup defect review round 2 (D1) already fixed once in this file',
     'Read the source': 'same reason as "See the commits": ENT-11 not wired, no prior-work gallery card exists for this affordance yet',
     // The wireframe's four sample gallery card titles (its one example
     // agent's specific portfolio items). VerifiedHireItem carries no title
@@ -310,7 +313,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // work actually ships"), hiding the facts and the action row rather
     // than painting dead controls. The job's own record of a non-merge
     // lives on the job page (STATE_SENTENCES.closed_unmerged, job.js:43).
-    // Same call W4 already made and Proof already passed for "If the job
+    // Same call W4 already made and the review already passed for "If the job
     // does not ship".
     'Job did not ship': 'the wireframe draws this as a second worked example on the same page; a receipt exists only for shipped work, so this address renders failLoad (credential.js) and the non-merge fact lives on the job page (job.js STATE_SENTENCES.closed_unmerged)',
     // Wireframe sample data. SAMPLE's own regex covers vercel/commerce#\d+,

@@ -1,4 +1,4 @@
-// FIX-S7 round 2 (qa proof r1, defect 3): the burst measurement Make item 2
+// FIX-S7 round 2 (review round 1, defect 3): the burst measurement Make item 2
 // requires ("measure the busiest page's burst ... in real Chrome against a
 // local server") reproducibly, not typed by hand into a comment. This file
 // drives real headless Chrome (tests/helpers/real-browser.ts, the same
@@ -6,7 +6,7 @@
 // already use) against a real createApp server and counts, per rate-limit
 // class, how many requests one page load fires -- browse with 10 cards, a
 // SIGNED-IN job page, and a SIGNED-IN deposit page, closing the exact gap
-// qa's proof named: "the measurements leave out the signed-in job page,
+// the review named: "the measurements leave out the signed-in job page,
 // and the deposit page was measured before sign-in only".
 //
 // The counting mechanism: CDP's Network.requestWillBeSent event names
@@ -269,7 +269,7 @@ describe('FIX-S7 Make item 2: real-browser burst measurement, reproducible (roun
         // FIX-S7 round 3 (round 3's ruling): GET /agents/:agentDid (job.js's
         // identity strip) is now `read`, same class as GET /jobs/:jobId
         // (the primary record) and nav.js's signed-in reads (GET
-        // /accounts/me, GET /accounts/:did/notifications). No page load
+        // /accounts/me, GET /accounts/:did/threads). No page load
         // touches the verify bucket at all any more.
         expect(counts.read, 'the primary record, the identity strip, and nav.js\'s signed-in reads, all read now').toBeGreaterThanOrEqual(1);
         expect(counts.verify, 'no page load touches the verify bucket at all, post-ruling').toBe(0);

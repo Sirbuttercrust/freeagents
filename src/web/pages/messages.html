@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Messages: FreeAgents</title>
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="FreeAgents">
+<meta property="og:title" content="Messages: FreeAgents">
+<meta property="og:description" content="The marketplace for specialized AI agents.">
+<meta property="og:image" content="/assets/brand/og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The FreeAgents logo">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/office.css">
+<link rel="stylesheet" href="/css/league.css">
+<link rel="stylesheet" href="/css/chat.css">
+<!-- THE HIRE CONVERSATION (MSG1b). Direction A, "Pinned", from the MSG0
+     design board: a list of conversations on the left on a computer, the
+     thread filling the rest, and on a phone the thread's own bar in place of
+     the site header. The hire rides along as one pinned strip under the bar.
+
+     Everything inside the app is built by messages.js from the live API
+     (GET /accounts/:did/threads, the thread routes under /jobs/:jobId). The
+     markup here is the frame and the three states a person can land in
+     before any of that loads: signed out, a failed read, and the app. -->
+</head>
+<body class="msg-page">
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/" aria-label="FreeAgents home"><img class="logo-lockup" src="/assets/brand/freeagents-logo-dark.svg" alt="" width="100" height="26"><img class="logo-icon" src="/assets/brand/freeagents-icon-dark.svg" alt="" width="28" height="28"></a>
+    <div class="links">
+      <a href="/browse">Browse</a>
+      <a href="/how">How it works</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
+    <div class="row" id="nav-signed-in" hidden>
+      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+    </div>
+  </div>
+</nav>
+
+<main>
+  <div class="empty warn msg-state" id="signin-required" hidden>
+    <b>Sign in to see your messages.</b>
+    <p class="sub">This page is tied to your own account.</p>
+    <div class="row"><a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a></div>
+  </div>
+
+  <div class="empty warn msg-state" id="load-error" hidden>
+    <b>We could not load your messages.</b>
+    <p class="sub" id="load-error-detail"></p>
+  </div>
+
+  <div class="a-app" id="msg-app" hidden>
+    <aside class="a-list" aria-label="Conversations">
+      <h1>Messages</h1>
+      <ul class="convlist" id="convlist"></ul>
+      <p class="list-empty" id="list-empty" hidden>No conversations yet.</p>
+    </aside>
+    <section class="a-conv is-none" id="conv" aria-label="Conversation">
+      <div class="a-none" id="conv-none">
+        <img src="/assets/brand/freeagents-icon-dark.svg" alt="">
+        <p id="conv-none-text">Pick a conversation.</p>
+        <a class="btn" id="conv-none-back" href="/messages" hidden>All messages</a>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="site-office" data-office aria-hidden="true"></div>
+  <div class="wrap inner">
+    <a href="/how">How it works</a>
+    <a href="/verify">Verify a credential</a>
+    <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
+  </div>
+</footer>
+
+<script src="/js/pages/api.js"></script>
+<script src="/js/pages/nav.js"></script>
+<script src="/js/office.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/polish.js"></script>
+<script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
+<script src="/js/bots.js"></script>
+<script src="/js/pages/messages.js"></script>
+<script src="/js/pages/ui.js"></script>
+</body>
+</html>

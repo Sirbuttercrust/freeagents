@@ -198,6 +198,8 @@ const PAGES: ReadonlyArray<readonly [label: string, path: string]> = [
   ['outcomes', '/outcomes'],
   ['private-repos', '/private-repos'],
   ['private-repos, for a job', '/private-repos?job=m1-job-proposed'],
+  ['messages', '/messages'],
+  ['messages, a thread', '/messages?job=m1-job-proposed'],
   ['incoming', '/incoming'],
   ['conduct', '/conduct?account=m1-buyer-login'],
   ['dashboard', '/dashboard'],

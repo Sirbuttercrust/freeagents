@@ -209,6 +209,10 @@
 
   function render(job_) {
     document.title = "Job " + job_.id + ", operator view: FreeAgents";
+    // MSG1b: the way into this hire's conversation. The body this link
+    // sits in shows only after the party check above has passed.
+    var msgLink = A.el("messages-link");
+    if (msgLink) msgLink.setAttribute("href", "/messages?job=" + encodeURIComponent(job_.id));
     renderWho(job_);
     renderState(job_);
     renderRedoPanel(job_);

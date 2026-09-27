@@ -190,6 +190,10 @@ export const EXEMPT_WEB_PAGE_PATHS: readonly string[] = [
   '/settings',
   '/notifications',
   '/private-repos',
+  // MSG1b: the hire conversation page shell. Like its neighbours it paints
+  // static markup and reads everything through the already-classified
+  // thread routes above.
+  '/messages',
 ];
 
 // FIX-S7 round 2 (qa proof r1, defect 1): the four GET routes src/web/

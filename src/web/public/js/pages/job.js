@@ -116,6 +116,7 @@
     renderAgreementCta(job);
     renderStagedCta(job);
     renderPullRequestCta(job);
+    renderMessagesLink(job);
   }
 
   // The job named by its own identifier, and the page's whole stance in
@@ -584,6 +585,25 @@
     var link = A.el("pullrequest-link");
     if (link) link.setAttribute("href", "/pullrequest?job=" + encodeURIComponent(job.id));
     A.showById("pullrequest-cta", true);
+  }
+
+  // MSG1b: the way into this hire's conversation (/messages?job=<id>),
+  // for a signed-in visitor who is one of the job's two parties. This page
+  // is public and reads no session for its own record, so the party check
+  // is the thread's own gate: GET /jobs/:jobId/messages/read-state answers
+  // 200 only to the hirer or the agent's side (requireThreadParty in
+  // src/api/app.ts). Anyone else, or a signed-out visitor, never sees it.
+  function renderMessagesLink(job) {
+    if (typeof job.id !== "string" || job.id === "") return;
+    var session = A.getStoredSession();
+    if (!session) return;
+    var path = "/jobs/" + encodeURIComponent(job.id);
+    A.getAuthed(path + "/messages/read-state", session.token).then(function (result) {
+      if (result.state !== "ok" || result.value.status !== 200) return;
+      var link = A.el("messages-link");
+      if (link) link.setAttribute("href", "/messages?job=" + encodeURIComponent(job.id));
+      A.showById("messages-cta", true);
+    });
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", start);

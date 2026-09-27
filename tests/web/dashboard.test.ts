@@ -287,11 +287,11 @@ describe('the dashboard screen, driven end to end against the real app', () => {
       if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
       const paths = requested.map((r) => new URL(r, baseUrl).pathname);
       expect(paths).toContain('/accounts/me');
-      // HT1 Part B: the shared nav script's own background reads (a
-      // second /accounts/me plus one /accounts/:did/notifications, for
-      // the unread badge) are filtered out below; this test's own count
-      // is dashboard.js's reads, unchanged by the nav.
-      const ownPaths = paths.filter((p) => !p.endsWith('/notifications'));
+      // MSG1b: the shared nav script's own background reads (a second
+      // /accounts/me plus one /accounts/:did/threads, for the Messages
+      // badge) are filtered out below; this test's own count is
+      // dashboard.js's reads, unchanged by the nav.
+      const ownPaths = paths.filter((p) => !p.endsWith('/threads'));
       const jobsCount = ownPaths.filter((p) => p.endsWith('/jobs')).length;
       const pendingCount = ownPaths.filter((p) => p.endsWith('/pending')).length;
       const incomingCount = ownPaths.filter((p) => p.endsWith('/incoming')).length;
@@ -398,10 +398,10 @@ describe('the dashboard screen, driven end to end against the real app', () => {
           [`/agents/${encodeURIComponent(rosterAgentA)}`, `/agents/${encodeURIComponent(rosterAgentB)}`].sort(),
         );
         // The same five, plus exactly N (2) per-agent reads: 7 total.
-        // HT1 Part B: the shared nav script's own background reads (a
-        // second /accounts/me plus one /accounts/:did/notifications)
-        // are excluded, same as the test above.
-        const ownPaths = paths.filter((p) => !p.endsWith('/notifications'));
+        // MSG1b: the shared nav script's own background reads (a
+        // second /accounts/me plus one /accounts/:did/threads) are
+        // excluded, same as the test above.
+        const ownPaths = paths.filter((p) => !p.endsWith('/threads'));
         expect(ownPaths.length).toBe(8);
       } finally {
         dom.window.close();
