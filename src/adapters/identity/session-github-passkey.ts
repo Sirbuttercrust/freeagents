@@ -6,10 +6,15 @@
 //
 // GitHub OAuth: the documented web application flow.
 // https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps
-// Scope requested is deliberately empty (no `scope` parameter at all):
+// Sign-in's own scope is deliberately empty (no `scope` parameter at all):
 // GitHub's own docs say an omitted scope defaults to no access beyond
 // identifying the user, and sign-in needs to know who the user is, not
-// their repositories.
+// their repositories. FIX-B47b: the ONE-CLICK GITHUB PROOF's own start
+// (beginGitHubProofOAuth) is the sole caller in this file that ever asks
+// for a scope, and it asks for exactly `gist` (never `repo`, never a
+// write to any repository) plus prompt=select_account, so the owner picks
+// which GitHub account the agent works from. Sign-in's own authorize call
+// (beginGitHubOAuth) is unchanged by this: it still asks for nothing.
 //
 // Passkey: @simplewebauthn/server v13 (MasterKale/SimpleWebAuthn), the
 // standard, actively maintained WebAuthn library. See the PR body for the
@@ -30,7 +35,7 @@ import {
   verifyRegistrationResponse,
   type RegistrationResponseJSON,
 } from '@simplewebauthn/server';
-import type { OAuthStart, Session, SessionAdapter, SignInMethod } from './session.js';
+import type { OAuthStart, GitHubProofCompletion, OAuthStatePurpose, Session, SessionAdapter, SignInMethod } from './session.js';
 
 // One store, one row shape, for both sign-in methods (the brief: "one
 // session shape... no parallel token store per method"). subject and
@@ -44,8 +49,17 @@ interface StoredSession {
   revoked: boolean;
 }
 
+// FIX-B47b: what an OAuth state is FOR, stored beside it (decision 1). A
+// sign-in state carries no extra fields; a proof state carries the account
+// DID that started it and the one agent DID it may verify, fixed at start
+// and never re-supplied at completion.
+type StoredStatePurpose =
+  | { readonly kind: 'sign-in' }
+  | { readonly kind: 'proof'; readonly accountDid: string; readonly agentDid: string };
+
 interface StoredOAuthState {
   readonly createdAtMs: number;
+  readonly purpose: StoredStatePurpose;
   used: boolean;
 }
 
@@ -160,10 +174,46 @@ export function createSessionAdapter(options: SessionAdapterOptions): SessionAda
     };
   }
 
+  // FIX-B47b: the token exchange and /user read completeGitHubOAuth and
+  // completeGitHubProofOAuth both need -- extracted so the proof path
+  // reuses the IDENTICAL GitHub calls sign-in already makes, never a
+  // second, only-superficially-similar implementation. Total: any failure
+  // (a bad code, a provider outage, a malformed response) is null, never a
+  // throw, so each caller maps it to its own failure shape without
+  // inspecting which one it was.
+  async function exchangeCodeForLogin(code: string): Promise<{ readonly login: string; readonly token: string } | null> {
+    try {
+      const tokenRes = await fetchImpl('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: { accept: 'application/json', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          client_id: options.github.clientId,
+          client_secret: options.github.clientSecret,
+          code,
+          redirect_uri: options.github.redirectUri,
+        }),
+      });
+      if (!tokenRes.ok) return null;
+      const tokenBody = (await tokenRes.json()) as { access_token?: unknown };
+      if (typeof tokenBody.access_token !== 'string' || tokenBody.access_token.length === 0) return null;
+
+      const userRes = await fetchImpl('https://api.github.com/user', {
+        headers: { authorization: `Bearer ${tokenBody.access_token}`, accept: 'application/vnd.github+json' },
+      });
+      if (!userRes.ok) return null;
+      const userBody: unknown = await userRes.json();
+      if (!isGitHubUserResponse(userBody)) return null;
+
+      return { login: userBody.login, token: tokenBody.access_token };
+    } catch {
+      return null;
+    }
+  }
+
   return {
     async beginGitHubOAuth(): Promise<OAuthStart> {
       const state = randomBytes(32).toString('base64url');
-      oauthStates.set(state, { createdAtMs: now(), used: false });
+      oauthStates.set(state, { createdAtMs: now(), purpose: { kind: 'sign-in' }, used: false });
       const url = new URL('https://github.com/login/oauth/authorize');
       url.searchParams.set('client_id', options.github.clientId);
       url.searchParams.set('redirect_uri', options.github.redirectUri);
@@ -179,39 +229,83 @@ export function createSessionAdapter(options: SessionAdapterOptions): SessionAda
     // verifyDelegation and http-signature's verify() elsewhere in this
     // codebase).
     async completeGitHubOAuth(params: { readonly code: string; readonly state: string }): Promise<Session | null> {
-      try {
-        const stored = oauthStates.get(params.state);
-        if (stored === undefined || stored.used) return null;
-        if (now() - stored.createdAtMs > oauthStateTtlMs) return null;
-        // Single-use: consumed on this attempt whether or not the rest of
-        // the exchange succeeds, so a reused state can never complete twice.
-        stored.used = true;
+      const stored = oauthStates.get(params.state);
+      if (stored === undefined || stored.used) return null;
+      // Decision 1, direction two: a proof-purpose state can never mint a
+      // session. Checked BEFORE consuming the state, so a crossed-over
+      // attempt leaves the proof state exactly as it was, still completable
+      // through completeGitHubProofOAuth.
+      if (stored.purpose.kind !== 'sign-in') return null;
+      if (now() - stored.createdAtMs > oauthStateTtlMs) return null;
+      // Single-use: consumed on this attempt whether or not the rest of
+      // the exchange succeeds, so a reused state can never complete twice.
+      stored.used = true;
 
-        const tokenRes = await fetchImpl('https://github.com/login/oauth/access_token', {
-          method: 'POST',
-          headers: { accept: 'application/json', 'content-type': 'application/json' },
-          body: JSON.stringify({
-            client_id: options.github.clientId,
-            client_secret: options.github.clientSecret,
-            code: params.code,
-            redirect_uri: options.github.redirectUri,
-          }),
-        });
-        if (!tokenRes.ok) return null;
-        const tokenBody = (await tokenRes.json()) as { access_token?: unknown };
-        if (typeof tokenBody.access_token !== 'string' || tokenBody.access_token.length === 0) return null;
+      const exchanged = await exchangeCodeForLogin(params.code);
+      if (exchanged === null) return null;
+      return newSession(exchanged.login, 'github-oauth');
+    },
 
-        const userRes = await fetchImpl('https://api.github.com/user', {
-          headers: { authorization: `Bearer ${tokenBody.access_token}`, accept: 'application/vnd.github+json' },
-        });
-        if (!userRes.ok) return null;
-        const userBody: unknown = await userRes.json();
-        if (!isGitHubUserResponse(userBody)) return null;
-
-        return newSession(userBody.login, 'github-oauth');
-      } catch {
-        return null;
+    // FIX-B47b, decision 1 and 2: mints a proof-purpose state bound to the
+    // caller-resolved account DID and the one agent DID this proof may
+    // verify, asking for `gist` and prompt=select_account. Rejects before
+    // minting any state when OAuth is not configured (empty client id or
+    // secret) -- the same fail-closed-before-any-side-effect stance
+    // requireOAuthAppCredentials takes in the github adapter.
+    async beginGitHubProofOAuth(accountDid: string, agentDid: string): Promise<OAuthStart> {
+      if (options.github.clientId === '' || options.github.clientSecret === '') {
+        throw new Error('session adapter: FREEAGENTS_GITHUB_CLIENT_ID/FREEAGENTS_GITHUB_CLIENT_SECRET are not configured');
       }
+      const state = randomBytes(32).toString('base64url');
+      oauthStates.set(state, {
+        createdAtMs: now(),
+        purpose: { kind: 'proof', accountDid, agentDid },
+        used: false,
+      });
+      const url = new URL('https://github.com/login/oauth/authorize');
+      url.searchParams.set('client_id', options.github.clientId);
+      url.searchParams.set('redirect_uri', options.github.redirectUri);
+      url.searchParams.set('scope', 'gist');
+      url.searchParams.set('prompt', 'select_account');
+      url.searchParams.set('state', state);
+      return { redirectUrl: url.toString(), state };
+    },
+
+    // FIX-B47b, decision 1: read-only, never consumes the state. A state
+    // already used still answers its original purpose (used-ness is a
+    // separate fact each completion method checks for itself).
+    peekOAuthStatePurpose(state: string): OAuthStatePurpose | null {
+      const stored = oauthStates.get(state);
+      if (stored === undefined) return null;
+      if (now() - stored.createdAtMs > oauthStateTtlMs) return null;
+      return stored.purpose;
+    },
+
+    // FIX-B47b: the proof-purpose counterpart of completeGitHubOAuth.
+    // Refuses (invalid-state) a sign-in-purpose state, an expired state, an
+    // already-used state, or a state never issued -- the same one shape for
+    // every one of those causes, so a caller cannot learn which happened.
+    // Single-use: consumed before the exchange runs, whether or not the
+    // exchange itself succeeds.
+    async completeGitHubProofOAuth(params: { readonly code: string; readonly state: string }): Promise<GitHubProofCompletion> {
+      const stored = oauthStates.get(params.state);
+      if (stored === undefined || stored.used) return { kind: 'invalid-state' };
+      // Decision 1, direction one: a sign-in-purpose state can never
+      // complete a proof. Checked before consuming the state, so a
+      // crossed-over attempt leaves the sign-in state exactly as it was.
+      if (stored.purpose.kind !== 'proof') return { kind: 'invalid-state' };
+      if (now() - stored.createdAtMs > oauthStateTtlMs) return { kind: 'invalid-state' };
+      stored.used = true;
+
+      const exchanged = await exchangeCodeForLogin(params.code);
+      if (exchanged === null) return { kind: 'exchange-failed' };
+      return {
+        kind: 'ok',
+        accountDid: stored.purpose.accountDid,
+        agentDid: stored.purpose.agentDid,
+        login: exchanged.login,
+        token: exchanged.token,
+      };
     },
 
     async registerPasskey(subject: string): Promise<{ optionsJson: string }> {
