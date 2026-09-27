@@ -337,11 +337,9 @@ function engineOf(page: EnginePage): FAUsdcWallet {
   return (page.window as unknown as { FAUsdcWallet: FAUsdcWallet }).FAUsdcWallet;
 }
 // The default pay() call shape almost every test below uses: the
-// deposit leg, a 5ms/5-round bounded poll. Overrides (leg, resend,
-// pollLimit, ...) merge on top for the handful of tests that differ.
+// deposit leg, a 5ms/5-round bounded poll. Overrides merge on top.
 function payDeposit(
-  page: EnginePage,
-  h: Harness,
+  page: EnginePage, h: Harness,
   wallet: { id: string; name: string; icon: string; provider: FakeWallet['provider'] } | null,
   overrides: Record<string, unknown> = {},
 ): Promise<{ outcome: string; message: string; leg?: string }> {
@@ -372,9 +370,8 @@ async function setup(seedSuffix: number): Promise<{ chainState: ChainState; h: H
 function walletEntry(id: string, provider: FakeWallet['provider']): { id: string; name: string; icon: string; provider: FakeWallet['provider'] } {
   return { id, name: 'Fake Wallet', icon: '', provider };
 }
-// Builds a fake wallet AND wraps it as a discover()-shaped entry in one
-// call, for the many sites below that never inspect wallet.sends/.calls
-// afterward.
+// Builds a fake wallet and wraps it as a discover()-shaped entry, for
+// sites that never inspect wallet.sends/.calls afterward.
 function fakeWalletEntry(id: string, opts: FakeWalletOptions): { id: string; name: string; icon: string; provider: FakeWallet['provider'] } {
   return walletEntry(id, buildFakeWallet(opts).provider);
 }
