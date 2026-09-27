@@ -182,11 +182,15 @@
 
   function renderAll(job) {
     currentJob = job;
-    var lines = agreementLines(job);
-    A.show(A.el("propose-field"), isOpen(job) || job.status === "draft");
+    var composing = isOwner && job.status === "draft";
+    var lines = composing ? [] : agreementLines(job);
+    A.show(A.el("terms-pane"), !composing);
+    A.show(A.el("lockbar"), !composing);
+    A.show(A.el("propose-field"), isOpen(job) || (!isOwner && job.status === "draft"));
+    renderComposer(job, composing);
     if (isOwner) {
-      A.setTextById("lede", job.status === "draft"
-        ? "Add what you will deliver, one line at a time, then set the price."
+      A.setTextById("lede", composing
+        ? "Write what you will deliver, your price and the days it takes. The buyer signs each line."
         : isOpen(job)
           ? "Sign the lines you agree with. Changing a line clears both signatures on it."
           : "This agreement is closed to changes.");
@@ -207,6 +211,35 @@
     if (window.FAIcon) window.FAIcon.paint(host);
     var editor = host.querySelector(".line-edit");
     if (editor && editor.focusField) editor.focusField();
+  }
+
+  /* The composer is the owner's draft seat only. A half-written quote
+     lives in sessionStorage under one key per job, so a reload keeps it,
+     and the key is cleared once the quote is sent. A saved draft that is
+     not JSON is dropped, and storage that refuses a write costs only the
+     reload copy, never the send. */
+  function renderComposer(job, composing) {
+    var host = A.el("composer-host");
+    host.textContent = "";
+    A.show(host, composing);
+    if (!composing) return;
+    var key = "fa_quote_draft:" + job.id;
+    var saved = null;
+    try { saved = JSON.parse(window.sessionStorage.getItem(key) || "null"); } catch (e) { saved = null; }
+    host.appendChild(E.composer({
+      saved: saved,
+      onChange: function (state) {
+        try { window.sessionStorage.setItem(key, JSON.stringify(state)); } catch (e) { /* reload copy only */ }
+      },
+      send: function (quote) {
+        var criteria = quote.lines.map(function (t) { return { text: t, proposedBy: "agent" }; });
+        return sendQuote({ criteria: criteria, priceUsd: quote.priceUsd, deliveryWindowDays: quote.deliveryWindowDays }).then(function (refusal) {
+          if (refusal === null) window.sessionStorage.removeItem(key);
+          return refusal;
+        });
+      },
+    }));
+    if (window.FAIcon) window.FAIcon.paint(host);
   }
 
   /* The current list as the route wants it: every line, text unchanged,
@@ -295,10 +328,11 @@
      control that opens this row's editor under it (the wireframe's
      "Propose a change to line NN"), and an empty cell once the agreement
      is closed. The buyer's side keeps the "not yet" text, never a button,
-     because the buyer adds lines but does not rewrite the owner's. A line
-     can be changed but never removed: a send that omits a line drops it
-     while every other line keeps its signatures, so a removal could lock
-     an agreement on a set the other side never saw whole. */
+     because the buyer adds lines but does not rewrite the owner's. Once a
+     quote is sent a line can be changed but never removed: a send that
+     omits a line drops it while every other line keeps its signatures, so
+     a removal could lock an agreement on a set the other side never saw
+     whole. Removing a line is the draft composer's alone. */
   function termRow(line, num, styleIndex, job) {
     var li = document.createElement("li");
     li.style.setProperty("--i", String(styleIndex));
@@ -516,13 +550,6 @@
       meterHost.setAttribute("aria-label", collected + " of " + needed + " signatures collected");
     }
 
-    if (isOwner && job.status === "draft") {
-      bar.className = "lockbar reveal is-open";
-      A.setText(mainEl, "No lines yet.");
-      A.setText(subEl, "Add the first line below, then set the price.");
-      setCount(0, 0);
-      return;
-    }
     if (job.status !== "proposed") {
       bar.className = "lockbar reveal is-open";
       A.setText(mainEl, "This agreement is no longer open for changes.");
