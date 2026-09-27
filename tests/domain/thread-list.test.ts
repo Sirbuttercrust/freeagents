@@ -83,6 +83,23 @@ describe('lastMessageOf: the newest row, or null for an empty thread', () => {
     expect(lastMessageOf([systemRow])?.systemEventType).toBe('quote_sent');
     expect(lastMessageOf([partyRow])?.systemEventType).toBeNull();
   });
+
+  // FIX-CIFLAKE cause 4: two rows can share the exact same createdAt
+  // millisecond (app.ts stamps new Date() with millisecond resolution, and
+  // two agent-machine posts can land in the same one). The repositories
+  // both answer oldest-first, insertion order for a tie (prisma.ts orders
+  // by createdAt asc only; memory.ts is plain insertion order), so of two
+  // equal createdAt rows the LATER one in that list is the one actually
+  // posted second and must win the preview, never the earlier list
+  // position. Red on main, which picks the first-reduced (earlier list
+  // position) row on a tie.
+  it('of two rows sharing the same createdAt millisecond, the LATER one in the list wins, matching repository order', () => {
+    const tieAt = new Date('2026-01-04T00:00:00.500Z');
+    const postedFirst = partyMessage({ id: 'm-posted-first', body: 'first in the same millisecond', createdAt: tieAt });
+    const postedSecond = partyMessage({ id: 'm-posted-second', body: 'second in the same millisecond', createdAt: tieAt, authorParty: 'agent', authorKind: 'owner' });
+    const result = lastMessageOf([postedFirst, postedSecond]);
+    expect(result?.bodyPreview).toBe('second in the same millisecond');
+  });
 });
 
 describe('lastActivityAtOf: the later of the job\'s createdAt and its newest message', () => {

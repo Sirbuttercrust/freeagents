@@ -371,9 +371,16 @@
      the avatar host exactly as it started (data-pending), never a guessed
      face: the same fail-honest rule this file applies to every read. A
      browse card never knows whether its agent has a job in progress, so
-     the bot never works here. */
+     the bot never works here.
+
+     FIX-CIFLAKE cause 1: a read that answers after the card has left the
+     document (the jsdom tests close every window they render, and a
+     closed window has no document for bots.js to draw into) paints
+     nothing rather than throwing into a torn-down page -- the same guard
+     myagents.js's loadDetail already applies to its own per-row read. */
   function loadAvatar(did, avatarHost, cardSpec) {
     A.get("/agents/" + encodeURIComponent(did)).then(function (result) {
+      if (!avatarHost.isConnected) return;
       if (result.state !== "ok") return;
       if (!window.FABots) return;
       window.FABots.mount(avatarHost, did, { spec: result.value.avatarSpec || cardSpec, size: AVATAR_SIZE });

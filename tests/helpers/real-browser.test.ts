@@ -11,9 +11,10 @@
 // room for one), so forcing the overlay behaviour at phone widths is
 // correct, not a workaround: it makes the measurement match what a phone
 // user actually sees, on every platform the suite runs on.
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import net from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
 import { RealBrowser, WARMUP_PORT_WAIT_MS, hasRealBrowser, warmUpChrome } from './real-browser.js';
 
@@ -167,6 +168,106 @@ describe('RealBrowser.launch: a launch that never opens its port gives up within
       if (previousChromeBin === undefined) delete process.env.CHROME_BIN;
       else process.env.CHROME_BIN = previousChromeBin;
       rmSync(stubDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
+
+// FIX-CIFLAKE cause 2: the port race. freePort() bound port 0, read the
+// number, CLOSED the socket, and only then handed that number to Chrome
+// as --remote-debugging-port=<n>. Between the close and Chrome's own
+// bind, any other process on the machine could take the port (measured:
+// tests/helpers/real-browser.test.ts's own suite runs 37 files that
+// launch Chrome, on 2 forks, plus a server per test file). A lost race
+// left Chrome bound to a port nothing could reach, and launch gave up
+// only after the full port-wait deadline. The fix: Chrome is always
+// launched with --remote-debugging-port=0 (Chrome's own kernel bind,
+// with no close-then-reopen window at all) and the port it actually
+// chose is read back from its own <user-data-dir>/DevToolsActivePort
+// file, so no port RealBrowser hands Chrome can ever already be taken by
+// something else.
+describe('RealBrowser.launch: never passes Chrome a port it did not choose (FIX-CIFLAKE cause 2)', () => {
+  it('always launches Chrome with --remote-debugging-port=0, never a pre-selected free port', async () => {
+    // A stub that records its own argv before exiting, so this pins the
+    // exact CLI Chrome is spawned with regardless of whether a real
+    // Chrome is available. Exits fast (code 3) so the test does not pay
+    // out any port-wait budget.
+    const stubDir = mkdtempSync(join(tmpdir(), 'fa-stub-chrome-'));
+    const stubPath = join(stubDir, 'stub-chrome.sh');
+    const argsFile = join(stubDir, 'argv.txt');
+    writeFileSync(stubPath, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argsFile}"\nexit 3\n`);
+    chmodSync(stubPath, 0o755);
+    const previousChromeBin = process.env.CHROME_BIN;
+    process.env.CHROME_BIN = stubPath;
+    try {
+      await expect(RealBrowser.launch({ width: 1280, height: 900 })).rejects.toThrow('chrome exited immediately');
+      const argv = readFileSync(argsFile, 'utf8').split('\n');
+      const portArg = argv.find((a: string) => a.startsWith('--remote-debugging-port='));
+      expect(portArg, `spawned Chrome args: ${JSON.stringify(argv)}`).toBe('--remote-debugging-port=0');
+    } finally {
+      if (previousChromeBin === undefined) delete process.env.CHROME_BIN;
+      else process.env.CHROME_BIN = previousChromeBin;
+      rmSync(stubDir, { recursive: true, force: true });
+    }
+  });
+
+  // The brief's own reproduction: hold a port with a real listener (the
+  // exact shape a losing race left Chrome bound to), then prove a launch
+  // still succeeds and never touches that port. Holding an UNRELATED
+  // random port proved nothing (qa proof r1 defect 1): freePort() picks
+  // its own random port, so an incidental listener almost never collides
+  // with it, and the old code passed this test too. The spy below forces
+  // the actual collision instead of hoping for one: it makes ANY
+  // net.createServer() call in the code under test resolve to the exact
+  // port the listener holds, which is what the old freePort()
+  // (bind-read-close-hand-to-Chrome) would have to do to reproduce the
+  // race. On the old code this drives Chrome's own --remote-debugging-port
+  // straight into the still-held port, its bind fails exactly as the
+  // brief's probe 1 recorded, and the launch hangs silently until
+  // PORT_WAIT_MS, well past this test's own budget below. The fix never
+  // calls net.createServer() at all (Chrome always gets port 0 and the
+  // real port is read back from its own DevToolsActivePort file), so the
+  // spy has nothing to intercept and the launch succeeds unaffected.
+  it('a held port cannot make a real launch give up', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const holder = net.createServer();
+    const heldPort: number = await new Promise((resolve, reject) => {
+      holder.on('error', reject);
+      holder.listen(0, '127.0.0.1', () => {
+        const address = holder.address();
+        if (address && typeof address === 'object') resolve(address.port);
+        else reject(new Error('could not hold a port'));
+      });
+    });
+    const createServerSpy = vi.spyOn(net, 'createServer').mockImplementation(() => {
+      const fakeServer = {
+        on: () => fakeServer,
+        unref: () => fakeServer,
+        listen: (_port: number, _host: string, cb?: () => void) => {
+          cb?.();
+          return fakeServer;
+        },
+        address: () => ({ port: heldPort, family: 'IPv4', address: '127.0.0.1' }),
+        close: (cb?: () => void) => {
+          cb?.();
+          return fakeServer;
+        },
+      } as unknown as net.Server;
+      return fakeServer;
+    });
+    try {
+      const browser = await RealBrowser.launch({ width: 1280, height: 900 });
+      try {
+        const clientWidth = await browser.evaluate<number>('document.documentElement.clientWidth');
+        expect(typeof clientWidth).toBe('number');
+      } finally {
+        await browser.close();
+      }
+    } finally {
+      createServerSpy.mockRestore();
+      await new Promise<void>((resolve) => holder.close(() => resolve()));
     }
   }, 30_000);
 });
