@@ -3,7 +3,7 @@
 // discipline tests/api/accounts-jobs.test.ts and
 // tests/api/accounts-incoming.test.ts already use.
 import type { Server } from 'node:http';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
