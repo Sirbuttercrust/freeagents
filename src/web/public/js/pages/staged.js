@@ -604,7 +604,10 @@
       A.showById("scan-approvals-line", false);
       A.setTextById("scan-status", "The pull request opens once the operator submits the work.");
       A.showById("scan-status", true);
-    }
+    },
+    // Paid already: the two-approvals line no longer describes anything
+    // left to do.
+    onAlreadyPaid: function () { A.showById("scan-approvals-line", false); }
   });
 
   // Ruling 6 (P8j): the only re-read on the pay path, fired on a press

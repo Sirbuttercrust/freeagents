@@ -122,6 +122,30 @@ describe('Make 2 and 3: a deposit paid in USDC from the page', () => {
     } finally { await page.close(); }
   });
 
+  it('paid, but confirm answers 402: only the waiting sentence stays, with the confirm press to try again', async () => {
+    const id = await depositJob();
+    const page = await openDeposit(id);
+    try {
+      choose(page, 'usdc');
+      announceWallets(page.window, [{ uuid: 'w-402', name: 'Wallet', wallet: buildPageWallet(h.chain) }]);
+      // Confirm alone answers 402 on this page, the only way to reach the
+      // state: with a real settlement row the real confirm answers 200.
+      const realFetch = page.window.fetch;
+      Object.defineProperty(page.window, 'fetch', {
+        writable: true,
+        value: (input: string, init?: RequestInit) => String(input).endsWith('/confirm')
+          ? Promise.resolve(new Response(JSON.stringify({ error: 'deposit not settled' }), { status: 402, headers: { 'content-type': 'application/json' } }))
+          : realFetch(input, init),
+      });
+      press(page, 'pay-btn');
+      await waitFor(() => shown(page.document, 'confirm-waiting'), 'the waiting sentence never showed');
+      expect(status(page)).toBe('');
+      expect(text(page.document, 'confirm-waiting')).toBe('The chain has not confirmed your payment yet. Wait a moment and press this again to check.');
+      expect(shown(page.document, 'approved-btn')).toBe(true);
+      expect(presses(page)).toEqual([]);
+    } finally { await page.close(); }
+  });
+
   it('two wallets announced: the buyer picks one and only that one is asked; an icon that is not a data:image URI is never drawn', async () => {
     const id = await depositJob();
     const page = await openDeposit(id);
@@ -235,6 +259,8 @@ describe('every outcome shows its own sentence in the live region, with its one 
       expect(status(page)).toBe('The deposit leg has already been paid; reload this page to see the confirmed payment');
       expect(presses(page)).toEqual(['usdc-reload']);
       expect(shown(page.document, 'approved-btn')).toBe(true);
+      expect(text(page.document, 'scanh')).toBe('Already paid');
+      expect(text(page.document, 'scan-approvals-line')).toBe('');
       expect(count(page, `POST /jobs/${id}/confirm`)).toBe(0);
       press(page, 'approved-btn');
       await waitFor(() => count(page, `POST /jobs/${id}/confirm`) === 1, 'the press never confirmed');
@@ -334,6 +360,7 @@ describe('Make 4: the balance page pays in the job\u2019s own currency', () => {
       await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
       expect(status(page)).toBe('The remainder leg has already been paid; reload this page to see the confirmed payment');
       expect(presses(page)).toEqual(['usdc-reload']);
+      expect(shown(page.document, 'scan-approvals-line')).toBe(false);
     } finally { await page.close(); }
   });
 });

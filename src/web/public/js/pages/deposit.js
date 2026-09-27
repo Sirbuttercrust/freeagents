@@ -345,6 +345,8 @@
     usdcPay.alreadyPaid(serverMessage);
   }
   function showAlreadyPaidPresses() {
+    A.setTextById("scanh", SCAN_HEADINGS.paid);
+    A.setTextById("scan-approvals-line", "");
     A.showById("approved-btn", true);
     A.showById("usdc-reload", true);
   }
@@ -388,6 +390,11 @@
         var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
         if (status === 200) { window.location.href = "/jobs/" + encodeURIComponent(jobId); return; }
         if (status === 402) {
+          // The server itself says the deposit has not arrived, so no
+          // earlier sentence in the sheet saying it has may stay beside
+          // this one.
+          A.setTextById("usdc-status", "");
+          A.showById("usdc-reload", false);
           showError("confirm-waiting", "The chain has not confirmed your payment yet. Wait a moment and press this again to check.");
           return;
         }
