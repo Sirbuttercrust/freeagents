@@ -991,6 +991,7 @@ describe('pull-request, invariant 1 and Gate 2 (R-10, STG2)', () => {
         'createStagingRepository',
         'deleteGist',
         'deleteGrant',
+        'getCollaboratorPermission',
         'getCommit',
         'getMergeCommitSignature',
         'getPublicGist',

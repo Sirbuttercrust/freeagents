@@ -153,13 +153,28 @@ export interface CompletedEvent {
   readonly mergeCommit: string;
 }
 
+// FIX-B14b: written on confirm's success path when the collaborator
+// grant came back as a pending invitation, so the agent's own machine
+// surface (and the operator reading the same thread) is told the
+// staging repository waits on that invitation, with GitHub's own accept
+// link -- rather than silently answering 200 while the agent has no
+// push access yet (bugs.md B14b). githubLogin names the account that
+// must accept it, since the buyer's operator reads this row too and has
+// no other way to know whose invitation it is.
+export interface StagingInvitedEvent {
+  readonly type: 'staging_invited';
+  readonly acceptUrl: string;
+  readonly githubLogin: string;
+}
+
 export type SystemEvent =
   | QuoteSentEvent
   | DepositPaidEvent
   | RemainderPaidEvent
   | StagedEvent
   | PullRequestOpenedEvent
-  | CompletedEvent;
+  | CompletedEvent
+  | StagingInvitedEvent;
 
 // One attachment reference on a message: the id an attachment was stored
 // under (src/domain/attachment.ts), never the bytes and never a path.
