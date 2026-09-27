@@ -181,18 +181,12 @@ function buildFakeWallet(opts: FakeWalletOptions): FakeWallet {
         const isFirstSend = sends.length === 1;
         const isSecondSend = sends.length === 2;
         if (isFirstSend && opts.priceNeverConfirms) {
-          // Mirrors feeNeverConfirms below, for the price transfer: a
-          // real chain that has not yet mined this transaction reads
-          // back null forever, which the server's legStatus reads as
-          // not_confirmed, never confirmed and never failed.
+          // Never mines: the server's legStatus reads not_confirmed.
           return hash;
         }
         if (isFirstSend && opts.mismatchPriceReceipt) {
-          // A receipt that lands, with status 1, but pays a DIFFERENT
-          // amount than what this leg expects: the server's own
-          // legStatus reads this as mismatched, never confirmed, a
-          // server-side fact this test controls directly rather than
-          // one the engine could ever compute itself.
+          // Lands with status 1 but a DIFFERENT amount: legStatus reads
+          // mismatched, never confirmed.
           opts.chainState.receipts.set(hash, {
             status: 1,
             transfer: { to: recipient.toLowerCase(), value: (amount + 1n).toString(), tokenContract: tx.to, chainId: USDC_CHAIN_ID },
@@ -200,10 +194,7 @@ function buildFakeWallet(opts: FakeWalletOptions): FakeWallet {
           return hash;
         }
         if (isSecondSend && opts.feeNeverConfirms) {
-          // Deliberately no receipt is ever written for this hash: a
-          // real chain that never mines a transaction reads back null
-          // forever, which the engine's own receiptStatus reads as
-          // "pending", never "failed".
+          // No receipt ever written: receiptStatus reads "pending".
           return hash;
         }
         opts.chainState.receipts.set(hash, {
