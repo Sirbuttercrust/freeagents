@@ -1,9 +1,9 @@
 /* P8i deposit (P-12): a fully-agreed buyer pays the deposit and the
    agreement locks. No route in src/api/app.ts changes. Reads
-   GET /jobs/:jobId, starts ABT through POST .../payments/deposit/abt/start,
-   calls POST /jobs/:jobId/confirm once per press of "I approved in my
-   wallet". USDC's routes are never called (ruling 1): its row renders
-   complete, its pay control states ABT is the rail that pays today.
+   GET /jobs/:jobId and offers only its payableRails (USDC-WEBb). ABT
+   starts at .../payments/deposit/abt/start and "I approved in my wallet"
+   calls POST /jobs/:jobId/confirm, once per press. USDC pays in the
+   browser (usdc-pay.js), and on paid that same press confirms.
    RAIL_*_FEE_PERCENT are venue constants (ruling 3), pinned by a test
    against src/domain/payment.ts's fee-rate constants. No simulated
    settlement, ever: a 402 from confirm is the expected waiting state,
@@ -15,7 +15,8 @@
   "use strict";
   var A = window.FAApi;
   var RAIL_ABT_FEE_PERCENT = 3, RAIL_USDC_FEE_PERCENT = 6;
-  var jobId = "", token = "", job = null, chosenRail = "abt", confirmInFlight = false;
+  var ALREADY_PAID_PHRASE = "already been paid";
+  var jobId = "", token = "", job = null, chosenRail = "abt", confirmInFlight = false, usdcPay = null, paying = false;
   function start() {
     jobId = new URLSearchParams(window.location.search).get("job") || "";
     if (!jobId) { failLoad("This address does not name a hire."); return; }
@@ -70,8 +71,32 @@
     A.setTextById("tech-spec-hash", typeof job.specHash === "string" && job.specHash !== "" ? job.specHash : "computed once the deposit clears");
     wireRailChooser();
     wirePayButton();
+    wireUsdc();
+    offerPayableRails();
     var back = A.el("back-to-agreement");
     if (back) back.setAttribute("href", "/agreement?job=" + encodeURIComponent(job.id));
+  }
+  // Make 1: one option per payable currency, ABT chosen when both; none
+  // hides Pay and the total and points at the hire's conversation.
+  function offerPayableRails() {
+    var rails = Array.isArray(job.payableRails)
+      ? job.payableRails.filter(function (r) { return r === "abt" || r === "usdc"; })
+      : ["abt", "usdc"];
+    A.showById("railopt-abt", rails.indexOf("abt") !== -1);
+    A.showById("railopt-usdc", rails.indexOf("usdc") !== -1);
+    if (rails.length === 0) {
+      ["rails-heading", "rails", "total-pane", "pay-btn", "usdc-gas-note"].forEach(function (id) { A.showById(id, false); });
+      var link = A.el("no-rails-link");
+      if (link) link.setAttribute("href", "/messages?job=" + encodeURIComponent(job.id));
+      A.showById("no-rails", true);
+      return;
+    }
+    if (rails.length === 1) {
+      var only = A.el("rail-" + rails[0]);
+      if (only) only.checked = true;
+      chosenRail = rails[0];
+      applyRailTotals(job.price);
+    }
   }
   function showNotReady(title, detail, href) {
     A.setTextById("not-ready-title", title);
@@ -126,15 +151,10 @@
     A.setTextById("sum-amount", money(figures.total));
     var payBtn = A.el("pay-btn");
     if (payBtn) {
-      if (chosenRail === "abt") {
-        payBtn.textContent = "Pay " + money(figures.total) + " with your wallet";
-        payBtn.disabled = false;
-      } else {
-        payBtn.textContent = "USDC payment is not available from the browser yet";
-        payBtn.disabled = true;
-      }
+      payBtn.textContent = "Pay " + money(figures.total) + " with your wallet";
+      payBtn.disabled = paying;
     }
-    A.showById("usdc-pay-note", chosenRail === "usdc");
+    A.showById("usdc-gas-note", chosenRail === "usdc"); // Make 3, before the press
   }
   function wireRailChooser() {
     var abtRadio = A.el("rail-abt"), usdcRadio = A.el("rail-usdc"), price = job.price;
@@ -232,8 +252,8 @@
     var payBtn = A.el("pay-btn");
     if (!payBtn) return;
     payBtn.addEventListener("click", function () {
-      if (chosenRail !== "abt") return; // ruling 1: USDC never starts a payment from this page
       A.showById("pay-error", false);
+      if (chosenRail === "usdc") { openUsdc(); return; }
       payBtn.disabled = true;
       A.postAuthed("/jobs/" + encodeURIComponent(jobId) + "/payments/deposit/abt/start", token, {}).then(function (result) {
         payBtn.disabled = false;
@@ -245,6 +265,8 @@
         var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
         if (status !== 200) {
           var serverMessage = typeof body.error === "string" ? body.error : "";
+          // B54: an already-paid 409 reads as paid, never "no agreed price".
+          if (serverMessage.indexOf(ALREADY_PAID_PHRASE) !== -1) { openAlreadyPaid(serverMessage); return; }
           var repository = status === 409 ? repositoryRefusal(serverMessage) : null;
           if (repository !== null) {
             showRepositoryRefusal("pay", repository);
@@ -257,20 +279,76 @@
       });
     });
   }
+  // One sheet, three modes: "abt" (address, one approval, "I approved"),
+  // "usdc" (usdc-pay.js draws the wallet choice and outcomes) and "paid".
+  var SCAN_HEADINGS = { abt: "Open this in your wallet", usdc: "Approve in your wallet", paid: "Already paid" };
+  function openSheet(mode, approvalsLine) {
+    var dialog = A.el("scan");
+    A.setTextById("scanh", SCAN_HEADINGS[mode]);
+    A.showById("scan-abt", mode === "abt");
+    A.showById("scan-waiting", mode === "abt");
+    A.showById("approved-btn", mode === "abt");
+    A.showById("confirm-error", false);
+    A.showById("confirm-waiting", false);
+    if (usdcPay !== null) usdcPay.reset();
+    A.setTextById("scan-approvals-line", approvalsLine);
+    if (dialog && typeof dialog.showModal === "function") { if (!dialog.open) dialog.showModal(); }
+    else if (dialog) dialog.setAttribute("open", "");
+  }
   // Scope item 5: the scan dialog. The URL is selectable text with a
   // copy control, byte-identical to the route's own `url` (a test
   // asserts this). No QR dependency in package.json and this card adds
   // none: a code that encoded the wrong string is worse than none.
   function openScan(url) {
-    var dialog = A.el("scan"), urlField = A.el("scan-url"), copyBtn = A.el("scan-url-copy");
+    var urlField = A.el("scan-url"), copyBtn = A.el("scan-url-copy");
     if (urlField) urlField.value = url;
     if (copyBtn) copyBtn.setAttribute("data-copy", url);
-    A.setTextById("scan-approvals-line", "Open your wallet with this address, and approve. One approval, for this whole payment.");
-    A.showById("confirm-error", false);
-    A.showById("confirm-waiting", false);
-    A.showById("scan-waiting", true);
-    if (dialog && typeof dialog.showModal === "function") dialog.showModal();
-    else if (dialog) dialog.setAttribute("open", "");
+    openSheet("abt", "Open your wallet with this address, and approve. One approval, for this whole payment.");
+  }
+  // Make 2: the wireframe's two-approvals line (deposit.html:256).
+  function openUsdc() {
+    if (paying) return;
+    var figures = depositAndFee(job.price, RAIL_USDC_FEE_PERCENT);
+    openSheet("usdc", "Two approvals, " + money(figures.deposit) + " then " + money(figures.fee) + ". Both are part of this one payment.");
+    usdcPay.start();
+  }
+  // Paid: the same press carries on into ONE press of "I approved in my
+  // wallet", so its 200, 402 and refusals all read as they always have.
+  function confirmNow() {
+    A.showById("approved-btn", true);
+    var approvedBtn = A.el("approved-btn");
+    if (approvedBtn) approvedBtn.click();
+  }
+  // Already paid (B54): the server's sentence, its reload, and "I approved
+  // in my wallet" waiting for a press, since that press locks the deal.
+  function openAlreadyPaid(serverMessage) {
+    openSheet("paid", "");
+    usdcPay.alreadyPaid(serverMessage);
+  }
+  function showAlreadyPaidPresses() {
+    A.setTextById("scanh", SCAN_HEADINGS.paid);
+    A.setTextById("scan-approvals-line", "");
+    A.showById("approved-btn", true);
+    A.showById("usdc-reload", true);
+  }
+  function wireUsdc() {
+    usdcPay = window.FAUsdcPay.create({
+      jobId: jobId, token: token, leg: "deposit",
+      onBusy: function (on) { paying = on; var payBtn = A.el("pay-btn"); if (payBtn) payBtn.disabled = on; },
+      onPaid: confirmNow,
+      onAlreadyPaid: showAlreadyPaidPresses,
+      onRefused: usdcRepositoryRefusal
+    });
+  }
+  // The USDC start door refuses a repository that is not ready the way the
+  // ABT door does, so it reads the same: the sheet closes and the page's
+  // own sentence and link show beside Pay.
+  function usdcRepositoryRefusal(serverMessage) {
+    var repository = repositoryRefusal(serverMessage);
+    if (repository === null) return false;
+    closeScan();
+    showRepositoryRefusal("pay", repository);
+    return true;
   }
   function closeScan() {
     var dialog = A.el("scan");
@@ -304,6 +382,8 @@
         var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
         if (status === 200) { window.location.href = "/jobs/" + encodeURIComponent(jobId); return; }
         if (status === 402) {
+          A.setTextById("usdc-status", ""); // "confirmed" cannot sit beside this
+          A.showById("usdc-reload", false);
           showError("confirm-waiting", "The chain has not confirmed your payment yet. Wait a moment and press this again to check.");
           return;
         }

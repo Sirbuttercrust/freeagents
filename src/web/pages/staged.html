@@ -174,7 +174,7 @@
       <p class="sub" style="margin-top:8px" id="not-ready-detail"></p>
       <div class="row" style="margin-top:14px"><a class="btn" id="not-ready-link">Back to this hire</a></div>
     </div>
-    <div class="empty warn" id="fault-error" hidden><b>Something is wrong on our side.</b><p class="sub" style="margin-top:8px" id="fault-error-detail">The work summary is missing.</p></div>
+    <div class="empty warn" id="fault-error" hidden><b>Something broke on our side.</b><p class="sub" style="margin-top:8px" id="fault-error-detail">The summary is missing.</p></div>
     <div class="empty warn" id="declined-panel" hidden>
       <b>You declined the work.</b>
       <p class="sub" style="margin-top:8px">Nothing more is owed.</p>
@@ -219,7 +219,7 @@
         <span class="then" id="clock-then"></span>
       </div>
       <h2 style="margin-top:40px; margin-bottom:6px">What is in the work</h2>
-      <p class="sub" style="margin-bottom:18px">Facts about the change, not a rating.</p>
+      <p class="sub" style="margin-bottom:18px">Facts, not ratings.</p>
       <!-- EVERY WIREFRAME DIGIT IN THIS LIST RENDERS LIVE. The wireframe's
            9 paths, +186 / -94, 4 of 4 and its nine sample path names are one
            example hire; renderFacts (staged.js) builds every row from the
@@ -267,6 +267,8 @@
           <button class="btn" type="button" id="decline-btn" hidden>Decline the work</button>
         </div>
         <ul class="fixed pane pane-pad reveal" style="margin-top:22px" id="choices"></ul>
+        <!-- USDC-WEBb: USDC hires only; no figure (deposit.html says why). -->
+        <p class="sub" id="usdc-gas-note" hidden style="margin-top:12px">You need a little Arbitrum ETH for gas.</p>
         <div class="empty warn" id="pay-error" hidden style="margin-top:16px"><p class="sub" id="pay-error-detail"></p></div>
         <div class="empty warn" id="redo-error" hidden style="margin-top:16px"><p class="sub" id="redo-error-detail"></p></div>
         <div class="empty warn" id="decline-error" hidden style="margin-top:16px"><p class="sub" id="decline-error-detail"></p></div>
@@ -276,7 +278,7 @@
       <div>
         <button class="disclose" type="button" data-disclose="atttech" data-disclose-alt="Hide technical details">Show technical details</button>
         <div id="atttech" class="detail">
-          <p style="color:var(--fg-2); font-size:13px; margin:0">The work itself stays hidden until you pay.</p>
+          <p style="color:var(--fg-2); font-size:13px; margin:0">The work stays hidden until you pay.</p>
           <div class="kv">
             <div><dt>stagedCommit</dt><dd id="tech-staged-commit"></dd></div>
             <button class="btn btn-sm" type="button" id="copy-staged-commit" data-copy="">Copy</button>
@@ -303,7 +305,7 @@
       <p class="when">The last payment on this hire.</p>
       <ul class="parts">
         <li><span>Balance, the rest of the price</span><span class="amt" id="scan-remainder"></span></li>
-        <li><span>FreeAgents fee, 3 percent</span><span class="amt" id="scan-fee"></span></li>
+        <li><span id="scan-fee-label">FreeAgents fee, 3 percent</span><span class="amt" id="scan-fee"></span></li>
         <li class="sum"><span>Total</span><span class="amt" id="scan-total-2"></span></li>
       </ul>
     </div>
@@ -314,12 +316,30 @@
          thing: the one-time wallet address the route returns at press time,
          in a readonly field with a copy control. The .qr rules stay in the
          ported sheet for the screens that still draw one; this page never
-         emits the class. Same call deposit.html already made. -->
-    <div class="urlcopy">
-      <input class="input mono" id="scan-url" type="text" readonly aria-label="Wallet payment address">
-      <button class="btn btn-sm" type="button" id="scan-url-copy" data-copy="">Copy</button>
+         emits the class. Same call deposit.html already made.
+
+         USDC-WEBb: on a USDC hire the fee row reads 6 percent (staged.js
+         writes #scan-fee-label from the job's currency; the wireframe draws
+         3 percent only because it predates USDC), #scan-abt is hidden (no
+         address: the wallet engine asks the wallet for both transfers) and
+         #scan-status is replaced by the same USDC block deposit.html
+         carries, driven by usdc-pay.js. Once the engine answers paid, the
+         sheet shows #scan-status again, the same post-payment state ABT
+         shows. -->
+    <div id="scan-abt">
+      <div class="urlcopy">
+        <input class="input mono" id="scan-url" type="text" readonly aria-label="Wallet payment address">
+        <button class="btn btn-sm" type="button" id="scan-url-copy" data-copy="">Copy</button>
+      </div>
     </div>
     <p class="sub" style="margin-top:16px; max-width:none" id="scan-status">Open this address in your wallet and approve once. The pull request opens after the payment arrives and the operator submits the work.</p>
+    <p class="sub" style="margin-top:16px; text-align:center; max-width:none" id="scan-approvals-line" hidden></p>
+    <div id="usdc-pick" hidden style="margin-top:16px">
+      <p class="sub" style="max-width:none">Which wallet?</p>
+      <div class="stack-sm" id="usdc-wallets" style="margin-top:10px"></div>
+    </div>
+    <div class="waiting" style="margin-top:16px; justify-content:center" id="scan-waiting" hidden><span class="d"></span><span>Waiting for your wallet</span></div>
+    <p class="sub" id="usdc-status" role="status" aria-live="polite" style="margin-top:14px; max-width:none"></p>
     <div class="row" style="margin-top:14px" id="scan-pr-wrap" hidden><a class="btn btn-primary" id="scan-pr-link">See the pull request</a></div>
   </div>
   <!-- NOT PORTED: the wireframe's <a class="btn" href="pullrequest.html">
@@ -331,6 +351,10 @@
   <div class="sfoot">
     <button class="btn" type="button" data-closes>Close</button>
     <button class="btn" type="button" id="check-pr-btn">Check for the pull request</button>
+    <button class="btn btn-primary" type="button" id="usdc-retry" hidden>Try again</button>
+    <button class="btn btn-primary" type="button" id="usdc-resend" hidden>Send it again</button>
+    <button class="btn btn-primary" type="button" id="usdc-check" hidden>Check again</button>
+    <a class="btn" id="usdc-reload" hidden>Reload</a>
   </div>
 </dialog>
 <dialog class="sheet" id="redo" aria-labelledby="redoh">
@@ -394,6 +418,8 @@
 <script src="/js/office.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/stepflow.js"></script>
+<script src="/js/usdc-wallet.js"></script>
+<script src="/js/pages/usdc-pay.js"></script>
 <script src="/js/pages/staged.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
