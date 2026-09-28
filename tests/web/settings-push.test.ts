@@ -174,16 +174,20 @@ function install(window: JSDOM['window'], opts: Browser, stub: Stub): void {
   if (opts.existing) stub.sub = fakeSub(stub);
 }
 
+// Holds, fails, or answers 503 to one request the page makes; null lets it
+// through to the real app.
+type Gate = (path: string, method: string) => Promise<void> | 'reject' | '503' | null;
+
 interface Page {
   window: JSDOM['window'];
   document: Document;
   stub: Stub;
   calls: Array<{ method: string; path: string; body: unknown; auth: string }>;
-  hold: (fn: ((path: string, method: string) => Promise<void> | 'reject' | null) | null) => void;
+  hold: (fn: Gate | null) => void;
   close: () => void;
 }
 
-async function renderSettings(opts: Browser & { from?: string; signedIn?: boolean } = {}): Promise<Page> {
+async function renderSettings(opts: Browser & { from?: string; signedIn?: boolean; gate?: Gate } = {}): Promise<Page> {
   const from = opts.from ?? baseUrl;
   const failures: string[] = [];
   const virtualConsole = new VirtualConsole();
@@ -191,7 +195,7 @@ async function renderSettings(opts: Browser & { from?: string; signedIn?: boolea
   const markup = await (await fetch(`${from}/settings`, { headers: { Accept: HTML } })).text();
   const stub: Stub = { log: [], sub: null, subscribeOptions: [], permissionAskedInClick: [], unsubscribed: [] };
   const calls: Page['calls'] = [];
-  let gate: ((path: string, method: string) => Promise<void> | 'reject' | null) | null = null;
+  let gate: Gate | null = opts.gate ?? null;
   const dom = new JSDOM(markup, {
     url: `${from}/settings`, runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true, virtualConsole,
     beforeParse(window) {
@@ -206,6 +210,7 @@ async function renderSettings(opts: Browser & { from?: string; signedIn?: boolea
           calls.push({ method, path, body: init?.body ? JSON.parse(String(init.body)) : undefined, auth: headers.Authorization ?? '' });
           const held = gate ? gate(path, method) : null;
           if (held === 'reject') throw new TypeError('Failed to fetch');
+          if (held === '503') return new Response(JSON.stringify({ error: 'unavailable' }), { status: 503, headers: { 'content-type': 'application/json' } });
           if (held) await held;
           return fetch(new URL(input, from), init);
         },
@@ -279,6 +284,18 @@ describe('(a) the switch is absent wherever push cannot work', () => {
     const page = await renderSettings({ signedIn: false });
     try {
       expect(page.document.getElementById('signin-required')!.hidden).toBe(false);
+      await expectAbsent(page);
+    } finally { page.close(); }
+  });
+
+  it.each([
+    ['answers 503', '503'],
+    ['never reaches the server', 'reject'],
+  ] as const)('the key read that %s: no row', async (_n, outcome) => {
+    const page = await renderSettings({ gate: (path) => (path === '/push/vapid-public-key' ? outcome : null) });
+    try {
+      expect(page.document.getElementById('settings-body')!.hidden).toBe(false);
+      expect(page.calls.some((c) => c.path === '/push/vapid-public-key')).toBe(true);
       await expectAbsent(page);
     } finally { page.close(); }
   });
