@@ -30,12 +30,11 @@ import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
-// Stand-in identity adapter whose verifyDelegation always accepts, the
-// exact pattern tests/api/agent-negotiation-flag.test.ts's fakeIdentity()
-// uses: proves the SIGNED registration path (a did + delegation body,
-// authenticated by request signature) without re-proving delegation
-// cryptography, which tests/api/agent-invariant2.test.ts already covers
-// end to end.
+// Stand-in identity adapter whose verifyDelegation always accepts (the
+// pattern tests/api/agent-negotiation-flag.test.ts's fakeIdentity() uses),
+// so the signed-path test below proves the SIGNED registration route
+// without re-proving delegation cryptography (agent-invariant2.test.ts
+// already does that end to end).
 function fakeIdentity(): IdentityAdapter {
   return {
     createOperatorDid: () => Promise.reject(new NotImplementedError('identity', 'createOperatorDid')),
@@ -44,6 +43,24 @@ function fakeIdentity(): IdentityAdapter {
     sign: () => Promise.reject(new NotImplementedError('identity', 'sign')),
     verify: () => Promise.reject(new NotImplementedError('identity', 'verify')),
     verifyDelegation: () => Promise.resolve(true),
+  };
+}
+
+// Boots a fresh app + port for a one-off test, returning the account repo
+// (so a caller can register an operator before firing a request) and a
+// close() that shuts the server down cleanly.
+async function bootFreshApp(identity?: IdentityAdapter, sessionAdapter?: ReturnType<typeof testSessionAdapter>) {
+  const accountRepo = new MemoryAccountRepository();
+  const agentRepo = new MemoryAgentRepository();
+  const app = createApp(accountRepo, agentRepo, identity, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter);
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address();
+  if (address === null || typeof address === 'string') throw new Error('expected a port');
+  return {
+    accountRepo,
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
 
@@ -154,62 +171,41 @@ describe('PUT /agents/:agentDid/listing (FIX-B43a)', () => {
 
   it('a freshly listed agent (the site path, POST /agents with a session) reads listed: true', async () => {
     process.env.FREEAGENTS_PLATFORM_SEED = 'b43a5'.padEnd(64, '0');
-    const accountRepo = new MemoryAccountRepository();
-    const agentRepo = new MemoryAgentRepository();
     const sessionAdapter = testSessionAdapter();
-    const identity = createIdentityAdapter(createKnownKeyStore());
-    const app = createApp(accountRepo, agentRepo, identity, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter);
-    const server = app.listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') throw new Error('expected a port');
-    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const booted = await bootFreshApp(createIdentityAdapter(createKnownKeyStore()), sessionAdapter);
     try {
       const sessionToken = await mintSessionToken(sessionAdapter);
       const auth = { authorization: `Bearer ${sessionToken}` };
-      const listRes = await fetch(`${baseUrl}/agents`, {
+      const listRes = await fetch(`${booted.baseUrl}/agents`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...auth },
         body: JSON.stringify({ name: 'scout', skills: ['triage'] }),
       });
       const did = ((await listRes.json()) as Record<string, unknown>).did as string;
-      const read = await fetch(`${baseUrl}/agents/${did}`);
+      const read = await fetch(`${booted.baseUrl}/agents/${did}`);
       expect(((await read.json()) as Record<string, unknown>).listed).toBe(true);
     } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await booted.close();
     }
   });
 
   it('a freshly listed agent (the signed path, a delegation the operator key signs) reads listed: true', async () => {
     const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(215));
-    const accountRepo = new MemoryAccountRepository();
-    await accountRepo.register({ did: operator.did, githubLogin: 'listing-signed-path-operator' });
-    const agentRepo = new MemoryAgentRepository();
-    // A stand-in identity adapter whose verifyDelegation always accepts,
-    // the same pattern tests/api/agent-negotiation-flag.test.ts's
-    // fakeIdentity() uses: this test's point is the signed PATH (a did +
-    // delegation body, verified by REQUEST SIGNATURE via requireSessionOrSignature,
-    // not by a session), not re-proving delegation cryptography that
-    // tests/api/agent-invariant2.test.ts already covers end to end.
-    const app = createApp(accountRepo, agentRepo, fakeIdentity());
-    const server = app.listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') throw new Error('expected a port');
-    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const booted = await bootFreshApp(fakeIdentity());
+    await booted.accountRepo.register({ did: operator.did, githubLogin: 'listing-signed-path-operator' });
     try {
       const agentDid = 'did:abt:zSignedPathListingAgent';
-      const res = await postSigned(baseUrl, '/agents', {
+      const res = await postSigned(booted.baseUrl, '/agents', {
         did: agentDid,
         delegation: delegationFor(agentDid, operator.did),
         name: 'scout',
         skills: ['triage'],
       }, operator);
       expect(res.status).toBe(201);
-      const read = await fetch(`${baseUrl}/agents/${agentDid}`);
+      const read = await fetch(`${booted.baseUrl}/agents/${agentDid}`);
       expect(((await read.json()) as Record<string, unknown>).listed).toBe(true);
     } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await booted.close();
     }
   });
 
