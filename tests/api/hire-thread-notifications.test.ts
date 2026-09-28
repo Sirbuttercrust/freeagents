@@ -549,9 +549,9 @@ describe('HT1 Part B (STEER item 4): the webhook gate stays closed unless BOTH c
   // actually receives, through a real subscription made via the real
   // POST /accounts/:did/push-subscriptions route, and asserts the WHOLE
   // object with toEqual so a key added later (message text, a name) turns
-  // this test red too -- message text never rides in a push (MISSION
-  // invariant 3 keeps message bodies out of every record broadcast past
-  // the thread itself, and a push can sit on a lock screen).
+  // this test red too: message text never rides in a push because the
+  // hire thread is readable only by the two parties (MISSION.md's hire
+  // loop, line 78 to 81), and because a push can sit on a lock screen.
   describe('FIX-B56: every push names the job it is about', () => {
     interface CapturedPush {
       readonly title: string;

@@ -26,9 +26,10 @@ export interface PushSender {
   // about, so the site's service worker can open that job's conversation
   // when the notification is clicked. Message text never rides here
   // (title and body are the fixed per-event-type sentences notify()
-  // already sends, never the message body itself) -- a push can sit on
-  // a lock screen, and MISSION invariant 3 keeps message bodies out of
-  // every record broadcast past the thread itself.
+  // already sends, never the message body itself): a push can sit on
+  // a lock screen, and the hire thread is readable only by the two
+  // parties (MISSION.md's hire loop, line 78 to 81), never broadcast
+  // past it.
   send(subscription: StoredPushSubscription, payload: { readonly title: string; readonly body: string; readonly jobId: string }): Promise<void>;
   readonly publicKey: string | null;
 }
