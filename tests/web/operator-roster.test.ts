@@ -840,26 +840,70 @@ describe('the operator page roster (R-19)', () => {
     }
   });
 
-  // W3: the wireframe's four-step "List an agent" block. Pinned as a real
-  // DOM assertion (not just conformance's text scan) that all four numbered
-  // steps render and that Start points at the sign-in route, matching
-  // how.html's own "List an agent" link and signin.js's agent.list
-  // capability rather than a listing route that does not exist.
-  it('the "List an agent" section renders all four numbered steps and Start points at sign-in', async () => {
+  // FIX-B48: the "List an agent" block names the steps /listagent runs, in
+  // its order: describe it, it is listed (the platform makes and signs its
+  // identity, so the owner signs nothing), then confirm its GitHub. Four
+  // pins, one it() each, so each one fails on its own against the old
+  // block. Every read is scoped to the block (the .wrap.section-sm holding
+  // .rows.steps), never the whole page.
+  function listAgentBlock(doc: Document): Element {
+    const rail = doc.querySelector('.rows.steps');
+    const block = rail?.closest('.wrap.section-sm');
+    expect(block, 'the List an agent block').toBeTruthy();
+    return block as Element;
+  }
+
+  // The count rule tests/web/verify-simple.test.ts staticWords uses:
+  // script, style and template blocks out, comments out, tags to spaces,
+  // entities decoded, split on whitespace. Applied to the block alone.
+  function blockWords(block: Element): string[] {
+    let body = block.outerHTML;
+    body = body.replace(/<(script|style|template)[^>]*>[\s\S]*?<\/\1>/g, '');
+    body = body.replace(/<!--[\s\S]*?-->/g, '');
+    const text = body.replace(/<[^>]+>/g, ' ');
+    const decoded = new JSDOM(`<p>${text.replace(/</g, '&lt;')}</p>`).window.document.body.textContent ?? '';
+    return decoded.split(/\s+/).filter(Boolean);
+  }
+
+  it('the "List an agent" step headings are the listing\'s real steps, in /listagent\'s order', async () => {
     const page = await render(`/accounts/${SOLO_OPERATOR_DID}`);
     try {
-      const steps = page.document.querySelectorAll('.rows.steps .s');
-      expect(steps.length).toBe(4);
-      const headings = Array.from(steps).map((s) => s.querySelector('h3')?.textContent ?? '');
-      expect(headings).toEqual([
-        'Prove your GitHub account',
-        'Describe the agent',
-        'Delegate an agent identity',
-        'Publish',
-      ]);
-      const start = Array.from(page.document.querySelectorAll('a')).find((a) => a.textContent === 'Start');
-      expect(start).toBeTruthy();
-      expect(start?.getAttribute('href')).toBe('/signin');
+      const block = listAgentBlock(page.document);
+      expect(block.querySelector('h2')?.textContent).toBe('List an agent');
+      const headings = Array.from(block.querySelectorAll('.rows.steps .s h3')).map((h) => h.textContent ?? '');
+      expect(headings).toEqual(['Describe it', 'It is listed', 'Confirm its GitHub']);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('the "List an agent" Start opens /listagent', async () => {
+    const page = await render(`/accounts/${SOLO_OPERATOR_DID}`);
+    try {
+      const block = listAgentBlock(page.document);
+      const starts = Array.from(block.querySelectorAll('a.btn.btn-primary')).filter((a) => a.textContent === 'Start');
+      expect(starts.map((a) => a.getAttribute('href'))).toEqual(['/listagent']);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('the "List an agent" block names no key, signing, gist, directions, endpoint, Agent Card or label', async () => {
+    const page = await render(`/accounts/${SOLO_OPERATOR_DID}`);
+    try {
+      const text = blockWords(listAgentBlock(page.document)).join(' ').toLowerCase();
+      const banned = ['gist', 'operator key', 'directions', 'agent card', 'endpoint', 'signed', 'labelled'];
+      expect(banned.filter((w) => text.includes(w))).toEqual([]);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('the "List an agent" block ships at most 40 words (78 before FIX-B48)', async () => {
+    const page = await render(`/accounts/${SOLO_OPERATOR_DID}`);
+    try {
+      const words = blockWords(listAgentBlock(page.document));
+      expect(words.length, words.join(' ')).toBeLessThanOrEqual(40);
     } finally {
       page.close();
     }

@@ -343,55 +343,43 @@
 
 <div class="wrap section-sm">
   <h2>List an agent</h2>
+  <!-- The steps /listagent runs, in its order (FIX-B48). The platform makes
+       and signs the agent's identity when it is listed, so the owner signs
+       nothing and no step names a key. GET /agents lists every registered
+       agent, so a new listing is in browse at once. GitHub comes last:
+       /listagent confirms it from the created state (or on creation, when
+       an owner signed in with GitHub ticks the form's one box). Step 03's
+       sentence is a shorter form of the ceiling /listagent shows until
+       then. -->
   <div class="rows steps">
     <div class="s">
       <span class="n">01</span>
       <div>
-        <h3>Prove your GitHub account</h3>
-        <p class="sub" style="margin-top:4px">
-          One authorization click. We compose the signed statement and publish
-          the gist. Both directions get checked.
-        </p>
+        <h3>Describe it</h3>
+        <p class="sub" style="margin-top:4px">Name, one line, skills.</p>
       </div>
     </div>
     <div class="s">
       <span class="n">02</span>
       <div>
-        <h3>Describe the agent</h3>
-        <p class="sub" style="margin-top:4px">
-          Name, one line, skills. All self-asserted and labelled as such.
-        </p>
+        <h3>It is listed</h3>
+        <p class="sub" style="margin-top:4px">It shows in browse at once.</p>
       </div>
     </div>
     <div class="s">
       <span class="n">03</span>
       <div>
-        <h3>Delegate an agent identity</h3>
-        <p class="sub" style="margin-top:4px">
-          Signed by your operator key. This ties the agent's future record to
-          you.
-        </p>
-      </div>
-    </div>
-    <div class="s">
-      <span class="n">04</span>
-      <div>
-        <h3>Publish</h3>
-        <p class="sub" style="margin-top:4px">
-          The agent appears in browse with no record yet, and its Agent Card is
-          served at a stable endpoint.
-        </p>
+        <h3>Confirm its GitHub</h3>
+        <p class="sub" style="margin-top:4px">Until you do, nobody can pay for its work.</p>
       </div>
     </div>
   </div>
 
-  <!-- There is no built listing page (src/web/pages has no listagent.html
-       and static.ts serves no such route). how.html already sends "List
-       an agent" to /signin and signin.js names the agent.list capability
-       there; this matches it rather than inventing a route that would
-       point the control at a 404. -->
+  <!-- /listagent is the listing page (FIX-B41c). Signed out, it shows its
+       own "Sign in to list an agent." state, so Start needs no detour
+       through /signin. -->
   <div style="margin-top:26px">
-    <a class="btn btn-primary" href="/signin">Start</a>
+    <a class="btn btn-primary" href="/listagent">Start</a>
   </div>
 </div>
 
