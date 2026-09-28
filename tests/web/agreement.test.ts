@@ -508,6 +508,36 @@ describe('the agreement screen, driven end to end against the real app', () => {
       }
     });
   });
+
+  // B52: the two refusal nodes the buyer's page ships in its markup are
+  // alerts from the start, so a refusal written into either is announced.
+  describe('every refusal on the buyer\'s page reaches a screen reader (B52)', () => {
+    it('#propose-error and #submit-error are hidden alerts on the freshly rendered page', async () => {
+      const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
+      try {
+        for (const id of ['propose-error', 'submit-error']) {
+          const node = page.document.getElementById(id) as HTMLElement;
+          expect(node.hidden, id).toBe(true);
+          expect(node.getAttribute('role'), id).toBe('alert');
+        }
+      } finally {
+        page.close();
+      }
+    });
+
+    it('proposing an empty criterion shows the whole sentence in #propose-error', async () => {
+      const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
+      try {
+        await proposeCriterion(page, '   ');
+        const error = page.document.getElementById('propose-error') as HTMLElement;
+        expect(error.hidden).toBe(false);
+        expect(error.textContent).toBe('Write a criterion before proposing it.');
+      } finally {
+        page.close();
+      }
+    });
+  });
+
   describe('the fixed terms', () => {
     it('render with no button, no input, and no mark anywhere inside their container', async () => {
       const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
@@ -727,6 +757,10 @@ describe('the agreement screen, driven end to end against the real app', () => {
         await clickMark(page, 0, 'm-you');
         const errorText = page.document.getElementById('submit-error-detail')?.textContent ?? '';
         expect(errorText.toLowerCase()).toContain('reload');
+        // B52: the sentence sits inside the sign refusal's alert, shown.
+        const alert = page.document.getElementById('submit-error-detail')?.closest('[role="alert"]') as HTMLElement | null;
+        expect(alert).toBe(page.document.getElementById('submit-error'));
+        expect(alert?.hidden).toBe(false);
         sentences.push(errorText);
       } finally {
         page.close();

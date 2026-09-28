@@ -121,12 +121,41 @@ function type(page: Rendered, input: Element | null | undefined, value: string):
   input.dispatchEvent(new page.window.Event('input', { bubbles: true }));
 }
 
+// Opens row N's editor and presses nothing in it.
+async function openRow(page: Rendered, rowIndex: number): Promise<Element | null | undefined> {
+  await click(rows(page)[rowIndex]?.querySelector('button.act'), 50);
+  return rows(page)[rowIndex]?.querySelector('.line-edit');
+}
+
+function saveButton(editor: Element | null | undefined): Element | undefined {
+  return Array.from(editor?.querySelectorAll('button') ?? []).find((b) => b.textContent === 'Save');
+}
+
 // Opens row N's editor, types, and presses Save.
 async function editRow(page: Rendered, rowIndex: number, value: string): Promise<void> {
-  await click(rows(page)[rowIndex]?.querySelector('button.act'), 50);
-  const editor = rows(page)[rowIndex]?.querySelector('.line-edit');
+  const editor = await openRow(page, rowIndex);
   type(page, editor?.querySelector('input'), value);
-  await click(Array.from(editor?.querySelectorAll('button') ?? []).find((b) => b.textContent === 'Save'));
+  await click(saveButton(editor));
+}
+
+// Every write to a refusal node while press() runs, in order: "text:" and
+// the node's whole text after each child-list change, "hide" when the
+// hidden attribute is added and "show" when it is removed. The observer is
+// set up before the press, and each record carries the text it put in, so
+// an empty write shows up even when the sentence follows it at once.
+async function writesDuring(page: Rendered, target: Element, press: () => Promise<void>): Promise<string[]> {
+  const seen: string[] = [];
+  const observer = new page.window.MutationObserver((records) => {
+    for (const r of records) {
+      if (r.type === 'childList' && r.target === target) seen.push(`text:${Array.from(r.addedNodes).map((n) => n.textContent).join('')}`);
+      else if (r.type === 'characterData') seen.push(`text:${target.textContent}`);
+      else if (r.type === 'attributes' && r.attributeName === 'hidden') seen.push(r.oldValue === null ? 'hide' : 'show');
+    }
+  });
+  observer.observe(target, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['hidden'], attributeOldValue: true });
+  await press();
+  observer.disconnect();
+  return seen;
 }
 
 describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () => {
@@ -707,6 +736,109 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
         expect(page.document.getElementById('compose-send')).toBeNull();
         expect(page.document.querySelector('.line-edit')).toBeNull();
         expect(page.document.getElementById('lede')?.textContent).toBe('This agreement is closed to changes.');
+      } finally {
+        page.close();
+      }
+    });
+  });
+
+  // B52: a refusal a screen reader never hears sounds like a sent quote.
+  // Each node a refusal is written into is an alert from the moment it is
+  // built, and a repeat of the same refusal empties the node first so it is
+  // announced again. Every case here refuses before any request.
+  describe('(h) every refusal reaches a screen reader (B52)', () => {
+    const EDITORS = [
+      ['a line', 0, '   ', 'Write the line before saving it.'],
+      ['the price', 1, '40.5.0', 'Enter the price in dollars, like 400 or 400.50.'],
+      ['the delivery window', 2, '2.5', 'Enter the window in whole days, like 5.'],
+    ] as const;
+
+    async function pressCompose(page: Rendered): Promise<void> {
+      await click(page.document.getElementById('compose-send'));
+    }
+
+    it('the composer\u2019s #compose-error is a hidden alert before any press', async () => {
+      const page = await render(baseUrl, 'b40-draft-refuse', ownerToken);
+      try {
+        const error = page.document.getElementById('compose-error') as HTMLElement;
+        expect(error.hidden).toBe(true);
+        expect(error.getAttribute('role')).toBe('alert');
+      } finally {
+        page.close();
+      }
+    });
+
+    it.each(EDITORS)('the editor for %s opens with a hidden alert, before Save', async (_label, row) => {
+      const page = await render(baseUrl, 'b40-floor', ownerToken);
+      try {
+        const editor = await openRow(page, row);
+        const error = editor?.querySelector('.edit-error') as HTMLElement | null;
+        expect(error?.hidden).toBe(true);
+        expect(error?.getAttribute('role')).toBe('alert');
+      } finally {
+        page.close();
+      }
+    });
+
+    it.each(EDITORS)('a refusal in the editor for %s is written whole into that same alert', async (_label, row, value, sentence) => {
+      const page = await render(baseUrl, 'b40-floor', ownerToken);
+      try {
+        const editor = await openRow(page, row);
+        const error = editor?.querySelector('.edit-error') as HTMLElement;
+        type(page, editor?.querySelector('input'), value);
+        await click(saveButton(editor));
+        expect(page.posts.length).toBe(0);
+        expect(page.document.querySelector('.line-edit .edit-error')).toBe(error);
+        expect(error.hidden).toBe(false);
+        expect(error.textContent).toBe(sentence);
+        expect(error.getAttribute('role')).toBe('alert');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a composer refusal is written whole into #compose-error, still an alert', async () => {
+      const page = await render(baseUrl, 'b40-draft-refuse', ownerToken);
+      try {
+        const error = page.document.getElementById('compose-error') as HTMLElement;
+        await pressCompose(page);
+        expect(page.posts.length).toBe(0);
+        expect(page.document.getElementById('compose-error')).toBe(error);
+        expect(error.hidden).toBe(false);
+        expect(error.textContent).toBe('Write at least one line.');
+        expect(error.getAttribute('role')).toBe('alert');
+      } finally {
+        page.close();
+      }
+    });
+
+    it.each(EDITORS)('a second identical refusal in the editor for %s empties and hides the alert before writing it again', async (_label, row, value, sentence) => {
+      const page = await render(baseUrl, 'b40-floor', ownerToken);
+      try {
+        const editor = await openRow(page, row);
+        const error = editor?.querySelector('.edit-error') as HTMLElement;
+        type(page, editor?.querySelector('input'), value);
+        await click(saveButton(editor));
+        expect(error.textContent).toBe(sentence);
+        const writes = await writesDuring(page, error, () => click(saveButton(editor)));
+        expect(writes).toEqual(['text:', 'hide', `text:${sentence}`, 'show']);
+        expect(error.textContent).toBe(sentence);
+        expect(page.posts.length).toBe(0);
+      } finally {
+        page.close();
+      }
+    });
+
+    it('a second identical composer refusal empties and hides #compose-error before writing it again', async () => {
+      const page = await render(baseUrl, 'b40-draft-refuse', ownerToken);
+      try {
+        const error = page.document.getElementById('compose-error') as HTMLElement;
+        await pressCompose(page);
+        expect(error.textContent).toBe('Write at least one line.');
+        const writes = await writesDuring(page, error, () => pressCompose(page));
+        expect(writes).toEqual(['text:', 'hide', 'text:Write at least one line.', 'show']);
+        expect(error.textContent).toBe('Write at least one line.');
+        expect(page.posts.length).toBe(0);
       } finally {
         page.close();
       }
