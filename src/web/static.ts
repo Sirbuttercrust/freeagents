@@ -264,6 +264,14 @@ export const ROOT_ICONS: ReadonlyArray<readonly [string, string]> = [
   ['site.webmanifest', 'application/manifest+json'],
 ];
 
+// Scripts served at the site root: [path, file under public/js]. Only the
+// service worker, which has to sit at the root because a worker's scope is
+// the folder it is served from, and a notification click opens /messages.
+// Kept apart from ROOT_ICONS, which is the brand kit's favicon set.
+// Exported so the tests and the limiter's copy (ROOT_SCRIPT_PATHS in
+// src/api/rate-limit-classes.ts) read the same list the server mounts.
+export const ROOT_SCRIPTS: ReadonlyArray<readonly [string, string]> = [['sw.js', 'sw.js']];
+
 // Mounts the site. Called twice by createApp, because order is the whole
 // mechanism: `mountWebPages` runs BEFORE the API routes so a browser can be
 // answered on a shared path, and `mountWebFallback` runs after them so an
@@ -333,6 +341,19 @@ export function createWebSurface(
             // A missing file falls through to the 404 handler like any other
             // unknown path. An aborted download has already sent headers and
             // is left alone.
+            if (err && !res.headersSent) next();
+          });
+        });
+      }
+
+      // The service worker. no-cache because a browser checks a worker for
+      // updates through the HTTP cache: a cached copy would keep an old
+      // worker running after a deploy.
+      for (const [file, source] of ROOT_SCRIPTS) {
+        const path = join(webDir, 'public', 'js', source);
+        app.get(`/${file}`, (_req: Request, res: Response, next: NextFunction) => {
+          res.type('text/javascript').set('Cache-Control', 'no-cache');
+          res.sendFile(path, { cacheControl: false }, (err) => {
             if (err && !res.headersSent) next();
           });
         });

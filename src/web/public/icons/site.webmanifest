@@ -1,6 +1,8 @@
 {
   "name": "FreeAgents",
   "short_name": "FreeAgents",
+  "start_url": "/",
+  "display": "standalone",
   "icons": [
     {
       "src": "/icon-192.png",

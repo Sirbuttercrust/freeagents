@@ -6,8 +6,8 @@
 // not a passing case.
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
-import { classifyRoute, ROUTE_TABLE, ROOT_ICON_PATHS, EXEMPT_WEB_PAGE_PATHS, prefersHtmlAccept } from '../../src/api/rate-limit-classes.js';
-import { ROOT_ICONS, prefersHtml } from '../../src/web/static.js';
+import { classifyRoute, classificationReason, ROUTE_TABLE, ROOT_ICON_PATHS, ROOT_SCRIPT_PATHS, EXEMPT_WEB_PAGE_PATHS, prefersHtmlAccept } from '../../src/api/rate-limit-classes.js';
+import { ROOT_ICONS, ROOT_SCRIPTS, prefersHtml } from '../../src/web/static.js';
 
 interface ExpressLayer {
   route?: { path: string; methods: Record<string, boolean> };
@@ -65,7 +65,7 @@ describe('rate-limit-classes.ts ROUTE_TABLE covers every registered route (missi
     expect(unclassified, `unclassified routes: ${JSON.stringify(unclassified)}`).toEqual([]);
   });
 
-  it('never classifies a registered route as exempt unless it is a stream, /health, a static mount, a favicon, or a web page shell', () => {
+  it('never classifies a registered route as exempt unless it is a stream, /health, a static mount, a favicon, a root script, or a web page shell', () => {
     const app = createApp();
     const routes = registeredRoutes(app);
     const wronglyExempt = routes.filter(({ method, path }) => {
@@ -73,7 +73,7 @@ describe('rate-limit-classes.ts ROUTE_TABLE covers every registered route (missi
       if (classification !== 'exempt') return false;
       const isStream = path.endsWith('/stream');
       const isHealth = path === '/health';
-      const isWebPage = EXEMPT_WEB_PAGE_PATHS.includes(path) || ROOT_ICON_PATHS.includes(path);
+      const isWebPage = EXEMPT_WEB_PAGE_PATHS.includes(path) || ROOT_ICON_PATHS.includes(path) || ROOT_SCRIPT_PATHS.includes(path);
       return !isStream && !isHealth && !isWebPage;
     });
     expect(wronglyExempt).toEqual([]);
@@ -84,6 +84,16 @@ describe('rate-limit-classes.ts exemption lists stay in agreement with the real 
   it('ROOT_ICON_PATHS names exactly the files src/web/static.ts serves at the site root', () => {
     const staticIconPaths = ROOT_ICONS.map(([file]) => `/${file}`).sort();
     expect([...ROOT_ICON_PATHS].sort()).toEqual(staticIconPaths);
+  });
+
+  // FIX-PUSH: the service worker's own root list, checked the same way. The
+  // limiter's copy must name exactly what static.ts mounts: a path missing
+  // from the copy would charge a browser's worker update check to an API
+  // bucket, and an extra one would exempt a path nothing serves.
+  it('ROOT_SCRIPT_PATHS names exactly the scripts src/web/static.ts serves at the site root', () => {
+    const staticScriptPaths = ROOT_SCRIPTS.map(([file]) => `/${file}`).sort();
+    expect(staticScriptPaths).toEqual(['/sw.js']);
+    expect([...ROOT_SCRIPT_PATHS].sort()).toEqual(staticScriptPaths);
   });
 
   // The limiter's own copy of the page-shell Accept test must answer
@@ -135,5 +145,13 @@ describe('classifyRoute: each named exemption is pinned by its own test (guard-w
     for (const path of ROOT_ICON_PATHS) {
       expect(classifyRoute('GET', path)).toBe('exempt');
     }
+  });
+
+  // By reason, not only by class: /sw.js is also registered by static.ts,
+  // and it must be the root-script rule that exempts it, not some later
+  // rule that happens to land on the same class.
+  it('exempts /sw.js by its own root-script rule', () => {
+    expect(classifyRoute('GET', '/sw.js')).toBe('exempt');
+    expect(classificationReason('GET', '/sw.js')).toBe('exempt-root-script');
   });
 });

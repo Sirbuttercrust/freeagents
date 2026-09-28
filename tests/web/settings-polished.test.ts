@@ -246,6 +246,9 @@ describe('1. the page wears the polished system, and only the sheets it uses', (
       '/js/office.js',
       '/js/icons.js',
       '/js/polish.js',
+      // FIX-PUSH: the notifications switch's module, before the page
+      // script that calls window.FAPush.
+      '/js/push-switch.js',
       '/js/pages/settings.js',
       '/js/pages/ui.js',
     ]);
