@@ -48,10 +48,8 @@ async function bootFreshApp(identity?: IdentityAdapter, sessionAdapter?: ReturnT
   const accountRepo = new MemoryAccountRepository();
   const app = createApp(accountRepo, new MemoryAgentRepository(), identity, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter);
   const server = app.listen(0, '127.0.0.1');
-  await new Promise<void>((resolve) => server.once('listening', resolve));
-  const address = server.address();
-  if (address === null || typeof address === 'string') throw new Error('expected a port');
-  return { accountRepo, baseUrl: `http://127.0.0.1:${address.port}`, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+  const baseUrl = await listenOn(server);
+  return { accountRepo, baseUrl, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
 }
 
 function delegationFor(agentDid: string, operatorDid: string): Delegation {
@@ -104,6 +102,14 @@ async function postSigned(baseUrl: string, path: string, body: unknown, identity
   });
 }
 
+// Waits for a listening server and returns its base URL.
+async function listenOn(server: Server): Promise<string> {
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address();
+  if (address === null || typeof address === 'string') throw new Error('expected a port');
+  return `http://127.0.0.1:${address.port}`;
+}
+
 interface Started {
   readonly server: Server;
   readonly baseUrl: string;
@@ -131,10 +137,7 @@ async function startApp(): Promise<Started> {
   });
   const app = createApp(accountRepo, agentRepo);
   const server = app.listen(0, '127.0.0.1');
-  await new Promise<void>((resolve) => server.once('listening', resolve));
-  const address = server.address();
-  if (address === null || typeof address === 'string') throw new Error('expected a port');
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const baseUrl = await listenOn(server);
   return { server, baseUrl, agentRepo, operator, stranger, agentDid };
 }
 
@@ -322,10 +325,7 @@ describe('GET /agents (FIX-B43a): an unlisted agent leaves browse', () => {
     });
     const app = createApp(accountRepo, agentRepo);
     server = app.listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') throw new Error('expected a port');
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    baseUrl = await listenOn(server);
   });
 
   afterAll(() => {
@@ -396,10 +396,7 @@ describe("GET /accounts/:did/agents (FIX-B43a): the owner's roster keeps an unli
     });
     const app = createApp(accountRepo, agentRepo);
     server = app.listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') throw new Error('expected a port');
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    baseUrl = await listenOn(server);
     const unlist = await putSigned(baseUrl, `/agents/${AGENT_UNLISTED}/listing`, { listed: false }, operator);
     if (unlist.status !== 200) throw new Error(`expected 200, got ${unlist.status}`);
   });
@@ -477,10 +474,7 @@ describe('POST /jobs (FIX-B43a): the hire door refuses an unlisted agent', () =>
     const unlist = await (async () => {
       const app0 = createApp(accountRepo, agentRepo);
       const s0 = app0.listen(0, '127.0.0.1');
-      await new Promise<void>((resolve) => s0.once('listening', resolve));
-      const addr0 = s0.address();
-      if (addr0 === null || typeof addr0 === 'string') throw new Error('expected a port');
-      const url0 = `http://127.0.0.1:${addr0.port}`;
+      const url0 = await listenOn(s0);
       const res = await putSigned(url0, `/agents/${unlistedAgent.did}/listing`, { listed: false }, owner);
       await new Promise<void>((resolve) => s0.close(() => resolve()));
       return res;
@@ -507,10 +501,7 @@ describe('POST /jobs (FIX-B43a): the hire door refuses an unlisted agent', () =>
       alwaysSettledGate(),
       anyCommitStagingObserver(),
     ).listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') throw new Error('expected a port');
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    baseUrl = await listenOn(server);
   });
 
   afterAll(() => {
@@ -610,10 +601,7 @@ describe('FIX-B43a: a job already open when its agent is unlisted keeps working'
       alwaysSettledGate(),
       anyCommitStagingObserver(),
     ).listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') throw new Error('expected a port');
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    baseUrl = await listenOn(server);
   });
 
   afterAll(() => {
@@ -718,10 +706,7 @@ describe('GET /agents/:agentDid/credentials (FIX-B43a): unaffected by unlisting'
       credentialRepo,
     );
     server = app.listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') throw new Error('expected a port');
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    baseUrl = await listenOn(server);
   });
 
   afterAll(() => {
@@ -796,10 +781,7 @@ describe('PUT /agents/:agentDid/listing (FIX-B43a): invariant 2 still holds afte
     const identity = createIdentityAdapter(createKnownKeyStore());
     const app = createApp(accountRepo, agentRepo, identity, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter);
     const server = app.listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    if (address === null || typeof address === 'string') throw new Error('expected a port');
-    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const baseUrl = await listenOn(server);
     try {
       const sessionToken = await mintSessionToken(sessionAdapter);
       const auth = { authorization: `Bearer ${sessionToken}` };
