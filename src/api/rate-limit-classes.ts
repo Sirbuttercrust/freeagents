@@ -169,6 +169,13 @@ export const ROOT_ICON_PATHS: readonly string[] = [
   '/site.webmanifest',
 ];
 
+// The scripts src/web/static.ts serves at the site root (ROOT_SCRIPTS
+// there): the service worker, which a browser re-fetches on navigations to
+// check for updates. Same duplication and the same cross-check as
+// ROOT_ICON_PATHS above, kept as its own list because that one is the brand
+// kit's favicon set.
+export const ROOT_SCRIPT_PATHS: readonly string[] = ['/sw.js'];
+
 // The web page shells (src/web/static.ts's mountPages): static markup with
 // no storage read of its own -- the real reads a page needs are separate,
 // already-classified API calls. Never a page an API route also negotiates:
@@ -276,6 +283,7 @@ export type ClassificationReason =
   | 'upstream-prefix'
   | 'exempt-static-prefix'
   | 'exempt-root-icon'
+  | 'exempt-root-script'
   | 'exempt-web-page'
   | 'exempt-page-shell'
   | 'route-table'
@@ -299,6 +307,7 @@ function classifyRouteWithReason(method: string, path: string, accept?: string):
     if (path.startsWith(prefix)) return { classification: 'exempt', reason: 'exempt-static-prefix' };
   }
   if (ROOT_ICON_PATHS.includes(path)) return { classification: 'exempt', reason: 'exempt-root-icon' };
+  if (ROOT_SCRIPT_PATHS.includes(path)) return { classification: 'exempt', reason: 'exempt-root-script' };
   if (EXEMPT_WEB_PAGE_PATHS.includes(path)) return { classification: 'exempt', reason: 'exempt-web-page' };
 
   const upperMethod = method.toUpperCase();
