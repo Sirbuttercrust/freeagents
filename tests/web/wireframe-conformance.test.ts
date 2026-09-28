@@ -433,11 +433,12 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     //    mount (its preview strip) is not carried either.
     'Appearance': 'a banner has no storage (no field on the agent, no route), and the avatar is chosen in the avatar editor on /myagents (AV2), which stays there',
     'avatars': 'the wireframe\u2019s one avatar mount is the Appearance preview strip, which is not carried (see "Appearance"); the avatar is chosen and shown on /myagents',
-    // 3. No "Stop listing" section. Stopping a listing is bugs.md B43 and
-    //    waits on a product decision; no route exists, so the page names no
-    //    control for it and promises none.
-    'Stop listing this agent': 'stopping a listing is bugs.md B43 and waits on a product decision; no route exists, so the page names no such control and promises none',
-    'Stop listing axiom-ui': 'same reason as "Stop listing this agent": no route stops a listing',
+    // FIX-B43b: the wireframe's sample agent name, axiom-ui, baked into
+    // its listing button. agentsettings.js's drawListing renders the real
+    // agent's name into the button from GET /agents/:agentDid, the same
+    // name the page's own #agent-name shows. Pinned by
+    // tests/web/agentsettings.test.ts, "listing (a) a listed agent".
+    'Stop listing axiom-ui': 'wireframe sample data (axiom-ui is the wireframe\u2019s one example agent); drawListing (agentsettings.js) renders the real agent\u2019s live name into this button, pinned by tests/web/agentsettings.test.ts, "listing (a) a listed agent"',
     // The wireframe's nav button points at dashboard.html under the local
     // label "Account", the same entry settings carries below.
     'Account': 'the shared-nav mechanism (nav.js:100-105) renders this destination on every page under the label "Dashboard", already excused by SHARED_NAV; this wireframe names the same button "Account" locally',

@@ -97,6 +97,8 @@ const PLATFORM_SEED = 'd'.repeat(64);
 const OPERATOR_DID = 'did:abt:zM1Operator';
 const AGENT_DID = 'did:abt:zM1Agent';
 const BUYER_DID = 'did:example:m1-buyer';
+const OWN_LISTED_DID = 'did:abt:zM1OwnListed';
+const OWN_UNLISTED_DID = 'did:abt:zM1OwnUnlisted';
 const JOB_ID = 'm1-job-completed';
 
 // Ten pages of results at browse.js's PAGE_SIZE of 10, which is what puts
@@ -201,9 +203,12 @@ const PAGES: ReadonlyArray<readonly [label: string, path: string]> = [
   ['messages', '/messages'],
   ['messages, a thread', '/messages?job=m1-job-proposed'],
   ['listagent', '/listagent'],
-  // Signed out, so the shell alone; the owner's form is measured at 320,
-  // 390 and 1280 in tests/web/agentsettings.test.ts.
+  // Signed out, the shell alone. The owner's page, with its listing
+  // section in each state, is measured on the two entries after it, and
+  // the whole form at 320, 390 and 1280 in tests/web/agentsettings.test.ts.
   ['agentsettings', '/agentsettings'],
+  ['agentsettings, the owner of a listed agent', `/agentsettings?agent=${encodeURIComponent(OWN_LISTED_DID)}`],
+  ['agentsettings, the owner of an unlisted agent', `/agentsettings?agent=${encodeURIComponent(OWN_UNLISTED_DID)}`],
   ['incoming', '/incoming'],
   ['conduct', '/conduct?account=m1-buyer-login'],
   ['dashboard', '/dashboard'],
@@ -230,8 +235,10 @@ beforeAll(async () => {
     githubLogin: 'm1-detail-agent-gh',
   });
 
-  // The rest of the roster: enough for ten pages of results.
-  for (let i = 0; i < AGENT_COUNT - 1; i += 1) {
+  // The rest of the roster: enough for ten pages of results. One place is
+  // taken by the signed-in buyer's own listed agent below, so browse still
+  // counts exactly AGENT_COUNT.
+  for (let i = 0; i < AGENT_COUNT - 2; i += 1) {
     const did = `did:abt:zM1RosterAgent${String(i).padStart(3, '0')}`;
     await agentRepo.create({
       did,
@@ -242,6 +249,14 @@ beforeAll(async () => {
       githubLogin: null,
     });
   }
+
+  // FIX-B43b: two agents the signed-in buyer owns, so /agentsettings draws
+  // the owner's page with its listing section in each state. The unlisted
+  // one never reaches browse (GET /agents drops it).
+  for (const [did, name] of [[OWN_LISTED_DID, 'm1-own-listed'], [OWN_UNLISTED_DID, 'm1-own-unlisted']] as const) {
+    await agentRepo.create({ did, operatorDid: BUYER_DID, delegation: delegation(did), name, skills: ['typescript'], githubLogin: null });
+  }
+  await agentRepo.setListed(OWN_UNLISTED_DID, false);
 
   await accountRepo.register({ did: OPERATOR_DID, githubLogin: 'm1-operator-login' });
   await accountRepo.register({ did: BUYER_DID, githubLogin: 'm1-buyer-login' });
@@ -1035,4 +1050,45 @@ describe('a .wrap.section block keeps the side gutter .wrap gives the nav and fo
     expect(blocks, 'no .wrap.section or .wrap.section-sm found on any page').toBeGreaterThan(20);
     expect(wrong, `${wrong.length} blocks lost their side gutter:\n${wrong.join('\n')}`).toEqual([]);
   }, 300_000);
+});
+
+// FIX-B43b: the two owner entries in PAGES above measure overflow, which a
+// page that fell back to its stranger panel would pass as well. This reads
+// that the owner's listing section really drew, in each state, and that
+// its one button clears 44px, at 320, 390 and 1280.
+describe('agentsettings: the owner\u2019s listing section in each state (FIX-B43b)', () => {
+  const LISTING_WIDTHS: ReadonlyArray<Viewport> = [
+    PHONE,
+    { label: 'phone 390', width: 390, height: 844, mobile: true, touch: true },
+    { label: 'desktop 1280', width: 1280, height: 900, mobile: false, touch: false },
+  ];
+  it.each([
+    ['listed', OWN_LISTED_DID, 'Stop listing m1-own-listed'],
+    ['unlisted', OWN_UNLISTED_DID, 'List it again'],
+  ])('agentsettings, %s: the section shows, its button reads right and is 44px tall, nothing scrolls sideways', async (_state, did, label) => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for the mobile layout measurement; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: NARROW, height: 780 });
+    try {
+      await signIn(browser);
+      for (const viewport of LISTING_WIDTHS) {
+        const measured = await measure(browser, `/agentsettings?agent=${encodeURIComponent(did)}`, viewport);
+        const btn = await browser.evaluate<{ shown: boolean; text: string; width: number; height: number }>(`(function () {
+          var b = document.getElementById('listing-btn');
+          var r = b.getBoundingClientRect();
+          return { shown: !document.getElementById('settings-body').hidden, text: b.textContent, width: Math.round(r.width), height: Math.round(r.height) };
+        })()`);
+        expect(btn.shown, `${viewport.label}: the owner's page`).toBe(true);
+        expect(btn.text).toBe(label);
+        expect(btn.height, `${viewport.label}: button height`).toBeGreaterThanOrEqual(44);
+        expect(btn.width, `${viewport.label}: button width`).toBeGreaterThanOrEqual(44);
+        expect(measured.scrollWidth, `${viewport.label}: sideways scroll ${JSON.stringify(measured.overflowing)}`).toBe(viewport.width);
+        expect(measured.overflowing).toEqual([]);
+      }
+    } finally {
+      await browser.close();
+    }
+  }, 90_000);
 });
