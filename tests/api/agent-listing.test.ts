@@ -22,11 +22,30 @@ import type { Delegation } from '../../src/domain/agent.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import { createKnownKeyStore } from '../../src/adapters/identity/did-abt-resolver.js';
+import type { IdentityAdapter, DidDocument } from '../../src/adapters/identity/types.js';
+import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { testSessionAdapter, mintSessionToken } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
+
+// Stand-in identity adapter whose verifyDelegation always accepts, the
+// exact pattern tests/api/agent-negotiation-flag.test.ts's fakeIdentity()
+// uses: proves the SIGNED registration path (a did + delegation body,
+// authenticated by request signature) without re-proving delegation
+// cryptography, which tests/api/agent-invariant2.test.ts already covers
+// end to end.
+function fakeIdentity(): IdentityAdapter {
+  return {
+    createOperatorDid: () => Promise.reject(new NotImplementedError('identity', 'createOperatorDid')),
+    createAgentDid: () => Promise.reject(new NotImplementedError('identity', 'createAgentDid')),
+    resolveDid: (): Promise<DidDocument> => Promise.reject(new NotImplementedError('identity', 'resolveDid')),
+    sign: () => Promise.reject(new NotImplementedError('identity', 'sign')),
+    verify: () => Promise.reject(new NotImplementedError('identity', 'verify')),
+    verifyDelegation: () => Promise.resolve(true),
+  };
+}
 
 function delegationFor(agentDid: string, operatorDid: string): Delegation {
   return {
@@ -123,14 +142,92 @@ describe('PUT /agents/:agentDid/listing (FIX-B43a)', () => {
     started.server.close();
   });
 
-  // (a) A freshly listed agent reads listed: true.
-  it('a freshly listed agent (site path) reads listed: true', async () => {
+  // (a) A freshly listed agent reads listed: true, on both listing paths:
+  // seeded straight into the repo (used by every other case below), the
+  // site path (POST /agents, no delegation), and the signed path (POST
+  // /agents with a delegation the operator's own key signs).
+  it('a freshly listed agent (seeded straight into the repo) reads listed: true', async () => {
     const res = await fetch(`${started.baseUrl}/agents/${started.agentDid}`);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.listed).toBe(true);
   });
 
-  // (b) The owner unlists and lists again.
+  it('a freshly listed agent (the site path, POST /agents with a session) reads listed: true', async () => {
+    process.env.FREEAGENTS_PLATFORM_SEED = 'b43a5'.padEnd(64, '0');
+    const accountRepo = new MemoryAccountRepository();
+    const agentRepo = new MemoryAgentRepository();
+    const sessionAdapter = testSessionAdapter();
+    const identity = createIdentityAdapter(createKnownKeyStore());
+    const app = createApp(accountRepo, agentRepo, identity, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter);
+    const server = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('expected a port');
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    try {
+      const sessionToken = await mintSessionToken(sessionAdapter);
+      const auth = { authorization: `Bearer ${sessionToken}` };
+      const listRes = await fetch(`${baseUrl}/agents`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...auth },
+        body: JSON.stringify({ name: 'scout', skills: ['triage'] }),
+      });
+      const did = ((await listRes.json()) as Record<string, unknown>).did as string;
+      const read = await fetch(`${baseUrl}/agents/${did}`);
+      expect(((await read.json()) as Record<string, unknown>).listed).toBe(true);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('a freshly listed agent (the signed path, a delegation the operator key signs) reads listed: true', async () => {
+    const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(215));
+    const accountRepo = new MemoryAccountRepository();
+    await accountRepo.register({ did: operator.did, githubLogin: 'listing-signed-path-operator' });
+    const agentRepo = new MemoryAgentRepository();
+    // A stand-in identity adapter whose verifyDelegation always accepts,
+    // the same pattern tests/api/agent-negotiation-flag.test.ts's
+    // fakeIdentity() uses: this test's point is the signed PATH (a did +
+    // delegation body, verified by REQUEST SIGNATURE via requireSessionOrSignature,
+    // not by a session), not re-proving delegation cryptography that
+    // tests/api/agent-invariant2.test.ts already covers end to end.
+    const app = createApp(accountRepo, agentRepo, fakeIdentity());
+    const server = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('expected a port');
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    try {
+      const agentDid = 'did:abt:zSignedPathListingAgent';
+      const res = await postSigned(baseUrl, '/agents', {
+        did: agentDid,
+        delegation: delegationFor(agentDid, operator.did),
+        name: 'scout',
+        skills: ['triage'],
+      }, operator);
+      expect(res.status).toBe(201);
+      const read = await fetch(`${baseUrl}/agents/${agentDid}`);
+      expect(((await read.json()) as Record<string, unknown>).listed).toBe(true);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  // (b) The owner unlists and lists again. PUT's reply is `agentProjection`
+  // (Make 2), while GET /agents/:agentDid layers 5 further read-time-only
+  // fields on top (verifiedHires, verifiedPriorWork, portfolio,
+  // lastHireCompletedAt, recordLastChangedAt -- R-17/R-37, computed from
+  // credential history the PUT route never touches). The whole PUT body is
+  // pinned by comparing it against that same GET read with exactly those 5
+  // keys removed: both calls run against the live server, so this proves
+  // real equality on every agentProjection key, not a hand-typed guess at
+  // avatarSpec/createdAt/delegation that could quietly drift from the route.
+  function stripReadOnlyExtras(body: Record<string, unknown>): Record<string, unknown> {
+    const { verifiedHires, verifiedPriorWork, portfolio, lastHireCompletedAt, recordLastChangedAt, ...rest } = body;
+    void verifiedHires; void verifiedPriorWork; void portfolio; void lastHireCompletedAt; void recordLastChangedAt;
+    return rest;
+  }
+
   it('the owner unlists the agent: 200, listed: false on the reply and on GET', async () => {
     const res = await putSigned(started.baseUrl, `/agents/${started.agentDid}/listing`, { listed: false }, started.operator);
     expect(res.status).toBe(200);
@@ -140,6 +237,7 @@ describe('PUT /agents/:agentDid/listing (FIX-B43a)', () => {
     const read = await fetch(`${started.baseUrl}/agents/${started.agentDid}`);
     const readBody = (await read.json()) as Record<string, unknown>;
     expect(readBody.listed).toBe(false);
+    expect(body).toEqual(stripReadOnlyExtras(readBody));
   });
 
   it('the owner lists it again: listed: true', async () => {
@@ -152,6 +250,7 @@ describe('PUT /agents/:agentDid/listing (FIX-B43a)', () => {
     const read = await fetch(`${started.baseUrl}/agents/${started.agentDid}`);
     const readBody = (await read.json()) as Record<string, unknown>;
     expect(readBody.listed).toBe(true);
+    expect(body).toEqual(stripReadOnlyExtras(readBody));
   });
 
   it('setting the value it already has is a 200 that changes nothing', async () => {
@@ -161,8 +260,9 @@ describe('PUT /agents/:agentDid/listing (FIX-B43a)', () => {
     expect(body.listed).toBe(true);
   });
 
-  // (c) Refusals, each proving the write was never called.
-  it('an unsigned request is refused with 401, and the write is never called', async () => {
+  // (c) Refusals, each proving the write was never called, each pinning
+  // the exact refusal sentence (not just the status).
+  it('an unsigned request is refused with 401, exact sentence, and the write is never called', async () => {
     const spy = vi.spyOn(started.agentRepo, 'setListed');
     const res = await fetch(`${started.baseUrl}/agents/${started.agentDid}/listing`, {
       method: 'PUT',
@@ -170,22 +270,28 @@ describe('PUT /agents/:agentDid/listing (FIX-B43a)', () => {
       body: JSON.stringify({ listed: false }),
     });
     expect(res.status).toBe(401);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('this route requires a session (sign in with GitHub OAuth or a passkey) or a verified request signature (R-34)');
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 
-  it('a REGISTERED stranger is refused with 403, and the write is never called', async () => {
+  it('a REGISTERED stranger is refused with 403, exact sentence, and the write is never called', async () => {
     const spy = vi.spyOn(started.agentRepo, 'setListed');
     const res = await putSigned(started.baseUrl, `/agents/${started.agentDid}/listing`, { listed: false }, started.stranger);
     expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe(`the authenticated party is not the operator of agent ${started.agentDid}`);
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 
-  it('an unknown agent DID is refused with 404, and the write is never called', async () => {
+  it('an unknown agent DID is refused with 404, exact sentence, and the write is never called', async () => {
     const spy = vi.spyOn(started.agentRepo, 'setListed');
     const res = await putSigned(started.baseUrl, '/agents/did:abt:zNoSuchListingAgent/listing', { listed: false }, started.operator);
     expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('agent did:abt:zNoSuchListingAgent is not registered');
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
@@ -200,10 +306,12 @@ describe('PUT /agents/:agentDid/listing (FIX-B43a)', () => {
     spy.mockRestore();
   });
 
-  it('a non-boolean listed value is refused with 400, and the write is never called', async () => {
+  it('a non-boolean listed value is refused with 400, exact sentence, and the write is never called', async () => {
     const spy = vi.spyOn(started.agentRepo, 'setListed');
     const res = await putSigned(started.baseUrl, `/agents/${started.agentDid}/listing`, { listed: 'no' }, started.operator);
     expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toBe('body must be { listed }, a boolean');
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
@@ -350,6 +458,12 @@ describe('POST /jobs (FIX-B43a): the hire door refuses an unlisted agent', () =>
   let unlistedAgent: SigningIdentity;
   let thirdAgent: SigningIdentity;
   let owner: SigningIdentity;
+  // Proof r1 (vacuous-gate): GET /accounts/:did/jobs drops draft and
+  // proposed jobs (app.ts's notReal filter), and POST /jobs writes
+  // drafts, so a readback through that route reads 0 whether or not a
+  // job was written. jobRepo.findByBuyerDid sees drafts, so it is the
+  // one that can actually prove zero jobs were written.
+  let jobRepo: MemoryJobRepository;
 
   beforeAll(async () => {
     buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(221));
@@ -401,7 +515,7 @@ describe('POST /jobs (FIX-B43a): the hire door refuses an unlisted agent', () =>
     })();
     if (unlist.status !== 200) throw new Error(`expected 200 unlisting, got ${unlist.status}`);
 
-    const jobRepo = new MemoryJobRepository();
+    jobRepo = new MemoryJobRepository();
     const sessionAdapter = testSessionAdapter();
     const { github } = createStagingLifecycleGithubFake();
     server = createApp(
@@ -435,63 +549,45 @@ describe('POST /jobs (FIX-B43a): the hire door refuses an unlisted agent', () =>
     const res = await postSigned(baseUrl, '/jobs', {
       agentDid: unlistedAgent.did,
       repository: 'buyer/target-repo',
-      brief: 'Fix the login bug',
+      brief: 'Fix the login bug, solo refusal',
     }, buyer);
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe('this agent is not taking new hires right now; its owner has stopped listing it');
 
-    const jobsRes = await fetch(`${baseUrl}/accounts/${buyer.did}/jobs`, {
-      headers: (() => {
-        const targetUri = `${baseUrl}/accounts/${buyer.did}/jobs`;
-        const signed = signRequest(buyer, 'GET', targetUri, {});
-        return {
-          'signature-input': signed['signature-input'],
-          signature: signed.signature,
-          'content-digest': signed['content-digest'],
-        };
-      })(),
-    });
-    expect(jobsRes.status).toBe(200);
-    const jobsBody = (await jobsRes.json()) as { jobs: unknown[] };
-    expect(jobsBody.jobs).toHaveLength(0);
+    const buyerJobs = await jobRepo.findByBuyerDid(buyer.did);
+    expect(buyerJobs.some((j) => j.brief === 'Fix the login bug, solo refusal')).toBe(false);
   });
 
   it('naming three agents where one is unlisted is 409 and writes zero jobs', async () => {
     const res = await postSigned(baseUrl, '/jobs', {
       agentDids: [listedAgent.did, unlistedAgent.did, thirdAgent.did],
       repository: 'buyer/target-repo',
-      brief: 'Fix the login bug',
+      brief: 'Fix the login bug, three-agent refusal',
     }, buyer);
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe('this agent is not taking new hires right now; its owner has stopped listing it');
 
-    const jobsRes = await fetch(`${baseUrl}/accounts/${buyer.did}/jobs`, {
-      headers: (() => {
-        const targetUri = `${baseUrl}/accounts/${buyer.did}/jobs`;
-        const signed = signRequest(buyer, 'GET', targetUri, {});
-        return {
-          'signature-input': signed['signature-input'],
-          signature: signed.signature,
-          'content-digest': signed['content-digest'],
-        };
-      })(),
-    });
-    const jobsBody = (await jobsRes.json()) as { jobs: unknown[] };
-    expect(jobsBody.jobs).toHaveLength(0);
+    const buyerJobs = await jobRepo.findByBuyerDid(buyer.did);
+    expect(buyerJobs.some((j) => j.brief === 'Fix the login bug, three-agent refusal')).toBe(false);
   });
 
-  it('after listing it again, naming the same agent succeeds with 201', async () => {
+  it('after listing it again, naming the same agent succeeds with 201 and writes exactly one job', async () => {
     const relist = await putSigned(baseUrl, `/agents/${unlistedAgent.did}/listing`, { listed: true }, owner);
     expect(relist.status).toBe(200);
 
     const res = await postSigned(baseUrl, '/jobs', {
       agentDid: unlistedAgent.did,
       repository: 'buyer/target-repo',
-      brief: 'Fix the login bug, again',
+      brief: 'Fix the login bug, again, positive control',
     }, buyer);
     expect(res.status).toBe(201);
+
+    // Positive control for the vacuous-gate fix above: the same readback
+    // that proved zero jobs on refusal proves exactly one job on success.
+    const buyerJobs = await jobRepo.findByBuyerDid(buyer.did);
+    expect(buyerJobs.filter((j) => j.brief === 'Fix the login bug, again, positive control')).toHaveLength(1);
   });
 });
 
