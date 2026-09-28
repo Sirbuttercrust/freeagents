@@ -673,10 +673,21 @@ describe('the pull-request screen, driven end to end against the real app', () =
     });
   });
   describe('exactly two acting controls: the GitHub anchor and the dialog submit (done means)', () => {
-    it('no third acting control exists, and no request is ever made to any merge, redo, staged-decline, or pull-request path', async () => {
+    // P8l pinned "no request to any merge path" because a browser CONTROL
+    // telling the platform a merge happened would be the platform taking a
+    // party's assertion as an observed fact. FIX-B60 keeps that rule for
+    // controls and changes it for the load: opening a submitted hire sends
+    // exactly one POST /jobs/<id>/merge, with an empty body, and the server
+    // reads the pull request from GitHub itself. The page asks; GitHub
+    // answers. (This app runs the default GitHub adapter, which fails
+    // closed with no token, so the route answers 503 and nothing changes.)
+    it('no third acting control exists, the load sends exactly one merge request with an empty body, and none to redo, staged-decline, or pull-request', async () => {
       const requests: string[] = [];
+      const mergeBodies: string[] = [];
       const page = await renderPr(baseUrl, 'job-fully-submitted', buyerSession, (input, init) => {
-        requests.push(`${(init?.method ?? 'GET').toUpperCase()} ${new URL(String(input), baseUrl).pathname}`);
+        const line = `${(init?.method ?? 'GET').toUpperCase()} ${new URL(String(input), baseUrl).pathname}`;
+        requests.push(line);
+        if (line.endsWith('/merge')) mergeBodies.push(String(init?.body ?? ''));
       });
       try {
         const main = page.document.querySelector('main');
@@ -689,8 +700,9 @@ describe('the pull-request screen, driven end to end against the real app', () =
         links.forEach((a) => {
           expect((a.textContent ?? '').toLowerCase()).not.toContain('merge');
         });
+        expect(requests.filter((r) => r.toLowerCase().includes('/merge'))).toEqual(['POST /jobs/job-fully-submitted/merge']);
+        expect(mergeBodies).toEqual(['{}']);
         const wholeRecord = requests.join('\n').toLowerCase();
-        expect(wholeRecord).not.toContain('/merge');
         expect(wholeRecord).not.toMatch(/\/redo\b/);
         expect(wholeRecord).not.toContain('staged-decline');
         expect(wholeRecord).not.toContain('/pull-request');
@@ -720,9 +732,14 @@ describe('the pull-request screen, driven end to end against the real app', () =
       }
     });
     it('the submit control does not fire with no line chosen, and does not fire with a chosen line and whitespace-only prose (mutation proofs 9, 10)', async () => {
+      // Every POST the page sends, bar the one merge request the load itself
+      // makes on a submitted hire (FIX-B60, pinned exactly in the acting-
+      // controls test above). What is counted here is whether a click sent
+      // anything.
       const requests: string[] = [];
       const page = await renderPr(baseUrl, 'job-multi-criteria', buyerSession, (input, init) => {
-        if ((init?.method ?? 'GET').toUpperCase() === 'POST') requests.push(new URL(String(input), baseUrl).pathname);
+        const path = new URL(String(input), baseUrl).pathname;
+        if ((init?.method ?? 'GET').toUpperCase() === 'POST' && path !== '/jobs/job-multi-criteria/merge') requests.push(path);
       });
       try {
         (page.document.getElementById('close-btn') as HTMLButtonElement).click();

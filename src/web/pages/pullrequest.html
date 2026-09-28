@@ -79,15 +79,15 @@
      2. No payment date renders anywhere: no route serves one to a party.
      3. The clock is submittedAt plus DEEM_COMPLETED_AFTER_DAYS, never the
         projection's own `deadline` field.
-     4. The no-merge sentence says the platform CHECKS GitHub when a party
-        asks (POST /jobs/:jobId/merge, app.ts:4564), not that it watches:
-        no scheduler or webhook receiver exists anywhere in src/,
+     4. The no-merge sentence says the platform CHECKS GitHub, not that it
+        watches: no scheduler or webhook receiver exists anywhere in src/,
         blocklet.yml, .github or prisma (job.ts:593-596, "no timers, no
-        cron, no background process, nothing that wakes up on its own"), so
-        a merge between two reads is observed only when a party or a later
-        read triggers it. The gap itself (no scheduled merge observation)
-        is logged in the launch bug ledger per ruling 7; not fixed here, no
-        route changes.
+        cron, no background process, nothing that wakes up on its own").
+        The check is POST /jobs/:jobId/merge, and since FIX-B60 each of the
+        job page, this page and the owner's job page asks it once when a
+        signed-in party opens a submitted hire. A merge while nobody has
+        the hire open is recorded the next time a signed-in party opens it,
+        if the review window has not closed first.
      5. NEW HERE. The wireframe's nav account menu
         (spec/wireframe/pullrequest.html:64-73, a <details class="avatarmenu">
         whose drop holds Dashboard, Settings and Sign out) carries the

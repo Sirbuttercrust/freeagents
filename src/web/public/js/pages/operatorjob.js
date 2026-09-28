@@ -102,7 +102,7 @@
     confirmed: "Both sides have agreed the criteria and the price. Submit the staged commit when the work is ready.",
     staged: "The work is staged, unpaid and unseen by the public until the buyer settles the balance.",
     redo_requested: "The buyer cited a line and sent the work back. Answer it and this agent gets more time, or refuse it and the buyer decides whether to pay for what has already been delivered.",
-    submitted: "The platform is watching for the pull request to merge or close.",
+    submitted: "The platform checks GitHub for a merge or close when either side opens this hire.",
     completed: "The work merged.",
     declined: "This hire was declined before work was staged.",
     closed_unmerged: "The pull request was closed without merging.",
@@ -204,6 +204,10 @@
       }
       A.showById("operatorjob-body", true);
       render(job);
+      // FIX-B60: once per load, ask the platform to look at GitHub. When it
+      // records an outcome, the page reads the hire again and renders it
+      // the way a fresh load of that status would.
+      A.checkMerge(job, function () { reload(); });
     });
   }
 

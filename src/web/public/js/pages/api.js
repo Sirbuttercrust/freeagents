@@ -145,6 +145,41 @@
       .catch(function () { return failed("network"); });
   }
 
+  /* FIX-B60: ask the platform to look at GitHub for a submitted hire, once
+     per page load, on the viewer's own session. job.js, pullrequest.js and
+     operatorjob.js each call this after their own render; every condition
+     lives here so the three pages ask the same way.
+
+     It sends POST /jobs/:jobId/merge with an empty body. Nothing a party
+     says rides it: the route reads the pull request from GitHub itself and
+     records only what GitHub reports (src/api/app.ts, ENT-7.1). That is why
+     a page may ask where no control ever may: a control would be a person
+     saying "it merged", and this is the server checking.
+
+     Asks only for a job at `submitted` and only when a session is stored.
+     Each page calls it from the render its load draws, so a load asks
+     once; the tests count the requests exactly. The same render runs again
+     only after a 200 here (the hire has then left `submitted`, so it does
+     not ask again) or after a party's own click on that page (a close, a
+     stage, a refused redo). onRecorded() runs only on a 200: the route
+     answers 200 only when it recorded what GitHub reported (completed,
+     closed_unmerged or stale), and each page then reads the hire again
+     rather than trusting this body, so it draws what a fresh load would.
+     Every other answer (409 still open, 401, 403, 429, 503, a network
+     failure) is silent: nothing on the page changes and nothing is
+     retried. Resolves with the tagged answer, or null when it did not ask. */
+  function checkMerge(job, onRecorded) {
+    if (!job || job.status !== "submitted" || typeof job.id !== "string" || job.id === "") return null;
+    var session = getStoredSession();
+    if (session === null) return null;
+    return postAuthed("/jobs/" + encodeURIComponent(job.id) + "/merge", session.token, {}).then(function (result) {
+      // A page closed before the answer lands writes nothing (B57).
+      if (typeof document === "undefined" || !document) return result;
+      if (result.state === "ok" && result.value.status === 200) onRecorded();
+      return result;
+    });
+  }
+
   /* An authenticated PATCH, mirroring postAuthed: resolves ok() with the
      response status/body attached even on a non-2xx status, so the CALLER
      picks the sentence a refusal gets (P8v ruling 1: the one write this
@@ -399,6 +434,7 @@
     getLinkedData: getLinkedData,
     getAuthed: getAuthed,
     postAuthed: postAuthed,
+    checkMerge: checkMerge,
     patchAuthed: patchAuthed,
     putAuthed: putAuthed,
     deleteAuthed: deleteAuthed,
