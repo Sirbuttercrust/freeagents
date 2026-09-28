@@ -159,38 +159,35 @@ describe('PUT /agents/:agentDid/listing (FIX-B43a)', () => {
     expect(body.listed).toBe(true);
   });
 
-  it('a freshly listed agent (the site path, POST /agents with a session) reads listed: true', async () => {
+  it('a freshly listed agent reads listed: true, on the site path and the signed path', async () => {
+    // Site path: POST /agents, no delegation, a live session.
     process.env.FREEAGENTS_PLATFORM_SEED = 'b43a5'.padEnd(64, '0');
     const sessionAdapter = testSessionAdapter();
-    const booted = await bootFreshApp(createIdentityAdapter(createKnownKeyStore()), sessionAdapter);
+    const sitePath = await bootFreshApp(createIdentityAdapter(createKnownKeyStore()), sessionAdapter);
     const sessionToken = await mintSessionToken(sessionAdapter);
     const auth = { authorization: `Bearer ${sessionToken}` };
-    const listRes = await fetch(`${booted.baseUrl}/agents`, {
+    const listRes = await fetch(`${sitePath.baseUrl}/agents`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...auth },
       body: JSON.stringify({ name: 'scout', skills: ['triage'] }),
     });
-    const did = ((await listRes.json()) as Record<string, unknown>).did as string;
-    const read = await fetch(`${booted.baseUrl}/agents/${did}`);
-    expect(((await read.json()) as Record<string, unknown>).listed).toBe(true);
-    await booted.close();
-  });
+    const siteDid = ((await listRes.json()) as Record<string, unknown>).did as string;
+    const siteRead = await fetch(`${sitePath.baseUrl}/agents/${siteDid}`);
+    expect(((await siteRead.json()) as Record<string, unknown>).listed).toBe(true);
+    await sitePath.close();
 
-  it('a freshly listed agent (the signed path, a delegation the operator key signs) reads listed: true', async () => {
+    // Signed path: POST /agents with a did + delegation the operator signs.
     const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(215));
-    const booted = await bootFreshApp(fakeIdentity());
-    await booted.accountRepo.register({ did: operator.did, githubLogin: 'listing-signed-path-operator' });
-    const agentDid = 'did:abt:zSignedPathListingAgent';
-    const res = await postSigned(booted.baseUrl, '/agents', {
-      did: agentDid,
-      delegation: delegationFor(agentDid, operator.did),
-      name: 'scout',
-      skills: ['triage'],
+    const signedPath = await bootFreshApp(fakeIdentity());
+    await signedPath.accountRepo.register({ did: operator.did, githubLogin: 'listing-signed-path-operator' });
+    const signedDid = 'did:abt:zSignedPathListingAgent';
+    const signedRes = await postSigned(signedPath.baseUrl, '/agents', {
+      did: signedDid, delegation: delegationFor(signedDid, operator.did), name: 'scout', skills: ['triage'],
     }, operator);
-    expect(res.status).toBe(201);
-    const read = await fetch(`${booted.baseUrl}/agents/${agentDid}`);
-    expect(((await read.json()) as Record<string, unknown>).listed).toBe(true);
-    await booted.close();
+    expect(signedRes.status).toBe(201);
+    const signedRead = await fetch(`${signedPath.baseUrl}/agents/${signedDid}`);
+    expect(((await signedRead.json()) as Record<string, unknown>).listed).toBe(true);
+    await signedPath.close();
   });
 
   // (b) The owner unlists and lists again. PUT's reply is `agentProjection`
