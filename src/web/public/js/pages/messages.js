@@ -28,7 +28,10 @@
    SAFETY. Every word that came from a person or from the API reaches the
    page through textContent. A link in a message body is built as an
    element, http and https only, rel="noopener nofollow ugc" and
-   target="_blank", and nothing is previewed. The only innerHTML in this
+   target="_blank", and nothing is previewed. The one link an event line
+   takes off the site is GitHub's page to accept a staging invitation,
+   drawn for the owner's seat only, https only, with the same target and
+   rel="noopener nofollow". The only innerHTML in this
    file writes its own constant icon markup. Image bytes need the Bearer
    header, so they are fetched and shown through object URLs, revoked when
    replaced or when the thread closes.
@@ -76,7 +79,8 @@
     remainder_paid: "Final payment sent",
     staged: "Work ready for review",
     pr_opened: "Pull request opened",
-    completed: "Hire complete"
+    completed: "Hire complete",
+    staging_invited: "GitHub invitation sent"
   };
 
   function mq(q) { return !!(window.matchMedia && window.matchMedia(q).matches); }
@@ -726,8 +730,24 @@
         { icon: "merge", parts: ["Pull request merged"] },
         { icon: "flag", parts: ["Hire complete. You both get a receipt for this job."] }
       ];
+      /* The same fact for both seats. Only the agent's own GitHub account
+         can accept, so only the owner's seat gets the link. */
+      case "staging_invited": {
+        var sent = { icon: "link", parts: ["GitHub invited @" + ev.githubLogin + " to the private staging repository"] };
+        var accept = S.seat === "agent" ? httpsOnly(ev.acceptUrl) : null;
+        if (accept) sent.link = { text: "Accept on GitHub", href: accept, offsite: true };
+        return [sent];
+      }
       default: return [];
     }
+  }
+  /* GitHub only ever answers with an https address here, so anything else
+     (http, javascript:, a value that is not a URL) gets no link. */
+  function httpsOnly(url) {
+    try {
+      var u = new URL(url);
+      return u.protocol === "https:" ? u.href : null;
+    } catch (e) { return null; }
   }
 
   /* ------------------------------------------------------------ rendering the thread */
@@ -799,6 +819,10 @@
       s.appendChild(document.createTextNode(" "));
       var a = el("a", null, ev.link.text);
       a.href = ev.link.href;
+      if (ev.link.offsite) {
+        a.rel = "noopener nofollow";
+        a.target = "_blank";
+      }
       s.appendChild(a);
     }
     d.appendChild(s);

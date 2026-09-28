@@ -36,6 +36,11 @@
 //       click, Escape, coming back to a hidden tab), the page filling the
 //       window without scrolling, and the contrast of every piece of text
 //       inside my own bubbles
+//   (l) GitHub's staging invitation: one line for each seat, the owner's
+//       with an https only link to accept it that opens a new tab, an
+//       address that is not https drawn with no link, the list and the
+//       live region in words, and the owner's line fitting in real Chrome
+//       at 320 and 390 with its link 44px on touch
 //
 // The pinned strip (Make 8) and the step table's equality with job.js are
 // pinned too. Set MSG1B_CAPTURE_DIR to a directory to have (i) save a
@@ -50,8 +55,10 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { Session } from '../../src/adapters/identity/session.js';
+import { createSystemMessage } from '../../src/domain/message.js';
 import {
-  AGENT_NAME, AGREED, BUYER_DID, BUYER_LOGIN, DONE, IDENTITIES, LONG_BRIEF, OPEN, OWNER_DID, OWNER_LOGIN, STAGED, SUBMITTED,
+  AGENT_GITHUB_LOGIN, AGENT_NAME, AGREED, BUYER_DID, BUYER_LOGIN, DONE, IDENTITIES, INVITED, INVITE_LIVE, INVITE_REFUSED, INVITE_URL,
+  LONG_BRIEF, OPEN, OWNER_DID, OWNER_LOGIN, REFUSED_URLS, STAGED, SUBMITTED,
   asParty, buildMessagesWorld, type World,
 } from '../helpers/messages-world.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
@@ -210,6 +217,11 @@ function pick(page: Page, inputId: string, name: string, bytes: Uint8Array, mime
   input.dispatchEvent(new page.window.Event('change', { bubbles: true }));
 }
 const thread = (id: string): string => `/messages?job=${encodeURIComponent(id)}`;
+// FIX-B53: GitHub's staging invitation, as the thread says it and as the
+// list and the live region name it.
+const INVITE_SENTENCE = `GitHub invited @${AGENT_GITHUB_LOGIN} to the private staging repository`;
+const INVITE_LINK = 'Accept on GitHub';
+const INVITE_WORDS = 'GitHub invitation sent';
 
 // ------------------------------------------------------------------ (a)
 
@@ -260,7 +272,9 @@ describe('(b) the list, for both seats', () => {
     try {
       const rows = page.$$('.convlist li');
       expect(rows.map((li) => li.querySelector('a')!.getAttribute('data-job'))).toEqual(api.threads.map((t) => t.jobId));
-      expect(rows).toHaveLength(5);
+      // the five hires of MSG1b, and FIX-B53's three: INVITED, INVITE_REFUSED
+      // and INVITE_LIVE
+      expect(rows).toHaveLength(8);
       let anyUnread = false;
       rows.forEach((li, i) => {
         const t = api.threads[i]!;
@@ -438,6 +452,7 @@ describe('(c) the thread renders every kind of row', () => {
       const events = done.$$('.event').map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
       expect(events).toEqual([
         'Deposit paid, $300',
+        INVITE_SENTENCE,
         'Work ready for your review',
         `${AGENT_NAME} opened a pull request View`,
         'Final payment sent, $900',
@@ -1027,12 +1042,17 @@ describe('(j) plain words only', () => {
     ['a thread mid-negotiation, the hirer', thread(OPEN), 'buyer'],
     ['a thread mid-negotiation, the owner', thread(OPEN), 'owner'],
     ['a finished thread', thread(DONE), 'buyer'],
+    ['a thread with GitHub\u2019s invitation, the owner', thread(INVITED), 'owner'],
   ] as const)('%s', async (_label, path, who) => {
     const page = await render(path, who === 'buyer' ? world.buyer : world.owner);
     try {
       const labels = page.$$('main [aria-label]').map((n) => n.getAttribute('aria-label') ?? '').join(' ');
       const text = `${page.$('main')!.textContent ?? ''} ${labels} ${page.document.title}`;
       expect(text.trim().length).toBeGreaterThan(40);
+      if (path === thread(INVITED)) {
+        expect(page.$$('.event').map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()), 'the invitation line is on the page, so the check below reads it')
+          .toEqual([`${INVITE_SENTENCE} ${INVITE_LINK}`]);
+      }
       expect(machineWords(text)).toEqual([]);
       if (path.includes('job=')) {
         const hist = page.$('[data-hist]') as HTMLButtonElement | null;
@@ -1652,5 +1672,128 @@ describe('(k) in real Chrome, by hand', () => {
       writeFileSync(join(captureDir, 'contrast-my-bubbles.json'), JSON.stringify(rows, null, 1));
     }
     expect(rows.filter((r) => r.ratio < r.floor)).toEqual([]);
+  }, BROWSER_TIMEOUT_MS);
+});
+
+// ------------------------------------------------------------------ (l)
+
+// FIX-B53. Each pin reads its own hire: INVITED for the line and the list,
+// INVITE_REFUSED for the addresses the page must not link, and INVITE_LIVE,
+// which only the live pin writes into.
+describe('(l) GitHub\u2019s staging invitation', () => {
+  // Each .event line: its words, whitespace collapsed, and its anchors.
+  const lines = (page: Page): Array<{ text: string; anchors: HTMLAnchorElement[] }> =>
+    page.$$('.event').map((e) => ({
+      text: (e.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      anchors: Array.from(e.querySelectorAll('a')),
+    }));
+  // The glyph's paths, compared by their d attributes (a serialiser may
+  // write the same markup another way).
+  const glyph = (e: Element): string[] => Array.from(e.querySelectorAll('svg path')).map((p) => p.getAttribute('d') ?? '');
+  const linkGlyph = (): string[] => {
+    const src = readFileSync(join(repoRoot, 'src/web/public/js/pages/messages.js'), 'utf8');
+    const markup = /\n {4}link: '([^']*)'/.exec(src)?.[1] ?? '';
+    return [...markup.matchAll(/d="([^"]*)"/g)].map((m) => m[1]!);
+  };
+
+  it('the hirer sees one line, the whole sentence with the agent\u2019s GitHub account, and no link', async () => {
+    const page = await render(thread(INVITED), world.buyer);
+    try {
+      expect(lines(page)).toEqual([{ text: INVITE_SENTENCE, anchors: [] }]);
+      expect(linkGlyph()).toHaveLength(2);
+      expect(glyph(page.$('.event')!)).toEqual(linkGlyph());
+    } finally { page.close(); }
+  });
+
+  it('the owner sees the same sentence and one Accept on GitHub link to GitHub\u2019s page, in a new tab, with noopener', async () => {
+    const page = await render(thread(INVITED), world.owner);
+    try {
+      const got = lines(page);
+      expect(got.map((l) => l.text)).toEqual([`${INVITE_SENTENCE} ${INVITE_LINK}`]);
+      expect(got[0]!.anchors).toHaveLength(1);
+      const a = got[0]!.anchors[0]!;
+      expect(a.textContent).toBe(INVITE_LINK);
+      expect(a.getAttribute('href')).toBe(INVITE_URL);
+      expect(a.getAttribute('target')).toBe('_blank');
+      expect(a.getAttribute('rel')).toBe('noopener nofollow');
+      expect(glyph(page.$('.event')!)).toEqual(linkGlyph());
+    } finally { page.close(); }
+  });
+
+  it('an address that is not https (javascript:, http:) draws the owner\u2019s sentence with no link', async () => {
+    const rows = (await messagesOf(INVITE_REFUSED)).filter((m) => m.systemEvent?.type === 'staging_invited');
+    expect(rows.map((m) => m.systemEvent.acceptUrl).sort()).toEqual([...REFUSED_URLS].sort());
+    const page = await render(thread(INVITE_REFUSED), world.owner);
+    try {
+      expect(lines(page)).toEqual([{ text: INVITE_SENTENCE, anchors: [] }, { text: INVITE_SENTENCE, anchors: [] }]);
+      expect(page.document.querySelector('main a[href^="javascript"], main a[href^="http:"]')).toBeNull();
+    } finally { page.close(); }
+  });
+
+  it.each([
+    ['the hirer', 'buyer'],
+    ['the owner', 'owner'],
+  ] as const)('the list names the invitation in words for %s, never Update', async (_label, who) => {
+    const session = who === 'buyer' ? world.buyer : world.owner;
+    const api = await threadsOf(session, who === 'buyer' ? BUYER_DID : OWNER_DID);
+    expect(api.threads.find((t) => t.jobId === INVITED)!.lastMessage.systemEventType).toBe('staging_invited');
+    const page = await render('/messages', session);
+    try {
+      expect(page.text(`.convlist a[data-job="${INVITED}"] .cl-lt`)).toBe(INVITE_WORDS);
+    } finally { page.close(); }
+  });
+
+  // The stream refused, so the row comes in by the 10 second poll; the
+  // poll after it brings nothing new, and nothing is read out again.
+  it('when the stream is refused, an invitation written while the owner has the thread open is announced once, in words', async () => {
+    const page = await render(thread(INVITE_LIVE), world.owner, { refuseStream: true });
+    const heard = (): string[] => page.$$('#thread-live p').map((p) => p.textContent ?? '');
+    const polls = (): number => page.calls.filter((c) => c === `GET /jobs/${INVITE_LIVE}/messages`).length;
+    try {
+      expect(heard()).toEqual([]);
+      await world.messages.create(createSystemMessage({
+        id: `sys-live-invite-${Date.now()}`, jobId: INVITE_LIVE, body: '',
+        systemEvent: { type: 'staging_invited', acceptUrl: INVITE_URL, githubLogin: AGENT_GITHUB_LOGIN },
+      }, new Date()));
+      expect(await until(() => lines(page).length === 1, 11_000), 'the poll drew the line').toBe(true);
+      const after = polls();
+      expect(await until(() => polls() > after, 11_000), 'another poll ran').toBe(true);
+      await wait(300);
+      expect(heard()).toEqual([INVITE_WORDS]);
+    } finally { page.close(); }
+  }, 30_000);
+
+  it.each([
+    [PHONE_320, 'owner'], [PHONE_390, 'owner'], [PHONE_390, 'buyer'], [DESKTOP, 'owner'], [DESKTOP, 'buyer'],
+  ] as const)('real Chrome %o, %s: the thread with the invitation fits, and on touch every control is 44px', async (view, who) => {
+    if (!hasRealBrowser()) { console.warn('no Chrome found; skipping (see CHROME_BIN)'); return; }
+    const b = await chrome(view, who === 'buyer' ? world.buyer : world.owner, false);
+    try {
+      await b.goto(`${world.baseUrl}${thread(INVITED)}`, 1800);
+      const line = await b.evaluate<{ text: string; links: Array<{ w: number; h: number; href: string; hit: boolean }> } | null>(`(function () {
+        var e = document.querySelector('.thread .event');
+        if (!e) return null;
+        return { text: e.textContent.replace(/\\s+/g, ' ').trim(), links: [].map.call(e.querySelectorAll('a'), function (a) {
+          a.scrollIntoView({ block: 'center' });
+          var r = a.getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return { w: r.width, h: r.height, href: a.getAttribute('href'), hit: !!at && (at === a || a.contains(at)) };
+        }) };
+      })()`);
+      expect(line).not.toBeNull();
+      if (who === 'buyer') {
+        expect(line!.text).toBe(INVITE_SENTENCE);
+        expect(line!.links).toEqual([]);
+      } else {
+        expect(line!.text).toBe(`${INVITE_SENTENCE} ${INVITE_LINK}`);
+        expect(line!.links).toHaveLength(1);
+        expect(line!.links[0]!.href).toBe(INVITE_URL);
+        expect(line!.links[0]!.hit, 'the link is covered at its own centre').toBe(true);
+        if (view.touch) {
+          expect(line!.links[0]!.w).toBeGreaterThanOrEqual(44);
+          expect(line!.links[0]!.h).toBeGreaterThanOrEqual(44);
+        }
+      }
+      await gate(b, view, `invited-${who}`);
+    } finally { await b.close(); }
   }, BROWSER_TIMEOUT_MS);
 });

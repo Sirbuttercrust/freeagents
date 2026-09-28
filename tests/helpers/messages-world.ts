@@ -1,7 +1,7 @@
 // MSG1b: one hire-conversation world for tests/web/messages.test.ts (and
 // the screenshot run that feeds the PR). A real app on memory repositories,
 // three signed-in people (the hirer, the agent's owner, a stranger), and
-// five hires in different states. Every message a party writes goes
+// eight hires in different states. Every message a party writes goes
 // through the real routes with that party's own session; only the rows no
 // party can write through a route (the platform's system rows, and one
 // row the agent's own key sent by itself) are stored directly.
@@ -46,7 +46,17 @@ export const OPEN = 'msg-job-open'; // proposed, mid-negotiation: the full conve
 export const AGREED = 'msg-job-agreed'; // proposed, every line and the price signed by both
 export const STAGED = 'msg-job-staged'; // staged, waiting on the hirer's review
 export const SUBMITTED = 'msg-job-submitted'; // the pull request is open
-export const DONE = 'msg-job-done'; // completed: read only, every system event
+export const DONE = 'msg-job-done'; // completed: read only, every system event but the quote
+// FIX-B53: three confirmed hires, each read by its own pins for GitHub's
+// staging invitation.
+export const INVITED = 'msg-job-invited'; // its newest row is the invitation
+export const INVITE_REFUSED = 'msg-job-invite-refused'; // two invitation rows whose address the page must not link
+export const INVITE_LIVE = 'msg-job-invite-live'; // no rows; a live test writes the invitation into it
+// The agent's GitHub account, as the staging_invited event names it, and
+// the accept page GitHub answered with for INVITED.
+export const AGENT_GITHUB_LOGIN = 'msg-atlas-gh';
+export const INVITE_URL = 'https://github.com/msg-staging/msg-job-invited/invitations';
+export const REFUSED_URLS = ['javascript:alert(1)', 'http://github.com/o/r/invitations'] as const;
 export const BRIEF = 'Move Postgres 12 to 16 on a new host.\nIt is about 40 GB, and one Django app writes to it.';
 // Long enough that the thread cuts it and links to the whole brief.
 export const LONG_BRIEF = 'Speed up the search page.\nSearch takes about four seconds on a cold cache, and people give up before the results arrive. '
@@ -158,7 +168,7 @@ export async function buildMessagesWorld(): Promise<World> {
   await accounts.register({ did: STRANGER_DID, githubLogin: STRANGER_LOGIN });
 
   const agents = new MemoryAgentRepository();
-  await agents.create({ did: AGENT_DID, operatorDid: OWNER_DID, delegation: delegation(AGENT_DID), name: AGENT_NAME, skills: ['postgres'], githubLogin: null });
+  await agents.create({ did: AGENT_DID, operatorDid: OWNER_DID, delegation: delegation(AGENT_DID), name: AGENT_NAME, skills: ['postgres'], githubLogin: AGENT_GITHUB_LOGIN });
 
   const now = Date.now();
   const recent = new Date(now - 2 * HOUR);
@@ -187,6 +197,16 @@ export async function buildMessagesWorld(): Promise<World> {
     stagedAt: new Date(now - 10 * DAY), stagedCommit: 'msgdonecommit', pullRequestUrl: 'https://github.com/buyer/msg-repo/pull/7',
     submittedAt: new Date(now - 10 * DAY), mergeCommit: 'msgmergecommit', mergedAt: doneAt,
   }));
+  for (const [id, brief, hoursAgo] of [
+    [INVITED, 'Add a read replica for reports.', 4],
+    [INVITE_REFUSED, 'Rotate the database passwords.', 8],
+    [INVITE_LIVE, 'Move the cron jobs to the new host.', 9],
+  ] as const) {
+    await jobs.create(job(id, new Date(now - hoursAgo * HOUR), {
+      brief, status: 'confirmed', criteria: CRITERIA_SIGNED, priceUsd: '500.00', rail: 'abt',
+      priceAcceptedByBuyer: true, priceAcceptedByAgent: true, confirmedAt: recent, confirmedSpecHash: `sha256:${id}-spec`,
+    }));
+  }
   const credentials = new MemoryCredentialRepository();
   await credentials.save({ completedJobId: DONE, subjectDid: AGENT_DID, document: receipt(DONE), repositoryPublic: true });
 
@@ -270,10 +290,13 @@ export async function buildMessagesWorld(): Promise<World> {
     id: 'm-msg-old-mine', body: 'Happy to answer anything about the setup.', authorParty: 'buyer', authorKind: 'buyer', authorDid: BUYER_DID,
   }, new Date(now - 40 * 60 * 1000));
 
-  // THE FINISHED HIRE: every event the platform writes, days ago.
+  // THE FINISHED HIRE: every event the platform writes after a quote,
+  // days ago, in the order a hire meets them (quote_sent, the one other
+  // kind, is drawn as a card and lives in the open hire above).
   const at = (d: number, h = 0): Date => new Date(now - d * DAY + h * HOUR);
   await direct(DONE, { id: 'm-msg-done-start', body: 'Starting the cutover.', authorParty: 'agent', authorKind: 'owner', authorDid: OWNER_DID }, at(11));
   await system(DONE, { type: 'deposit_paid', leg: 'deposit', amountUsd: '300.00', rail: 'abt' }, at(11, 1));
+  await system(DONE, { type: 'staging_invited', acceptUrl: 'https://github.com/msg-staging/msg-job-done/invitations', githubLogin: AGENT_GITHUB_LOGIN }, at(11, 2));
   await system(DONE, { type: 'staged' }, at(10));
   await system(DONE, { type: 'pr_opened', pullRequestUrl: 'https://github.com/buyer/msg-repo/pull/7' }, at(10, 1));
   await system(DONE, { type: 'remainder_paid', leg: 'remainder', amountUsd: '900.00', rail: 'abt' }, at(9));
@@ -282,6 +305,13 @@ export async function buildMessagesWorld(): Promise<World> {
     id: 'm-msg-done-thanks', body: 'Thanks. Good working with you.', authorParty: 'buyer', authorKind: 'buyer', authorDid: BUYER_DID,
     reactions: { buyer: null, agent: '\u2764\uFE0F' },
   }, at(9, 2));
+
+  // THE HIRES WAITING ON GITHUB: the invitation is INVITED's newest row,
+  // and INVITE_REFUSED holds one row for each address the page refuses.
+  await system(INVITED, { type: 'staging_invited', acceptUrl: INVITE_URL, githubLogin: AGENT_GITHUB_LOGIN }, new Date(now - 3 * HOUR));
+  for (const acceptUrl of REFUSED_URLS) {
+    await system(INVITE_REFUSED, { type: 'staging_invited', acceptUrl, githubLogin: AGENT_GITHUB_LOGIN }, new Date(now - 7 * HOUR));
+  }
 
   const ids: ThreadIds = { thanks, question, quote1, push, counter, quote2, auto, imageFile, image, pdfFile, pdf: pdfMessage, night, oldMine, doneThanks };
 
