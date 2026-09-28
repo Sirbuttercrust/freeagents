@@ -153,8 +153,9 @@ describe('PUT /agents/:agentDid/listing (FIX-B43a)', () => {
 
   // (a) A freshly listed agent reads listed: true, on the site path (POST
   // /agents, no delegation) and the signed path (POST /agents with a
-  // delegation the operator's own key signs). Every other case in this
-  // file seeds straight into the repo, covered by the very next it().
+  // delegation the operator's own key signs). This first case seeds
+  // straight into the repo; the next it() covers the site and signed
+  // paths.
   it('a freshly listed agent (seeded straight into the repo) reads listed: true', async () => {
     const res = await fetch(`${started.baseUrl}/agents/${started.agentDid}`);
     const body = (await res.json()) as Record<string, unknown>;
@@ -398,11 +399,11 @@ describe('POST /jobs (FIX-B43a): the hire door refuses an unlisted agent', () =>
   let unlistedAgent: SigningIdentity;
   let thirdAgent: SigningIdentity;
   let owner: SigningIdentity;
-  // Proof r1 (vacuous-gate): GET /accounts/:did/jobs drops draft and
-  // proposed jobs (app.ts's notReal filter), and POST /jobs writes
-  // drafts, so a readback through that route reads 0 whether or not a
-  // job was written. jobRepo.findByBuyerDid sees drafts, so it is the
-  // one that can actually prove zero jobs were written.
+  // GET /accounts/:did/jobs drops draft and proposed jobs (app.ts's
+  // notReal filter), and POST /jobs writes drafts, so a readback
+  // through that route reads 0 whether or not a job was written.
+  // jobRepo.findByBuyerDid sees drafts, so it is the one that can
+  // actually prove zero jobs were written.
   let jobRepo: MemoryJobRepository;
 
   beforeAll(async () => {
