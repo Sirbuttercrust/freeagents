@@ -401,10 +401,14 @@ describe('the settings screen, driven end to end against the real app', () => {
     }
   });
 
-  it('no display name input, no notification control, no signing key row, no Manage keys link, no closing-your-account section, and no "checked N hours ago" string exists anywhere (done-means 10)', async () => {
+  it('no display name input, no email or notification control where push cannot work (this jsdom has no Push API), no signing key row, no Manage keys link, no closing-your-account section, and no "checked N hours ago" string exists anywhere (done-means 10)', async () => {
     const page = await renderSettings(baseUrl, session);
     try {
       expect(page.document.getElementById('dn')).toBeNull();
+      // FIX-PUSH: the notifications switch exists only where this browser
+      // can do push; tests/web/settings-push.test.ts drives both sides.
+      expect(page.document.getElementById('push-toggle')).toBeNull();
+      expect(page.document.querySelectorAll('input[type="checkbox"]').length).toBe(0);
       const text = page.document.body.textContent ?? '';
       expect(text).not.toContain('checked');
       expect(text).not.toContain('hours ago');

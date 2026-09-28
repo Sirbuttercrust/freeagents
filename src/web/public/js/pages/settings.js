@@ -1,7 +1,7 @@
 /* P8v settings (P-23): the account settings screen, from
-   spec/wireframe/settings.html. Ruling 1: one read, GET /accounts/me, and
-   one write, PATCH /accounts/:did/operator-address, sent only on a human
-   press of the save control.
+   spec/wireframe/settings.html. Ruling 1: one account read, GET /accounts/me,
+   and one account write, PATCH /accounts/:did/operator-address, sent only on
+   a press of save. The notifications switch has its own: see renderPushRow.
 
    RULING 2: the payout addresses are the one addition to the wireframe.
    Validation is the server's (Ruling 3): this file sends what was typed
@@ -10,11 +10,11 @@
 
    RULING 4: no display name field -- Account has no such column.
 
-   RULING 5: the connected-accounts rows render as facts, with no
-   controls. GitHub renders only when githubLogin is not null; the
-   sign-in method rows reflect exactly which of githubLogin and
-   passkeySubject are non-null. Email about your jobs never renders (gap
-   G6). No "checked N hours ago": nothing on Account stores a check time.
+   RULING 5: the account rows are facts with no control. GitHub renders only
+   when githubLogin is not null; sign-in method reflects exactly which of
+   githubLogin and passkeySubject are non-null. Email about your jobs never
+   renders (gap G6), nor "checked N hours ago" (no check time is stored).
+   The pane's one control is the per-device notifications switch.
 
    RULING 6: the identity disclosure ships close to whole; the signing
    key row does not (Account has no key column).
@@ -74,6 +74,7 @@
     if (abtInput) abtInput.value = initialAbt;
 
     renderAccountRows(me);
+    renderPushRow();
 
     A.setText(A.el("did-value"), did);
     var copyBtn = A.el("did-copy");
@@ -128,6 +129,71 @@
     // If it never runs the span collapses and the login beside it still
     // states the fact.
     if (window.FAIcon) window.FAIcon.paint(host);
+  }
+
+  // The notifications switch, per device because a push subscription
+  // belongs to one browser. Built only when this browser can do push
+  // (FAPush.supported) AND the server has a key (GET
+  // /push/vapid-public-key, the one extra read, taken only in such a
+  // browser); otherwise it never exists, so there is nothing hidden to
+  // find and nothing in the accessibility tree. Its state on load is this
+  // browser's own: "On" exactly when the worker holds a subscription and
+  // permission is granted. There is no server read of it. Its two writes,
+  // POST and DELETE /accounts/:did/push-subscriptions, go only on a press.
+  function renderPushRow() {
+    var P = window.FAPush;
+    var host = A.el("account-rows");
+    var tpl = A.el("push-row-template");
+    if (!P || !host || !tpl || !P.supported()) return;
+    Promise.all([P.readKey(), P.current()]).then(function (got) {
+      var key = got[0];
+      if (key === null) return;
+      host.appendChild(tpl.content.cloneNode(true));
+      var row = A.el("push-row");
+      row.style.setProperty("--i", String(host.children.length - 1));
+      wirePush(key, got[1]);
+    });
+  }
+
+  function wirePush(key, initial) {
+    var P = window.FAPush;
+    var toggle = A.el("push-toggle");
+    var sub = initial;
+
+    function show(on, sentence) {
+      toggle.checked = on;
+      A.setTextById("push-state", on ? "On" : "Off");
+      A.setTextById("push-note", sentence || "");
+    }
+    show(sub !== null, "");
+
+    toggle.addEventListener("click", function (e) {
+      // The box only moves when the server has answered, so the press
+      // itself never flips it.
+      e.preventDefault();
+      // The token is read at the press, not at load: a session that
+      // changed or ended since the page drew is the one the server judges.
+      var session = A.getStoredSession();
+      if (session === null) {
+        A.setTextById("push-note", P.SENTENCES.expired);
+        return;
+      }
+      // One press at a time: a disabled box takes no click, from the box
+      // or from its label, until this one has settled.
+      toggle.disabled = true;
+      toggle.setAttribute("aria-busy", "true");
+      A.setTextById("push-note", "");
+      var work = sub === null ? P.turnOn(did, session.token, key) : P.turnOff(did, session.token, sub);
+      work.then(function (r) {
+        sub = r.on ? r.subscription : null;
+        toggle.disabled = false;
+        toggle.removeAttribute("aria-busy");
+        // The click that started this has long finished dispatching (the
+        // work above is never synchronous), so the browser's own restore
+        // of the prevented click is done and this write is the last word.
+        show(r.on, r.sentence);
+      });
+    });
   }
 
   // The wireframe's marker for this row is a glyph, not a dot

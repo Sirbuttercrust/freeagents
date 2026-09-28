@@ -28,7 +28,7 @@
      named in the handoff.
 
      THE STACK. tokens, base, polish, and the scripts api, nav, icons,
-     polish, settings, ui. polish.css is what the wireframe's own head
+     polish, push-switch, settings, ui. polish.css is what the wireframe's own head
      loads (spec/wireframe/settings.html:7-8), and without it the .ico
      hosts below have no rule at all: base.css declares no .ico, so the
      glyph boxes size to nothing and the copy button's two-glyph slot has
@@ -49,6 +49,11 @@
 
   .narrow { max-width: 620px; }
   .danger { color: var(--fg-2); }
+  /* The notifications note takes space only once it holds a sentence. It
+     stays displayed while empty, so the live region is in the tree before
+     anything is written into it. */
+  #push-note { margin: 0; }
+  #push-note:not(:empty) { margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -109,11 +114,34 @@
         </div>
       </div>
 
-      <!-- Ruling 5: connected-accounts rows, rendered as facts, no
-           controls. At most two rows: GitHub account, sign-in method.
-           Email about your jobs never renders (gap G6, no entity models
-           a notification preference). -->
+      <!-- Ruling 5: the connected-accounts pane. Two rows of facts with no
+           control (GitHub account, sign-in method), then one switch,
+           notifications on this device, cloned from the template below by
+           settings.js only where this browser can receive them. Email
+           about your jobs never renders (gap G6: nothing sends email). -->
       <div class="rows pane pane-pad stagger reveal" id="account-rows" style="margin-top:8px"></div>
+
+      <!-- The wireframe's notifications row (spec/wireframe/settings.html
+           :79 to :89), per device because a browser's subscription is.
+           A template, so nothing here is on the page or in the
+           accessibility tree until settings.js decides the switch can
+           work. The note is a live region from the moment it is cloned,
+           so the first sentence written into it is announced. -->
+      <template id="push-row-template">
+        <div id="push-row">
+          <div class="between">
+            <div>
+              <div id="push-label">Notifications on this device</div>
+              <div class="small muted" id="push-hint" style="margin-top:3px">A ping when someone messages you or sends a brief</div>
+            </div>
+            <label class="row" id="push-switch" style="gap:8px; min-height:44px; min-width:64px">
+              <input type="checkbox" id="push-toggle" aria-labelledby="push-label" aria-describedby="push-hint" style="accent-color:var(--action)">
+              <span class="small muted" id="push-state">Off</span>
+            </label>
+          </div>
+          <p class="small" id="push-note" role="alert"></p>
+        </div>
+      </template>
 
       <div id="save-error" class="empty warn" hidden style="margin-top:20px">
         <p class="sub" id="save-error-detail"></p>
@@ -179,6 +207,7 @@
 <script src="/js/office.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/polish.js"></script>
+<script src="/js/push-switch.js"></script>
 <script src="/js/pages/settings.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
