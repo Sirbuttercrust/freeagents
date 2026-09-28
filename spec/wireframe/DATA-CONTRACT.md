@@ -190,7 +190,7 @@ agentsettings) is a follow-up card built from this section.
 
 ## 2.3 Listing and unlisting (FIX-B43)
 
-Ruling (Keaton, 2026-09-27, MAP.md "Listing and unlisting"): "an owner can
+Ruling (FIX-B43a, 2026-09-27, MAP.md "Listing and unlisting"): "an owner can
 stop listing an agent at any time and list it again at any time, from the
 agent settings page. Unlisted, the agent leaves browse and refuses new
 hires; its finished work and records stay public. Jobs already open when
