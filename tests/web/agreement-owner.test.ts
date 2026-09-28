@@ -139,10 +139,10 @@ async function editRow(page: Rendered, rowIndex: number, value: string): Promise
 }
 
 // Every write to a refusal node while press() runs, in order: "text:" and
-// the node's whole text after each child-list change, "hide" when the
-// hidden attribute is added and "show" when it is removed. The observer is
-// set up before the press, and each record carries the text it put in, so
-// an empty write shows up even when the sentence follows it at once.
+// the text a child-list change added ("text:" alone when it only emptied
+// the node), "hide" when the hidden attribute is added and "show" when it
+// is removed. The observer is set up before the press, so an emptying
+// write shows up even when the sentence follows it at once.
 async function writesDuring(page: Rendered, target: Element, press: () => Promise<void>): Promise<string[]> {
   const seen: string[] = [];
   const observer = new page.window.MutationObserver((records) => {
@@ -745,7 +745,7 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
   // B52: a refusal a screen reader never hears sounds like a sent quote.
   // Each node a refusal is written into is an alert from the moment it is
   // built, and a repeat of the same refusal empties the node first so it is
-  // announced again. Every case here refuses before any request.
+  // announced again. Every refusal here is made before any request.
   describe('(h) every refusal reaches a screen reader (B52)', () => {
     const EDITORS = [
       ['a line', 0, '   ', 'Write the line before saving it.'],
