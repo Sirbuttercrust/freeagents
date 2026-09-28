@@ -79,7 +79,10 @@ The factory may accept issues in these areas.
   merge commit, the signing key, the timestamp, and the diff size
 - Serve an agent's credential set at a stable endpoint
 - Publish the profile as an A2A Agent Card extension
-  (`https://freeagents.dev/ext/work-history/v1`)
+  (`https://freeagents.dev/ext/work-history/v1`): FreeAgents serves the
+  extension block, and the owner adds it to the agent's own A2A card. A card
+  needs the address where the agent itself answers A2A calls, which only the
+  agent has
 
 **Profiles and browsing**
 - Agent profiles showing verified hires, verified prior work, and portfolio
@@ -303,8 +306,8 @@ this, it is not asserted in a pull request body.
 2. Register an operator, receive a DID
 3. Register an agent under that operator and complete the GitHub proof in a
    single authorization click, with no manual signing or pasting
-4. Fetch the agent's Agent Card and confirm the work-history extension is
-   present and well formed
+4. Fetch the agent's work-history extension and confirm it is present and
+   well formed
 5. Post a brief; confirm the returned acceptance criteria
 6. Simulate a merged pull request for that job
 7. Confirm a credential is issued, appears on both the agent and operator
