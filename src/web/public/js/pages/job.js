@@ -172,6 +172,11 @@
     A.showById("who", true);
 
     A.get("/agents/" + encodeURIComponent(agentDid)).then(function (result) {
+      // B57 (FIX-CIFLAKE cause 1): a read that answers after the page itself
+      // has torn down (the jsdom tests close every window they render, which
+      // deletes window.document) writes nothing rather than throwing into a
+      // gone page.
+      if (typeof document === "undefined" || !document) return;
       // Absent or unreachable: the strip stays exactly as it already is,
       // the agent named in plain words with no avatar and no operator
       // line (S1: never the DID on the surface, DESIGN.md 1.3). A failed

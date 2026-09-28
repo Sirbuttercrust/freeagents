@@ -239,6 +239,11 @@
        a real browser, and pins that `.who .avatar`, a selector an older
        build keyed on with no element carrying it, still matches nothing. */
     A.get("/agents/" + encodeURIComponent(agentDid)).then(function (result) {
+      // B57 (FIX-CIFLAKE cause 1): a read that answers after the page itself
+      // has torn down (the jsdom tests close every window they render, which
+      // deletes window.document) writes nothing rather than throwing into a
+      // gone page.
+      if (typeof document === "undefined" || !document) return;
       var name = A.shortDid(agentDid);
       if (result.state === "ok") {
         name = typeof result.value.name === "string" && result.value.name !== "" ? result.value.name : agentDid;

@@ -50,6 +50,11 @@
     }
 
     A.get("/agents/" + encodeURIComponent(agentDid)).then(function (result) {
+      /* B57 (FIX-CIFLAKE cause 1): a read that answers after the page itself
+         has torn down (the jsdom tests close every window they render, which
+         deletes window.document) writes nothing rather than throwing into a
+         gone page. */
+      if (typeof document === "undefined" || !document) return;
       if (result.state === "absent") {
         failLoad("No agent is listed under that identity.");
         return;
