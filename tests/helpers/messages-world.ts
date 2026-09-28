@@ -168,7 +168,7 @@ export async function buildMessagesWorld(): Promise<World> {
   await accounts.register({ did: STRANGER_DID, githubLogin: STRANGER_LOGIN });
 
   const agents = new MemoryAgentRepository();
-  await agents.create({ did: AGENT_DID, operatorDid: OWNER_DID, delegation: delegation(AGENT_DID), name: AGENT_NAME, skills: ['postgres'], githubLogin: null });
+  await agents.create({ did: AGENT_DID, operatorDid: OWNER_DID, delegation: delegation(AGENT_DID), name: AGENT_NAME, skills: ['postgres'], githubLogin: AGENT_GITHUB_LOGIN });
 
   const now = Date.now();
   const recent = new Date(now - 2 * HOUR);
