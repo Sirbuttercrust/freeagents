@@ -4710,8 +4710,8 @@ export function createApp(
 
   // R-28 (ENT-4): open a draft job from the buyer's brief. The route owns
   // only what the domain does not know about: body shape, DID and repository
-  // syntax, and agent existence (a driver asymmetry — Prisma rejects an
-  // unknown agentDid through its foreign key while memory accepts it — so
+  // syntax, and agent existence (a driver asymmetry: Prisma rejects an
+  // unknown agentDid through its foreign key while memory accepts it, so
   // the check lives here to keep both drivers answering identically).
   // Everything about the brief itself, including its emptiness and the hash,
   // is delegated to createJob rather than restated.
@@ -5076,7 +5076,7 @@ export function createApp(
 
   // R-8's shared skeleton for the criteria exchange: load the job, let the
   // domain apply its rule, persist through repo.update. The error mapping
-  // mirrors POST /jobs — a bad body or a domain rule is the caller's to fix
+  // mirrors POST /jobs: a bad body or a domain rule is the caller's to fix
   // (400), an unknown id is 404, a state conflict is 409, and storage trouble
   // is 503 with the cause in the log, not the body.
   //
