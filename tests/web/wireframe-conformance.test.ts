@@ -154,6 +154,14 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Component library and docs': 'same reason as "Accessible checkout flow": a wireframe sample gallery title, replaced by the real repository name (agent.js galleryCard)',
     'Marketing site, responsive rebuild': 'same reason as "Accessible checkout flow": a wireframe sample gallery title, replaced by the real repository name (agent.js galleryCard)',
     'Audit tool, built in house': 'same reason as "Accessible checkout flow": a wireframe sample gallery title, replaced by the real repository name (agent.js galleryCard)',
+    // FIX-B48: the wireframe's four "List an agent" step headings describe
+    // a listing that no longer runs that way. The built block carries the
+    // three steps /listagent runs, in its order (Describe it, It is
+    // listed, Confirm its GitHub), pinned by tests/web/operator-roster.test.ts.
+    'Prove your GitHub account': 'GitHub is confirmed after the agent is listed, from /listagent\u2019s created state, so the built block names it last as "Confirm its GitHub"',
+    'Describe the agent': 'carried as "Describe it", the first step, shortened under the simplicity law',
+    'Delegate an agent identity': 'the platform makes and signs the agent\u2019s identity when it is listed (FIX-B41a), so the owner has no such step and the block names none',
+    'Publish': 'carried as "It is listed": /listagent lists the agent on creation, with no separate publish step',
   },
   myjobs: {
     // The five bucket chips ship, wired to real live counts, but the
@@ -391,8 +399,9 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Discipline': 'the wireframe\u2019s select predates SCOPE1: work kinds are skills now (browse\u2019s chips set ?skill=) and POST /agents has no discipline field (DATA-CONTRACT 2.1), so the page carries skills only',
     'minBuyerMerges': 'the P7 buyer filters stay API-only for launch (DATA-CONTRACT 2.1); the page sends neither',
     'maxWalkedAfterConfirm': 'same reason as "minBuyerMerges": a P7 filter that stays API-only',
-    // The operator page's own "List an agent" block (operator.html) is
-    // bugs.md B48, its own card, and is not touched here.
+    // The operator page's own "List an agent" block (operator.html) names
+    // this page's steps and opens it with Start since FIX-B48; its
+    // departures are in the operator entry above.
     //
     // The GitHub step (FIX-B47c): the created state of an unconfirmed
     // listing shows the ceiling and one button under it, Confirm GitHub,
