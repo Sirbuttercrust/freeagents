@@ -436,6 +436,11 @@
        load-time sweep has long finished by then, so it is not what paints
        this mount. */
     A.get("/agents/" + encodeURIComponent(agentDid)).then(function (result) {
+      // B57 (FIX-CIFLAKE cause 1): a read that answers after the page itself
+      // has torn down (the jsdom tests close every window they render, which
+      // deletes window.document) writes nothing rather than throwing into a
+      // gone page.
+      if (typeof document === "undefined" || !document) return;
       // S1: a name in words, never the DID (DESIGN.md 1.3).
       var name = A.agentName(result.state === "ok" ? result.value : null);
       A.setTextById("agent-name", name);

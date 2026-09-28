@@ -21,11 +21,15 @@ import { createSessionAdapter } from '../../src/adapters/identity/session-github
 import {
   MemoryAccountRepository,
   MemoryAgentRepository,
+  MemoryAttestationRepository,
   MemoryCredentialRepository,
   MemoryJobRepository,
 } from '../../src/adapters/storage/memory.js';
+import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
 import type { Session } from '../../src/adapters/identity/session.js';
 import type { Delegation } from '../../src/domain/agent.js';
+import { buildAttestation } from '../../src/domain/attestation.js';
+import { createJob, type Job } from '../../src/domain/job.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSession } from '../helpers/session-fixtures.js';
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
@@ -49,16 +53,48 @@ function delegationFixture(did: string, op: string): Delegation {
   } as unknown as Delegation;
 }
 
+// B57: one hire per page that reads the agent once per page load, each at
+// the status that page renders its body at. The buyer is a registered
+// account other than the signed-in operator, so every page below sees the
+// operator on the agent's side of the hire.
+const LATE_BUYER_DID = 'did:abt:zLateReadBuyer';
+const LATE_JOB = {
+  agreement: 'late-read-agreement',
+  job: 'late-read-job',
+  pullrequest: 'late-read-pullrequest',
+  staged: 'late-read-staged',
+  operatorjob: 'late-read-operatorjob',
+  deposit: 'late-read-deposit',
+} as const;
+
+function lateJob(id: string, overrides: Partial<Job>): Job {
+  const recent = new Date(Date.now() - 60 * 60 * 1000);
+  const base = createJob(
+    { id, buyerDid: LATE_BUYER_DID, agentDid: AGENTS[0]!.did, repository: 'buyer/late-read', brief: 'Fix the login bug' },
+    recent,
+  );
+  const agreed = {
+    criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent' as const, acceptedByBuyer: true, acceptedByAgent: true }],
+    priceUsd: '400.00', rail: 'abt' as const, depositPercent: 25, redoAllowance: 1,
+    priceAcceptedByBuyer: true, priceAcceptedByAgent: true,
+  };
+  return { ...base, ...agreed, ...overrides };
+}
+
 beforeAll(async () => {
   process.env.FREEAGENTS_PLATFORM_SEED ??= 'e'.repeat(64);
   const agentRepo = new MemoryAgentRepository();
+  const accountRepo = new MemoryAccountRepository();
+  const jobRepo = new MemoryJobRepository();
+  const attestationRepo = new MemoryAttestationRepository();
   const sessionAdapter = createSessionAdapter({
     github: fakeGitHubConfig(),
     fetchImpl: fakeGitHubFetch({ login: 'name-beside-operator', id: 8801 }),
   });
   server = createApp(
-    new MemoryAccountRepository(), agentRepo, undefined, undefined, new MemoryJobRepository(), undefined,
+    accountRepo, agentRepo, undefined, undefined, jobRepo, undefined,
     undefined, new MemoryCredentialRepository(), undefined, undefined, undefined, sessionAdapter,
+    undefined, undefined, undefined, attestationRepo,
   ).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -75,6 +111,29 @@ beforeAll(async () => {
   }
   // One override, so a page that draws only DID defaults is not what passes.
   await agentRepo.setAvatarSpec(AGENTS[1]!.did, { shape: 'mech', face: 'mouth', colour: 'c9' });
+
+  await accountRepo.register({ did: LATE_BUYER_DID, githubLogin: 'late-read-buyer' });
+  const recent = new Date(Date.now() - 60 * 60 * 1000);
+  await jobRepo.create(lateJob(LATE_JOB.agreement, { status: 'proposed' }));
+  await jobRepo.create(lateJob(LATE_JOB.job, { status: 'proposed' }));
+  await jobRepo.create(lateJob(LATE_JOB.pullrequest, {
+    status: 'submitted', stagedAt: recent, stagedCommit: 'c0ffee0000000000000000000000000000000001',
+    pullRequestUrl: 'https://github.com/buyer/late-read/pull/1', submittedAt: recent,
+  }));
+  const staged = lateJob(LATE_JOB.staged, {
+    status: 'staged', stagedAt: recent, stagedCommit: 'c0ffee0000000000000000000000000000000002',
+  });
+  await jobRepo.create(staged);
+  const attestation = buildAttestation(staged, {
+    diffHash: 'sha256:late-read', filesChanged: 1, linesAdded: 3, linesRemoved: 1,
+    changedPaths: ['src/login.ts'],
+    lineShareByCategory: { source: 100, test: 0, lockfile: 0, generated: 0, vendored: 0 },
+    testsDeleted: [], testsSkipAdded: [], commitSigners: [{ matchesAgentDid: true }],
+  }, recent);
+  const signed = await createCredentialsAdapter(undefined, new MemoryCredentialRepository()).signAttestation(attestation);
+  await attestationRepo.save({ jobId: staged.id, attestation, signed });
+  await jobRepo.create(lateJob(LATE_JOB.operatorjob, { status: 'confirmed', confirmedAt: recent }));
+  await jobRepo.create(lateJob(LATE_JOB.deposit, { status: 'proposed' }));
 });
 
 afterAll(async () => {
@@ -268,11 +327,17 @@ describe('only the agent\u2019s operator gets the avatar editor', () => {
 // running it against the pre-fix tree (git stash) and observing the
 // unhandled rejection this same probe catches.
 describe('a late per-row avatar read never writes into a page whose window already closed (FIX-CIFLAKE cause 1c)', () => {
+  // B57 added `signedIn` (plants the operator's session the way render()
+  // above does, for the pages that send no read without one), the read
+  // count `paintedSignal` may key on, and the two counts every B57 test
+  // asserts so it cannot pass without the late read ever happening. The
+  // two FIX-CIFLAKE tests pass none of it and run exactly as before.
   async function renderThenCloseBeforeReadSettles(
     path: string,
     delayMs: number,
-    paintedSignal: (doc: Document) => boolean,
-  ): Promise<{ jsdomErrors: string[]; unhandled: unknown[] }> {
+    paintedSignal: (doc: Document, agentReadsSent: number) => boolean,
+    opts: { signedIn?: boolean } = {},
+  ): Promise<{ jsdomErrors: string[]; unhandled: unknown[]; agentReadsSent: number; agentReadsAnsweredAfterClose: number }> {
     const vc = new VirtualConsole();
     const jsdomErrors: string[] = [];
     vc.on('jsdomError', (e: Error) => jsdomErrors.push(e.message));
@@ -280,6 +345,9 @@ describe('a late per-row avatar read never writes into a page whose window alrea
     const onUnhandledRejection = (reason: unknown): void => {
       unhandled.push(reason);
     };
+    let agentReadsSent = 0;
+    let agentReadsAnsweredAfterClose = 0;
+    let closed = false;
     process.on('unhandledRejection', onUnhandledRejection);
     try {
       const markup = await (await fetch(`${baseUrl}${path}`, { headers: { Accept: HTML } })).text();
@@ -290,6 +358,7 @@ describe('a late per-row avatar read never writes into a page whose window alrea
         pretendToBeVisual: true,
         virtualConsole: vc,
         beforeParse(window) {
+          if (opts.signedIn) window.sessionStorage.setItem('fa_session', JSON.stringify(session));
           Object.defineProperty(window, 'fetch', {
             writable: true,
             value: async (input: string, init?: RequestInit) => {
@@ -304,7 +373,11 @@ describe('a late per-row avatar read never writes into a page whose window alrea
               // match is against the RAW input path browse.js/operator.js
               // actually fetch, not the parsed and re-encoded pathname.
               if (String(input).startsWith('/agents/')) {
+                agentReadsSent += 1;
                 await new Promise((r) => setTimeout(r, delayMs));
+                const res = await fetch(url, init);
+                if (closed) agentReadsAnsweredAfterClose += 1;
+                return res;
               }
               return fetch(url, init);
             },
@@ -321,15 +394,16 @@ describe('a late per-row avatar read never writes into a page whose window alrea
       // tests/web/avatar-identity.test.ts's mountedAll signal reads,
       // reached here without waiting for the delayed read itself.
       const paintDeadline = Date.now() + 5000;
-      while (Date.now() < paintDeadline && !paintedSignal(dom.window.document)) {
+      while (Date.now() < paintDeadline && !paintedSignal(dom.window.document, agentReadsSent)) {
         await new Promise((r) => setTimeout(r, 20));
       }
       // Closes right after first paint, deliberately NOT waiting for the
       // delayed per-row avatar read: this is the exact race the brief
       // names, a read that answers after the caller has already moved on.
       dom.window.close();
+      closed = true;
       await new Promise((r) => setTimeout(r, delayMs + 300));
-      return { jsdomErrors, unhandled };
+      return { jsdomErrors, unhandled, agentReadsSent, agentReadsAnsweredAfterClose };
     } finally {
       process.off('unhandledRejection', onUnhandledRejection);
     }
@@ -351,4 +425,34 @@ describe('a late per-row avatar read never writes into a page whose window alrea
     expect(jsdomErrors, `jsdom errors: ${jsdomErrors.join('; ')}`).toEqual([]);
     expect(unhandled.map(String), 'a late read wrote into a closed page').toEqual([]);
   });
+
+  // B57: the pages that read the agent once per page load (GET
+  // /agents/:agentDid, answered by a callback that writes the agent's
+  // name and then mounts its avatar). Without each page's guard, the
+  // late answer raised "TypeError: Cannot read properties of undefined
+  // (reading 'getElementById')" from api.js's el() once jsdom had removed
+  // window.document. Each case first checks that the page sent the read
+  // and that its answer came back after close, so a page that never sent
+  // the read cannot pass.
+  const shown = (id: string) => (doc: Document) => doc.getElementById(id)?.hidden === false;
+  const late: Array<[string, () => string, (doc: Document, sent: number) => boolean, boolean]> = [
+    ['agreement', () => `/agreement?job=${LATE_JOB.agreement}`, shown('agreement-body'), true],
+    // /hire shows nothing until the agent read answers (renderWho and the
+    // form both wait on it), so the read going out is its first paint.
+    ['hire', () => `/hire?agent=${encodeURIComponent(AGENTS[0]!.did)}`, (_doc, sent) => sent >= 1, true],
+    ['job', () => `/jobs/${LATE_JOB.job}`, shown('who'), false],
+    ['pullrequest', () => `/pullrequest?job=${LATE_JOB.pullrequest}`, shown('pr-body'), true],
+    ['staged', () => `/staged?job=${LATE_JOB.staged}`, shown('staged-body'), true],
+    ['operatorjob', () => `/operatorjob?job=${LATE_JOB.operatorjob}`, shown('operatorjob-body'), true],
+    ['deposit', () => `/deposit?job=${LATE_JOB.deposit}`, shown('deposit-body'), true],
+  ];
+  for (const [label, path, painted, signedIn] of late) {
+    it(`${label}: the agent read answering after close raises no error (B57)`, async () => {
+      const r = await renderThenCloseBeforeReadSettles(path(), 300, painted, { signedIn });
+      expect(r.agentReadsSent, `${label}: the page never sent GET /agents/:agentDid`).toBeGreaterThanOrEqual(1);
+      expect(r.agentReadsAnsweredAfterClose, `${label}: no agent read answered after close`).toBeGreaterThanOrEqual(1);
+      expect(r.jsdomErrors, `jsdom errors: ${r.jsdomErrors.join('; ')}`).toEqual([]);
+      expect(r.unhandled.map(String), 'a late read wrote into a closed page').toEqual([]);
+    });
+  }
 });
