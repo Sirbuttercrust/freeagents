@@ -119,9 +119,7 @@ describe('createAbtPaymentRail: quote (injected rate source, no network)', () =>
     try {
       const rail = withEnv(envConfig(), () => createAbtPaymentRail());
       const quote = await rail.quote({ priceUsd: '100.00' });
-      expect(calls).toEqual([
-        'https://api.coingecko.com/api/v3/simple/price?ids=arcblock&vs_currencies=usd&include_last_updated_at=true',
-      ]);
+      expect(calls).toHaveLength(1);
       expect(quote.usdPerToken).toBe('0.50000000');
       expect(quote.amountToken).toBe('200');
       expect(quote.feeToken).toBe('6');

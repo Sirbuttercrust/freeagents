@@ -1297,17 +1297,34 @@ describe('FIX-B70a: the ABT rate is locked when the payment starts', () => {
     expect(rate.calls()).toBe(callsAtStart);
   });
 
-  it('(c) a lock planted in the token door query is never read: the claim carries the amounts the platform locked', async () => {
+  it('(c) a lock planted whole in the token door query is never read: the claim and the settlement carry the amounts the platform locked', async () => {
     const rate = controlledRate('0.34');
-    const { started } = await startWith(rate.source);
-    const planted = JSON.stringify({ amountToken: '0.00000001', feeToken: '0.00000001' });
-    const { sessionToken, authCallbackUrl } = await mintThroughTokenDoor(started, `&abtQuote=${encodeURIComponent(planted)}`);
+    const { started, fake } = await startWith(rate.source);
+    const planted = {
+      jobId: started.jobId,
+      leg: 'deposit',
+      amountUsd: '100.00',
+      usdPerAbt: '1',
+      rateUpdatedAt: null,
+      amountToken: '0.00000001',
+      feeToken: '0.00000001',
+      lockedAt: '2026-09-28T18:00:00.000Z',
+      expiresAt: '2999-01-01T00:00:00.000Z',
+    };
+    const query = Object.entries(planted)
+      .filter(([, value]) => value !== null)
+      .map(([key, value]) => `&abtQuote[${key}]=${encodeURIComponent(String(value))}`)
+      .join('');
+    const { sessionToken, authCallbackUrl } = await mintThroughTokenDoor(started, query);
     const step = await fetchPrepareTxClaim(started.baseUrl, sessionToken, authCallbackUrl, started.buyerWallet);
     if (step.kind !== 'claim') throw new Error('expected a claim');
     expect(operatorOutputUnits(step.partialTx)).toEqual({
       operator: fromTokenToUnit(AMOUNT_AT_034).toString(),
       fee: fromTokenToUnit(FEE_AT_034).toString(),
     });
+    const result = await answerPrepareTxClaim(started.baseUrl, sessionToken, step, started.buyerWallet);
+    expect(result).toEqual({ confirmed: true });
+    expect(fake.sentTx()).toBeDefined();
   });
 
   it('(d) an agreed price that changes after the start is refused before anything is broadcast, with the price-changed sentence', async () => {
