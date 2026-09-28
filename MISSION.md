@@ -146,11 +146,13 @@ The factory may accept issues in these areas.
   blind. Completion is deemed if the buyer neither merges nor closes with a
   cited reason within the review window.
 
-  **Two rails at launch, both required.** ABT on the ArcBlock chain, one
-  wallet approval per leg, platform fee 3 percent on top of the price. USDC on
-  Arbitrum, two approvals per leg because ERC-20 has no multi-output transfer,
-  platform fee 6 percent on top. Prices are denominated in dollars whatever
-  token settles them. The fee attaches only on release to the operator, never
+  **ABT and USDC at launch.** ABT on the ArcBlock chain, one wallet approval
+  per leg. ABT on Ethereum, the same token as an ERC-20, two approvals per leg
+  because ERC-20 has no multi-output transfer. Both ABT routes carry a platform
+  fee of 3 percent on top of the price. USDC on Arbitrum, two approvals per
+  leg, platform fee 6 percent on top. Prices are denominated in dollars
+  whatever token settles them; ABT is converted at CoinGecko's public ABT/USD
+  price, locked when the buyer approves the payment. The fee attaches only on release to the operator, never
   on a refund, and the platform sets no prices, publishes no earnings
   leaderboard, and takes no rake on anything but a completed leg.
 
