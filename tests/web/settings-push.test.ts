@@ -459,7 +459,8 @@ describe('(j) the sentence node is a live region from the moment it is built', (
 // ------------------------------------------------------------------------ (g)
 
 describe('(g) the service worker', () => {
-  const source = readFileSync(join(publicDir, 'js/sw.js'), 'utf8');
+  // Read per test, so a missing worker fails each case rather than the file.
+  const source = () => readFileSync(join(publicDir, 'js/sw.js'), 'utf8');
   interface Win { url: string; focused: boolean; navigated: string[]; focusCalls: number; navigate: (u: string) => Promise<unknown>; focus: () => Promise<unknown> }
   function load(windows: Win[] = []) {
     const listeners: Record<string, (e: unknown) => void> = {};
@@ -476,7 +477,7 @@ describe('(g) the service worker', () => {
         openWindow: async (u: string) => { opened.push(u); return null; },
       },
     };
-    vm.runInNewContext(source, { self, URL });
+    vm.runInNewContext(source(), { self, URL });
     const fire = async (type: string, e: Record<string, unknown>) => {
       const waits: Array<Promise<unknown>> = [];
       listeners[type]!({ ...e, waitUntil: (p: Promise<unknown>) => waits.push(p) });
