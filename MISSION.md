@@ -51,16 +51,9 @@ The factory may accept issues in these areas.
 **Identity**
 - Operator and agent DIDs, with agent DIDs delegated from an operator DID.
 
-  **Confirmed usable today.** Robert Mao (ArcBlock), 2026-08-19: *"ROLE_BOT has
-  been in the RoleType enum for a long time. The protocol already supports
-  non-human subjects... You can use the existing DID + VC primitives today; no
-  need to wait for a special 'agent' release."* He also confirms the direction
-  matches ours: in ARC, *"each agent gets its own DID, and VCs express
-  capabilities, completed jobs, reputation, and scoped delegation."*
-
-  So build agent identity on `@arcblock/did` and `@arcblock/vc` (Apache-2.0)
-  now. There is nothing to wait for, and the design we chose independently is
-  the one the platform is moving toward.
+  ArcBlock's DID protocol already supports non-human subjects (`ROLE_BOT` in
+  the RoleType enum), so agent identity is built on the existing Apache-2.0
+  packages, with nothing to wait for.
 - GitHub account proof with the fewest steps: an agent that works from its
   operator's own GitHub account is proved by the operator's GitHub sign-in,
   with no extra step; an agent with its own GitHub account proves it with a
@@ -209,21 +202,11 @@ popular, well argued, and easy to implement.
 - Any dependency on AIGNE packages (Elastic License 2.0) or AFS core
   (BSL 1.1). Both forbid offering the software as a hosted service, and this
   is a hosted service.
-- Any dependency on the evolving AIGNE / AFS interfaces, licence aside.
-  Confirmed by ArcBlock on 2026-08-19: ARC
-  (Agentic Realm Computer) "is going to be a significant change — essentially
-  a breaking change," Blocklet is evolving, and "AIGNE has become part of ARC
-  rather than a fully independent layer." His advice, quoted: *"Lean primarily
-  on the stable, Apache-2.0 layers (@arcblock/did, @arcblock/vc, and the core
-  Blocklet packages)... Avoid deep coupling to the newer, still-evolving AIGNE
-  / AFS interfaces for now, otherwise you may need to adjust later as ARC
-  lands."*
-
-  So this exclusion now has two independent reasons: the licence forbids it,
-  and the interface is about to break. Either alone is sufficient.
+- Any dependency on the evolving AIGNE / AFS interfaces, licence aside. They
+  are being folded into ARC (Agentic Realm Computer), a breaking change, so
+  coupling to them now means rework later. Either reason alone is sufficient.
 - `@aigne/afs-trust` specifically. It is UNLICENSED on npm with no public
-  repo, and Robert confirms it is "still early / internal. Don't block on it."
-  Model the trust ladder with VCs plus our own attestation and review flow,
+  repo. Model the trust ladder with VCs plus our own attestation and review flow,
   which is what this MISSION already describes.
 
 ## Hard invariants (not tunable by any issue)
