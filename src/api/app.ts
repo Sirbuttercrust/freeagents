@@ -163,7 +163,7 @@ import {
   usdcHalfPaidRecordFor,
   type RouteLeg,
 } from '../adapters/payment/route-support.js';
-import type { PaymentRef, PaymentRequest } from '../adapters/payment/types.js';
+import { RateUnavailableError, type PaymentRef, type PaymentRequest } from '../adapters/payment/types.js';
 import { createSettlementRepository } from '../adapters/storage/storage.js';
 import type { SettlementRepository } from '../adapters/storage/types.js';
 import { rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
@@ -7403,6 +7403,21 @@ export function createApp(
           res.status(readiness.status).json({ error: readiness.message });
           return;
         }
+      }
+      // FIX-B70a: the price is read here once before a session is minted,
+      // so a deployment with no ABT/USD price answers 503 and starts
+      // nothing. The session's own lock is written by onStart in the
+      // adapter (abt-did-connect.ts), which both doors run. The sentence
+      // stays free of the payment vocabulary the no-custody test bans
+      // outside the payment adapter directory.
+      try {
+        await abtPaymentRail.quote({ priceUsd: legAmountUsdFromJob(gate.job, leg) });
+      } catch (error) {
+        if (error instanceof RateUnavailableError) {
+          res.status(503).json({ error: 'The ABT price is not available right now. Try again in a minute.' });
+          return;
+        }
+        throw error;
       }
       // The did-connect-js generateSession route reads req.query,
       // req.body and req.params into extraParams (protocol.js's own

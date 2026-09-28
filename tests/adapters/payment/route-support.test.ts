@@ -101,7 +101,8 @@ describe('processWalletResponse and confirmPayment: thin passthroughs the route 
       rail: 'abt',
       jobId: 'job_1',
       finalTx: 'fake-final-tx',
-      amountUsd: '10.00',
+      amountToken: '10',
+      feeToken: '0.3',
       operatorAddress: 'z1Operator',
     });
     expect(ref.rail).toBe('abt');

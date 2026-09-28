@@ -218,7 +218,7 @@ export async function startAbtSession(
   baseUrl: string,
   starter: SigningIdentity | { readonly sessionHeader: Record<string, string> },
   params: { readonly jobId: string; readonly leg: 'deposit' | 'remainder' },
-): Promise<{ readonly sessionToken: string; readonly authCallbackUrl: string }> {
+): Promise<{ readonly sessionToken: string; readonly authCallbackUrl: string; readonly extra: Record<string, unknown> }> {
   const path = `/jobs/${params.jobId}/payments/${params.leg}/abt/start`;
   const res =
     'sessionHeader' in starter
@@ -231,7 +231,7 @@ export async function startAbtSession(
   if (res.status !== 200) {
     throw new Error(`abt /start failed: ${res.status} ${await res.text()}`);
   }
-  const body = (await res.json()) as { readonly token: string; readonly url: string };
+  const body = (await res.json()) as { readonly token: string; readonly url: string; readonly extra?: Record<string, unknown> };
   const deepLink = new URL(body.url);
   // WalletAuthenticator.uri() (node_modules/@arcblock/did-connect-js/dist/
   // authenticator/wallet.js) builds this deep link by calling
@@ -247,30 +247,28 @@ export async function startAbtSession(
     throw new Error('expected a wallet callback url inside the abt start response');
   }
   const authCallbackUrl = decodeURIComponent(encodedCallbackUrl);
-  return { sessionToken: body.token, authCallbackUrl };
+  return { sessionToken: body.token, authCallbackUrl, extra: body.extra ?? {} };
 }
 
-// The wallet-side continuation of the DID Connect protocol, from an
-// ALREADY-MINTED session (sessionToken, authCallbackUrl from
-// startAbtSession or a raw /start call the caller made itself): fetch
-// the first claim (authPrincipal), answer it, receive the second claim
-// (prepareTx), sign it, submit, read the final confirmed/error result.
-// Split out of driveAbtPayment so a test that must start the session
-// separately (to assert on the /start response before continuing) does
-// not need to repeat this walk inline.
-export async function continueAbtWalletProtocol(
+// What the wallet gets back for its answer to the first claim: the second
+// claim (prepareTx), or the sentence the platform refused with. A refusal
+// is a signed body carrying the sentence as `errorMessage` and no claims
+// (did-connect-js's own onProcessError through ensureSignedJson).
+export type PrepareTxStep =
+  | { readonly kind: 'claim'; readonly authPath: string; readonly challenge: string; readonly partialTx: string }
+  | { readonly kind: 'refused'; readonly error: string };
+
+// Wallet side, steps 0 and 1: fetch the first claim (authPrincipal),
+// answer it, and read what the platform answers with.
+export async function fetchPrepareTxClaim(
   baseUrl: string,
   sessionToken: string,
   authCallbackUrl: string,
   wallet: WalletObject,
-  outputsOverride?: unknown,
-): Promise<{ readonly confirmed: boolean; readonly error?: string }> {
+): Promise<PrepareTxStep> {
   const authPath = new URL(authCallbackUrl).pathname;
-
   const step0Res = await fetch(authCallbackUrl);
-  const step0Body = (await step0Res.json()) as DidConnectClaimResponse;
-  const step0 = decodeClaimBody(step0Body);
-
+  const step0 = decodeClaimBody((await step0Res.json()) as DidConnectClaimResponse);
   const step0SubmitRes = await fetch(`${baseUrl}${authPath}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -281,23 +279,37 @@ export async function continueAbtWalletProtocol(
     }),
   });
   const step1Body = (await step0SubmitRes.json()) as DidConnectClaimResponse;
+  // A refusal comes back signed too (did-connect-js's ensureSignedJson),
+  // with the sentence at the top level as `errorMessage` and no claims.
+  const step1Decoded = jwtDecode(step1Body.authInfo) as unknown as { errorMessage?: string; requestedClaims?: Record<string, unknown>[] };
+  if (typeof step1Decoded.errorMessage === 'string' && step1Decoded.errorMessage !== '') {
+    return { kind: 'refused', error: step1Decoded.errorMessage };
+  }
   const step1 = decodeClaimBody(step1Body);
-  const prepareTxClaim = step1.requestedClaims.find((c) => c.type === 'prepareTx') as
-    | { readonly partialTx: string }
-    | undefined;
+  const prepareTxClaim = step1.requestedClaims.find((c) => c.type === 'prepareTx') as { readonly partialTx: string } | undefined;
   if (prepareTxClaim === undefined) {
     throw new Error('expected a prepareTx claim at step 1');
   }
+  return { kind: 'claim', authPath, challenge: step1.challenge, partialTx: prepareTxClaim.partialTx };
+}
 
-  const finalTx = await walletSignsPartialTx(prepareTxClaim.partialTx, wallet, outputsOverride);
-
-  const step1SubmitRes = await fetch(`${baseUrl}${authPath}`, {
+// Wallet side, the last step: sign the partial transaction, answer, and
+// read the final confirmed/error result.
+export async function answerPrepareTxClaim(
+  baseUrl: string,
+  sessionToken: string,
+  step: Extract<PrepareTxStep, { kind: 'claim' }>,
+  wallet: WalletObject,
+  outputsOverride?: unknown,
+): Promise<{ readonly confirmed: boolean; readonly error?: string }> {
+  const finalTx = await walletSignsPartialTx(step.partialTx, wallet, outputsOverride);
+  const step1SubmitRes = await fetch(`${baseUrl}${step.authPath}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       _t_: sessionToken,
       userPk: wallet.publicKey,
-      userInfo: await walletResponseJwt(wallet, step1.challenge, [{ type: 'prepareTx', finalTx }]),
+      userInfo: await walletResponseJwt(wallet, step.challenge, [{ type: 'prepareTx', finalTx }]),
     }),
   });
   const finalBody = (await step1SubmitRes.json()) as { appPk: string; authInfo: string };
@@ -308,6 +320,29 @@ export async function continueAbtWalletProtocol(
   const response = decoded.response as { confirmed: boolean };
   const error = decoded.errorMessage as string | undefined;
   return error === undefined || error === '' ? { confirmed: response.confirmed } : { confirmed: response.confirmed, error };
+}
+
+// The wallet-side continuation of the DID Connect protocol, from an
+// ALREADY-MINTED session (sessionToken, authCallbackUrl from
+// startAbtSession or a raw /start call the caller made itself): fetch
+// the first claim, answer it, receive the second claim (prepareTx), sign
+// it, submit, read the final confirmed/error result. `beforeAnswer`, when
+// given, runs once the claim is in hand and before the wallet answers it,
+// so a test can change the world between the claim and the answer.
+export async function continueAbtWalletProtocol(
+  baseUrl: string,
+  sessionToken: string,
+  authCallbackUrl: string,
+  wallet: WalletObject,
+  outputsOverride?: unknown,
+  beforeAnswer?: () => void | Promise<void>,
+): Promise<{ readonly confirmed: boolean; readonly error?: string }> {
+  const step = await fetchPrepareTxClaim(baseUrl, sessionToken, authCallbackUrl, wallet);
+  if (step.kind === 'refused') {
+    throw new Error('expected a prepareTx claim at step 1');
+  }
+  await beforeAnswer?.();
+  return answerPrepareTxClaim(baseUrl, sessionToken, step, wallet, outputsOverride);
 }
 
 // Drives the full DID Connect wallet protocol for one payment leg,

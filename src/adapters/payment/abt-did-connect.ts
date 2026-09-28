@@ -18,13 +18,21 @@
 //
 // Three rules enforced here (brief, "the whole security of this
 // section"):
-//   - amounts come from the job (depositUsd/remainderUsd against the
-//     job's own priceUsd), never from extraParams;
+//   - amounts come from the lock the platform computed from the job
+//     (depositUsd/remainderUsd against the job's own priceUsd, converted
+//     once at the ABT/USD rate when the session started and written on
+//     the session row), never from extraParams;
 //   - the paying party must be the buyer on the job the session was
 //     bound to at /start time (a session created for one job can never
 //     confirm a payment for another);
 //   - the settlement row is written ONLY from onAuth, once confirm()
 //     answered confirmed: true; the /start route never writes one.
+//
+// The rate is read once per payment, in onStart below, and locked on the
+// session row (FIX-B70a). The claim is built from the lock, and the
+// wallet's answer is checked against the same amounts, so a price that
+// moves, or a feed that goes down, after the buyer opens the payment
+// cannot change what the buyer approved.
 import { WalletAuthenticator, WalletHandlers } from '@arcblock/did-connect-js';
 import { fromSecretKey } from '@ocap/wallet';
 import type { Express, Request, Response } from 'express';
@@ -170,6 +178,65 @@ function operatorAddressErrorMessage(reason: 'no-job' | 'no-agent' | 'no-account
     : 'this job or its hired agent could not be found';
 }
 
+// How long a locked ABT price stays valid: long enough to open a wallet
+// and approve, short enough that a buyer cannot sit on a quoted ABT price
+// as a free option at the owner's expense while the market moves.
+const ABT_QUOTE_LOCK_LIFETIME_MS = 15 * 60 * 1000;
+
+const NO_LOCK_MESSAGE = 'This payment has no locked ABT price. Start the payment again.';
+const LOCK_EXPIRED_MESSAGE = 'The ABT price for this payment expired. Start the payment again for a fresh price.';
+const PRICE_CHANGED_MESSAGE = 'The agreed price changed after this payment started. Start the payment again.';
+
+// The ABT price a payment session locked when it started, as written on
+// the session row under `abtQuote` (dates are ISO strings: the row is
+// JSON). Only the platform writes this key, from onStart below;
+// extraParams is caller-controlled and never carries a lock.
+interface AbtQuoteLock {
+  readonly jobId: string;
+  readonly leg: RouteLeg;
+  readonly amountUsd: string;
+  readonly usdPerAbt: string;
+  readonly rateUpdatedAt: string | null;
+  readonly amountToken: string;
+  readonly feeToken: string;
+  readonly lockedAt: string;
+  readonly expiresAt: string;
+}
+
+function readAbtQuoteLock(value: unknown): AbtQuoteLock | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const lock = value as Record<string, unknown>;
+  const text = (key: string): string | null => (typeof lock[key] === 'string' ? (lock[key] as string) : null);
+  const leg = legOf(lock.leg);
+  const jobId = text('jobId');
+  const amountUsd = text('amountUsd');
+  const usdPerAbt = text('usdPerAbt');
+  const amountToken = text('amountToken');
+  const feeToken = text('feeToken');
+  const lockedAt = text('lockedAt');
+  const expiresAt = text('expiresAt');
+  const rateUpdatedAt = lock.rateUpdatedAt === null ? null : text('rateUpdatedAt');
+  if (
+    leg === null || jobId === null || amountUsd === null || usdPerAbt === null || amountToken === null ||
+    feeToken === null || lockedAt === null || expiresAt === null || (lock.rateUpdatedAt !== null && rateUpdatedAt === null)
+  ) {
+    return null;
+  }
+  return { jobId, leg, amountUsd, usdPerAbt, rateUpdatedAt, amountToken, feeToken, lockedAt, expiresAt };
+}
+
+type AbtQuoteLockCheck =
+  | { readonly ok: true; readonly lock: AbtQuoteLock }
+  | { readonly ok: false; readonly message: string };
+
+interface LockedQuoteForCheckout {
+  readonly amountToken: string;
+  readonly feeToken: string;
+  readonly usdPerAbt: string;
+  readonly rateUpdatedAt: string | null;
+  readonly expiresAt: string;
+}
+
 // Attaches the DID Connect handlers ONCE at app construction (brief scope
 // item 3: "attached once at app construction"), and returns the
 // generateSession function the /start route calls after its own buyer
@@ -177,6 +244,31 @@ function operatorAddressErrorMessage(reason: 'no-job' | 'no-agent' | 'no-account
 export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOptions): AbtPaymentHandlers {
   const platformWallet = fromSecretKey(options.platformSk);
   const sessionStorage = options.sessionStorage ?? createDidConnectSessionStorage();
+
+  // The one check both the claim (prepareTx) and the wallet's answer
+  // (onAuth) make, so they refuse the same way. It reads the lock from
+  // the session row by the session's own token, never from extraParams,
+  // and refuses when there is no lock, when it names another job or leg
+  // than the session, when it has expired, or when the job's amount for
+  // this leg is no longer the amount the lock was computed from.
+  async function checkAbtQuoteLock(token: string, jobId: string, leg: RouteLeg): Promise<AbtQuoteLockCheck> {
+    const row = await sessionStorage.read(token);
+    const lock = readAbtQuoteLock(row?.abtQuote);
+    if (lock === null || lock.jobId !== jobId || lock.leg !== leg) {
+      return { ok: false, message: NO_LOCK_MESSAGE };
+    }
+    if (!(Date.now() < Date.parse(lock.expiresAt))) {
+      return { ok: false, message: LOCK_EXPIRED_MESSAGE };
+    }
+    const amountUsd = await legAmountUsd(options.jobRepo, jobId, leg);
+    if (amountUsd === null) {
+      return { ok: false, message: 'this job has no agreed price to pay against' };
+    }
+    if (amountUsd !== lock.amountUsd) {
+      return { ok: false, message: PRICE_CHANGED_MESSAGE };
+    }
+    return { ok: true, lock };
+  }
 
   const authenticator = new WalletAuthenticator({
     wallet: platformWallet,
@@ -196,6 +288,56 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
   const attached = handlers.attach({
     app: options.app,
     action: 'pay',
+    // Runs on both doors (the /start route and did-connect-js's own
+    // /api/did/pay/token mount). Quotes the leg's amount once and writes
+    // the lock on the session row through updateSession, the platform's
+    // own write; the returned object reaches the start response as
+    // `extra`. It never throws: a throw here would answer the buyer 200
+    // with an error body. On any failure (no job, no agreed price, no
+    // rate) it writes no lock and answers `{ abtQuote: null }`, and the
+    // claim then refuses for want of a lock.
+    onStart: async ({
+      extraParams,
+      updateSession,
+    }: {
+      readonly extraParams: Record<string, unknown>;
+      readonly updateSession: (key: string, value: unknown) => Promise<unknown>;
+    }): Promise<{ readonly abtQuote: LockedQuoteForCheckout | null }> => {
+      try {
+        const jobId = String(extraParams.jobId ?? '');
+        const leg = legFromExtraParams(extraParams);
+        if (jobId === '' || leg === null) return { abtQuote: null };
+        const amountUsd = await legAmountUsd(options.jobRepo, jobId, leg);
+        if (amountUsd === null) return { abtQuote: null };
+        const quote = await options.rail.quote({ priceUsd: amountUsd });
+        const lockedAt = new Date();
+        const expiresAt = new Date(lockedAt.getTime() + ABT_QUOTE_LOCK_LIFETIME_MS);
+        const rateUpdatedAt = quote.rateUpdatedAt === null ? null : quote.rateUpdatedAt.toISOString();
+        const lock: AbtQuoteLock = {
+          jobId,
+          leg,
+          amountUsd,
+          usdPerAbt: quote.usdPerToken,
+          rateUpdatedAt,
+          amountToken: quote.amountToken,
+          feeToken: quote.feeToken,
+          lockedAt: lockedAt.toISOString(),
+          expiresAt: expiresAt.toISOString(),
+        };
+        await updateSession('abtQuote', lock);
+        return {
+          abtQuote: {
+            amountToken: lock.amountToken,
+            feeToken: lock.feeToken,
+            usdPerAbt: lock.usdPerAbt,
+            rateUpdatedAt,
+            expiresAt: lock.expiresAt,
+          },
+        };
+      } catch {
+        return { abtQuote: null };
+      }
+    },
     claims: {
       // The rail's business, returned VERBATIM (brief scope item 3): this
       // file never builds a second claim shape. The built-in
@@ -204,8 +346,10 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       // txEncoder; nothing here touches encoding.
       prepareTx: async ({
         extraParams,
+        context,
       }: {
         readonly extraParams: Record<string, unknown>;
+        readonly context: { readonly token: string };
       }): Promise<unknown> => {
         const jobId = String(extraParams.jobId ?? '');
         const leg = legFromExtraParams(extraParams);
@@ -222,21 +366,21 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
         if (!operatorAddressResult.ok) {
           throw new Error(operatorAddressErrorMessage(operatorAddressResult.reason));
         }
-        // RULE: the amount comes from the JOB, never from the request
-        // (brief, "the whole security of this section"). extraParams
-        // never carries an amount at all; there is nothing here for a
-        // caller-supplied figure to override.
-        const amountUsd = await legAmountUsd(options.jobRepo, jobId, leg);
-        if (amountUsd === null) {
-          throw new Error('this job has no agreed price to pay against');
+        // RULE: the amounts come from the lock the platform wrote on this
+        // session when it started, computed from the job (brief, "the
+        // whole security of this section"). extraParams never carries an
+        // amount or a rate; nothing here quotes, so the claim is built
+        // from exactly the amounts the checkout showed.
+        const locked = await checkAbtQuoteLock(context.token, jobId, leg);
+        if (!locked.ok) {
+          throw new Error(locked.message);
         }
-        const quote = await options.rail.quote({ priceUsd: amountUsd });
         const request = await requestPayment(options.rail, {
           jobId,
           leg,
           operatorAddress: operatorAddressResult.operatorAddress,
-          amountToken: quote.amountToken,
-          feeToken: quote.feeToken,
+          amountToken: locked.lock.amountToken,
+          feeToken: locked.lock.feeToken,
         });
         if (request.rail !== 'abt') {
           throw new Error('expected the abt payment request shape');
@@ -248,10 +392,12 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       userDid,
       extraParams,
       claims,
+      req,
     }: {
       readonly userDid: string;
       readonly extraParams: Record<string, unknown>;
       readonly claims: ReadonlyArray<{ readonly type: string; readonly finalTx?: string }>;
+      readonly req: { readonly context: { readonly token: string } };
     }): Promise<{ readonly confirmed: boolean; readonly error?: string }> => {
       const jobId = String(extraParams.jobId ?? '');
       const leg = legFromExtraParams(extraParams);
@@ -355,16 +501,27 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       if (typeof finalTx !== 'string' || finalTx.length === 0) {
         return { confirmed: false, error: 'the wallet did not return a signed transaction' };
       }
-      // S2: the amount comes from the job's agreed price, never from
-      // extraParams or the claim (same rule prepareTx above already
-      // enforces): onWalletResponse needs it to compute the expected
-      // operator/fee amounts confirm() binds the chain's own outputs
-      // against.
-      const amountUsd = await legAmountUsd(options.jobRepo, jobId, leg);
-      if (amountUsd === null) {
-        return { confirmed: false, error: 'this job has no agreed price to pay against' };
+      // RULE: the amounts come from the lock on this session, the same
+      // lock prepareTx above built the claim from, read by the session's
+      // own token (req.context.token) and never from extraParams or the
+      // claim. The same check refuses, before anything is broadcast, a
+      // missing lock, one that names another job or leg, an expired one,
+      // and a job whose agreed amount changed since the session started.
+      // onWalletResponse then computes what confirm() checks the chain
+      // against from these exact amounts and reads no rate.
+      const locked = await checkAbtQuoteLock(req.context.token, jobId, leg);
+      if (!locked.ok) {
+        return { confirmed: false, error: locked.message };
       }
-      const ref = await processWalletResponse(options.rail, leg, { rail: 'abt', jobId, finalTx, amountUsd, operatorAddress: operatorAddressResult.operatorAddress });
+      const { amountUsd, amountToken, feeToken } = locked.lock;
+      const ref = await processWalletResponse(options.rail, leg, {
+        rail: 'abt',
+        jobId,
+        finalTx,
+        amountToken,
+        feeToken,
+        operatorAddress: operatorAddressResult.operatorAddress,
+      });
       const confirmation = await confirmPayment(options.rail, ref);
       // RULE: the gate is never written from the start route; only the
       // observation path (here) writes a settlement, and only when

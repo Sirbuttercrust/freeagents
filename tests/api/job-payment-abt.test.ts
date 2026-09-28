@@ -13,14 +13,15 @@
 // this is the only test that reaches the route through the wallet's own
 // wire protocol.
 import type { Server } from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { fromRandom, type WalletObject } from '@ocap/wallet';
 import { decode as jwtDecode } from '@arcblock/jwt';
 import { decodeTx as cborDecodeTx } from '@ocap/message/cbor';
-import { fromBase58 } from '@ocap/util';
+import { fromBase58, fromTokenToUnit } from '@ocap/util';
 import { createApp } from '../../src/api/app.js';
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
-import { createAbtPaymentRail, type AbtChainClient } from '../../src/adapters/payment/abt.js';
+import { createAbtPaymentRail, type AbtChainClient, type AbtRateSource } from '../../src/adapters/payment/abt.js';
+import type { DidConnectSessionStorage } from '../../src/adapters/payment/session-storage-types.js';
 import { didSuffix } from '../../src/domain/agent.js';
 import { MemorySettlementRepository } from '../../src/adapters/storage/memory.js';
 import { MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
@@ -30,9 +31,12 @@ import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import {
   abtEnv,
+  answerPrepareTxClaim,
+  continueAbtWalletProtocol,
   decodeClaimBody,
   driveAbtPayment,
   fakeAbtChainClient,
+  fetchPrepareTxClaim,
   getSigned,
   postSigned,
   pureTxEncoder,
@@ -43,6 +47,32 @@ import {
   withEnv,
   type DidConnectClaimResponse,
 } from '../helpers/abt-fixtures.js';
+
+// FIX-B70a: the DID Connect session storage the app builds for itself is
+// the only place a payment lock lives, so the tests read it through a
+// wrapper that also counts the sessions minted. The wrapper delegates
+// every call to the real in-memory storage.
+const sessionCapture = vi.hoisted(() => ({
+  captured: [] as { creates: number; storage: unknown }[],
+}));
+vi.mock('../../src/adapters/payment/session-storage.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/adapters/payment/session-storage.js')>();
+  return {
+    ...actual,
+    createDidConnectSessionStorage: () => {
+      const storage = actual.createDidConnectSessionStorage();
+      const capture = { creates: 0, storage };
+      sessionCapture.captured.push(capture);
+      return {
+        ...storage,
+        create: async (token: string, status?: string) => {
+          capture.creates += 1;
+          return storage.create(token, status);
+        },
+      };
+    },
+  };
+});
 
 const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
@@ -67,11 +97,14 @@ interface StartedAbtApp {
   readonly jobId: string;
   readonly agent: SigningIdentity;
   readonly operatorRepo: MemoryAccountRepository;
+  readonly sessions: { readonly storage: DidConnectSessionStorage; readonly created: () => number };
+  readonly jobRepo: MemoryJobRepository;
 }
 
 async function startAbtApp(
   chainClient: AbtChainClient,
   wrapOperatorRepo?: (repo: MemoryAccountRepository, operatorDid: string) => AccountRepository,
+  rateSource: AbtRateSource = async () => '1',
 ): Promise<StartedAbtApp> {
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -90,7 +123,7 @@ async function startAbtApp(
         return spentTransferRows.get(hash) ?? null;
       },
     };
-    const abtRail = createAbtPaymentRail({ chainClient, rateSource: async () => '1', spentTransferStorage });
+    const abtRail = createAbtPaymentRail({ chainClient, rateSource, spentTransferStorage });
 
     const buyer = await signingIdentityFromWallet(buyerWallet);
     const agent = await signingIdentityFromWallet(agentWallet);
@@ -133,6 +166,7 @@ async function startAbtApp(
     // keeps proving what it always proved.
     const { github } = createStagingLifecycleGithubFake();
 
+    const capturedBefore = sessionCapture.captured.length;
     const app = createApp(
       wrapOperatorRepo !== undefined ? wrapOperatorRepo(operatorRepo, 'did:abt:op-abt-surface') : operatorRepo,
       agentRepo,
@@ -174,7 +208,10 @@ async function startAbtApp(
     await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyer);
     await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agent);
 
-    return { server, baseUrl, buyer, buyerWallet, settlementRepo, gate, jobId, agent, operatorRepo };
+    const capture = sessionCapture.captured[capturedBefore];
+    if (capture === undefined) throw new Error('expected the app to build its DID Connect session storage');
+    const sessions = { storage: capture.storage as DidConnectSessionStorage, created: () => capture.creates };
+    return { server, baseUrl, buyer, buyerWallet, settlementRepo, gate, jobId, agent, operatorRepo, sessions, jobRepo };
   });
 }
 
@@ -1134,5 +1171,261 @@ describe('B23 on the abt wallet-response path: onAuth refuses a session complete
     } finally {
       started15.server.close();
     }
+  });
+});
+
+// FIX-B70a: the ABT price is read once, when the payment session starts,
+// and locked on the session row. The claim is built from the lock and the
+// wallet's answer is checked against the same amounts, on both doors.
+const LOCK_LIFETIME_MS = 15 * 60 * 1000;
+const NO_LOCK_SENTENCE = 'This payment has no locked ABT price. Start the payment again.';
+const EXPIRED_SENTENCE = 'The ABT price for this payment expired. Start the payment again for a fresh price.';
+const PRICE_CHANGED_SENTENCE = 'The agreed price changed after this payment started. Start the payment again.';
+const NO_PRICE_SENTENCE = 'The ABT price is not available right now. Try again in a minute.';
+// The $100.00 deposit leg of the $400.00 fixture job, at $0.34 per ABT.
+const AMOUNT_AT_034 = '294.11764705';
+const FEE_AT_034 = '8.82352941';
+
+// A rate source the test controls: every call is counted, and it answers
+// the given readings in order, repeating the last one. `set` replaces the
+// answer for every later call.
+function controlledRate(...answers: (string | null)[]): { source: AbtRateSource; set: (rate: string | null) => void; calls: () => number } {
+  let queue = [...answers];
+  let calls = 0;
+  return {
+    source: async () => {
+      calls += 1;
+      const next = queue.length > 1 ? queue.shift() : queue[0];
+      return next ?? null;
+    },
+    set: (next) => {
+      queue = [next];
+    },
+    calls: () => calls,
+  };
+}
+
+// Mints a session straight through did-connect-js's own token door, the
+// way the file's other token-door tests do, and decodes the callback URL.
+async function mintThroughTokenDoor(
+  started: StartedAbtApp,
+  query = '',
+): Promise<{ readonly sessionToken: string; readonly authCallbackUrl: string; readonly extra: Record<string, unknown> }> {
+  const res = await getSigned(started.baseUrl, `/api/did/pay/token?jobId=${started.jobId}&leg=deposit${query}`, started.buyer);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { readonly token: string; readonly url: string; readonly extra: Record<string, unknown> };
+  const encoded = new URL(body.url).searchParams.get('url');
+  if (encoded === null) throw new Error('expected a wallet callback url');
+  return { sessionToken: body.token, authCallbackUrl: decodeURIComponent(encoded), extra: body.extra };
+}
+
+function operatorOutputUnits(partialTx: string): { readonly operator: string; readonly fee: string } {
+  const decoded = cborDecodeTx(fromBase58(partialTx)) as { itx: { outputs: readonly { tokens: readonly { value: string }[] }[] } };
+  return { operator: decoded.itx.outputs[0]?.tokens[0]?.value ?? '', fee: decoded.itx.outputs[1]?.tokens[0]?.value ?? '' };
+}
+
+async function reproposePriceAndSignAgain(started: StartedAbtApp, priceUsd: string): Promise<void> {
+  await postSigned(started.baseUrl, `/jobs/${started.jobId}/criteria`, { criteria: proposal, priceUsd, rail: 'abt' }, started.agent);
+  await postSigned(started.baseUrl, `/jobs/${started.jobId}/criteria/0/accept`, {}, started.buyer);
+  await postSigned(started.baseUrl, `/jobs/${started.jobId}/criteria/0/accept`, {}, started.agent);
+  await postSigned(started.baseUrl, `/jobs/${started.jobId}/criteria/1/accept`, {}, started.buyer);
+  await postSigned(started.baseUrl, `/jobs/${started.jobId}/criteria/1/accept`, {}, started.agent);
+  await postSigned(started.baseUrl, `/jobs/${started.jobId}/price/accept`, {}, started.buyer);
+  await postSigned(started.baseUrl, `/jobs/${started.jobId}/price/accept`, {}, started.agent);
+}
+
+describe('FIX-B70a: the ABT rate is locked when the payment starts', () => {
+  const servers: Server[] = [];
+  async function startWith(rate: AbtRateSource): Promise<{ started: StartedAbtApp; fake: ReturnType<typeof fakeAbtChainClient> }> {
+    const fake = fakeAbtChainClient(true);
+    const started = await startAbtApp(fake.client, undefined, rate);
+    servers.push(started.server);
+    return { started, fake };
+  }
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  afterAll(() => {
+    for (const server of servers) server.close();
+  });
+
+  it('(a) a price that moves after the start still confirms at the locked amount, and the rate source is not read again', async () => {
+    const rate = controlledRate('0.34');
+    const { started, fake } = await startWith(rate.source);
+    const { sessionToken, authCallbackUrl } = await startAbtSession(started.baseUrl, started.buyer, { jobId: started.jobId, leg: 'deposit' });
+    rate.set('0.35');
+    const callsAtStart = rate.calls();
+    const step = await fetchPrepareTxClaim(started.baseUrl, sessionToken, authCallbackUrl, started.buyerWallet);
+    if (step.kind !== 'claim') throw new Error('expected a claim');
+    expect(operatorOutputUnits(step.partialTx)).toEqual({
+      operator: fromTokenToUnit(AMOUNT_AT_034).toString(),
+      fee: fromTokenToUnit(FEE_AT_034).toString(),
+    });
+    const result = await answerPrepareTxClaim(started.baseUrl, sessionToken, step, started.buyerWallet);
+    expect(result).toEqual({ confirmed: true });
+    expect(fake.sentTx()).toBeDefined();
+    const row = await started.settlementRepo.findByJobAndLeg(started.jobId, 'deposit');
+    expect(row?.amountUsd).toBe('100.00');
+    expect(rate.calls()).toBe(callsAtStart);
+  });
+
+  it('(b) a feed that dies after the start still confirms at the locked amount', async () => {
+    const rate = controlledRate('0.34');
+    const { started, fake } = await startWith(rate.source);
+    const { sessionToken, authCallbackUrl } = await startAbtSession(started.baseUrl, started.buyer, { jobId: started.jobId, leg: 'deposit' });
+    rate.set(null);
+    const callsAtStart = rate.calls();
+    const result = await continueAbtWalletProtocol(started.baseUrl, sessionToken, authCallbackUrl, started.buyerWallet);
+    expect(result).toEqual({ confirmed: true });
+    expect(fake.sentTx()).toBeDefined();
+    expect((await started.settlementRepo.findByJobAndLeg(started.jobId, 'deposit'))?.rail).toBe('abt');
+    expect(rate.calls()).toBe(callsAtStart);
+  });
+
+  it('(c) a session minted straight through /api/did/pay/token is locked the same way and pays at its lock when the rate moves', async () => {
+    const rate = controlledRate('0.34');
+    const { started, fake } = await startWith(rate.source);
+    const { sessionToken, authCallbackUrl } = await mintThroughTokenDoor(started);
+    rate.set('0.35');
+    const callsAtStart = rate.calls();
+    const row = await started.sessions.storage.read(sessionToken);
+    expect(row?.abtQuote).toMatchObject({ jobId: started.jobId, leg: 'deposit', amountUsd: '100.00', usdPerAbt: '0.34', amountToken: AMOUNT_AT_034, feeToken: FEE_AT_034 });
+    const result = await continueAbtWalletProtocol(started.baseUrl, sessionToken, authCallbackUrl, started.buyerWallet);
+    expect(result).toEqual({ confirmed: true });
+    expect(fake.sentTx()).toBeDefined();
+    expect((await started.settlementRepo.findByJobAndLeg(started.jobId, 'deposit'))?.amountUsd).toBe('100.00');
+    expect(rate.calls()).toBe(callsAtStart);
+  });
+
+  it('(c) a lock planted in the token door query is never read: the claim carries the amounts the platform locked', async () => {
+    const rate = controlledRate('0.34');
+    const { started } = await startWith(rate.source);
+    const planted = JSON.stringify({ amountToken: '0.00000001', feeToken: '0.00000001' });
+    const { sessionToken, authCallbackUrl } = await mintThroughTokenDoor(started, `&abtQuote=${encodeURIComponent(planted)}`);
+    const step = await fetchPrepareTxClaim(started.baseUrl, sessionToken, authCallbackUrl, started.buyerWallet);
+    if (step.kind !== 'claim') throw new Error('expected a claim');
+    expect(operatorOutputUnits(step.partialTx)).toEqual({
+      operator: fromTokenToUnit(AMOUNT_AT_034).toString(),
+      fee: fromTokenToUnit(FEE_AT_034).toString(),
+    });
+  });
+
+  it('(d) an agreed price that changes after the start is refused before anything is broadcast, with the price-changed sentence', async () => {
+    const rate = controlledRate('0.34');
+    const { started, fake } = await startWith(rate.source);
+    const { sessionToken, authCallbackUrl } = await startAbtSession(started.baseUrl, started.buyer, { jobId: started.jobId, leg: 'deposit' });
+    const step = await fetchPrepareTxClaim(started.baseUrl, sessionToken, authCallbackUrl, started.buyerWallet);
+    if (step.kind !== 'claim') throw new Error('expected a claim');
+    await reproposePriceAndSignAgain(started, '500.00');
+    const result = await answerPrepareTxClaim(started.baseUrl, sessionToken, step, started.buyerWallet);
+    expect(result).toEqual({ confirmed: false, error: PRICE_CHANGED_SENTENCE });
+    expect(fake.sentTx()).toBeUndefined();
+    expect(await started.settlementRepo.findByJobAndLeg(started.jobId, 'deposit')).toBeNull();
+  });
+
+  it('(e) a wallet that answers after the lock lifetime is refused before anything is broadcast, with the expired sentence', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T18:00:00Z'));
+    const rate = controlledRate('0.34');
+    const { started, fake } = await startWith(rate.source);
+    const { sessionToken, authCallbackUrl } = await startAbtSession(started.baseUrl, started.buyer, { jobId: started.jobId, leg: 'deposit' });
+    const step = await fetchPrepareTxClaim(started.baseUrl, sessionToken, authCallbackUrl, started.buyerWallet);
+    if (step.kind !== 'claim') throw new Error('expected a claim');
+    vi.setSystemTime(new Date('2026-09-28T18:00:00Z').getTime() + LOCK_LIFETIME_MS + 1000);
+    const result = await answerPrepareTxClaim(started.baseUrl, sessionToken, step, started.buyerWallet);
+    expect(result).toEqual({ confirmed: false, error: EXPIRED_SENTENCE });
+    expect(fake.sentTx()).toBeUndefined();
+    expect(await started.settlementRepo.findByJobAndLeg(started.jobId, 'deposit')).toBeNull();
+  });
+
+  it('(e) a claim fetched after the lock lifetime is refused before the wallet can sign it', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T18:00:00Z'));
+    const rate = controlledRate('0.34');
+    const { started, fake } = await startWith(rate.source);
+    const { sessionToken, authCallbackUrl } = await startAbtSession(started.baseUrl, started.buyer, { jobId: started.jobId, leg: 'deposit' });
+    vi.setSystemTime(new Date('2026-09-28T18:00:00Z').getTime() + LOCK_LIFETIME_MS + 1000);
+    const step = await fetchPrepareTxClaim(started.baseUrl, sessionToken, authCallbackUrl, started.buyerWallet);
+    expect(step).toEqual({ kind: 'refused', error: EXPIRED_SENTENCE });
+    expect(fake.sentTx()).toBeUndefined();
+  });
+
+  it('a session with no lock at all (the feed was down when it was minted on the token door) mints, then refuses the claim with the no-lock sentence', async () => {
+    const rate = controlledRate(null);
+    const { started, fake } = await startWith(rate.source);
+    const minted = await mintThroughTokenDoor(started);
+    expect(minted.extra).toEqual({ abtQuote: null });
+    expect((await started.sessions.storage.read(minted.sessionToken))?.abtQuote).toBeUndefined();
+    const step = await fetchPrepareTxClaim(started.baseUrl, minted.sessionToken, minted.authCallbackUrl, started.buyerWallet);
+    expect(step).toEqual({ kind: 'refused', error: NO_LOCK_SENTENCE });
+    expect(fake.sentTx()).toBeUndefined();
+  });
+
+  it.each([
+    ['job', { jobId: 'some-other-job' }],
+    ['leg', { leg: 'remainder' }],
+  ])('a lock that names another %s than the session is refused with the no-lock sentence, before broadcast', async (_name, tamper) => {
+    const rate = controlledRate('0.34');
+    const { started, fake } = await startWith(rate.source);
+    const { sessionToken, authCallbackUrl } = await startAbtSession(started.baseUrl, started.buyer, { jobId: started.jobId, leg: 'deposit' });
+    const row = await started.sessions.storage.read(sessionToken);
+    const lock = row?.abtQuote as Record<string, unknown>;
+    await started.sessions.storage.update(sessionToken, { abtQuote: { ...lock, ...tamper } });
+    expect(await fetchPrepareTxClaim(started.baseUrl, sessionToken, authCallbackUrl, started.buyerWallet)).toEqual({ kind: 'refused', error: NO_LOCK_SENTENCE });
+    expect(fake.sentTx()).toBeUndefined();
+  });
+
+  it('(f) /start answers 503 with the price sentence and mints no session when no rate is available', async () => {
+    const rate = controlledRate(null);
+    const { started } = await startWith(rate.source);
+    const before = started.sessions.created();
+    const res = await postSigned(started.baseUrl, `/jobs/${started.jobId}/payments/deposit/abt/start`, {}, started.buyer);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: NO_PRICE_SENTENCE });
+    expect(started.sessions.created()).toBe(before);
+  });
+
+  it('(g) the start response carries the locked quote as a whole object; a bare-string source gives a null rateUpdatedAt', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T18:00:00Z'));
+    const rate = controlledRate('0.34');
+    const { started } = await startWith(rate.source);
+    const { extra } = await startAbtSession(started.baseUrl, started.buyer, { jobId: started.jobId, leg: 'deposit' });
+    expect(extra).toEqual({
+      abtQuote: {
+        amountToken: AMOUNT_AT_034,
+        feeToken: FEE_AT_034,
+        usdPerAbt: '0.34',
+        rateUpdatedAt: null,
+        expiresAt: '2026-09-28T18:15:00.000Z',
+      },
+    });
+  });
+
+  it('(g) a timestamped reading carries its feed time into the start response and the lock', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T18:00:00Z'));
+    const { started } = await startWith(async () => ({ usdPerToken: '0.34000000', updatedAt: new Date('2026-09-28T17:58:30Z') }));
+    const { sessionToken, extra } = await startAbtSession(started.baseUrl, started.buyer, { jobId: started.jobId, leg: 'deposit' });
+    expect(extra).toEqual({
+      abtQuote: {
+        amountToken: AMOUNT_AT_034,
+        feeToken: FEE_AT_034,
+        usdPerAbt: '0.34000000',
+        rateUpdatedAt: '2026-09-28T17:58:30.000Z',
+        expiresAt: '2026-09-28T18:15:00.000Z',
+      },
+    });
+    expect((await started.sessions.storage.read(sessionToken))?.abtQuote).toEqual({
+      jobId: started.jobId,
+      leg: 'deposit',
+      amountUsd: '100.00',
+      usdPerAbt: '0.34000000',
+      rateUpdatedAt: '2026-09-28T17:58:30.000Z',
+      amountToken: AMOUNT_AT_034,
+      feeToken: FEE_AT_034,
+      lockedAt: '2026-09-28T18:00:00.000Z',
+      expiresAt: '2026-09-28T18:15:00.000Z',
+    });
   });
 });

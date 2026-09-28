@@ -17,18 +17,21 @@
 // only, never a signed input entry, on any transaction this file builds
 // (invariant 12; pinned by tests/adapters/payment/abt-never-input-owner.test.ts).
 //
-// Rate source: no reliable ABT/USD spot price feed was found at build time
-// (brief scope item 3 anticipates this). The production default therefore
-// returns null (RateUnavailableError surfaces to the route) until a named
-// feed is chosen; callers inject a RateSource for tests and may inject a
-// real one once a source is picked. This is recorded, not guessed past
-// (FACTORY_RULES.md 7.1: a product value, held for a human, not blocking
-// the build).
+// Rate source: CoinGecko's free public ABT/USD price, read by
+// abt-usd-rate.ts (MAP.md "ABT price source and fee"). That feed is the
+// production default. A caller may inject another source; it answers
+// either a bare dollars-per-ABT string (no feed time) or a RateReading
+// that also carries the feed's own update time. A source that answers
+// null makes quote() throw RateUnavailableError: this rail never quotes a
+// stale or invented number. The rate is read once per payment, when the
+// payment session starts (abt-did-connect.ts locks the resulting amounts
+// on the session); onWalletResponse below reads no rate.
 import Client from '@ocap/client';
 import { fromSecretKey } from '@ocap/wallet';
 import { bytesToHex, fromBase58, fromTokenToUnit, fromUnitToToken, toBase64 } from '@ocap/util';
 import { encodeTx as cborEncodeTx } from '@ocap/message/cbor';
 import { ABT_FEE_RATE_PERCENT, calculateFee, usdToTokenAmount } from '../../domain/payment.js';
+import { createAbtUsdRateSource } from './abt-usd-rate.js';
 import {
   PaymentConfigError,
   RateUnavailableError,
@@ -39,7 +42,7 @@ import {
   type PaymentRequest,
   type PrepareTxClaim,
   type Quote,
-  type RateSource,
+  type RateReading,
   type WalletResponseInput,
 } from './types.js';
 import { createPrismaAbtSpentTransferStorage } from './abt-spent-transfer-storage-prisma.js';
@@ -57,12 +60,27 @@ type AbtPaymentRequest = Extract<PaymentRequest, { rail: 'abt' }>;
 type AbtWalletResponseInput = Extract<WalletResponseInput, { rail: 'abt' }>;
 type AbtPaymentRef = Extract<PaymentRef, { rail: 'abt' }>;
 
-export interface AbtPaymentRail extends Omit<PaymentRail, 'createRequest' | 'onWalletResponse' | 'confirm'> {
+export interface AbtPaymentRail extends Omit<PaymentRail, 'createRequest' | 'onWalletResponse' | 'confirm' | 'quote'> {
   readonly rail: 'abt';
+  // The Quote plus the rate it was converted at and the feed's own update
+  // time (null when the source gave a bare string), so the payment session
+  // can lock the rate and show it (FIX-B70a).
+  quote(input: { readonly priceUsd: string }): Promise<AbtQuote>;
   createRequest(input: CreateRequestInput): Promise<AbtPaymentRequest>;
   onWalletResponse(input: AbtWalletResponseInput): Promise<AbtPaymentRef>;
   confirm(ref: AbtPaymentRef): Promise<Confirmation>;
 }
+
+export interface AbtQuote extends Quote {
+  readonly usdPerToken: string;
+  readonly rateUpdatedAt: Date | null;
+}
+
+// What an injected rate source may answer: a bare dollars-per-ABT string
+// (no feed time), a RateReading, or null when no rate can be read. The
+// rail is the only place this union is opened (types.ts's RateSource stays
+// the bare-string shape USDC and every test source use).
+export type AbtRateSource = (rail: 'abt') => Promise<string | RateReading | null>;
 
 // The outputs a TransferV3Tx broadcasts, as the chain's own getTx query
 // reports them (S2). Each output pays one owner some tokens; a
@@ -125,12 +143,9 @@ function realChainClient(chainHost: string): AbtChainClient {
   };
 }
 
-// No reliable ABT/USD feed was found at build time (see header comment).
-// Fails honestly rather than guessing a number.
-async function defaultRateSource(): Promise<string | null> {
-  return null;
-}
-
+// The production default rate source is CoinGecko's ABT/USD price (see the
+// header comment); createAbtPaymentRail builds one, with its own cache,
+// per rail.
 // Shape check for FREEAGENTS_ABT_PLATFORM_SK, shared with the P9 startup
 // configuration report (report.ts): "configured" must mean the same thing
 // in both places, so the report never claims the platform key is set when
@@ -149,7 +164,7 @@ export function isValidAbtPlatformSk(value: string): boolean {
 
 export interface CreateAbtPaymentRailOptions {
   readonly chainClient?: AbtChainClient;
-  readonly rateSource?: RateSource;
+  readonly rateSource?: AbtRateSource;
   readonly spentTransferStorage?: AbtSpentTransferStorage;
 }
 
@@ -190,26 +205,35 @@ export function createAbtPaymentRail(options: CreateAbtPaymentRailOptions = {}):
   const config = readAbtEnvConfig();
   const platformWallet = fromSecretKey(config.platformSk);
   const chainClient = options.chainClient ?? realChainClient(config.chainHost);
-  const rateSource = options.rateSource ?? defaultRateSource;
+  const rateSource: AbtRateSource = options.rateSource ?? createAbtUsdRateSource();
   const spentTransferStorage = options.spentTransferStorage ?? createPrismaAbtSpentTransferStorage();
 
   return {
     rail: 'abt',
 
-    async quote(input: { readonly priceUsd: string }): Promise<Quote> {
-      const rate = await rateSource('abt');
-      if (rate === null) {
+    async quote(input: { readonly priceUsd: string }): Promise<AbtQuote> {
+      const answer = await rateSource('abt');
+      if (answer === null) {
         throw new RateUnavailableError('abt');
       }
-      const amountToken = usdToTokenAmount(input.priceUsd, rate);
+      // A bare string is a rate with no feed time; a reading carries the
+      // feed's own update time through to the payment session's lock.
+      const usdPerToken = typeof answer === 'string' ? answer : answer.usdPerToken;
+      const rateUpdatedAt = typeof answer === 'string' ? null : answer.updatedAt;
+      const amountToken = usdToTokenAmount(input.priceUsd, usdPerToken);
       const feeUsd = calculateFee(input.priceUsd, ABT_FEE_RATE_PERCENT);
-      const feeToken = usdToTokenAmount(feeUsd, rate);
+      const feeToken = usdToTokenAmount(feeUsd, usdPerToken);
       return {
         rail: 'abt',
         priceUsd: input.priceUsd,
         amountToken,
         feeToken,
-        rateSource: `injected rate source (dollars per ABT: ${rate})`,
+        rateSource:
+          rateUpdatedAt === null
+            ? `injected rate source (dollars per ABT: ${usdPerToken})`
+            : `CoinGecko (dollars per ABT: ${usdPerToken}, updated ${rateUpdatedAt.toISOString()})`,
+        usdPerToken,
+        rateUpdatedAt,
       };
     },
 
@@ -276,13 +300,13 @@ export function createAbtPaymentRail(options: CreateAbtPaymentRailOptions = {}):
       // wallet-supplied artifact would let a wallet that redirects the
       // operator output also redirect what confirm() expects, so the
       // check would always agree with whatever the wallet sent.
-      const rate = await rateSource('abt');
-      if (rate === null) {
-        throw new RateUnavailableError('abt');
-      }
-      const operatorAmountToken = usdToTokenAmount(input.amountUsd, rate);
-      const feeUsd = calculateFee(input.amountUsd, ABT_FEE_RATE_PERCENT);
-      const feeAmountToken = usdToTokenAmount(feeUsd, rate);
+      // FIX-B70a: the expected amounts are the same kind of platform-side
+      // fact. They come from input.amountToken and input.feeToken, the
+      // exact strings the claim's outputs were built from, converted with
+      // the same fromTokenToUnit createRequest uses. No rate is read after
+      // the broadcast, so a price that moved or a feed that went down
+      // since the claim cannot make a payment the buyer approved fail to
+      // confirm.
       return {
         rail: 'abt',
         hash: result.hash,
@@ -290,8 +314,8 @@ export function createAbtPaymentRail(options: CreateAbtPaymentRailOptions = {}):
         feeAddress: config.feeAddress,
         jobId: input.jobId,
         leg: input.leg,
-        expectedOperatorUnit: fromTokenToUnit(operatorAmountToken).toString(),
-        expectedFeeUnit: fromTokenToUnit(feeAmountToken).toString(),
+        expectedOperatorUnit: fromTokenToUnit(input.amountToken).toString(),
+        expectedFeeUnit: fromTokenToUnit(input.feeToken).toString(),
       };
     },
 
