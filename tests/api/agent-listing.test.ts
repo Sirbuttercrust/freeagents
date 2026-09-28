@@ -31,10 +31,7 @@ import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
 // Stand-in identity adapter whose verifyDelegation always accepts (the
-// pattern tests/api/agent-negotiation-flag.test.ts's fakeIdentity() uses),
-// so the signed-path test below proves the SIGNED registration route
-// without re-proving delegation cryptography (agent-invariant2.test.ts
-// already does that end to end).
+// pattern tests/api/agent-negotiation-flag.test.ts's fakeIdentity() uses).
 function fakeIdentity(): IdentityAdapter {
   return {
     createOperatorDid: () => Promise.reject(new NotImplementedError('identity', 'createOperatorDid')),
@@ -46,22 +43,15 @@ function fakeIdentity(): IdentityAdapter {
   };
 }
 
-// Boots a fresh app + port for a one-off test, returning the account repo
-// (so a caller can register an operator before firing a request) and a
-// close() that shuts the server down cleanly.
+// Boots a fresh app + port; close() shuts it down.
 async function bootFreshApp(identity?: IdentityAdapter, sessionAdapter?: ReturnType<typeof testSessionAdapter>) {
   const accountRepo = new MemoryAccountRepository();
-  const agentRepo = new MemoryAgentRepository();
-  const app = createApp(accountRepo, agentRepo, identity, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter);
+  const app = createApp(accountRepo, new MemoryAgentRepository(), identity, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter);
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('expected a port');
-  return {
-    accountRepo,
-    baseUrl: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
-  };
+  return { accountRepo, baseUrl: `http://127.0.0.1:${address.port}`, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
 }
 
 function delegationFor(agentDid: string, operatorDid: string): Delegation {
