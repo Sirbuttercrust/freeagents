@@ -109,11 +109,11 @@
      sees the same five steps on every page of the hire. The draft
      statement became the second sentence of the lede. */
 
-  /* .who: the agent/operator strip, spec/wireframe/hire.html:55-61. The
-     420px wrap is this build's addition: the wireframe's strip holds a
-     sample name and this one holds whatever an agent is really called, so
-     the row has to be able to drop its control to a second line rather than
-     push the page sideways. */
+  /* .who: the agent/operator strip, spec/wireframe/hire.html:55-61. What
+     gives when the row runs short (the button keeps its label, the name
+     wraps, and at 420px and below the button drops to its own line) is
+     polish.css's identity-line rule, shared with the agreement and job
+     screens. */
   .who {
     display: flex; align-items: center; gap: 12px;
     padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 32px;
@@ -121,10 +121,6 @@
   .who .n { font-weight: 550; }
   .who .r { color: var(--fg-3); font-size: 13px; }
   .who .r a:hover { color: var(--fg); }
-  @media (max-width: 420px) {
-    .who { flex-wrap: wrap; }
-    .who .spacer { display: none; }
-  }
 
   /* spec/wireframe/hire.html:68, verbatim. The selector is element plus
      class on purpose: base.css's 44px floor block sets `textarea.input {
@@ -225,7 +221,7 @@
          paint nothing into. -->
     <div class="who" id="who">
       <span class="av" id="agent-avatar" data-pending></span>
-      <div>
+      <div class="mid">
         <div class="n" id="agent-name" data-pending>Loading</div>
         <div class="r" id="operated-by" hidden>operated by <a id="operator-link"></a></div>
       </div>

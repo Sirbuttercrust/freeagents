@@ -718,3 +718,52 @@ kbd {
     min-height: 44px;
   }
 }
+
+/* ======================================= THE IDENTITY LINE UNDER PRESSURE
+
+   The .who strip on the agreement, hire and job screens: the avatar (.av,
+   drawn above), the middle block (.mid: the agent's name and the operator
+   line), a spacer, then "Back to profile". Each page keeps its own base
+   rules for the strip; this is the one place that decides what gives when
+   the row runs short, because each page used to decide it differently.
+
+   Two things broke it on a phone. .btn is white-space: nowrap (base.css)
+   and overflow: hidden (the press ripple, above), and a flex item whose
+   overflow is not visible has an automatic minimum width of 0, so the row
+   took its whole shortfall out of the button and cut the label on both
+   sides ("ack to profil" at 320). And a name with no break opportunity
+   could not wrap, so it pushed the page sideways or ran under the button.
+   Measured in tests/web/who-strip.test.ts on all three pages, five names,
+   320 to 1280.
+
+   Reach. .mid is the hook the three screens put on the middle block, so
+   the first two rules touch those strips and no other. The 420px block's
+   first two lines match any .who: conduct, operatorjob, pullrequest,
+   staged and deposit already carry those same two lines from flow.css,
+   and the .who on incoming and messages is not a flex row, so a wrap
+   there changes nothing. */
+
+/* The button never shrinks below its label. */
+.who > .mid ~ .btn { flex-shrink: 0; }
+
+/* The middle block gives up the width instead, and its text wraps inside
+   it, an unbroken name included. The name is never cut or ellipsised.
+   `anywhere` rather than `break-word` because only `anywhere` lowers the
+   block's min-content width, and that is what lets it shrink at all.
+   It also takes the row's free space, so a short name's block reaches to
+   the button: on the job screen the operator link carries a 6px hit
+   margin on each side (job.html's coarse-pointer rule), and a block sized
+   exactly to its text left that margin sticking out of it. */
+.who > .mid { flex-grow: 1; overflow-wrap: anywhere; }
+
+/* 420px and below: the strip holds whatever an agent is really called, so
+   the row drops its control to a second line rather than push the page
+   sideways. The middle block starts from the rest of the first line (the
+   44px is the 32px avatar plus the 12px gap every page gives the strip),
+   which puts the button on its own line under the name, at the strip's
+   left edge. The spacer would otherwise follow it down and push it right. */
+@media (max-width: 420px) {
+  .who { flex-wrap: wrap; }
+  .who .spacer { display: none; }
+  .who > .mid { flex-basis: calc(100% - 44px); }
+}
