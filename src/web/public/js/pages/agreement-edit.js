@@ -8,7 +8,9 @@
    promise of null on success (agreement.js has already re-rendered the
    page from the response) or of the sentence to show on refusal. A refusal
    leaves every field as typed, so a failed send changes nothing on the
-   page but the sentence.
+   page but the sentence. The node that sentence is written into carries
+   role="alert" from the moment it is built, so a screen reader hears
+   every refusal, a repeat of the same one included (B52).
 
    EVERYTHING THROUGH textContent (api.js rule 3). */
 (function () {
@@ -71,6 +73,7 @@
     input.setAttribute("spellcheck", "false");
     if (opts.inputMode) input.setAttribute("inputmode", opts.inputMode);
     var error = node("p", "edit-error");
+    error.setAttribute("role", "alert");
     error.hidden = true;
     var save = button("btn btn-sm", "Save", function () {
       var parsed = opts.parse(input.value);
@@ -87,7 +90,14 @@
       if (ev.key === "Enter") { ev.preventDefault(); save.click(); }
       if (ev.key === "Escape") { ev.preventDefault(); cancel.click(); }
     });
-    function showError(text) { error.textContent = text; error.hidden = false; }
+    /* Empty and hide the alert before writing, so a screen reader announces
+       a second identical refusal instead of hearing no change (B52). */
+    function showError(text) {
+      error.textContent = "";
+      error.hidden = true;
+      error.textContent = text;
+      error.hidden = false;
+    }
     var actions = node("div", "row edit-actions");
     actions.appendChild(save);
     actions.appendChild(cancel);
@@ -168,6 +178,7 @@
 
     var error = node("p", "edit-error");
     error.id = "compose-error";
+    error.setAttribute("role", "alert");
     error.hidden = true;
     var send = button("btn", "Send the quote", function () {
       var written = lines.map(function (t) { return t.trim(); }).filter(function (t) { return t !== ""; });
@@ -185,7 +196,14 @@
     });
     send.id = "compose-send";
 
-    function showError(text) { error.textContent = text; error.hidden = false; }
+    /* Emptied and hidden before each write, the same as fieldEditor's,
+       so a repeat refusal is announced again (B52). */
+    function showError(text) {
+      error.textContent = "";
+      error.hidden = true;
+      error.textContent = text;
+      error.hidden = false;
+    }
 
     function termField(id, label, value, mode) {
       var wrap = node("div", "field");
