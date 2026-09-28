@@ -36,30 +36,44 @@
         My agents, which stays there.
      2. No discipline field. Work kinds are skills now, and PATCH
         /agents/:agentDid has no discipline field.
-     3. No "Stop listing" section. No route stops a listing yet, so the
-        page names no such control and promises none.
-     4. provegithub.html (P-21) is not its own page. Its one button lives
+     3. provegithub.html (P-21) is not its own page. Its one button lives
         here, in the GitHub account section under Details, because GitHub
         sends the owner back to this page when the proof ends. Its
         two-way checklist and "stopped resolving" state are not carried.
      The wireframe's .note blocks are notes to a reader and never ship.
 
+     FIX-B43b: the wireframe's "Stop listing this agent" section is carried
+     after GitHub account. Its heading is in the shell; the words above the
+     button, the button's label (the agent's real name) and the unlisted
+     state are written by the script from the agent's own listed, which
+     keeps the shell inside its 100-word pin (tests/web/agentsettings.test.ts
+     (j)). "Confirmed: @login" is written whole by the script for the same
+     reason: the shell held only its first half.
+
      One .btn-primary per state: Sign in when signed out, Save changes
-     while the form shows. Confirm GitHub sits beside Save on the same
-     screen, so it is a plain .btn. */
+     while the form shows. Confirm GitHub and the listing button sit beside
+     Save on the same screen, so they are plain .btn. */
 
   .narrow { max-width: 560px; }
   .field .sub { margin-top: 6px; }
   #agent-name { font-size: 28px; margin: 14px 0 0; overflow-wrap: anywhere; }
-  #settings-form h2, #gh-section h2 { font-size: 15px; margin: 30px 0 14px; }
+  #settings-form h2, #gh-section h2, #listing-section h2 { font-size: 15px; margin: 30px 0 14px; }
   #saved { margin: 14px 0 0; min-height: 1.5em; }
   /* A refusal sits under the fields it names, so it takes a rule in the
      error colour (hire.html's .field-error takes the same token) to read as
      a refusal rather than one more hint. */
-  #form-error, #gh-error { border-left: 2px solid var(--bad); padding: 2px 0 2px 12px; }
+  #form-error, #gh-error, #listing-error { border-left: 2px solid var(--bad); padding: 2px 0 2px 12px; }
   #form-error .sub { color: var(--fg); margin: 0; }
-  #gh-error { color: var(--fg); font-size: 13px; margin-top: 14px; }
+  #gh-error, #listing-error { color: var(--fg); font-size: 13px; margin-top: 14px; }
   #gh-unverified .sub { margin: 0 0 14px; }
+  /* The wireframe's spacing: 12px under the heading, 14px between the two
+     sentences, 20px above the button. */
+  #listing-words .sub { margin: 14px 0 0; }
+  #listing-words .sub:first-child { margin-top: 12px; }
+  /* The button carries the agent's name, which can be longer than a phone
+     is wide. .btn is nowrap with a fixed 44px height on narrow screens
+     (polish.css), so here it wraps the way #agent-name does and grows. */
+  #listing-btn { margin-top: 20px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: center; height: auto; padding-top: 10px; padding-bottom: 10px; }
   /* No display:none when empty: a live region has to be in the page before
      its words arrive, or a screen reader never hears them (bugs.md B52). */
   #gh-outcome { margin: 14px 0 0; }
@@ -67,7 +81,7 @@
      (DESIGN.md 5.3 names no mouse exemption). polish.css gives the back
      link its floor on touch only. */
   #back-link { min-height: 44px; display: inline-flex; align-items: center; }
-  #save-btn, #gh-confirm, #signin-link, .state-links .btn, #settings-form .input { min-height: 44px; }
+  #save-btn, #gh-confirm, #listing-btn, #signin-link, .state-links .btn, #settings-form .input { min-height: 44px; }
   .state-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
 </style>
 </head>
@@ -154,8 +168,18 @@
         <button class="btn" type="button" id="gh-confirm" data-github-proof>Confirm GitHub</button>
         <div class="empty warn" id="gh-error" role="alert" hidden></div>
       </div>
-      <p class="sub" id="gh-confirmed" role="status" hidden>Confirmed: @<span id="gh-login"></span></p>
+      <p class="sub" id="gh-confirmed" role="status" hidden></p>
       <p class="sub" id="gh-outcome" role="status"></p>
+    </section>
+
+    <!-- The listing (bugs.md B43), after GitHub account. Inside
+         #settings-body, so only the owner ever sees it. The alert node is
+         here from the start, empty, so its first sentence is heard. -->
+    <section id="listing-section" aria-labelledby="listing-heading">
+      <h2 id="listing-heading">Stop listing this agent</h2>
+      <div id="listing-words"></div>
+      <button class="btn" type="button" id="listing-btn"></button>
+      <div class="empty warn" id="listing-error" role="alert" hidden></div>
     </section>
   </div>
 

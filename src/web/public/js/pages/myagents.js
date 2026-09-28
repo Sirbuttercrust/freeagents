@@ -187,6 +187,17 @@
     name.textContent = typeof agent.name === "string" && agent.name !== "" ? agent.name : A.shortDid(agent.did);
     body.appendChild(name);
 
+    /* FIX-B43b: an agent its owner has stopped listing says so beside its
+       name, from the roster card's own listed (GET /accounts/:did/agents
+       keeps unlisted agents, marked). Only an explicit false: a card with
+       no listed field is listed. */
+    if (agent.listed === false) {
+      var unlisted = document.createElement("span");
+      unlisted.className = "unlisted small dim";
+      unlisted.textContent = "Not listed";
+      body.appendChild(unlisted);
+    }
+
     /* Ruling 1: no description field exists on Agent (src/domain/agent.ts),
        so the .ds line renders the agent's skills instead, the same way
        operator.js's own roster row does. No skills, no line. */

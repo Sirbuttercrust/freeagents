@@ -938,6 +938,386 @@ describe('(o) the landing from GitHub', () => {
   });
 });
 
+// ------------------------------------------------ FIX-B43b: the listing
+
+// The third section: the owner stops listing the agent, and lists it again,
+// through the real PUT /agents/:agentDid/listing. Letters are the card's,
+// prefixed "listing" so they do not collide with this file's own (a) to (o).
+const LISTED = {
+  heading: 'Stop listing this agent',
+  lines: ['It leaves browse and nobody can hire it. Work that already shipped stays on the record, and its receipts keep working.', 'You can list it again later.'],
+};
+const UNLISTED = {
+  heading: 'List this agent again',
+  lines: ['It is not listed, so nobody can find it or hire it. Its record stays public.'],
+  button: 'List it again',
+};
+const LISTING_REFUSED = {
+  401: 'Your session has expired. Sign in again to change its listing.',
+  403: 'Only this agent\u2019s owner can change its listing. Sign in with the account that listed it.',
+  404: 'We could not find this agent any more. Go back to My agents.',
+  failed: 'That did not work, and nothing changed. Try again.',
+  offline: 'That did not reach the server, and nothing changed. Check your connection and try again.',
+};
+
+const puts = (page: Page): Call[] => page.calls.filter((c) => c.method === 'PUT' && c.path.endsWith('/listing'));
+const listingBtn = (page: Page): HTMLButtonElement => page.document.getElementById('listing-btn') as HTMLButtonElement;
+function listingState(page: Page): { heading: string; lines: string[]; button: string } {
+  return {
+    heading: text(page, 'listing-heading'),
+    lines: Array.from(page.document.querySelectorAll('#listing-words p')).map((p) => (p.textContent ?? '').trim()),
+    button: listingBtn(page).textContent?.trim() ?? '',
+  };
+}
+const listedState = (name: string): ReturnType<typeof listingState> => ({ ...LISTED, button: `Stop listing ${name}` });
+const unlistedState = (): ReturnType<typeof listingState> => ({ heading: UNLISTED.heading, lines: UNLISTED.lines, button: UNLISTED.button });
+
+// Presses the listing button and waits until the PUT has answered and the
+// page has acted on it (the button is back).
+async function pressListing(page: Page): Promise<void> {
+  const before = puts(page).length;
+  listingBtn(page).click();
+  await until(() => puts(page).length > before);
+  await until(() => !listingBtn(page).disabled);
+}
+
+async function setListedByApi(owner: Session, did: string, listed: boolean): Promise<void> {
+  const res = await fetch(`${baseUrl}/agents/${encodeURIComponent(did)}/listing`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${owner.token}` },
+    body: JSON.stringify({ listed }),
+  });
+  expect(res.status).toBe(200);
+}
+
+async function browseDids(): Promise<string[]> {
+  const res = await fetch(`${baseUrl}/agents`, { headers: { Accept: 'application/json' } });
+  expect(res.status).toBe(200);
+  return ((await res.json()) as { agents: { did: string }[] }).agents.map((a) => a.did);
+}
+
+describe('listing (a) a listed agent', () => {
+  it('shows the section with the wireframe\u2019s heading and two sentences, and a button reading "Stop listing <the agent\u2019s real name>"', async () => {
+    const did = await listAgent(githubOwner, { name: 'still-listed', skills: ['triage'] });
+    const page = await render(settingsPath(did), githubOwner);
+    try {
+      expect(shown(page, 'settings-body')).toBe(true);
+      expect(page.document.getElementById('listing-section')?.closest('[hidden]')).toBeNull();
+      expect(listingState(page)).toEqual(listedState('still-listed'));
+      // The wireframe's "Stop listing axiom-ui" is its sample name; this is
+      // the live-name pin wireframe-conformance.test.ts cites.
+      expect(listingBtn(page).textContent).toBe(`Stop listing ${text(page, 'agent-name')}`);
+      expect(listingBtn(page).className, 'Save changes is the one primary').toBe('btn');
+      expect(listingBtn(page).type).toBe('button');
+      expect(text(page, 'listing-error')).toBe('');
+      expect(shown(page, 'listing-error')).toBe(false);
+      expect(puts(page)).toEqual([]);
+      expect(machineWords(page)).toEqual([]);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('an agent that opens already unlisted shows the unlisted state', async () => {
+    const did = await listAgent(githubOwner, { name: 'opens-unlisted', skills: ['triage'] });
+    await setListedByApi(githubOwner, did, false);
+    const page = await render(settingsPath(did), githubOwner);
+    try {
+      expect(listingState(page)).toEqual(unlistedState());
+      expect(machineWords(page)).toEqual([]);
+    } finally {
+      page.close();
+    }
+  });
+});
+
+describe('listing (b) Stop listing', () => {
+  it.each([['a GitHub owner', () => githubOwner], ['a passkey owner', () => passkeyOwner]])('%s: one PUT of exactly { listed: false } with the session\u2019s token, and the section redraws unlisted', async (_label, owner) => {
+    const did = await listAgent(owner(), { name: 'to-unlist', skills: ['triage'] });
+    const page = await render(settingsPath(did), owner());
+    try {
+      await pressListing(page);
+      expect(puts(page)).toHaveLength(1);
+      expect(puts(page)[0]!.path).toBe(`/agents/${encodeURIComponent(did)}/listing`);
+      expect(puts(page)[0]!.body).toEqual({ listed: false });
+      expect(puts(page)[0]!.auth).toBe(`Bearer ${owner().token}`);
+      expect(listingState(page)).toEqual(unlistedState());
+      expect(shown(page, 'listing-error')).toBe(false);
+    } finally {
+      page.close();
+    }
+    expect((await readAgent(did)).listed).toBe(false);
+  });
+
+  it('the section draws the answer\u2019s listed, not the one pressed', async () => {
+    const did = await listAgent(githubOwner, { name: 'answer-wins', skills: ['triage'] });
+    const page = await render(settingsPath(did), githubOwner);
+    // The route answers 200 with the agent still listed.
+    const real = agentRepo.setListed;
+    agentRepo.setListed = async (d: string) => agentRepo.findByDid(d);
+    try {
+      await pressListing(page);
+      expect(puts(page)[0]!.body).toEqual({ listed: false });
+      expect(listingState(page)).toEqual(listedState('answer-wins'));
+      expect(shown(page, 'listing-error')).toBe(false);
+    } finally {
+      agentRepo.setListed = real;
+      page.close();
+    }
+  });
+});
+
+describe('listing (c) List it again', () => {
+  it('sends exactly { listed: true } and redraws listed; the agent reads listed again', async () => {
+    const did = await listAgent(githubOwner, { name: 'to-relist', skills: ['triage'] });
+    await setListedByApi(githubOwner, did, false);
+    const page = await render(settingsPath(did), githubOwner);
+    try {
+      expect(listingState(page)).toEqual(unlistedState());
+      await pressListing(page);
+      expect(puts(page)).toHaveLength(1);
+      expect(puts(page)[0]!.body).toEqual({ listed: true });
+      expect(listingState(page)).toEqual(listedState('to-relist'));
+    } finally {
+      page.close();
+    }
+    expect((await readAgent(did)).listed).toBe(true);
+  });
+
+  it('both directions from one page: Stop listing, then List it again, two PUTs', async () => {
+    const did = await listAgent(githubOwner, { name: 'round-trip', skills: ['triage'] });
+    const page = await render(settingsPath(did), githubOwner);
+    try {
+      await pressListing(page);
+      expect(listingState(page)).toEqual(unlistedState());
+      await pressListing(page);
+      expect(listingState(page)).toEqual(listedState('round-trip'));
+      expect(puts(page).map((c) => c.body)).toEqual([{ listed: false }, { listed: true }]);
+    } finally {
+      page.close();
+    }
+  });
+});
+
+describe('listing (d) one PUT per press', () => {
+  it('a second press before the first answers sends nothing', async () => {
+    const did = await listAgent(githubOwner, { name: 'listing-twice', skills: ['triage'] });
+    const page = await render(settingsPath(did), githubOwner);
+    try {
+      const btn = listingBtn(page);
+      btn.click();
+      expect(btn.disabled, 'the button is off while the PUT is out').toBe(true);
+      expect(btn.getAttribute('data-busy')).toBe('true');
+      btn.click();
+      // A click event reaches the listener even on a disabled button when
+      // it is dispatched rather than clicked, so the press guard itself is
+      // what has to hold here.
+      btn.dispatchEvent(new page.window.MouseEvent('click', { bubbles: true }));
+      await until(() => listingState(page).button === UNLISTED.button);
+      await new Promise((r) => setTimeout(r, 200));
+      expect(puts(page)).toHaveLength(1);
+      expect(btn.disabled).toBe(false);
+      expect(btn.hasAttribute('data-busy')).toBe(false);
+    } finally {
+      page.close();
+    }
+  });
+});
+
+describe('listing (e) each refusal says one sentence and changes nothing', () => {
+  async function refusedListing(page: Page, before: ReturnType<typeof listingState>, sentence: string, sent: number): Promise<void> {
+    await pressListing(page);
+    expect(puts(page)).toHaveLength(sent);
+    await until(() => text(page, 'listing-error') !== '');
+    expect(text(page, 'listing-error')).toBe(sentence);
+    expect(shown(page, 'listing-error')).toBe(true);
+    expect(page.document.getElementById('listing-error')?.getAttribute('role')).toBe('alert');
+    expect(listingState(page), 'a refusal redrew the section').toEqual(before);
+    expect(listingBtn(page).disabled).toBe(false);
+    expect(machineWords(page)).toEqual([]);
+  }
+
+  it.each([
+    ['401: an unknown token', () => 'no-such-token-at-listing', LISTING_REFUSED[401]],
+    ['403: a signed-in stranger\u2019s token', () => stranger.token, LISTING_REFUSED[403]],
+  ])('%s swapped in between load and press', async (_label, token, sentence) => {
+    const did = await listAgent(githubOwner, { name: 'swapped-listing', skills: ['triage'] });
+    const page = await render(settingsPath(did), githubOwner);
+    try {
+      page.window.sessionStorage.setItem('fa_session', JSON.stringify({ ...githubOwner, token: token() }));
+      await refusedListing(page, listedState('swapped-listing'), sentence, 1);
+    } finally {
+      page.close();
+    }
+    expect((await readAgent(did)).listed).toBe(true);
+  });
+
+  it.each([
+    ['404: the agent is gone by the time of the press', async () => null, LISTING_REFUSED[404]],
+    ['503: storage fails', async () => { throw new Error('storage down (test)'); }, LISTING_REFUSED.failed],
+  ])('%s', async (_label, stub, sentence) => {
+    const did = await listAgent(githubOwner, { name: 'listing-refused', skills: ['triage'] });
+    await setListedByApi(githubOwner, did, false);
+    const page = await render(settingsPath(did), githubOwner);
+    const real = agentRepo.setListed;
+    agentRepo.setListed = stub as typeof agentRepo.setListed;
+    try {
+      await refusedListing(page, unlistedState(), sentence, 1);
+    } finally {
+      agentRepo.setListed = real;
+      page.close();
+    }
+    expect((await readAgent(did)).listed).toBe(false);
+  });
+
+  it('a press that never reaches the server gets its own sentence; the next press, back online, goes through and clears it', async () => {
+    const did = await listAgent(githubOwner, { name: 'listing-offline', skills: ['triage'] });
+    const page = await render(settingsPath(did), githubOwner, { reject: (p, m) => m === 'PUT' && p.endsWith('/listing') });
+    try {
+      await refusedListing(page, listedState('listing-offline'), LISTING_REFUSED.offline, 1);
+      page.reject = null;
+      await pressListing(page);
+      expect(listingState(page)).toEqual(unlistedState());
+      expect(shown(page, 'listing-error'), 'the old sentence beside a press that went through').toBe(false);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('a session cleared between load and press sends nothing and says to sign in again', async () => {
+    const did = await listAgent(githubOwner, { name: 'listing-cleared', skills: ['triage'] });
+    const page = await render(settingsPath(did), githubOwner);
+    try {
+      page.window.sessionStorage.removeItem('fa_session');
+      listingBtn(page).click();
+      await new Promise((r) => setTimeout(r, 200));
+      expect(puts(page)).toEqual([]);
+      expect(text(page, 'listing-error')).toBe(LISTING_REFUSED[401]);
+      expect(listingState(page)).toEqual(listedState('listing-cleared'));
+    } finally {
+      page.close();
+    }
+  });
+
+  it('the alert node is in the page, role="alert" and empty, before any press', async () => {
+    const did = await listAgent(githubOwner, { name: 'listing-live-region', skills: ['triage'] });
+    const page = await render(settingsPath(did), githubOwner);
+    try {
+      const node = page.document.getElementById('listing-error');
+      expect(node).not.toBeNull();
+      expect(node!.getAttribute('role')).toBe('alert');
+      expect(text(page, 'listing-error')).toBe('');
+    } finally {
+      page.close();
+    }
+  });
+});
+
+describe('listing (f) only the owner sees the section', () => {
+  it.each([
+    ['a stranger', () => stranger, 'stranger'],
+    ['a signed-out visitor', () => null, 'signin-required'],
+  ])('%s sees no section and sends no PUT', async (_label, who, state) => {
+    const did = await listAgent(githubOwner, { name: 'listing-not-yours', skills: ['triage'] });
+    const page = await render(settingsPath(did), who());
+    try {
+      expect(shown(page, state)).toBe(true);
+      expect(page.document.getElementById('listing-section')?.closest('[hidden]')).not.toBeNull();
+      listingBtn(page).click();
+      await new Promise((r) => setTimeout(r, 200));
+      expect(puts(page)).toEqual([]);
+    } finally {
+      page.close();
+    }
+    expect((await readAgent(did)).listed).toBe(true);
+  });
+});
+
+describe('listing (g) the Details form keeps what was typed', () => {
+  it('a listing press leaves every typed value, and "Saved." stays unsaid', async () => {
+    const did = await listAgent(githubOwner, { name: 'typed-then-unlisted', skills: ['triage'] });
+    const page = await render(settingsPath(did), githubOwner);
+    try {
+      type(page, 'nm', 'half-typed');
+      type(page, 'ds', 'Not saved yet.');
+      type(page, 'sk', 'go, sql');
+      type(page, 'fl', '12');
+      await pressListing(page);
+      expect(listingState(page)).toEqual(unlistedState());
+      expect(values(page)).toEqual(['half-typed', 'Not saved yet.', 'go, sql', '12']);
+      expect(text(page, 'agent-name')).toBe('typed-then-unlisted');
+      expect(text(page, 'saved')).toBe('');
+      expect(patches(page)).toEqual([]);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('a saved rename renames the button too', async () => {
+    const did = await listAgent(githubOwner, { name: 'old-name', skills: ['triage'] });
+    const page = await render(settingsPath(did), githubOwner);
+    try {
+      type(page, 'nm', 'new-name');
+      await save(page);
+      expect(text(page, 'saved')).toBe('Saved.');
+      expect(listingState(page)).toEqual(listedState('new-name'));
+    } finally {
+      page.close();
+    }
+  });
+});
+
+describe('listing (h) the press reaches browse', () => {
+  it('after Stop listing, GET /agents leaves the agent out and GET /agents/:agentDid reads listed: false; after List it again it is back', async () => {
+    const did = await listAgent(githubOwner, { name: 'browse-round-trip', skills: ['triage'] });
+    expect(await browseDids()).toContain(did);
+    const page = await render(settingsPath(did), githubOwner);
+    try {
+      await pressListing(page);
+      expect(listingState(page)).toEqual(unlistedState());
+      expect(await browseDids()).not.toContain(did);
+      expect(await readAgent(did)).toMatchObject({ did, listed: false });
+      await pressListing(page);
+      expect(listingState(page)).toEqual(listedState('browse-round-trip'));
+      expect(await browseDids()).toContain(did);
+      expect(await readAgent(did)).toMatchObject({ did, listed: true });
+    } finally {
+      page.close();
+    }
+  });
+
+  it('/myagents marks an unlisted row "Not listed" beside its name, from the roster read alone', async () => {
+    nextLogin = 'listing-roster-owner';
+    const owner = await mintSession(sessions);
+    const shown = await listAgent(owner, { name: 'roster-listed', skills: ['triage'] });
+    const hidden = await listAgent(owner, { name: 'roster-unlisted', skills: ['triage'] });
+    const shape = (page: Page): string[] => page.calls.map((c) => `${c.method} ${c.path.replace(/did%3A[^/?]+/g, '<did>')}`).sort();
+    const before = await render('/myagents', owner);
+    let callsBefore: string[];
+    try {
+      await until(() => before.document.querySelectorAll('[data-agent-row]').length === 2);
+      await new Promise((r) => setTimeout(r, 200));
+      expect(before.document.querySelectorAll('.unlisted')).toHaveLength(0);
+      callsBefore = shape(before);
+    } finally {
+      before.close();
+    }
+    await setListedByApi(owner, hidden, false);
+    const page = await render('/myagents', owner);
+    try {
+      await until(() => page.document.querySelectorAll('[data-agent-row]').length === 2);
+      await new Promise((r) => setTimeout(r, 200));
+      const mark = page.document.querySelector(`[data-agent-row="${hidden}"] .nm + .unlisted`);
+      expect(mark?.textContent).toBe('Not listed');
+      expect(page.document.querySelectorAll('.unlisted')).toHaveLength(1);
+      expect(page.document.querySelector(`[data-agent-row="${shown}"] .unlisted`)).toBeNull();
+      expect(shape(page), 'the mark cost a request').toEqual(callsBefore);
+    } finally {
+      page.close();
+    }
+  });
+});
+
 // ----------------------------------------------------------------- (j)
 
 // static_words.py's rule, ported line for line (tests/web/past-work-simple.test.ts).
@@ -1031,7 +1411,7 @@ async function launch(width: number, touch: boolean): Promise<RealBrowser> {
 }
 
 describe('(k) laid out right in real Chrome, under reduced motion', () => {
-  it.each(VIEWPORTS)('%ipx (touch: %s): the filled form, a refusal, the saved state, a GitHub refusal and each GitHub landing', async (width, touch) => {
+  it.each(VIEWPORTS)('%ipx (touch: %s): the filled form, a refusal, the saved state, a GitHub refusal, each GitHub landing, and the listing section in both states', async (width, touch) => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for the agentsettings layout sweep; skipping (see CHROME_BIN)');
       return;
@@ -1039,10 +1419,10 @@ describe('(k) laid out right in real Chrome, under reduced motion', () => {
     const did = await listAgent(githubOwner, { name: `layout-agent-${width}`, description: 'Turns a Figma file into a typed React component.', skills: ['React', 'TypeScript', 'Accessibility'], floorPriceUsd: '40.00' });
     const browser = await launch(width, touch);
     try {
-      const check = async (state: string, controls = 7): Promise<void> => {
+      const check = async (state: string, controls = 8): Promise<void> => {
         const got = await browser.evaluate<Swept>(SWEEP);
-        // Back to my agents, four fields, Save changes, and Confirm GitHub
-        // while the agent is unconfirmed.
+        // Back to my agents, four fields, Save changes, Confirm GitHub
+        // while the agent is unconfirmed, and the listing button.
         expect(got.measured, `${state}: the controls measured`).toBe(controls);
         expect(got.scrollWidth, `${state} at ${width}: sideways scroll`).toBe(got.clientWidth);
         // The page sets its 44px floor at every width, so it is held at
@@ -1078,8 +1458,30 @@ describe('(k) laid out right in real Chrome, under reduced motion', () => {
       const confirmed = await listAgent(githubOwner, { name: `layout-confirmed-${width}`, skills: ['React'], githubLogin: 'settings-owner' });
       await browser.goto(`${baseUrl}${settingsPath(confirmed)}&github=verified`, 600);
       expect(await wait(browser, `document.getElementById('gh-outcome').textContent === 'GitHub confirmed.'`), 'the verified landing').toBe(true);
-      await check('the verified landing', 6);
+      await check('the verified landing', 7);
       await capture(browser, `agentsettings-github-verified-${width}`);
+      // FIX-B43b: the listing section, pressed in real Chrome both ways.
+      // The long name is the widest label the button can carry here.
+      const listingHeight = `Math.round(document.getElementById('listing-btn').getBoundingClientRect().height)`;
+      const longName = `layout-listing-a-long-agent-name-${width}`;
+      const listing = await listAgent(githubOwner, { name: longName, skills: ['React'], githubLogin: 'settings-owner' });
+      await browser.goto(`${baseUrl}${settingsPath(listing)}`, 600);
+      expect(await wait(browser, `document.getElementById('listing-btn').textContent === ${JSON.stringify(`Stop listing ${longName}`)}`), 'the listed state').toBe(true);
+      expect(await browser.evaluate<number>(listingHeight), 'Stop listing, height').toBeGreaterThanOrEqual(44);
+      await check('the listed state', 7);
+      await capture(browser, `agentsettings-listed-${width}`);
+      await browser.evaluate(`document.getElementById('listing-btn').click()`);
+      expect(await wait(browser, `document.getElementById('listing-btn').textContent === 'List it again' && !document.getElementById('listing-btn').disabled`), 'the unlisted state').toBe(true);
+      expect(await browser.evaluate<number>(listingHeight), 'List it again, height').toBeGreaterThanOrEqual(44);
+      await check('the unlisted state', 7);
+      await capture(browser, `agentsettings-unlisted-${width}`);
+      // A refusal in the unlisted state: a stale token, then the sentence.
+      await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify({ ...githubOwner, token: 'no-such-token-listing-layout' }))}); document.getElementById('listing-btn').click()`);
+      expect(await wait(browser, `document.getElementById('listing-error').textContent !== ''`), 'the listing refusal').toBe(true);
+      await check('the listing refusal', 7);
+      await capture(browser, `agentsettings-listing-refusal-${width}`);
+      await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(githubOwner))})`);
+      expect((await readAgent(listing)).listed).toBe(false);
     } finally {
       await browser.close();
     }

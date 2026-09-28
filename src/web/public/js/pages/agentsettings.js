@@ -31,12 +31,25 @@
    server still refuses gets a plain sentence chosen by status. The route's
    own message is written for API callers (it names body fields and can
    print a DID), so it is never shown as it stands. A refusal changes
-   nothing but that sentence: every typed value stays. */
+   nothing but that sentence: every typed value stays.
+
+   THE LISTING (FIX-B43b, bugs.md B43). The third section, after GitHub
+   account: the owner stops listing the agent, or lists it again, with
+   PUT /agents/:agentDid/listing. It draws from the agent's own listed
+   (absent reads as listed, the way the route treats every agent listed
+   before the field existed), and after a 200 from the answer's listed,
+   never from the value pressed. One PUT per press. A refusal leaves the
+   section as it was and says one sentence in #listing-error, which is
+   role="alert" in the shell from the start. The press touches nothing
+   else on the page, so the Details form keeps whatever was typed. */
 (function () {
   "use strict";
   var A = window.FAApi;
   var agentDid = "";
   var sending = false;
+  var listingSending = false;
+  var listed = true;
+  var listedName = "";
 
   var OUTCOMES = {
     refused: "Nothing changed. You can confirm it whenever you are ready.",
@@ -79,6 +92,7 @@
           A.showById("stranger", true);
           return;
         }
+        listed = agent.listed !== false;
         fill(agent);
         showGithub(agent);
         A.showById("settings-body", true);
@@ -91,6 +105,7 @@
           A.setTextById("gh-outcome", "");
           window.FAGithubProof.press(agentDid, A.el("gh-confirm"), A.el("gh-error"));
         });
+        A.el("listing-btn").addEventListener("click", onListingPress);
         landing(agent);
       });
     });
@@ -100,7 +115,7 @@
 
   function showGithub(agent) {
     var verified = agent.proofStatus === "verified";
-    A.setTextById("gh-login", typeof agent.githubLogin === "string" ? agent.githubLogin : "");
+    A.setTextById("gh-confirmed", "Confirmed: @" + (typeof agent.githubLogin === "string" ? agent.githubLogin : ""));
     A.showById("gh-confirmed", verified);
     A.showById("gh-unverified", !verified);
   }
@@ -121,10 +136,92 @@
 
   function fill(agent) {
     A.setTextById("agent-name", A.agentName(agent));
+    listedName = A.agentName(agent);
     A.el("nm").value = typeof agent.name === "string" ? agent.name : "";
     A.el("ds").value = typeof agent.description === "string" ? agent.description : "";
     A.el("sk").value = Array.isArray(agent.skills) ? agent.skills.join(", ") : "";
     A.el("fl").value = typeof agent.floorPriceUsd === "string" ? agent.floorPriceUsd : "";
+    /* The button carries the name, so a saved rename renames it too. */
+    drawListing();
+  }
+
+  /* ------------------------------------------------------------ listing */
+
+  /* The wireframe's two sentences, word for word, and the unlisted state in
+     the same calm voice: unlisting is reversible, so nothing here alarms. */
+  var LISTING_STATES = {
+    listed: {
+      heading: "Stop listing this agent",
+      lines: [
+        "It leaves browse and nobody can hire it. Work that already shipped stays on the record, and its receipts keep working.",
+        "You can list it again later."
+      ]
+    },
+    unlisted: {
+      heading: "List this agent again",
+      lines: ["It is not listed, so nobody can find it or hire it. Its record stays public."],
+      button: "List it again"
+    }
+  };
+
+  function drawListing() {
+    var state = listed ? LISTING_STATES.listed : LISTING_STATES.unlisted;
+    A.setTextById("listing-heading", state.heading);
+    var words = A.el("listing-words");
+    words.textContent = "";
+    state.lines.forEach(function (line) {
+      var p = document.createElement("p");
+      p.className = "sub";
+      p.textContent = line;
+      words.appendChild(p);
+    });
+    A.setTextById("listing-btn", listed ? "Stop listing " + listedName : state.button);
+  }
+
+  function onListingPress() {
+    if (listingSending || agentDid === "") return;
+    var session = A.getStoredSession();
+    if (session === null) return refuseListing(LISTING_REFUSED.expired);
+    var btn = A.el("listing-btn");
+    listingSending = true;
+    btn.disabled = true;
+    btn.setAttribute("data-busy", "true");
+    A.showById("listing-error", false);
+    A.putAuthed("/agents/" + encodeURIComponent(agentDid) + "/listing", session.token, { listed: !listed }).then(function (result) {
+      listingSending = false;
+      btn.disabled = false;
+      btn.removeAttribute("data-busy");
+      if (result.state === "ok" && result.value.status === 200 && result.value.body && typeof result.value.body.listed === "boolean") {
+        listed = result.value.body.listed;
+        drawListing();
+        return;
+      }
+      refuseListing(listingRefusal(result));
+    });
+  }
+
+  /* Each names something the owner can do. The route's own message is for
+     API callers and is never shown. */
+  var LISTING_REFUSED = {
+    expired: "Your session has expired. Sign in again to change its listing.",
+    owner: "Only this agent\u2019s owner can change its listing. Sign in with the account that listed it.",
+    gone: "We could not find this agent any more. Go back to My agents.",
+    failed: "That did not work, and nothing changed. Try again.",
+    offline: "That did not reach the server, and nothing changed. Check your connection and try again."
+  };
+
+  function listingRefusal(result) {
+    if (result.state !== "ok") return LISTING_REFUSED.offline;
+    var status = result.value.status;
+    if (status === 401) return LISTING_REFUSED.expired;
+    if (status === 403) return LISTING_REFUSED.owner;
+    if (status === 404) return LISTING_REFUSED.gone;
+    return LISTING_REFUSED.failed;
+  }
+
+  function refuseListing(sentence) {
+    A.setTextById("listing-error", sentence);
+    A.showById("listing-error", true);
   }
 
   /* --------------------------------------------------------------- save */
