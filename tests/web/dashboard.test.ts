@@ -570,7 +570,10 @@ describe('the dashboard screen, driven end to end against the real app', () => {
         // row (this roster's one agent, githubLogin null, no verified
         // record) comes first, the two offers second, newest first.
         expect(rows.length).toBe(3);
-        expect(rows[0]?.getAttribute('href')).toBe(`/agents/${encodeURIComponent(isolatedAgentDid)}`);
+        // Its GitHub is not confirmed, so the row opens the agent's
+        // settings, where the one-press proof lives (P-21 is built inside
+        // P-20), never the agent's public page.
+        expect(rows[0]?.getAttribute('href')).toBe(`/agentsettings?agent=${encodeURIComponent(isolatedAgentDid)}`);
         expect(rows[0]?.textContent).toContain('section3-scout');
         expect(rows[0]?.textContent).toContain('no verified record yet');
         expect(rows[0]?.textContent).toContain('GitHub not confirmed');
@@ -638,13 +641,15 @@ describe('the dashboard screen, driven end to end against the real app', () => {
         // All five are attention rows, in roster order (ties on the
         // default sort are stable): the sixth agent and the offer are
         // both pushed out by rows that arrived first.
+        // Every one of the six has an unconfirmed GitHub, so each row
+        // opens that agent's settings, where the proof lives.
         const hrefs = rows.map((r) => r.getAttribute('href'));
         for (let i = 0; i < 5; i += 1) {
           const capAgentDid = capAgentDids[i] as string;
-          expect(hrefs).toContain(`/agents/${encodeURIComponent(capAgentDid)}`);
+          expect(hrefs).toContain(`/agentsettings?agent=${encodeURIComponent(capAgentDid)}`);
         }
         const sixthCapAgentDid = capAgentDids[5] as string;
-        expect(hrefs).not.toContain(`/agents/${encodeURIComponent(sixthCapAgentDid)}`);
+        expect(hrefs).not.toContain(`/agentsettings?agent=${encodeURIComponent(sixthCapAgentDid)}`);
         expect(hrefs).not.toContain('/operatorjob?job=d3-cap-offer');
       } finally {
         page.close();
@@ -697,8 +702,8 @@ describe('the dashboard screen, driven end to end against the real app', () => {
         const section = sectionByHeading(page.document, 'Your agents');
         expect(section).not.toBeNull();
         const rows = sectionRows(page.document, 'Your agents');
-        const row = rows.find((r) => r.getAttribute('href') === `/agents/${encodeURIComponent(isolatedAgentDid)}`);
-        expect(row, 'the unproven-GitHub row must exist').toBeTruthy();
+        const row = rows.find((r) => r.getAttribute('href') === `/agentsettings?agent=${encodeURIComponent(isolatedAgentDid)}`);
+        expect(row, 'the unproven-GitHub row must exist and open the agent\'s settings').toBeTruthy();
         expect(row?.textContent).toContain('GitHub not confirmed');
         expect(row?.textContent).not.toContain('no verified record yet');
       } finally {
@@ -749,10 +754,14 @@ describe('the dashboard screen, driven end to end against the real app', () => {
         const section = sectionByHeading(page.document, 'Your agents');
         expect(section).not.toBeNull();
         const rows = sectionRows(page.document, 'Your agents');
-        const row = rows.find((r) => r.getAttribute('href') === `/agents/${encodeURIComponent(isolatedAgentDid)}`);
+        const row = rows.find((r) => (r.textContent ?? '').includes('norecord-only-scout'));
         expect(row, 'the no-record row must exist').toBeTruthy();
         expect(row?.textContent).toContain('no verified record yet');
         expect(row?.textContent).not.toContain('GitHub not confirmed');
+        // Its GitHub is confirmed, so there is nothing to prove: the row
+        // opens the agent's public page and never the settings page.
+        expect(row?.getAttribute('href')).toBe(`/agents/${encodeURIComponent(isolatedAgentDid)}`);
+        expect(row?.getAttribute('href') ?? '').not.toContain('agentsettings');
       } finally {
         page.close();
       }
@@ -795,8 +804,8 @@ describe('the dashboard screen, driven end to end against the real app', () => {
         const section = sectionByHeading(page.document, 'Your agents');
         expect(section).not.toBeNull();
         const rows = sectionRows(page.document, 'Your agents');
-        const row = rows.find((r) => r.getAttribute('href') === `/agents/${encodeURIComponent(isolatedAgentDid)}`);
-        expect(row, 'the row must exist').toBeTruthy();
+        const row = rows.find((r) => r.getAttribute('href') === `/agentsettings?agent=${encodeURIComponent(isolatedAgentDid)}`);
+        expect(row, 'the row must exist and open the agent\'s settings').toBeTruthy();
         expect(row?.textContent).toContain('no verified record yet');
         expect(row?.textContent).toContain('GitHub not confirmed');
       } finally {
@@ -869,8 +878,11 @@ describe('the dashboard screen, driven end to end against the real app', () => {
           const section = sectionByHeading(page.document, 'Your agents');
           expect(section, 'the section itself must still render (a per-agent failure is not a section failure)').not.toBeNull();
           const rows = sectionRows(page.document, 'Your agents');
-          const row = rows.find((r) => r.getAttribute('href') === `/agents/${encodeURIComponent(isolatedAgentDid)}`);
+          const row = rows.find((r) => (r.textContent ?? '').includes('flaky-scout'));
           expect(row, 'the row itself still renders despite the failed detail read').toBeTruthy();
+          // The page does not know this agent's GitHub state, so the row
+          // never points at the proof: it opens the agent's public page.
+          expect(row?.getAttribute('href')).toBe(`/agents/${encodeURIComponent(isolatedAgentDid)}`);
           // Never a guessed "confirmed": no attention line at all, not
           // a false positive claiming the proof state either way.
           expect(row?.textContent).not.toContain('GitHub not confirmed');
