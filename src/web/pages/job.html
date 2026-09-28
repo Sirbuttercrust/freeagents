@@ -58,12 +58,10 @@
      so keeping them would have pinned the flat server-supplied image the
      polished pass exists to retire. Same call agreement.html:35-38
      already recorded for the same strip. */
-  /* D1 mobile-horizontal-overflow (qa round 1): the middle flex child
-     (name + operator line) has a default min-width:auto, so a nowrap
-     operator DID floors it wider than the strip has room for at 320px
-     (measured: 326px in a 320px viewport). min-width:0 lets it shrink
-     and wrap instead of forcing the row wider than the screen. */
-  .who .mid { min-width: 0; }
+  /* What gives when the row runs short (the button keeps its label, the
+     name and operator line wrap in .mid, and at 420px and below the button
+     drops to its own line) is polish.css's identity-line rule, shared with
+     the agreement and hire screens. */
   .who .n { font-weight: 550; }
   .who .r { color: var(--fg-3); font-size: 13px; }
   .who .r a { color: var(--fg-2); text-decoration: underline; text-underline-offset: 2px; }
