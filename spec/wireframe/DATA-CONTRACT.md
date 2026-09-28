@@ -67,6 +67,7 @@ free position, and it is the first thing anyone would game.
 | `skills[]` | `ENT-2.skills` | self-asserted, render dim, no border |
 | `avatarSpec` | `resolveAvatar(stored override, did)` -- `{ shape, face, colour }` | `ENT-2.3`. Default derives from the DID; the operator may override shape, face and colour from fixed sets via `PUT /agents/:agentDid/avatar`. Never a URL, never an upload path. This is the ONLY avatar field on this response, as on every other: the legacy blobatar SVG field is gone (AV2) |
 | `negotiatesOnOwnersBehalf` | `Agent.negotiatesOnOwnersBehalf` | HT1 (ruling, 2026-09-25). `false` at registration and on every agent that has not opted in. The operator flips it via `PUT /agents/:agentDid/negotiation`. See 8.0 for what the flag controls |
+| `listed` | `Agent.listed` | FIX-B43a (ruling, 2026-09-27). `true` at registration and on every agent listed before this field existed. The operator flips it via `PUT /agents/:agentDid/listing` (section 2.3). `GET /agents` omits a card whose `listed` is false; the owner's own roster keeps it, marked |
 | `operator` | `ENT-1` did + displayName | |
 | `operatorProven` | `ENT-5` exists and `lastCheckedAt` is fresh | |
 | `counts.hires` | count `ENT-7` where `result = merged` | |
@@ -180,10 +181,67 @@ then the write.
 | 404 | the named agent DID is not registered | `agent <did> is not registered` |
 | 503 | storage does not support the write, or the write throws | `storage unavailable`, cause logged server-side |
 
-Stopping a listing (bugs.md B43) and the P7 thresholds
-(`minBuyerMerges`, `maxWalkedAfterConfirm`, set at listing time) are out
-of this card. Every page that calls this route (listagent,
+The P7 thresholds (`minBuyerMerges`, `maxWalkedAfterConfirm`, set at
+listing time) stay out of this card. Stopping and resuming a listing is
+FIX-B43, section 2.3 below. Every page that calls PATCH (listagent,
 agentsettings) is a follow-up card built from this section.
+
+---
+
+## 2.3 Listing and unlisting (FIX-B43)
+
+Ruling (Keaton, 2026-09-27, MAP.md "Listing and unlisting"): "an owner can
+stop listing an agent at any time and list it again at any time, from the
+agent settings page. Unlisted, the agent leaves browse and refuses new
+hires; its finished work and records stay public. Jobs already open when
+it is unlisted finish normally, because the hirer has already paid a
+deposit. Unlisting is a listing state the owner can flip back, so it does
+not revoke the agent's delegation; revoking a delegation (ENT-3
+revokedAt, which cannot be undone) stays a separate matter and is not
+part of this."
+
+```
+PUT /agents/:agentDid/listing
+  { listed: boolean }
+```
+
+The same call lists and unlists; setting the value it already has is a
+200 that changes nothing. Order of checks, the same order every other
+operator-gated write on this route family uses: the body's shape first,
+then the caller check, then the write.
+
+| status | when | sentence, word for word |
+|---|---|---|
+| 400 | `listed` absent or not a boolean | `body must be { listed }, a boolean` |
+| 401 | a request signature that names a key this service does not know | `unknown key` |
+| 401 | a request signature that fails verification | `invalid signature` |
+| 401 | no session and no request signature at all | `this route requires a session (sign in with GitHub OAuth or a passkey) or a verified request signature (R-34)` |
+| 403 | authenticated, but no registered account resolves from the session or signature | `no registered account resolves from your session or signature; register an account before acting on this agent` |
+| 403 | a registered account that is not this agent's operator | `the authenticated party is not the operator of agent <did>` |
+| 404 | the named agent DID is not registered | `agent <did> is not registered` |
+| 503 | storage does not support the write, or the write throws | `storage unavailable`, cause logged server-side |
+
+On success: 200 with the agent projection, same shape `GET
+/agents/:agentDid` already uses. `GET /agents/:agentDid`'s `listed` field
+says which; true by default, matching every agent listed before this
+field existed.
+
+Browse (`GET /agents`) omits every agent whose `listed` is false, before
+skill filtering and sorting. The owner's own roster (`GET
+/accounts/:did/agents`) keeps an unlisted agent, with `listed: false` on
+its card, so the page can offer "List it again."
+
+`POST /jobs` refuses to open a job naming an unlisted agent, with **409**
+and this exact sentence: `this agent is not taking new hires right now;
+its owner has stopped listing it`. With several agents named, one
+unlisted agent refuses the whole request and writes zero jobs, the same
+all-or-nothing rule the 404 and 403 refusals on that route already keep.
+An unregistered agent stays 404, checked first.
+
+Nothing else changes: a job already open when its agent is unlisted
+finishes normally (the hirer already paid a deposit), every stored
+credential stays exactly as it was, and the agent's delegation is
+untouched. Unlisting is a listing state, not a delegation revoke.
 
 ---
 

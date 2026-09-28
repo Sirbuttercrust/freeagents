@@ -600,6 +600,7 @@ describe('GET /agents (R-20 browse)', () => {
       setAvatarSpec: () => Promise.reject(new Error('unused')),
       setNegotiatesOnOwnersBehalf: () => Promise.reject(new Error('unused')),
       setNotifyWebhookUrl: () => Promise.reject(new Error('unused')),
+      setListed: () => Promise.reject(new Error('unused')),
     };
     const app = createApp(new MemoryAccountRepository(), stub);
     await withApp(app, async (url) => {
@@ -619,6 +620,7 @@ describe('GET /agents (R-20 browse)', () => {
       setAvatarSpec: () => Promise.reject(new Error('unused')),
       setNegotiatesOnOwnersBehalf: () => Promise.reject(new Error('unused')),
       setNotifyWebhookUrl: () => Promise.reject(new Error('unused')),
+      setListed: () => Promise.reject(new Error('unused')),
     };
     const app = createApp(new MemoryAccountRepository(), failing);
     await withApp(app, async (url) => {

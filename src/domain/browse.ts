@@ -43,6 +43,12 @@ export interface BrowseAgentFacts {
   // DID-derived default) so every existing caller building this shape
   // without the field keeps working unchanged.
   readonly avatarSpec?: AvatarSpec | null;
+  // FIX-B43a (ruling, 2026-09-27): the agent's own listing state, absent
+  // (or explicitly true) meaning listed -- the same "absent means the
+  // default" stance avatarSpec above already takes. GET /agents drops a
+  // card whose resolved BrowseCard.listed is false before filtering and
+  // sorting; the roster keeps it, marked.
+  readonly listed?: boolean;
 }
 
 // One row on the browse surface. Three tier counts, always separate, never
@@ -83,6 +89,13 @@ export interface BrowseCard {
   // is a wire-contract split a client cannot paper over without branching
   // on the route).
   readonly avatarSpec: AvatarSpec;
+  // FIX-B43a (ruling, 2026-09-27): the agent's own listing state, always
+  // present on the card (agent.listed ?? true, mirroring avatarSpec's
+  // own resolve-with-a-default stance). GET /agents filters this field
+  // to true before it ever reaches a response; the owner's roster keeps
+  // every card regardless, so an owner can see and flip an unlisted
+  // agent back on.
+  readonly listed: boolean;
 }
 
 // Distinct buyers, counted over the verified-hire tier ONLY. This is the
@@ -131,6 +144,7 @@ export function toBrowseCard(agent: BrowseAgentFacts, record: AgentWorkRecord): 
     portfolioCount: record.portfolio.length,
     buyerCount: verifiedHireBuyerCount(record),
     avatarSpec: resolveAvatar(agent.avatarSpec ?? null, agent.did),
+    listed: agent.listed ?? true,
   };
 }
 

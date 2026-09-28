@@ -510,6 +510,9 @@ describe('PrismaAgentRepository', () => {
       avatarSpec: null,
       negotiatesOnOwnersBehalf: false,
       notifyWebhookUrl: null,
+      // FIX-B43a (contract change): Agent gained `listed`, a reversible
+      // listing state. A freshly created agent is listed by default.
+      listed: true,
     });
   });
 
@@ -642,6 +645,9 @@ describe('PrismaAgentRepository', () => {
       avatarSpec: null,
       negotiatesOnOwnersBehalf: false,
       notifyWebhookUrl: null,
+      // FIX-B43a (contract change): Agent gained `listed`. An absent
+      // column (this fixture predates the migration) reads as listed.
+      listed: true,
     });
   });
 
@@ -727,7 +733,9 @@ describe('PrismaAgentRepository', () => {
       where: { did: 'did:abt:agent-1' },
       data: { githubLogin: 'scout-agent', proofStatus: 'verified' },
     });
-    expect(row).toEqual({ ...updatedRow, keyRotations: [], floorPriceUsd: null, minBuyerMerges: null, maxWalkedAfterConfirm: null, avatarSpec: null, negotiatesOnOwnersBehalf: false, notifyWebhookUrl: null });
+    // FIX-B43a (contract change): Agent gained `listed`; an absent
+    // column reads as listed.
+    expect(row).toEqual({ ...updatedRow, keyRotations: [], floorPriceUsd: null, minBuyerMerges: null, maxWalkedAfterConfirm: null, avatarSpec: null, negotiatesOnOwnersBehalf: false, notifyWebhookUrl: null, listed: true });
   });
 
   it('updateGithubBinding: a P2025 not-found comes back as null, not an error', async () => {
@@ -904,6 +912,80 @@ describe('PrismaAgentRepository', () => {
     const err = await repo.updateListing('did:abt:agent-edit-4', { name: 'renamed' }).catch((e: unknown) => e);
 
     expect(err).toBe(original);
+  });
+
+  // FIX-B43a (ruling, 2026-09-27): setListed sends only { listed } to the
+  // client, the same P2025-to-null mapping every other overwrite in this
+  // class already carries.
+  it('setListed: sends only { listed } to the client and maps the row back through toAgent', async () => {
+    const createdAt = new Date('2026-09-27T05:00:00.000Z');
+    const updatedRow = {
+      did: 'did:abt:agent-listing-1',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+      proofStatus: 'unverified',
+      createdAt,
+      listed: false,
+    };
+    vi.mocked(mock.agentUpdate).mockResolvedValue(updatedRow);
+    vi.mocked(mock.agentFindUnique).mockResolvedValue(updatedRow);
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.setListed('did:abt:agent-listing-1', false);
+
+    expect(mock.agentUpdate).toHaveBeenCalledWith({
+      where: { did: 'did:abt:agent-listing-1' },
+      data: { listed: false },
+    });
+    expect(row?.listed).toBe(false);
+  });
+
+  it('setListed: a P2025 not-found comes back as null, not an error', async () => {
+    vi.mocked(mock.agentUpdate).mockRejectedValue(p2025('did:abt:agent-listing-none'));
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.setListed('did:abt:agent-listing-none', false);
+
+    expect(row).toBeNull();
+  });
+
+  it('setListed: a non-Prisma error is rethrown untouched', async () => {
+    const original = new Error('disk full');
+    vi.mocked(mock.agentUpdate).mockRejectedValue(original);
+
+    const repo = new PrismaAgentRepository();
+    const err = await repo.setListed('did:abt:agent-listing-err', false).catch((e: unknown) => e);
+
+    expect(err).toBe(original);
+  });
+
+  // FIX-B43a: a row without the `listed` column (a generated client from
+  // before this migration) reads back as listed, the same "absent means
+  // the schema's own default" stance every other optional field on this
+  // row already takes.
+  it('findByDid: a row without the listed column reads back as listed: true', async () => {
+    const createdAt = new Date('2026-09-27T05:00:00.000Z');
+    const { listed: _omit, ...rowWithoutListed } = {
+      did: 'did:abt:agent-no-listed-column',
+      operatorDid: 'did:abt:op-1',
+      delegation: delegationFixture,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: null,
+      proofStatus: 'unverified',
+      createdAt,
+      listed: true,
+    };
+    void _omit;
+    vi.mocked(mock.agentFindUnique).mockResolvedValue(rowWithoutListed);
+
+    const repo = new PrismaAgentRepository();
+    const row = await repo.findByDid('did:abt:agent-no-listed-column');
+
+    expect(row?.listed).toBe(true);
   });
 
   it('findByDid: rotation rows are projected in the order the database returns them', async () => {

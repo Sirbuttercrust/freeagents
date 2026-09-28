@@ -518,6 +518,7 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       setAvatarSpec: (did, avatarSpec) => base.setAvatarSpec(did, avatarSpec),
       setNegotiatesOnOwnersBehalf: (did, flag) => base.setNegotiatesOnOwnersBehalf(did, flag),
       setNotifyWebhookUrl: (did, url) => base.setNotifyWebhookUrl(did, url),
+      setListed: (did, listed) => base.setListed(did, listed),
     };
     const app = createApp(accountRepo, repo);
     await withApp(app, async (url) => {
@@ -553,6 +554,7 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       setAvatarSpec: (did, avatarSpec) => base.setAvatarSpec(did, avatarSpec),
       setNegotiatesOnOwnersBehalf: (did, flag) => base.setNegotiatesOnOwnersBehalf(did, flag),
       setNotifyWebhookUrl: (did, url) => base.setNotifyWebhookUrl(did, url),
+      setListed: (did, listed) => base.setListed(did, listed),
     };
     const app = createApp(accountRepo, repo);
     await withApp(app, async (url) => {
@@ -594,6 +596,7 @@ describe('POST /agents/:agentDid/key-rotation, storage branches', () => {
       setAvatarSpec: (did, avatarSpec) => base.setAvatarSpec(did, avatarSpec),
       setNegotiatesOnOwnersBehalf: (did, flag) => base.setNegotiatesOnOwnersBehalf(did, flag),
       setNotifyWebhookUrl: (did, url) => base.setNotifyWebhookUrl(did, url),
+      setListed: (did, listed) => base.setListed(did, listed),
     };
     const app = createApp(accountRepo, repo);
     await withApp(app, async (url) => {

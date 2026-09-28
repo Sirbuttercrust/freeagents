@@ -208,6 +208,10 @@ describe('sortBrowseCards', () => {
       portfolioCount,
       buyerCount: 0,
       avatarSpec: { shape: 'clover', face: 'eyes', colour: 'c1' },
+      // FIX-B43a: BrowseCard.listed is a new required field; every card
+      // built by this fixture is listed, matching every agent this test
+      // registers.
+      listed: true,
     };
   }
 
@@ -406,6 +410,8 @@ describe('browse sorting never ranks on freshness (R-37 item 6)', () => {
       portfolioCount: 0,
       buyerCount: 0,
       avatarSpec: { shape: 'clover', face: 'eyes', colour: 'c1' },
+      // FIX-B43a: BrowseCard.listed is a new required field.
+      listed: true,
     };
   }
 

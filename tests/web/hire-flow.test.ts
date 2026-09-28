@@ -602,6 +602,9 @@ class VanishingAfterFirstReadAgentRepository implements AgentRepository {
   async setNotifyWebhookUrl(): Promise<Agent | null> {
     return null;
   }
+  async setListed(): Promise<Agent | null> {
+    return null;
+  }
 }
 
 // A JobRepository whose create() always throws, everything else
@@ -711,6 +714,10 @@ describe('every refusal POST /jobs can return renders its own distinct sentence'
       avatarSpec: null,
       negotiatesOnOwnersBehalf: false,
       notifyWebhookUrl: null,
+      // FIX-B43a (contract change): Agent gained `listed`, a reversible
+      // listing state. This fixture's agent is listed, matching every
+      // agent registered before this field existed.
+      listed: true,
     };
     const vanishingAgentRepo = new VanishingAfterFirstReadAgentRepository(realAgent);
     const sessionAdapter = createSessionAdapter({

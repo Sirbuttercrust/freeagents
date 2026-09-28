@@ -366,6 +366,12 @@ function agentProjection(row: Agent): Record<string, unknown> {
     // opt-in field above. Set only by PUT /agents/:agentDid/webhook,
     // gated to the agent's own operator.
     notifyWebhookUrl: row.notifyWebhookUrl,
+    // FIX-B43a (ruling, 2026-09-27): the agent's own listing state, rides
+    // the base key set unconditionally like every other field above.
+    // Set only by PUT /agents/:agentDid/listing, gated to the agent's
+    // own operator. True by default; false means the agent left browse
+    // and refuses new hires, while its finished work stays public.
+    listed: row.listed,
   };
 }
 
@@ -3790,7 +3796,14 @@ export function createApp(
         }),
       );
 
-      const filtered = filterBySkill(cards, skillFilter);
+      // FIX-B43a: an unlisted agent leaves browse entirely, before any
+      // skill filter or sort runs. The card itself carries `listed`
+      // (toBrowseCard, src/domain/browse.ts) so the owner's roster below
+      // can reuse the same assembly and keep the card, marked, while
+      // this route is the one place that drops it.
+      const onlyListed = cards.filter((card) => card.listed);
+
+      const filtered = filterBySkill(onlyListed, skillFilter);
       const sorted = sortBrowseCards(filtered, sort);
       res.status(200).json({ sort, agents: sorted });
     } catch (err) {
@@ -4224,6 +4237,41 @@ export function createApp(
       res.status(200).json(agentProjection(updated));
     } catch (err) {
       console.error('PUT /agents/:agentDid/negotiation: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+    }
+  });
+
+  // FIX-B43a (ruling, 2026-09-27): "an owner can stop listing an agent at
+  // any time and list it again at any time... Unlisting is a listing
+  // state the owner can flip back, so it does not revoke the agent's
+  // delegation." The same shape and gate as the negotiation route above:
+  // the body's shape first (400), then requireCallerIsAgentOperator
+  // (unsigned 401, registered stranger 403, unknown agent 404 in one
+  // call), then the write, 200 with the agent projection, 503 on a
+  // storage failure with the cause logged. The same call lists and
+  // unlists; setting the value it already has is a 200 that changes
+  // nothing. Nothing else on this agent (its delegation, credentials,
+  // hires, or any job) is touched here.
+  app.put('/agents/:agentDid/listing', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+    const body = (req.body ?? {}) as { listed?: unknown };
+    if (typeof body.listed !== 'boolean') {
+      res.status(400).json({ error: 'body must be { listed }, a boolean' });
+      return;
+    }
+
+    const gated = await requireCallerIsAgentOperator('PUT /agents/:agentDid/listing', req, res, did);
+    if (gated === null) return;
+
+    try {
+      const updated = await agentRepo.setListed(did, body.listed);
+      if (updated === null) {
+        res.status(404).json({ error: `agent ${did} is not registered` });
+        return;
+      }
+      res.status(200).json(agentProjection(updated));
+    } catch (err) {
+      console.error('PUT /agents/:agentDid/listing: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
     }
   });
@@ -4813,6 +4861,23 @@ export function createApp(
         return;
       }
       agentRows.push(agentRow);
+    }
+
+    // FIX-B43a (ruling, 2026-09-27): "unlisted, the agent... refuses new
+    // hires." Checked after every named agent row loads (an unregistered
+    // agent stays 404, checked first) and before the buyer-conduct gate,
+    // the same all-or-nothing rule the 404 above already keeps: one
+    // unlisted agent refuses the whole request and writes zero jobs.
+    // Unlisting never revokes the delegation and never touches a job
+    // already open, so this is the only place a listing flip is read on
+    // the hire path.
+    for (const agentRow of agentRows) {
+      if (!agentRow.listed) {
+        res.status(409).json({
+          error: 'this agent is not taking new hires right now; its owner has stopped listing it',
+        });
+        return;
+      }
     }
 
     // P7: the operator's own listing filters on buyer conduct. Enforced

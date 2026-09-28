@@ -153,6 +153,12 @@ export interface AgentRepository {
   // URL, or clears it back to null. Same overwrite-or-clear shape
   // setAvatarSpec already takes; null when the DID is not stored.
   setNotifyWebhookUrl(did: string, notifyWebhookUrl: string | null): Promise<Agent | null>;
+  // FIX-B43a (ruling, 2026-09-27): overwrites the stored listing state,
+  // the same overwrite shape setAvatarSpec already takes. Null when the
+  // DID is not stored, so the route maps it to 404 without a second
+  // lookup. Reversible: the same call lists and unlists, and it never
+  // touches the delegation (ENT-3 revokedAt is a separate matter).
+  setListed(did: string, listed: boolean): Promise<Agent | null>;
   // FIX-B41b: the owner's edit of an already-listed agent (PATCH
   // /agents/:agentDid). Overwrites only the fields UpdateListingInput
   // carries; a field this type has no slot for (did, delegation,

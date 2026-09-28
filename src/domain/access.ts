@@ -121,6 +121,17 @@ export const CAPABILITIES: readonly Capability[] = [
     identityField: null,
     reason: "Setting an agent's negotiation switch records who set it: only the agent's own operator, derived from your session or signature.",
   },
+  {
+    // FIX-B43a (ruling, 2026-09-27): the owner's listing switch, shaped
+    // like agent.negotiation above. identityField is null for the same
+    // reason: the acting party is derived, never read from the body.
+    id: 'agent.listing',
+    method: 'PUT',
+    path: '/agents/:agentDid/listing',
+    access: 'identified',
+    identityField: null,
+    reason: "Listing or unlisting an agent records who flipped it: only the agent's own operator, derived from your session or signature.",
+  },
 ];
 
 // The reads a third party needs to check a claim without calling back into

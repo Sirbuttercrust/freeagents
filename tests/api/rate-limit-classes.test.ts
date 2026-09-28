@@ -91,6 +91,11 @@ describe('classifyRoute: write (every other POST/PUT/PATCH/DELETE)', () => {
   it('classifies PUT /agents/:agentDid/negotiation as write', () => {
     expect(classifyRoute('PUT', '/agents/did:abt:zAgent/negotiation')).toBe('write');
   });
+
+  // FIX-B43a (ruling, 2026-09-27): the owner's listing switch.
+  it('classifies PUT /agents/:agentDid/listing as write', () => {
+    expect(classifyRoute('PUT', '/agents/did:abt:zAgent/listing')).toBe('write');
+  });
 });
 
 describe('classifyRoute: read (every other GET)', () => {

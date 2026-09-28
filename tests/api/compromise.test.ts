@@ -440,6 +440,7 @@ describe('POST /agents/:agentDid/compromise-report and GET .../compromise-report
       setAvatarSpec: (did, avatarSpec) => baseAgents.setAvatarSpec(did, avatarSpec),
       setNegotiatesOnOwnersBehalf: (did, flag) => baseAgents.setNegotiatesOnOwnersBehalf(did, flag),
       setNotifyWebhookUrl: (did, url) => baseAgents.setNotifyWebhookUrl(did, url),
+      setListed: (did, listed) => baseAgents.setListed(did, listed),
     };
     return createApp(
       overrides.accountRepo ?? new MemoryAccountRepository(),

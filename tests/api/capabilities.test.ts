@@ -100,7 +100,9 @@ describe('GET /capabilities', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { notice: string; capabilities: unknown[] };
     expect(body.notice).toBe(ACCESS_NOTICE);
-    expect(body.capabilities).toHaveLength(9);
+    // FIX-B43a (ruling, 2026-09-27): agent.listing joined the capability
+    // table, so the total moved from 9 to 10.
+    expect(body.capabilities).toHaveLength(10);
   });
 
   it('every declared public GET answers a caller with no identity', async () => {

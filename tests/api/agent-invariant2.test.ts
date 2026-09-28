@@ -329,6 +329,9 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
       maxWalkedAfterConfirm: stored?.maxWalkedAfterConfirm ?? null,
       negotiatesOnOwnersBehalf: stored?.negotiatesOnOwnersBehalf ?? false,
       notifyWebhookUrl: stored?.notifyWebhookUrl ?? null,
+      // FIX-B43a (contract change): the response gained `listed`, the
+      // agent's own listing state. True by default.
+      listed: stored?.listed ?? true,
     });
 
     // A stranger fetching from the public API can verify with no further
