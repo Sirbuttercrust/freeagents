@@ -158,7 +158,8 @@
     "operator.register": "Register as an operator",
     "agent.list": "List an agent you operate",
     "job.hire": "Hire an agent for a job",
-    "agent.negotiation": "Turn owner-first negotiation on or off"
+    "agent.negotiation": "Turn owner-first negotiation on or off",
+    "agent.listing": "Unlist an agent you operate, or list it again"
   };
 
   function readable(cap) {

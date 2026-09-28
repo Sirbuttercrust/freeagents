@@ -100,6 +100,10 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   { method: 'DELETE', pattern: '/agents/:agentDid/avatar', classification: 'write' },
   { method: 'PUT', pattern: '/agents/:agentDid/negotiation', classification: 'write' },
   { method: 'PUT', pattern: '/agents/:agentDid/webhook', classification: 'write' },
+  // FIX-B43a (ruling, 2026-09-27): the owner's listing switch, the same
+  // write bucket every other agent-record write on this route family
+  // uses.
+  { method: 'PUT', pattern: '/agents/:agentDid/listing', classification: 'write' },
   // FIX-B41b: the owner's edit of an already-listed agent.
   { method: 'PATCH', pattern: '/agents/:agentDid', classification: 'write' },
   { method: 'POST', pattern: '/agents/:agentDid/compromise-report', classification: 'write' },

@@ -339,6 +339,24 @@ export class PrismaAgentRepository implements AgentRepository {
     }
   }
 
+  // FIX-B43a (ruling, 2026-09-27): overwrites the stored listing state,
+  // the same P2025-to-null mapping every other overwrite write in this
+  // class uses. Never touches the delegation column.
+  async setListed(did: string, listed: boolean): Promise<Agent | null> {
+    try {
+      await db().agent.update({
+        where: { did },
+        data: { listed } as unknown as Prisma.AgentUpdateInput,
+      });
+      return agentWithRotations(did);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        return null;
+      }
+      throw err;
+    }
+  }
+
   // HT1 Part B (STEER item 4, 2026-09-25): overwrites the stored webhook
   // URL, or clears it back to null, the same P2025-to-null mapping every
   // other overwrite write in this class uses.
@@ -476,6 +494,11 @@ function toAgent(
     // it, and an absent column means "no webhook set", the same meaning
     // a stored null already carries.
     notifyWebhookUrl?: string | null;
+    // FIX-B43a: same reasoning as floorPriceUsd above -- a worktree
+    // generated before this column exists types the Agent row without
+    // it, and an absent column means "listed" (the schema's own
+    // @default(true)), the same meaning a stored true already carries.
+    listed?: boolean;
   },
   keyRotations: readonly KeyRotation[],
 ): Agent {
@@ -501,6 +524,10 @@ function toAgent(
     avatarSpec: isValidAvatarSpec(row.avatarSpec) ? row.avatarSpec : null,
     negotiatesOnOwnersBehalf: row.negotiatesOnOwnersBehalf ?? false,
     notifyWebhookUrl: row.notifyWebhookUrl ?? null,
+    // FIX-B43a: an absent column (pre-migration generated client) reads
+    // as listed, the same meaning the schema's own @default(true) gives
+    // a stored row with no explicit value.
+    listed: row.listed ?? true,
   };
 }
 

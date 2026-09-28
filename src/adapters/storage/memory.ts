@@ -166,6 +166,9 @@ export class MemoryAgentRepository implements AgentRepository {
       avatarSpec: null,
       negotiatesOnOwnersBehalf: input.negotiatesOnOwnersBehalf ?? false,
       notifyWebhookUrl: input.notifyWebhookUrl ?? null,
+      // FIX-B43a: every agent starts listed. Reversed only through
+      // PUT /agents/:agentDid/listing, never at creation.
+      listed: true,
     };
     this.rows.set(input.did, row);
     return row;
@@ -244,6 +247,18 @@ export class MemoryAgentRepository implements AgentRepository {
     const row = this.rows.get(did);
     if (row === undefined) return null;
     const updated: Agent = { ...row, notifyWebhookUrl };
+    this.rows.set(did, updated);
+    return updated;
+  }
+
+  // FIX-B43a (ruling, 2026-09-27): overwrites the stored listing state,
+  // the same overwrite shape setAvatarSpec above takes. Null for an
+  // unregistered DID, so the route maps it to 404 without a second
+  // lookup. Never touches the delegation, credentials, or any job row.
+  async setListed(did: string, listed: boolean): Promise<Agent | null> {
+    const row = this.rows.get(did);
+    if (row === undefined) return null;
+    const updated: Agent = { ...row, listed };
     this.rows.set(did, updated);
     return updated;
   }

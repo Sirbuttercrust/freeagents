@@ -777,6 +777,7 @@ describe('POST /agents/:agentDid/account-proof, storage branches', () => {
       setAvatarSpec: (did, avatarSpec) => base.setAvatarSpec(did, avatarSpec),
       setNegotiatesOnOwnersBehalf: (did, flag) => base.setNegotiatesOnOwnersBehalf(did, flag),
       setNotifyWebhookUrl: (did, url) => base.setNotifyWebhookUrl(did, url),
+      setListed: (did, listed) => base.setListed(did, listed),
     };
     return createApp(overrides.accountRepo ?? new MemoryAccountRepository(), repo, fakeIdentity(), fakeGithub(gists));
   }

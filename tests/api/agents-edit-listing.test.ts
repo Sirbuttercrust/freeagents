@@ -480,6 +480,7 @@ describe('PATCH /agents/:agentDid (FIX-B41b): a driver without updateListing', (
       setAvatarSpec: realRepo.setAvatarSpec.bind(realRepo),
       setNegotiatesOnOwnersBehalf: realRepo.setNegotiatesOnOwnersBehalf.bind(realRepo),
       setNotifyWebhookUrl: realRepo.setNotifyWebhookUrl.bind(realRepo),
+      setListed: realRepo.setListed.bind(realRepo),
       // updateListing deliberately omitted.
     };
     const app = createApp(accountRepo, noUpdateListingRepo, identity);

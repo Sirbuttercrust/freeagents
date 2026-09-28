@@ -581,6 +581,9 @@ describe('app, job storage failures', () => {
     async setNotifyWebhookUrl(): Promise<never> {
       throw failure;
     }
+    async setListed(): Promise<never> {
+      throw failure;
+    }
   }
 
   class FailingJobRepository implements JobRepository {

@@ -144,6 +144,13 @@ export interface Agent {
   // final rule: "never unless its operator both enabled negotiation AND
   // set the webhook").
   readonly notifyWebhookUrl: string | null;
+  // FIX-B43a (ruling, 2026-09-27): "an owner can stop listing an agent at
+  // any time and list it again at any time... it does not revoke the
+  // agent's delegation." A reversible listing state, never a revoke: an
+  // unlisted agent still has a valid delegation, still has credentials
+  // and hires, and still finishes any job already open. True by default,
+  // matching every agent listed before this field existed.
+  readonly listed: boolean;
 }
 
 // ENT-2: the one-line description rule this card's spec states verbatim --

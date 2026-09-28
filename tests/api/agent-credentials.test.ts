@@ -219,6 +219,7 @@ describe('GET /agents/:agentDid/credentials, storage branches', () => {
       setAvatarSpec: (did, avatarSpec) => baseAgents.setAvatarSpec(did, avatarSpec),
       setNegotiatesOnOwnersBehalf: (did, flag) => baseAgents.setNegotiatesOnOwnersBehalf(did, flag),
       setNotifyWebhookUrl: (did, url) => baseAgents.setNotifyWebhookUrl(did, url),
+      setListed: (did, listed) => baseAgents.setListed(did, listed),
     };
     return createApp(
       new MemoryAccountRepository(),

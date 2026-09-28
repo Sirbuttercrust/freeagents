@@ -176,6 +176,11 @@ model Agent {
   // https-only at the route that sets it (isHttpsUrl,
   // src/domain/notification.ts), never re-validated here.
   notifyWebhookUrl String?
+  // FIX-B43a (ruling, 2026-09-27): a reversible listing state, never a
+  // delegation revoke. Boolean, defaulted true so every agent listed
+  // today stays listed with no backfill. Set only through
+  // PUT /agents/:agentDid/listing, gated to the agent's own operator.
+  listed Boolean @default(true)
 
   operator Account @relation(fields: [operatorDid], references: [did])
 

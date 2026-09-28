@@ -274,6 +274,7 @@ describe('PUT /agents/:agentDid/avatar, side-effect spy on every refusal (AV1)',
       setAvatarSpec,
       setNegotiatesOnOwnersBehalf: (did, flag) => base.setNegotiatesOnOwnersBehalf(did, flag),
       setNotifyWebhookUrl: (did, url) => base.setNotifyWebhookUrl(did, url),
+      setListed: (did, listed) => base.setListed(did, listed),
     };
 
     const app = createApp(accountRepo, spyRepo);
