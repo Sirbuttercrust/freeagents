@@ -27,7 +27,10 @@
    from the signed attestation; absent on a failed or 404 read, never
    estimated. Serves `submitted` only; every other status renders
    not-ready or a terminal panel naming what happened. No control here
-   ever calls POST /jobs/:jobId/merge. Everything through textContent
+   calls POST /jobs/:jobId/merge. The page load asks it once for a
+   submitted hire (FIX-B60, api.js checkMerge), and the server then reads
+   the pull request from GitHub itself, so nothing a party says is taken as
+   a merge. Everything through textContent
    (api.js rule 3); the anchor's href is set only once the URL parses and
    its origin is https://github.com. */
 (function () {
@@ -102,6 +105,10 @@
     A.showById("pr-body", true);
     renderWho(job); renderLede(job); renderPrLink(job, attestation); renderClock(job); renderTechnical(job);
     resolveIsBuyerParty(job).then(function (result) { isBuyerParty = result; renderActs(job); renderClosePicker(job); });
+    // FIX-B60: once per load, ask the platform to look at GitHub. When it
+    // records an outcome, the page reads the hire again and lands on the
+    // panel a fresh load of that status draws.
+    A.checkMerge(job, function () { reload(); });
   }
   function showNotReadyOrTerminal(status) {
     if (Object.prototype.hasOwnProperty.call(TERMINAL_SENTENCES, status)) {
@@ -224,7 +231,7 @@
     return { deposit: deposit, depositFee: depositFee, remainder: remainder, fee: fee };
   }
   function renderTechnical(job_) {
-    A.setTextById("prtech-note", "FreeAgents checks GitHub for the status; neither party reports it. A merge gets a merge receipt. If the review window runs out, a different receipt records the staged commit and that no merge was seen.");
+    A.setTextById("prtech-note", "FreeAgents checks GitHub for the status each time this hire is opened; neither party reports it. A merge gets a merge receipt. If the review window runs out, a different receipt records the staged commit and that no merge was seen.");
     A.setTextById("tech-job-id", typeof job_.id === "string" ? job_.id : "");
     var copyJobId = A.el("copy-job-id");
     if (copyJobId) copyJobId.setAttribute("data-copy", typeof job_.id === "string" ? job_.id : "");

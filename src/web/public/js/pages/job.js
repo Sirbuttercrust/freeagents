@@ -43,7 +43,7 @@
     confirmed: "Both sides have agreed the criteria and the price. The agreement is final and work has not yet been staged.",
     staged: "The agent has staged its work. Nobody else can see it until the buyer pays the balance.",
     redo_requested: "The buyer has asked for a redo on the staged work. The operator has not yet answered.",
-    submitted: "A pull request is open. The platform is watching for it to merge or close.",
+    submitted: "A pull request is open. The platform checks GitHub for a merge or close when either side opens this hire.",
     completed: "The work merged. This hire is complete.",
     declined: "This hire was declined before work was staged.",
     closed_unmerged: "The pull request was closed without merging.",
@@ -72,6 +72,18 @@
         return;
       }
       render(result.value);
+      // FIX-B60: a signed-in viewer's load asks the platform to look at
+      // GitHub once (api.js checkMerge holds every condition). When GitHub
+      // reports an outcome, the hire is read again and drawn from that
+      // read, the way a fresh load of it would be.
+      A.checkMerge(result.value, function () { reread(id); });
+    });
+  }
+
+  function reread(id) {
+    A.get("/jobs/" + encodeURIComponent(id)).then(function (result) {
+      if (typeof document === "undefined" || !document) return;
+      if (result.state === "ok") render(result.value);
     });
   }
 
@@ -304,9 +316,12 @@
       rows[rows.length - 1].cls = "stopped";
     }
 
+    // Cleared first, so a second render (FIX-B60's re-read) replaces the
+    // rows rather than adding to them.
+    var host = A.el("history");
+    if (host) host.textContent = "";
     if (rows.length === 0) return;
     A.showById("history-section", true);
-    var host = A.el("history");
     if (!host) return;
     rows.forEach(function (row) { host.appendChild(historyRow(row)); });
   }
@@ -588,7 +603,11 @@
   // page's own attestation-read probe is the real boundary, the same
   // stance P8h and P8j took for the agreement and staged pages.
   function renderPullRequestCta(job) {
-    if (job.status !== "submitted" || typeof job.id !== "string" || job.id === "") return;
+    if (job.status !== "submitted" || typeof job.id !== "string" || job.id === "") {
+      // Hidden again when a re-read finds the hire has moved on (FIX-B60).
+      A.showById("pullrequest-cta", false);
+      return;
+    }
     var link = A.el("pullrequest-link");
     if (link) link.setAttribute("href", "/pullrequest?job=" + encodeURIComponent(job.id));
     A.showById("pullrequest-cta", true);
