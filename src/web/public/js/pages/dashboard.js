@@ -618,16 +618,22 @@
   /* ---------------------------------------------------- section 3 rows */
 
   // The unproven-GitHub half of section 3 (W5 ruling, handoff item 1): a
-  // full-row link to /agents/:did, the agent's own public record. The
-  // wireframe's own row links to provegithub.html, which is not built as
-  // its own page: its one button lives on /agentsettings (FIX-B47c), and
-  // /myagents' attention line links there as "confirm it". This row still
-  // opens the agent's public page; pointing it at /agentsettings too is
-  // bugs.md B55, its own card. Named in the PR body as a departure.
+  // full-row link whose destination follows the row's own flags. A row
+  // carrying "GitHub not confirmed" (entry.notConfirmed) opens
+  // /agentsettings?agent=:did, because that is where the one-press proof
+  // lives: the wireframe's row links to provegithub.html (SITEMAP P-21),
+  // and P-21 is built inside /agentsettings (P-20) as its "Confirm GitHub"
+  // button (FIX-B47c), the same place /myagents' "confirm it" links. Every
+  // other row, one flagged only "no verified record yet" or one whose
+  // per-agent read failed so its GitHub state is unknown, opens
+  // /agents/:did, the agent's own public record, because the page knows
+  // of nothing on it that needs confirming.
   function attentionRow(entry) {
     var a = document.createElement("a");
     a.className = "row between pane-lift";
-    a.href = "/agents/" + encodeURIComponent(entry.agent.did);
+    a.href = entry.notConfirmed
+      ? "/agentsettings?agent=" + encodeURIComponent(entry.agent.did)
+      : "/agents/" + encodeURIComponent(entry.agent.did);
     var name = text(entry.agent.name) !== "" ? entry.agent.name : A.shortDid(entry.agent.did);
     var meta = entry.noRecord ? "no verified record yet" : "";
     a.appendChild(rowText(name, meta));
