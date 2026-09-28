@@ -1297,7 +1297,7 @@ describe('FIX-B70a: the ABT rate is locked when the payment starts', () => {
     expect(rate.calls()).toBe(callsAtStart);
   });
 
-  it('(c) a lock planted whole in the token door query is never read: the claim and the settlement carry the amounts the platform locked', async () => {
+  it('(c) a lock planted whole in the token door body is never read: the claim and the settlement carry the amounts the platform locked', async () => {
     const rate = controlledRate('0.34');
     const { started, fake } = await startWith(rate.source);
     const planted = {
@@ -1311,11 +1311,18 @@ describe('FIX-B70a: the ABT rate is locked when the payment starts', () => {
       lockedAt: '2026-09-28T18:00:00.000Z',
       expiresAt: '2999-01-01T00:00:00.000Z',
     };
-    const query = Object.entries(planted)
-      .filter(([, value]) => value !== null)
-      .map(([key, value]) => `&abtQuote[${key}]=${encodeURIComponent(String(value))}`)
-      .join('');
-    const { sessionToken, authCallbackUrl } = await mintThroughTokenDoor(started, query);
+    // A POST body reaches the session's extraParams whole (did-connect-js
+    // spreads req.body into it), so the planted lock arrives as a real
+    // object, the form a reader of extraParams would find.
+    const res = await postSigned(started.baseUrl, '/api/did/pay/token', { jobId: started.jobId, leg: 'deposit', abtQuote: planted }, started.buyer);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { readonly token: string; readonly url: string };
+    const encoded = new URL(body.url).searchParams.get('url');
+    if (encoded === null) throw new Error('expected a wallet callback url');
+    const sessionToken = body.token;
+    const authCallbackUrl = decodeURIComponent(encoded);
+    const stored = await started.sessions.storage.read(sessionToken);
+    expect((stored?.extraParams as Record<string, unknown>).abtQuote).toEqual(planted);
     const step = await fetchPrepareTxClaim(started.baseUrl, sessionToken, authCallbackUrl, started.buyerWallet);
     if (step.kind !== 'claim') throw new Error('expected a claim');
     expect(operatorOutputUnits(step.partialTx)).toEqual({
