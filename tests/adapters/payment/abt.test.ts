@@ -452,7 +452,7 @@ describe('createAbtPaymentRail: onWalletResponse (decode, sign the envelope, bro
 
 // S2: a ref carrying the two expected amounts (in the chain's smallest
 // unit) and the two output addresses, matching what onWalletResponse
-// would have built from amountUsd '100.00' at a 1:1 rate: 100 ABT to the
+// builds from a locked amountToken '100' and feeToken '3': 100 ABT to the
 // operator, 3 ABT (the 3 percent fee) to the platform.
 function refFor(hash: string): {
   readonly rail: 'abt';
