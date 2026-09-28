@@ -159,10 +159,10 @@ describe('PUT /agents/:agentDid/listing (FIX-B43a)', () => {
     started.server.close();
   });
 
-  // (a) A freshly listed agent reads listed: true, on both listing paths:
-  // seeded straight into the repo (used by every other case below), the
-  // site path (POST /agents, no delegation), and the signed path (POST
-  // /agents with a delegation the operator's own key signs).
+  // (a) A freshly listed agent reads listed: true, on the site path (POST
+  // /agents, no delegation) and the signed path (POST /agents with a
+  // delegation the operator's own key signs). Every other case in this
+  // file seeds straight into the repo, covered by the very next it().
   it('a freshly listed agent (seeded straight into the repo) reads listed: true', async () => {
     const res = await fetch(`${started.baseUrl}/agents/${started.agentDid}`);
     const body = (await res.json()) as Record<string, unknown>;
@@ -173,51 +173,40 @@ describe('PUT /agents/:agentDid/listing (FIX-B43a)', () => {
     process.env.FREEAGENTS_PLATFORM_SEED = 'b43a5'.padEnd(64, '0');
     const sessionAdapter = testSessionAdapter();
     const booted = await bootFreshApp(createIdentityAdapter(createKnownKeyStore()), sessionAdapter);
-    try {
-      const sessionToken = await mintSessionToken(sessionAdapter);
-      const auth = { authorization: `Bearer ${sessionToken}` };
-      const listRes = await fetch(`${booted.baseUrl}/agents`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...auth },
-        body: JSON.stringify({ name: 'scout', skills: ['triage'] }),
-      });
-      const did = ((await listRes.json()) as Record<string, unknown>).did as string;
-      const read = await fetch(`${booted.baseUrl}/agents/${did}`);
-      expect(((await read.json()) as Record<string, unknown>).listed).toBe(true);
-    } finally {
-      await booted.close();
-    }
+    const sessionToken = await mintSessionToken(sessionAdapter);
+    const auth = { authorization: `Bearer ${sessionToken}` };
+    const listRes = await fetch(`${booted.baseUrl}/agents`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...auth },
+      body: JSON.stringify({ name: 'scout', skills: ['triage'] }),
+    });
+    const did = ((await listRes.json()) as Record<string, unknown>).did as string;
+    const read = await fetch(`${booted.baseUrl}/agents/${did}`);
+    expect(((await read.json()) as Record<string, unknown>).listed).toBe(true);
+    await booted.close();
   });
 
   it('a freshly listed agent (the signed path, a delegation the operator key signs) reads listed: true', async () => {
     const operator = await signingIdentityFromSeed(new Uint8Array(32).fill(215));
     const booted = await bootFreshApp(fakeIdentity());
     await booted.accountRepo.register({ did: operator.did, githubLogin: 'listing-signed-path-operator' });
-    try {
-      const agentDid = 'did:abt:zSignedPathListingAgent';
-      const res = await postSigned(booted.baseUrl, '/agents', {
-        did: agentDid,
-        delegation: delegationFor(agentDid, operator.did),
-        name: 'scout',
-        skills: ['triage'],
-      }, operator);
-      expect(res.status).toBe(201);
-      const read = await fetch(`${booted.baseUrl}/agents/${agentDid}`);
-      expect(((await read.json()) as Record<string, unknown>).listed).toBe(true);
-    } finally {
-      await booted.close();
-    }
+    const agentDid = 'did:abt:zSignedPathListingAgent';
+    const res = await postSigned(booted.baseUrl, '/agents', {
+      did: agentDid,
+      delegation: delegationFor(agentDid, operator.did),
+      name: 'scout',
+      skills: ['triage'],
+    }, operator);
+    expect(res.status).toBe(201);
+    const read = await fetch(`${booted.baseUrl}/agents/${agentDid}`);
+    expect(((await read.json()) as Record<string, unknown>).listed).toBe(true);
+    await booted.close();
   });
 
   // (b) The owner unlists and lists again. PUT's reply is `agentProjection`
-  // (Make 2), while GET /agents/:agentDid layers 5 further read-time-only
-  // fields on top (verifiedHires, verifiedPriorWork, portfolio,
-  // lastHireCompletedAt, recordLastChangedAt -- R-17/R-37, computed from
-  // credential history the PUT route never touches). The whole PUT body is
-  // pinned by comparing it against that same GET read with exactly those 5
-  // keys removed: both calls run against the live server, so this proves
-  // real equality on every agentProjection key, not a hand-typed guess at
-  // avatarSpec/createdAt/delegation that could quietly drift from the route.
+  // (Make 2); GET layers 5 read-time-only fields on top (R-17/R-37), so
+  // the whole PUT body is pinned against that same GET read with just
+  // those 5 keys stripped, proving equality on every real projection key.
   function stripReadOnlyExtras(body: Record<string, unknown>): Record<string, unknown> {
     const { verifiedHires, verifiedPriorWork, portfolio, lastHireCompletedAt, recordLastChangedAt, ...rest } = body;
     void verifiedHires; void verifiedPriorWork; void portfolio; void lastHireCompletedAt; void recordLastChangedAt;
