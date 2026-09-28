@@ -70,6 +70,12 @@ function delegationFor(agentDid: string, operatorDid: string): Delegation {
   };
 }
 
+// Seeds one agent straight into a MemoryAgentRepository with a plain
+// delegationFor() credential and no skills beyond ['triage'].
+async function seedAgent(agentRepo: MemoryAgentRepository, did: string, operatorDid: string, name: string): Promise<void> {
+  await agentRepo.create({ did, operatorDid, delegation: delegationFor(did, operatorDid), name, skills: ['triage'], githubLogin: null });
+}
+
 async function putSigned(baseUrl: string, path: string, body: unknown, identity: SigningIdentity): Promise<Response> {
   const bodyText = JSON.stringify(body);
   const targetUri = `${baseUrl}${path}`;
@@ -127,14 +133,7 @@ async function startApp(): Promise<Started> {
   await accountRepo.register({ did: operator.did, githubLogin: 'listing-flag-operator' });
   await accountRepo.register({ did: stranger.did, githubLogin: 'listing-flag-stranger' });
   const agentRepo = new MemoryAgentRepository();
-  await agentRepo.create({
-    did: agentDid,
-    operatorDid: operator.did,
-    delegation: delegationFor(agentDid, operator.did),
-    name: 'scout',
-    skills: ['triage'],
-    githubLogin: null,
-  });
+  await seedAgent(agentRepo, agentDid, operator.did, 'scout');
   const app = createApp(accountRepo, agentRepo);
   const server = app.listen(0, '127.0.0.1');
   const baseUrl = await listenOn(server);
@@ -307,22 +306,8 @@ describe('GET /agents (FIX-B43a): an unlisted agent leaves browse', () => {
     const accountRepo = new MemoryAccountRepository();
     await accountRepo.register({ did: operator.did, githubLogin: 'browse-listing-operator' });
     agentRepo = new MemoryAgentRepository();
-    await agentRepo.create({
-      did: AGENT_ONE,
-      operatorDid: operator.did,
-      delegation: delegationFor(AGENT_ONE, operator.did),
-      name: 'scout-one',
-      skills: ['triage'],
-      githubLogin: null,
-    });
-    await agentRepo.create({
-      did: AGENT_TWO,
-      operatorDid: operator.did,
-      delegation: delegationFor(AGENT_TWO, operator.did),
-      name: 'scout-two',
-      skills: ['triage'],
-      githubLogin: null,
-    });
+    await seedAgent(agentRepo, AGENT_ONE, operator.did, 'scout-one');
+    await seedAgent(agentRepo, AGENT_TWO, operator.did, 'scout-two');
     const app = createApp(accountRepo, agentRepo);
     server = app.listen(0, '127.0.0.1');
     baseUrl = await listenOn(server);
@@ -378,22 +363,8 @@ describe("GET /accounts/:did/agents (FIX-B43a): the owner's roster keeps an unli
     const accountRepo = new MemoryAccountRepository();
     await accountRepo.register({ did: operator.did, githubLogin: 'roster-listing-operator' });
     const agentRepo = new MemoryAgentRepository();
-    await agentRepo.create({
-      did: AGENT_LISTED,
-      operatorDid: operator.did,
-      delegation: delegationFor(AGENT_LISTED, operator.did),
-      name: 'scout-listed',
-      skills: ['triage'],
-      githubLogin: null,
-    });
-    await agentRepo.create({
-      did: AGENT_UNLISTED,
-      operatorDid: operator.did,
-      delegation: delegationFor(AGENT_UNLISTED, operator.did),
-      name: 'scout-unlisted',
-      skills: ['triage'],
-      githubLogin: null,
-    });
+    await seedAgent(agentRepo, AGENT_LISTED, operator.did, 'scout-listed');
+    await seedAgent(agentRepo, AGENT_UNLISTED, operator.did, 'scout-unlisted');
     const app = createApp(accountRepo, agentRepo);
     server = app.listen(0, '127.0.0.1');
     baseUrl = await listenOn(server);
@@ -446,30 +417,9 @@ describe('POST /jobs (FIX-B43a): the hire door refuses an unlisted agent', () =>
     await accountRepo.register({ did: owner.did, githubLogin: 'hire-door-owner' });
 
     const agentRepo = new MemoryAgentRepository();
-    await agentRepo.create({
-      did: listedAgent.did,
-      operatorDid: owner.did,
-      delegation: delegationFor(listedAgent.did, owner.did),
-      name: 'scout-listed',
-      skills: ['triage'],
-      githubLogin: null,
-    });
-    await agentRepo.create({
-      did: unlistedAgent.did,
-      operatorDid: owner.did,
-      delegation: delegationFor(unlistedAgent.did, owner.did),
-      name: 'scout-unlisted',
-      skills: ['triage'],
-      githubLogin: null,
-    });
-    await agentRepo.create({
-      did: thirdAgent.did,
-      operatorDid: owner.did,
-      delegation: delegationFor(thirdAgent.did, owner.did),
-      name: 'scout-third',
-      skills: ['triage'],
-      githubLogin: null,
-    });
+    await seedAgent(agentRepo, listedAgent.did, owner.did, 'scout-listed');
+    await seedAgent(agentRepo, unlistedAgent.did, owner.did, 'scout-unlisted');
+    await seedAgent(agentRepo, thirdAgent.did, owner.did, 'scout-third');
 
     const unlist = await (async () => {
       const app0 = createApp(accountRepo, agentRepo);
@@ -572,14 +522,7 @@ describe('FIX-B43a: a job already open when its agent is unlisted keeps working'
     await accountRepo.register({ did: owner.did, githubLogin: 'open-job-owner' });
 
     const agentRepo = new MemoryAgentRepository();
-    await agentRepo.create({
-      did: agent.did,
-      operatorDid: owner.did,
-      delegation: delegationFor(agent.did, owner.did),
-      name: 'scout',
-      skills: ['triage'],
-      githubLogin: null,
-    });
+    await seedAgent(agentRepo, agent.did, owner.did, 'scout');
 
     const jobRepo = new MemoryJobRepository();
     const sessionAdapter = testSessionAdapter();
@@ -680,14 +623,7 @@ describe('GET /agents/:agentDid/credentials (FIX-B43a): unaffected by unlisting'
     const accountRepo = new MemoryAccountRepository();
     await accountRepo.register({ did: owner.did, githubLogin: 'credentials-listing-owner' });
     const agentRepo = new MemoryAgentRepository();
-    await agentRepo.create({
-      did: AGENT_DID,
-      operatorDid: owner.did,
-      delegation: delegationFor(AGENT_DID, owner.did),
-      name: 'scout',
-      skills: ['triage'],
-      githubLogin: null,
-    });
+    await seedAgent(agentRepo, AGENT_DID, owner.did, 'scout');
     const credentialRepo = new MemoryCredentialRepository();
     await credentialRepo.save({
       completedJobId: 'job-listing-credentials-1',
