@@ -327,17 +327,26 @@ describe('only the agent\u2019s operator gets the avatar editor', () => {
 // running it against the pre-fix tree (git stash) and observing the
 // unhandled rejection this same probe catches.
 describe('a late per-row avatar read never writes into a page whose window already closed (FIX-CIFLAKE cause 1c)', () => {
-  // B57 added `signedIn` (plants the operator's session the way render()
-  // above does, for the pages that send no read without one), the read
-  // count `paintedSignal` may key on, and the two counts every B57 test
-  // asserts so it cannot pass without the late read ever happening. The
-  // two FIX-CIFLAKE tests pass none of it and run exactly as before.
+  // B57 added `opts`, all optional, which the two FIX-CIFLAKE tests pass
+  // none of, so they run exactly as before. `signedIn` plants the
+  // operator's session the way render() above does, for the pages that
+  // send no read without one. `settleOtherReads` holds the close until
+  // every request other than the delayed /agents/ ones has answered
+  // (three quiet polls, render()'s own settle rule): several of these
+  // pages send a second read after first paint whose answer also writes
+  // to the page (staged.js and pullrequest.js resolve the buyer through
+  // GET /accounts/:buyerDid), and on a slow CI runner that answer can
+  // still be out at close, which would fail the test for a write this
+  // card does not guard. `agentDetailReadsSent` and
+  // `agentDetailReadsAnsweredAfterClose` count only GET /agents/<did>
+  // (not /agents/<did>/hires), so a B57 test cannot pass unless the read
+  // under test went out and answered after close.
   async function renderThenCloseBeforeReadSettles(
     path: string,
     delayMs: number,
-    paintedSignal: (doc: Document, agentReadsSent: number) => boolean,
-    opts: { signedIn?: boolean } = {},
-  ): Promise<{ jsdomErrors: string[]; unhandled: unknown[]; agentReadsSent: number; agentReadsAnsweredAfterClose: number }> {
+    paintedSignal: (doc: Document, agentDetailReadsSent: number) => boolean,
+    opts: { signedIn?: boolean; settleOtherReads?: boolean } = {},
+  ): Promise<{ jsdomErrors: string[]; unhandled: unknown[]; agentDetailReadsSent: number; agentDetailReadsAnsweredAfterClose: number }> {
     const vc = new VirtualConsole();
     const jsdomErrors: string[] = [];
     vc.on('jsdomError', (e: Error) => jsdomErrors.push(e.message));
@@ -345,8 +354,9 @@ describe('a late per-row avatar read never writes into a page whose window alrea
     const onUnhandledRejection = (reason: unknown): void => {
       unhandled.push(reason);
     };
-    let agentReadsSent = 0;
-    let agentReadsAnsweredAfterClose = 0;
+    let agentDetailReadsSent = 0;
+    let agentDetailReadsAnsweredAfterClose = 0;
+    let otherInFlight = 0;
     let closed = false;
     process.on('unhandledRejection', onUnhandledRejection);
     try {
@@ -372,14 +382,21 @@ describe('a late per-row avatar read never writes into a page whose window alrea
               // keeps a DID's own colons percent-encoded (%3A), so the
               // match is against the RAW input path browse.js/operator.js
               // actually fetch, not the parsed and re-encoded pathname.
-              if (String(input).startsWith('/agents/')) {
-                agentReadsSent += 1;
+              const raw = String(input);
+              if (raw.startsWith('/agents/')) {
+                const detail = /^\/agents\/[^/?]+$/.test(raw);
+                if (detail) agentDetailReadsSent += 1;
                 await new Promise((r) => setTimeout(r, delayMs));
                 const res = await fetch(url, init);
-                if (closed) agentReadsAnsweredAfterClose += 1;
+                if (detail && closed) agentDetailReadsAnsweredAfterClose += 1;
                 return res;
               }
-              return fetch(url, init);
+              otherInFlight += 1;
+              try {
+                return await fetch(url, init);
+              } finally {
+                otherInFlight -= 1;
+              }
             },
           });
         },
@@ -394,8 +411,17 @@ describe('a late per-row avatar read never writes into a page whose window alrea
       // tests/web/avatar-identity.test.ts's mountedAll signal reads,
       // reached here without waiting for the delayed read itself.
       const paintDeadline = Date.now() + 5000;
-      while (Date.now() < paintDeadline && !paintedSignal(dom.window.document, agentReadsSent)) {
+      while (Date.now() < paintDeadline && !paintedSignal(dom.window.document, agentDetailReadsSent)) {
         await new Promise((r) => setTimeout(r, 20));
+      }
+      if (opts.settleOtherReads) {
+        let quiet = 0;
+        const quietDeadline = Date.now() + 4000;
+        while (quiet < 3 && Date.now() < quietDeadline) {
+          await new Promise((r) => setTimeout(r, 20));
+          quiet = otherInFlight === 0 ? quiet + 1 : 0;
+        }
+        if (quiet < 3) throw new Error(`${path}: ${otherInFlight} other read(s) still in flight after 4000ms`);
       }
       // Closes right after first paint, deliberately NOT waiting for the
       // delayed per-row avatar read: this is the exact race the brief
@@ -403,7 +429,7 @@ describe('a late per-row avatar read never writes into a page whose window alrea
       dom.window.close();
       closed = true;
       await new Promise((r) => setTimeout(r, delayMs + 300));
-      return { jsdomErrors, unhandled, agentReadsSent, agentReadsAnsweredAfterClose };
+      return { jsdomErrors, unhandled, agentDetailReadsSent, agentDetailReadsAnsweredAfterClose };
     } finally {
       process.off('unhandledRejection', onUnhandledRejection);
     }
@@ -433,7 +459,11 @@ describe('a late per-row avatar read never writes into a page whose window alrea
   // (reading 'getElementById')" from api.js's el() once jsdom had removed
   // window.document. Each case first checks that the page sent the read
   // and that its answer came back after close, so a page that never sent
-  // the read cannot pass.
+  // the read cannot pass. Every other read is settled before the close
+  // (settleOtherReads), so the only answer that can land on the closed
+  // page is the agent read this card guards. 800 ms leaves room for
+  // that settle on a slow runner before the agent read answers.
+  const LATE_DELAY_MS = 800;
   const shown = (id: string) => (doc: Document) => doc.getElementById(id)?.hidden === false;
   const late: Array<[string, () => string, (doc: Document, sent: number) => boolean, boolean]> = [
     ['agreement', () => `/agreement?job=${LATE_JOB.agreement}`, shown('agreement-body'), true],
@@ -448,9 +478,9 @@ describe('a late per-row avatar read never writes into a page whose window alrea
   ];
   for (const [label, path, painted, signedIn] of late) {
     it(`${label}: the agent read answering after close raises no error (B57)`, async () => {
-      const r = await renderThenCloseBeforeReadSettles(path(), 300, painted, { signedIn });
-      expect(r.agentReadsSent, `${label}: the page never sent GET /agents/:agentDid`).toBeGreaterThanOrEqual(1);
-      expect(r.agentReadsAnsweredAfterClose, `${label}: no agent read answered after close`).toBeGreaterThanOrEqual(1);
+      const r = await renderThenCloseBeforeReadSettles(path(), LATE_DELAY_MS, painted, { signedIn, settleOtherReads: true });
+      expect(r.agentDetailReadsSent, `${label}: the page never sent GET /agents/:agentDid`).toBeGreaterThanOrEqual(1);
+      expect(r.agentDetailReadsAnsweredAfterClose, `${label}: no agent read answered after close`).toBeGreaterThanOrEqual(1);
       expect(r.jsdomErrors, `jsdom errors: ${r.jsdomErrors.join('; ')}`).toEqual([]);
       expect(r.unhandled.map(String), 'a late read wrote into a closed page').toEqual([]);
     });
