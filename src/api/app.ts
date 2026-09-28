@@ -5546,6 +5546,11 @@ export function createApp(
   // deliveries are NOT (Proof r1, defect 6: a caller's own request must
   // never wait on a third-party push service, and PushSender.send is
   // already total per push.ts's own header comment).
+  //
+  // FIX-B56 (bugs.md B56): the push payload carries jobId alongside
+  // title and body, so the notification can open the conversation it is
+  // about. Never message text or any other field -- push.ts's own
+  // interface comment states the same rule at the type.
   async function notify(accountDid: string, jobId: string, eventType: NotificationEventType): Promise<void> {
     let row: Notification;
     try {
@@ -5559,7 +5564,7 @@ export function createApp(
       .listByAccountDid(accountDid)
       .then((subscriptions) => {
         for (const subscription of subscriptions) {
-          void pushSender.send(subscription, { title: 'FreeAgents', body: pushBodyFor(eventType) });
+          void pushSender.send(subscription, { title: 'FreeAgents', body: pushBodyFor(eventType), jobId });
         }
       })
       .catch((err: unknown) => {
