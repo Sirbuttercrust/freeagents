@@ -18,7 +18,8 @@
 //     single-use state token. completeGitHubOAuth() exchanges callback
 //     params for a Session or null. Never a throw for a bad callback:
 //     null maps to 401 without inspecting error messages.
-//   - registerPasskey() / verifyPasskey() carry WebAuthn options and
+//   - registerPasskey() / verifyPasskey() / beginPasskeySignIn() /
+//     completePasskeySignIn() carry WebAuthn options and
 //     responses as opaque JSON strings. The adapter owns challenge
 //     storage; a challenge is single-use and expiring, exactly the
 //     property R-24's wallet challenge will need, which is why the shape
@@ -38,7 +39,8 @@ export type SignInMethod = 'github-oauth' | 'passkey';
 
 export interface Session {
   // The proof-specific identity the sign-in method produced: the GitHub
-  // login for github-oauth, the caller-supplied subject for passkey. One
+  // login for github-oauth, the passkey name the server made when the
+  // passkey was created and stored with it, for passkey. One
   // field, one shape, both proof-specific: R-39 completion resolves this
   // to an Account server-side (session.ts's own resolveSessionAccount, or
   // the adapter's resolveSessionAccount option), via the schema's unique
@@ -126,8 +128,16 @@ export interface SessionAdapter {
 
   // WebAuthn ceremonies. Options and responses are the JSON the browser
   // API produces, passed through opaque; the adapter validates.
+  // Making a passkey: the server calls registerPasskey with a name it made
+  // (never one a browser sent); verifyPasskey finds the ceremony by the
+  // challenge inside the response, stores the credential under that name,
+  // then mints the session. Signing back in: no name is sent; the response
+  // is checked against the stored key and counter. A storage failure
+  // throws; every failed attempt is null.
   registerPasskey(subject: string): Promise<{ optionsJson: string }>;
   verifyPasskey(responseJson: string): Promise<Session | null>;
+  beginPasskeySignIn(): Promise<{ optionsJson: string }>;
+  completePasskeySignIn(responseJson: string): Promise<Session | null>;
 
   getSession(token: string): Promise<Session | null>;
   endSession(token: string): Promise<void>;
@@ -154,6 +164,12 @@ export class NotImplementedSessionAdapter implements SessionAdapter {
   }
   verifyPasskey(): Promise<Session | null> {
     throw new NotImplementedError('SessionAdapter', 'verifyPasskey');
+  }
+  beginPasskeySignIn(): Promise<{ optionsJson: string }> {
+    throw new NotImplementedError('SessionAdapter', 'beginPasskeySignIn');
+  }
+  completePasskeySignIn(): Promise<Session | null> {
+    throw new NotImplementedError('SessionAdapter', 'completePasskeySignIn');
   }
   getSession(): Promise<Session | null> {
     throw new NotImplementedError('SessionAdapter', 'getSession');

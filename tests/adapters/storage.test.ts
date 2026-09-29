@@ -3,6 +3,7 @@
 // swapped the two drivers, or deleted the startup warning, would fail nothing.
 import type { Job } from '../../src/domain/job.js';
 import type { Review } from '../../src/domain/review.js';
+import type { StoredPasskeyCredential } from '../../src/adapters/storage/types.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,6 +17,7 @@ const {
   createAccountRepository,
   createReviewRepository,
   createSettlementRepository,
+  createPasskeyCredentialRepository,
 } = await import('../../src/adapters/storage/storage.js');
 const {
   MemoryCompromiseRepository,
@@ -24,6 +26,7 @@ const {
   MemoryAccountRepository,
   MemoryReviewRepository,
   MemorySettlementRepository,
+  MemoryPasskeyCredentialRepository,
 } = await import('../../src/adapters/storage/memory.js');
 const {
   PrismaCompromiseRepository,
@@ -32,9 +35,15 @@ const {
   PrismaAccountRepository,
   PrismaReviewRepository,
   PrismaSettlementRepository,
+  PrismaPasskeyCredentialRepository,
 } = await import('../../src/adapters/storage/prisma.js');
-const { CredentialAlreadyIssuedError, JobAlreadyExistsError, ReviewAlreadyExistsError, credentialLookupKey } =
-  await import('../../src/adapters/storage/types.js');
+const {
+  CredentialAlreadyIssuedError,
+  JobAlreadyExistsError,
+  PasskeyCredentialAlreadyExistsError,
+  ReviewAlreadyExistsError,
+  credentialLookupKey,
+} = await import('../../src/adapters/storage/types.js');
 
 // Shared with tests/adapters/prisma.test.ts: both drivers are pinned to the
 // same input/output pair, so a projection that drops a field fails at least
@@ -741,5 +750,89 @@ describe('MemoryReviewRepository', () => {
     await repo.save(reviewFixture({ jobId: 'job_2', agentDid: 'did:example:other-agent' }));
     expect((await repo.listByAgentDid('did:example:agent')).map((r) => r.jobId)).toEqual(['job_1']);
     expect((await repo.listByAgentDid('did:example:other-agent')).map((r) => r.jobId)).toEqual(['job_2']);
+  });
+});
+
+describe('createPasskeyCredentialRepository', () => {
+  const original = process.env.DATABASE_URL;
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    if (original === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = original;
+    vi.restoreAllMocks();
+  });
+
+  it('DATABASE_URL set selects the Prisma driver', () => {
+    vi.stubEnv('DATABASE_URL', 'postgresql://user:***@127.0.0.1:5432/freeagents');
+    expect(createPasskeyCredentialRepository()).toBeInstanceOf(PrismaPasskeyCredentialRepository);
+  });
+
+  it('DATABASE_URL empty or unset selects the in-memory driver, with the loud warning', () => {
+    for (const value of ['', undefined]) {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      if (value === undefined) delete process.env.DATABASE_URL;
+      else vi.stubEnv('DATABASE_URL', value);
+      expect(createPasskeyCredentialRepository()).toBeInstanceOf(MemoryPasskeyCredentialRepository);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[0])).toContain('DATABASE_URL');
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('MemoryPasskeyCredentialRepository', () => {
+  function credentialFixture(overrides: Partial<StoredPasskeyCredential> = {}): StoredPasskeyCredential {
+    return {
+      id: 'cred-1',
+      subject: 'passkey-name-1',
+      publicKey: new Uint8Array([1, 2, 3]),
+      counter: 0,
+      transports: ['internal'],
+      createdAt: new Date('2026-09-28T00:00:00Z'),
+      lastUsedAt: null,
+      ...overrides,
+    };
+  }
+
+  it('save and findById round-trip the credential; an id never saved is null', async () => {
+    const repo = new MemoryPasskeyCredentialRepository();
+    await repo.save(credentialFixture());
+    expect(await repo.findById('cred-1')).toEqual(credentialFixture());
+    expect(await repo.findById('nope')).toBeNull();
+  });
+
+  it('save refuses an existing credential id, and the stored row is untouched', async () => {
+    const repo = new MemoryPasskeyCredentialRepository();
+    await repo.save(credentialFixture());
+
+    const err = await repo
+      .save(credentialFixture({ subject: 'someone-else', publicKey: new Uint8Array([9, 9, 9]) }))
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(PasskeyCredentialAlreadyExistsError);
+    expect(await repo.findById('cred-1')).toEqual(credentialFixture());
+  });
+
+  it('recordUse stores the new counter and the time of use, and throws for an id never saved', async () => {
+    const repo = new MemoryPasskeyCredentialRepository();
+    await repo.save(credentialFixture());
+
+    await repo.recordUse('cred-1', 7);
+
+    const row = await repo.findById('cred-1');
+    expect(row?.counter).toBe(7);
+    expect(row?.lastUsedAt).toBeInstanceOf(Date);
+    await expect(repo.recordUse('nope', 1)).rejects.toThrow('nope');
+    expect(await repo.findById('nope')).toBeNull();
+  });
+
+  it('a returned row is a copy: changing it does not change what is stored', async () => {
+    const repo = new MemoryPasskeyCredentialRepository();
+    await repo.save(credentialFixture());
+    const row = await repo.findById('cred-1');
+    row!.publicKey[0] = 200;
+
+    expect((await repo.findById('cred-1'))?.publicKey).toEqual(new Uint8Array([1, 2, 3]));
   });
 });
