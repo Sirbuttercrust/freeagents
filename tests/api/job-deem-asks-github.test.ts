@@ -558,7 +558,8 @@ describe('the mutation door: a route that loads the job sees the merge too (i)',
     const { status, body } = await postSigned(rig, `/jobs/${job.id}/withdraw`, buyerIdentity);
 
     expect(status).toBe(409);
-    expect(body).toEqual({ error: 'cannot transition from "completed" a job in status "completed"' });
+    // SW1-07: one sentence, the status named once.
+    expect(body).toEqual({ error: 'this job is "completed", a final status, so it cannot change' });
     expect((await rig.jobRepo.findById(job.id))?.status).toBe('completed');
   });
 });

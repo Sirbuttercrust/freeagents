@@ -128,6 +128,31 @@ describe('job transition validation', () => {
     expect(() => validateJobTransition('declined', 'proposed')).toThrow(JobTransitionError);
   });
 
+  // SW1-07: a refusal a person reads is one sentence, each status named once.
+  // toThrow('text') matches a substring, so the message is read off the
+  // thrown error and compared whole.
+  function messageOf(fn: () => unknown): string {
+    try {
+      fn();
+    } catch (err) {
+      if (err instanceof JobTransitionError) return err.message;
+      throw err;
+    }
+    throw new Error('expected the call to throw');
+  }
+
+  it('a finished job is refused with one sentence that names its status once', () => {
+    expect(messageOf(() => validateJobTransition('withdrawn', 'staged'))).toBe(
+      'this job is "withdrawn", a final status, so it cannot change',
+    );
+  });
+
+  it('a missing edge is refused with one sentence that names each status once', () => {
+    expect(messageOf(() => validateJobTransition('proposed', 'submitted'))).toBe(
+      'a job in status "proposed" cannot move to "submitted"',
+    );
+  });
+
   it('works with all existing functions that use transitions', () => {
     const now = new Date('2026-01-02T00:00:00Z');
     

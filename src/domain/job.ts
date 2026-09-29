@@ -346,8 +346,11 @@ export function createJob(
 }
 
 export class JobTransitionError extends Error {
-  constructor(from: JobStatus, action: string) {
-    super(`cannot ${action} a job in status "${from}"`);
+  // `action` is a verb phrase and reads as "cannot <action> a job in status
+  // "<from>"". A caller whose refusal is not shaped like that passes the
+  // whole sentence as `sentence`, which is then the message as given.
+  constructor(from: JobStatus, action: string, sentence?: string) {
+    super(sentence ?? `cannot ${action} a job in status "${from}"`);
     this.name = 'JobTransitionError';
   }
 }
@@ -360,9 +363,14 @@ export class JobTransitionError extends Error {
  * @throws JobTransitionError if the transition is not allowed
  */
 export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus): JobStatus {
-  // Terminal states cannot be transitioned from
+  // Terminal states cannot be transitioned from. The refusal is one
+  // sentence that names the status once (SW1-07).
   if (isTerminal(fromStatus)) {
-    throw new JobTransitionError(fromStatus, `transition from "${fromStatus}"`);
+    throw new JobTransitionError(
+      fromStatus,
+      'change',
+      `this job is "${fromStatus}", a final status, so it cannot change`,
+    );
   }
   
   // Valid transitions according to the hire loop
@@ -443,7 +451,11 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
   const allowedTransitions = validTransitions[fromStatus];
   
   if (!allowedTransitions.includes(toStatus)) {
-    throw new JobTransitionError(fromStatus, `transition to "${toStatus}"`);
+    throw new JobTransitionError(
+      fromStatus,
+      'move',
+      `a job in status "${fromStatus}" cannot move to "${toStatus}"`,
+    );
   }
   
   return toStatus;
@@ -687,16 +699,26 @@ export function requestRedo(job: Job, criterionIndex: number, now: Date): Job {
   };
 }
 
-// The operator's refusal (design record row 2): returns the job to
-// staged, where the buyer pays or declines, exactly as if no redo had
-// been asked -- except the refusal itself is a permanent, recorded fact
-// (redoRefusedAt), and redoUsedCount is NOT decremented: the allowance
-// was already spent the instant it was asked for, per the brief ("the
-// allowance is not refunded by a refusal"). The extension earned at
-// request time survives the refusal too (the buyer already lost a
-// redo's worth of leverage; losing the extension as well would double
-// the operator's advantage from one refusal).
+// The operator's refusal (design record row 2): only a requested redo can
+// be refused, so a job in any status other than redo_requested is turned
+// away before the transition table is asked (confirmed -> staged is a legal
+// edge, so the table alone let a refusal through on a job nobody had asked
+// a redo on). A requested redo returns to staged, where the buyer pays or
+// declines, as if no redo had been asked -- except the refusal itself is a
+// permanent, recorded fact (redoRefusedAt), and redoUsedCount is NOT
+// decremented: the allowance was already spent the instant it was asked
+// for, per the brief ("the allowance is not refunded by a refusal"). The
+// extension earned at request time survives the refusal too (the buyer
+// already lost a redo's worth of leverage; losing the extension as well
+// would double the operator's advantage from one refusal).
 export function refuseRedo(job: Job, now: Date): Job {
+  if (job.status !== 'redo_requested') {
+    throw new JobTransitionError(
+      job.status,
+      'refuse a redo on',
+      `cannot refuse a redo on this job: it is in status "${job.status}", and only a requested redo can be refused`,
+    );
+  }
   validateJobTransition(job.status, 'staged');
   return { ...job, status: 'staged', redoRefusedAt: now };
 }
