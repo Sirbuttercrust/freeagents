@@ -819,13 +819,12 @@ export function lapseAtStaged(job: Job, now: Date, remainderIsSettled = false): 
 // `submitted`), which is why stale is now effectively unreachable on a
 // paid job -- a retirement left to its own card, not resolved here.
 //
-// THIS FUNCTION ASKS NOBODY, and that is deliberate: it is pure, a
-// function of the row and `now`. The question "did the buyer merge inside
-// the window?" needs GitHub, so the caller asks it BEFORE running this
-// clock (src/api/app.ts's applyLiveLapses, through deemWindowHasPassed
-// below): a job GitHub reports merged inside the window completes with
-// the merge receipt and never reaches this function as `submitted`. Only
-// a pull request still unmerged when the window ends is deemed here.
+// This function asks nobody: it is pure, a function of the row and `now`.
+// Whether the buyer merged inside the window needs GitHub, so the caller
+// asks BEFORE running this clock (src/api/app.ts's applyLiveLapses, gated by
+// deemWindowHasPassed below). A job GitHub reports merged inside the window
+// completes with the merge receipt and never reaches here as `submitted`;
+// only a pull request still unmerged when the window ends is deemed here.
 //
 // deemed_completed issues a credential of a DISTINCT type (a later
 // card's job, per the brief). This function must not and does not issue
@@ -840,30 +839,26 @@ export function deemCompleted(job: Job, now: Date): Job {
   return { ...job, status: 'deemed_completed', deemedCompletedAt: now };
 }
 
-// FIX-B60D: the review window, defined once. It ends
-// DEEM_COMPLETED_AFTER_DAYS after submittedAt; null for a job that was
-// never submitted, which has no window. deemCompleted's own comparison and
-// the merge check both read it through here, so they cannot disagree about
-// where the window ends.
+// FIX-B60D: the review window, defined once: it ends
+// DEEM_COMPLETED_AFTER_DAYS after submittedAt (null if never submitted),
+// and the deem clock and the merge check both read it here.
 export function deemWindowEnd(job: Job): Date | null {
   if (job.submittedAt === null) return null;
   return new Date(job.submittedAt.getTime() + DEEM_COMPLETED_AFTER_DAYS * 86_400_000);
 }
 
-// True when `now` is strictly after the window's end (exactly at the end
-// is still inside, the same boundary every clock in this file keeps) on a
-// job that is `submitted`. Only `submitted` has a window that can pass:
-// `stale` is unreachable on a paid job and deemCompleted does not deem it,
-// and every other status is already past the question.
+// True when a `submitted` job's `now` is strictly after the window's end
+// (exactly at the end is still inside, as in every clock in this file).
+// `stale` is unreachable on a paid job and is not deemed, so only
+// `submitted` has a window that can pass.
 export function deemWindowHasPassed(job: Job, now: Date): boolean {
   if (job.status !== 'submitted') return false;
   const end = deemWindowEnd(job);
   return end !== null && now.getTime() > end.getTime();
 }
 
-// True when a merge GitHub dates at `mergedAt` fell inside the window,
-// at or before its end. A job that was never submitted has no window, so
-// nothing merged inside it.
+// True when a merge GitHub dates at `mergedAt` is at or before the
+// window's end. A job never submitted has no window, so nothing is inside it.
 export function mergedInsideWindow(job: Job, mergedAt: Date): boolean {
   const end = deemWindowEnd(job);
   return end !== null && mergedAt.getTime() <= end.getTime();

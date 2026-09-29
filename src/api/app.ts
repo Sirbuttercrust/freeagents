@@ -5122,10 +5122,9 @@ export function createApp(
   // function still asked the gate only for staged, so a paid buyer with a
   // pending redo was fed a fabricated "not settled" answer and could be
   // terminated closed_unpaid with the gate never consulted -- the other
-  // clock, deemCompleted, never consults the settlement gate; it has its
-  // own live question, whether GitHub saw a merge inside the review
-  // window, which askGithubBeforeDeeming asks below before that clock
-  // runs). Deriving the set from
+  // clock, deemCompleted, never consults the settlement gate; its own live
+  // question, whether GitHub saw a merge inside the review window, is asked
+  // by askGithubBeforeDeeming below). Deriving the set from
   // lapseAtStaged's own starting statuses, rather than repeating a second
   // literal here, is what keeps this call site from silently falling
   // behind the domain function again the next time that set changes. A
@@ -5185,15 +5184,12 @@ export function createApp(
   }
 
   // FIX-B60D: the observation of a submitted job's pull request, shared by
-  // POST /jobs/:jobId/merge and the deem path in applyLiveLapses so the two
-  // can never read GitHub two different ways. It parses the stored URL,
-  // asks GitHub (the ENT-7.1 observation itself: the state that decides
-  // whether the job completes comes from GitHub, never from the caller) and
-  // runs the STG2 attested-commit check. It writes nothing. A caller gets
-  // one of three answers: a ready-made HTTP answer (GitHub unreachable), a
-  // head that moved off the attested commit, or the summary to act on.
-  // A malformed or missing URL is a corrupted row and THROWS, as the route
-  // always did; the deem path catches it (see askGithubBeforeDeeming).
+  // POST /jobs/:jobId/merge and the deem path in applyLiveLapses, so the two
+  // never read GitHub two ways. It parses the stored URL, asks GitHub (the
+  // ENT-7.1 observation: the state that decides whether the job completes
+  // comes from GitHub, never from the caller) and runs the STG2
+  // attested-commit check. It writes nothing. A malformed URL is a corrupted
+  // row and THROWS, as the route always did; the deem path catches it.
   type PullRequestObservation =
     | { readonly kind: 'answer'; readonly status: number; readonly body: { readonly error: string } }
     | { readonly kind: 'head_moved'; readonly attested: string | null; readonly head: string }
@@ -5242,25 +5238,19 @@ export function createApp(
     return { kind: 'observed', summary, pullRequestUrl };
   }
 
-  // The instant a merged pull request completed the job. The merge instant
-  // is GitHub's fact, not this service's clock (ENT-7.1); only a GitHub
-  // response with no timestamp at all falls back to observing it now. On
-  // the deem path that fallback is by construction after the review window
-  // (the window has already passed when GitHub is asked), so a merged
-  // answer with no date deems the job instead of completing it.
+  // The instant a merged pull request completed the job: GitHub's fact
+  // (ENT-7.1), with only a response that carries no timestamp observed now.
+  // On the deem path that fallback is after the review window by
+  // construction, so a merged answer with no date deems the job.
   function mergeInstantOf(summary: PullRequestSummary): Date {
     return summary.mergedAt ?? new Date();
   }
 
   // FIX-B60D: the merged branch of POST /jobs/:jobId/merge, moved here so
-  // the deem path completes a job by the very same steps: completeJob with
-  // GitHub's instant, identity resolution for signedBy, the work-history
-  // credential issued BEFORE anything is persisted (a failed signing leaves
-  // the job submitted and retryable), jobRepo.complete, credentialRepo.save
-  // with repositoryPublic, and the `completed` system message. Every answer
-  // the route gave still comes back as an `answer`. A merged summary with
-  // no merge commit sha is an inconsistent GitHub response and THROWS, as
-  // the route always did; the deem path catches it.
+  // the deem path completes a job by the same steps. Every answer the route
+  // gave comes back as an `answer`. A merged summary with no merge commit
+  // sha is an inconsistent GitHub response and THROWS, as the route always
+  // did; the deem path catches it.
   async function completeMergedPullRequest(
     label: string,
     job: Job,
@@ -5390,37 +5380,31 @@ export function createApp(
     return { kind: 'completed', row, credential };
   }
 
-  // FIX-B60D: a job this load completed from a merge GitHub dated inside
-  // the review window, keyed by the row object applyLiveLapses handed back,
-  // with the receipt it issued. POST /jobs/:jobId/merge reads it so the
-  // request that caused the completion answers 200 with the receipt, where
-  // a job completed by an EARLIER request still answers the 409 it always
-  // did. Weak, so a row nobody asks about again is simply collected.
+  // FIX-B60D: a job this load completed from a merge GitHub dated inside the
+  // review window, keyed by the row applyLiveLapses returned, with its
+  // receipt. POST /jobs/:jobId/merge reads it so the request that caused the
+  // completion answers 200 with the receipt, where a job completed by an
+  // EARLIER request still answers the 409 it always did.
   const completedOnLoad = new WeakMap<Job, VerifiableCredential>();
 
-  // FIX-B60D: what applyLiveLapses does, once, before the deem clock runs
-  // on a submitted job whose review window has passed (bugs.md B60, second
-  // half; MISSION.md: "Completion is deemed if the buyer neither merges nor
-  // closes with a cited reason within the review window"). The clock is
-  // pure and cannot know whether the buyer merged on day 3 of a job nobody
-  // opened until day 8, so the platform asks GitHub through the merge
-  // route's own observation and completes the job when GitHub dates the
-  // merge inside the window. The answers:
-  //   completed: merged inside the window and every leg held; the job is
-  //     persisted completed with the work-history credential.
-  //   deem: nothing to complete (open, closed, merged after the window,
-  //     merged with no date, or the head moved off the attested commit); the
-  //     caller runs the deem clock and issues the deemed-completion
-  //     credential exactly as before.
-  //   answered: GitHub, identity resolution, signing or storage failed and
-  //     the 503 (or 404/409) is already sent. The job stays submitted and
-  //     nothing is issued, so the next read asks again. A failure NEVER
-  //     falls through to deeming: a merged pull request must not get a
-  //     receipt saying no merge was observed. GET /jobs/:jobId is not
-  //     wrapped in `forwarded`, so every throw from here is caught and
-  //     answered rather than left to reject unhandled.
-  // Once the job is completed or deemed it is no longer `submitted`, so
-  // this never asks a second time.
+  // FIX-B60D (bugs.md B60, second half): what applyLiveLapses asks, once,
+  // before the deem clock runs on a submitted job whose review window has
+  // passed. The clock is pure and cannot know the buyer merged on day 3 of a
+  // job nobody opened until day 8, so the platform asks GitHub through the
+  // merge route's own observation. The answers:
+  //   completed: merged inside the window; the job is persisted completed
+  //     with the work-history credential.
+  //   deem: open, closed, merged after the window, merged with no date, or
+  //     the head moved off the attested commit; the caller runs the deem
+  //     clock and issues the deemed-completion credential as before.
+  //   answered: GitHub, identity, signing or storage failed and the 503 is
+  //     sent. The job stays submitted, nothing is issued, the next read asks
+  //     again. A failure NEVER falls through to deeming: a merged pull
+  //     request must not get a receipt saying no merge was observed.
+  //     GET /jobs/:jobId is not wrapped in `forwarded`, so every throw is
+  //     caught here rather than left as an unhandled rejection.
+  // Once completed or deemed the job is no longer `submitted`, so this never
+  // asks twice.
   async function askGithubBeforeDeeming(
     label: string,
     job: Job,
@@ -8095,11 +8079,10 @@ export function createApp(
       const job = current;
 
       // FIX-B60D: the load above may itself have observed this merge (the
-      // review window had closed before anyone looked, so applyLiveLapses
-      // asked GitHub, saw a merge dated inside the window, and completed
-      // the job). The request asked for exactly that outcome, so it gets
-      // the same 200 and receipt as a merge observed by the branch below,
-      // not the 409 a job that was already completed earlier answers.
+      // window had closed before anyone looked, so applyLiveLapses asked
+      // GitHub and completed the job). This request asked for that outcome,
+      // so it answers 200 with the receipt, not the 409 of a job completed
+      // by an earlier request.
       const completedByLoad = completedOnLoad.get(current);
       if (completedByLoad !== undefined) {
         res.status(200).json({ ...jobProjection(current), credential: completedByLoad });
@@ -8129,13 +8112,9 @@ export function createApp(
         // into a 500 platform fault instead of the same honest 409 every
         // other non-observable status already answers. deemed_completed
         // additionally used to spend a real github.getPullRequest call
-        // before failing; listing it here stops that call too. FIX-B60D:
-        // a job whose review window has passed is no longer deemed by the
-        // load before this line without GitHub being asked. The load asks
-        // once (applyLiveLapses), completes a merge dated inside the
-        // window (answered above as completedOnLoad), and only otherwise
-        // deems it, which is why deemed_completed is still refused here
-        // without a second read.
+        // before failing; listing it here stops that call too. FIX-B60D: the
+        // load asks GitHub once before deeming (applyLiveLapses), so a job
+        // still deemed_completed here was unmerged at the window's end.
         'staged',
         'staged_declined',
         'closed_unpaid',
