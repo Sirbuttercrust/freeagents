@@ -495,7 +495,7 @@ describe('7. the access list renders into the component its sheet styles', () =>
   // nothing to match, on a component that looked styled in the source and
   // rendered unstyled on the page. A class no markup uses is dead and looks
   // alive.
-  it('every capability row carries .cap, with its route and its reason inside', async () => {
+  it('every capability row carries .cap, with its plain name and its reason inside, and no route', async () => {
     const page = await renderSignin();
     try {
       const rows = Array.from(page.document.querySelectorAll('#public-caps > *, #identified-caps > *'));
@@ -506,8 +506,17 @@ describe('7. the access list renders into the component its sheet styles', () =>
 
       rows.forEach((el) => {
         expect(el.querySelector('.what')?.textContent ?? '').not.toBe('');
-        expect(el.querySelector('.where')?.textContent ?? '').toMatch(/^(GET|POST|PUT) \//);
       });
+
+      // SW2-06: the list shows a person what needs an account and why, never
+      // an HTTP method and path. No .where node, and no rendered text in
+      // either list reads like a route.
+      const lists = ['public-caps', 'identified-caps'].map((id) => page.document.getElementById(id)!);
+      expect(lists.map((l) => l.querySelectorAll('.where').length)).toEqual([0, 0]);
+      const routeLike = lists
+        .map((l) => l.textContent ?? '')
+        .filter((t) => /\b(GET|POST|PUT|PATCH|DELETE) \//.test(t));
+      expect(routeLike, 'a route rendered in the access list').toEqual([]);
 
       // The reason is the service's own sentence, so at least one row must
       // carry one; a page rendering only names would have quietly dropped the

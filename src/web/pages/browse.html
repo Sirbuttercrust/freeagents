@@ -125,7 +125,12 @@
     font-family: var(--font); font-size: 13px;
   }
   .pager button[aria-current="page"] { background: var(--bg-2); color: var(--fg); border-color: var(--line-2); }
-  .pager button:disabled { opacity: .4; cursor: default; }
+  /* SW2-01: the disabled state steps the ink down a token instead of
+     fading the whole button. opacity .4 on --fg-2 painted 2.2:1, under the
+     4.5 AA floor DESIGN.md 2.5 sets for anything that renders characters;
+     --fg-3 at full opacity clears 4.5 on every surface and stays a step
+     quieter than an enabled page button. */
+  .pager button:disabled { color: var(--fg-3); cursor: default; }
 
   /* Pins the same per-tier fact tests/web/browse.test.ts already reads,
      phrased the way that test was written ("1 verified hire", "No

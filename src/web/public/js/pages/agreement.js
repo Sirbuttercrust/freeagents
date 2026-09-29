@@ -135,11 +135,11 @@
         if (window.FABots) {
           window.FABots.mount(A.el("agent-avatar"), agentDid, { spec: result.value.avatarSpec, size: 32 });
         }
-        var operatorLink = A.el("operator-link");
-        if (operatorLink && typeof result.value.operatorDid === "string" && result.value.operatorDid !== "") {
-          operatorLink.setAttribute("href", "/accounts/" + encodeURIComponent(result.value.operatorDid));
-          A.setText(operatorLink, A.shortDid(result.value.operatorDid));
-        }
+        /* SW2-07: the operator is named the way /hire and /jobs name them,
+           "@login" or "See who runs this agent", never the DID (DESIGN.md
+           9). The helper sets the link's href and keeps the row hidden
+           until the account read settles. */
+        A.nameOperator("operated-by", "operator-link", result.value.operatorDid);
       }
       A.setTextById("agent-name", name);
       document.title = "Agreement with " + name + ": FreeAgents";

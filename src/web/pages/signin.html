@@ -98,23 +98,15 @@
      answered. Before this rebuild the class was declared here and set
      nowhere, which is four dead rules wearing the look of a styled
      component: grep -rn 'class="cap"' src/web returned nothing, and the
-     three inner rules had never painted a pixel.
+     inner rules had never painted a pixel.
 
-     It wraps, and the reason takes a whole line of its own. The widest
-     route this list carries is GET /v1/credentials/:credentialId, which is
-     an unbreakable 33-character mono string: in a row that could not wrap
-     it would either crush the capability name beside it or push the page
-     sideways inside a 400px column.
-
-     .what grows rather than .where being pushed by an auto margin. Both
-     put the route hard right while the pair fits on one line, and they
-     differ on the row that wraps: an auto margin right-aligns the wrapped
-     route under the name, which reads as a stray fragment, where a grown
-     name lets it start at the left like the continuation it is. */
+     A row is the capability's plain name, then the service's reason on a
+     whole line of its own beneath it. SW2-06 took the HTTP route out of the
+     row (and its .where rule out of this sheet): a person signing in reads
+     what they can do and why, never a method and a path. */
   .cap { display: flex; flex-wrap: wrap; gap: 3px 14px; align-items: baseline; }
   .cap .what { font-size: 15px; flex: 1 1 auto; }
   .cap .why { font-size: 13px; color: var(--fg-2); margin-top: 2px; flex-basis: 100%; }
-  .cap .where { font-family: var(--mono); font-size: 12px; color: var(--fg-3); }
 
   /* The three real controls are 44px in the wireframe (style="height:44px"
      on all three of its buttons) and were unstated here. base.css:118 gives
