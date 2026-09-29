@@ -1110,7 +1110,9 @@ export function createApp(
   // derive from without ever calling out (invariant 2). Shared by both:
   // an agent proves its key by signing one request (e.g. the criteria
   // exchange), and the merge route can later name that same key on the
-  // credential (ENT-8) with no new network call, only local recall.
+  // credential (ENT-8) with no new network call, only local recall. A
+  // site-listed agent never signs a request, so the merge names its key by
+  // re-deriving it from the platform seed instead (agentKeyForCredential).
   const knownKeys = createKnownKeyStore();
   const identityAdapter = identity ?? createIdentityAdapter(knownKeys, observedKeyRepo);
 
@@ -4107,9 +4109,9 @@ export function createApp(
     if (gated === null) return;
     const row = gated;
 
-    let derived: DidKeyPair;
+    let derived: DidKeyPair | null;
     try {
-      derived = await identityAdapter.createAgentDid(row.operatorDid, row.delegation.id);
+      derived = await derivePlatformHeldAgentKey(row);
     } catch (err) {
       if (err instanceof PlatformSeedUnavailableError) {
         console.error('POST /agents/:agentDid/github-proof/start: FREEAGENTS_PLATFORM_SEED is not set; cannot derive the agent key', err);
@@ -4118,7 +4120,7 @@ export function createApp(
       }
       throw err;
     }
-    if (derived.did !== row.did) {
+    if (derived === null) {
       res.status(409).json({
         error: `the platform holds no signing key for ${did}; prove ownership with a signed gist instead (POST /agents/:agentDid/account-proof)`,
       });
@@ -5303,6 +5305,49 @@ export function createApp(
     return summary.mergedAt ?? new Date();
   }
 
+  // The one place an agent's platform-held key is re-derived from its row:
+  // github-proof/start and the merge's credential both call it, so the two
+  // cannot drift. The inputs are the ones the site listing used to mint the
+  // DID, row.operatorDid and the delegation's own id (never
+  // row.delegation.issuer, see github-proof/start). The platform holds the
+  // key only when that derivation gives back EXACTLY row.did; a wallet-path
+  // agent, or a site agent that brought its own DID, gets null and no key is
+  // ever guessed for it. PlatformSeedUnavailableError and any other failure
+  // of the derivation are thrown for the caller to map.
+  async function derivePlatformHeldAgentKey(row: Agent): Promise<DidKeyPair | null> {
+    const derived = await identityAdapter.createAgentDid(row.operatorDid, row.delegation.id);
+    return derived.did === row.did ? derived : null;
+  }
+
+  // The verification method the credential names as the agent's key (ENT-8):
+  // the key observed on the agent's own signed requests when there is one,
+  // else, for an agent the platform holds a key for (a site-listed agent,
+  // which never signs a request), the key re-derived from its row. Every
+  // other outcome throws: a resolveDid failure that is not a missing key (a
+  // resolver outage), no agent row, an agent the platform holds no key for,
+  // a missing seed, a storage failure. The caller answers all of them 503.
+  async function agentKeyForCredential(agentDid: string): Promise<string> {
+    try {
+      const doc = await identityAdapter.resolveDid(agentDid);
+      const method = doc.verificationMethod[0];
+      if (method === undefined) {
+        throw new Error(`the DID document for ${agentDid} carries no verification method`);
+      }
+      return method;
+    } catch (err) {
+      if (!(err instanceof DidNotResolvableError)) throw err;
+    }
+    const row = await agentRepo.findByDid(agentDid);
+    if (row === null) {
+      throw new Error(`no agent row for ${agentDid}; its key cannot be named`);
+    }
+    const derived = await derivePlatformHeldAgentKey(row);
+    if (derived === null) {
+      throw new Error(`the platform holds no key for ${agentDid} and none has been observed; its key cannot be named`);
+    }
+    return `${row.did}#${derived.publicKeyMultibase}`;
+  }
+
   // FIX-B60D: the merged branch of POST /jobs/:jobId/merge, moved here so
   // the deem path completes a job by the same steps. A merged summary with
   // no merge commit sha THROWS, as the route always did; the deem path
@@ -5332,19 +5377,17 @@ export function createApp(
       throw err;
     }
 
-    // ENT-8: the credential names the key that signed the merge, so the
-    // agent's verification method is resolved before anything is written.
-    // Same mapping as POST /agents/:agentDid/account-proof: a resolver we
-    // cannot reach is a platform failure, not a caller error, and the job
-    // stays submitted and fully retryable.
+    // ENT-8: the credential names the agent's key, so its verification
+    // method is named before anything is written. Two sources, in this
+    // order: the key observed on the agent's own signed requests, then the
+    // key the platform re-derives for a site-listed agent (see
+    // agentKeyForCredential). Same mapping as POST
+    // /agents/:agentDid/account-proof: a key we cannot name is a platform
+    // failure, not a caller error, and the job stays submitted and fully
+    // retryable.
     let signedBy: string;
     try {
-      const doc = await identityAdapter.resolveDid(job.agentDid);
-      const method = doc.verificationMethod[0];
-      if (method === undefined) {
-        throw new Error(`the DID document for ${job.agentDid} carries no verification method`);
-      }
-      signedBy = method;
+      signedBy = await agentKeyForCredential(job.agentDid);
     } catch (err) {
       console.error(`${label}: identity resolution failed`, err);
       return { kind: 'answer', status: 503, body: { error: 'identity resolution unavailable' } };
