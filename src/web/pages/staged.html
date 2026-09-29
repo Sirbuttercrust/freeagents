@@ -325,11 +325,20 @@
          #scan-status is replaced by the same USDC block deposit.html
          carries, driven by usdc-pay.js. Once the engine answers paid, the
          sheet shows #scan-status again, the same post-payment state ABT
-         shows. -->
+         shows. The address row sits in #scan-abt with #abt-rate under it
+         (FIX-B70b): the ABT/USD rate this press locked, when the lock ends
+         and when CoinGecko last updated the price, with "CoinGecko" linked
+         to their site in a new tab. staged.js fills it through
+         FAApi.drawAbtQuote before the sheet opens, and a USDC hire never
+         sees it because #scan-abt is hidden. -->
     <div id="scan-abt">
       <div class="urlcopy">
         <input class="input mono" id="scan-url" type="text" readonly aria-label="Wallet payment address">
         <button class="btn btn-sm" type="button" id="scan-url-copy" data-copy="">Copy</button>
+      </div>
+      <div class="abt-rate" id="abt-rate" hidden>
+        <p id="abt-rate-line"></p>
+        <p>Price data by <a id="abt-rate-source" href="https://www.coingecko.com" target="_blank" rel="noopener noreferrer">CoinGecko</a><span id="abt-rate-updated"></span></p>
       </div>
     </div>
     <p class="sub" style="margin-top:16px; max-width:none" id="scan-status">Open this address in your wallet and approve once. The pull request opens after the payment arrives and the operator submits the work.</p>

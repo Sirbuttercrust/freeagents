@@ -2,7 +2,10 @@
    agreement locks. No route in src/api/app.ts changes. Reads
    GET /jobs/:jobId and offers only its payableRails (USDC-WEBb). ABT
    starts at .../payments/deposit/abt/start and "I approved in my wallet"
-   calls POST /jobs/:jobId/confirm, once per press. USDC pays in the
+   calls POST /jobs/:jobId/confirm, once per press. The sheet that start
+   opens shows the ABT/USD rate that press locked, when the lock ends and
+   when CoinGecko last updated the price (FIX-B70b, FAApi.drawAbtQuote);
+   a start answer with no usable lock opens no sheet. USDC pays in the
    browser (usdc-pay.js), and on paid that same press confirms.
    RAIL_*_FEE_PERCENT are venue constants (ruling 3), pinned by a test
    against src/domain/payment.ts's fee-rate constants. No simulated
@@ -246,6 +249,9 @@
     if (status === 401) return sessionExpiredMessage;
     if (status === 403) return serverMessage || "This account is not the buyer of this hire.";
     if (status === 409) return conflictMessage;
+    // FIX-B70b: the price 503 names ABT too, so it is told apart first. It
+    // is a price outage that passes, not a deployment without the rail.
+    if (status === 503 && serverMessage.toLowerCase().indexOf(A.ABT_PRICE_PHRASE) !== -1) return A.ABT_PRICE_SENTENCE;
     if (status === 503) {
       return serverMessage.toLowerCase().indexOf("abt") !== -1
         ? "Payment is not available on this deployment right now. Nothing was charged."
@@ -280,12 +286,18 @@
           showError("pay-error", refusalSentence(status, serverMessage, "Your session has expired. Sign in again to pay the deposit.", "There is no agreed price to pay against yet. Reload the page to see the latest state."));
           return;
         }
+        // FIX-B70b: this press's own locked rate goes in the sheet. With no
+        // usable lock the wallet would refuse the payment, so no sheet opens.
+        var extra = body.extra && typeof body.extra === "object" ? body.extra : {};
+        if (!A.drawAbtQuote(extra.abtQuote)) { showError("pay-error", A.ABT_PRICE_SENTENCE); return; }
         openScan(typeof body.url === "string" ? body.url : "");
       });
     });
   }
-  // One sheet, three modes: "abt" (address, one approval, "I approved"),
-  // "usdc" (usdc-pay.js draws the wallet choice and outcomes) and "paid".
+  // One sheet, three modes: "abt" (address, its locked rate, one approval,
+  // "I approved"), "usdc" (usdc-pay.js draws the wallet choice and
+  // outcomes) and "paid". #abt-rate sits inside #scan-abt, so only "abt"
+  // shows it.
   var SCAN_HEADINGS = { abt: "Open this in your wallet", usdc: "Approve in your wallet", paid: "Already paid" };
   function openSheet(mode, approvalsLine) {
     var dialog = A.el("scan");
@@ -303,7 +315,9 @@
   // Scope item 5: the scan dialog. The URL is selectable text with a
   // copy control, byte-identical to the route's own `url` (a test
   // asserts this). No QR dependency in package.json and this card adds
-  // none: a code that encoded the wrong string is worse than none.
+  // none: a code that encoded the wrong string is worse than none. The
+  // press has already drawn its locked rate into #abt-rate by the time
+  // this runs (FIX-B70b).
   function openScan(url) {
     var urlField = A.el("scan-url"), copyBtn = A.el("scan-url-copy");
     if (urlField) urlField.value = url;

@@ -16,7 +16,7 @@ import { createApp } from '../../src/api/app.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import type { Session } from '../../src/adapters/identity/session.js';
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
-import { createAbtPaymentRail } from '../../src/adapters/payment/abt.js';
+import { createAbtPaymentRail, type AbtRateSource } from '../../src/adapters/payment/abt.js';
 import { createUsdcPaymentRail, type UsdcChainClient } from '../../src/adapters/payment/usdc.js';
 import type { UsdcSpentTransferRow } from '../../src/adapters/payment/usdc-spent-transfer-storage-types.js';
 import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
@@ -145,6 +145,11 @@ export interface PageHarness {
   readonly session: Session;
   addJob(overrides: Partial<Job> & { id: string }): Promise<Job>;
   settle(jobId: string, leg: 'deposit' | 'remainder', rail: 'abt' | 'usdc'): Promise<void>;
+  // FIX-B70b: what the ABT rail's rate source answers on the next quote.
+  // Starts at '1' (a bare rate, no feed time), the answer every test before
+  // this card saw; a test that changes it puts it back with resetAbtRate().
+  setAbtRate(answer: Awaited<ReturnType<AbtRateSource>>): void;
+  resetAbtRate(): void;
   close(): Promise<void>;
 }
 
@@ -191,9 +196,10 @@ export async function buildPageHarness(): Promise<PageHarness> {
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const abtRailEnv = abtEnv(baseUrl, fromRandom(), fromRandom().address, fromRandom().address);
+  let abtRate: Awaited<ReturnType<AbtRateSource>> = '1';
   const abtRail = await withEnv(abtRailEnv, async () => createAbtPaymentRail({
     chainClient: fakeAbtChainClient().client,
-    rateSource: async () => '1',
+    rateSource: async () => abtRate,
     spentTransferStorage: { async record(): Promise<void> {}, async findByHash(): Promise<null> { return null; } },
   }));
   const app = await withEnv(abtRailEnv, async () => createApp(
@@ -233,6 +239,8 @@ export async function buildPageHarness(): Promise<PageHarness> {
   }
   return {
     baseUrl, chain, jobRepo, settlementRepo, session, addJob, settle,
+    setAbtRate(answer) { abtRate = answer; },
+    resetAbtRate() { abtRate = '1'; },
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }

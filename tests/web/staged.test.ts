@@ -973,7 +973,7 @@ describe('the staged screen, driven end to end against the real app', () => {
   });
 
   describe('every refusal in scope item 10 renders its own distinct sentence, so a future edit cannot collapse them (mutation proof: D1)', () => {
-    it('the 401, 403, 409 and both 503 sentences from pay-start all differ from each other', async () => {
+    it('the 401, 403, 409 and all three 503 sentences from pay-start all differ from each other', async () => {
       const page = await renderStaged(baseUrl, 'job-fully-staged', buyerSession);
       const originalFetch = global.fetch;
       async function mockedPayStart(cases: [number, string][]): Promise<string[]> {
@@ -1000,13 +1000,17 @@ describe('the staged screen, driven end to end against the real app', () => {
           [409, 'internal: price_missing'],
           [503, 'the abt payment rail is not configured on this deployment'],
           [503, 'storage unavailable'],
+          // FIX-B70b: the route's price 503 (src/api/app.ts, the quote
+          // before a session is minted) names ABT too, and is its own case.
+          [503, 'The ABT price is not available right now. Try again in a minute.'],
         ]);
-        expect(new Set(sentences).size).toBe(5);
+        expect(new Set(sentences).size).toBe(6);
         expect((sentences[0] ?? '').toLowerCase()).toContain('sign in');
         expect((sentences[1] ?? '').toLowerCase()).toContain('not a party');
         expect((sentences[2] ?? '').toLowerCase()).toContain('no agreed price');
         expect((sentences[3] ?? '').toLowerCase()).toContain('nothing was charged');
         expect((sentences[4] ?? '').toLowerCase()).not.toContain('nothing was charged');
+        expect(sentences[5]).toBe('The ABT price is not available right now. Nothing was charged. Try again in a minute.');
       } finally {
         page.close();
       }

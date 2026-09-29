@@ -771,10 +771,10 @@ describe('the deposit screen, driven end to end against the real app', () => {
       }
     });
 
-    // D3 (Proof review round 1): 401, 409, both 503s from pay-start, plus
-    // 401/409 from confirm, via mocking one route on one rendered page.
+    // D3 (Proof review round 1): 401, 409, all three 503s from pay-start,
+    // plus 401/409 from confirm, via mocking one route on one rendered page.
     // The ABT 503's "nothing was charged" wording is pinned directly.
-    it('the 401, 409 and both 503 sentences from pay-start, and the 401/409 sentences from confirm, all differ (D3)', async () => {
+    it('the 401, 409 and all three 503 sentences from pay-start, and the 401/409 sentences from confirm, all differ (D3)', async () => {
       const page = await renderDeposit(baseUrl, 'job-fully-agreed', { token: buyerToken });
       const originalFetch = global.fetch;
       async function mocked(route: string, targetId: string, cases: [number, string][]): Promise<string[]> {
@@ -798,12 +798,16 @@ describe('the deposit screen, driven end to end against the real app', () => {
           [409, 'this job has no agreed price to pay against'],
           [503, 'the abt payment rail is not configured on this deployment'],
           [503, 'storage unavailable'],
+          // FIX-B70b: the route's price 503 (src/api/app.ts, the quote
+          // before a session is minted) names ABT too, and is its own case.
+          [503, 'The ABT price is not available right now. Try again in a minute.'],
         ]);
-        expect(new Set(payStart).size).toBe(4);
+        expect(new Set(payStart).size).toBe(5);
         expect((payStart[0] ?? '').toLowerCase()).toContain('sign in');
         expect((payStart[1] ?? '').toLowerCase()).toContain('no agreed price');
         expect((payStart[2] ?? '').toLowerCase()).toContain('nothing was charged');
         expect((payStart[3] ?? '').toLowerCase()).not.toContain('nothing was charged');
+        expect(payStart[4]).toBe('The ABT price is not available right now. Nothing was charged. Try again in a minute.');
 
         const confirmRefusals = await mocked('/confirm', 'confirm-error-detail', [
           [401, 'expired'],

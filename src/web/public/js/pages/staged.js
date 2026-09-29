@@ -29,7 +29,10 @@
    REDO_LAPSE_EXTENSION_DAYS are browser constants pinned by a test
    against the domain's own. Pays the REMAINDER, never the deposit
    (ruling 5 of P8j), in the job's own price.rail: ABT at .../abt/start,
-   USDC through usdc-pay.js (USDC-WEBb). Never claims settlement; every
+   USDC through usdc-pay.js (USDC-WEBb). The ABT sheet shows the ABT/USD
+   rate that press locked, when the lock ends and when CoinGecko last
+   updated the price (FIX-B70b, FAApi.drawAbtQuote); a start answer with
+   no usable lock opens no sheet. Never claims settlement; every
    re-read fires only on a press (ruling 6). Both redo_requested and
    staged_declined render on this page now (ruling 5): the former keeps
    the clock and the account of the work with no control, the latter is
@@ -467,6 +470,9 @@
     if (status === 401) return "Your session has expired. Sign in again to pay the balance.";
     if (status === 403) return serverMessage || "This account is not a party to this hire.";
     if (status === 409) return "There is no agreed price to pay against. Reload the page to see the latest state.";
+    // FIX-B70b: the price 503 names ABT too, so it is told apart first. It
+    // is a price outage that passes, not a deployment without the rail.
+    if (status === 503 && serverMessage.toLowerCase().indexOf(A.ABT_PRICE_PHRASE) !== -1) return A.ABT_PRICE_SENTENCE;
     if (status === 503) {
       return serverMessage.toLowerCase().indexOf("abt") !== -1
         ? "Payment is not available on this deployment right now. Nothing was charged."
@@ -542,6 +548,10 @@
           showError("pay-error", refusalSentence(status, serverMessage));
           return;
         }
+        // FIX-B70b: this press's own locked rate goes in the sheet. With no
+        // usable lock the wallet would refuse the payment, so no sheet opens.
+        var extra = respBody.extra && typeof respBody.extra === "object" ? respBody.extra : {};
+        if (!A.drawAbtQuote(extra.abtQuote)) { showError("pay-error", A.ABT_PRICE_SENTENCE); return; }
         openScan(typeof respBody.url === "string" ? respBody.url : "");
       });
     });
@@ -555,8 +565,9 @@
     A.setTextById("scan-fee", money(currentFigures.fee));
     A.setTextById("scan-total-2", money(currentFigures.total));
   }
-  // One sheet, three modes: "abt" (address and status line), "usdc"
-  // (usdc-pay.js, then the same status line on paid) and "paid".
+  // One sheet, three modes: "abt" (address, its locked rate and status
+  // line), "usdc" (usdc-pay.js, then the same status line on paid) and
+  // "paid". #abt-rate sits inside #scan-abt, so only "abt" shows it.
   function scanMode(mode) {
     A.showById("scan-abt", mode === "abt");
     A.showById("scan-status", mode === "abt");
