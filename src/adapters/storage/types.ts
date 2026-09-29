@@ -565,12 +565,10 @@ export interface PushSubscriptionRepository {
 }
 
 // FIX-B61a: the passkey a person made at sign-up. Keyed by the WebAuthn
-// credential id, exactly the base64url string the browser returns (compared
-// as that string, never case folded). `subject` is the passkey name the
-// server made at register; it is a plain string and not a relation to
-// Account, because the account row is provisioned on the first signed-in
-// request, after this row is saved. The public key lives here and never as
-// a column on Account (tests/api/account-invariant2.test.ts).
+// credential id, exactly the base64url string the browser returns (never
+// case folded). `subject` is the passkey name the server made at register,
+// a plain string and not a relation to Account (see schema.prisma). The
+// public key lives here and never as a column on Account.
 export interface StoredPasskeyCredential {
   readonly id: string;
   readonly subject: string;

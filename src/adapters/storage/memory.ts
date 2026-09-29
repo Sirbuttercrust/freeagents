@@ -695,8 +695,7 @@ export class MemoryPushSubscriptionRepository implements PushSubscriptionReposit
 }
 
 // FIX-B61a: stored passkeys, keyed by credential id. save is insert-only.
-// Rows are copied on the way in and on the way out so a caller holding one
-// can never change what is stored.
+// Rows are copied in and out so a caller can never change what is stored.
 export class MemoryPasskeyCredentialRepository implements PasskeyCredentialRepository {
   private readonly rows = new Map<string, StoredPasskeyCredential>();
 

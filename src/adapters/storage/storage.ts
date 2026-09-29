@@ -181,9 +181,8 @@ export function createPushSubscriptionRepository(): PushSubscriptionRepository {
 }
 
 // FIX-B61a: the stored passkeys sign-in is checked against. Same selection
-// stance as every repository above. The session adapter takes the in-memory
-// one when nothing is injected, but a deployment builds it here so a passkey
-// made before a restart still signs in after it.
+// stance as every repository above; a deployment builds it here so a
+// passkey made before a restart still signs in after it.
 export function createPasskeyCredentialRepository(): PasskeyCredentialRepository {
   if (process.env.DATABASE_URL) {
     return new PrismaPasskeyCredentialRepository();

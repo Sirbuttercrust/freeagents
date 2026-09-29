@@ -754,13 +754,11 @@ model PushSubscription {
 }
 
 // FIX-B61a: the passkey a person made at sign-up, stored so every later
-// sign-in is a WebAuthn authentication checked against this key. id is the
-// credential id exactly as the browser returns it (base64url); subject is
-// the passkey name the server made at register. It is deliberately not a
-// relation to Account: the account row is provisioned on the first
-// signed-in request, after this row is saved, and key material never rides
-// on Account itself. counter is the authenticator's last reported use
-// count; a sign-in whose counter did not grow is refused.
+// sign-in is checked against this key. id is the credential id exactly as
+// the browser returns it (base64url); subject is the passkey name the
+// server made at register. Not a relation to Account: that row is
+// provisioned on the first signed-in request, after this one is saved, and
+// key material never rides on Account.
 model PasskeyCredential {
   id         String    @id
   subject    String
