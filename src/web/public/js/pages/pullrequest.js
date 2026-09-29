@@ -39,7 +39,7 @@
   var DEEM_COMPLETED_AFTER_DAYS = 7, ABT_FEE_RATE_PERCENT = 3, MS_PER_DAY = 86400000;
   var jobId = "", token = "", job = null, closeSelectedIndex = null;
   // Whether the signed-in session IS the job's buyer, resolved like
-  // staged.js's own resolveIsBuyerParty (GET /accounts/:did). Fail closed.
+  // staged.js's own resolveIsBuyerParty (GET /accounts/me). Fail closed.
   var isBuyerParty = false, session = null;
 
   function start() {
@@ -51,13 +51,14 @@
     reload();
   }
   function reload() { Promise.all([A.get("/jobs/" + encodeURIComponent(jobId)), A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/attestation", token)]).then(onLoaded); }
+  // The buyer is whoever GET /accounts/me says this session is, by did;
+  // any answer but a 200 naming job.buyerDid is not the buyer.
   function resolveIsBuyerParty(job_) {
     if (session === null || typeof job_.buyerDid !== "string" || job_.buyerDid === "") return Promise.resolve(false);
-    return A.get("/accounts/" + encodeURIComponent(job_.buyerDid)).then(function (result) {
-      if (result.state !== "ok") return false;
-      var account = result.value && typeof result.value === "object" ? result.value : {};
-      if (session.method === "passkey") return typeof account.passkeySubject === "string" && account.passkeySubject === session.subject;
-      return typeof account.githubLogin === "string" && account.githubLogin === session.subject;
+    return A.getAuthed("/accounts/me", session.token).then(function (result) {
+      if (result.state !== "ok" || result.value.status !== 200) return false;
+      var me = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
+      return typeof me.did === "string" && me.did === job_.buyerDid;
     });
   }
   function failLoad(detail) { A.showById("load-error", true); A.setTextById("load-error-detail", detail); }

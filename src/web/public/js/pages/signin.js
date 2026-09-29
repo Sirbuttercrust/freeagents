@@ -30,12 +30,27 @@
    empty) is detected by reading it back rather than guessing at server
    configuration from the browser.
 
-   Passkey: a real WebAuthn ceremony against POST /auth/passkey/register
-   and POST /auth/passkey/verify, using the browser's own
-   navigator.credentials API. No @simplewebauthn/browser here (not a
-   project dependency; the brief forbids adding one) -- the base64url and
-   ArrayBuffer conversions below are the whole of what that package's
-   client half would otherwise do for these two calls.
+   Passkey: two controls, because signing in with a passkey and making
+   one are two different browser ceremonies, and the page cannot tell a
+   first visit from a return without asking the browser.
+
+     Use a passkey      POST /auth/passkey/signin/start, then
+                        navigator.credentials.get, then POST
+                        /auth/passkey/signin with the assertion. The server
+                        sends no allowCredentials, so the browser offers the
+                        passkeys it holds for this site, and the one picked
+                        names its account by its own user handle.
+     Create a passkey   POST /auth/passkey/register with no body, then
+                        navigator.credentials.create, then POST
+                        /auth/passkey/verify with { response }. The server
+                        makes the account's name and puts it in user.id.
+
+   The page sends no name and keeps none: the account comes from the
+   passkey, never from something this browser says about itself. No
+   @simplewebauthn/browser here (not a project dependency) and no
+   PublicKeyCredential JSON helpers (newer than WebAuthn itself): the
+   base64url and ArrayBuffer conversions below are the whole of what either
+   would do for these four calls.
 
    THE TOKEN IS A BEARER TOKEN, NEVER A COOKIE (the brief, and the security
    sweep it cites). It is kept in sessionStorage, which a script can read
@@ -67,7 +82,7 @@
        call here was the round 1 defect (Proof, D1): a rule that fires on
        load but is never told when the session clears is not the nav's
        rule, it is a copy of the nav's rule at one instant. nav.js's
-       render() is also what FANav.refresh() calls (see beginPasskey
+       render() is also what FANav.refresh() calls (see finish()
        below and nav.js's sign-out handler), so on-load, sign-in and
        sign-out all clear or set this section through the one place that
        decides it. A signed-out visitor must not be shown a menu of pages
@@ -171,7 +186,7 @@
 
   function wireControls() {
     var githubBtn = A.el("btn-github");
-    var passkeyBtn = A.el("btn-passkey");
+    var passkeyBtns = [A.el("btn-passkey"), A.el("btn-passkey-create")];
 
     if (githubBtn) {
       githubBtn.addEventListener("click", function () { beginGithub(githubBtn); });
@@ -179,12 +194,15 @@
 
     if (!("credentials" in navigator) || !window.PublicKeyCredential) {
       A.showById("passkey-unavailable", true);
-      if (passkeyBtn) passkeyBtn.disabled = true;
-    } else if (passkeyBtn) {
-      passkeyBtn.addEventListener("click", function () { beginPasskey(passkeyBtn); });
+      passkeyBtns.forEach(function (btn) { if (btn) btn.disabled = true; });
+      return;
     }
+    if (passkeyBtns[0]) passkeyBtns[0].addEventListener("click", function () { beginPasskeySignIn(passkeyBtns); });
+    if (passkeyBtns[1]) passkeyBtns[1].addEventListener("click", function () { beginPasskeyCreate(passkeyBtns); });
   }
 
+  /* #signin-status carries role="status" in the markup, so a screen reader
+     is already listening to it before the first sentence lands. */
   function setStatus(text) {
     var node = A.el("signin-status");
     if (!node) return;
@@ -200,33 +218,6 @@
       /* Private-browsing or a full quota: the sign-in itself still
          succeeded, so this is not surfaced as a failure. */
     }
-  }
-
-  /* The passkey subject this browser registers with, stable across
-     sign-ins (qa review round 1, D1). Read from localStorage first so a
-     returning visitor's second sign-in reuses the exact subject their
-     Account was bound to; minted and persisted once when none exists yet.
-     localStorage, not sessionStorage: a passkey outlives a closed tab, so
-     the subject naming it must too. A storage failure (private browsing,
-     a full quota) still returns a usable subject for this one attempt; it
-     is simply not remembered for the next tab. */
-  var PASSKEY_SUBJECT_STORAGE_KEY = "fa_passkey_subject";
-
-  function passkeySubject() {
-    try {
-      var existing = window.localStorage.getItem(PASSKEY_SUBJECT_STORAGE_KEY);
-      if (typeof existing === "string" && existing !== "") return existing;
-    } catch (e) {
-      /* fall through to minting a fresh one below */
-    }
-    var minted = "web-" + bufferToBase64url(window.crypto.getRandomValues(new Uint8Array(16)).buffer);
-    try {
-      window.localStorage.setItem(PASSKEY_SUBJECT_STORAGE_KEY, minted);
-    } catch (e) {
-      /* Private-browsing or a full quota: this attempt still proceeds with
-         the minted subject; it just will not be remembered next time. */
-    }
-    return minted;
   }
 
   /* GitHub: begin the flow, then follow the redirect the server answers.
@@ -320,59 +311,146 @@
     };
   }
 
-  function beginPasskey(btn) {
-    btn.disabled = true;
-    setStatus("Setting up your passkey…");
+  /* The JSON shape generateAuthenticationOptions() produces, converted to
+     the shape navigator.credentials.get() expects: the challenge, and any
+     allowCredentials ids, as ArrayBuffers. */
+  function toRequestOptions(optionsJson) {
+    var out = {};
+    for (var key in optionsJson) {
+      if (Object.prototype.hasOwnProperty.call(optionsJson, key)) out[key] = optionsJson[key];
+    }
+    out.challenge = base64urlToBuffer(optionsJson.challenge);
+    if (Array.isArray(optionsJson.allowCredentials)) {
+      out.allowCredentials = optionsJson.allowCredentials.map(function (c) {
+        return { id: base64urlToBuffer(c.id), type: c.type, transports: c.transports };
+      });
+    }
+    return out;
+  }
 
-    /* A single browser-scoped subject, stable across every sign-in on this
-       device (qa review round 1, D1): the identity the passkey PROVES is
-       the platform account it resolves to server-side
-       (Account.passkeySubject), so a subject that changed on every click
-       could never match an account bound to an earlier one. Persisted in
-       localStorage rather than sessionStorage: the whole point is that it
-       survives a closed tab, the same way the passkey itself does. */
-    var subject = passkeySubject();
+  /* The browser's assertion, converted to the JSON shape
+     verifyAuthenticationResponse() reads. userHandle is the name the
+     server made at register; the server checks it against the stored
+     passkey rather than trusting it. */
+  function assertionToJson(credential) {
+    var r = credential.response;
+    return {
+      id: credential.id,
+      rawId: bufferToBase64url(credential.rawId),
+      type: credential.type,
+      response: {
+        authenticatorData: bufferToBase64url(r.authenticatorData),
+        clientDataJSON: bufferToBase64url(r.clientDataJSON),
+        signature: bufferToBase64url(r.signature),
+        userHandle: r.userHandle ? bufferToBase64url(r.userHandle) : undefined,
+      },
+      clientExtensionResults: credential.getClientExtensionResults ? credential.getClientExtensionResults() : {},
+    };
+  }
 
-    fetch("/auth/passkey/register", {
-      method: "POST",
-      headers: { "content-type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ subject: subject }),
-    })
-      .then(function (res) {
-        if (!res.ok) throw new Error("http " + res.status);
-        return res.json();
+  /* A POST to one of the four passkey routes. A non-2xx answer rejects
+     with the route's status and its error sentence, so failureSentence
+     can tell a refusal, a storage fault and an unconfigured deployment
+     apart. Register and signin/start take no body, so none is sent. */
+  function postPasskey(path, body) {
+    var init = { method: "POST", headers: { Accept: "application/json" } };
+    if (body !== undefined) {
+      init.headers["content-type"] = "application/json";
+      init.body = JSON.stringify(body);
+    }
+    return fetch(path, init).then(function (res) {
+      return res.json().then(null, function () { return null; }).then(function (parsed) {
+        if (res.ok) return parsed;
+        var err = new Error("http " + res.status);
+        err.status = res.status;
+        err.serverError = parsed && typeof parsed.error === "string" ? parsed.error : "";
+        throw err;
+      });
+    });
+  }
+
+  var NOT_CONFIGURED = "passkey sign-in is not configured on this deployment";
+
+  /* One sentence per outcome, each naming what the person can do. The
+     browser gives NotAllowedError both for a cancelled prompt and for a
+     device holding no passkey for this site, and the page cannot tell
+     those apart, so that sentence is true of both. */
+  function failureSentence(err, ceremony) {
+    var status = err && err.status;
+    if (status === 503 && err.serverError === NOT_CONFIGURED) {
+      return "Passkeys are not set up on this deployment. Continue with GitHub instead.";
+    }
+    if (status === 503) {
+      return "FreeAgents could not reach its records just now, so you are not signed in. Try again in a moment.";
+    }
+    if (status === 401 && ceremony === "signin") {
+      return "That passkey did not sign you in. Press Use a passkey to try again, or press Create a passkey if this device has none for FreeAgents.";
+    }
+    if (status === 401) {
+      return "That passkey was not accepted, so no account was made. Press Create a passkey to try again, or continue with GitHub.";
+    }
+    if (err && err.name === "NotAllowedError" && ceremony === "signin") {
+      return "No passkey was used. If this device has none for FreeAgents yet, press Create a passkey, or continue with GitHub.";
+    }
+    if (err && err.name === "NotAllowedError") {
+      return "No passkey was made. Press Create a passkey to try again, or continue with GitHub.";
+    }
+    return "The passkey did not go through. Try again, or continue with GitHub.";
+  }
+
+  /* Both passkey controls stay disabled while either ceremony runs, so a
+     second press cannot start a second ceremony over the first. */
+  function setBusy(btns, busy) {
+    btns.forEach(function (btn) { if (btn) btn.disabled = busy; });
+  }
+
+  function finishPasskey(btns, ceremony, chain) {
+    chain
+      .then(function (session) {
+        storeSession(session);
+        /* FANav.refresh() re-runs nav.js's render(), which owns
+           #once-signed-in too: one call sets the nav's signed-in state and
+           that section together. */
+        if (window.FANav && typeof window.FANav.refresh === "function") window.FANav.refresh();
+        setStatus("Signed in with a passkey. You can hire or list an agent now.");
+        setBusy(btns, false);
       })
+      .catch(function (err) {
+        setStatus(failureSentence(err, ceremony));
+        setBusy(btns, false);
+      });
+  }
+
+  /* Use a passkey: a returning person. The browser offers the passkeys it
+     holds for this site, and the server finds the account from the one
+     picked. The assertion is posted as itself, not wrapped. */
+  function beginPasskeySignIn(btns) {
+    setBusy(btns, true);
+    setStatus("Waiting for your passkey\u2026");
+    finishPasskey(btns, "signin", postPasskey("/auth/passkey/signin/start")
       .then(function (body) {
-        var options = JSON.parse(body.optionsJson);
-        return navigator.credentials.create({ publicKey: toCreationOptions(options) });
+        return navigator.credentials.get({ publicKey: toRequestOptions(JSON.parse(body.optionsJson)) });
       })
       .then(function (credential) {
         if (!credential) throw new Error("no credential");
-        var responseJson = JSON.stringify({ subject: subject, response: credentialToJson(credential) });
-        return fetch("/auth/passkey/verify", {
-          method: "POST",
-          headers: { "content-type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ responseJson: responseJson }),
-        });
+        return postPasskey("/auth/passkey/signin", { responseJson: JSON.stringify(assertionToJson(credential)) });
+      }));
+  }
+
+  /* Create a passkey: a first visit. Register takes no body because the
+     server makes the account's name, and verify's envelope carries only
+     { response }. */
+  function beginPasskeyCreate(btns) {
+    setBusy(btns, true);
+    setStatus("Setting up your passkey\u2026");
+    finishPasskey(btns, "create", postPasskey("/auth/passkey/register")
+      .then(function (body) {
+        return navigator.credentials.create({ publicKey: toCreationOptions(JSON.parse(body.optionsJson)) });
       })
-      .then(function (res) {
-        if (!res.ok) throw new Error("http " + res.status);
-        return res.json();
-      })
-      .then(function (session) {
-        storeSession(session);
-        /* FANav.refresh() re-runs nav.js's render(), which now owns
-           #once-signed-in too (W6 round 2, D1): one call sets the nav's
-           signed-in state and this section together, rather than this
-           file keeping a second copy of the same show/hide call. */
-        if (window.FANav && typeof window.FANav.refresh === "function") window.FANav.refresh();
-        setStatus("Signed in with a passkey. You can hire or list an agent now.");
-        btn.disabled = false;
-      })
-      .catch(function () {
-        setStatus("The passkey did not go through. Try again, or continue with GitHub.");
-        btn.disabled = false;
-      });
+      .then(function (credential) {
+        if (!credential) throw new Error("no credential");
+        return postPasskey("/auth/passkey/verify", { responseJson: JSON.stringify({ response: credentialToJson(credential) }) });
+      }));
   }
 
   if (document.readyState === "loading") {

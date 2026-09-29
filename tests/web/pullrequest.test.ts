@@ -74,6 +74,9 @@ async function renderPage(
   path: string,
   session: { token: string; subject?: string; method?: string } | null,
   onFetch?: (input: string, init?: RequestInit) => void,
+  // Answers one request the page makes without reaching the app, or null
+  // to let it through (FIX-B61b's scripted account reads).
+  script?: (input: string) => Response | null,
 ): Promise<Rendered> {
   const virtualConsole = new VirtualConsole();
   const failures: string[] = [];
@@ -92,6 +95,8 @@ async function renderPage(
         writable: true,
         value: (input: string, init?: RequestInit) => {
           if (onFetch) onFetch(input, init);
+          const scripted = script ? script(String(input)) : null;
+          if (scripted !== null) return Promise.resolve(scripted);
           return fetch(new URL(input, baseUrl), init);
         },
       });
@@ -110,8 +115,12 @@ function renderPr(
   jobId: string,
   session: { token: string; subject?: string; method?: string } | null,
   onFetch?: (input: string, init?: RequestInit) => void,
+  script?: (input: string) => Response | null,
 ): Promise<Rendered> {
-  return renderPage(baseUrl, `/pullrequest?job=${encodeURIComponent(jobId)}`, session, onFetch);
+  return renderPage(baseUrl, `/pullrequest?job=${encodeURIComponent(jobId)}`, session, onFetch, script);
+}
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 // Every CSS rule in force on this page: the page's own <style> block plus
 // each stylesheet it LINKS, fetched over HTTP from the running app.
@@ -894,8 +903,8 @@ describe('the pull-request screen, driven end to end against the real app', () =
         await new Promise<void>((resolve) => agentServer.close(() => resolve()));
       }
     });
-    describe('the passkey branch (mirrors the pattern staged.test.ts already covers)', () => {
-      it('a passkey session whose subject matches the buyer account renders the close control', async () => {
+    describe('a passkey session (mirrors the case staged.test.ts already covers)', () => {
+      it('a passkey session belonging to the buyer account renders the close control', async () => {
         const passkeyAccountRepo = new MemoryAccountRepository();
         const passkeySubjectValue = 'pr-page-passkey-buyer-subject';
         await passkeyAccountRepo.register({ did: BUYER_ACCOUNT_DID, passkeySubject: passkeySubjectValue });
@@ -945,6 +954,54 @@ describe('the pull-request screen, driven end to end against the real app', () =
           }
         } finally {
           await new Promise<void>((resolve) => passkeyServer.close(() => resolve()));
+        }
+      });
+    });
+    // FIX-B61b: the buyer is whoever GET /accounts/me says the session
+    // is, never a match against the public account's passkeySubject.
+    describe('the buyer is decided from GET /accounts/me (FIX-B61b)', () => {
+      it('a public buyer record whose passkeySubject equals the session subject, with /accounts/me naming another account, shows no close control', async () => {
+        const agentSessionAdapter = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: 'pr-page-agent-login', id: 9403 }) });
+        const agentAccountRepo = new MemoryAccountRepository();
+        await agentAccountRepo.register({ did: AGENT_DID, githubLogin: 'pr-page-agent-login' });
+        await agentAccountRepo.register({ did: BUYER_ACCOUNT_DID, githubLogin: 'pr-page-buyer' });
+        const agentServer = createApp(agentAccountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, agentSessionAdapter, undefined, alwaysSettledGate(), undefined, attestationRepo).listen(0, '127.0.0.1');
+        await new Promise<void>((resolve) => agentServer.once('listening', resolve));
+        const agentBaseUrl = `http://127.0.0.1:${(agentServer.address() as AddressInfo).port}`;
+        try {
+          const real = await mintSession(agentSessionAdapter);
+          const stranger = { ...real, method: 'passkey' as const, subject: 'pk-stranger-subject' };
+          const page = await renderPr(agentBaseUrl, 'job-agent-view', stranger, undefined, (input) => {
+            if (input === `/accounts/${encodeURIComponent(BUYER_ACCOUNT_DID)}`) return jsonResponse(200, { did: BUYER_ACCOUNT_DID, passkeySubject: 'pk-stranger-subject', githubLogin: null });
+            if (input === '/accounts/me') return jsonResponse(200, { did: AGENT_DID });
+            return null;
+          });
+          try {
+            expect(page.document.getElementById('pr-body')?.hidden).toBe(false);
+            expect(page.document.getElementById('close-btn')).toBeNull();
+          } finally {
+            page.close();
+          }
+        } finally {
+          await new Promise<void>((resolve) => agentServer.close(() => resolve()));
+        }
+      });
+      it.each([401, 503])('/accounts/me answering %i shows no close control, even to the real buyer', async (status) => {
+        const page = await renderPr(baseUrl, 'job-agent-view', buyerSession, undefined, (input) =>
+          input === '/accounts/me' ? jsonResponse(status, { error: status === 401 ? 'sign in first' : 'storage unavailable' }) : null);
+        try {
+          expect(page.document.getElementById('pr-body')?.hidden).toBe(false);
+          expect(page.document.getElementById('close-btn')).toBeNull();
+        } finally {
+          page.close();
+        }
+      });
+      it('the real buyer, with /accounts/me answering its own did, sees the close control', async () => {
+        const page = await renderPr(baseUrl, 'job-agent-view', buyerSession);
+        try {
+          expect(page.document.getElementById('close-btn')).not.toBeNull();
+        } finally {
+          page.close();
         }
       });
     });
