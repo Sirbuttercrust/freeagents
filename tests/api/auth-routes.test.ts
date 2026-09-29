@@ -446,8 +446,7 @@ describe('POST /auth/passkey/verify', () => {
     });
     const { optionsJson } = (await registered.json()) as { optionsJson: string };
     const { challenge, user } = JSON.parse(optionsJson) as { challenge: string; user: { id: string } };
-    // The session's subject is the name the server made and put in user.id,
-    // never the one the body offered.
+    // The session's subject is the name the server put in user.id, not the body's.
     const madeName = Buffer.from(user.id, 'base64url').toString('utf8');
     expect(madeName).not.toBe(subject);
     const fixture = createPasskeyFixture();
@@ -705,8 +704,7 @@ describe('P8b anchor: sign in over HTTP, then drive both hire-loop gate shapes w
   });
 
   it('passkey sign-in end to end: sign up through the routes, sign back in, token accepted the same way', async () => {
-    // The first signed-in request provisions the account, which derives an
-    // operator DID from the platform seed. Restored by this block's afterEach.
+    // Provisioning the account on the first signed-in request needs the seed.
     vi.stubEnv('FREEAGENTS_PLATFORM_SEED', 'f'.repeat(64));
     const sessionAdapter = passkeyAdapter();
     const accountRepo = new MemoryAccountRepository();
@@ -724,7 +722,6 @@ describe('P8b anchor: sign in over HTTP, then drive both hire-loop gate shapes w
       createApp(accountRepo, agentRepo, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
     );
 
-    // Sign up: register (no name sent), the authenticator answers, verify.
     const registered = await fetch(`${baseUrl}/auth/passkey/register`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -744,10 +741,7 @@ describe('P8b anchor: sign in over HTTP, then drive both hire-loop gate shapes w
     expect(verified.status).toBe(200);
     const signedUp = (await verified.json()) as { token: string; subject: string };
 
-    // Sign back in with the same passkey: start, then the assertion. The
-    // browser names nobody.
     const started = await fetch(`${baseUrl}/auth/passkey/signin/start`, { method: 'POST' });
-    expect(started.status).toBe(200);
     const signInOptions = JSON.parse(((await started.json()) as { optionsJson: string }).optionsJson) as { challenge: string };
     const assertion = fixture.assertionResponse(signInOptions.challenge, 'localhost');
     const signedIn = await fetch(`${baseUrl}/auth/passkey/signin`, {

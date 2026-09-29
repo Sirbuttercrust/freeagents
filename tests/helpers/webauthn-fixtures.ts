@@ -59,12 +59,9 @@ function coseEC2PublicKey(x: Buffer, y: Buffer): Buffer {
 }
 
 // What a test can bend about one sign-in assertion. Every field defaults to
-// the honest authenticator: user verified, the next counter value, the
-// user handle the registration was made for, signed with this passkey's own
-// key.
+// the honest authenticator.
 export interface AssertionOptions {
-  // base64url of the user handle bytes; null leaves the field out, as an
-  // authenticator holding no user handle would.
+  // base64url of the user handle bytes; null leaves the field out.
   readonly userHandle?: string | null;
   // false clears the user-verified flag in the authenticator data.
   readonly userVerified?: boolean;
@@ -72,13 +69,13 @@ export interface AssertionOptions {
   readonly counter?: number;
   // Sign with another fixture's private key (a forged signature).
   readonly signWith?: PasskeyFixture;
-  // Present another credential id (an unknown or someone else's).
+  // Present another credential id.
   readonly credentialId?: string;
 }
 
 export interface PasskeyFixtureInit {
-  // Claim an existing credential id with a new key. A "none" attestation
-  // proves nothing about the id, so anyone can do this.
+  // Claim an existing credential id with a new key (a "none" attestation
+  // proves nothing about the id, so anyone can).
   readonly credentialId?: string;
 }
 
@@ -86,8 +83,8 @@ export interface PasskeyFixture {
   readonly registrationResponse: (challenge: string, rpID: string) => RegistrationResponseJSON;
   readonly assertionResponse: (challenge: string, rpID: string, options?: AssertionOptions) => AuthenticationResponseJSON;
   readonly credentialId: string;
-  // Remembers the user handle (the registration's user.id, chosen by the
-  // server) so later assertions carry it, as a real authenticator does.
+  // Remembers the registration's user.id so later assertions carry it as
+  // their user handle, as a real authenticator does.
   readonly rememberUserHandle: (userHandle: string) => void;
   readonly signRaw: (data: Uint8Array) => Uint8Array<ArrayBuffer>;
 }

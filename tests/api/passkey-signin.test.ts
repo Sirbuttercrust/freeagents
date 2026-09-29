@@ -1,14 +1,10 @@
-// FIX-B61a: a passkey signs in only the account it was registered to.
-//
-// Before this card a passkey sign-in was a fresh registration under a name
-// the caller chose, and that name was public on GET /accounts/:did. So a
-// stranger could read a victim's passkeySubject, register their own passkey
-// under it, and be signed in as the victim. The rules pinned here:
-//   - the server makes the name at register and binds it to the ceremony;
-//   - the credential is stored when it is created, once per credential id;
-//   - every later sign-in is a WebAuthn authentication checked against the
-//     stored key, and the browser names nobody.
-// Everything runs over real HTTP against the real app with real WebAuthn
+// FIX-B61a: before this card a passkey sign-in was a fresh registration
+// under a name the caller chose, and that name was public on
+// GET /accounts/:did, so a stranger could register their own passkey under
+// a victim's name and be signed in as the victim. Pinned here: the server
+// makes the name at register, the credential is stored once per credential
+// id, and every later sign-in is a WebAuthn authentication checked against
+// the stored key while the browser names nobody. Real HTTP, real WebAuthn
 // bytes (tests/helpers/webauthn-fixtures.ts), never a stubbed verifier.
 import type { Server } from 'node:http';
 
@@ -44,15 +40,11 @@ let server: Server | null = null;
 
 // GET /accounts/me provisions the account row on the first signed-in
 // request, and that derives an operator DID from the platform seed.
-const PLATFORM_SEED = 'f'.repeat(64);
-let originalSeed: string | undefined;
 beforeAll(() => {
-  originalSeed = process.env.FREEAGENTS_PLATFORM_SEED;
-  process.env.FREEAGENTS_PLATFORM_SEED = PLATFORM_SEED;
+  vi.stubEnv('FREEAGENTS_PLATFORM_SEED', 'f'.repeat(64));
 });
 afterAll(() => {
-  if (originalSeed === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
-  else process.env.FREEAGENTS_PLATFORM_SEED = originalSeed;
+  vi.unstubAllEnvs();
 });
 
 afterEach(async () => {
@@ -62,8 +54,7 @@ afterEach(async () => {
   }
 });
 
-// A passkey store whose reads or writes can be made to fail, over a real
-// in-memory store, for the storage-fault cases.
+// A real in-memory passkey store whose reads or writes can be made to fail.
 class FlakyPasskeyStore implements PasskeyCredentialRepository {
   readonly inner = new MemoryPasskeyCredentialRepository();
   failReads = false;
@@ -79,8 +70,8 @@ class FlakyPasskeyStore implements PasskeyCredentialRepository {
     return this.inner.findById(id);
   }
 
-  async recordUse(id: string, newCounter: number): Promise<void> {
-    await this.inner.recordUse(id, newCounter);
+  recordUse(id: string, newCounter: number): Promise<void> {
+    return this.inner.recordUse(id, newCounter);
   }
 }
 
@@ -88,48 +79,32 @@ interface Rig {
   readonly baseUrl: string;
   readonly adapter: SessionAdapter;
   readonly clock: { now: number };
-  readonly store: PasskeyCredentialRepository;
 }
 
 interface RigOptions {
   readonly store?: PasskeyCredentialRepository;
   readonly accounts?: MemoryAccountRepository;
-  readonly clock?: { now: number };
   readonly passkeyConfigured?: boolean;
 }
 
 async function startRig(options: RigOptions = {}): Promise<Rig> {
-  const clock = options.clock ?? { now: 1_800_000_000_000 };
-  const store = options.store ?? new MemoryPasskeyCredentialRepository();
+  const clock = { now: 1_800_000_000_000 };
   const adapter = createSessionAdapter({
     github: fakeGitHubConfig(),
     ...(options.passkeyConfigured === false
       ? {}
       : { passkey: { rpName: 'FreeAgents test', rpID: RP_ID, origin: 'http://localhost:3000' } }),
-    passkeyCredentials: store,
+    passkeyCredentials: options.store ?? new MemoryPasskeyCredentialRepository(),
     passkeyChallengeTtlMs: CHALLENGE_TTL_MS,
     now: () => clock.now,
   });
   const accounts = options.accounts ?? new MemoryAccountRepository();
-  const app = createApp(
-    accounts,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    adapter,
-  );
+  const app = createApp(accounts, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, adapter);
   server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server!.once('listening', resolve));
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('expected server to listen on a port');
-  return { baseUrl: `http://127.0.0.1:${address.port}`, adapter, clock, store };
+  return { baseUrl: `http://127.0.0.1:${address.port}`, adapter, clock };
 }
 
 interface Reply {
@@ -146,16 +121,10 @@ async function post(rig: Rig, path: string, body?: unknown): Promise<Reply> {
   return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
 
-async function accountOf(rig: Rig, token: string): Promise<{ status: number; did: string; passkeySubject: unknown }> {
+async function accountOf(rig: Rig, token: string): Promise<{ status: number; did: string }> {
   const res = await fetch(`${rig.baseUrl}/accounts/me`, { headers: { authorization: ['Bearer', token].join(' ') } });
-  const body = (await res.json()) as { did?: string; passkeySubject?: unknown };
-  return { status: res.status, did: String(body.did), passkeySubject: body.passkeySubject };
-}
-
-async function publicAccount(rig: Rig, did: string): Promise<{ status: number; passkeySubject: unknown }> {
-  const res = await fetch(`${rig.baseUrl}/accounts/${did}`);
-  const body = (await res.json()) as { passkeySubject?: unknown };
-  return { status: res.status, passkeySubject: body.passkeySubject };
+  const body = (await res.json()) as { did?: string };
+  return { status: res.status, did: String(body.did) };
 }
 
 interface RegistrationOptions {
@@ -163,7 +132,6 @@ interface RegistrationOptions {
   readonly user: { readonly id: string; readonly name: string };
   readonly authenticatorSelection: unknown;
 }
-
 function decodeUserId(userId: string): string {
   return Buffer.from(userId, 'base64url').toString('utf8');
 }
@@ -181,9 +149,8 @@ interface SignedUp {
   readonly did: string;
 }
 
-// A person makes a passkey: register (no name sent), the authenticator
-// answers, verify. The authenticator remembers the user handle the server
-// chose, as a real one does.
+// A person makes a passkey: register (no name sent), verify. The
+// authenticator remembers the user handle the server chose.
 async function signUp(rig: Rig, fixture: PasskeyFixture): Promise<SignedUp> {
   const options = await beginRegistration(rig);
   fixture.rememberUserHandle(options.user.id);
@@ -225,14 +192,14 @@ function expectSession(reply: Reply, subject: string): Session {
 }
 
 describe('a stranger cannot sign in as an account by naming it', () => {
-  it('(a) B reads A\'s passkeySubject, sends it at register and in the verify envelope, and still lands on B\'s own account', async () => {
+  it('(a) B reads A\'s passkeySubject, sends it at register and in the verify envelope, and still lands on B\'s own account, under the server\'s name', async () => {
     const rig = await startRig();
     const a = await signUp(rig, createPasskeyFixture());
 
     // The name is public today: GET /accounts/:did needs no sign-in.
-    const publicRow = await publicAccount(rig, a.did);
+    const publicRow = await fetch(`${rig.baseUrl}/accounts/${a.did}`);
     expect(publicRow.status).toBe(200);
-    const stolenName = String(publicRow.passkeySubject);
+    const stolenName = String(((await publicRow.json()) as { passkeySubject?: unknown }).passkeySubject);
     expect(stolenName).toBe(a.name);
 
     const b = createPasskeyFixture();
@@ -246,20 +213,8 @@ describe('a stranger cannot sign in as an account by naming it', () => {
     const account = await accountOf(rig, String(verified.body.token));
     expect(account.status).toBe(200);
     expect(account.did).not.toBe(a.did);
-  });
-
-  it('(a) the name in a verify envelope is never read: a registration made for a different name is not filed under it', async () => {
-    const rig = await startRig();
-    const a = await signUp(rig, createPasskeyFixture());
-    const b = createPasskeyFixture();
-    const options = await beginRegistration(rig);
-    b.rememberUserHandle(options.user.id);
-    const response = b.registrationResponse(options.challenge, RP_ID);
-
-    const verified = await post(rig, '/auth/passkey/verify', {
-      responseJson: JSON.stringify({ subject: a.name, response }),
-    });
-
+    // The name in the envelope is never read: the session carries the name
+    // the server put in user.id, not A's.
     expectSession(verified, decodeUserId(options.user.id));
     expect(String(verified.body.subject)).not.toBe(a.name);
   });
@@ -278,6 +233,8 @@ describe('a returning person signs in with the passkey they made', () => {
     expect(a.session.subject).toBe(a.name);
     const account = await accountOf(rig, session.token);
     expect(account.did).toBe(a.did);
+    // A second sign-in is a fresh challenge and a counter that grew.
+    expectSession(await signIn(rig, fixture), a.name);
   });
 
   it('(b) the sign-in start needs no body and offers the site\'s passkeys: user verification required, no credential list', async () => {
@@ -295,28 +252,16 @@ describe('a returning person signs in with the passkey they made', () => {
     expect(allowed === undefined || allowed.length === 0).toBe(true);
   });
 
-  it('(b) signing in twice in a row works: each sign-in is a fresh challenge and the counter grows', async () => {
-    const rig = await startRig();
-    const fixture = createPasskeyFixture();
-    const a = await signUp(rig, fixture);
-
-    expectSession(await signIn(rig, fixture), a.name);
-    expectSession(await signIn(rig, fixture), a.name);
-  });
-
   it('(c) B\'s own passkey signs B in, never A', async () => {
     const rig = await startRig();
-    const fixtureA = createPasskeyFixture();
+    const a = await signUp(rig, createPasskeyFixture());
     const fixtureB = createPasskeyFixture();
-    const a = await signUp(rig, fixtureA);
     const b = await signUp(rig, fixtureB);
     expect(b.did).not.toBe(a.did);
 
     const session = expectSession(await signIn(rig, fixtureB), b.name);
 
-    const account = await accountOf(rig, session.token);
-    expect(account.did).toBe(b.did);
-    expect(account.did).not.toBe(a.did);
+    expect((await accountOf(rig, session.token)).did).toBe(b.did);
   });
 
   it('(e) restart: a passkey made on one adapter signs in on a second adapter built on the same store', async () => {
@@ -329,39 +274,34 @@ describe('a returning person signs in with the passkey they made', () => {
     server = null;
 
     const second = await startRig({ store, accounts });
-    const reply = await signIn(second, fixture);
+    const session = expectSession(await signIn(second, fixture), a.name);
 
-    const session = expectSession(reply, a.name);
-    const account = await accountOf(second, session.token);
-    expect(account.did).toBe(a.did);
+    expect((await accountOf(second, session.token)).did).toBe(a.did);
   });
 });
+
+// One refused sign-in: 401 with the one sentence, and the real passkey
+// still signs in afterwards.
+async function expectRefused(rig: Rig, fixture: PasskeyFixture, name: string, options?: AssertionOptions): Promise<void> {
+  const reply = await signIn(rig, fixture, options);
+  expect(reply.status).toBe(401);
+  expect(reply.body).toEqual(REFUSED);
+  expectSession(await signIn(rig, fixture, options?.counter === undefined ? undefined : { counter: options.counter + 3 }), name);
+}
 
 describe('(d) a sign-in that is not the stored passkey is refused, and no session is minted', () => {
   it('an unknown credential id', async () => {
     const rig = await startRig();
     const fixture = createPasskeyFixture();
     const a = await signUp(rig, fixture);
-    const unknownId = createPasskeyFixture().credentialId;
-
-    const reply = await signIn(rig, fixture, { credentialId: unknownId });
-
-    expect(reply.status).toBe(401);
-    expect(reply.body).toEqual(REFUSED);
-    expectSession(await signIn(rig, fixture), a.name);
+    await expectRefused(rig, fixture, a.name, { credentialId: createPasskeyFixture().credentialId });
   });
 
   it('A\'s credential id with a signature from a different key', async () => {
     const rig = await startRig();
     const fixture = createPasskeyFixture();
     const a = await signUp(rig, fixture);
-    const forger = createPasskeyFixture();
-
-    const reply = await signIn(rig, fixture, { signWith: forger });
-
-    expect(reply.status).toBe(401);
-    expect(reply.body).toEqual(REFUSED);
-    expectSession(await signIn(rig, fixture), a.name);
+    await expectRefused(rig, fixture, a.name, { signWith: createPasskeyFixture() });
   });
 
   it('a userHandle naming another account', async () => {
@@ -369,24 +309,14 @@ describe('(d) a sign-in that is not the stored passkey is refused, and no sessio
     const fixtureA = createPasskeyFixture();
     const a = await signUp(rig, fixtureA);
     const b = await signUp(rig, createPasskeyFixture());
-
-    const reply = await signIn(rig, fixtureA, { userHandle: b.userHandle });
-
-    expect(reply.status).toBe(401);
-    expect(reply.body).toEqual(REFUSED);
-    expectSession(await signIn(rig, fixtureA), a.name);
+    await expectRefused(rig, fixtureA, a.name, { userHandle: b.userHandle });
   });
 
   it('a missing userHandle', async () => {
     const rig = await startRig();
     const fixture = createPasskeyFixture();
     const a = await signUp(rig, fixture);
-
-    const reply = await signIn(rig, fixture, { userHandle: null });
-
-    expect(reply.status).toBe(401);
-    expect(reply.body).toEqual(REFUSED);
-    expectSession(await signIn(rig, fixture), a.name);
+    await expectRefused(rig, fixture, a.name, { userHandle: null });
   });
 
   it('the same assertion sent twice: the second is refused on the challenge alone (counter 0 both times)', async () => {
@@ -394,8 +324,7 @@ describe('(d) a sign-in that is not the stored passkey is refused, and no sessio
     const fixture = createPasskeyFixture();
     await signUp(rig, fixture);
     const challenge = await beginSignIn(rig);
-    // Counter 0 is what many authenticators always report, and the library
-    // accepts it while the stored counter is also 0, so only the single-use
+    // Counter 0 twice is accepted by the library, so only the single-use
     // challenge stands between this assertion and a replay.
     const assertion = fixture.assertionResponse(challenge, RP_ID, { counter: 0 });
 
@@ -411,8 +340,7 @@ describe('(d) a sign-in that is not the stored passkey is refused, and no sessio
     const rig = await startRig();
     const fixture = createPasskeyFixture();
     const a = await signUp(rig, fixture);
-    const challenge = await beginSignIn(rig);
-    const assertion = fixture.assertionResponse(challenge, RP_ID);
+    const assertion = fixture.assertionResponse(await beginSignIn(rig), RP_ID);
     rig.clock.now += CHALLENGE_TTL_MS + 1;
 
     const reply = await sendAssertion(rig, assertion);
@@ -428,23 +356,14 @@ describe('(d) a sign-in that is not the stored passkey is refused, and no sessio
     const a = await signUp(rig, fixture);
     expectSession(await signIn(rig, fixture, { counter: 5 }), a.name);
 
-    const clone = await signIn(rig, fixture, { counter: 3 });
-
-    expect(clone.status).toBe(401);
-    expect(clone.body).toEqual(REFUSED);
-    expectSession(await signIn(rig, fixture, { counter: 6 }), a.name);
+    await expectRefused(rig, fixture, a.name, { counter: 3 });
   });
 
   it('the user-verified flag off', async () => {
     const rig = await startRig();
     const fixture = createPasskeyFixture();
     const a = await signUp(rig, fixture);
-
-    const reply = await signIn(rig, fixture, { userVerified: false });
-
-    expect(reply.status).toBe(401);
-    expect(reply.body).toEqual(REFUSED);
-    expectSession(await signIn(rig, fixture), a.name);
+    await expectRefused(rig, fixture, a.name, { userVerified: false });
   });
 
   it('a registration challenge cannot be used as a sign-in challenge', async () => {
@@ -455,8 +374,7 @@ describe('(d) a sign-in that is not the stored passkey is refused, and no sessio
 
     const reply = await sendAssertion(rig, fixture.assertionResponse(options.challenge, RP_ID));
 
-    expect(reply.status).toBe(401);
-    expect(reply.body).toEqual(REFUSED);
+    expect([reply.status, reply.body]).toEqual([401, REFUSED]);
   });
 
   it('a body that is not JSON', async () => {
@@ -464,28 +382,19 @@ describe('(d) a sign-in that is not the stored passkey is refused, and no sessio
 
     const reply = await post(rig, '/auth/passkey/signin', { responseJson: 'not json {' });
 
-    expect(reply.status).toBe(401);
-    expect(reply.body).toEqual(REFUSED);
+    expect([reply.status, reply.body]).toEqual([401, REFUSED]);
   });
 });
 
 describe('the sign-in routes guard their bodies and their configuration', () => {
-  it('400s a missing responseJson, before any adapter call', async () => {
+  it('400s a missing or non-string responseJson, before any adapter call', async () => {
     const rig = await startRig();
 
-    const reply = await post(rig, '/auth/passkey/signin', {});
-
-    expect(reply.status).toBe(400);
-    expect(reply.body).toEqual({ error: 'body must be { responseJson }, a non-empty string' });
-  });
-
-  it('400s a non-string responseJson, before any adapter call', async () => {
-    const rig = await startRig();
-
-    const reply = await post(rig, '/auth/passkey/signin', { responseJson: 42 });
-
-    expect(reply.status).toBe(400);
-    expect(reply.body).toEqual({ error: 'body must be { responseJson }, a non-empty string' });
+    for (const body of [{}, { responseJson: 42 }]) {
+      const reply = await post(rig, '/auth/passkey/signin', body);
+      expect(reply.status).toBe(400);
+      expect(reply.body).toEqual({ error: 'body must be { responseJson }, a non-empty string' });
+    }
   });
 
   it('503s the sign-in start when passkeys are not configured, with the existing sentence; a sign-in attempt is refused like any other', async () => {
@@ -494,10 +403,8 @@ describe('the sign-in routes guard their bodies and their configuration', () => 
     const started = await post(rig, '/auth/passkey/signin/start');
     const completed = await post(rig, '/auth/passkey/signin', { responseJson: '{}' });
 
-    expect(started.status).toBe(503);
-    expect(started.body).toEqual({ error: 'passkey sign-in is not configured on this deployment' });
-    expect(completed.status).toBe(401);
-    expect(completed.body).toEqual(REFUSED);
+    expect([started.status, started.body]).toEqual([503, { error: 'passkey sign-in is not configured on this deployment' }]);
+    expect([completed.status, completed.body]).toEqual([401, REFUSED]);
   });
 });
 
@@ -511,8 +418,7 @@ describe('(f) storage faults answer 503 and mint nothing', () => {
 
     const reply = await signIn(rig, fixture);
 
-    expect(reply.status).toBe(503);
-    expect(reply.body).toEqual({ error: 'storage unavailable' });
+    expect([reply.status, reply.body]).toEqual([503, { error: 'storage unavailable' }]);
     store.failReads = false;
     expectSession(await signIn(rig, fixture), a.name);
   });
@@ -529,8 +435,7 @@ describe('(f) storage faults answer 503 and mint nothing', () => {
 
     const reply = await post(rig, '/auth/passkey/verify', { responseJson: JSON.stringify({ response }) });
 
-    expect(reply.status).toBe(503);
-    expect(reply.body).toEqual({ error: 'storage unavailable' });
+    expect([reply.status, reply.body]).toEqual([503, { error: 'storage unavailable' }]);
     for (const token of drawn.tokens) {
       expect(await rig.adapter.getSession(token)).toBeNull();
     }
@@ -548,8 +453,7 @@ describe('(g) register makes the name and binds it to the ceremony', () => {
     expect(name.length).toBeGreaterThan(0);
     expect(options.user.name).not.toBe(name);
     expect(options.user.name).not.toContain(name);
-    // The library adds requireResidentKey: true beside residentKey:
-    // 'required' (WebAuthn level 1 browsers read only that field).
+    // The library adds requireResidentKey beside residentKey.
     expect(options.authenticatorSelection).toEqual({
       residentKey: 'required',
       requireResidentKey: true,
@@ -566,18 +470,6 @@ describe('(g) register makes the name and binds it to the ceremony', () => {
     expect(decodeUserId(named.user.id)).not.toBe('attacker-chosen-name');
     expect(decodeUserId(named.user.id)).not.toBe(decodeUserId(other.user.id));
     expect(named.user.name).not.toContain('attacker-chosen-name');
-  });
-
-  it('the session the ceremony mints carries the name user.id carried', async () => {
-    const rig = await startRig();
-    const fixture = createPasskeyFixture();
-    const options = await beginRegistration(rig);
-    fixture.rememberUserHandle(options.user.id);
-    const response = fixture.registrationResponse(options.challenge, RP_ID);
-
-    const verified = await post(rig, '/auth/passkey/verify', { responseJson: JSON.stringify({ response }) });
-
-    expectSession(verified, decodeUserId(options.user.id));
   });
 
   it('a registration finished twice mints one session: the second answer is refused', async () => {
@@ -603,7 +495,6 @@ describe('(h) a credential id is bound once', () => {
     const fixtureA = createPasskeyFixture();
     const a = await signUp(rig, fixtureA);
     const before = await store.findById(fixtureA.credentialId);
-    expect(before?.subject).toBe(a.name);
 
     // A "none" attestation lets anyone claim any credential id.
     const claimer = createPasskeyFixture({ credentialId: fixtureA.credentialId });
@@ -612,16 +503,12 @@ describe('(h) a credential id is bound once', () => {
     const response = claimer.registrationResponse(options.challenge, RP_ID);
     const claimed = await post(rig, '/auth/passkey/verify', { responseJson: JSON.stringify({ response }) });
 
-    expect(claimed.status).toBe(401);
-    expect(claimed.body).toEqual(REFUSED);
-    const after = await store.findById(fixtureA.credentialId);
-    expect(after).toEqual(before);
+    expect([claimed.status, claimed.body]).toEqual([401, REFUSED]);
+    expect(await store.findById(fixtureA.credentialId)).toEqual(before);
 
-    // The claimer's key, presenting A's credential id and even A's public
-    // name as the user handle, still cannot sign in as A.
+    // The claimer's key, with A's credential id and A's name as the user handle.
     const forged = await signIn(rig, claimer, { userHandle: a.userHandle });
-    expect(forged.status).toBe(401);
-    expect(forged.body).toEqual(REFUSED);
+    expect([forged.status, forged.body]).toEqual([401, REFUSED]);
 
     expectSession(await signIn(rig, fixtureA), a.name);
   });

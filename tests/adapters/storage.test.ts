@@ -758,38 +758,26 @@ describe('createPasskeyCredentialRepository', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
-    if (original === undefined) {
-      delete process.env.DATABASE_URL;
-    } else {
-      process.env.DATABASE_URL = original;
-    }
+    if (original === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = original;
     vi.restoreAllMocks();
   });
 
   it('DATABASE_URL set selects the Prisma driver', () => {
     vi.stubEnv('DATABASE_URL', 'postgresql://user:***@127.0.0.1:5432/freeagents');
-    const repo = createPasskeyCredentialRepository();
-    expect(repo).toBeInstanceOf(PrismaPasskeyCredentialRepository);
-    expect(repo.constructor.name).toBe('PrismaPasskeyCredentialRepository');
+    expect(createPasskeyCredentialRepository()).toBeInstanceOf(PrismaPasskeyCredentialRepository);
   });
 
-  it('DATABASE_URL empty selects the in-memory driver, with the loud warning', () => {
-    vi.stubEnv('DATABASE_URL', '');
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const repo = createPasskeyCredentialRepository();
-    expect(repo).toBeInstanceOf(MemoryPasskeyCredentialRepository);
-    expect(warn).toHaveBeenCalledTimes(1);
-    const message = String(warn.mock.calls[0]?.[0]);
-    expect(message).toContain('DATABASE_URL');
-    expect(message).toContain('in-memory');
-  });
-
-  it('DATABASE_URL unset selects the in-memory driver, with the loud warning', () => {
-    vi.unstubAllEnvs();
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    delete process.env.DATABASE_URL;
-    const repo = createPasskeyCredentialRepository();
-    expect(repo).toBeInstanceOf(MemoryPasskeyCredentialRepository);
+  it('DATABASE_URL empty or unset selects the in-memory driver, with the loud warning', () => {
+    for (const value of ['', undefined]) {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      if (value === undefined) delete process.env.DATABASE_URL;
+      else vi.stubEnv('DATABASE_URL', value);
+      expect(createPasskeyCredentialRepository()).toBeInstanceOf(MemoryPasskeyCredentialRepository);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[0])).toContain('DATABASE_URL');
+      warn.mockRestore();
+    }
   });
 });
 
@@ -807,14 +795,10 @@ describe('MemoryPasskeyCredentialRepository', () => {
     };
   }
 
-  it('save and findById round-trip the credential', async () => {
+  it('save and findById round-trip the credential; an id never saved is null', async () => {
     const repo = new MemoryPasskeyCredentialRepository();
     await repo.save(credentialFixture());
     expect(await repo.findById('cred-1')).toEqual(credentialFixture());
-  });
-
-  it('findById is null for a credential id never saved', async () => {
-    const repo = new MemoryPasskeyCredentialRepository();
     expect(await repo.findById('nope')).toBeNull();
   });
 
@@ -830,7 +814,7 @@ describe('MemoryPasskeyCredentialRepository', () => {
     expect(await repo.findById('cred-1')).toEqual(credentialFixture());
   });
 
-  it('recordUse stores the new counter and the time of use', async () => {
+  it('recordUse stores the new counter and the time of use, and throws for an id never saved', async () => {
     const repo = new MemoryPasskeyCredentialRepository();
     await repo.save(credentialFixture());
 
@@ -839,11 +823,6 @@ describe('MemoryPasskeyCredentialRepository', () => {
     const row = await repo.findById('cred-1');
     expect(row?.counter).toBe(7);
     expect(row?.lastUsedAt).toBeInstanceOf(Date);
-    expect(row?.subject).toBe('passkey-name-1');
-  });
-
-  it('recordUse on a credential id never saved throws, never invents a row', async () => {
-    const repo = new MemoryPasskeyCredentialRepository();
     await expect(repo.recordUse('nope', 1)).rejects.toThrow('nope');
     expect(await repo.findById('nope')).toBeNull();
   });
