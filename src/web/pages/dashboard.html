@@ -132,6 +132,16 @@
       <p class="lede">What needs your attention, and nothing else.</p>
     </div>
 
+    <!-- SW3-10: an account with no payout address on either rail cannot be
+         paid (PLAN.md P8d). dashboard.js shows this line only when
+         /accounts/me names neither address and the roster read answered
+         with at least one agent. It sits outside #dgrid: it is not one of
+         the four sections and never counts as a section row. -->
+    <p class="callout-sm sub" id="payout-notice" hidden style="margin-top:22px">
+      <span class="ico ico-sm" data-ico="wallet" aria-hidden="true"></span>
+      <span>Hirers cannot pay you until you <a href="/settings" style="color:var(--action)">add a payout address</a>.</span>
+    </p>
+
     <div id="grid-wrap" hidden>
       <div class="dgrid" id="dgrid" style="margin-top:30px"></div>
 

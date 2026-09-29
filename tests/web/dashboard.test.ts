@@ -19,6 +19,7 @@ import type { Session } from '../../src/adapters/identity/session.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
+import { PAYOUT_NOTICE_HREF, PAYOUT_NOTICE_SENTENCE, measureNotice, noticeLinks, startPayoutWorld, visibleText, type PayoutWorld } from '../helpers/payout-accounts.js';
 import { botMount, expectedMount } from '../helpers/bot-mount.js';
 import { defaultAvatar } from '../../src/domain/avatar-spec.js';
 
@@ -1776,4 +1777,106 @@ describe('the Dashboard nav link (P8u ruling 7): one implementation in nav.js, a
       await new Promise<void>((resolve) => configuredServer.close(() => resolve()));
     }
   });
+});
+
+// FIX-SW12g (SW3-10): the dashboard tells the owner of at least one agent
+// whose account names no payout address on either rail that hirers cannot
+// pay them (PLAN.md P8d). The line sits above the grid and is not one of
+// the four sections. Every account here is its own row in its own app
+// (tests/helpers/payout-accounts.ts).
+describe('the payout notice on /dashboard (SW3-10)', () => {
+  let world: PayoutWorld;
+  let originalSeed: string | undefined;
+
+  beforeAll(async () => {
+    originalSeed = process.env.FREEAGENTS_PLATFORM_SEED;
+    process.env.FREEAGENTS_PLATFORM_SEED = PLATFORM_SEED;
+    world = await startPayoutWorld('dashboard-payout');
+  });
+
+  afterAll(async () => {
+    await world.close();
+    if (originalSeed === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
+    else process.env.FREEAGENTS_PLATFORM_SEED = originalSeed;
+  });
+
+  function expectNoNotice(document: Document): void {
+    expect(visibleText(document)).not.toContain(PAYOUT_NOTICE_SENTENCE);
+    expect(noticeLinks(document)).toEqual([]);
+  }
+
+  it('both addresses null with one agent on the roster shows the whole sentence, linked to /settings, outside the four sections', async () => {
+    const page = await renderDashboard(world.baseUrl, world.noAddress.session);
+    try {
+      expect(visibleText(page.document)).toContain(PAYOUT_NOTICE_SENTENCE);
+      const notice = page.document.getElementById('payout-notice');
+      expect(notice?.textContent?.replace(/\s+/g, ' ').trim()).toBe(PAYOUT_NOTICE_SENTENCE);
+      expect(page.document.querySelector('#payout-notice a')?.getAttribute('href')).toBe(PAYOUT_NOTICE_HREF);
+      expect(noticeLinks(page.document).length).toBe(1);
+      // Not a section and not a section row: the grid holds exactly the
+      // one section this roster earns (its agent has no verified record),
+      // and the notice sits outside the grid.
+      expect(sectionHeadings(page.document)).toEqual(['Your agents']);
+      expect(sectionRows(page.document, 'Your agents').length).toBe(1);
+      expect(notice?.closest('#dgrid')).toBeNull();
+      const res = await fetch(`${world.baseUrl}${PAYOUT_NOTICE_HREF}`, { headers: { Accept: HTML } });
+      expect(res.status, 'the link reaches a page the app mounts').toBe(200);
+    } finally {
+      page.close();
+    }
+  });
+
+  it.each([
+    ['only the EVM (USDC) address set', 'evmOnly'],
+    ['only the ABT address set', 'abtOnly'],
+  ] as const)('%s shows neither the sentence nor the link', async (_label, key) => {
+    const page = await renderDashboard(world.baseUrl, world[key].session);
+    try {
+      expect(sectionHeadings(page.document), 'the roster rendered').toEqual(['Your agents']);
+      expectNoNotice(page.document);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('an account with no agents shows neither: a person who only hires needs no payout address', async () => {
+    const page = await renderDashboard(world.baseUrl, world.noAgents.session);
+    try {
+      expect(page.document.getElementById('page-empty-state')?.hidden).toBe(false);
+      expectNoNotice(page.document);
+    } finally {
+      page.close();
+    }
+  });
+
+  it.each([
+    ['a non-200 /accounts/me', (path: string) => path === '/accounts/me', 'load-error'],
+    ['a non-200 roster read', (path: string) => /^\/accounts\/[^/]+\/agents$/.test(path), 'grid-wrap'],
+  ] as const)('%s shows neither, and the page\'s own failure path instead', async (_label, fails, failureId) => {
+    const proxy = await world.failing(fails);
+    try {
+      const page = await renderDashboard(proxy.baseUrl, world.noAddress.session);
+      try {
+        expect(page.document.getElementById(failureId)?.hidden).toBe(false);
+        expectNoNotice(page.document);
+      } finally {
+        page.close();
+      }
+    } finally {
+      await proxy.close();
+    }
+  });
+
+  it('in a real browser the notice holds at 320, 390 and 1280 with no sideways scroll, and its link is 44px tall on a phone', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const measured = await measureNotice(world.baseUrl, '/dashboard', world.noAddress.session, [320, 390, 1280]);
+    for (const m of measured) {
+      expect(m.link, `the notice link rendered at ${m.width}`).not.toBeNull();
+      expect(m.scrollWidth, `no sideways scroll at ${m.width}`).toBe(m.clientWidth);
+      if (m.width < 760) expect(m.link?.height, `the link reaches the 44px floor at ${m.width}`).toBeGreaterThanOrEqual(44);
+    }
+  }, BROWSER_TIMEOUT_MS);
 });
