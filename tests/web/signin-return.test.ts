@@ -160,6 +160,20 @@ describe('(a) pressing Sign in remembers the page it was pressed on', () => {
     }
   });
 
+  it('on /browse, a press on a link that is not to this site\'s /signin stores nothing', async () => {
+    const page = await render('/browse', '/browse');
+    try {
+      const elsewhere = page.document.createElement('a');
+      elsewhere.href = 'https://example.com/signin';
+      page.document.body.appendChild(elsewhere);
+      pressLink(page, elsewhere);
+      pressLink(page, page.document.querySelector('.links a[href="/how"]') as HTMLAnchorElement);
+      expect(stored(page)).toBeNull();
+    } finally {
+      page.close();
+    }
+  });
+
   it('on /signin itself, pressing its own controls or a link back to /signin stores nothing', async () => {
     const page = await render('/signin', '/signin');
     try {
@@ -215,7 +229,9 @@ describe('(c) the callback page follows only this site\'s own paths', () => {
     '/\t/example.com',
     '/signin',
     '/signin?next=1',
+    '/SignIn/',
     '/auth/github/callback?code=1',
+    '/AUTH/github/start',
     'javascript:alert(1)',
     '',
   ])('refuses %j, lands on / and removes the key', async (value) => {
@@ -223,6 +239,26 @@ describe('(c) the callback page follows only this site\'s own paths', () => {
     try {
       expect(navigations).toEqual([{ url: `${baseUrl}/`, replacement: true }]);
       expect(stored(page)).toBeNull();
+    } finally {
+      page.close();
+    }
+  });
+
+  it('lands on / when the stored path cannot be read at all', async () => {
+    const start = await sessionAdapter.beginGitHubOAuth();
+    const path = `/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`;
+    const page = await render(path, path, {
+      stored: '/hire?agent=x',
+      prepare: (window) => {
+        const original = window.Storage.prototype.getItem;
+        window.Storage.prototype.getItem = function (this: Storage, key: string): string | null {
+          if (key === RETURN_KEY) throw new Error('storage refused');
+          return original.call(this, key);
+        };
+      },
+    });
+    try {
+      expect(navigations).toEqual([{ url: `${baseUrl}/`, replacement: true }]);
     } finally {
       page.close();
     }

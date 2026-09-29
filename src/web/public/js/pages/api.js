@@ -103,6 +103,71 @@
     }
     return null;
   }
+
+  /* SW3-01: the page a person pressed Sign in on, so signing in brings
+     them back to it instead of to the front page. nav.js writes it when a
+     link to /signin is pressed; the GitHub callback page (auth-callback.js)
+     and a passkey sign-in on /signin (signin.js) take it. One key, one
+     rule, spelled here only. It holds a path and query, never an origin,
+     a hash or a token. */
+  var RETURN_STORAGE_KEY = "fa_return_to";
+
+  /* The sign-in page's own paths. Express matches routes case-blind and
+     with or without a trailing slash, so /Signin and /signin/ are the same
+     page. */
+  function isSignInPath(pathname) {
+    var p = String(pathname).toLowerCase();
+    return p === "/signin" || p === "/signin/";
+  }
+
+  function rememberReturnPath(path) {
+    try {
+      global.sessionStorage.setItem(RETURN_STORAGE_KEY, path);
+    } catch (e) {
+      /* private-browsing or a full quota: sign-in lands on / as before */
+    }
+  }
+
+  function forgetReturnPath() {
+    try {
+      global.sessionStorage.removeItem(RETURN_STORAGE_KEY);
+    } catch (e) {
+      /* nothing stored, nothing to forget */
+    }
+  }
+
+  /* A return path is a redirect target, so only this site's own paths may
+     be one. Anything that a browser could read as another origin is
+     refused: "//host" and "/\host" are both scheme-relative URLs to a
+     browser, a backslash anywhere can turn into one, and whitespace or a
+     control character can be stripped into one. The sign-in page and the
+     /auth routes are refused too, so a sign-in never lands back on sign-in. */
+  function isOwnReturnPath(value) {
+    if (typeof value !== "string") return false;
+    if (value.charAt(0) !== "/" || value.charAt(1) === "/") return false;
+    if (/[\\\u0000-\u0020\u007f]/.test(value)) return false;
+    var pathname = value.split(/[?#]/)[0];
+    if (isSignInPath(pathname)) return false;
+    var lower = pathname.toLowerCase();
+    if (lower === "/auth" || lower.indexOf("/auth/") === 0) return false;
+    return true;
+  }
+
+  /* Reads the stored return path and removes it, always, whether or not
+     it is used, so it is followed at most once. Answers the path when it
+     passes isOwnReturnPath, else null (the caller lands on / as before).
+     It is never read from the URL: a path in a query string would be a
+     redirect anyone could send in a link. */
+  function takeReturnPath() {
+    var value = null;
+    try {
+      value = global.sessionStorage.getItem(RETURN_STORAGE_KEY);
+    } catch (e) {
+      value = null;
+    }
+    forgetReturnPath();
+    return isOwnReturnPath(value) ? value : null;
+  }
   /* An authenticated GET, mirroring postAuthed: resolves ok() with the
      response status/body attached even on non-2xx, since the caller
      needs the route's own status (401/403 here) to pick a sentence. */
@@ -502,6 +567,9 @@
     putAuthed: putAuthed,
     deleteAuthed: deleteAuthed,
     getStoredSession: getStoredSession,
+    isSignInPath: isSignInPath,
+    rememberReturnPath: rememberReturnPath,
+    takeReturnPath: takeReturnPath,
     el: el,
     setText: setText,
     setTextById: setTextById,
