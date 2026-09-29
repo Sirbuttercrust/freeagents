@@ -80,7 +80,11 @@ export interface PasskeyFixtureInit {
 }
 
 export interface PasskeyFixture {
-  readonly registrationResponse: (challenge: string, rpID: string) => RegistrationResponseJSON;
+  readonly registrationResponse: (
+    challenge: string,
+    rpID: string,
+    options?: { readonly userVerified?: boolean },
+  ) => RegistrationResponseJSON;
   readonly assertionResponse: (challenge: string, rpID: string, options?: AssertionOptions) => AuthenticationResponseJSON;
   readonly credentialId: string;
   // Remembers the registration's user.id so later assertions carry it as
@@ -154,9 +158,9 @@ export function createPasskeyFixture(init: PasskeyFixtureInit = {}): PasskeyFixt
         clientExtensionResults: {},
       };
     },
-    registrationResponse(challenge: string, rpID: string): RegistrationResponseJSON {
+    registrationResponse(challenge: string, rpID: string, options: { readonly userVerified?: boolean } = {}): RegistrationResponseJSON {
       const rpIdHash = Buffer.from(createHash('sha256').update(rpID).digest());
-      const flags = Buffer.from([0x45]); // UP | UV | AT
+      const flags = Buffer.from([options.userVerified === false ? 0x41 : 0x45]); // UP | AT, plus UV unless turned off
       const counter = Buffer.from([0, 0, 0, 0]);
       const aaguid = Buffer.alloc(16); // all-zero: unattested software authenticator
       const credIdLen = Buffer.alloc(2);

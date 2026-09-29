@@ -24,8 +24,28 @@ vi.mock('node:crypto', async (importOriginal) => {
   return { ...actual, default: { ...actual, randomBytes: recording }, randomBytes: recording };
 });
 
+// The generated Prisma client, with one in-memory passkeyCredential table, so
+// the deployed adapter's storage choice can be observed without a database.
+const dbRows = vi.hoisted(() => new Map<string, Record<string, unknown>>());
+vi.mock('../../src/generated/prisma/index.js', async () => {
+  const actual = await vi.importActual<typeof import('../../src/generated/prisma/index.js')>(
+    '../../src/generated/prisma/index.js',
+  );
+  return {
+    Prisma: actual.Prisma,
+    PrismaClient: class {
+      passkeyCredential = {
+        create: async ({ data }: { data: { id: string } }) => void dbRows.set(data.id, { ...data, lastUsedAt: null }),
+        findUnique: async ({ where }: { where: { id: string } }) => dbRows.get(where.id) ?? null,
+        update: async ({ where, data }: { where: { id: string }; data: object }) =>
+          void dbRows.set(where.id, { ...dbRows.get(where.id), ...data }),
+      };
+    },
+  };
+});
+
 import { createApp } from '../../src/api/app.js';
-import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
+import { createSessionAdapter, sessionAdapterFromEnv } from '../../src/adapters/identity/session-github-passkey.js';
 import type { Session, SessionAdapter } from '../../src/adapters/identity/session.js';
 import { MemoryAccountRepository, MemoryPasskeyCredentialRepository } from '../../src/adapters/storage/memory.js';
 import type { PasskeyCredentialRepository, StoredPasskeyCredential } from '../../src/adapters/storage/types.js';
@@ -511,5 +531,51 @@ describe('(h) a credential id is bound once', () => {
     expect([forged.status, forged.body]).toEqual([401, REFUSED]);
 
     expectSession(await signIn(rig, fixtureA), a.name);
+  });
+});
+
+describe('a sign-up whose authenticator did not verify the user', () => {
+  it('is refused at register-verify with the one sentence, stores nothing and mints no session', async () => {
+    const store = new MemoryPasskeyCredentialRepository();
+    const rig = await startRig({ store });
+    const fixture = createPasskeyFixture();
+    const options = await beginRegistration(rig);
+    fixture.rememberUserHandle(options.user.id);
+    const response = fixture.registrationResponse(options.challenge, RP_ID, { userVerified: false });
+    drawn.tokens.length = 0;
+
+    const reply = await post(rig, '/auth/passkey/verify', { responseJson: JSON.stringify({ response }) });
+
+    expect([reply.status, reply.body]).toEqual([401, REFUSED]);
+    expect(await store.findById(fixture.credentialId)).toBeNull();
+    for (const token of drawn.tokens) {
+      expect(await rig.adapter.getSession(token)).toBeNull();
+    }
+  });
+});
+
+describe('the deployed adapter keeps passkeys in the database', () => {
+  it('sessionAdapterFromEnv with DATABASE_URL set stores a sign-up through the Prisma driver, and a second adapter signs in from it', async () => {
+    vi.stubEnv('DATABASE_URL', 'postgresql://user:pw@127.0.0.1:5432/freeagents');
+    vi.stubEnv('FREEAGENTS_PASSKEY_RP_ID', RP_ID);
+    vi.stubEnv('FREEAGENTS_PASSKEY_ORIGIN', 'http://localhost:3000');
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    dbRows.clear();
+    const fixture = createPasskeyFixture();
+
+    const first = sessionAdapterFromEnv();
+    const registration = JSON.parse((await first.registerPasskey('deployed-name')).optionsJson) as RegistrationOptions;
+    fixture.rememberUserHandle(registration.user.id);
+    const signedUp = await first.verifyPasskey(
+      JSON.stringify({ response: fixture.registrationResponse(registration.challenge, RP_ID) }),
+    );
+
+    expect(signedUp?.subject).toBe('deployed-name');
+    expect([...dbRows.keys()]).toEqual([fixture.credentialId]);
+    const second = sessionAdapterFromEnv();
+    const started = JSON.parse((await second.beginPasskeySignIn()).optionsJson) as { challenge: string };
+    const back = await second.completePasskeySignIn(JSON.stringify(fixture.assertionResponse(started.challenge, RP_ID)));
+    expect(back?.subject).toBe('deployed-name');
+    vi.restoreAllMocks();
   });
 });
