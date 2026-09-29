@@ -22,6 +22,7 @@ import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 import { PAYOUT_NOTICE_HREF, PAYOUT_NOTICE_SENTENCE, measureNotice, noticeLinks, startPayoutWorld, visibleText, type PayoutWorld } from '../helpers/payout-accounts.js';
 import { botMount, expectedMount } from '../helpers/bot-mount.js';
 import { defaultAvatar } from '../../src/domain/avatar-spec.js';
+import { startNotificationWorld, type NotificationWorld } from '../helpers/notification-world.js';
 
 const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 // P8d: resolving a session to an account when none exists yet needs
@@ -253,7 +254,7 @@ describe('the dashboard screen, driven end to end against the real app', () => {
     }
   });
 
-  it('takes exactly five reads for a buyer who operates nothing: /accounts/me, then jobs, pending, incoming and the agent roster, no per-agent read (done-means 3, W5 ruling)', async () => {
+  it('takes exactly six reads of its own for a buyer who operates nothing: /accounts/me, then jobs, pending, incoming, the agent roster and notifications, no per-agent read (done-means 3, W5 ruling, FIX-SW12k)', async () => {
     const requested: string[] = [];
     const virtualConsole = new VirtualConsole();
     const failures: string[] = [];
@@ -288,10 +289,10 @@ describe('the dashboard screen, driven end to end against the real app', () => {
       if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
       const paths = requested.map((r) => new URL(r, baseUrl).pathname);
       expect(paths).toContain('/accounts/me');
-      // MSG1b: the shared nav script's own background reads (a second
-      // /accounts/me plus one /accounts/:did/threads, for the Messages
-      // badge) are filtered out below; this test's own count is
-      // dashboard.js's reads, unchanged by the nav.
+      // MSG1b: the shared nav script makes two background reads of its
+      // own, a second /accounts/me and one /accounts/:did/threads for the
+      // Messages badge. Only the /threads read is filtered out below; the
+      // nav's /accounts/me is counted in meCount.
       const ownPaths = paths.filter((p) => !p.endsWith('/threads'));
       const jobsCount = ownPaths.filter((p) => p.endsWith('/jobs')).length;
       const pendingCount = ownPaths.filter((p) => p.endsWith('/pending')).length;
@@ -301,16 +302,21 @@ describe('the dashboard screen, driven end to end against the real app', () => {
       expect(pendingCount).toBe(1);
       expect(incomingCount).toBe(1);
       expect(rosterCount).toBe(1);
-      // Exactly five OWN reads total: me + jobs + pending + incoming +
-      // roster. The roster read is unconditional (W5 ruling):
+      // FIX-SW12k: dashboard.js also reads /accounts/:did/notifications,
+      // once, beside the four core reads, to decide whether to link the
+      // notification list.
+      const notificationsCount = ownPaths.filter((p) => p.endsWith('/notifications')).length;
+      expect(notificationsCount).toBe(1);
+      // Six own reads: me + jobs + pending + incoming + roster +
+      // notifications. The roster read is unconditional (W5 ruling):
       // accountProjection carries no operated-agent count, so the page
       // cannot know whether this buyer operates anything without asking.
-      // The nav's own background /accounts/me plus /notifications read
-      // is excluded above (it is the shared nav script's read, not
-      // dashboard.js's).
+      // The filter above drops only the nav's /threads read, so the nav's
+      // own /accounts/me stays in ownPaths: two /accounts/me in all, and
+      // seven paths.
       const meCount = ownPaths.filter((p) => p === '/accounts/me').length;
       expect(meCount).toBe(2);
-      expect(ownPaths.length).toBe(6);
+      expect(ownPaths.length).toBe(7);
       // No per-agent read: this buyer's roster is empty, so
       // /agents/:agentDid never appears. This is the assertion that
       // proves per-agent reads are scoped to rows the roster actually
@@ -321,7 +327,7 @@ describe('the dashboard screen, driven end to end against the real app', () => {
     }
   });
 
-  it('an operator holding N operated agents takes 5 + N reads: the same five, plus exactly one /agents/:agentDid per roster row, matching the roster DIDs (W5 ruling)', async () => {
+  it('an operator holding N operated agents takes 6 + N reads of its own: the same six, plus exactly one /agents/:agentDid per roster row, matching the roster DIDs (W5 ruling)', async () => {
     const operatorSessionAdapter = createSessionAdapter({
       github: fakeGitHubConfig(),
       fetchImpl: fakeGitHubFetch({ login: 'dashboard-roster-operator', id: 9808 }),
@@ -398,12 +404,12 @@ describe('the dashboard screen, driven end to end against the real app', () => {
         expect(perAgentPaths.sort()).toEqual(
           [`/agents/${encodeURIComponent(rosterAgentA)}`, `/agents/${encodeURIComponent(rosterAgentB)}`].sort(),
         );
-        // The same five, plus exactly N (2) per-agent reads: 7 total.
-        // MSG1b: the shared nav script's own background reads (a
-        // second /accounts/me plus one /accounts/:did/threads) are
-        // excluded, same as the test above.
+        // The seven paths of the test above (the nav's second
+        // /accounts/me included, its /threads read dropped, and the
+        // FIX-SW12k /notifications read counted), plus exactly N (2)
+        // per-agent reads: 9 total.
         const ownPaths = paths.filter((p) => !p.endsWith('/threads'));
-        expect(ownPaths.length).toBe(8);
+        expect(ownPaths.length).toBe(9);
       } finally {
         dom.window.close();
       }
@@ -1877,6 +1883,176 @@ describe('the payout notice on /dashboard (SW3-10)', () => {
       expect(m.link, `the notice link rendered at ${m.width}`).not.toBeNull();
       expect(m.scrollWidth, `no sideways scroll at ${m.width}`).toBe(m.clientWidth);
       if (m.width < 760) expect(m.link?.height, `the link reaches the 44px floor at ${m.width}`).toBeGreaterThanOrEqual(44);
+    }
+  }, BROWSER_TIMEOUT_MS);
+});
+
+// FIX-SW12k (SW3-09): the dashboard links the notification list while
+// something in it is unread, and never says "Nothing needs your attention
+// today." beside a line that asks for attention. Every account here is its
+// own row in one real app whose notification store the test seeds
+// (tests/helpers/notification-world.ts).
+const UNREAD_LINE = 'You have unread notifications.';
+const PAGE_EMPTY = 'Nothing needs your attention today.';
+
+describe('the unread-notifications line on /dashboard (SW3-09)', () => {
+  let world: NotificationWorld;
+  let originalSeed: string | undefined;
+
+  beforeAll(async () => {
+    originalSeed = process.env.FREEAGENTS_PLATFORM_SEED;
+    process.env.FREEAGENTS_PLATFORM_SEED = PLATFORM_SEED;
+    world = await startNotificationWorld('dashboard-notif');
+  });
+
+  afterAll(async () => {
+    await world.close();
+    if (originalSeed === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
+    else process.env.FREEAGENTS_PLATFORM_SEED = originalSeed;
+  });
+
+  function unreadLinks(document: Document): Element[] {
+    return Array.from(document.querySelectorAll('a[href="/notifications"]')).filter((a) => a.closest('[hidden]') === null);
+  }
+
+  function expectNoLine(document: Document): void {
+    expect(visibleText(document)).not.toContain(UNREAD_LINE);
+    expect(unreadLinks(document)).toEqual([]);
+  }
+
+  // (e)
+  it('(e) with unread notifications the line shows, whole, linked to /notifications, outside the four sections, and the link reaches a mounted page', async () => {
+    const a = await world.account('has-unread', { unread: 2, read: 1 });
+    const page = await renderDashboard(world.baseUrl, a.session);
+    try {
+      const line = page.document.getElementById('notifications-notice');
+      expect(line?.hidden).toBe(false);
+      expect(line?.textContent?.replace(/\s+/g, ' ').trim()).toBe(UNREAD_LINE);
+      expect(line?.querySelector('[data-ico="bell"]')).not.toBeNull();
+      const links = unreadLinks(page.document);
+      expect(links.length).toBe(1);
+      expect(links[0]?.closest('#notifications-notice')).toBe(line);
+      expect(line?.closest('#dgrid')).toBeNull();
+      const res = await fetch(`${world.baseUrl}/notifications`, { headers: { Accept: HTML } });
+      expect(res.status, 'the link reaches a page the app mounts').toBe(200);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('(e) with every notification read, or none at all, the line does not show', async () => {
+    for (const [name, options] of [['all-read', { unread: 0, read: 2 }], ['none', { unread: 0, read: 0 }]] as const) {
+      const a = await world.account(name, options);
+      const page = await renderDashboard(world.baseUrl, a.session);
+      try {
+        expect(page.document.getElementById('notifications-notice')?.hidden, name).toBe(true);
+        expectNoLine(page.document);
+      } finally {
+        page.close();
+      }
+    }
+  });
+
+  it.each([
+    ['a 503', 'status'],
+    ['a network failure', 'drop'],
+  ] as const)('(e) %s on the notifications read shows no line, and the rest of the page renders as it would', async (_label, mode) => {
+    const a = await world.account(`fail-${mode}`, { unread: 2, read: 0 });
+    const proxy = await world.failing((path) => /^\/accounts\/[^/]+\/notifications$/.test(path), mode);
+    try {
+      const page = await renderDashboard(proxy.baseUrl, a.session);
+      try {
+        expect(page.document.getElementById('load-error')?.hidden).toBe(true);
+        expect(page.document.getElementById('dashboard-body')?.hidden).toBe(false);
+        expect(page.document.getElementById('notifications-notice')?.hidden).toBe(true);
+        expectNoLine(page.document);
+        // A failed notifications read knows nothing either way, so it
+        // neither shows the line nor stops the empty state for an account
+        // whose sections are all empty.
+        expect(page.document.getElementById('page-empty-state')?.hidden).toBe(false);
+      } finally {
+        page.close();
+      }
+    } finally {
+      await proxy.close();
+    }
+  });
+
+  // (f)
+  it('(f) every section empty with something unread: the unread line shows and "Nothing needs your attention today." does not', async () => {
+    const a = await world.account('empty-unread', { unread: 1, read: 0 });
+    const page = await renderDashboard(world.baseUrl, a.session);
+    try {
+      expect(sectionHeadings(page.document)).toEqual([]);
+      expect(page.document.getElementById('notifications-notice')?.hidden).toBe(false);
+      expect(page.document.getElementById('page-empty-state')?.hidden).toBe(true);
+      expect(visibleText(page.document)).not.toContain(PAGE_EMPTY);
+      expect(visibleText(page.document)).toContain(UNREAD_LINE);
+      expect(page.document.getElementById('grid-wrap')?.hidden).toBe(true);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('(f) every section empty with no payout address on an agent owner\'s account: the payout notice shows and "Nothing needs your attention today." does not', async () => {
+    const a = await world.account('empty-payout', { unread: 0, read: 0, settledAgent: true });
+    const page = await renderDashboard(world.baseUrl, a.session);
+    try {
+      expect(sectionHeadings(page.document)).toEqual([]);
+      expect(page.document.getElementById('payout-notice')?.hidden).toBe(false);
+      expect(visibleText(page.document)).toContain(PAYOUT_NOTICE_SENTENCE);
+      expect(page.document.getElementById('page-empty-state')?.hidden).toBe(true);
+      expect(visibleText(page.document)).not.toContain(PAGE_EMPTY);
+      expectNoLine(page.document);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('(f) every section empty, nothing unread and no payout gap: the empty state shows exactly as before', async () => {
+    const a = await world.account('empty-quiet', { unread: 0, read: 1 });
+    const page = await renderDashboard(world.baseUrl, a.session);
+    try {
+      expect(page.document.getElementById('page-empty-state')?.hidden).toBe(false);
+      expect(page.document.getElementById('grid-wrap')?.hidden).toBe(true);
+      expect(page.document.getElementById('payout-notice')?.hidden).toBe(true);
+      expect(page.document.getElementById('notifications-notice')?.hidden).toBe(true);
+      expect(visibleText(page.document)).toContain(PAGE_EMPTY);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('in a real browser the unread line holds at 320, 390 and 1280 with no sideways scroll, and its link is 44px tall on a phone', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const a = await world.account('layout', { unread: 2, read: 0 });
+    const browser = await RealBrowser.launch({ width: 320, height: 900 });
+    try {
+      await browser.goto(`${world.baseUrl}/dashboard`);
+      await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(a.session))})`);
+      for (const width of [320, 390, 1280]) {
+        await browser.setViewport(width, 900);
+        await browser.goto(`${world.baseUrl}/dashboard`, 800);
+        const g = await browser.evaluate<{ scrollWidth: number; clientWidth: number; link: { height: number; right: number } | null }>(`
+          (function () {
+            var a = document.querySelector('#notifications-notice a');
+            var box = a && a.closest('[hidden]') === null ? a.getBoundingClientRect() : null;
+            return {
+              scrollWidth: document.documentElement.scrollWidth,
+              clientWidth: document.documentElement.clientWidth,
+              link: box && box.height > 0 ? { height: box.height, right: box.right } : null,
+            };
+          })()
+        `);
+        expect(g.link, `the line's link rendered at ${width}`).not.toBeNull();
+        expect(g.scrollWidth, `no sideways scroll at ${width}`).toBe(g.clientWidth);
+        if (width < 760) expect(g.link!.height, `the link reaches the 44px floor at ${width}`).toBeGreaterThanOrEqual(44);
+      }
+    } finally {
+      await browser.close();
     }
   }, BROWSER_TIMEOUT_MS);
 });
