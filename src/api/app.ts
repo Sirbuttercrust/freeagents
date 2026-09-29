@@ -67,6 +67,7 @@ import {
 import { delegationConsistent, isAgentOperator, agentMayNegotiate, descriptionWellFormed, didSuffix, type Agent, type Delegation } from '../domain/agent.js';
 import { agentWorkRecord, type CredentialEvidence } from '../domain/agent-work-record.js';
 import { buildAttestation, AttestationError } from '../domain/attestation.js';
+import { buildWorkHistoryExtension } from '../domain/work-history-extension.js';
 import { chainIdentifiersMatch } from '../domain/chain-identifiers.js';
 import { lastHireCompletedAt, recordLastChangedAt } from '../domain/freshness.js';
 import { isHttpsUrl } from '../domain/notification.js';
@@ -244,13 +245,6 @@ import { attachmentsDirFromEnv, randomFileId, readAttachmentFile, writeAttachmen
 import { reencodeImage, ImageReencodeError } from '../adapters/attachments/image.js';
 import { createWebhookSender, type WebhookSender } from '../adapters/webhook/webhook.js';
 import { createPushSender, type PushSender } from '../adapters/push/push.js';
-
-// The hire-loop's last stub (R-12 reviews) stays honest about being unbuilt:
-// it returns 501 until its issue lands. Merge (R-11) now has a real handler
-// below; every route before it in the loop already did.
-function notImplemented(_req: Request, res: Response): void {
-  res.status(501).json({ error: 'not implemented' });
-}
 
 // QA round 1, defect 1 (HIGH): chainIdentifiersMatch moved to
 // src/domain/chain-identifiers.ts (STG2T) so the staging adapter's
@@ -4621,7 +4615,45 @@ export function createApp(
     }
   });
 
-  app.get('/agents/:agentDid/card', notImplemented);
+  // FIX-B58 (bugs.md B58): the agent's work-history extension block, for the
+  // owner to add to the agent's own A2A card. FreeAgents serves the block and
+  // never a whole card, because a card needs the address where the agent
+  // answers A2A calls and only the agent has it. The credential summary reads
+  // through credentialEvidenceOf like every other reader of
+  // listBySubjectDid, so a deemed-completion document is never counted as a
+  // hire. An unlisted agent still answers: its finished work stays public.
+  app.get('/agents/:agentDid/card', async (req: Request, res: Response) => {
+    const did = String(req.params.agentDid);
+
+    let row: Agent | null;
+    let evidence: CredentialEvidence[] = [];
+    try {
+      row = await agentRepo.findByDid(did);
+      if (row !== null) evidence = credentialEvidenceOf(await credentialRepo.listBySubjectDid(did));
+    } catch (err) {
+      console.error('GET /agents/:agentDid/card: storage failed', err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return;
+    }
+    if (row === null) {
+      res.status(404).json({ error: `agent ${did} is not registered` });
+      return;
+    }
+
+    let attestedBy: string;
+    try {
+      attestedBy = (await credentialsAdapter.describeIssuer()).issuer;
+    } catch (err) {
+      console.error('GET /agents/:agentDid/card: failed to describe the issuer', err);
+      res.status(503).json({ error: 'issuer identity unavailable' });
+      return;
+    }
+
+    res
+      .status(200)
+      .set('Cache-Control', 'public, max-age=300')
+      .json(buildWorkHistoryExtension({ agent: row, credentials: evidence, publicBaseUrl: publicBaseUrlFromEnv(), attestedBy }));
+  });
 
   // B9 (launch ledger): the receipts listing every agent profile already
   // links to. Same shape as GET /agents/:agentDid/reviews above: look the
