@@ -7366,11 +7366,47 @@ export function createApp(
     }),
   );
 
+  // SW3-07: the buyer's decline and redo at staged are moves for a hire that
+  // is not yet paid in full. The payment model ruling (MAP.md, 2026-09-01)
+  // is "one redo at staged before the balance, free decline at staged", and
+  // the design record names three moves there: pay the balance, request the
+  // one redo, or decline for free. Paying is one of the three, so once the
+  // second payment has settled the other two are gone and the hire goes on
+  // to its pull request. Declining a paid hire would end it in
+  // staged_declined, whose money is deposit only (DATA-CONTRACT 8.7), and
+  // the buyer would lose the work they paid for. The gate is async, so
+  // this read lives here at the route layer, like the pull-request route's.
+  // Answers the response and returns true when the route must stop: 409
+  // when paid in full, 503 when the gate cannot answer. Any other status is
+  // left to the domain's own transition refusal.
+  async function refuseStagedMoveWhenPaid(
+    label: string,
+    res: Response,
+    job: Job,
+    refusal: string,
+  ): Promise<boolean> {
+    if (job.status !== 'staged') return false;
+    let paidInFull: boolean;
+    try {
+      paidInFull = await remainderSettled(settlementGate, job.id);
+    } catch (err) {
+      console.error(`${label}: settlement gate failed`, err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return true;
+    }
+    if (!paidInFull) return false;
+    res.status(409).json({ error: refusal });
+    return true;
+  }
+
   // P4: the buyer declines the staged work, free of charge, before paying
   // the remainder (design record, 2026-09-01: pay, request the one redo,
   // or decline for free). Buyer-only, terminal, body-less like withdraw
-  // and decline -- no money moves and none is owed (recordStagedDeclined's
-  // own header comment).
+  // and decline. On an unpaid hire no money moves and none is owed
+  // (recordStagedDeclined's own header comment). Once the hire is paid in
+  // full the decline is refused (SW3-07, refuseStagedMoveWhenPaid above),
+  // after the party check so a stranger or the agent never learns whether
+  // the hire is paid.
   app.post(
     '/jobs/:jobId/staged-decline',
     didSignature,
@@ -7379,17 +7415,30 @@ export function createApp(
       const label = 'POST /jobs/:jobId/staged-decline';
       const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
       if (gate === null) return;
+      if (
+        await refuseStagedMoveWhenPaid(
+          label,
+          res,
+          gate.job,
+          'This hire is paid in full, so the work can no longer be declined. The agent opens the pull request next.',
+        )
+      ) {
+        return;
+      }
       await applyAndPersist(label, res, gate.job, recordStagedDeclined);
     }),
   );
 
-  // P6 (design record row 2): the buyer's one redo at staged. Party rule
-  // mirrors staged-decline: buyer-only, since this is one of the buyer's
-  // three moves at staged (pay, redo, decline). The body names which
-  // confirmed criterion the redo cites; requestRedo itself validates the
-  // index is in range and that the allowance is not exhausted, mapping to
-  // 400 (malformed) and 409 (state conflict) respectively through the
-  // same applyAndPersist error legs every other lifecycle route shares.
+  // P6 (design record row 2): the buyer's one redo at staged, available
+  // only before the hire is paid in full (SW3-07, refuseStagedMoveWhenPaid
+  // above: "one redo at staged before the balance"). Party rule mirrors
+  // staged-decline: buyer-only, since this is one of the buyer's three
+  // moves at staged (pay, redo, decline), and the paid check runs after the
+  // party check and the body check. The body names which confirmed
+  // criterion the redo cites; requestRedo itself validates the index is in
+  // range and that the allowance is not exhausted, mapping to 400
+  // (malformed) and 409 (state conflict) respectively through the same
+  // applyAndPersist error legs every other lifecycle route shares.
   app.post(
     '/jobs/:jobId/redo',
     didSignature,
@@ -7404,6 +7453,16 @@ export function createApp(
         return;
       }
       const criterionIndex = body.criterionIndex;
+      if (
+        await refuseStagedMoveWhenPaid(
+          label,
+          res,
+          gate.job,
+          'This hire is paid in full, so a redo can no longer be requested. The agent opens the pull request next.',
+        )
+      ) {
+        return;
+      }
       await applyAndPersist(label, res, gate.job, (job) => requestRedo(job, criterionIndex, new Date()));
     }),
   );
