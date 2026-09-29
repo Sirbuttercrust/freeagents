@@ -267,6 +267,15 @@
       <a class="btn btn-primary" id="list-agent-cta" href="/listagent">List an agent</a>
     </div>
 
+    <!-- SW3-10: an account with no payout address on either rail cannot be
+         paid (PLAN.md P8d). myagents.js shows this line only when
+         /accounts/me names neither address and the roster read answered
+         with at least one agent; a person who only hires never sees it. -->
+    <p class="callout-sm sub" id="payout-notice" hidden style="margin-top:22px">
+      <span class="ico ico-sm" data-ico="wallet" aria-hidden="true"></span>
+      <span>Hirers cannot pay you until you <a href="/settings" style="color:var(--action)">add a payout address</a>.</span>
+    </p>
+
     <div class="rows pane pane-pad stagger reveal" data-reveal id="rows" style="margin-top:28px"></div>
 
     <div style="margin-top:22px">

@@ -1,7 +1,9 @@
 /* P-9 dashboard: a signed-in person's whole situation in one page, rebuilt
    on spec/wireframe/dashboard.html (W-dashboard). Reads GET /accounts/me
    (the same departure P8m, P8n and P8q each already named in their own
-   handoffs) to resolve the session to a DID, then GET /accounts/:did/jobs,
+   handoffs) to resolve the session to a DID and to learn whether the
+   account names a payout address (operatorAddressEvm, operatorAddressAbt;
+   SW3-10, the payout notice), then GET /accounts/:did/jobs,
    GET /accounts/:did/pending, GET /accounts/:did/incoming and
    GET /accounts/:did/agents fire together (ruling 1, W5 ruling).
 
@@ -92,13 +94,20 @@
         return;
       }
       var encodedDid = encodeURIComponent(did);
+      var payoutUnset = !hasAddress(me.operatorAddressEvm) && !hasAddress(me.operatorAddressAbt);
       Promise.all([
         A.getAuthed("/accounts/" + encodedDid + "/jobs", session.token),
         A.getAuthed("/accounts/" + encodedDid + "/pending", session.token),
         A.getAuthed("/accounts/" + encodedDid + "/incoming", session.token),
         A.getAuthed("/accounts/" + encodedDid + "/agents", session.token),
-      ]).then(onCoreLoaded);
+      ]).then(function (results) { onCoreLoaded(results, payoutUnset); });
     });
+  }
+
+  // A payout address counts as set only when /accounts/me carries it as a
+  // non-empty string; null or absent is unset.
+  function hasAddress(value) {
+    return typeof value === "string" && value !== "";
   }
 
   function failLoad(detail) {
@@ -123,7 +132,7 @@
     return typeof value === "string" ? value : "";
   }
 
-  function onCoreLoaded(results) {
+  function onCoreLoaded(results, payoutUnset) {
     var jobs = readArray(results[0], "jobs");
     var pending = readArray(results[1], "pending");
     var offers = readArray(results[2], "offers");
@@ -144,12 +153,19 @@
       detailResults.forEach(function (entry) {
         if (entry.result.state === "ok") detailByDid[entry.did] = entry.result.value;
       });
-      onLoaded(jobs, pending, offers, rosterAgents, detailByDid);
+      onLoaded(jobs, pending, offers, rosterAgents, detailByDid, payoutUnset);
     });
   }
 
-  function onLoaded(jobs, pending, offers, rosterAgents, detailByDid) {
+  function onLoaded(jobs, pending, offers, rosterAgents, detailByDid, payoutUnset) {
     A.showById("dashboard-body", true);
+
+    /* SW3-10: an owner of at least one agent whose account names no payout
+       address on either rail is told hirers cannot pay them. Only on a
+       roster read that answered 200 with a row in it: a failed roster
+       (null) knows nothing, and an empty one belongs to a person who only
+       hires. The line sits above the grid, outside every section. */
+    A.showById("payout-notice", payoutUnset === true && rosterAgents !== null && rosterAgents.length > 0);
 
     var sections = [
       buildWaitingOnYou(jobs, pending),

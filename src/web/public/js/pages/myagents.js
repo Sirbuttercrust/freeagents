@@ -1,6 +1,8 @@
 /* P8n my agents (P-18): a signed-in operator's own roster of everything
    they operate. Reads GET /accounts/me (the same departure P8m named for
-   My jobs) to resolve the session to a DID, then GET /accounts/:did/agents
+   My jobs) to resolve the session to a DID and to learn whether the
+   account names a payout address (operatorAddressEvm, operatorAddressAbt;
+   SW3-10, the payout notice), then GET /accounts/:did/agents
    for the roster (BrowseCard rows, already carrying the three tier counts
    this page never sums), then GET /agents/:agentDid once per row for
    proofStatus -- the one fact BrowseCard does not carry
@@ -48,6 +50,9 @@
   "use strict";
   var A = window.FAApi;
   var workOfferedCountByAgentDid = {};
+  // SW3-10: true when GET /accounts/me named neither payout address. Read
+  // only after that read answered 200 (start, below).
+  var payoutUnset = false;
 
   function start() {
     var session = A.getStoredSession();
@@ -67,6 +72,7 @@
         return;
       }
       myDid = did;
+      payoutUnset = !hasAddress(me.operatorAddressEvm) && !hasAddress(me.operatorAddressAbt);
       var rosterPromise = A.getAuthed("/accounts/" + encodeURIComponent(did) + "/agents", session.token);
       /* Fired once for the page, in parallel with the roster read, never
          once per row: a failed or non-200 read here leaves
@@ -117,7 +123,18 @@
       A.showById("rows", false);
       return;
     }
+    /* SW3-10: an owner of at least one agent whose account names no payout
+       address on either rail is told hirers cannot pay them. Reached only
+       after both reads answered 200, so a failed read never shows it; an
+       empty roster returned above, so a person who only hires never does. */
+    A.showById("payout-notice", payoutUnset);
     renderRows(agents);
+  }
+
+  // A payout address counts as set only when /accounts/me carries it as a
+  // non-empty string; null or absent is unset.
+  function hasAddress(value) {
+    return typeof value === "string" && value !== "";
   }
 
   function renderRows(agents) {
