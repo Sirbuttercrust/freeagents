@@ -15,7 +15,7 @@ import {
 const HTML_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const JSON_ACCEPT = 'application/json';
 
-describe('classifyRoute: the three verify-class routes (today\'s 60/minute limiter)', () => {
+describe('classifyRoute: the four verify-class routes (today\'s 60/minute limiter)', () => {
   it('classifies GET /v1/credentials/:credentialId as verify', () => {
     expect(classifyRoute('GET', '/v1/credentials/abc-123')).toBe('verify');
   });
@@ -26,6 +26,19 @@ describe('classifyRoute: the three verify-class routes (today\'s 60/minute limit
 
   it('classifies POST /auth/passkey/verify as verify', () => {
     expect(classifyRoute('POST', '/auth/passkey/verify')).toBe('verify');
+  });
+
+  // FIX-B61a: pinned on its own so dropping the ROUTE_TABLE entry turns this
+  // red as a real classification miss, not only the router walk.
+  it('classifies POST /auth/passkey/signin as verify', () => {
+    expect(classifyRoute('POST', '/auth/passkey/signin')).toBe('verify');
+  });
+});
+
+describe('classifyRoute: passkey sign-in start', () => {
+  // FIX-B61a: mints a challenge and proves nothing, the bucket register uses.
+  it('classifies POST /auth/passkey/signin/start as write, never verify', () => {
+    expect(classifyRoute('POST', '/auth/passkey/signin/start')).toBe('write');
   });
 });
 

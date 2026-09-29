@@ -700,7 +700,7 @@ function signerDidOf(req: Request): string | null {
 // joins through a DIFFERENT unique column depending on which proof
 // produced it: a github-oauth session's subject is the GitHub login
 // (Account.githubLogin), a passkey session's subject is the passkey
-// subject (Account.passkeySubject). Joining through the wrong column
+// name the server made when the passkey was created (Account.passkeySubject). Joining through the wrong column
 // would either miss a real account or, worse, resolve to the wrong one.
 interface SessionedRequest extends Request {
   sessionSubject?: string;
