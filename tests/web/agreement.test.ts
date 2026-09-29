@@ -35,6 +35,10 @@ const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const AGENT_DID = 'did:abt:agreement-page-agent';
 const BUYER_ACCOUNT_DID = 'did:abt:agreement-page-buyer-account';
 const STRANGER_ACCOUNT_DID = 'did:abt:agreement-page-stranger-account';
+const OPERATOR_DID = 'did:abt:agreement-page-operator';
+const NAMED_AGENT_DID = 'did:abt:agreement-page-named-agent';
+const NAMED_OPERATOR_DID = 'did:abt:agreement-page-named-operator';
+const NAMED_OPERATOR_LOGIN = 'agreement-page-operator-gh';
 
 function delegationFixture(did: string, operatorDid: string): Delegation {
   return {
@@ -68,7 +72,12 @@ interface Rendered {
   close: () => void;
 }
 
-async function renderAgreement(baseUrl: string, jobId: string, session: { token: string } | null): Promise<Rendered> {
+async function renderAgreement(
+  baseUrl: string,
+  jobId: string,
+  session: { token: string } | null,
+  opts: { holdAccountRead?: { did: string; until: Promise<void> } } = {},
+): Promise<Rendered> {
   const path = `/agreement?job=${encodeURIComponent(jobId)}`;
   const virtualConsole = new VirtualConsole();
   const failures: string[] = [];
@@ -86,7 +95,14 @@ async function renderAgreement(baseUrl: string, jobId: string, session: { token:
       if (session !== null) window.sessionStorage.setItem('fa_session', JSON.stringify(session));
       Object.defineProperty(window, 'fetch', {
         writable: true,
-        value: (input: string, init?: RequestInit) => fetch(new URL(input, baseUrl), init),
+        // SW2-07 (i): a test can hold one account's GET /accounts/:did read
+        // open (only that exact path), to see the operator line while the
+        // read is pending. /accounts/me and the buyer's read go through.
+        value: async (input: string, init?: RequestInit) => {
+          const hold = opts.holdAccountRead;
+          if (hold && String(input) === `/accounts/${encodeURIComponent(hold.did)}`) await hold.until;
+          return fetch(new URL(input, baseUrl), init);
+        },
       });
     },
   });
@@ -136,8 +152,8 @@ describe('the agreement screen, driven end to end against the real app', () => {
     agentRepo = new MemoryAgentRepository();
     await agentRepo.create({
       did: AGENT_DID,
-      operatorDid: 'did:abt:agreement-page-operator',
-      delegation: delegationFixture(AGENT_DID, 'did:abt:agreement-page-operator'),
+      operatorDid: OPERATOR_DID,
+      delegation: delegationFixture(AGENT_DID, OPERATOR_DID),
       name: 'agreement-page-scout',
       skills: ['triage'],
       githubLogin: null,
@@ -147,7 +163,29 @@ describe('the agreement screen, driven end to end against the real app', () => {
     await accountRepo.register({ did: BUYER_ACCOUNT_DID, githubLogin: 'agreement-page-buyer' });
     await accountRepo.register({ did: STRANGER_ACCOUNT_DID, githubLogin: 'agreement-page-stranger' });
 
+    // SW2-07: a second agent whose operator HAS an account with a GitHub
+    // login, beside AGENT_DID's operator, who has no account at all. The
+    // two are the two sentences A.nameOperator can write.
+    await agentRepo.create({
+      did: NAMED_AGENT_DID,
+      operatorDid: NAMED_OPERATOR_DID,
+      delegation: delegationFixture(NAMED_AGENT_DID, NAMED_OPERATOR_DID),
+      name: 'agreement-page-named-scout',
+      skills: ['triage'],
+      githubLogin: null,
+    });
+    await accountRepo.register({ did: NAMED_OPERATOR_DID, githubLogin: NAMED_OPERATOR_LOGIN });
+
     jobRepo = new MemoryJobRepository();
+
+    await jobRepo.create(
+      jobFixture({
+        id: 'job-named-operator',
+        agentDid: NAMED_AGENT_DID,
+        status: 'proposed',
+        criteria: [{ text: 'Named operator criterion', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: true }],
+      }),
+    );
 
     // A proposed job: two criteria (one already accepted by the buyer, one
     // not), a price the agent has accepted and the buyer has not, and a
@@ -287,6 +325,76 @@ describe('the agreement screen, driven end to end against the real app', () => {
         expect(leave!.textContent).toBe('Leave this for now');
         expect(leave!.getAttribute('href')).toBe('/myjobs');
       } finally {
+        page.close();
+      }
+    });
+  });
+
+  describe('SW2-07: the operator is named in words, never by DID (DESIGN.md 9)', () => {
+    // The who strip reads the whole line a person sees: the words before
+    // the link and the link, squashed to one string.
+    const squash = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim();
+
+    it('(f) an operator whose account carries a login reads "operated by @<login>" and links their account', async () => {
+      const page = await renderAgreement(baseUrl, 'job-named-operator', { token: buyerToken });
+      try {
+        const row = page.document.getElementById('operated-by') as HTMLElement;
+        expect(row.hidden, 'the operator line stayed hidden after the account read').toBe(false);
+        expect(squash(row.textContent)).toBe(`operated by @${NAMED_OPERATOR_LOGIN}`);
+        const link = page.document.getElementById('operator-link');
+        expect(link?.textContent).toBe(`@${NAMED_OPERATOR_LOGIN}`);
+        expect(link?.getAttribute('href')).toBe(`/accounts/${encodeURIComponent(NAMED_OPERATOR_DID)}`);
+      } finally {
+        page.close();
+      }
+    });
+
+    it('(g) an operator with no account login reads "See who runs this agent"', async () => {
+      const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
+      try {
+        const row = page.document.getElementById('operated-by') as HTMLElement;
+        expect(row.hidden).toBe(false);
+        expect(squash(row.textContent)).toBe('See who runs this agent');
+        expect(page.document.getElementById('operator-link')?.getAttribute('href')).toBe(`/accounts/${encodeURIComponent(OPERATOR_DID)}`);
+      } finally {
+        page.close();
+      }
+    });
+
+    it.each([
+      ['with a login', 'job-named-operator', NAMED_OPERATOR_DID],
+      ['without a login', 'job-half-signed', OPERATOR_DID],
+    ] as const)('(h) nothing in the who strip renders a DID, %s', async (_label, jobId, operatorDid) => {
+      const page = await renderAgreement(baseUrl, jobId, { token: buyerToken });
+      try {
+        const who = page.document.getElementById('who')!;
+        // The strip did fill, so an empty strip cannot pass by saying nothing.
+        expect(squash(page.document.getElementById('operated-by')?.textContent)).not.toBe('');
+        const text = who.textContent ?? '';
+        expect(text).not.toMatch(/\bdid:/);
+        // Nor the key-hash tail a shortened DID keeps.
+        expect(text).not.toContain(operatorDid.replace(/^did:[a-z0-9]+:/, ''));
+      } finally {
+        page.close();
+      }
+    });
+
+    it('(i) while the account read is pending, the operator line is hidden', async () => {
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => { release = resolve; });
+      const page = await renderAgreement(baseUrl, 'job-named-operator', { token: buyerToken }, { holdAccountRead: { did: NAMED_OPERATOR_DID, until: held } });
+      try {
+        // The agent read has answered (the name is in), so the page has
+        // reached the point where it asks for the operator's account.
+        expect(page.document.getElementById('agent-name')?.textContent).toBe('agreement-page-named-scout');
+        const row = page.document.getElementById('operated-by') as HTMLElement;
+        expect(row.hidden, 'the operator line showed before the account read settled').toBe(true);
+        release();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(row.hidden).toBe(false);
+        expect(squash(row.textContent)).toBe(`operated by @${NAMED_OPERATOR_LOGIN}`);
+      } finally {
+        release();
         page.close();
       }
     });
