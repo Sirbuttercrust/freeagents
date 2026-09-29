@@ -19,6 +19,8 @@ import { decode as jwtDecode } from '@arcblock/jwt';
 import { decodeTx as cborDecodeTx } from '@ocap/message/cbor';
 import { fromBase58, fromTokenToUnit } from '@ocap/util';
 import { createApp } from '../../src/api/app.js';
+import type { SessionAdapter } from '../../src/adapters/identity/session.js';
+import { sessionHeader, testSessionAdapter } from '../helpers/session-fixtures.js';
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
 import { createAbtPaymentRail, type AbtChainClient, type AbtRateSource } from '../../src/adapters/payment/abt.js';
 import type { DidConnectSessionStorage } from '../../src/adapters/payment/session-storage-types.js';
@@ -105,6 +107,7 @@ async function startAbtApp(
   chainClient: AbtChainClient,
   wrapOperatorRepo?: (repo: MemoryAccountRepository, operatorDid: string) => AccountRepository,
   rateSource: AbtRateSource = async () => '1',
+  sessionAdapter?: SessionAdapter,
 ): Promise<StartedAbtApp> {
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -129,7 +132,13 @@ async function startAbtApp(
     const agent = await signingIdentityFromWallet(agentWallet);
 
     const operatorRepo = new MemoryAccountRepository();
-    await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-abt-surface' });
+    // A run given a session adapter signs the buyer in through GitHub, and
+    // testSessionAdapter's sign-in always names this login, so the buyer's
+    // account is the one that login resolves to.
+    await operatorRepo.register({
+      did: buyer.did,
+      githubLogin: sessionAdapter === undefined ? 'buyer-abt-surface' : 'test-session-user',
+    });
     const agentRepo = new MemoryAgentRepository();
     await agentRepo.create({
       did: agent.did,
@@ -179,7 +188,7 @@ async function startAbtApp(
       undefined,
       undefined,
       undefined,
-      undefined,
+      sessionAdapter,
       undefined,
       gate,
       anyCommitStagingObserver(),
@@ -314,27 +323,150 @@ describe('the ABT payment flow refuses a wallet that redirects the operator outp
   });
 });
 
-describe('the ABT payment flow refuses a wallet whose DID is not the job\'s buyer', () => {
-  it('a stranger wallet completes the protocol but the payment is refused, and no settlement is written', async () => {
+describe('a stranger wallet answering a session the buyer started', () => {
+  it('is no longer a party check: a wallet whose DID is not the buyer\'s settles the payment the buyer started (replaces the old stranger-wallet refusal)', async () => {
     const fakeChain2 = fakeAbtChainClient(true);
     const started2 = await startAbtApp(fakeChain2.client);
     try {
-      const stranger = fromRandom();
-      // The session is minted properly (starter is the real buyer, so
-      // /start itself lets it through); the stranger only ever gets as
-      // far as completing the wallet protocol with their own DID, which
-      // onAuth's own buyerDid check must still refuse.
-      const result = await driveAbtPayment(started2.baseUrl, started2.buyer, stranger, {
+      const anyWallet = fromRandom();
+      const result = await driveAbtPayment(started2.baseUrl, started2.buyer, anyWallet, {
         jobId: started2.jobId,
         leg: 'deposit',
       });
-      expect(result.confirmed).toBe(false);
-      expect(result.error).toBeDefined();
-      expect(await started2.settlementRepo.findByJobAndLeg(started2.jobId, 'deposit')).toBeNull();
-      expect(await started2.gate.depositSettled(started2.jobId)).toBe(false);
+      expect(result).toEqual({ confirmed: true });
+      expect((await started2.settlementRepo.findByJobAndLeg(started2.jobId, 'deposit'))?.rail).toBe('abt');
     } finally {
       started2.server.close();
     }
+  });
+});
+
+const NO_STARTER_SENTENCE =
+  'This payment session has no signed-in or signed buyer on record. Start the payment again from the job page while signed in as the buyer.';
+const NOT_BUYER_SENTENCE = "this payment session is bound to a different buyer's job";
+
+// A buyer signed in to the site: the bearer header the session adapter
+// resolves to the buyer's own account, and no signing key anywhere.
+async function startAbtAppSignedIn(
+  fake: ReturnType<typeof fakeAbtChainClient>,
+): Promise<{ started: StartedAbtApp; header: Record<string, string> }> {
+  const sessionAdapter = testSessionAdapter();
+  const started = await startAbtApp(fake.client, undefined, async () => '1', sessionAdapter);
+  return { started, header: await sessionHeader(sessionAdapter) };
+}
+
+// The token door (did-connect-js's own mount), opened with a live session
+// instead of a signature, decoded the same way the /start helper decodes.
+async function mintThroughTokenDoorSignedIn(
+  started: StartedAbtApp,
+  header: Record<string, string>,
+  leg: 'deposit' | 'remainder',
+): Promise<{ readonly sessionToken: string; readonly authCallbackUrl: string }> {
+  const res = await fetch(`${started.baseUrl}/api/did/pay/token?jobId=${started.jobId}&leg=${leg}`, { headers: header });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { readonly token: string; readonly url: string };
+  const encoded = new URL(body.url).searchParams.get('url');
+  if (encoded === null) throw new Error('expected a wallet callback url');
+  return { sessionToken: body.token, authCallbackUrl: decodeURIComponent(encoded) };
+}
+
+describe('a hirer pays in ABT from their own DID Wallet, whichever wallet signs (SW3-05)', () => {
+  const servers: Server[] = [];
+  afterAll(() => {
+    for (const server of servers) server.close();
+  });
+
+  it('(a) a signed-in buyer starts the deposit and a wallet whose DID is not the account\'s pays it: one settlement row, and the job confirms', async () => {
+    const fake = fakeAbtChainClient(true);
+    const { started, header } = await startAbtAppSignedIn(fake);
+    servers.push(started.server);
+    const ownWallet = fromRandom();
+    expect(didSuffix(ownWallet.address)).not.toBe(didSuffix(started.buyer.did));
+    const result = await driveAbtPayment(started.baseUrl, { sessionHeader: header }, ownWallet, { jobId: started.jobId, leg: 'deposit' });
+    expect(result).toEqual({ confirmed: true });
+    expect(fake.sentTx()).toBeDefined();
+    const row = await started.settlementRepo.findByJobAndLeg(started.jobId, 'deposit');
+    expect(row).toMatchObject({ jobId: started.jobId, leg: 'deposit', rail: 'abt', amountUsd: '100.00', hash: fake.hash });
+    const confirm = await postSigned(started.baseUrl, `/jobs/${started.jobId}/confirm`, {}, started.buyer);
+    expect(confirm.status).toBe(200);
+    expect(((await confirm.json()) as { status: string }).status).toBe('confirmed');
+  });
+
+  it('(b) the same through /api/did/pay/token: started by a signed-in buyer, completed by a different wallet, it settles', async () => {
+    const fake = fakeAbtChainClient(true);
+    const { started, header } = await startAbtAppSignedIn(fake);
+    servers.push(started.server);
+    const { sessionToken, authCallbackUrl } = await mintThroughTokenDoorSignedIn(started, header, 'deposit');
+    const result = await continueAbtWalletProtocol(started.baseUrl, sessionToken, authCallbackUrl, fromRandom());
+    expect(result).toEqual({ confirmed: true });
+    const row = await started.settlementRepo.findByJobAndLeg(started.jobId, 'deposit');
+    expect(row).toMatchObject({ jobId: started.jobId, leg: 'deposit', rail: 'abt', amountUsd: '100.00', hash: fake.hash });
+  });
+
+  it('(c) the remainder leg of a staged job is paid the same way and writes the remainder row', async () => {
+    const fake = fakeAbtChainClient(true);
+    const { started, header } = await startAbtAppSignedIn(fake);
+    servers.push(started.server);
+    // Setup does not use the behaviour under test: the deposit is paid by
+    // the wallet whose DID is the buyer's, the one pairing the old rule took.
+    const deposit = await driveAbtPayment(started.baseUrl, started.buyer, started.buyerWallet, { jobId: started.jobId, leg: 'deposit' });
+    expect(deposit).toEqual({ confirmed: true });
+    const confirm = await postSigned(started.baseUrl, `/jobs/${started.jobId}/confirm`, {}, started.buyer);
+    expect(confirm.status).toBe(200);
+    const stage = await postSigned(started.baseUrl, `/jobs/${started.jobId}/stage`, { stagedCommit: 'buyer/target-repo-head-sha' }, started.agent);
+    expect(stage.status).toBe(200);
+
+    const result = await driveAbtPayment(started.baseUrl, { sessionHeader: header }, fromRandom(), { jobId: started.jobId, leg: 'remainder' });
+    expect(result).toEqual({ confirmed: true });
+    const row = await started.settlementRepo.findByJobAndLeg(started.jobId, 'remainder');
+    expect(row).toMatchObject({ jobId: started.jobId, leg: 'remainder', rail: 'abt', amountUsd: '300.00' });
+  });
+
+  it('(d) a session row with no starter is refused with the no-starter sentence: no row, the job unchanged, nothing broadcast', async () => {
+    const fake = fakeAbtChainClient(true);
+    const started = await startAbtApp(fake.client);
+    servers.push(started.server);
+    const { sessionToken, authCallbackUrl } = await startAbtSession(started.baseUrl, started.buyer, { jobId: started.jobId, leg: 'deposit' });
+    await started.sessions.storage.update(sessionToken, { startedBy: null });
+    const jobBefore = await started.jobRepo.findById(started.jobId);
+    const result = await continueAbtWalletProtocol(started.baseUrl, sessionToken, authCallbackUrl, started.buyerWallet);
+    expect(result).toEqual({ confirmed: false, error: NO_STARTER_SENTENCE });
+    expect(await started.settlementRepo.findByJobAndLeg(started.jobId, 'deposit')).toBeNull();
+    expect(await started.jobRepo.findById(started.jobId)).toEqual(jobBefore);
+    expect(fake.sentTx()).toBeUndefined();
+  });
+
+  it('(e) a session row whose starter is another registered account is refused with the not-the-buyer sentence: no row, nothing broadcast', async () => {
+    const fake = fakeAbtChainClient(true);
+    const started = await startAbtApp(fake.client);
+    servers.push(started.server);
+    const other = await signingIdentityFromWallet(fromRandom());
+    await started.operatorRepo.register({ did: other.did, githubLogin: 'another-account-abt-surface' });
+    const { sessionToken, authCallbackUrl } = await startAbtSession(started.baseUrl, started.buyer, { jobId: started.jobId, leg: 'deposit' });
+    await started.sessions.storage.update(sessionToken, { startedBy: other.did });
+    const result = await continueAbtWalletProtocol(started.baseUrl, sessionToken, authCallbackUrl, started.buyerWallet);
+    expect(result).toEqual({ confirmed: false, error: NOT_BUYER_SENTENCE });
+    expect(await started.settlementRepo.findByJobAndLeg(started.jobId, 'deposit')).toBeNull();
+    expect(fake.sentTx()).toBeUndefined();
+  });
+
+  it.each(['/start', 'token door'])('(f) a caller naming a starter in the body, the query or a header on the %s does not change the row: it carries the proven buyer', async (door) => {
+    const fake = fakeAbtChainClient(true);
+    const { started, header } = await startAbtAppSignedIn(fake);
+    servers.push(started.server);
+    const named = 'did:abt:zNamedByTheCaller';
+    const headers = { ...header, 'x-started-by': named, 'x-user-did': named };
+    const res =
+      door === '/start'
+        ? await fetch(`${started.baseUrl}/jobs/${started.jobId}/payments/deposit/abt/start?startedBy=${named}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...headers },
+            body: JSON.stringify({ startedBy: named, provenStarter: named }),
+          })
+        : await fetch(`${started.baseUrl}/api/did/pay/token?jobId=${started.jobId}&leg=deposit&startedBy=${named}`, { headers });
+    expect(res.status).toBe(200);
+    const { token } = (await res.json()) as { token: string };
+    expect((await started.sessions.storage.read(token))?.startedBy).toBe(started.buyer.did);
   });
 });
 
