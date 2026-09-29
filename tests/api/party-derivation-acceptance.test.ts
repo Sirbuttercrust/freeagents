@@ -378,15 +378,14 @@ describe('R-39 completion acceptance: party derived, never declared', () => {
       // The account a passkey holder must be able to acquire THROUGH THE
       // REAL ROUTE SURFACE, not by reaching into the repository directly:
       // POST /accounts is account creation, ungated (D1/bootstrap-deadlock),
-      // and must accept an optional passkeySubject the same way it accepts
-      // githubLogin, so a live passkey session can later resolve to this
-      // account exactly as a live GitHub session already does.
+      // and must accept an optional passkeySubject on its own (FIX-B62a: a
+      // GitHub login now needs a signed gist, so this account has none),
+      // so a live passkey session can later resolve to this account.
       const registered = await fetch(`${baseUrl}/accounts`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           did: 'did:abt:pd-passkey-buyer',
-          githubLogin: 'pd-passkey-buyer-login',
           passkeySubject: subject,
         }),
       });

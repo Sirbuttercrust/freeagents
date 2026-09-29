@@ -153,7 +153,6 @@ describe('job draft, invariant 2 (R-28): the brief hash is verifiable off-platfo
 
     const reg = await postJson(baseUrl, '/accounts', {
       did: operatorWallet.toDid(),
-      githubLogin: 'operator-job-inv2',
     }, authHeader);
     expect(reg.status).toBe(201);
 
@@ -329,7 +328,6 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
 
     const reg = await postJson(baseUrl, '/accounts', {
       did: operatorWallet.toDid(),
-      githubLogin: 'operator-outcome-inv2',
     }, authHeader);
     expect(reg.status).toBe(201);
 

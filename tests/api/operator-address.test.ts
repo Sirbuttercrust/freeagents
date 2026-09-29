@@ -83,7 +83,7 @@ describe('PATCH /accounts/:did/operator-address', () => {
 
   it('a registered stranger naming a DIFFERENT account is refused with 403', async () => {
     const stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(212));
-    await postSigned(started.baseUrl, '/accounts', { did: stranger.did, githubLogin: 'operator-address-stranger' }, stranger);
+    await postSigned(started.baseUrl, '/accounts', { did: stranger.did }, stranger);
     const res = await patchSigned(started.baseUrl, `/accounts/${started.owner.did}/operator-address`, { operatorAddressEvm: VALID_ADDRESS }, stranger);
     expect(res.status).toBe(403);
   });
@@ -151,7 +151,7 @@ describe('PATCH /accounts/:did/operator-address, the ABT field (P8c)', () => {
 
   it('a registered stranger naming a DIFFERENT account (ABT field) is refused with 403', async () => {
     const stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(213));
-    await postSigned(started.baseUrl, '/accounts', { did: stranger.did, githubLogin: 'operator-address-abt-stranger' }, stranger);
+    await postSigned(started.baseUrl, '/accounts', { did: stranger.did }, stranger);
     const res = await patchSigned(started.baseUrl, `/accounts/${started.owner.did}/operator-address`, { operatorAddressAbt: VALID_ABT_ADDRESS }, stranger);
     expect(res.status).toBe(403);
   });

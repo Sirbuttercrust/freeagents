@@ -85,8 +85,8 @@ async function main(): Promise<void> {
   const agentDid = agentIdentity.did;
   const buyerDid = buyerIdentity.did;
 
-  await expectOk('operator', await post('/accounts', { did: operatorDid, githubLogin: 'northsound' }));
-  await expectOk('buyer as operator', await post('/accounts', { did: buyerDid, githubLogin: 'northsound-buyer' }));
+  await expectOk('operator', await post('/accounts', { did: operatorDid }));
+  await expectOk('buyer as operator', await post('/accounts', { did: buyerDid }));
 
   const opKey = await keyFor(OPERATOR_SEED, operatorDid);
   const suite = new Ed25519Signature2020({ key: opKey });
