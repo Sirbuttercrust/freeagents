@@ -436,3 +436,48 @@ describe('prisma/migrations, Agent.negotiatesOnOwnersBehalf is actually migrated
     expect(agent).toMatch(/negotiatesOnOwnersBehalf\s+Boolean\s+@default\(false\)/);
   });
 });
+
+// FIX-B61a: the stored passkey lives in its own table, keyed to the passkey
+// name and not a relation to Account (the account row is provisioned on the
+// first signed-in request, after the passkey is saved), and never as
+// columns on Account (tests/api/account-invariant2.test.ts).
+describe('prisma, the PasskeyCredential table is declared and actually migrated (FIX-B61a)', () => {
+  const migrationsDirB61 = new URL('../../prisma/migrations/', import.meta.url);
+
+  function allMigrationSqlB61(): string {
+    const dir = fileURLToPath(migrationsDirB61);
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => join(dir, e.name, 'migration.sql'))
+      .filter((p) => existsSync(p))
+      .map((p) => readFileSync(p, 'utf8'))
+      .join('\n');
+  }
+
+  it('the schema declares PasskeyCredential with the credential id as its key, the key as bytes, and a counter', () => {
+    const body = modelBody('PasskeyCredential');
+    expect(body).toMatch(/\bid\s+String\s+@id\b/);
+    expect(body).toMatch(/\bsubject\s+String\b/);
+    expect(body).toMatch(/\bpublicKey\s+Bytes\b/);
+    expect(body).toMatch(/\bcounter\s+Int\b/);
+    expect(body).toMatch(/\btransports\s+String\[\]/);
+    expect(body).toMatch(/\bcreatedAt\s+DateTime\s+@default\(now\(\)\)/);
+    expect(body).toMatch(/\blastUsedAt\s+DateTime\?/);
+    expect(body).toMatch(/@@index\(\[subject\]\)/);
+  });
+
+  it('the schema keys it to the passkey name with no relation to Account, and Account carries no key material', () => {
+    expect(modelBody('PasskeyCredential')).not.toMatch(/@relation|\bAccount\b/);
+    expect(modelBody('Account')).not.toMatch(/publicKey|credentialId|counter/i);
+  });
+
+  it('a migration creates the PasskeyCredential table with its primary key and its subject index', () => {
+    const sql = allMigrationSqlB61();
+    expect(sql).toMatch(/CREATE TABLE\s+"PasskeyCredential"\s*\(/);
+    expect(sql).toMatch(/"publicKey"\s+BYTEA\s+NOT NULL/);
+    expect(sql).toMatch(/"counter"\s+INTEGER\s+NOT NULL/);
+    expect(sql).toMatch(/"transports"\s+TEXT\[\]/);
+    expect(sql).toMatch(/CONSTRAINT\s+"PasskeyCredential_pkey"\s+PRIMARY KEY\s*\("id"\)/);
+    expect(sql).toMatch(/CREATE INDEX\s+"PasskeyCredential_subject_idx"\s+ON\s+"PasskeyCredential"\("subject"\)/);
+  });
+});

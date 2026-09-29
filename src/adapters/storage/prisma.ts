@@ -43,6 +43,9 @@ import {
   type NotificationRepository,
   type AttachmentRepository,
   type PushSubscriptionRepository,
+  PasskeyCredentialAlreadyExistsError,
+  type PasskeyCredentialRepository,
+  type StoredPasskeyCredential,
   credentialLookupKey,
 } from './types.js';
 
@@ -1483,5 +1486,51 @@ export class PrismaPushSubscriptionRepository implements PushSubscriptionReposit
 
   async removeByEndpoint(endpoint: string): Promise<void> {
     await db().pushSubscription.deleteMany({ where: { endpoint } });
+  }
+}
+
+// FIX-B61a: stored passkeys. save is a plain insert: a credential id already
+// stored fails on the primary key (P2002) and becomes the domain error, so
+// the stored key is never replaced.
+export class PrismaPasskeyCredentialRepository implements PasskeyCredentialRepository {
+  async save(credential: StoredPasskeyCredential): Promise<void> {
+    try {
+      await db().passkeyCredential.create({
+        data: {
+          id: credential.id,
+          subject: credential.subject,
+          publicKey: Buffer.from(credential.publicKey),
+          counter: credential.counter,
+          transports: [...credential.transports],
+          createdAt: credential.createdAt,
+        },
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new PasskeyCredentialAlreadyExistsError(credential.id);
+      }
+      throw err;
+    }
+  }
+
+  async findById(id: string): Promise<StoredPasskeyCredential | null> {
+    const row = await db().passkeyCredential.findUnique({ where: { id } });
+    if (row === null) return null;
+    return {
+      id: row.id,
+      subject: row.subject,
+      publicKey: new Uint8Array(row.publicKey),
+      counter: row.counter,
+      transports: row.transports,
+      createdAt: row.createdAt,
+      lastUsedAt: row.lastUsedAt,
+    };
+  }
+
+  async recordUse(id: string, newCounter: number): Promise<void> {
+    await db().passkeyCredential.update({
+      where: { id },
+      data: { counter: newCounter, lastUsedAt: new Date() },
+    });
   }
 }

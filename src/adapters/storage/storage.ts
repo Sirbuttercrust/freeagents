@@ -2,9 +2,9 @@
 // selected mode, not a fallback: an unconfigured deployment announces
 // itself at startup, and a configured-but-dead database fails closed with
 // a 503 on the first query (invariant 9: portability, fail closed, loud).
-import { MemoryAgentRepository, MemoryCompromiseRepository, MemoryCredentialRepository, MemoryJobRepository, MemoryAccountRepository, MemoryReviewRepository, MemoryObservedKeyRepository, MemoryAttestationRepository, MemorySettlementRepository, MemoryMessageRepository, MemoryThreadReadStateRepository, MemoryNotificationRepository, MemoryAttachmentRepository, MemoryPushSubscriptionRepository } from './memory.js';
-import { PrismaAgentRepository, PrismaCompromiseRepository, PrismaCredentialRepository, PrismaJobRepository, PrismaAccountRepository, PrismaReviewRepository, PrismaObservedKeyRepository, PrismaAttestationRepository, PrismaSettlementRepository, PrismaMessageRepository, PrismaThreadReadStateRepository, PrismaNotificationRepository, PrismaAttachmentRepository, PrismaPushSubscriptionRepository } from './prisma.js';
-import type { AgentRepository, CompromiseRepository, CredentialRepository, JobRepository, AccountRepository, ReviewRepository, ObservedKeyRepository, AttestationRepository, SettlementRepository, MessageRepository, ThreadReadStateRepository, NotificationRepository, AttachmentRepository, PushSubscriptionRepository } from './types.js';
+import { MemoryAgentRepository, MemoryCompromiseRepository, MemoryCredentialRepository, MemoryJobRepository, MemoryAccountRepository, MemoryReviewRepository, MemoryObservedKeyRepository, MemoryAttestationRepository, MemorySettlementRepository, MemoryMessageRepository, MemoryThreadReadStateRepository, MemoryNotificationRepository, MemoryAttachmentRepository, MemoryPushSubscriptionRepository, MemoryPasskeyCredentialRepository } from './memory.js';
+import { PrismaAgentRepository, PrismaCompromiseRepository, PrismaCredentialRepository, PrismaJobRepository, PrismaAccountRepository, PrismaReviewRepository, PrismaObservedKeyRepository, PrismaAttestationRepository, PrismaSettlementRepository, PrismaMessageRepository, PrismaThreadReadStateRepository, PrismaNotificationRepository, PrismaAttachmentRepository, PrismaPushSubscriptionRepository, PrismaPasskeyCredentialRepository } from './prisma.js';
+import type { AgentRepository, CompromiseRepository, CredentialRepository, JobRepository, AccountRepository, ReviewRepository, ObservedKeyRepository, AttestationRepository, SettlementRepository, MessageRepository, ThreadReadStateRepository, NotificationRepository, AttachmentRepository, PushSubscriptionRepository, PasskeyCredentialRepository } from './types.js';
 
 export function createAccountRepository(): AccountRepository {
   if (process.env.DATABASE_URL) {
@@ -178,4 +178,19 @@ export function createPushSubscriptionRepository(): PushSubscriptionRepository {
       'Data does not survive a restart. This is a dev/test mode, not production storage.'
   );
   return new MemoryPushSubscriptionRepository();
+}
+
+// FIX-B61a: the stored passkeys sign-in is checked against. Same selection
+// stance as every repository above. The session adapter takes the in-memory
+// one when nothing is injected, but a deployment builds it here so a passkey
+// made before a restart still signs in after it.
+export function createPasskeyCredentialRepository(): PasskeyCredentialRepository {
+  if (process.env.DATABASE_URL) {
+    return new PrismaPasskeyCredentialRepository();
+  }
+  console.warn(
+    'storage: DATABASE_URL is not set; using in-memory storage. ' +
+      'Data does not survive a restart. This is a dev/test mode, not production storage.'
+  );
+  return new MemoryPasskeyCredentialRepository();
 }
