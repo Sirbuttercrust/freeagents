@@ -161,6 +161,24 @@ p:last-child { margin-bottom: 0; }
   border-radius: var(--r);
   color: var(--fg); font-family: var(--font); font-size: 15px;
 }
+/* SW2-02: a select that carries .input takes .input's box in every engine.
+   WebKit draws a native select with its own metrics and ignores min-height
+   and padding (the owner roster's Sort drew 214x26 in Safari on a coarse
+   pointer while Chrome drew 230x44). Resetting appearance hands the box
+   back to this sheet, and the native arrow goes with it, so the chevron is
+   drawn here: two token-coloured gradient halves meeting in a point, set
+   inside the right padding so the option text never runs under it. */
+select.input {
+  -webkit-appearance: none; appearance: none;
+  padding-right: 36px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--fg-2) 50%),
+    linear-gradient(135deg, var(--fg-2) 50%, transparent 50%);
+  background-position: calc(100% - 19px) 50%, calc(100% - 14px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
 .input::placeholder { color: var(--fg-3); }
 .input:focus { outline: none; border-color: var(--action); }
 .field { margin-bottom: 18px; }
