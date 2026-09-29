@@ -14,12 +14,11 @@
  * that proves the thing we ship can actually start.
  *
  * WHAT IT ASSERTS, AND WHAT IT REFUSES TO PRETEND.
- * The API is a route surface where the last hire-loop handlers still return
- * 501 on purpose. So this test proves what is genuinely true today:
+ * No hire-loop route answers 501 any more. This test proves what is
+ * genuinely true today:
  *
  *   - the app boots and binds a port
  *   - /health answers 200 with a body we control
- *   - every declared route EXISTS and is reachable, rather than 404
  *   - the real operator registration flow works end to end
  *   - the real agent delegation flow works end to end, with a delegation
  *     proof a real wallet actually signed
@@ -66,14 +65,17 @@
  *   - the merge issues a work-history credential (R-36, ENT-8): the response
  *     and the read-back both carry it, and a third party verifies it with
  *     the off-the-shelf W3C stack alone, no call to this service
- *   - an unknown route is still a 404, so the previous assertion means something
+ *   - after the merge, the agent's work-history extension block is served
+ *     (Gate 3 step 4): present, well formed, naming the agent, one completed
+ *     hire, and the platform DID that issued the credential
+ *   - an unknown route is still a 404, so a route answering is a fact about
+ *     that route and not a catch-all
  *
- * It does NOT claim the hire loop completes end to end for every path: a
- * draft now walks all the way to completed through the criteria exchange,
- * confirm, the pull request and its observed merge, but the review handler
- * stays 501 until its issue lands. As that handler arrives, the flow
- * assertions below replace its 501 expectation too, and the e2e step floor
- * rises with it.
+ * It does NOT claim the hire loop completes end to end for every path. It
+ * walks a draft all the way to completed through the criteria exchange,
+ * confirm, the pull request and its observed merge; the paths around that
+ * one (refusals, deemed completion, reviews) are driven by their own suites
+ * under tests/api.
  *
  * THE MARKERS ARE PRINTED ONLY AFTER THE ASSERTIONS THEY DESCRIBE.
  * Printing APP_STARTED before the server is up, or E2E_PASSED in a finally
@@ -510,28 +512,6 @@ describe('the API starts and answers', () => {
     });
     stepsAsserted += 1;
     expect(res.status).toBe(401);
-  });
-
-  it('exposes every declared hire-loop route', async () => {
-    // A 501 here is the CORRECT current answer for the routes still in this
-    // list: the route exists and its handler is honest about being
-    // unimplemented. What matters for this assertion is that none of them
-    // 404, because a route that does not exist cannot be said to have a
-    // contract at all.
-    // POST /accounts, POST /agents, POST /jobs, POST /jobs/:id/confirm,
-    // POST /jobs/:id/pull-request, POST /jobs/:id/merge, POST
-    // /jobs/:id/reviews and GET /agents/:did/credentials have left this
-    // list: they are implemented, driven end to end over HTTP by their own
-    // dedicated suites (tests/api/job-reviews.test.ts for reviews,
-    // tests/api/agent-credentials.test.ts for credentials, B9). This is
-    // the one-at-a-time replacement the file's design promised.
-    const declared: Array<[string, () => Promise<Response>]> = [['GET  /agents/:did/card', () => get('/agents/did:abt:test/card')]];
-
-    for (const [label, call] of declared) {
-      const res = await call();
-      expect(res.status, `${label} must exist, got ${res.status}`).not.toBe(404);
-      expect(res.status, `${label} should be 501 until implemented`).toBe(501);
-    }
   });
 
   it('registers an operator, reads it back, and refuses duplicates and bad DIDs', async () => {
@@ -1436,6 +1416,22 @@ describe('the API starts and answers', () => {
     expect(await verifyIndependent(issued)).toBe(true);
     console.log('E2E_CREDENTIAL_VERIFIED');
 
+    // Gate 3 step 4 (MISSION.md): the agent's work-history extension block
+    // is present and well formed, and it counts the credential just issued.
+    const cardRes = await get(`/agents/${encodeURIComponent(agentWallet.toDid())}/card`);
+    expect(cardRes.status).toBe(200);
+    const card = (await cardRes.json()) as {
+      uri: string;
+      required: boolean;
+      params: { subject: string; attestedBy: string; credentials: { count: number; endpoint: string } };
+    };
+    expect(card.uri).toBe('https://freeagents.dev/ext/work-history/v1');
+    expect(card.required).toBe(false);
+    expect(card.params.subject).toBe(agentWallet.toDid());
+    expect(card.params.credentials.count).toBe(1);
+    expect(card.params.attestedBy).toBe(platformWallet.toDid());
+    expect(card.params.credentials.endpoint.endsWith(`/agents/${encodeURIComponent(agentWallet.toDid())}/credentials`)).toBe(true);
+
     // 8. Read back: identical to the merge response.
     const read = await get(`/jobs/${jobId}`);
     expect(await read.json()).toEqual(mergeBody);
@@ -1447,8 +1443,8 @@ describe('the API starts and answers', () => {
   });
 
   it('still 404s an undeclared route', async () => {
-    // Without this, the assertion above would pass on a catch-all that
-    // answered everything, which would make it meaningless.
+    // Without this, every route assertion in this file would pass on a
+    // catch-all that answered everything, which would make them meaningless.
     const res = await get('/no-such-route');
     expect(res.status).toBe(404);
   });
