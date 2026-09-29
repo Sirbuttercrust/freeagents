@@ -8,7 +8,7 @@
 // person signs in, takes the token, and drives a hire-loop route with it.
 import type { Server } from 'node:http';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
@@ -380,32 +380,25 @@ describe('POST /auth/passkey/register', () => {
     expect(parsed.challenge.length).toBeGreaterThan(0);
   });
 
-  it('400s a missing subject, before any adapter call', async () => {
+  it('a register body naming a subject is ignored: the name is the server\'s, not the caller\'s', async () => {
     const sessionAdapter = passkeyAdapter();
     const baseUrl = await listen(
       createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
     );
 
-    const res = await fetch(`${baseUrl}/auth/passkey/register`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    expect(res.status).toBe(400);
-  });
-
-  it('400s a non-string subject, before any adapter call', async () => {
-    const sessionAdapter = passkeyAdapter();
-    const baseUrl = await listen(
-      createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
-    );
-
-    const res = await fetch(`${baseUrl}/auth/passkey/register`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ subject: 42 }),
-    });
-    expect(res.status).toBe(400);
+    for (const body of [{}, { subject: 42 }, { subject: 'caller-chosen-name' }]) {
+      const res = await fetch(`${baseUrl}/auth/passkey/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(200);
+      const { optionsJson } = (await res.json()) as { optionsJson: string };
+      const { user } = JSON.parse(optionsJson) as { user: { id: string } };
+      const name = Buffer.from(user.id, 'base64url').toString('utf8');
+      expect(name.length).toBeGreaterThan(0);
+      expect(name).not.toBe('caller-chosen-name');
+    }
   });
 
   // qa (review round 1, D2, guard-without-a-test): registerPasskey throws
@@ -452,19 +445,22 @@ describe('POST /auth/passkey/verify', () => {
       body: JSON.stringify({ subject }),
     });
     const { optionsJson } = (await registered.json()) as { optionsJson: string };
-    const { challenge } = JSON.parse(optionsJson) as { challenge: string };
+    const { challenge, user } = JSON.parse(optionsJson) as { challenge: string; user: { id: string } };
+    // The session's subject is the name the server put in user.id, not the body's.
+    const madeName = Buffer.from(user.id, 'base64url').toString('utf8');
+    expect(madeName).not.toBe(subject);
     const fixture = createPasskeyFixture();
     const response = fixture.registrationResponse(challenge, 'localhost');
 
     const res = await fetch(`${baseUrl}/auth/passkey/verify`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ responseJson: JSON.stringify({ subject, response }) }),
+      body: JSON.stringify({ responseJson: JSON.stringify({ response }) }),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toEqual({
-      subject,
+      subject: madeName,
       method: 'passkey',
       token: expect.any(String),
       issuedAt: expect.any(String),
@@ -643,6 +639,7 @@ describe('POST /auth/signout', () => {
 // real sign-in, is the assertion no test made before this card.
 describe('P8b anchor: sign in over HTTP, then drive both hire-loop gate shapes with the token', () => {
   afterEach(async () => {
+    vi.unstubAllEnvs();
     if (server !== null) {
       await new Promise<void>((resolve) => server!.close(() => resolve()));
       server = null;
@@ -706,11 +703,11 @@ describe('P8b anchor: sign in over HTTP, then drive both hire-loop gate shapes w
     expect(((await withdrawn.json()) as Record<string, unknown>).status).toBe('withdrawn');
   });
 
-  it('passkey sign-in end to end: register -> verify -> token accepted the same way', async () => {
+  it('passkey sign-in end to end: sign up through the routes, sign back in, token accepted the same way', async () => {
+    // Provisioning the account on the first signed-in request needs the seed.
+    vi.stubEnv('FREEAGENTS_PLATFORM_SEED', 'f'.repeat(64));
     const sessionAdapter = passkeyAdapter();
     const accountRepo = new MemoryAccountRepository();
-    const subject = 'anchor-passkey-subject';
-    await accountRepo.register({ did: 'did:abt:anchor-passkey-buyer', githubLogin: 'anchor-passkey-buyer-login', passkeySubject: subject });
     const agentRepo = new MemoryAgentRepository();
     const agentDid = 'did:abt:anchor-passkey-agent';
     await agentRepo.create({
@@ -728,21 +725,34 @@ describe('P8b anchor: sign in over HTTP, then drive both hire-loop gate shapes w
     const registered = await fetch(`${baseUrl}/auth/passkey/register`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ subject }),
     });
     expect(registered.status).toBe(200);
     const { optionsJson } = (await registered.json()) as { optionsJson: string };
-    const { challenge } = JSON.parse(optionsJson) as { challenge: string };
+    const { challenge, user } = JSON.parse(optionsJson) as { challenge: string; user: { id: string } };
     const fixture = createPasskeyFixture();
+    fixture.rememberUserHandle(user.id);
     const response = fixture.registrationResponse(challenge, 'localhost');
 
     const verified = await fetch(`${baseUrl}/auth/passkey/verify`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ responseJson: JSON.stringify({ subject, response }) }),
+      body: JSON.stringify({ responseJson: JSON.stringify({ response }) }),
     });
     expect(verified.status).toBe(200);
-    const session = (await verified.json()) as { token: string };
+    const signedUp = (await verified.json()) as { token: string; subject: string };
+
+    const started = await fetch(`${baseUrl}/auth/passkey/signin/start`, { method: 'POST' });
+    const signInOptions = JSON.parse(((await started.json()) as { optionsJson: string }).optionsJson) as { challenge: string };
+    const assertion = fixture.assertionResponse(signInOptions.challenge, 'localhost');
+    const signedIn = await fetch(`${baseUrl}/auth/passkey/signin`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ responseJson: JSON.stringify(assertion) }),
+    });
+    expect(signedIn.status).toBe(200);
+    const session = (await signedIn.json()) as { token: string; subject: string };
+    expect(session.subject).toBe(signedUp.subject);
+    expect(session.token).not.toBe(signedUp.token);
     const auth = { authorization: `Bearer ${session.token}` };
 
     const created = await fetch(`${baseUrl}/jobs`, {

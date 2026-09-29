@@ -10,9 +10,9 @@
 // pulling in a WebAuthn client emulator as a new dependency for one test
 // file. https://w3c.github.io/webauthn/#sctn-none-attestation -- the "none"
 // format's attStmt is an empty map, so no signature needs producing here.
-import { generateKeyPairSync, createHash } from 'node:crypto';
+import { generateKeyPairSync, createHash, createSign, randomBytes, type KeyObject } from 'node:crypto';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
-import type { RegistrationResponseJSON } from '@simplewebauthn/server';
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 
 function cborUint(n: number): Buffer {
   if (n < 24) return Buffer.from([n]);
@@ -58,9 +58,39 @@ function coseEC2PublicKey(x: Buffer, y: Buffer): Buffer {
   ]);
 }
 
+// What a test can bend about one sign-in assertion. Every field defaults to
+// the honest authenticator.
+export interface AssertionOptions {
+  // base64url of the user handle bytes; null leaves the field out.
+  readonly userHandle?: string | null;
+  // false clears the user-verified flag in the authenticator data.
+  readonly userVerified?: boolean;
+  // An explicit counter, instead of one more than the last assertion.
+  readonly counter?: number;
+  // Sign with another fixture's private key (a forged signature).
+  readonly signWith?: PasskeyFixture;
+  // Present another credential id.
+  readonly credentialId?: string;
+}
+
+export interface PasskeyFixtureInit {
+  // Claim an existing credential id with a new key (a "none" attestation
+  // proves nothing about the id, so anyone can).
+  readonly credentialId?: string;
+}
+
 export interface PasskeyFixture {
-  readonly registrationResponse: (challenge: string, rpID: string) => RegistrationResponseJSON;
+  readonly registrationResponse: (
+    challenge: string,
+    rpID: string,
+    options?: { readonly userVerified?: boolean },
+  ) => RegistrationResponseJSON;
+  readonly assertionResponse: (challenge: string, rpID: string, options?: AssertionOptions) => AuthenticationResponseJSON;
   readonly credentialId: string;
+  // Remembers the registration's user.id so later assertions carry it as
+  // their user handle, as a real authenticator does.
+  readonly rememberUserHandle: (userHandle: string) => void;
+  readonly signRaw: (data: Uint8Array) => Uint8Array<ArrayBuffer>;
 }
 
 // Builds one software passkey: a real P-256 keypair plus a real, well-formed
@@ -68,18 +98,69 @@ export interface PasskeyFixture {
 // verifyRegistrationResponse runs its actual parsing and validation instead
 // of trusting a canned success. transports omitted (optional on the JSON
 // shape); backup/BE flags left off, single-device credential.
-export function createPasskeyFixture(): PasskeyFixture {
-  const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+//
+// The credential id is random per fixture (a fixed id would collide in a
+// store keyed by it), and the private key is kept so the fixture can sign in
+// later, not only register.
+export function createPasskeyFixture(init: PasskeyFixtureInit = {}): PasskeyFixture {
+  const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
   const jwk = publicKey.export({ format: 'jwk' }) as { x: string; y: string };
   const x = Buffer.from(jwk.x, 'base64url');
   const y = Buffer.from(jwk.y, 'base64url');
-  const credentialId = Buffer.from(new Uint8Array(16).fill(7));
+  const credentialId = Buffer.from(
+    new Uint8Array(init.credentialId === undefined ? randomBytes(16) : Buffer.from(init.credentialId, 'base64url')),
+  );
+  let userHandle: string | undefined;
+  let lastCounter = 0;
+
+  function sign(key: KeyObject, data: Uint8Array): Uint8Array<ArrayBuffer> {
+    // ES256: ECDSA over SHA-256, DER encoded, which is what WebAuthn carries.
+    const signer = createSign('sha256');
+    signer.update(data);
+    return new Uint8Array(signer.sign(key));
+  }
 
   return {
     credentialId: isoBase64URL.fromBuffer(credentialId),
-    registrationResponse(challenge: string, rpID: string): RegistrationResponseJSON {
+    rememberUserHandle(handle: string): void {
+      userHandle = handle;
+    },
+    signRaw(data: Uint8Array): Uint8Array<ArrayBuffer> {
+      return sign(privateKey, data);
+    },
+    assertionResponse(challenge: string, rpID: string, options: AssertionOptions = {}): AuthenticationResponseJSON {
+      const rpIdHash = createHash('sha256').update(rpID).digest();
+      const flags = Buffer.from([options.userVerified === false ? 0x01 : 0x05]); // UP, plus UV unless turned off
+      const counterValue = options.counter ?? lastCounter + 1;
+      lastCounter = counterValue;
+      const counter = Buffer.alloc(4);
+      counter.writeUInt32BE(counterValue, 0);
+      const authData = Buffer.concat([rpIdHash, flags, counter]);
+      const clientDataJSON = Buffer.from(
+        JSON.stringify({ type: 'webauthn.get', challenge, origin: 'http://localhost:3000' }),
+        'utf8',
+      );
+      const signedData = Buffer.concat([authData, createHash('sha256').update(clientDataJSON).digest()]);
+      const signature =
+        options.signWith === undefined ? sign(privateKey, signedData) : options.signWith.signRaw(signedData);
+      const handle = options.userHandle === undefined ? userHandle : (options.userHandle ?? undefined);
+      const id = options.credentialId ?? isoBase64URL.fromBuffer(credentialId);
+      return {
+        id,
+        rawId: id,
+        response: {
+          authenticatorData: isoBase64URL.fromBuffer(authData),
+          clientDataJSON: isoBase64URL.fromBuffer(clientDataJSON),
+          signature: isoBase64URL.fromBuffer(signature),
+          ...(handle === undefined ? {} : { userHandle: handle }),
+        },
+        type: 'public-key',
+        clientExtensionResults: {},
+      };
+    },
+    registrationResponse(challenge: string, rpID: string, options: { readonly userVerified?: boolean } = {}): RegistrationResponseJSON {
       const rpIdHash = Buffer.from(createHash('sha256').update(rpID).digest());
-      const flags = Buffer.from([0x45]); // UP | UV | AT
+      const flags = Buffer.from([options.userVerified === false ? 0x41 : 0x45]); // UP | AT, plus UV unless turned off
       const counter = Buffer.from([0, 0, 0, 0]);
       const aaguid = Buffer.alloc(16); // all-zero: unattested software authenticator
       const credIdLen = Buffer.alloc(2);
