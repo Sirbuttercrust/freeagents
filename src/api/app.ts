@@ -5184,18 +5184,17 @@ export function createApp(
   }
 
   // FIX-B60D: the observation of a submitted job's pull request, shared by
-  // POST /jobs/:jobId/merge and the deem path in applyLiveLapses, so the two
-  // never read GitHub two ways. It parses the stored URL, asks GitHub (the
-  // ENT-7.1 observation: the state that decides whether the job completes
-  // comes from GitHub, never from the caller) and runs the STG2
-  // attested-commit check. It writes nothing. A malformed URL is a corrupted
+  // POST /jobs/:jobId/merge and the deem path in applyLiveLapses. It parses
+  // the stored URL, asks GitHub (ENT-7.1: never the caller) and runs the STG2
+  // attested-commit check, writing nothing. A malformed URL is a corrupted
   // row and THROWS, as the route always did; the deem path catches it.
+  type HttpAnswer = { readonly kind: 'answer'; readonly status: number; readonly body: { readonly error: string } };
   type PullRequestObservation =
-    | { readonly kind: 'answer'; readonly status: number; readonly body: { readonly error: string } }
+    | HttpAnswer
     | { readonly kind: 'head_moved'; readonly attested: string | null; readonly head: string }
     | { readonly kind: 'observed'; readonly summary: PullRequestSummary; readonly pullRequestUrl: string };
   type MergedCompletion =
-    | { readonly kind: 'answer'; readonly status: number; readonly body: { readonly error: string } }
+    | HttpAnswer
     | { readonly kind: 'completed'; readonly row: Job; readonly credential: VerifiableCredential };
 
   async function observePullRequest(label: string, job: Job): Promise<PullRequestObservation> {
@@ -5239,18 +5238,16 @@ export function createApp(
   }
 
   // The instant a merged pull request completed the job: GitHub's fact
-  // (ENT-7.1), with only a response that carries no timestamp observed now.
-  // On the deem path that fallback is after the review window by
-  // construction, so a merged answer with no date deems the job.
+  // (ENT-7.1); only a response with no timestamp is observed now, which on
+  // the deem path is after the window, so that answer deems the job.
   function mergeInstantOf(summary: PullRequestSummary): Date {
     return summary.mergedAt ?? new Date();
   }
 
   // FIX-B60D: the merged branch of POST /jobs/:jobId/merge, moved here so
-  // the deem path completes a job by the same steps. Every answer the route
-  // gave comes back as an `answer`. A merged summary with no merge commit
-  // sha is an inconsistent GitHub response and THROWS, as the route always
-  // did; the deem path catches it.
+  // the deem path completes a job by the same steps. A merged summary with
+  // no merge commit sha THROWS, as the route always did; the deem path
+  // catches it.
   async function completeMergedPullRequest(
     label: string,
     job: Job,
@@ -5380,11 +5377,10 @@ export function createApp(
     return { kind: 'completed', row, credential };
   }
 
-  // FIX-B60D: a job this load completed from a merge GitHub dated inside the
-  // review window, keyed by the row applyLiveLapses returned, with its
-  // receipt. POST /jobs/:jobId/merge reads it so the request that caused the
-  // completion answers 200 with the receipt, where a job completed by an
-  // EARLIER request still answers the 409 it always did.
+  // FIX-B60D: a job this load completed from a merge dated inside the window,
+  // keyed by the row applyLiveLapses returned, with its receipt. The merge
+  // route reads it so the request that caused the completion answers 200
+  // with the receipt, not the 409 of a job completed by an earlier request.
   const completedOnLoad = new WeakMap<Job, VerifiableCredential>();
 
   // FIX-B60D (bugs.md B60, second half): what applyLiveLapses asks, once,
@@ -8078,11 +8074,9 @@ export function createApp(
       // sees the narrowed non-null row.
       const job = current;
 
-      // FIX-B60D: the load above may itself have observed this merge (the
-      // window had closed before anyone looked, so applyLiveLapses asked
-      // GitHub and completed the job). This request asked for that outcome,
-      // so it answers 200 with the receipt, not the 409 of a job completed
-      // by an earlier request.
+      // FIX-B60D: the load above may itself have completed this job from a
+      // merge inside the window (applyLiveLapses). This request asked for
+      // that outcome, so it answers 200 with the receipt, not a 409.
       const completedByLoad = completedOnLoad.get(current);
       if (completedByLoad !== undefined) {
         res.status(200).json({ ...jobProjection(current), credential: completedByLoad });
@@ -8113,8 +8107,8 @@ export function createApp(
         // other non-observable status already answers. deemed_completed
         // additionally used to spend a real github.getPullRequest call
         // before failing; listing it here stops that call too. FIX-B60D: the
-        // load asks GitHub once before deeming (applyLiveLapses), so a job
-        // still deemed_completed here was unmerged at the window's end.
+        // load asks GitHub before deeming, so this job was unmerged at the
+        // window's end.
         'staged',
         'staged_declined',
         'closed_unpaid',
@@ -8126,10 +8120,8 @@ export function createApp(
         return;
       }
 
-      // The parse of the stored URL, the ENT-7.1 read from github and the
-      // STG2 attested-commit check live in observePullRequest, shared with
-      // the deem path (applyLiveLapses). Every answer it gives is sent
-      // here unchanged.
+      // The URL parse, GitHub read and attested-commit check are
+      // observePullRequest, shared with the deem path (applyLiveLapses).
       const observation = await observePullRequest('POST /jobs/:jobId/merge', current);
       if (observation.kind === 'answer') {
         res.status(observation.status).json(observation.body);
@@ -8200,11 +8192,9 @@ export function createApp(
         return;
       }
 
-      // The merged branch (completeJob, identity, signing, both writes and
-      // the thread row) is completeMergedPullRequest, shared with the deem
-      // path. Its legs and answers are exactly the ones this route always
-      // gave. A merged answer with no merge commit sha throws there, and
-      // the throw reaches the terminal handler as a 500, as before.
+      // The merged branch is completeMergedPullRequest, shared with the deem
+      // path; a merged answer with no merge commit sha throws there and
+      // reaches the terminal handler as a 500, as before.
       const completion = await completeMergedPullRequest('POST /jobs/:jobId/merge', current, observation);
       if (completion.kind === 'answer') {
         res.status(completion.status).json(completion.body);
