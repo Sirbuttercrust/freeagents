@@ -441,7 +441,7 @@
     // about write access, which is the fact nothing else on the page
     // carries, and it names no staging repository as ours to control.
     var ours = "";
-    if (merged) ours += "We watched that happen and recorded it; we did not do it. ";
+    if (merged) ours += "We saw the merge on GitHub and recorded it; we did not do it. ";
     ours += "We cannot be given write access to " + repository + ", and never had it.";
     host.appendChild(whoDidRow("FreeAgents", ours, true));
   }
