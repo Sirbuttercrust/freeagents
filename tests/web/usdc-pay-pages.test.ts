@@ -175,7 +175,7 @@ describe('Make 2 and 3: a deposit paid in USDC from the page', () => {
     } finally { await page.close(); }
   });
 
-  it('any other USDC start refusal keeps the server sentence in the live region, with Try again and the sheet open', async () => {
+  it('any other USDC start refusal keeps the server sentence in the live region, with the sheet open and no press a retry cannot help', async () => {
     const id = await depositJob();
     const page = await openDeposit(id);
     try {
@@ -191,9 +191,10 @@ describe('Make 2 and 3: a deposit paid in USDC from the page', () => {
           : realFetch(input, init),
       });
       press(page, 'pay-btn');
-      await waitFor(() => presses(page).length > 0, 'the refusal never offered a press');
+      await waitFor(() => status(page) !== '', 'the refusal never showed');
       expect(status(page)).toBe(refusal.charAt(0).toUpperCase() + refusal.slice(1));
-      expect(presses(page)).toEqual(['usdc-retry']);
+      // SW2-11: a 409 answers the same on every retry, so no press.
+      expect(presses(page)).toEqual([]);
       expect((page.document.getElementById('scan') as HTMLDialogElement).open).toBe(true);
       expect(shown(page.document, 'pay-error')).toBe(false);
     } finally { await page.close(); }
@@ -223,6 +224,80 @@ describe('Make 2 and 3: a deposit paid in USDC from the page', () => {
       expect(second.sends).toHaveLength(2);
     } finally { await page.close(); }
   });
+});
+
+// SW2-11: a server refusal offers Try again only where a retry can change
+// the answer. Each case stubs one USDC door at the page's own fetch, in
+// the route's own words where the route has them, on both sheets.
+describe('SW2-11: a USDC server refusal offers Try again only when a retry can work', () => {
+  const RAIL_MISSING = 'the usdc payment rail is not configured on this deployment';
+  const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+  type Answer = { status: number; error: string } | 'unreachable';
+  function stub(page: RenderedPage, door: '/usdc/start' | '/usdc/wallet-response', answer: Answer): void {
+    const realFetch = page.window.fetch;
+    Object.defineProperty(page.window, 'fetch', {
+      writable: true,
+      value: (input: string, init?: RequestInit) => {
+        if (!String(input).endsWith(door)) return realFetch(input, init);
+        if (answer === 'unreachable') return Promise.reject(new TypeError('Failed to fetch'));
+        return Promise.resolve(new Response(JSON.stringify({ error: answer.error }), { status: answer.status, headers: { 'content-type': 'application/json' } }));
+      },
+    });
+  }
+  const sheets = [
+    { name: 'deposit', open: async (): Promise<RenderedPage> => { const p = await openDeposit(await depositJob()); choose(p, 'usdc'); return p; } },
+    { name: 'staged', open: async (): Promise<RenderedPage> => openStaged(await stagedJob('usdc')) },
+  ] as const;
+  const cases: Array<{ pin: string; door: '/usdc/start' | '/usdc/wallet-response'; answer: Answer; sentence: string; want: string[] }> = [
+    { pin: '(d) the rail-not-configured 503 at the start door: its sentence and no press', door: '/usdc/start', answer: { status: 503, error: RAIL_MISSING }, sentence: cap(RAIL_MISSING), want: [] },
+    { pin: '(e) an unreachable service: Try again', door: '/usdc/start', answer: 'unreachable', sentence: 'Could not reach the payment service. Try again in a moment.', want: ['usdc-retry'] },
+    { pin: '(f) a 429: Try again', door: '/usdc/start', answer: { status: 429, error: 'too many requests' }, sentence: 'Too many requests', want: ['usdc-retry'] },
+    { pin: '(g) a storage 503: Try again', door: '/usdc/start', answer: { status: 503, error: 'storage unavailable' }, sentence: 'Storage unavailable', want: ['usdc-retry'] },
+    { pin: 'the rail-unavailable 503 (a failure that can pass): Try again', door: '/usdc/start', answer: { status: 503, error: 'the usdc payment rail is unavailable' }, sentence: 'The usdc payment rail is unavailable', want: ['usdc-retry'] },
+    { pin: '(d) the rail-not-configured 503 at the wallet-response door: its sentence and no press', door: '/usdc/wallet-response', answer: { status: 503, error: RAIL_MISSING }, sentence: cap(RAIL_MISSING), want: [] },
+    { pin: '(f) a 429 at the wallet-response door: Try again', door: '/usdc/wallet-response', answer: { status: 429, error: 'too many requests' }, sentence: 'Too many requests', want: ['usdc-retry'] },
+  ];
+  for (const sheet of sheets) {
+    it(`${sheet.name}: a start answer that names only one transfer: its sentence and no press`, async () => {
+      const page = await sheet.open();
+      try {
+        const wallet = buildPageWallet(h.chain);
+        announceWallets(page.window, [{ uuid: 'w-sw211-one', name: 'Wallet', wallet }]);
+        // The real start answer with its fee transfer taken out, so the
+        // chain and the price transfer stay the route's own.
+        const realFetch = page.window.fetch;
+        Object.defineProperty(page.window, 'fetch', {
+          writable: true,
+          value: async (input: string, init?: RequestInit) => {
+            const res = await realFetch(input, init);
+            if (!String(input).endsWith('/usdc/start')) return res;
+            const body = (await res.json()) as { transfers?: unknown[] };
+            body.transfers = (body.transfers ?? []).slice(0, 1);
+            return new Response(JSON.stringify(body), { status: res.status, headers: { 'content-type': 'application/json' } });
+          },
+        });
+        press(page, 'pay-btn');
+        await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
+        expect(status(page)).toBe('The payment service did not name both transfers.');
+        expect(presses(page)).toEqual([]);
+        expect(wallet.sends).toHaveLength(0);
+      } finally { await page.close(); }
+    });
+    for (const c of cases) {
+      it(`${sheet.name}: ${c.pin}`, async () => {
+        const page = await sheet.open();
+        try {
+          announceWallets(page.window, [{ uuid: 'w-sw211', name: 'Wallet', wallet: buildPageWallet(h.chain) }]);
+          stub(page, c.door, c.answer);
+          press(page, 'pay-btn');
+          await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
+          expect(status(page)).toBe(c.sentence);
+          expect(presses(page)).toEqual(c.want);
+          expect((page.document.getElementById('scan') as HTMLDialogElement).open).toBe(true);
+        } finally { await page.close(); }
+      });
+    }
+  }
 });
 
 describe('every outcome shows its own sentence in the live region, with its one next step', () => {
