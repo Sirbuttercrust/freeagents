@@ -8107,8 +8107,8 @@ export function createApp(
         // other non-observable status already answers. deemed_completed
         // additionally used to spend a real github.getPullRequest call
         // before failing; listing it here stops that call too. FIX-B60D: the
-        // load asks GitHub before deeming, so this job was unmerged at the
-        // window's end.
+        // load asks GitHub before deeming; a merge inside the window at the
+        // attested commit would have completed the job instead.
         'staged',
         'staged_declined',
         'closed_unpaid',

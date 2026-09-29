@@ -822,9 +822,9 @@ export function lapseAtStaged(job: Job, now: Date, remainderIsSettled = false): 
 // This function asks nobody: it is pure, a function of the row and `now`.
 // Whether the buyer merged inside the window needs GitHub, so the caller
 // asks BEFORE running this clock (src/api/app.ts's applyLiveLapses, gated by
-// deemWindowHasPassed below). A job GitHub reports merged inside the window
-// completes with the merge receipt and never reaches here as `submitted`;
-// only a pull request still unmerged when the window ends is deemed here.
+// deemWindowHasPassed below). A merge GitHub dates inside the window, at the
+// attested commit, completes the job before this runs. Any other job past its
+// window is deemed here: open, closed, merged late or undated, or off-commit.
 //
 // deemed_completed issues a credential of a DISTINCT type (a later
 // card's job, per the brief). This function must not and does not issue

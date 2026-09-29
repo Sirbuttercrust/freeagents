@@ -1,8 +1,9 @@
 // FIX-B60D (bugs.md B60, second half): before a submitted job past its
 // review window is deemed complete, the platform asks GitHub once whether
 // its pull request merged. A merge GitHub dates inside the window completes
-// the job with the merge receipt (the work-history credential); only a pull
-// request still unmerged when the window ends is deemed.
+// the job with the merge receipt (the work-history credential); a pull
+// request open, closed, merged late or merged off the attested commit is
+// deemed.
 //
 // Every case runs over real HTTP against createApp with the shared github
 // fake (its calls.getPullRequest counts the reads). Jobs are planted
@@ -301,7 +302,7 @@ describe('a merge GitHub dates inside the window completes the job, even when th
   });
 });
 
-describe('a pull request still unmerged when the window ends is deemed, as before (b, c, d, f)', () => {
+describe('a pull request open, closed, merged late or merged off the attested commit is deemed, as before (b, c, d, f)', () => {
   it('(b) open on GitHub: deemed with the deemed-completion credential, after exactly one GitHub read', async () => {
     const rig = await boot();
     const job = await plant(rig, 'j-deem-b', 8);
