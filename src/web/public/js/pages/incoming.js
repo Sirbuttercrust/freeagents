@@ -72,6 +72,18 @@
     waitingOnOperator: { label: "Review the change", primary: false },
   };
 
+  // The first words of a brief, clipped on a word boundary so an
+  // accessible name never ends on half a word; one word longer than max
+  // stays whole.
+  function firstWords(text, max) {
+    var s = String(text || "").replace(/\s+/g, " ").trim();
+    if (s.length <= max) return s;
+    var cut = s.slice(0, max + 1);
+    var end = cut.lastIndexOf(" ");
+    if (end <= 0) return s.split(" ")[0];
+    return cut.slice(0, end).replace(/[\s,;:\u2014-]+$/, "");
+  }
+
   function start() {
     var session = A.getStoredSession();
     if (session === null) {
@@ -208,6 +220,10 @@
     actionLink.className = action.primary ? "btn btn-sm btn-primary" : "btn btn-sm";
     actionLink.href = "/operatorjob?job=" + encodeURIComponent(offer.id);
     actionLink.textContent = action.label;
+    /* SW2-13: two rows in the same state carry the same visible words, so
+       the link's accessible name adds the brief it opens. */
+    var briefWords = firstWords(brief.textContent, 40);
+    actionLink.setAttribute("aria-label", briefWords ? action.label + " for: " + briefWords : action.label);
     foot.appendChild(actionLink);
 
     row.appendChild(foot);

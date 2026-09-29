@@ -280,6 +280,40 @@ describe('the Incoming work screen, driven end to end against the real app', () 
     }
   });
 
+  // SW2-13 pin (f): rows in the same state carry the same visible words, so
+  // each foot link's accessible name adds the first words of its own brief,
+  // clipped on a word boundary. Whole strings, never a shared substring.
+  it('SW2-13: three rows waiting on the buyer give three different accessible names, each "See what you sent for: <first words of its brief>", the visible words unchanged', async () => {
+    const waitingOnBuyerCriteria: Criterion[] = [{ text: 'agent proposed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: true }];
+    const briefs: Array<[string, string]> = [
+      ['sw2-13-row-a', 'Add retries to the webhook sender.'],
+      ['sw2-13-row-b', 'Port the importer to streams.'],
+      ['sw2-13-row-c', 'Replace the hand-rolled date parsing in the invoice exporter with the shared helper'],
+    ];
+    for (const [id, brief] of briefs) {
+      await jobRepo.create(jobFixture({ id, buyerDid: `did:abt:${id}-buyer`, agentDid, brief, status: 'proposed', criteria: waitingOnBuyerCriteria }, new Date('2026-08-25T00:00:00Z')));
+    }
+
+    const page = await renderIncoming(baseUrl, operatorSession);
+    try {
+      const labelFor = (jobId: string): string | null | undefined => {
+        const link = page.document.querySelector(`#rows .foot a[href="/operatorjob?job=${jobId}"]`);
+        expect(link?.textContent, `${jobId}'s visible words`).toBe('See what you sent');
+        return link?.getAttribute('aria-label');
+      };
+      const got = briefs.map(([id]) => labelFor(id));
+      expect(got).toEqual([
+        'See what you sent for: Add retries to the webhook sender.',
+        'See what you sent for: Port the importer to streams.',
+        // 83 characters, clipped to the last whole word inside 40.
+        'See what you sent for: Replace the hand-rolled date parsing in',
+      ]);
+      expect(new Set(got).size).toBe(3);
+    } finally {
+      page.close();
+    }
+  });
+
   it('a 403 from the incoming route, a 503, and a network failure each render their own distinct sentence, and none renders the empty state (done-means 7)', async () => {
     // 403: a stranger's session naming another account. Rather than
     // exercising the real 403 gate (which requires the caller's own DID
