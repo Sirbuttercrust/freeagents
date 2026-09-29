@@ -5122,7 +5122,10 @@ export function createApp(
   // function still asked the gate only for staged, so a paid buyer with a
   // pending redo was fed a fabricated "not settled" answer and could be
   // terminated closed_unpaid with the gate never consulted -- the other
-  // clock, deemCompleted, still never consults it). Deriving the set from
+  // clock, deemCompleted, never consults the settlement gate; it has its
+  // own live question, whether GitHub saw a merge inside the review
+  // window, which askGithubBeforeDeeming asks below before that clock
+  // runs). Deriving the set from
   // lapseAtStaged's own starting statuses, rather than repeating a second
   // literal here, is what keeps this call site from silently falling
   // behind the domain function again the next time that set changes. A
@@ -8126,7 +8129,13 @@ export function createApp(
         // into a 500 platform fault instead of the same honest 409 every
         // other non-observable status already answers. deemed_completed
         // additionally used to spend a real github.getPullRequest call
-        // before failing; listing it here stops that call too.
+        // before failing; listing it here stops that call too. FIX-B60D:
+        // a job whose review window has passed is no longer deemed by the
+        // load before this line without GitHub being asked. The load asks
+        // once (applyLiveLapses), completes a merge dated inside the
+        // window (answered above as completedOnLoad), and only otherwise
+        // deems it, which is why deemed_completed is still refused here
+        // without a second read.
         'staged',
         'staged_declined',
         'closed_unpaid',
