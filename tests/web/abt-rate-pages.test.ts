@@ -146,8 +146,16 @@ for (const leg of ['deposit', 'staged'] as const) {
       } finally { await page.close(); }
     });
 
-    it('(f) a start answer whose quote is null, missing or not a number opens no sheet and says why', async () => {
-      const bodies = [{ abtQuote: null }, {}, { abtQuote: { usdPerAbt: 'abc', rateUpdatedAt: null, expiresAt: new Date().toISOString() } }];
+    it('(f) a start answer whose quote is null, missing, not a number, or carries an unreadable or absent CoinGecko time opens no sheet and says why', async () => {
+      const expiresAt = new Date().toISOString();
+      const bodies = [
+        { abtQuote: null },
+        {},
+        { abtQuote: { usdPerAbt: 'abc', rateUpdatedAt: null, expiresAt } },
+        // A valid rate and expiry, but the feed time is neither a time nor null.
+        { abtQuote: { usdPerAbt: '0.35702500', rateUpdatedAt: 'not-a-time', expiresAt } },
+        { abtQuote: { usdPerAbt: '0.35702500', expiresAt } },
+      ];
       for (const extra of bodies) {
         const page = await open(leg, await job(leg));
         try {
