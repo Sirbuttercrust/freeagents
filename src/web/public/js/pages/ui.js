@@ -104,20 +104,31 @@
 
     document.documentElement.classList.add("js-reveal");
 
+    function reveal(n) {
+      n.classList.add("is-in");
+      io.unobserve(n);                   // once only; this is an entrance
+      tall.unobserve(n);
+    }
+    /* Fire slightly before the element is fully on screen, so the motion
+       finishes as it settles rather than starting after it has arrived. */
+    var margin = "0px 0px -8% 0px";
     var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) reveal(e.target); });
+    }, { rootMargin: margin, threshold: 0.05 });
+    /* SW2-03: io needs 5% of an element inside a root 92% of the screen
+       tall, so an element taller than 18.4 screens can never meet it (a
+       101-agent roster measured 27,498 px on an 844 px phone) and waited
+       out the 3 second timer below. This second observer fires the moment
+       any part of an element is inside the same root, and acts only on an
+       element taller than the viewport at that moment; a shorter one
+       keeps io's 5% entrance. */
+    var tall = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) {
-        if (!e.isIntersecting) return;
-        e.target.classList.add("is-in");
-        io.unobserve(e.target);          // once only; this is an entrance
+        if (e.isIntersecting && e.boundingClientRect.height > window.innerHeight) reveal(e.target);
       });
-    }, {
-      /* Fire slightly before the element is fully on screen, so the motion
-         finishes as it settles rather than starting after it has arrived. */
-      rootMargin: "0px 0px -8% 0px",
-      threshold: 0.05
-    });
+    }, { rootMargin: margin, threshold: 0 });
 
-    Array.prototype.forEach.call(nodes, function (n) { io.observe(n); });
+    Array.prototype.forEach.call(nodes, function (n) { io.observe(n); tall.observe(n); });
 
     /* Anything still hidden after 3 seconds is revealed unconditionally. */
     setTimeout(function () {
