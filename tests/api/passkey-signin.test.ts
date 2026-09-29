@@ -214,13 +214,14 @@ function expectSession(reply: Reply, subject: string): Session {
 }
 
 describe('a stranger cannot sign in as an account by naming it', () => {
-  it('(a) B reads A\'s passkeySubject, sends it at register and in the verify envelope, and still lands on B\'s own account, under the server\'s name', async () => {
+  it('(a) B holds a copy of A\'s passkeySubject, sends it at register and in the verify envelope, and still lands on B\'s own account, under the server\'s name', async () => {
     const rig = await startRig();
     const a = await signUp(rig, createPasskeyFixture());
 
     // B61c: the passkey's name is private to the account, so the public read
-    // carries no passkeySubject key at all, and the attacker's copy of the
-    // name comes from the repository row, the one place it still lives.
+    // carries no passkeySubject key at all. No public read can leak the name
+    // any more, so the test takes it straight from the repository row to
+    // stand in for a leaked name.
     const publicRow = await fetch(`${rig.baseUrl}/accounts/${a.did}`);
     expect(publicRow.status).toBe(200);
     expect('passkeySubject' in ((await publicRow.json()) as object)).toBe(false);

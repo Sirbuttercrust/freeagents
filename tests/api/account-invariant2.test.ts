@@ -12,7 +12,8 @@ import { MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
 
 // The exact field set the service is allowed to keep, from the Operator domain
-// record: no field beyond this set, so one copy verifies against the other.
+// record: no stored field beyond this set. The public read shows all of it
+// except passkeySubject (see PUBLIC_FIELDS below).
 const ALLOWED_FIELDS = new Set(['did', 'githubLogin', 'passkeySubject', 'createdAt', 'operatorAddressEvm', 'operatorAddressAbt']);
 
 // B61c: the passkey's name is private to the account, so the public answer
@@ -72,11 +73,12 @@ describe('operator registration, invariant 2', () => {
   afterAll(() => {
     server.close();
   });
-  it('read-back is field-for-field equal to the stored row', async () => {
+  it('read-back is field-for-field equal to the stored row on every public field', async () => {
     // Register, then read back over HTTP, then read the repository
     // directly. A third party holding only the read-back response can
-    // verify every stored fact against it, because the two agree on every
-    // field and the stored row has no fields beyond the response.
+    // verify every stored public fact against it, because the two agree on
+    // every public field. passkeySubject is the one stored field the
+    // read-back leaves out (B61c).
     const did = 'did:abt:op-inv2';
     const login = 'operator-inv2';
     const created = await fetch(`${baseUrl}/accounts`, {
@@ -104,7 +106,7 @@ describe('operator registration, invariant 2', () => {
     expect(createdBody).toEqual(readBackBody);
   });
 
-  it('stores exactly { did, githubLogin, createdAt } and no key material', async () => {
+  it('stores exactly the six allowed fields and no key material', async () => {
     const did = 'did:abt:op-fields';
     await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
