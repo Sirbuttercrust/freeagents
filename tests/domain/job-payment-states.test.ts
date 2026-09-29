@@ -42,10 +42,13 @@ describe('the widened transition table (P4)', () => {
     expect(() => validateJobTransition('staged', 'declined')).toThrow(JobTransitionError);
   });
 
-  it('submitted now also reaches deemed_completed, beside completed and closed_unmerged', () => {
+  // B71: submitted reaches completed and deemed_completed, and no longer
+  // closed_unmerged; stale -> closed_unmerged stays legal (R-31).
+  it('submitted reaches completed and deemed_completed but not closed_unmerged; stale still reaches closed_unmerged', () => {
     expect(validateJobTransition('submitted', 'completed')).toBe('completed');
-    expect(validateJobTransition('submitted', 'closed_unmerged')).toBe('closed_unmerged');
+    expect(() => validateJobTransition('submitted', 'closed_unmerged')).toThrow(JobTransitionError);
     expect(validateJobTransition('submitted', 'deemed_completed')).toBe('deemed_completed');
+    expect(validateJobTransition('stale', 'closed_unmerged')).toBe('closed_unmerged');
   });
 
   it('the five new statuses are terminal: staged_declined, closed_unpaid, expired_unstaged, deemed_completed', () => {

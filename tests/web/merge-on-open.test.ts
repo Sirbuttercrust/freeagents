@@ -443,8 +443,12 @@ describe('a signed-in party opening a submitted hire asks the platform to look a
     }, TIMEOUT_MS);
   });
 
-  describe('the route records a closed or stale pull request, and the job page shows that status', () => {
-    it('closed on GitHub: the job page shows closed without merging, never completed', async () => {
+  describe('the route records a stale pull request and refuses to record a closed one, and the job page shows the resulting status', () => {
+    // B71: this case used to pin the route recording closed_unmerged and the
+    // page showing JOB_CLOSED. A plain close no longer ends a paid job: the
+    // merge request answers 409, the row stays submitted, and the page keeps
+    // the submitted sentence.
+    it('closed on GitHub: the merge request answers 409 and the job page keeps the submitted sentence, never closed or completed', async () => {
       const id = 'mo-job-closed';
       await addJob(id);
       scriptPr(id, 'closed');
@@ -452,11 +456,13 @@ describe('a signed-in party opening a submitted hire asks the platform to look a
       try {
         expect(page.errors).toEqual([]);
         expect(mergeRequests(page)).toEqual([`POST /jobs/${id}/merge`]);
-        expect(page.mergeStatuses).toEqual([200]);
-        expect((await readJob(id)).status).toBe('closed_unmerged');
-        expect(page.document.getElementById('state-label')?.textContent).toBe(JOB_CLOSED);
+        expect(page.mergeStatuses).toEqual([409]);
+        expect((await readJob(id)).status).toBe('submitted');
+        expect(page.document.getElementById('state-label')?.textContent).toBe(JOB_SUBMITTED);
         expect(page.document.getElementById('credential-section')?.hidden).toBe(true);
-        expect(visibleMain(page.document)).not.toContain(JOB_COMPLETED);
+        const shown = visibleMain(page.document);
+        expect(shown).not.toContain(JOB_CLOSED);
+        expect(shown).not.toContain(JOB_COMPLETED);
       } finally {
         page.close();
       }

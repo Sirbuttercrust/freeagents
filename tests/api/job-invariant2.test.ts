@@ -382,7 +382,10 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
     return prBody;
   }
 
-  it('a closed_unmerged outcome projects no merge facts, and briefHash still recomputes from it', async () => {
+  // B71: a closed pull request on a submitted job records nothing, so its
+  // projection is the still-submitted row: no merge facts, and the brief hash
+  // recomputes from it.
+  it('a closed pull request on a submitted job projects no merge facts, and briefHash still recomputes from it', async () => {
     const res = await postSigned(baseUrl, '/jobs', {
       agentDid: agentWallet.toDid(),
       repository: 'buyer/target-repo',
@@ -394,22 +397,97 @@ describe('job outcome, invariant 2 (R-12): an unhappy outcome cannot read as a h
 
     prState = 'closed';
     const merge = await postSigned(baseUrl, `/jobs/${jobId}/merge`, {}, operatorIdentity);
-    expect(merge.status).toBe(200);
-    const body = (await merge.json()) as Record<string, unknown>;
-    expect(body.status).toBe('closed_unmerged');
+    expect(merge.status).toBe(409);
+    expect(((await merge.json()) as { error: string }).error).toBe(
+      'the pull request is closed but not merged; the hire stays open until the review window ends, unless the buyer merges it or closes the hire with a cited reason',
+    );
 
-    // The absence side, asserted on the response alone: no merge fact is
-    // present at all, not present as null. A response that carried merge
-    // facts would let a stranger read this as a completed hire.
+    const body = (await (await fetch(`${baseUrl}/jobs/${jobId}`)).json()) as Record<string, unknown>;
+    expect(body.status).toBe('submitted');
     expect('mergeCommit' in body).toBe(false);
     expect('mergedAt' in body).toBe(false);
-    expect('mergeCommit' in (await (await fetch(`${baseUrl}/jobs/${jobId}`)).json() as Record<string, unknown>)).toBe(false);
 
-    // And the response stays self-contained: the brief hash recomputes from
-    // the projected brief with off-the-shelf tools, no call beyond this one.
     const normalised = String(body.brief).replace(/\s+$/, '');
     const recomputed = 'sha256:' + createHash('sha256').update(normalised).digest('hex');
     expect(recomputed).toBe(body.briefHash);
+  });
+
+  // B71: the API walk can no longer produce closed_unmerged on a paid job,
+  // so this leg plants the legacy stale row that still reaches it (R-31).
+  it('a closed_unmerged outcome projects no merge facts, and briefHash still recomputes from it', async () => {
+    const submittedAt = new Date(Date.now() - 3 * 86_400_000);
+    const planted: Job = {
+      ...createJob(
+        {
+          id: 'j-outcome-closed',
+          buyerDid: operatorWallet.toDid(),
+          agentDid: agentWallet.toDid(),
+          repository: 'buyer/target-repo',
+          brief: 'Fix the login bug on the checkout page',
+        },
+        new Date(submittedAt.getTime() - 86_400_000),
+      ),
+      status: 'stale',
+      pullRequestUrl: `https://github.com/${FORK_OWNER}/${FORK_REPO}/pull/1`,
+      submittedAt,
+      deadline: new Date(Date.now() - 86_400_000),
+      stagedCommit: 'commit-sha-1',
+      stagedAt: new Date(submittedAt.getTime() - 3600_000),
+    };
+    class PlantedStaleRepository implements JobRepository {
+      async create(): Promise<never> {
+        throw new Error('unreachable');
+      }
+      async findById(id: string): Promise<Job | null> {
+        return id === planted.id ? planted : null;
+      }
+      // The recorded outcome resolves: this leg asserts on the projection,
+      // not on what storage did with the row.
+      async update(row: Job): Promise<Job> {
+        return row;
+      }
+      async complete(): Promise<never> {
+        throw new Error('unreachable');
+      }
+      async findCompletedByJobId(): Promise<null> {
+        return null;
+      }
+    }
+    const accounts2 = new MemoryAccountRepository();
+    await accounts2.register({ did: operatorWallet.toDid(), githubLogin: `buyer-outcome-${planted.id}` });
+    const server2 = createApp(
+      accounts2,
+      new MemoryAgentRepository(),
+      undefined,
+      github,
+      new PlantedStaleRepository(),
+    ).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server2.once('listening', resolve));
+    const address = server2.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('expected server to listen on a port');
+    }
+    try {
+      prState = 'closed';
+      const merge = await postSigned(`http://127.0.0.1:${address.port}`, `/jobs/${planted.id}/merge`, {}, operatorIdentity);
+      expect(merge.status).toBe(200);
+      const body = (await merge.json()) as Record<string, unknown>;
+      expect(body.status).toBe('closed_unmerged');
+
+      // The absence side, asserted on the response alone: no merge fact is
+      // present at all, not present as null. A response that carried merge
+      // facts would let a stranger read this as a completed hire.
+      expect('mergeCommit' in body).toBe(false);
+      expect('mergedAt' in body).toBe(false);
+
+      // And the response stays self-contained: the brief hash recomputes from
+      // the projected brief with off-the-shelf tools, no call beyond this one.
+      const normalised = String(body.brief).replace(/\s+$/, '');
+      const recomputed = 'sha256:' + createHash('sha256').update(normalised).digest('hex');
+      expect(recomputed).toBe(body.briefHash);
+    } finally {
+      server2.close();
+    }
   });
 
   it('a stale outcome projects no merge facts either', async () => {
