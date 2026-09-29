@@ -155,6 +155,11 @@ interface Settled {
 // gives one), then wait for the page to finish the ceremony: a status that
 // is no longer an in-progress sentence and both controls usable again.
 async function press(device: Device, id: string): Promise<Settled> {
+  await click(device, id);
+  return settle(device, id);
+}
+
+async function click(device: Device, id: string): Promise<void> {
   const box = await device.browser.evaluate<{ x: number; y: number }>(`(function () {
     var el = document.getElementById(${JSON.stringify(id)});
     el.scrollIntoView({ block: 'center' });
@@ -164,6 +169,9 @@ async function press(device: Device, id: string): Promise<Settled> {
   for (const type of ['mousePressed', 'mouseReleased']) {
     await device.browser.send('Input.dispatchMouseEvent', { type, x: box.x, y: box.y, button: 'left', clickCount: 1 });
   }
+}
+
+async function settle(device: Device, id: string): Promise<Settled> {
   const deadline = Date.now() + 15_000;
   for (;;) {
     const state = await device.browser.evaluate<Settled>(`(function () {
@@ -381,6 +389,45 @@ describe('/signin with a passkey, in real Chrome with a virtual authenticator', 
     const settled = await press(d, control);
     expect(settled.status).toBe(sentence);
     expect(settled.session).toBeNull();
+  }), TIMEOUT_MS);
+
+  // While a ceremony is in flight both controls are disabled, so a second
+  // press cannot start a second ceremony over the first. The ceremony's
+  // first request is held on the wire (CDP Fetch) so "in flight" is a state
+  // the test can stand in, then released so the ceremony finishes.
+  it.each([
+    [USE, '/auth/passkey/signin/start', NO_PASSKEY_USED],
+    [CREATE, '/auth/passkey/register', SIGNED_IN],
+  ] as const)('(h) while #%s waits on %s, both passkey controls are disabled and a second press sends nothing', (control, path, sentence) => withRig(async ({ site, device }) => {
+    const s = await site();
+    const d = await device();
+    await visit(d, s);
+    const held: string[] = [];
+    await d.browser.send('Fetch.enable', { patterns: [{ urlPattern: `*${path}`, requestStage: 'Request' }] });
+    d.browser.onEvent('Fetch.requestPaused', (params) => { held.push((params as { requestId: string }).requestId); });
+    await click(d, control);
+    const deadline = Date.now() + 10_000;
+    while (held.length === 0) {
+      if (Date.now() > deadline) throw new Error(`${path} was never requested after pressing #${control}`);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    const midway = await d.browser.evaluate<{ use: boolean; create: boolean }>(`({
+      use: document.getElementById('btn-passkey').disabled,
+      create: document.getElementById('btn-passkey-create').disabled,
+    })`);
+    expect(midway).toEqual({ use: true, create: true });
+    await click(d, control === USE ? CREATE : USE);
+    await click(d, control);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(held).toHaveLength(1);
+    expect(calls(d).filter((c) => c.startsWith('POST /auth/'))).toEqual([`POST ${path}`]);
+
+    await d.browser.send('Fetch.continueRequest', { requestId: held[0] });
+    const settled = await settle(d, control);
+    expect(settled.status).toBe(sentence);
+    expect(settled.useDisabled).toBe(false);
+    expect(settled.createDisabled).toBe(false);
   }), TIMEOUT_MS);
 
   it('(f) the status line is a live region from the moment the page is built, before anything is shown', () => withRig(async ({ site, device }) => {

@@ -521,6 +521,22 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
         page.close();
       }
     });
+
+    // A 200 that names no account cannot say who the caller is. Read as
+    // "not the buyer" it would open the controls, so it is unresolved too.
+    it.each([
+      ['no did', { passkeySubject: 'x' }],
+      ['an empty did', { did: '' }],
+    ])('/accounts/me answering 200 with %s lands the operator on the party-error panel (unresolved), never the controls', async (_label, body) => {
+      const page = await renderOperatorJob(baseUrl, 'job-redo-requested', operatorSession, undefined, (input) =>
+        input === '/accounts/me' ? new Response(JSON.stringify(body), { status: 200 }) : null);
+      try {
+        expect(page.document.getElementById('party-error')?.hidden).toBe(false);
+        expect(page.document.getElementById('operatorjob-body')?.hidden).toBe(true);
+      } finally {
+        page.close();
+      }
+    });
   });
 
   describe('a confirmed job: the stage panel, live', () => {

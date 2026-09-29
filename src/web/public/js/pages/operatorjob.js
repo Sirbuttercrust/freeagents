@@ -144,7 +144,8 @@
   // FIX-B61b: the answer comes from GET /accounts/me, the caller's own
   // account, compared by did with job.buyerDid. A public account's
   // passkeySubject or githubLogin is not read. A 401, 404 or 503 from
-  // /accounts/me, or a network failure, is "unresolved".
+  // /accounts/me, a 200 that names no did, or a network failure, is
+  // "unresolved".
   function resolveIsBuyerParty(job_) {
     if (session === null || typeof job_.buyerDid !== "string" || job_.buyerDid === "") return Promise.resolve("not-buyer");
     return A.getAuthed("/accounts/me", session.token).then(function (result) {
