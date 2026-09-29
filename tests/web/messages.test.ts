@@ -409,6 +409,40 @@ describe('(c) the thread renders every kind of row', () => {
     expect(run.querySelector('.meta .auto')!.textContent).toBe(`Sent by ${AGENT_NAME} automatically`);
   });
 
+  // SW2-09: every message carries a react button, so each one's accessible
+  // name says which message it acts on: the author as the thread names
+  // them and the message's first words, clipped on a whole word.
+  describe('SW2-09: each react button names its message', () => {
+    const label = (id: string): string | null => {
+      const btn = page.$(`#msg-${id} .reactbtn`);
+      expect(btn, `a react button on #msg-${id}`).not.toBeNull();
+      return btn!.getAttribute('aria-label');
+    };
+
+    it('(b) three messages from two people give three different whole-string names', () => {
+      const got = [label(world.ids.thanks), label(world.ids.push), label(world.ids.counter)];
+      expect(got).toEqual([
+        `React or reply to @${OWNER_LOGIN}: Thanks, this is a clear brief.`,
+        'React or reply to You: Could you do $1,100? I can make the',
+        `React or reply to @${OWNER_LOGIN}: If you make the snapshot, $1,200 works.`,
+      ]);
+      expect(new Set(got).size).toBe(3);
+      const every = page.$$('.reactbtn').map((b) => b.getAttribute('aria-label'));
+      expect(every.length).toBeGreaterThan(3);
+      expect(every).not.toContain('React or reply to this message');
+    });
+
+    it('(c) a message that is only an image names the attachment kind', () => {
+      expect(label(world.ids.image)).toBe(`React or reply to @${OWNER_LOGIN}: Image`);
+    });
+
+    it('(d) a long message is clipped on a whole word, never half of one', () => {
+      // The body runs on past "My checklist is at https://..."; 40
+      // characters end inside "checklist", so the name stops before it.
+      expect(label(world.ids.question)).toBe(`React or reply to @${OWNER_LOGIN}: Any extensions besides the defaults? My`);
+    });
+  });
+
   it('an image shows as its own bubble, and a PDF as a file card with its name and size', () => {
     const open = page.$(`#msg-${world.ids.image} .bubble.img .imgopen`)!;
     expect(open.getAttribute('aria-label')).toBe('Open staging-check.png full size');
