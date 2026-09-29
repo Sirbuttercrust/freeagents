@@ -1477,17 +1477,27 @@ describe('(k) in real Chrome, by hand', () => {
     } finally { await b.close(); }
   }, BROWSER_TIMEOUT_MS);
 
-  // M3
+  // M3. B72: Chrome writes <name>.crdownload and, for a moment at the end,
+  // both it and the final name sit in the folder together. Stopping at the
+  // first sight of the final name could read that moment (main's CI run
+  // 36582046456). So this waits on the download's real end: Chrome's own
+  // Browser.downloadProgress "completed", then a folder with no partial
+  // left in it. The exact listing and the byte check below are unchanged.
   it('with a mouse, a PDF card downloads the file, byte for byte', async () => {
     if (!hasRealBrowser()) return;
     const dir = mkdtempSync(join(tmpdir(), 'msg1b-download-'));
     const b = await chrome(DESKTOP, world.buyer, true);
     try {
-      await b.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dir });
+      let state = 'none';
+      const stop = b.onEvent('Browser.downloadProgress', (p) => { state = (p as { state: string }).state; });
+      await b.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dir, eventsEnabled: true });
       await b.goto(`${world.baseUrl}${thread(OPEN)}`, 1800);
       await mouse(b, await aim(b, `[data-dl="${world.ids.pdfFile}"]`));
       const end = Date.now() + 5000;
-      while (Date.now() < end && !readdirSync(dir).includes('db-access-policy.pdf')) await wait(100);
+      while (Date.now() < end && state !== 'completed' && state !== 'canceled') await wait(50);
+      stop();
+      expect(state, 'Chrome never reported the download completed').toBe('completed');
+      while (Date.now() < end && readdirSync(dir).some((f) => f.endsWith('.crdownload'))) await wait(50);
       expect(readdirSync(dir)).toEqual(['db-access-policy.pdf']);
       expect(readFileSync(join(dir, 'db-access-policy.pdf')).equals(world.pdf)).toBe(true);
     } finally {
