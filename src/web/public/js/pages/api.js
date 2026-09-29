@@ -213,6 +213,32 @@
       .catch(function () { return failed("network"); });
   }
 
+  /* FIX-SW12k: postAuthed with `keepalive: true`, for a write a person's own
+     press starts just before the page navigates away (opening a
+     notification marks it read on the way to its hire). The browser keeps
+     the request alive past the unload, and the caller never waits on it to
+     navigate. Same headers and the same answer shape as postAuthed. */
+  function postAuthedKeepalive(path, token, body) {
+    return fetch(path, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Accept: "application/json",
+        Authorization: "Bearer " + token,
+      },
+      credentials: "omit",
+      keepalive: true,
+      body: JSON.stringify(body),
+    })
+      .then(function (res) {
+        return res.json().then(
+          function (parsed) { return ok({ status: res.status, body: parsed }); },
+          function () { return ok({ status: res.status, body: null }); },
+        );
+      })
+      .catch(function () { return failed("network"); });
+  }
+
   /* FIX-B60: ask the platform to look at GitHub for a submitted hire, once
      per page load, on the viewer's own session. job.js, pullrequest.js and
      operatorjob.js each call this after their own render; every condition
@@ -565,6 +591,7 @@
     getLinkedData: getLinkedData,
     getAuthed: getAuthed,
     postAuthed: postAuthed,
+    postAuthedKeepalive: postAuthedKeepalive,
     checkMerge: checkMerge,
     patchAuthed: patchAuthed,
     putAuthed: putAuthed,
