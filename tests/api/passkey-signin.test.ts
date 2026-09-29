@@ -1,7 +1,8 @@
 // FIX-B61a: before this card a passkey sign-in was a fresh registration
 // under a name the caller chose, and that name was public on
 // GET /accounts/:did, so a stranger could register their own passkey under
-// a victim's name and be signed in as the victim. Pinned here: the server
+// a victim's name and be signed in as the victim. (FIX-B61c later took the
+// name off the public read.) Pinned here: the server
 // makes the name at register, the credential is stored once per credential
 // id, and every later sign-in is a WebAuthn authentication checked against
 // the stored key while the browser names nobody. Real HTTP, real WebAuthn
@@ -99,6 +100,7 @@ interface Rig {
   readonly baseUrl: string;
   readonly adapter: SessionAdapter;
   readonly clock: { now: number };
+  readonly accounts: MemoryAccountRepository;
 }
 
 interface RigOptions {
@@ -124,7 +126,7 @@ async function startRig(options: RigOptions = {}): Promise<Rig> {
   await new Promise<void>((resolve) => server!.once('listening', resolve));
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('expected server to listen on a port');
-  return { baseUrl: `http://127.0.0.1:${address.port}`, adapter, clock };
+  return { baseUrl: `http://127.0.0.1:${address.port}`, adapter, clock, accounts };
 }
 
 interface Reply {
@@ -212,14 +214,18 @@ function expectSession(reply: Reply, subject: string): Session {
 }
 
 describe('a stranger cannot sign in as an account by naming it', () => {
-  it('(a) B reads A\'s passkeySubject, sends it at register and in the verify envelope, and still lands on B\'s own account, under the server\'s name', async () => {
+  it('(a) B holds a copy of A\'s passkeySubject, sends it at register and in the verify envelope, and still lands on B\'s own account, under the server\'s name', async () => {
     const rig = await startRig();
     const a = await signUp(rig, createPasskeyFixture());
 
-    // The name is public today: GET /accounts/:did needs no sign-in.
+    // B61c: the passkey's name is private to the account, so the public read
+    // carries no passkeySubject key at all. No public read can leak the name
+    // any more, so the test takes it straight from the repository row to
+    // stand in for a leaked name.
     const publicRow = await fetch(`${rig.baseUrl}/accounts/${a.did}`);
     expect(publicRow.status).toBe(200);
-    const stolenName = String(((await publicRow.json()) as { passkeySubject?: unknown }).passkeySubject);
+    expect('passkeySubject' in ((await publicRow.json()) as object)).toBe(false);
+    const stolenName = String((await rig.accounts.findByDid(a.did))?.passkeySubject);
     expect(stolenName).toBe(a.name);
 
     const b = createPasskeyFixture();

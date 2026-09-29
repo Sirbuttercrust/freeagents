@@ -257,25 +257,38 @@ function notImplemented(_req: Request, res: Response): void {
 // commit-signer check can share it instead of comparing logins with a
 // bare ===.
 
-// The Account record projection is the whole response. Exactly these six
-// fields, nothing more: tests/api/account-invariant2.test.ts asserts the
-// key set, and a seventh field here would be a contract change.
-// passkeySubject rides the base set unconditionally (null when the
-// account never bound one), the same "every row has the field, not every
-// row has a value" stance agentProjection takes on avatar and
-// keyRotations: an account's shape does not change with which proof it
-// used. operatorAddressEvm and operatorAddressAbt ride the same way (S3,
-// P8c): null until the operator sets one through
+// Account answers come in two shapes, by who is asking (B61c: the name a
+// passkey was made under must not be public).
+//
+// accountProjection is the public shape: did, githubLogin, createdAt,
+// operatorAddressEvm, operatorAddressAbt, and no passkeySubject key at all
+// (absent, not null). GET /accounts/:did needs no sign-in, so anyone who
+// knows a DID reads this shape, and POST /accounts (also unauthenticated)
+// answers it too. tests/api/account-invariant2.test.ts and
+// tests/api/account-public-shape.test.ts assert the key set, and any added
+// field here is a contract change.
+//
+// ownAccountProjection is the public shape plus passkeySubject (null when
+// the account never bound one). It serves only the two answers that go to
+// the account itself, both behind requireSessionOrSignature and the acting
+// party's own DID: GET /accounts/me and the 200 of
+// PATCH /accounts/:did/operator-address. The settings page reads it from
+// GET /accounts/me to show which sign-in method the account uses.
+// operatorAddressEvm and operatorAddressAbt ride both shapes the same way
+// (S3, P8c): null until the operator sets one through
 // PATCH /accounts/:did/operator-address.
 function accountProjection(row: Account): Record<string, unknown> {
   return {
     did: row.did,
     githubLogin: row.githubLogin,
-    passkeySubject: row.passkeySubject,
     createdAt: row.createdAt.toISOString(),
     operatorAddressEvm: row.operatorAddressEvm,
     operatorAddressAbt: row.operatorAddressAbt,
   };
+}
+
+function ownAccountProjection(row: Account): Record<string, unknown> {
+  return { ...accountProjection(row), passkeySubject: row.passkeySubject };
 }
 
 // The Capability projection is the whole response. Exactly these six fields,
@@ -1987,7 +2000,7 @@ export function createApp(
         res.status(404).json({ error: 'not found' });
         return;
       }
-      res.status(200).json(accountProjection(row));
+      res.status(200).json(ownAccountProjection(row));
     } catch (err) {
       console.error('GET /accounts/me: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
@@ -2082,7 +2095,7 @@ export function createApp(
           return;
         }
       }
-      res.status(200).json(accountProjection(row as Account));
+      res.status(200).json(ownAccountProjection(row as Account));
     } catch (err) {
       console.error('PATCH /accounts/:did/operator-address: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });

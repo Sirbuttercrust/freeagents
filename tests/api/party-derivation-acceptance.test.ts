@@ -392,7 +392,8 @@ describe('R-39 completion acceptance: party derived, never declared', () => {
       });
       expect(registered.status).toBe(201);
       const registeredBody = (await registered.json()) as Record<string, unknown>;
-      expect(registeredBody.passkeySubject).toBe(subject);
+      // B61c: the passkey's name is private to the account, so the 201 does not echo it.
+      expect('passkeySubject' in registeredBody).toBe(false);
 
       const hire = await fetch(`${baseUrl}/jobs`, {
         method: 'POST',

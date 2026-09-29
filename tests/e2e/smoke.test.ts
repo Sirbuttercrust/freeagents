@@ -539,13 +539,15 @@ describe('the API starts and answers', () => {
     // each counted in stepsAsserted by the helpers above; the fixture is a
     // generic handle, not a real person (public repository).
 
-    // 1. Register. The response is exactly the stored fact projection:
-    // did, githubLogin, createdAt, and nothing else, no key material.
+    // 1. Register. The response is the public projection of the stored row:
+    // the five public keys asserted below, no key material and no
+    // passkeySubject.
     const created = await post('/accounts', { did: 'did:abt:op1', githubLogin: 'operator-1' });
     expect(created.status).toBe(201);
     const createdBody = (await created.json()) as Record<string, unknown>;
     expect(createdBody.did).toBe('did:abt:op1');
-    expect(Object.keys(createdBody).sort()).toEqual(['createdAt', 'did', 'githubLogin', 'operatorAddressAbt', 'operatorAddressEvm', 'passkeySubject']);
+    // B61c: the passkey's name is private to the account, so the 201 has five keys.
+    expect(Object.keys(createdBody).sort()).toEqual(['createdAt', 'did', 'githubLogin', 'operatorAddressAbt', 'operatorAddressEvm']);
 
     // 2. Read back: the same body, field for field.
     const read = await get('/accounts/did:abt:op1');
