@@ -429,7 +429,7 @@ describe('base session: GitHub OAuth and passkey (R-39)', () => {
     const anonymous = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ did: 'did:abt:bootstrap-first-operator', githubLogin: 'bootstrap-first-operator' }),
+      body: JSON.stringify({ did: 'did:abt:bootstrap-first-operator' }),
     });
     expect(anonymous.status).toBe(201);
   });

@@ -131,7 +131,7 @@ describe('app', () => {
     const created = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
-      body: JSON.stringify({ did: 'did:abt:api-1', githubLogin: 'operator-api-1' }),
+      body: JSON.stringify({ did: 'did:abt:api-1' }),
     });
     expect(created.status).toBe(201);
     const body = (await created.json()) as Record<string, unknown>;
@@ -151,26 +151,32 @@ describe('app', () => {
     const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
-      body: JSON.stringify({ did: 'did:eth:api-2', githubLogin: 'operator-api-2' }),
+      body: JSON.stringify({ did: 'did:eth:api-2' }),
     });
     expect(response.status).toBe(400);
   });
 
-  it('returns 400 when githubLogin is missing', async () => {
+  // FIX-B62a: a GitHub login is optional now (it needs a signed gist), so a
+  // body with only a did registers that DID with no login. This was the 400
+  // "githubLogin is missing" pin of the old contract.
+  it('registers a DID with no githubLogin, and it reads back with a null login', async () => {
     const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
       body: JSON.stringify({ did: 'did:abt:api-3' }),
     });
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(201);
+    const read = await fetch(`${baseUrl}/accounts/did:abt:api-3`);
+    expect(read.status).toBe(200);
+    expect(((await read.json()) as Record<string, unknown>).githubLogin).toBeNull();
   });
 
-  // The 400 guard is a conjunction of four conditions: typeof did,
-  // typeof githubLogin, did.length, githubLogin.length. Each conjunct needs
-  // its own test: with any one deleted, its input falls through to the next
-  // check and the response changes (or the repository is called with the
-  // wrong shape), so a test per conjunct is what makes the whole guard
-  // non-deletable.
+  // The 400 guard is a conjunction of conditions: typeof did, did.length,
+  // and (FIX-B62a) the login and gist shapes when present. Each conjunct
+  // needs its own test: with any one deleted, its input falls through to
+  // the next check and the response changes (or the repository is called
+  // with the wrong shape), so a test per conjunct is what makes the whole
+  // guard non-deletable.
   it('returns 400 when did is not a string (number)', async () => {
     const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
@@ -196,11 +202,13 @@ describe('app', () => {
     const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
-      body: JSON.stringify({ did: '', githubLogin: 'operator-api-6' }),
+      body: JSON.stringify({ did: '' }),
     });
     expect(response.status).toBe(400);
+    // FIX-B62a: the body shape now names the optional login and gist.
     expect(await response.json()).toEqual({
-      error: 'body must be { did, githubLogin }; both are non-empty strings',
+      error:
+        'body must be { did, githubLogin?, gist?, passkeySubject? }; did and githubLogin are non-empty strings, githubLogin has no whitespace, gist is a URL',
     });
   });
 
@@ -222,8 +230,10 @@ describe('app', () => {
       body: JSON.stringify({ did: 'did:abt:api-8', githubLogin: '' }),
     });
     expect(response.status).toBe(400);
+    // FIX-B62a: the body shape now names the optional login and gist.
     expect(await response.json()).toEqual({
-      error: 'body must be { did, githubLogin }; both are non-empty strings',
+      error:
+        'body must be { did, githubLogin?, gist?, passkeySubject? }; did and githubLogin are non-empty strings, githubLogin has no whitespace, gist is a URL',
     });
   });
 
@@ -231,14 +241,14 @@ describe('app', () => {
     const first = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
-      body: JSON.stringify({ did: 'did:abt:api-dup', githubLogin: 'operator-api-dup' }),
+      body: JSON.stringify({ did: 'did:abt:api-dup' }),
     });
     expect(first.status).toBe(201);
 
     const second = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
-      body: JSON.stringify({ did: 'did:abt:api-dup', githubLogin: 'operator-api-dup' }),
+      body: JSON.stringify({ did: 'did:abt:api-dup' }),
     });
     expect(second.status).toBe(409);
     expect(await second.json()).toEqual({
@@ -531,7 +541,7 @@ describe('app, storage failures', () => {
     const response = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
-      body: JSON.stringify({ did: 'did:abt:api-down', githubLogin: 'operator-api-down' }),
+      body: JSON.stringify({ did: 'did:abt:api-down' }),
     });
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: 'storage unavailable' });
@@ -832,8 +842,11 @@ describe('app, default storage parameter', () => {
   let server: Server;
   let baseUrl: string;
   let authHeader: Record<string, string>;
+  let originalSeed: string | undefined;
 
   beforeAll(async () => {
+    originalSeed = process.env.FREEAGENTS_PLATFORM_SEED;
+    process.env.FREEAGENTS_PLATFORM_SEED = 'd'.repeat(64);
     // DATABASE_URL unset: the factory announces the in-memory choice and the
     // app must boot and serve with it, exactly as server.ts does in dev.
     const originalUrl = process.env.DATABASE_URL;
@@ -874,13 +887,15 @@ describe('app, default storage parameter', () => {
 
   afterAll(() => {
     server.close();
+    if (originalSeed === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
+    else process.env.FREEAGENTS_PLATFORM_SEED = originalSeed;
   });
 
   it('boots without an injected repository and serves the operator flow', async () => {
     const created = await fetch(`${baseUrl}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeader },
-      body: JSON.stringify({ did: 'did:abt:default-1', githubLogin: 'operator-default-1' }),
+      body: JSON.stringify({ did: 'did:abt:default-1' }),
     });
     expect(created.status).toBe(201);
     const body = (await created.json()) as Record<string, unknown>;
@@ -899,22 +914,21 @@ describe('app, default storage parameter', () => {
     expect(missing.status).toBe(404);
 
     // R-39 completion: buyerDid is derived from the session's resolved
-    // account, so the account this session names must be registered
-    // through the same default-storage account repo the route reads --
-    // no handle to it exists outside the running server, so this goes
-    // through POST /accounts, exactly as a real caller would.
-    const registerBuyer = await fetch(`${baseUrl}/accounts`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeader },
-      body: JSON.stringify({ did: 'did:abt:buyer-default', githubLogin: 'test-session-user' }),
-    });
-    expect(registerBuyer.status).toBe(201);
+    // account. FIX-B62a: a login can no longer be typed into POST /accounts,
+    // so this session's GitHub login resolves to no registered account and
+    // one is provisioned for it on the spot (which needs the platform
+    // seed, set for this suite in beforeAll). No handle to the default
+    // account repo exists outside the running server, so the buyer's DID
+    // is read from GET /accounts/me, exactly as a real caller would.
+    const me = await fetch(`${baseUrl}/accounts/me`, { headers: authHeader });
+    expect(me.status).toBe(200);
+    const buyerDid = ((await me.json()) as { did: string }).did;
 
     // The draft path also runs end to end on default storage; it stops at
     // the agent pre-check because this server's agent repo is unreachable
     // from outside, which is the route working, not a fault.
     const noAgent = await postJob(baseUrl, {
-      buyerDid: 'did:abt:buyer-default',
+      buyerDid,
       agentDid: 'did:abt:no-such-agent',
       repository: 'buyer/target-repo',
       brief: 'Fix the login bug',

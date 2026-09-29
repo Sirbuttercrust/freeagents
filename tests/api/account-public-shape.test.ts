@@ -111,7 +111,7 @@ describe('what an account answer shows, by who is asking', () => {
     const rig = await startRig();
 
     const res = await send(rig, 'POST', '/accounts', {
-      body: { did: 'did:abt:zpublicshape', githubLogin: 'public-shape-login', passkeySubject: 'public-shape-passkey' },
+      body: { did: 'did:abt:zpublicshape', passkeySubject: 'public-shape-passkey' },
     });
 
     expect(res.status).toBe(201);

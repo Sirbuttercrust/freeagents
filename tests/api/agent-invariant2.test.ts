@@ -230,7 +230,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
     baseUrl = `http://127.0.0.1:${address.port}`;
     const token = await mintSessionToken(sessionAdapter);
     authHeader = { authorization: `Bearer ${token}` };
-    const reg = await postJson(baseUrl, '/accounts', { did: operator.toDid(), githubLogin: 'operator-inv2' }, authHeader);
+    const reg = await postJson(baseUrl, '/accounts', { did: operator.toDid() }, authHeader);
     expect(reg.status).toBe(201);
   });
 

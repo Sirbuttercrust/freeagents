@@ -436,7 +436,7 @@ describe('confirm, invariant 2 (R-9): the spec hash is verifiable off-platform',
     authHeader = { authorization: `Bearer ${token}` };
 
     expect(
-      (await post('/accounts', { did: operatorWallet.toDid(), githubLogin: 'operator-confirm' }, authHeader)).status,
+      (await post('/accounts', { did: operatorWallet.toDid() }, authHeader)).status,
     ).toBe(201);
     expect(
       (

@@ -271,7 +271,7 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/start: the happy path', () => 
     // Registered so the signature itself verifies (R-34); the refusal
     // under test is that a verified signature naming neither party is
     // 403, not that an unregistered DID's signature is unverifiable.
-    await postSigned(baseUrl, '/accounts', { did: stranger.did, githubLogin: 'stranger-usdc-start' }, stranger);
+    await postSigned(baseUrl, '/accounts', { did: stranger.did }, stranger);
     const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, stranger);
     expect(res.status).toBe(403);
   });
@@ -421,7 +421,7 @@ describe('POST /jobs/:jobId/payments/deposit/usdc/wallet-response: confirm write
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);
       const stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(198));
-      await postSigned(baseUrl, '/accounts', { did: stranger.did, githubLogin: 'stranger-usdc-wallet-response' }, stranger);
+      await postSigned(baseUrl, '/accounts', { did: stranger.did }, stranger);
       const res = await postSigned(
         baseUrl,
         `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
