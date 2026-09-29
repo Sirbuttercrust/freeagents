@@ -54,11 +54,12 @@
                  page links.
 
      THE PAGE-LOCAL BLOCK IS ONE COMPONENT AND ONE PANEL RULE. Every rule
-     flow.css now provides is gone from it: .who, .rail, .railnow, .clock,
-     .acts, .picker, .pickernote, .fixed, .sheet, .shead, .sbody, .sfoot
-     and .sclose are all flow.css's now, at flow.css's own values, and
-     #close-send-btn's 44px floor is reached by `.sheet .sfoot .btn`
-     (flow.css:662) because that button is a .btn inside the dialog's
+     the shared sheets now provide is gone from it: .who, .rail, .railnow,
+     .clock, .acts, .picker, .pickernote and .fixed are flow.css's, and
+     .sheet, .shead, .sbody, .sfoot and .sclose polish.css's, at those
+     sheets' own values, and #close-send-btn's 44px floor is reached by
+     `.sheet .sfoot .btn` (polish.css:808) because that button is a .btn
+     inside the dialog's
      .sfoot. Measured across tokens.css, base.css, polish.css and flow.css
      with comments stripped and matching at selector position only:
      .prlink 0, .warn 0. Those two are the survivors and each carries its

@@ -34,7 +34,7 @@
      order. The wireframe loads base, polish and flow; tokens.css is this
      site's own split of the wireframe's variable block and sits under
      everything. flow.css is ported byte for byte from
-     spec/wireframe/flow.css apart from one note block in its header, so
+     spec/wireframe/flow.css apart from what its header note lists, so
      `diff spec/wireframe/flow.css src/web/public/css/flow.css` shows any
      later drift the way it already does for gallery.css, agreement.css and
      pipeline.css. This is the first built page to link it.
@@ -54,8 +54,9 @@
 
      THE PAGE-LOCAL BLOCK IS THREE COMPONENTS AND ONE FLOOR, and every rule
      the ported sheets own is gone from it: .rail, .railnow, .who, .acts,
-     .facts, .picker, .pickernote, .total, .fixed, .sheet, .sclose and .clock
-     are all flow.css's now, at flow.css's own values. That is not a
+     .facts, .picker, .pickernote, .total, .fixed and .clock are flow.css's
+     now, and .sheet and .sclose polish.css's, at those sheets' own values.
+     That is not a
      like-for-like swap everywhere and it is not meant to be: the balance
      figure in the pay sheet goes from this page's old 34px to the
      wireframe's 44px on desktop, dropping back to 34px under 420px through
@@ -97,12 +98,12 @@
   .warn { border-left: 2px solid var(--fg-3); padding-left: 14px; }
 
   /* THE 44px FLOOR ON THE COPY CONTROLS, UNCONDITIONAL.
-     flow.css already floors every other acting control on this screen:
-     `.acts .btn` (flow.css:580) covers the three choices, `.sheet .sfoot
-     .btn` (flow.css:610) covers all six controls in the three sheet
-     footers, and .sclose is declared 44x44 outright (flow.css:611-615).
+     flow.css and polish.css already floor every other acting control here:
+     `.acts .btn` (flow.css:633) covers the three choices, `.sheet .sfoot
+     .btn` (polish.css:808) covers all six controls in the three sheet
+     footers, and .sclose is declared 44x44 outright (polish.css:809-813).
      The three [data-copy] buttons are .btn-sm and sit in neither
-     container, so base.css:129 declares them 32px and only base.css:543
+     container, so base.css:149 declares them 32px and only base.css:582
      raises that, under (max-width: 760px) or (pointer: coarse). Keyed on
      [data-copy] rather than on three ids because that is the selector
      ui.js:67 itself sweeps, so a fourth copy control added later inherits
@@ -138,7 +139,7 @@
 
        The redo picker's three radios at 18 x 18. The radio is not the tap
        target: the .picker label around it measures 480 x 47 at 1280 and
-       244 x 47 at 320, floored at 44px by flow.css:673-677, and a press at
+       244 x 47 at 320, floored at 44px by flow.css:690-694, and a press at
        the label's far edge, outside the radio's own box, checks the radio
        and enables Send.
 

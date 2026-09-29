@@ -129,6 +129,7 @@
     renderStagedCta(job);
     renderPullRequestCta(job);
     renderMessagesLink(job);
+    renderWithdraw(job);
   }
 
   // The job named by its own identifier, and the page's whole stance in
@@ -578,8 +579,8 @@
   }
 
   // P8h: a proposed job has somewhere to go now (inert-declared-control,
-  // eighth occurrence). Party is not checked client-side (job.html reads
-  // no session); the agreement page's own probe is the real boundary.
+  // eighth occurrence). Party is not checked client-side for this link;
+  // the agreement page's own probe is the real boundary.
   function renderAgreementCta(job) {
     if (job.status !== "proposed" || typeof job.id !== "string" || job.id === "") return;
     var link = A.el("agreement-link");
@@ -614,8 +615,8 @@
   }
 
   // MSG1b: the way into this hire's conversation (/messages?job=<id>),
-  // for a signed-in visitor who is one of the job's two parties. This page
-  // is public and reads no session for its own record, so the party check
+  // for a signed-in visitor who is one of the job's two parties. The
+  // record itself is public and read with no session, so the party check
   // is the thread's own gate: GET /jobs/:jobId/messages/read-state answers
   // 200 only to the hirer or the agent's side (requireThreadParty in
   // src/api/app.ts). Anyone else, or a signed-out visitor, never sees it.
@@ -629,6 +630,26 @@
       var link = A.el("messages-link");
       if (link) link.setAttribute("href", "/messages?job=" + encodeURIComponent(job.id));
       A.showById("messages-cta", true);
+    });
+  }
+
+  // FIX-SW12i: the hirer's way to walk away before both signatures (the
+  // window, the sheet and the departure are in api.js's walkAway). Shown
+  // only once GET /accounts/me answers 200 with this job's buyerDid, the
+  // rule agreement.js uses; a failed or pending read shows nothing. A 200
+  // reads the hire again, which draws the withdrawn sentence and, the
+  // status having left the window, hides the control.
+  function renderWithdraw(job) {
+    var row = A.el("withdraw-row");
+    if (row) row.hidden = true;
+    var session = A.getStoredSession();
+    if (!session || !A.walkAwayOpen(job) || typeof job.buyerDid !== "string") return;
+    A.getAuthed("/accounts/me", session.token).then(function (result) {
+      if (typeof document === "undefined" || !document) return;
+      if (result.state !== "ok" || result.value.status !== 200 || !result.value.body) return;
+      if (result.value.body.did !== job.buyerDid) return;
+      var mount = A.walkAway("withdraw", A.el("messages-cta"), job.id, session.token, function () { reread(job.id); });
+      if (mount) mount.hidden = false;
     });
   }
   if (document.readyState === "loading") {

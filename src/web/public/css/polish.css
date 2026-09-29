@@ -767,3 +767,48 @@ kbd {
   .who .spacer { display: none; }
   .who > .mid { flex-basis: calc(100% - 44px); }
 }
+
+/* =================================================================== SHEET
+   The modal. A native <dialog>, so Escape, focus containment and the inert
+   background come from the browser rather than from three hundred lines of
+   our own that will be subtly wrong.
+
+   Every sheet exists because an action needs a second look: the wallet
+   scan, the redo picker, the close-with-a-reason picker, the decline
+   confirm, and the walk-away confirms on /jobs, /agreement and /operatorjob.
+   None of them is a place to put anything the primary screen needed to say.
+
+   WHY IT LIVES HERE AND NOT IN flow.css, where spec/wireframe/flow.css draws
+   it. /jobs and /agreement need the sheet and cannot load flow.css, whose
+   .who, .facts and .terms would restyle their own. Every page loads this
+   file, so this is the one copy; flow.css's repo note records the cut.
+
+   The base rule is keyed on dialog.sheet because /messages draws its own
+   div.sheet from chat.css, a different component under the same class, and
+   a bare .sheet here would hand it this box's shadow, border and height. */
+dialog.sheet {
+  width: min(520px, calc(100vw - 24px));
+  max-height: calc(100vh - 48px);
+  padding: 0; border: 0; border-radius: 14px;
+  background: var(--bg-1);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 24px 60px -12px rgba(0,0,0,0.8);
+  color: var(--fg); overflow: auto;
+}
+dialog.sheet::backdrop { background: rgba(11,10,18,0.72); }
+.sheet .shead {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 20px 20px 0;
+}
+.sheet .shead h2 { margin: 0; flex: 1; }
+.sheet .sbody { padding: 14px 20px 20px; }
+.sheet .sfoot {
+  display: flex; flex-wrap: wrap; gap: 10px;
+  padding: 0 20px 20px;
+}
+.sheet .sfoot .btn { min-height: 44px; }
+.sclose {
+  width: 44px; height: 44px; margin: -10px -8px 0 0; flex: none;
+  border: 0; background: none; color: var(--fg-2);
+  font-size: 22px; line-height: 1; cursor: pointer; border-radius: var(--r);
+}
+.sclose:hover { color: var(--fg); background: var(--bg-2); }

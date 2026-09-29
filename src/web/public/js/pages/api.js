@@ -492,6 +492,156 @@
     return lines !== null;
   }
 
+  /* ---------------------------------------------------------- walk away
+     FIX-SW12i (SW3-13). /agreement promises "Either side can walk away, and
+     nothing unwinds", and POST /jobs/:jobId/withdraw (the buyer) and POST
+     /jobs/:jobId/decline (the agent's side) both existed with no page
+     calling either. /jobs, /agreement and /operatorjob each mount their
+     control through walkAway, so the four sheets are one component.
+
+     A NAMED DEPARTURE, written here once for all three pages: no wireframe
+     (spec/wireframe/job.html, agreement.html, operatorjob.html) draws a
+     withdraw or decline control. They exist because the agreement page's
+     own promise needs one on each side.
+
+     THE WINDOW is the agreement page's "before both signatures": a draft,
+     or a proposed job where some line or the price still lacks a mark
+     (agreementGap's rule, src/domain/job.ts). Once every mark is in, the
+     deposit is payable while the job is still proposed and GET /jobs/:jobId
+     does not say whether it settled, so "Nothing has been paid" could not be
+     known true there, and no control shows.
+
+     Neither route tells the other side, so no row says they are told: they
+     see the new status the next time they open the hire. Built in script,
+     not shipped in a shell, because job.html has no room for static words
+     (tests/web/hire-journey-simple.test.ts). */
+  var WALK_AWAY = {
+    withdraw: {
+      label: "Withdraw this hire",
+      confirm: "Withdraw, and end this hire",
+      act: "withdraw this hire",
+      rows: ["Nothing has been paid.", "The hire ends and cannot be reopened.", "The agent's owner sees it withdrawn the next time they open it."]
+    },
+    decline: {
+      label: "Decline this brief",
+      confirm: "Decline, and end this hire",
+      act: "decline this brief",
+      rows: ["No money has moved.", "The hire ends and cannot be reopened.", "The buyer sees it declined the next time they open it."]
+    }
+  };
+
+  function walkAwayOpen(job) {
+    if (!job || typeof job !== "object") return false;
+    if (job.status === "draft") return true;
+    if (job.status !== "proposed") return false;
+    var criteria = Array.isArray(job.criteria) ? job.criteria : [];
+    var price = job.price && typeof job.price === "object" ? job.price : null;
+    if (criteria.length === 0 || price === null) return true;
+    var lineOpen = criteria.some(function (c) { return c.acceptedByBuyer !== true || c.acceptedByAgent !== true; });
+    return lineOpen || price.acceptedByBuyer !== true || price.acceptedByAgent !== true;
+  }
+
+  /* The route's own sentence, except where it is written for a caller
+     rather than a person (the 401 names R-34, the 503 says "storage"). */
+  function walkAwayRefusal(kind, result) {
+    if (result.state !== "ok") return "Could not reach the server just now. Try again in a moment.";
+    var status = result.value.status;
+    var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
+    if (status === 401) return "Your session has expired. Sign in again to " + WALK_AWAY[kind].act + ".";
+    if (status === 503) return "Storage is unavailable just now. Try again in a moment.";
+    return typeof body.error === "string" && body.error !== "" ? body.error : "That could not be done just now. Try again in a moment.";
+  }
+
+  function node(tag, className, text) {
+    var n = document.createElement(tag);
+    if (className) n.className = className;
+    if (text) n.textContent = text;
+    return n;
+  }
+
+  /* Builds the control's row (hidden) after `anchor`, and its sheet, once
+     per page; a later call returns the same row, and the caller shows or
+     hides it. onEnded runs after a 200, with the sheet closed. */
+  function walkAway(kind, anchor, jobId, token, onEnded) {
+    var copy = WALK_AWAY[kind];
+    var existing = el(kind + "-row");
+    if (existing || !copy || !anchor || !anchor.parentNode) return existing;
+
+    var row = node("div", "row");
+    row.id = kind + "-row";
+    row.hidden = true;
+    row.style.marginTop = "12px";
+    var open = node("button", "btn", copy.label);
+    open.type = "button";
+    open.id = kind + "-open";
+    row.appendChild(open);
+    anchor.parentNode.insertBefore(row, anchor.nextSibling);
+
+    var dialog = node("dialog", "sheet");
+    dialog.id = kind + "-sheet";
+    dialog.setAttribute("aria-labelledby", kind + "-title");
+    var head = node("div", "shead");
+    var title = node("h2", "", copy.label);
+    title.id = kind + "-title";
+    var x = node("button", "sclose", "\u00d7");
+    x.type = "button";
+    x.setAttribute("aria-label", "Close");
+    head.appendChild(title);
+    head.appendChild(x);
+    var body = node("div", "sbody");
+    var list = node("ul", "factlist");
+    copy.rows.forEach(function (sentence) { list.appendChild(node("li", "", sentence)); });
+    body.appendChild(list);
+    // The live region exists, empty, before anything is written to it.
+    var alert = node("p", "sub");
+    alert.id = kind + "-alert";
+    alert.setAttribute("role", "alert");
+    body.appendChild(alert);
+    var foot = node("div", "sfoot");
+    var confirm = node("button", "btn btn-primary", copy.confirm);
+    confirm.type = "button";
+    confirm.id = kind + "-confirm";
+    var cancel = node("button", "btn", "Cancel");
+    cancel.type = "button";
+    foot.appendChild(confirm);
+    foot.appendChild(cancel);
+    dialog.appendChild(head);
+    dialog.appendChild(body);
+    dialog.appendChild(foot);
+    document.body.appendChild(dialog);
+
+    function say(text) {
+      alert.textContent = text;
+      alert.style.marginTop = text === "" ? "" : "14px";
+    }
+    function close() {
+      if (typeof dialog.close === "function") dialog.close();
+      else dialog.removeAttribute("open");
+    }
+    open.addEventListener("click", function () {
+      say("");
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+    });
+    x.addEventListener("click", close);
+    cancel.addEventListener("click", close);
+    dialog.addEventListener("click", function (e) { if (e.target === dialog) close(); });
+    // One press, one post: the button is disabled before the request
+    // leaves, and only a refusal gives it back.
+    confirm.addEventListener("click", function () {
+      if (confirm.disabled) return;
+      confirm.disabled = true;
+      say("");
+      postAuthed("/jobs/" + encodeURIComponent(jobId) + "/" + kind, token, {}).then(function (result) {
+        if (typeof document === "undefined" || !document) return;
+        if (result.state === "ok" && result.value.status === 200) { close(); onEnded(); return; }
+        confirm.disabled = false;
+        say(walkAwayRefusal(kind, result));
+      });
+    });
+    return row;
+  }
+
   global.FAApi = {
     get: get,
     getLinkedData: getLinkedData,
@@ -522,6 +672,8 @@
     ABT_PRICE_PHRASE: ABT_PRICE_PHRASE,
     ABT_PRICE_SENTENCE: ABT_PRICE_SENTENCE,
     abtQuoteLines: abtQuoteLines,
-    drawAbtQuote: drawAbtQuote
+    drawAbtQuote: drawAbtQuote,
+    walkAway: walkAway,
+    walkAwayOpen: walkAwayOpen
   };
 })(window);
