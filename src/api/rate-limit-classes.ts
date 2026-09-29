@@ -32,14 +32,19 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   { method: 'GET', pattern: '/.well-known/freeagents-issuer.json', classification: 'read' },
   { method: 'GET', pattern: '/auth/github/start', classification: 'read' },
   // FIX-S7 round 3: the `verify` bucket keeps exactly
-  // the 3 routes a stranger or a script uses to PROVE something (a
-  // sign-in callback, a passkey assertion, an issued credential lookup),
-  // never the site's own ordinary reads. GET /agents/:agentDid moved out
+  // the routes a stranger or a script uses to PROVE something (a
+  // sign-in callback, a passkey ceremony's answer, a passkey sign-in
+  // assertion, an issued credential lookup), never the site's own
+  // ordinary reads. GET /agents/:agentDid moved out
   // of this bucket to `read` (see its own entry below) because it is the
   // agent strip every page renders, not a verification.
   { method: 'GET', pattern: '/auth/github/callback', classification: 'verify' },
   { method: 'POST', pattern: '/auth/passkey/register', classification: 'write' },
+  // FIX-B61a: starting a passkey sign-in mints a challenge, like register.
+  { method: 'POST', pattern: '/auth/passkey/signin/start', classification: 'write' },
   { method: 'POST', pattern: '/auth/passkey/verify', classification: 'verify' },
+  // FIX-B61a: the sign-in assertion is a proof, the same bucket as verify.
+  { method: 'POST', pattern: '/auth/passkey/signin', classification: 'verify' },
   { method: 'POST', pattern: '/auth/signout', classification: 'write' },
   // The sweep names this explicitly: "apply a limiter to ... POST /accounts".
   { method: 'POST', pattern: '/accounts', classification: 'write' },

@@ -12,7 +12,7 @@
 // bytes (tests/helpers/webauthn-fixtures.ts), never a stubbed verifier.
 import type { Server } from 'node:http';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 // Every 32-byte random value the code under test draws is recorded, so the
 // storage-fault case can prove no session token was minted: a minted token
@@ -41,6 +41,19 @@ const REFUSED = { error: 'invalid or expired sign-in attempt' };
 const CHALLENGE_TTL_MS = 60_000;
 
 let server: Server | null = null;
+
+// GET /accounts/me provisions the account row on the first signed-in
+// request, and that derives an operator DID from the platform seed.
+const PLATFORM_SEED = 'f'.repeat(64);
+let originalSeed: string | undefined;
+beforeAll(() => {
+  originalSeed = process.env.FREEAGENTS_PLATFORM_SEED;
+  process.env.FREEAGENTS_PLATFORM_SEED = PLATFORM_SEED;
+});
+afterAll(() => {
+  if (originalSeed === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
+  else process.env.FREEAGENTS_PLATFORM_SEED = originalSeed;
+});
 
 afterEach(async () => {
   if (server !== null) {
@@ -535,7 +548,13 @@ describe('(g) register makes the name and binds it to the ceremony', () => {
     expect(name.length).toBeGreaterThan(0);
     expect(options.user.name).not.toBe(name);
     expect(options.user.name).not.toContain(name);
-    expect(options.authenticatorSelection).toEqual({ residentKey: 'required', userVerification: 'required' });
+    // The library adds requireResidentKey: true beside residentKey:
+    // 'required' (WebAuthn level 1 browsers read only that field).
+    expect(options.authenticatorSelection).toEqual({
+      residentKey: 'required',
+      requireResidentKey: true,
+      userVerification: 'required',
+    });
   });
 
   it('a body naming any subject changes nothing: the name is still the server\'s, and each register makes a new one', async () => {

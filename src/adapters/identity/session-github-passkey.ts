@@ -20,23 +20,34 @@
 // standard, actively maintained WebAuthn library. See the PR body for the
 // new-dependency justification this brief requires.
 //
-// The contract exposes exactly registerPasskey(subject) and
-// verifyPasskey(responseJson): no separate "begin authentication" method.
-// So the round trip this adapter implements is registration-as-sign-in --
-// completing a registration ceremony proves possession of the authenticator
-// and issues a session, the same way GitHub's callback does. A returning
-// user re-authenticating with an existing passkey (no fresh registration)
-// is a real product need the contract does not expose a method for; it is
-// named as an assumption in the PR body rather than invented here as a
-// signature change the brief forbids.
+// FIX-B61a: a passkey signs in only the account it was registered to.
+//   - registerPasskey(subject) is called by the server with a name the
+//     server made (never one a browser sent). The challenge it issues is
+//     bound to that name, and the options ask for a discoverable,
+//     user-verified credential whose user handle is that name.
+//   - verifyPasskey finds the pending registration by the challenge inside
+//     the response's clientDataJSON, never by anything the envelope names,
+//     stores the credential (id and public key) under the registration's
+//     name, and only then mints the session.
+//   - beginPasskeySignIn / completePasskeySignIn are the returning half: an
+//     authentication checked against the stored key and counter, whose
+//     user handle must be the stored name. The browser names nobody; the
+//     account is found from the passkey itself.
+// A person who has no stored passkey cannot sign in by passkey.
 import { randomBytes } from 'node:crypto';
 import {
+  generateAuthenticationOptions,
   generateRegistrationOptions,
+  verifyAuthenticationResponse,
   verifyRegistrationResponse,
+  type AuthenticationResponseJSON,
+  type AuthenticatorTransportFuture,
   type RegistrationResponseJSON,
 } from '@simplewebauthn/server';
+import { MemoryPasskeyCredentialRepository } from '../storage/memory.js';
+import { createPasskeyCredentialRepository } from '../storage/storage.js';
+import { PasskeyCredentialAlreadyExistsError, type PasskeyCredentialRepository } from '../storage/types.js';
 import type { OAuthStart, GitHubProofCompletion, OAuthStatePurpose, Session, SessionAdapter, SignInMethod } from './session.js';
-
 // One store, one row shape, for both sign-in methods (the brief: "one
 // session shape... no parallel token store per method"). subject and
 // method are the fields Session itself carries; everything past them is
@@ -63,10 +74,44 @@ interface StoredOAuthState {
   used: boolean;
 }
 
+// A passkey ceremony in flight. `subject` is the passkey name the server
+// made at register; it is bound to the challenge here and never re-read from
+// anything a browser sends back.
 interface StoredPasskeyChallenge {
-  readonly challenge: string;
+  readonly subject: string | null;
   readonly createdAtMs: number;
   used: boolean;
+}
+
+// What the browser's passkey picker shows for every account: a label that
+// carries nothing about the account it belongs to.
+const PASSKEY_LABEL = 'FreeAgents account';
+
+// The shape of a verified registration's credential, as the store keeps it.
+interface VerifiedCredential {
+  readonly id: string;
+  readonly publicKey: Uint8Array<ArrayBuffer>;
+  readonly counter: number;
+  readonly transports?: readonly string[];
+}
+
+// The challenge a browser signed lives inside the response's clientDataJSON
+// (WebAuthn's own field), so it is what finds the ceremony a response
+// completes. Null for anything that is not a well-formed response.
+function challengeInClientData(response: unknown): string | null {
+  if (typeof response !== 'object' || response === null) return null;
+  const inner = (response as { response?: unknown }).response;
+  if (typeof inner !== 'object' || inner === null) return null;
+  const clientDataJSON = (inner as { clientDataJSON?: unknown }).clientDataJSON;
+  if (typeof clientDataJSON !== 'string') return null;
+  try {
+    const clientData: unknown = JSON.parse(Buffer.from(clientDataJSON, 'base64url').toString('utf8'));
+    if (typeof clientData !== 'object' || clientData === null) return null;
+    const challenge = (clientData as { challenge?: unknown }).challenge;
+    return typeof challenge === 'string' && challenge.length > 0 ? challenge : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface GitHubOAuthConfig {
@@ -84,6 +129,13 @@ export interface PasskeyConfig {
 export interface SessionAdapterOptions {
   readonly github: GitHubOAuthConfig;
   readonly passkey?: PasskeyConfig;
+  /**
+   * Where the passkey made at sign-up is kept, so every later sign-in is
+   * checked against it. Defaults to a new in-memory store per adapter (a
+   * passkey then lasts only as long as the adapter); a deployment passes
+   * createPasskeyCredentialRepository() so it survives a restart.
+   */
+  readonly passkeyCredentials?: PasskeyCredentialRepository;
   /** Injected for tests; defaults to the real fetch (no network in the test suite otherwise). */
   readonly fetchImpl?: typeof fetch;
   readonly sessionTtlMs?: number;
@@ -135,6 +187,7 @@ export function sessionAdapterFromEnv(): SessionAdapter {
   // assigned a possibly-undefined value.
   return createSessionAdapter({
     github: { clientId, clientSecret, redirectUri },
+    passkeyCredentials: createPasskeyCredentialRepository(),
     ...(rpID === undefined || rpID === ''
       ? {}
       : {
@@ -156,9 +209,29 @@ export function createSessionAdapter(options: SessionAdapterOptions): SessionAda
 
   const sessions = new Map<string, StoredSession>();
   const oauthStates = new Map<string, StoredOAuthState>();
-  // Registration challenges keyed by the subject a caller is registering a
-  // passkey for.
+  const passkeys = options.passkeyCredentials ?? new MemoryPasskeyCredentialRepository();
+  // Registration and sign-in challenges, each keyed by the challenge string
+  // the browser signs. A registration challenge carries the name the server
+  // made; a sign-in challenge names nobody. They are separate maps so a
+  // challenge issued for one ceremony can never complete the other.
   const registrationChallenges = new Map<string, StoredPasskeyChallenge>();
+  const signInChallenges = new Map<string, StoredPasskeyChallenge>();
+
+  // Finds the pending ceremony a response completes, by the challenge inside
+  // its clientDataJSON. Single-use: consumed here, on this attempt, whatever
+  // the rest of the attempt does. Null for unknown, used or expired.
+  function takeChallenge(
+    pending: Map<string, StoredPasskeyChallenge>,
+    response: unknown,
+  ): { readonly challenge: string; readonly row: StoredPasskeyChallenge } | null {
+    const challenge = challengeInClientData(response);
+    if (challenge === null) return null;
+    const row = pending.get(challenge);
+    if (row === undefined || row.used) return null;
+    if (now() - row.createdAtMs > passkeyChallengeTtlMs) return null;
+    row.used = true;
+    return { challenge, row };
+  }
 
   function newSession(subject: string, method: SignInMethod): Session {
     const token = randomBytes(32).toString('base64url');
@@ -308,6 +381,10 @@ export function createSessionAdapter(options: SessionAdapterOptions): SessionAda
       };
     },
 
+    // Called by the server with a name the server made, never one a browser
+    // sent. The challenge is bound to that name; the options ask for a
+    // discoverable, user-verified credential whose user handle is the name,
+    // so a later sign-in finds the account from the passkey itself.
     async registerPasskey(subject: string): Promise<{ optionsJson: string }> {
       if (options.passkey === undefined) {
         throw new Error('session adapter: passkey is not configured (FREEAGENTS_PASSKEY_RP_ID unset)');
@@ -315,42 +392,131 @@ export function createSessionAdapter(options: SessionAdapterOptions): SessionAda
       const regOptions = await generateRegistrationOptions({
         rpName: options.passkey.rpName,
         rpID: options.passkey.rpID,
-        userName: subject,
+        // A plain label for the browser's passkey picker. The name rides
+        // only in the user handle (userID), never in a visible label.
+        userName: PASSKEY_LABEL,
+        userID: new TextEncoder().encode(subject),
         attestationType: 'none',
-        authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
+        authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
       });
-      registrationChallenges.set(subject, { challenge: regOptions.challenge, createdAtMs: now(), used: false });
+      registrationChallenges.set(regOptions.challenge, { subject, createdAtMs: now(), used: false });
       return { optionsJson: JSON.stringify(regOptions) };
     },
 
-    // responseJson carries { subject, response }: the subject names which
-    // registerPasskey() challenge this completes (the browser's WebAuthn
-    // response has no notion of "subject" on its own; binding it to one is
-    // this adapter's job, like any relying party's).
+    // responseJson carries { response }: the browser's registration
+    // response. The ceremony is found by the challenge inside its
+    // clientDataJSON; anything else the envelope carries (a `subject` an
+    // older page still sends) is not read. A failed attempt is null; a
+    // storage failure throws, so the route answers 503 and no session is
+    // minted for a passkey that was never stored.
     async verifyPasskey(responseJson: string): Promise<Session | null> {
       if (options.passkey === undefined) return null;
+      let subject: string;
+      let credential: VerifiedCredential;
       try {
         const parsed: unknown = JSON.parse(responseJson);
         if (typeof parsed !== 'object' || parsed === null) return null;
-        const envelope = parsed as { subject?: unknown; response?: unknown };
-        if (typeof envelope.subject !== 'string' || envelope.response === undefined) return null;
+        const response = (parsed as { response?: unknown }).response;
+        if (response === undefined) return null;
 
-        const challengeRow = registrationChallenges.get(envelope.subject);
-        if (challengeRow === undefined || challengeRow.used) return null;
-        if (now() - challengeRow.createdAtMs > passkeyChallengeTtlMs) return null;
-        challengeRow.used = true; // single-use regardless of outcome
+        const taken = takeChallenge(registrationChallenges, response);
+        if (taken === null || taken.row.subject === null) return null;
 
         const verification = await verifyRegistrationResponse({
-          response: envelope.response as RegistrationResponseJSON,
-          expectedChallenge: challengeRow.challenge,
+          response: response as RegistrationResponseJSON,
+          expectedChallenge: taken.challenge,
           expectedOrigin: options.passkey.origin,
           expectedRPID: options.passkey.rpID,
+          requireUserVerification: true,
         });
         if (!verification.verified) return null;
-        return newSession(envelope.subject, 'passkey');
+        subject = taken.row.subject;
+        credential = verification.registrationInfo.credential;
       } catch {
         return null;
       }
+
+      try {
+        await passkeys.save({
+          id: credential.id,
+          subject,
+          publicKey: credential.publicKey,
+          counter: credential.counter,
+          transports: credential.transports ?? [],
+          createdAt: new Date(now()),
+          lastUsedAt: null,
+        });
+      } catch (err) {
+        // A credential id already bound is a refused attempt, not a fault:
+        // nothing was stored and nothing is minted.
+        if (err instanceof PasskeyCredentialAlreadyExistsError) return null;
+        throw err;
+      }
+      return newSession(subject, 'passkey');
+    },
+
+    // The returning half. No allowCredentials: the browser offers the
+    // passkeys it holds for this site, and the one it picks names the
+    // account through its user handle.
+    async beginPasskeySignIn(): Promise<{ optionsJson: string }> {
+      if (options.passkey === undefined) {
+        throw new Error('session adapter: passkey is not configured (FREEAGENTS_PASSKEY_RP_ID unset)');
+      }
+      const authOptions = await generateAuthenticationOptions({
+        rpID: options.passkey.rpID,
+        userVerification: 'required',
+      });
+      signInChallenges.set(authOptions.challenge, { subject: null, createdAtMs: now(), used: false });
+      return { optionsJson: JSON.stringify(authOptions) };
+    },
+
+    // responseJson is the browser's authentication response itself. Every
+    // refusal is null; a storage failure throws.
+    async completePasskeySignIn(responseJson: string): Promise<Session | null> {
+      if (options.passkey === undefined) return null;
+      const passkey = options.passkey;
+      let response: AuthenticationResponseJSON;
+      try {
+        const parsed: unknown = JSON.parse(responseJson);
+        if (typeof parsed !== 'object' || parsed === null) return null;
+        response = parsed as AuthenticationResponseJSON;
+      } catch {
+        return null;
+      }
+      // Consumed here, on this attempt, whatever the rest does.
+      const taken = takeChallenge(signInChallenges, response);
+      if (taken === null) return null;
+      if (typeof response.id !== 'string' || response.id.length === 0) return null;
+
+      const stored = await passkeys.findById(response.id);
+      if (stored === null) return null;
+
+      const userHandle = response.response?.userHandle;
+      if (typeof userHandle !== 'string') return null;
+      if (Buffer.from(userHandle, 'base64url').toString('utf8') !== stored.subject) return null;
+
+      let newCounter: number;
+      try {
+        const verification = await verifyAuthenticationResponse({
+          response,
+          expectedChallenge: taken.challenge,
+          expectedOrigin: passkey.origin,
+          expectedRPID: passkey.rpID,
+          credential: {
+            id: stored.id,
+            publicKey: stored.publicKey,
+            counter: stored.counter,
+            transports: stored.transports as AuthenticatorTransportFuture[],
+          },
+          requireUserVerification: true,
+        });
+        if (!verification.verified) return null;
+        newCounter = verification.authenticationInfo.newCounter;
+      } catch {
+        return null;
+      }
+      await passkeys.recordUse(stored.id, newCounter);
+      return newSession(stored.subject, 'passkey');
     },
 
     async getSession(token: string): Promise<Session | null> {
