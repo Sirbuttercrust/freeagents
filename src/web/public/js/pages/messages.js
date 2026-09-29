@@ -904,14 +904,31 @@
     bubbles.forEach(function (b, i) {
       var brow = el("div", "brow");
       brow.appendChild(b);
-      if (i === bubbles.length - 1 && S.writable) brow.appendChild(reactBtn(m.id));
+      if (i === bubbles.length - 1 && S.writable) brow.appendChild(reactBtn(m));
       wrap.appendChild(brow);
     });
     return wrap;
   }
-  function reactBtn(id) {
-    var b = button("reactbtn", "React or reply to this message");
-    b.setAttribute("data-menu", id);
+  /* SW2-09: every message carries this button, so its accessible name
+     says which message it acts on: the author as the thread shows them
+     and the message's first words, clipped on a word boundary so a
+     screen reader never hears half a word. */
+  function firstWords(text, max) {
+    var s = String(text || "").replace(/\s+/g, " ").trim();
+    if (s.length <= max) return s;
+    var cut = s.slice(0, max + 1);
+    var end = cut.lastIndexOf(" ");
+    // One word longer than max stays whole rather than being cut in half.
+    if (end <= 0) return s.split(" ")[0];
+    return cut.slice(0, end).replace(/[\s,;:\u2014-]+$/, "");
+  }
+  function reactLabel(m) {
+    var words = firstWords(preview(m), 40);
+    return "React or reply to " + authorShort(m) + (words ? ": " + words : "");
+  }
+  function reactBtn(m) {
+    var b = button("reactbtn", reactLabel(m));
+    b.setAttribute("data-menu", m.id);
     b.appendChild(icon("smileplus"));
     return b;
   }
@@ -1036,7 +1053,7 @@
     cw.appendChild(qc);
     var brow = el("div", "brow");
     brow.appendChild(cw);
-    if (S.writable) brow.appendChild(reactBtn(m.id));
+    if (S.writable) brow.appendChild(reactBtn(m));
     wrap.appendChild(brow);
     return wrap;
   }

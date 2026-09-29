@@ -384,6 +384,41 @@ describe('the My agents screen, driven end to end against the real app', () => {
     }
   });
 
+  // SW2-08 pin (a): every unconfirmed row's link reads "confirm it", so a
+  // screen reader told them apart by nothing. Each link's accessible name
+  // now names its own agent as the row shows it, whole string.
+  it('SW2-08: two unconfirmed agents give two different accessible names, each "Confirm GitHub for <name>" whole, the visible words unchanged', async () => {
+    // Seeded here, so the pin stands on its own when run alone.
+    const me = (await (await fetch(`${baseUrl}/accounts/me`, {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${emptyOperatorSession.token}` },
+    })).json()) as { did: string };
+    const pair: Array<[string, string]> = [
+      ['did:abt:myagents-sw2-08-a', 'sw2-atlas'],
+      ['did:abt:myagents-sw2-08-b', 'sw2-borealis'],
+    ];
+    for (const [did, name] of pair) {
+      await agentRepo.create({ did, operatorDid: me.did, delegation: delegationFixture(did, me.did), name, skills: [], githubLogin: null });
+    }
+    const page = await renderMyAgents(baseUrl, emptyOperatorSession);
+    try {
+      const rows = Array.from(page.document.querySelectorAll('#rows > *'));
+      const labelFor = (did: string): string | null | undefined => {
+        const row = rows.find((r) => r.querySelector('a.nm')?.getAttribute('href') === `/agents/${encodeURIComponent(did)}`);
+        expect(row, `${did}'s row`).toBeTruthy();
+        const link = row?.querySelector('.attn a[href^="/agentsettings"]');
+        expect(link?.textContent, `${did}'s visible words`).toBe('confirm it');
+        return link?.getAttribute('aria-label');
+      };
+      expect(labelFor(pair[0]![0])).toBe('Confirm GitHub for sw2-atlas');
+      expect(labelFor(pair[1]![0])).toBe('Confirm GitHub for sw2-borealis');
+      const all = Array.from(page.document.querySelectorAll('.attn a[href^="/agentsettings"]')).map((a) => a.getAttribute('aria-label'));
+      expect(all.length, 'at least the two unconfirmed agents').toBeGreaterThanOrEqual(2);
+      expect(new Set(all).size, `labels: ${JSON.stringify(all)}`).toBe(all.length);
+    } finally {
+      page.close();
+    }
+  });
+
   it('a per-agent detail read that fails leaves that row rendered with its counts and no attention line, never a guessed "confirmed" (done-means 5, mutation proof 2)', async () => {
     await agentRepo.create({
       did: FLAKY_AGENT_DID,

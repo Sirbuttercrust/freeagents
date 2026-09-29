@@ -128,7 +128,14 @@ async function openRoster(b: RealBrowser): Promise<{ rowsAt: number; dcl: number
 }
 
 describe('SW2-03: a reveal block taller than the screen shows at once', { timeout: 60000 }, () => {
-  it('(a) /myagents with 101 agents at 390 x 844: 400 ms after the rows land the roster is in and the first row is at opacity 1, before the fallback', async () => {
+  // t_70cced06: this used to read the first row's opacity at a fixed 400 ms
+  // against > 0.9. The entrance runs 450 ms, so a slow runner caught it
+  // mid-fade (0.83) with is-in already set. What SW2-03 needs is that the
+  // observer revealed the roster, not a wall-clock frame of its fade: so at
+  // 400 ms the roster must be is-in and its first row visibly on its way
+  // (opacity above 0, or its transition running), and once that row's own
+  // animations finish it must sit at opacity 1, all before the fallback.
+  it('(a) /myagents with 101 agents at 390 x 844: 400 ms after the rows land the roster is in and its first row is fading in or shown, and it settles at opacity 1 before the fallback', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found; skipping (see CHROME_BIN)');
       return;
@@ -137,13 +144,15 @@ describe('SW2-03: a reveal block taller than the screen shows at once', { timeou
       const { rowsAt, dcl } = await openRoster(b);
       expect(rowsAt, `the roster never rendered ${ROSTER} rows`).toBeGreaterThan(0);
       await new Promise((r) => setTimeout(r, 400));
-      const at400 = await b.evaluate<{ now: number; isIn: boolean; height: number; opacity: number }>(`(function () {
+      const at400 = await b.evaluate<{ now: number; isIn: boolean; height: number; opacity: number; fading: boolean }>(`(function () {
         var rows = document.getElementById('rows');
+        var first = rows.querySelector('.arow');
         return {
           now: performance.now(),
           isIn: rows.classList.contains('is-in'),
           height: rows.getBoundingClientRect().height,
-          opacity: parseFloat(getComputedStyle(rows.querySelector('.arow')).opacity)
+          opacity: parseFloat(getComputedStyle(first).opacity),
+          fading: first.getAnimations().some(function (a) { return a.playState === 'running'; })
         };
       })()`);
       // The entrance runs 450 ms (base.css); wait out whatever is left of
@@ -163,8 +172,11 @@ describe('SW2-03: a reveal block taller than the screen shows at once', { timeou
     expect(got.at400.height, 'the roster is not taller than 20 screens: the fixture no longer reproduces SW2-03').toBeGreaterThan(HEIGHT * 20);
     expect(got.settled.jsReveal, 'the reveal layer never armed, so this proves nothing').toBe(true);
     expect(got.at400.isIn, 'the roster has no is-in 400 ms after its rows landed').toBe(true);
-    expect(got.at400.opacity, 'the first row is still transparent 400 ms after the rows landed').toBeGreaterThan(0.9);
-    expect(got.settled.opacity).toBe('1');
+    expect(
+      got.at400.opacity > 0 || got.at400.fading,
+      `the first row is neither fading in nor shown 400 ms after the rows landed (opacity ${got.at400.opacity}, no running transition)`,
+    ).toBe(true);
+    expect(got.settled.opacity, 'the first row did not settle at full opacity').toBe('1');
     // Both reads came before ui.js's fallback could have fired.
     expect(got.settled.now - got.dcl, 'read after the 3 s fallback: the fallback, not the observer, may have revealed it').toBeLessThan(FALLBACK_MS);
   });

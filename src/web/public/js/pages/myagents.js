@@ -184,7 +184,7 @@
     var name = document.createElement("a");
     name.className = "nm";
     name.setAttribute("href", "/agents/" + encodeURIComponent(agent.did));
-    name.textContent = typeof agent.name === "string" && agent.name !== "" ? agent.name : A.shortDid(agent.did);
+    name.textContent = displayName(agent);
     body.appendChild(name);
 
     /* FIX-B43b: an agent its owner has stopped listing says so beside its
@@ -334,7 +334,7 @@
       if (result.state !== "ok") return;
       var detail = result.value;
       paintAvatar(row, agent.did, detail.avatarSpec);
-      if (detail.proofStatus !== "verified") renderAttention(row, agent.did);
+      if (detail.proofStatus !== "verified") renderAttention(row, agent.did, displayName(agent));
       renderAvatarEditor(row, agent, detail);
     });
   }
@@ -609,8 +609,14 @@
   /* The wireframe's own line (myagents.html:87): "GitHub not confirmed ·
      confirm it", the link opening this agent's settings, where the
      one-click proof's button lives (FIX-B47c). The .attn a rules in
-     myagents.html give the link its 44px on touch. */
-  function renderAttention(row, agentDid) {
+     myagents.html give the link its 44px on touch.
+     SW2-08: every row's link reads "confirm it", so its accessible name
+     carries the agent's name as the row shows it, the way the row's
+     Settings link is already named. */
+  function displayName(agent) {
+    return typeof agent.name === "string" && agent.name !== "" ? agent.name : A.shortDid(agent.did);
+  }
+  function renderAttention(row, agentDid, agentName) {
     var body = row.children[1];
     if (!body) return;
     var attn = document.createElement("div");
@@ -619,6 +625,7 @@
     var confirm = document.createElement("a");
     confirm.href = "/agentsettings?agent=" + encodeURIComponent(agentDid);
     confirm.textContent = "confirm it";
+    confirm.setAttribute("aria-label", "Confirm GitHub for " + agentName);
     attn.appendChild(confirm);
     // The wireframe's own order is GitHub first (myagents.html:83,97): a
     // row already carrying the work-offered line (rendered synchronously

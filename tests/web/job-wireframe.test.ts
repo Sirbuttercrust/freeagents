@@ -38,6 +38,18 @@ const NO_AGENT_JOB_AGENT_DID = 'did:abt:zW4MissingAgent';
 
 const RECENT = new Date(Date.now() - 60 * 60 * 1000);
 
+// SW2-10: any form of "watch" in rendered copy is a claim the platform
+// watched a merge, which it never does.
+const WATCHED = /\bwatch(ed|ing)?\b/i;
+
+// The words a page renders: body text with scripts, styles and templates
+// removed (comments are never in textContent).
+function renderedText(doc: Document): string {
+  const clone = doc.body.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('script, style, template, noscript').forEach((n) => n.remove());
+  return clone.textContent ?? '';
+}
+
 function delegationFixture(did: string): Delegation {
   return {
     '@context': ['https://www.w3.org/2018/credentials/v1'],
@@ -497,18 +509,20 @@ describe('Who did what tells the wireframe\'s fork story once a pull request exi
   });
 
   // D4 (qa round 2, unverified-state-claim): renderAccessline always ended
-  // "We watched that happen and recorded it; we did not do it.", a
-  // past-tense claim that a merge was observed, even on states where no
-  // merge ever happened. The standing-truth mechanism (never had access,
-  // cannot be given write access) must keep shipping in every state; only
-  // the observation claim is conditional on a merge the page actually read.
+  // with a past-tense claim that a merge was observed, even on states
+  // where no merge ever happened. SW2-10 later reworded that claim to "We
+  // saw the merge on GitHub and recorded it; we did not do it.". The
+  // standing-truth mechanism (never had access, cannot be given write
+  // access) must keep shipping in every state; only the observation claim
+  // is conditional on a merge the page actually read.
   it('never claims an observed merge on a draft, which has no pull request at all', async () => {
     const page = await render('/jobs/w4-job-draft');
     try {
       const body = page.document.body.textContent ?? '';
       expect(body).toContain('never had');
       expect(body).toContain('cannot be given write access');
-      expect(body).not.toContain('We watched that happen');
+      expect(body).not.toContain('We saw the merge on GitHub');
+      expect(body).not.toMatch(WATCHED);
       expect(body.toLowerCase()).not.toContain('the pull request came from');
     } finally {
       page.close();
@@ -521,7 +535,8 @@ describe('Who did what tells the wireframe\'s fork story once a pull request exi
       const body = page.document.body.textContent ?? '';
       expect(body).toContain('never had');
       expect(body).toContain('cannot be given write access');
-      expect(body).not.toContain('We watched that happen');
+      expect(body).not.toContain('We saw the merge on GitHub');
+      expect(body).not.toMatch(WATCHED);
     } finally {
       page.close();
     }
@@ -533,7 +548,8 @@ describe('Who did what tells the wireframe\'s fork story once a pull request exi
       const body = page.document.body.textContent ?? '';
       expect(body).toContain('never had');
       expect(body).toContain('cannot be given write access');
-      expect(body).not.toContain('We watched that happen');
+      expect(body).not.toContain('We saw the merge on GitHub');
+      expect(body).not.toMatch(WATCHED);
     } finally {
       page.close();
     }
@@ -545,7 +561,8 @@ describe('Who did what tells the wireframe\'s fork story once a pull request exi
       const body = page.document.body.textContent ?? '';
       expect(body).toContain('never had');
       expect(body).toContain('cannot be given write access');
-      expect(body).not.toContain('We watched that happen');
+      expect(body).not.toContain('We saw the merge on GitHub');
+      expect(body).not.toMatch(WATCHED);
     } finally {
       page.close();
     }
@@ -555,10 +572,56 @@ describe('Who did what tells the wireframe\'s fork story once a pull request exi
     const page = await render('/jobs/w4-job-completed');
     try {
       const body = page.document.body.textContent ?? '';
-      expect(body).toContain('We watched that happen and recorded it; we did not do it.');
+      // SW2-10: the platform checks GitHub when a hire is opened and
+      // watches nothing, so the sentence says it saw the merge there.
+      expect(body).toContain('We saw the merge on GitHub and recorded it; we did not do it.');
     } finally {
       page.close();
     }
+  });
+
+  // SW2-10 pin (e): the platform learns of a merge by checking GitHub when
+  // either side opens the hire (job.js's "submitted" state sentence) and no
+  // scheduler or webhook exists (pullrequest.html's comment, rule 4), so no
+  // page that renders hire or evidence copy may say it watched one. Each
+  // surface that used to say so is read at its own element, whole string,
+  // and the page's rendered text (scripts and styles removed) carries no
+  // form of "watch" at all.
+  describe('SW2-10: no page says the platform watched a merge', () => {
+    const surfaces: Array<{ path: string; selector: string; want: string }> = [
+      // The landing page keeps "merge" off by rule (landing-simple.test.ts,
+      // DESIGN.md 1.3), so its chip says what the platform does: it checks.
+      { path: '/', selector: '#tier-1', want: 'Hires we checked' },
+      { path: `/agents/${AGENT_DID}`, selector: '.pstat.is-hire .sub2', want: 'we saw them merge' },
+      { path: '/how', selector: '.evrow.t1 .evwho', want: 'We did. We saw the pull request merge on GitHub.' },
+    ];
+    for (const s of surfaces) {
+      it(`${s.path} reads "${s.want}" and renders no form of "watch"`, async () => {
+        const page = await render(s.path);
+        try {
+          const el = page.document.querySelector(s.selector);
+          expect(el, `${s.selector} on ${s.path}`).not.toBeNull();
+          expect((el!.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(s.want);
+          expect(renderedText(page.document)).not.toMatch(WATCHED);
+        } finally {
+          page.close();
+        }
+      });
+    }
+
+    it('a completed job\'s FreeAgents row reads the saw sentence whole, and the page renders no form of "watch"', async () => {
+      const page = await render('/jobs/w4-job-completed');
+      try {
+        const rows = Array.from(page.document.querySelectorAll('.whodid-row'));
+        const ours = rows.find((r) => (r.textContent ?? '').includes('FreeAgents'));
+        expect(ours, 'the FreeAgents row').toBeTruthy();
+        const what = (ours!.textContent ?? '').replace(/\s+/g, ' ');
+        expect(what).toContain('We saw the merge on GitHub and recorded it; we did not do it. We cannot be given write access to');
+        expect(renderedText(page.document)).not.toMatch(WATCHED);
+      } finally {
+        page.close();
+      }
+    });
   });
 
   // STG2: the agent opens the pull request from its own fork, and POST
