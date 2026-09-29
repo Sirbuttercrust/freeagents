@@ -429,6 +429,69 @@
     }
   }
 
+  /* ------------------------------------------------------ the ABT rate */
+
+  /* FIX-B70b: the ABT payment sheet on /deposit and /staged shows the rate
+     the payment is locked at. The start route (POST .../abt/start) answers
+     it in `extra.abtQuote` as { usdPerAbt, rateUpdatedAt, expiresAt, ... },
+     written once per press when the payment session is minted
+     (src/adapters/payment/abt-did-connect.ts, onStart). Both pages read it
+     through these, so they read it the same way. It lives here because
+     both page shells already load this file first; a separate file would be
+     one more script tag in each shell for the same two functions.
+
+     A quote is usable when usdPerAbt is a plain decimal string, expiresAt
+     parses as a time, and rateUpdatedAt is null or parses as a time. The
+     rate is shown exactly as locked, trailing zeros trimmed to no fewer
+     than two decimals and never rounded. Both times are local clock times,
+     never "minutes ago" and never a countdown: the sheet stays open with no
+     timer, so a relative time would go false while it sat there. No ABT
+     amount is shown; the wallet shows that. */
+  var ABT_PRICE_PHRASE = "price is not available";
+  var ABT_PRICE_SENTENCE = "The ABT price is not available right now. Nothing was charged. Try again in a minute.";
+
+  function clockTime(value) {
+    if (typeof value !== "string" || value === "") return null;
+    var ms = Date.parse(value);
+    if (isNaN(ms)) return null;
+    return new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+
+  function lockedRate(usdPerAbt) {
+    if (typeof usdPerAbt !== "string" || !/^\d+(\.\d+)?$/.test(usdPerAbt)) return null;
+    var parts = usdPerAbt.split(".");
+    var frac = (parts[1] || "").replace(/0+$/, "");
+    while (frac.length < 2) frac += "0";
+    return parts[0] + "." + frac;
+  }
+
+  /* The lines to draw for one start answer's quote, or null when the quote
+     is unusable. `updated` is what follows "Price data by CoinGecko". */
+  function abtQuoteLines(quote) {
+    if (!quote || typeof quote !== "object") return null;
+    var rate = lockedRate(quote.usdPerAbt);
+    var heldUntil = clockTime(quote.expiresAt);
+    var updatedAt = quote.rateUpdatedAt === null ? null : clockTime(quote.rateUpdatedAt);
+    if (rate === null || heldUntil === null) return null;
+    if (quote.rateUpdatedAt !== null && updatedAt === null) return null;
+    return {
+      rate: "1 ABT = $" + rate + ", held until " + heldUntil + ".",
+      updated: updatedAt === null ? "." : ", updated " + updatedAt + "."
+    };
+  }
+
+  /* Fills the sheet's #abt-rate block from this press's quote and shows
+     it, overwriting whatever an earlier press drew. Unusable: the block is
+     emptied and hidden, and this answers false so the page opens no sheet
+     (a wallet opened on a payment with no locked price has to refuse it). */
+  function drawAbtQuote(quote) {
+    var lines = abtQuoteLines(quote);
+    setTextById("abt-rate-line", lines === null ? "" : lines.rate);
+    setTextById("abt-rate-updated", lines === null ? "" : lines.updated);
+    showById("abt-rate", lines !== null);
+    return lines !== null;
+  }
+
   global.FAApi = {
     get: get,
     getLinkedData: getLinkedData,
@@ -455,6 +518,10 @@
     plural: plural,
     credentialPath: credentialPath,
     credentialKey: credentialKey,
-    idFromPath: idFromPath
+    idFromPath: idFromPath,
+    ABT_PRICE_PHRASE: ABT_PRICE_PHRASE,
+    ABT_PRICE_SENTENCE: ABT_PRICE_SENTENCE,
+    abtQuoteLines: abtQuoteLines,
+    drawAbtQuote: drawAbtQuote
   };
 })(window);

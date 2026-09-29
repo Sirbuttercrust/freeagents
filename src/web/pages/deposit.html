@@ -112,7 +112,15 @@
      wireframe, the scan sheet below, and exists in no sheet because no
      other screen draws it. */
   .urlcopy { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
-  .urlcopy input { flex: 1; min-width: 0; }</style>
+  .urlcopy input { flex: 1; min-width: 0; }
+
+  /* The Copy button in that row is .btn-sm, which base.css declares 32px
+     tall and raises to 44px only under (max-width: 760px) or a coarse
+     pointer. Measured in real Chrome at 1280 with a fine pointer before
+     this rule: 58 x 32 (tests/web/abt-rate-layout.test.ts). staged.html
+     floors its copy controls with this same selector, keyed on
+     [data-copy] because that is what ui.js sweeps. */
+  [data-copy] { min-height: 44px; min-width: 44px; }</style>
 </head>
 <body>
 <nav class="nav">
@@ -277,9 +285,17 @@
      markup.
 
      Checked against the shipped markup: this dialog holds one readonly
-     input, no element with class "qr", and these buttons: Copy, the close
+     input, no element with class "qr", these buttons: Copy, the close
      cross, Cancel, "I approved in my wallet", and the four USDC presses
-     below.
+     below, and one link, CoinGecko.
+
+     FIX-B70b: under the address, #abt-rate shows the ABT/USD rate this
+     press locked, when the lock ends and when CoinGecko last updated the
+     price, with "CoinGecko" linked to their site in a new tab (their
+     attribution terms). deposit.js fills it from the start answer through
+     FAApi.drawAbtQuote before the sheet opens; it sits inside #scan-abt so
+     the USDC and paid modes hide it with the address. It shows the rate
+     and never an ABT amount: the wallet shows that.
 
      USDC-WEBb: the same sheet pays in USDC with no address (the engine
      asks the wallet for both transfers); usdc-pay.js draws the rest with
@@ -292,6 +308,10 @@
       <div class="urlcopy">
         <input class="input mono" id="scan-url" type="text" readonly aria-label="Wallet payment address">
         <button class="btn btn-sm" type="button" id="scan-url-copy" data-copy="">Copy</button>
+      </div>
+      <div class="abt-rate" id="abt-rate" hidden>
+        <p id="abt-rate-line"></p>
+        <p>Price data by <a id="abt-rate-source" href="https://www.coingecko.com" target="_blank" rel="noopener noreferrer">CoinGecko</a><span id="abt-rate-updated"></span></p>
       </div>
     </div>
     <p class="sub" style="margin-top:18px; text-align:center; max-width:none" id="scan-approvals-line"></p>

@@ -152,6 +152,20 @@ h1 {
    takes the underline, so a sentence does not turn blue. */
 :focus-visible { outline-color: var(--action); }
 
+/* ---------------------------------------------------------- the ABT rate
+   FIX-B70b: the two lines under the address in the ABT pay sheet on
+   deposit and staged (#abt-rate, filled by FAApi.drawAbtQuote). Small
+   supporting text, the size and colour of the .sub line beside it. The
+   CoinGecko link sits inside a sentence, so it keeps the sentence's colour
+   and takes an underline, and it gets no padding: DESIGN.md 5.3 exempts a
+   link inside a sentence from the 44px floor. The class is not .sub on
+   purpose: base.css pads every `.sub a` under a coarse pointer. */
+.abt-rate { margin-top: 12px; }
+.abt-rate p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--fg-2); }
+.abt-rate p + p { margin-top: 2px; }
+.abt-rate a { text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+.abt-rate a:hover { color: var(--fg); text-decoration-color: var(--fg-3); }
+
 /* -------------------------------------------------------------------- nav
    The bar every page carries. Below 761px the links fold into a menu that
    is a real disclosure (nav.js): a button with aria-expanded and
