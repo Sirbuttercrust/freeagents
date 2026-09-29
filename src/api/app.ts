@@ -2047,9 +2047,13 @@ export function createApp(
       // The stored column matches exactly, so every spelling in play (the
       // one GitHub gave, the one the caller typed, and lower case) is
       // looked up; a row written before this rule may hold any of them.
+      // A row that belongs to this same DID is not "another account": that
+      // case falls through to register(), which answers that the DID is
+      // already registered, the sentence that is true for it.
       try {
         for (const spelling of new Set([provedLogin, claimedLogin, provedLogin.toLowerCase()])) {
-          if ((await repo.findByGithubLogin(spelling)) !== null) {
+          const holder = await repo.findByGithubLogin(spelling);
+          if (holder !== null && holder.did !== did) {
             res.status(409).json({ error: `the GitHub login ${provedLogin} is already bound to another account` });
             return;
           }

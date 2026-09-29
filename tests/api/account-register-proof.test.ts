@@ -124,8 +124,8 @@ describe('POST /accounts: a GitHub login is stored only when a signed gist prove
 
   // A fresh app per test: the store, the gists and the call count all start
   // empty, so "nothing stored" and "never fetched" mean this test's own call.
-  async function start(login = 'session-user-unused'): Promise<void> {
-    accountRepo = new MemoryAccountRepository();
+  async function start(login = 'session-user-unused', repo?: MemoryAccountRepository): Promise<void> {
+    accountRepo = repo ?? new MemoryAccountRepository();
     jobRepo = new MemoryJobRepository();
     gists = new Map();
     getPublicGist = vi.fn();
@@ -218,6 +218,21 @@ describe('POST /accounts: a GitHub login is stored only when a signed gist prove
   });
 
   it.each([
+    ['a gist that is not a string', 42],
+    ['an empty gist', ''],
+  ])('%s, sent with a login, is 400 and stores nothing (it is not read as "no gist")', async (_name, gist) => {
+    await start();
+    const id = await freshIdentity();
+    const res = await postJson(baseUrl, '/accounts', { did: id.did, githubLogin: 'gist-shape-user', gist });
+    expect(res.status).toBe(400);
+    expect(await errorOf(res)).toBe(
+      'body must be { did, githubLogin?, gist?, passkeySubject? }; did and githubLogin are non-empty strings, githubLogin has no whitespace, gist is a URL',
+    );
+    expect((await readBack(id.did)).status).toBe(404);
+    expect(getPublicGist).not.toHaveBeenCalled();
+  });
+
+  it.each([
     ['an empty githubLogin', ''],
     ['a githubLogin with whitespace', 'has space'],
   ])('%s is 400 and stores nothing', async (_name, githubLogin) => {
@@ -275,6 +290,20 @@ describe('POST /accounts: a GitHub login is stored only when a signed gist prove
     expect(res.status).toBe(201);
     expect(((await res.json()) as Record<string, unknown>).githubLogin).toBe('mixed-case-user');
     expect((await accountRepo.findByGithubLogin('mixed-case-user'))?.did).toBe(id.did);
+  });
+
+  it('(d) the gist URL owner matches the login without case: a URL spelled Lower-Owner registers lower-owner', async () => {
+    await start();
+    const id = await freshIdentity();
+    publishGist('g-d0', id, 'lower-owner');
+    const res = await postJson(baseUrl, '/accounts', {
+      did: id.did,
+      githubLogin: 'lower-owner',
+      gist: 'https://gist.github.com/Lower-Owner/g-d0',
+    });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as Record<string, unknown>).githubLogin).toBe('lower-owner');
+    expect((await accountRepo.findByGithubLogin('lower-owner'))?.did).toBe(id.did);
   });
 
   it('(d) a gist whose URL owner is not the login is 409 and stores nothing', async () => {
@@ -559,6 +588,65 @@ describe('POST /accounts: a GitHub login is stored only when a signed gist prove
     expect(res.status).toBe(409);
     expect(await errorOf(res)).toBe('the GitHub login case-taken is already bound to another account');
     expect((await readBack(second.did)).status).toBe(404);
+  });
+
+  it('(j) a row written before this rule under the spelling the caller typed still counts as taken', async () => {
+    await start();
+    const legacy = await freshIdentity();
+    const newcomer = await freshIdentity();
+    await accountRepo.register({ did: legacy.did, githubLogin: 'Legacy-Typed' });
+    // GitHub spells the account legacy-typed; the caller typed Legacy-Typed, the legacy row's spelling.
+    const url = publishGist('g-j5', newcomer, 'Legacy-Typed', 'legacy-typed');
+    const res = await postJson(baseUrl, '/accounts', { did: newcomer.did, githubLogin: 'Legacy-Typed', gist: url });
+    expect(res.status).toBe(409);
+    expect(await errorOf(res)).toBe('the GitHub login legacy-typed is already bound to another account');
+    expect((await readBack(newcomer.did)).status).toBe(404);
+    expect((await accountRepo.findByGithubLogin('Legacy-Typed'))?.did).toBe(legacy.did);
+  });
+
+  it('(j) a row written before this rule in lower case still counts as taken when GitHub spells the login in mixed case', async () => {
+    await start();
+    const legacy = await freshIdentity();
+    const newcomer = await freshIdentity();
+    await accountRepo.register({ did: legacy.did, githubLogin: 'mixed-author' });
+    // Three spellings in play: typed MIXED-AUTHOR, GitHub's Mixed-Author, and the lower case the legacy row holds.
+    const url = publishGist('g-j6', newcomer, 'MIXED-AUTHOR', 'Mixed-Author');
+    const res = await postJson(baseUrl, '/accounts', { did: newcomer.did, githubLogin: 'MIXED-AUTHOR', gist: url });
+    expect(res.status).toBe(409);
+    expect(await errorOf(res)).toBe('the GitHub login Mixed-Author is already bound to another account');
+    expect((await readBack(newcomer.did)).status).toBe(404);
+  });
+
+  it('(j) storage failing during the taken-login check is 503 and stores nothing', async () => {
+    class LookupFails extends MemoryAccountRepository {
+      override async findByGithubLogin(): Promise<never> {
+        throw new Error('database unreachable');
+      }
+    }
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      await start('session-user-unused', new LookupFails());
+      const id = await freshIdentity();
+      const url = publishGist('g-j7', id, 'storage-user');
+      const res = await postJson(baseUrl, '/accounts', { did: id.did, githubLogin: 'storage-user', gist: url });
+      expect(res.status).toBe(503);
+      expect(await errorOf(res)).toBe('storage unavailable');
+      expect((await readBack(id.did)).status).toBe(404);
+    } finally {
+      quiet.mockRestore();
+    }
+  });
+
+  it('(j) the same proved body sent twice: the second answers that the DID is registered, not that the login is bound to another account', async () => {
+    await start();
+    const id = await freshIdentity();
+    const url = publishGist('g-j8', id, 'same-user');
+    const body = { did: id.did, githubLogin: 'same-user', gist: url };
+    expect((await postJson(baseUrl, '/accounts', body)).status).toBe(201);
+    const again = await postJson(baseUrl, '/accounts', body);
+    expect(again.status).toBe(409);
+    expect(await errorOf(again)).toBe(`operator ${id.did} is already registered`);
+    expect((await accountRepo.findByGithubLogin('same-user'))?.did).toBe(id.did);
   });
 
   it('a DID that is already registered still says so, for a DID with no login', async () => {
