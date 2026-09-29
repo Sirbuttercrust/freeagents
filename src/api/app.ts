@@ -2044,8 +2044,9 @@ export function createApp(
       // A proved login already on another account is refused with the
       // sentence that is true for it, before register() could turn the
       // unique column into a false "operator <did> is already registered".
-      // The stored column matches exactly, so both spellings in play are
-      // looked up; a row written before this rule may hold either.
+      // The stored column matches exactly, so every spelling in play (the
+      // one GitHub gave, the one the caller typed, and lower case) is
+      // looked up; a row written before this rule may hold any of them.
       try {
         for (const spelling of new Set([provedLogin, claimedLogin, provedLogin.toLowerCase()])) {
           if ((await repo.findByGithubLogin(spelling)) !== null) {
