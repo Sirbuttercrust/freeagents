@@ -218,31 +218,14 @@ describe('POST /accounts: a GitHub login is stored only when a signed gist prove
   });
 
   it.each([
-    ['a gist that is not a string', 42],
-    ['an empty gist', ''],
-  ])('%s, sent with a login, is 400 and stores nothing (it is not read as "no gist")', async (_name, gist) => {
+    ['a gist that is not a string', 'gist-shape-user', 42],
+    ['an empty gist', 'gist-shape-user', ''],
+    ['an empty githubLogin', '', 'https://gist.github.com/x/abc'],
+    ['a githubLogin with whitespace', 'has space', 'https://gist.github.com/x/abc'],
+  ])('%s is 400 and stores nothing', async (_name, githubLogin, gist) => {
     await start();
     const id = await freshIdentity();
-    const res = await postJson(baseUrl, '/accounts', { did: id.did, githubLogin: 'gist-shape-user', gist });
-    expect(res.status).toBe(400);
-    expect(await errorOf(res)).toBe(
-      'body must be { did, githubLogin?, gist?, passkeySubject? }; did and githubLogin are non-empty strings, githubLogin has no whitespace, gist is a URL',
-    );
-    expect((await readBack(id.did)).status).toBe(404);
-    expect(getPublicGist).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ['an empty githubLogin', ''],
-    ['a githubLogin with whitespace', 'has space'],
-  ])('%s is 400 and stores nothing', async (_name, githubLogin) => {
-    await start();
-    const id = await freshIdentity();
-    const res = await postJson(baseUrl, '/accounts', {
-      did: id.did,
-      githubLogin,
-      gist: 'https://gist.github.com/x/abc',
-    });
+    const res = await postJson(baseUrl, '/accounts', { did: id.did, githubLogin, gist });
     expect(res.status).toBe(400);
     expect(await errorOf(res)).toBe(
       'body must be { did, githubLogin?, gist?, passkeySubject? }; did and githubLogin are non-empty strings, githubLogin has no whitespace, gist is a URL',
@@ -590,31 +573,22 @@ describe('POST /accounts: a GitHub login is stored only when a signed gist prove
     expect((await readBack(second.did)).status).toBe(404);
   });
 
-  it('(j) a row written before this rule under the spelling the caller typed still counts as taken', async () => {
+  // A row written before this rule may hold the login under any spelling; the taken check looks up the
+  // spelling GitHub gave, the one the caller typed, and lower case.
+  it.each([
+    ['the spelling the caller typed', 'Legacy-Typed', 'Legacy-Typed', 'legacy-typed'],
+    ['lower case, when GitHub spells the login in mixed case', 'mixed-author', 'MIXED-AUTHOR', 'Mixed-Author'],
+  ])('(j) a row written before this rule under %s still counts as taken', async (_name, held, typed, github) => {
     await start();
     const legacy = await freshIdentity();
     const newcomer = await freshIdentity();
-    await accountRepo.register({ did: legacy.did, githubLogin: 'Legacy-Typed' });
-    // GitHub spells the account legacy-typed; the caller typed Legacy-Typed, the legacy row's spelling.
-    const url = publishGist('g-j5', newcomer, 'Legacy-Typed', 'legacy-typed');
-    const res = await postJson(baseUrl, '/accounts', { did: newcomer.did, githubLogin: 'Legacy-Typed', gist: url });
+    await accountRepo.register({ did: legacy.did, githubLogin: held });
+    const url = publishGist('g-legacy', newcomer, typed, github);
+    const res = await postJson(baseUrl, '/accounts', { did: newcomer.did, githubLogin: typed, gist: url });
     expect(res.status).toBe(409);
-    expect(await errorOf(res)).toBe('the GitHub login legacy-typed is already bound to another account');
+    expect(await errorOf(res)).toBe(`the GitHub login ${github} is already bound to another account`);
     expect((await readBack(newcomer.did)).status).toBe(404);
-    expect((await accountRepo.findByGithubLogin('Legacy-Typed'))?.did).toBe(legacy.did);
-  });
-
-  it('(j) a row written before this rule in lower case still counts as taken when GitHub spells the login in mixed case', async () => {
-    await start();
-    const legacy = await freshIdentity();
-    const newcomer = await freshIdentity();
-    await accountRepo.register({ did: legacy.did, githubLogin: 'mixed-author' });
-    // Three spellings in play: typed MIXED-AUTHOR, GitHub's Mixed-Author, and the lower case the legacy row holds.
-    const url = publishGist('g-j6', newcomer, 'MIXED-AUTHOR', 'Mixed-Author');
-    const res = await postJson(baseUrl, '/accounts', { did: newcomer.did, githubLogin: 'MIXED-AUTHOR', gist: url });
-    expect(res.status).toBe(409);
-    expect(await errorOf(res)).toBe('the GitHub login Mixed-Author is already bound to another account');
-    expect((await readBack(newcomer.did)).status).toBe(404);
+    expect((await accountRepo.findByGithubLogin(held))?.did).toBe(legacy.did);
   });
 
   it('(j) storage failing during the taken-login check is 503 and stores nothing', async () => {
