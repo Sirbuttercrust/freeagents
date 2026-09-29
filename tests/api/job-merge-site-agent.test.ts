@@ -58,6 +58,12 @@ const buyerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(161)
 const walletAgentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(162));
 const strangerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(163));
 
+// The issuer's DID derives from its own key, as a real one does, so the
+// stranger's check can bind the proof's key back to the issuer DID.
+const ISSUER_SEED = new Uint8Array(32).fill(7);
+const issuerKey = await Ed25519VerificationKey2020.generate({ seed: ISSUER_SEED, controller: 'did:abt:pending' });
+const ISSUER_DID = `did:abt:${fromPublicKey((issuerKey as unknown as { _publicKeyBuffer: Uint8Array })._publicKeyBuffer)}`;
+
 const ORIGINAL_SEED = process.env.FREEAGENTS_PLATFORM_SEED;
 let seedCounter = 0;
 const servers: Server[] = [];
@@ -96,7 +102,7 @@ async function boot(identity?: IdentityAdapter): Promise<Rig> {
   const jobRepo = new MemoryJobRepository();
   const credentialRepo = new MemoryCredentialRepository();
   const credentials = createCredentialsAdapter(
-    { did: 'did:abt:test-platform-issuer', seed: new Uint8Array(32).fill(7) },
+    { did: ISSUER_DID, seed: ISSUER_SEED },
     credentialRepo,
   );
   const server = createApp(

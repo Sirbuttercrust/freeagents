@@ -43,9 +43,13 @@ const ED25519_SEED_LENGTH = 32;
 // Error, matching the rest of this codebase's stance (GistNotFoundError,
 // AgentAlreadyExistsError). Callers map it differently depending on whether
 // the caller could have supplied a candidate key: resolveDid has no such
-// caller (POST /jobs/:jobId/merge maps it to 503, a platform failure), while
-// account-proof's verify() call maps it to 409 naming the key-line remedy,
-// because the operator could add a `key` line to the gist and resolve it.
+// caller. The merge route (POST /jobs/:jobId/merge and the deem path) treats
+// it as "no observed key": for a site-listed agent, whose key the platform
+// re-derives from its seed, it names that derived key; for an agent the
+// platform holds no key for, it answers 503, a platform failure. The
+// account-proof route's verify() call maps it to 409 naming the key-line
+// remedy, because the operator could add a `key` line to the gist and
+// resolve it.
 export class DidNotResolvableError extends Error {
   constructor(did: string) {
     super(`${did} has not been observed in this process; no verificationMethod can be derived locally`);
