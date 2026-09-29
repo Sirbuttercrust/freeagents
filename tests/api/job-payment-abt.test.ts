@@ -405,7 +405,18 @@ describe('a hirer pays in ABT from their own DID Wallet, whichever wallet signs 
 
   it('(c) the remainder leg of a staged job is paid the same way and writes the remainder row', async () => {
     const fake = fakeAbtChainClient(true);
-    const { started, header } = await startAbtAppSignedIn(fake);
+    // The fake chain answers every broadcast with one fixed hash, and the
+    // rail refuses a hash that already backed another leg, so the second
+    // payment of this job needs a hash of its own.
+    let broadcasts = 0;
+    const chain = { ...fake.client, sendTx: async (input: Parameters<typeof fake.client.sendTx>[0]) => {
+      const sent = await fake.client.sendTx(input);
+      broadcasts += 1;
+      return { hash: `${sent.hash}-${broadcasts}` };
+    } };
+    const sessionAdapter = testSessionAdapter();
+    const started = await startAbtApp(chain, undefined, async () => '1', sessionAdapter);
+    const header = await sessionHeader(sessionAdapter);
     servers.push(started.server);
     // Setup does not use the behaviour under test: the deposit is paid by
     // the wallet whose DID is the buyer's, the one pairing the old rule took.
@@ -463,7 +474,11 @@ describe('a hirer pays in ABT from their own DID Wallet, whichever wallet signs 
             headers: { 'content-type': 'application/json', ...headers },
             body: JSON.stringify({ startedBy: named, provenStarter: named }),
           })
-        : await fetch(`${started.baseUrl}/api/did/pay/token?jobId=${started.jobId}&leg=deposit&startedBy=${named}`, { headers });
+        : await fetch(`${started.baseUrl}/api/did/pay/token?jobId=${started.jobId}&leg=deposit&startedBy=${named}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...headers },
+            body: JSON.stringify({ startedBy: named, provenStarter: named }),
+          });
     expect(res.status).toBe(200);
     const { token } = (await res.json()) as { token: string };
     expect((await started.sessions.storage.read(token))?.startedBy).toBe(started.buyer.did);

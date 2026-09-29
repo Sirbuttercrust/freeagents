@@ -22,9 +22,13 @@
 //     (depositUsd/remainderUsd against the job's own priceUsd, converted
 //     once at the ABT/USD rate when the session started and written on
 //     the session row), never from extraParams;
-//   - the paying party must be the buyer on the job the session was
-//     bound to at /start time (a session created for one job can never
-//     confirm a payment for another);
+//   - the payment must have been started by the buyer on the job the
+//     session was bound to at /start time: each door proves its caller
+//     is that job's buyer and hands the proven DID to onStart, which
+//     writes it on the session row, and onAuth checks that row, not the
+//     wallet's DID (whatever wallet the buyer pays from signs the buyer's
+//     own transaction; a session created for one job can never confirm a
+//     payment for another);
 //   - the settlement row is written ONLY from onAuth, once confirm()
 //     answered confirmed: true; the /start route never writes one.
 //
@@ -186,6 +190,27 @@ const ABT_QUOTE_LOCK_LIFETIME_MS = 15 * 60 * 1000;
 const NO_LOCK_MESSAGE = 'This payment has no locked ABT price. Start the payment again.';
 const LOCK_EXPIRED_MESSAGE = 'The ABT price for this payment expired. Start the payment again for a fresh price.';
 const PRICE_CHANGED_MESSAGE = 'The agreed price changed after this payment started. Start the payment again.';
+const NO_STARTER_MESSAGE =
+  'This payment session has no signed-in or signed buyer on record. Start the payment again from the job page while signed in as the buyer.';
+const NOT_THE_BUYER_MESSAGE = "this payment session is bound to a different buyer's job";
+
+// The key on the session row that records who started the session: the
+// party a door proved (a live sign-in or a verified signature) before it
+// minted the session. Only onStart writes it, from provenStarters below;
+// a wallet never writes the row, and extraParams (built from the request's
+// body, query and params) never carries it.
+const SESSION_STARTER_KEY = 'startedBy';
+
+// The proven starter of one request, held for that request only. A door
+// calls setProvenStarter after its buyer gate answered, and onStart (which
+// did-connect-js runs inside generateSession with the same request object)
+// reads it. Keyed by the request object, so it is never a query, body or
+// header value and disappears with the request.
+const provenStarters = new WeakMap<object, string>();
+
+export function setProvenStarter(req: Request, did: string): void {
+  provenStarters.set(req, did);
+}
 
 // The ABT price a payment session locked when it started, as written on
 // the session row under `abtQuote` (dates are ISO strings: the row is
@@ -270,6 +295,16 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
     return { ok: true, lock };
   }
 
+  // Who started this session, read from the session row by the session's
+  // own token. Null when the row carries no starter (or none that is a
+  // non-empty string): a wallet cannot write the row, so a null here means
+  // no door proved a party when the session was minted.
+  async function readSessionStarter(token: string): Promise<string | null> {
+    const row = await sessionStorage.read(token);
+    const starter = row?.[SESSION_STARTER_KEY];
+    return typeof starter === 'string' && starter !== '' ? starter : null;
+  }
+
   const authenticator = new WalletAuthenticator({
     wallet: platformWallet,
     baseUrl: options.baseUrl,
@@ -289,20 +324,31 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
     app: options.app,
     action: 'pay',
     // Runs on both doors (the /start route and did-connect-js's own
-    // /api/did/pay/token mount). Quotes the leg's amount once and writes
-    // the lock on the session row through updateSession, the platform's
-    // own write; the returned object reaches the start response as
-    // `extra`. It never throws: a throw here would answer the buyer 200
-    // with an error body. On any failure (no job, no agreed price, no
-    // rate) it writes no lock and answers `{ abtQuote: null }`, and the
-    // claim then refuses for want of a lock.
+    // /api/did/pay/token mount). Records who started the session on the
+    // session row, then quotes the leg's amount once and writes the lock
+    // there through updateSession, the platform's own write; the returned
+    // object reaches the start response as `extra`. The quote never
+    // throws: a throw here would answer the buyer 200 with an error body.
+    // On any failure (no job, no agreed price, no rate) it writes no lock
+    // and answers `{ abtQuote: null }`, and the claim then refuses for want
+    // of a lock.
     onStart: async ({
       extraParams,
       updateSession,
+      req,
     }: {
       readonly extraParams: Record<string, unknown>;
       readonly updateSession: (key: string, value: unknown) => Promise<unknown>;
+      readonly req: Request;
     }): Promise<{ readonly abtQuote: LockedQuoteForCheckout | null }> => {
+      // Who started this session, as the door proved it for this one
+      // request (setProvenStarter). Written before the quote and outside
+      // its try, so a quote that fails never drops it. A start that no
+      // door proved gets no key, and onAuth then refuses it.
+      const starter = provenStarters.get(req);
+      if (starter !== undefined) {
+        await updateSession(SESSION_STARTER_KEY, starter);
+      }
       try {
         const jobId = String(extraParams.jobId ?? '');
         const leg = legFromExtraParams(extraParams);
@@ -389,12 +435,10 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       },
     },
     onAuth: async ({
-      userDid,
       extraParams,
       claims,
       req,
     }: {
-      readonly userDid: string;
       readonly extraParams: Record<string, unknown>;
       readonly claims: ReadonlyArray<{ readonly type: string; readonly finalTx?: string }>;
       readonly req: { readonly context: { readonly token: string } };
@@ -488,13 +532,23 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       if (!operatorAddressResult.ok) {
         return { confirmed: false, error: operatorAddressErrorMessage(operatorAddressResult.reason) };
       }
-      // RULE: the paying party must be the buyer on that job. userDid is
-      // the bare address form WalletAuthenticator.verify() derives
-      // (toAddress(iss)); job.buyerDid may carry the did:abt: prefix, so
-      // the comparison goes through the same didSuffix reconciliation
-      // every other DID comparison in this codebase already uses.
-      if (didSuffix(userDid) !== didSuffix(job.buyerDid)) {
-        return { confirmed: false, error: "this payment session is bound to a different buyer's job" };
+      // RULE: the payment must have been started by the buyer on that
+      // job. The party check reads who STARTED the session (the proven
+      // party a door wrote on the session row in onStart), never who the
+      // answering wallet is: userDid is whatever wallet the buyer scanned
+      // with, and a person signed in to the site has a buyer DID the
+      // platform derived, which their own wallet never matches. Refused
+      // here, before anything is broadcast or recorded, when the row
+      // carries no starter or names someone other than the job's buyer.
+      // job.buyerDid may carry the did:abt: prefix, so the comparison goes
+      // through the same didSuffix reconciliation every other DID
+      // comparison in this codebase already uses.
+      const starter = await readSessionStarter(req.context.token);
+      if (starter === null) {
+        return { confirmed: false, error: NO_STARTER_MESSAGE };
+      }
+      if (didSuffix(starter) !== didSuffix(job.buyerDid)) {
+        return { confirmed: false, error: NOT_THE_BUYER_MESSAGE };
       }
       const prepareTxClaim = claims.find((claim) => claim.type === 'prepareTx');
       const finalTx = prepareTxClaim?.finalTx;

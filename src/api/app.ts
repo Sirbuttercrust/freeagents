@@ -151,7 +151,7 @@ import { createSettlementGate, remainderSettled, type SettlementGate } from '../
 import type { AbtPaymentRail } from '../adapters/payment/abt.js';
 import { normalizeUsdcTxHash, type UsdcPaymentRailShim } from '../adapters/payment/usdc.js';
 import { createAbtPaymentRailOrNull, createUsdcPaymentRailOrNull } from '../adapters/payment/rail-factory.js';
-import { attachAbtPaymentHandlers, type AbtTxEncoder } from '../adapters/payment/abt-did-connect.js';
+import { attachAbtPaymentHandlers, setProvenStarter, type AbtTxEncoder } from '../adapters/payment/abt-did-connect.js';
 import { createTxEncoder as createAbtTxEncoder } from '@ocap/client/encode';
 import {
   checkDepositReadiness,
@@ -7565,9 +7565,12 @@ export function createApp(
   // registered, and app.use with an exact path matches every method on
   // it, so this runs in front of did-connect-js's own token handler for
   // both GET and POST. It reuses the exact same requireSignedParty gate
-  // /start uses, naming the buyer as the only allowed party; onAuth's
-  // buyerDid check is unchanged and remains the party check that gates
-  // whether a payment actually lands.
+  // /start uses, naming the buyer as the only allowed party. It then
+  // hands the proven buyer's DID to the adapter for this one request
+  // (setProvenStarter), and the adapter's onStart writes it on the
+  // session row; onAuth's party check compares that recorded starter
+  // with the job's buyerDid, so a payment the buyer started settles
+  // whatever wallet signs it.
   //
   // Review round 2, D3: this guard used to read jobId from req.body on
   // POST and never looked at req.query. did-connect-js's own
@@ -7596,6 +7599,10 @@ export function createApp(
       }
       const gate = await requireSignedParty('GET/POST /api/did/pay/token', jobId, req, res, ['buyer']);
       if (gate === null) return;
+      // The proven buyer, for this request only: the adapter's onStart
+      // records it on the session row (never read from a query, body or
+      // header, and never from extraParams).
+      setProvenStarter(req, gate.did);
       // B23 and B25 (Proof round 1, D1): this is the SECOND door to the
       // exact same session mint /jobs/:jobId/payments/deposit/abt/start
       // opens (see the comment on this middleware's registration below),
@@ -7694,9 +7701,12 @@ export function createApp(
   // The buyer's browser calls this to START an ABT payment for a named
   // job and leg (brief scope item 3). It returns whatever the DID Connect
   // session token generator needs; the web layer renders the scan from
-  // the response's own `url` field. RULE: the paying party is checked at
-  // onAuth time (abt-did-connect.ts), against the job's own buyerDid --
-  // that is the check that gates whether a payment can ever settle.
+  // the response's own `url` field. RULE: the party check is made at
+  // onAuth time (abt-did-connect.ts) against the session's recorded
+  // starter, the buyer this route proved below (setProvenStarter), and
+  // compares that starter with the job's own buyerDid; it does not look
+  // at which wallet answers. That is the check that gates whether a
+  // payment can ever settle.
   // Review round 1, D2: this route's own buyer gate covers only calls
   // that go through this path. The `requireBuyerToMintAbtSession`
   // middleware registered above, in front of did-connect-js's own
@@ -7710,9 +7720,12 @@ export function createApp(
   // ALL a session buys here: reaching the route that BUILDS the
   // transaction. The transaction itself is still built for the buyer's
   // own wallet to sign (invariant 12: the platform is never an input
-  // owner), and the DID Connect wallet callback below still requires the
-  // buyer's wallet signature before anything settles. A session never
-  // substitutes for that signature; it only gets the buyer past the door.
+  // owner), and the DID Connect wallet callback below still refuses any
+  // payment whose session was not started by the job's buyer. It requires
+  // a wallet's signature on a payment the buyer started, whichever wallet
+  // signs it. A session never substitutes for that signature; it only
+  // gets the buyer past the door and is what the callback later checks
+  // as the proven starter.
   app.post(
     '/jobs/:jobId/payments/:leg/abt/start',
     didSignature,
@@ -7726,6 +7739,10 @@ export function createApp(
       }
       const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
       if (gate === null) return;
+      // The proven buyer, for this request only: the adapter's onStart
+      // records it on the session row (never read from a query, body or
+      // header, and never from extraParams).
+      setProvenStarter(req, gate.did);
       if (abtPaymentRail === null || abtHandlers === null) {
         res.status(503).json({ error: 'the abt payment rail is not configured on this deployment' });
         return;
