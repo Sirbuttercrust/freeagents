@@ -145,7 +145,10 @@
   function isOwnReturnPath(value) {
     if (typeof value !== "string") return false;
     if (value.charAt(0) !== "/" || value.charAt(1) === "/") return false;
-    if (/[\\\u0000-\u0020\u007f]/.test(value)) return false;
+    for (var i = 0; i < value.length; i += 1) {
+      var code = value.charCodeAt(i);
+      if (code === 0x5c || code <= 0x20 || code === 0x7f) return false;
+    }
     var pathname = value.split(/[?#]/)[0];
     if (isSignInPath(pathname)) return false;
     var lower = pathname.toLowerCase();
