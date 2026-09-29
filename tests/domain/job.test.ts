@@ -200,8 +200,11 @@ describe('job outcomes (R-12)', () => {
       criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
     });
 
-  it('walks submitted -> closed_unmerged and submitted -> stale', () => {
-    expect(validateJobTransition('submitted', 'closed_unmerged')).toBe('closed_unmerged');
+  // B71: submitted no longer reaches closed_unmerged (a plain close does not
+  // end a paid job); the edge from stale stays (R-31). The other two submitted
+  // edges are unchanged.
+  it('walks submitted -> stale, and submitted -> closed_unmerged is refused', () => {
+    expect(() => validateJobTransition('submitted', 'closed_unmerged')).toThrow(JobTransitionError);
     expect(validateJobTransition('submitted', 'stale')).toBe('stale');
   });
 
@@ -241,8 +244,10 @@ describe('job outcomes (R-12)', () => {
     expect(job.deadline).toBeNull();
   });
 
-  it('recordClosedUnmerged returns a new job, preserves the submission pair and the deadline', () => {
-    const job = submitted();
+  // B71: reached from a stale row, the only status that still leads to
+  // closed_unmerged.
+  it('recordClosedUnmerged from a stale row returns a new job, preserves the submission pair and the deadline', () => {
+    const job = proposedJob({ ...submitted(), status: 'stale' });
     const recorded = recordClosedUnmerged(job);
     expect(recorded).not.toBe(job);
     expect(recorded.status).toBe('closed_unmerged');
@@ -250,7 +255,7 @@ describe('job outcomes (R-12)', () => {
     expect(recorded.submittedAt).toBe(job.submittedAt);
     expect(recorded.deadline).toBe(job.deadline);
     expect(recorded.criteria).toEqual(job.criteria);
-    expect(job.status).toBe('submitted');
+    expect(job.status).toBe('stale');
   });
 
   it('recordStale returns a new job, preserves the submission pair and the deadline', () => {
@@ -265,15 +270,19 @@ describe('job outcomes (R-12)', () => {
     expect(job.status).toBe('submitted');
   });
 
-  it('records a closed-unmerged outcome from submitted and stale, and nothing earlier or later', () => {
-    expect(recordClosedUnmerged(submitted()).status).toBe('closed_unmerged');
+  // B71: submitted is no longer a source for the closed-unmerged outcome; a
+  // stale row still is.
+  it('records a closed-unmerged outcome from stale only, and nothing earlier or later', () => {
     expect(recordClosedUnmerged(proposedJob({ status: 'stale' })).status).toBe('closed_unmerged');
+    expect(() => recordClosedUnmerged(submitted())).toThrow(JobTransitionError);
     expect(() => recordClosedUnmerged(proposedJob({ status: 'draft' }))).toThrow(JobTransitionError);
     expect(() => recordClosedUnmerged(proposedJob({ status: 'confirmed' }))).toThrow(JobTransitionError);
     expect(() => recordClosedUnmerged(proposedJob({ status: 'completed' }))).toThrow(JobTransitionError);
     // Re-recording the outcome on an already-observed row is a terminal-state
     // conflict, not a no-op.
-    expect(() => recordClosedUnmerged(recordClosedUnmerged(submitted()))).toThrow(JobTransitionError);
+    expect(() => recordClosedUnmerged(recordClosedUnmerged(proposedJob({ status: 'stale' })))).toThrow(
+      JobTransitionError,
+    );
   });
 
   it('records a stale outcome from submitted, and nothing earlier or later', () => {

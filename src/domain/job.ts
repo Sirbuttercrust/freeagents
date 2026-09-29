@@ -23,11 +23,13 @@ import { hashSpec } from './hashing.js';
 // non-terminal because both its edges (accept via stageWork, refuse via
 // refuseRedo) lead back into the loop. `cited_closed` is terminal: the
 // buyer's deliberate, reasoned close after paying, distinct from
-// closed_unmerged (the merge route's OBSERVATION of a closed PR with no
-// reason attached) because a reader must be able to tell "the buyer chose
-// to stop, on the record, citing a reason" from "GitHub reports this PR
-// closed" without inspecting a second field. See recordCitedClose's own
-// header comment for why the two never share one status.
+// closed_unmerged (the merge route's record of a closed PR with no reason
+// attached, now written only for a legacy `stale` row: a plain close on a
+// submitted job records nothing, B71) because a reader must be able to tell
+// "the buyer chose to stop, on the record, citing a reason" from "GitHub
+// reports this PR closed" without inspecting a second field. See
+// recordCitedClose's own header comment for why the two never share one
+// status.
 export type JobStatus =
   | 'draft'
   | 'proposed'
@@ -403,10 +405,10 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
     // R-12 (ENT-7.2): non-merge outcomes are recorded, not hidden. The
     // stale -> closed_unmerged edge is legal (R-31): an outcome update
     // after stale, not a new state. P4: deemed_completed joins the same
-    // list (the buyer paid, then neither merged nor closed within the
-    // review window) -- see deemCompleted below. `stale` itself is
-    // untouched by this card: deemed completion now fires at 7 days,
-    // long before stale's 30-day mark, so stale is effectively
+    // list (the buyer paid, then neither merged nor closed with a cited
+    // reason within the review window) -- see deemCompleted below.
+    // `stale` itself is untouched by this card: deemed completion now
+    // fires at 7 days, long before stale's 30-day mark, so stale is effectively
     // unreachable on a paid job going forward. That retirement is its
     // own card (a status removal ripples through both storage drivers
     // and the lifecycle routes); this table keeps `stale` exactly as it
@@ -415,7 +417,14 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
     // row 4): the buyer's deliberate, reasoned close after paying,
     // distinct from closed_unmerged (see recordCitedClose's own header
     // comment for why the two never share one status).
-    submitted: ['completed', 'closed_unmerged', 'deemed_completed', 'stale', 'declined', 'withdrawn', 'cited_closed'],
+    // B71: submitted no longer lists closed_unmerged, and stale still does.
+    // Every submitted job is paid in full (the pull-request route answers
+    // 402 until the remainder settles), and a plain close on GitHub, with
+    // no cited reason, does not end a paid job: the review window keeps
+    // running and deemed_completed fires at its end. Only a cited close
+    // stops it, and a pull request closed on GitHub can be reopened and
+    // merged, which a terminal closed_unmerged would throw away.
+    submitted: ['completed', 'deemed_completed', 'stale', 'declined', 'withdrawn', 'cited_closed'],
     stale: ['completed', 'closed_unmerged', 'declined', 'withdrawn'],
     closed_unmerged: [],
     completed: [],
@@ -813,9 +822,9 @@ export function lapseAtStaged(job: Job, now: Date, remainderIsSettled = false): 
   return { ...job, status: 'closed_unpaid' };
 }
 
-// submitted, neither merged nor closed, DEEM_COMPLETED_AFTER_DAYS after
-// submittedAt, becomes deemed_completed (terminal). Fires long before
-// STALE_AFTER_DAYS' 30-day mark (see the transition table's comment on
+// submitted, neither merged nor closed with a cited reason,
+// DEEM_COMPLETED_AFTER_DAYS after submittedAt, becomes deemed_completed
+// (terminal). Fires long before STALE_AFTER_DAYS' 30-day mark (see the transition table's comment on
 // `submitted`), which is why stale is now effectively unreachable on a
 // paid job -- a retirement left to its own card, not resolved here.
 //
@@ -923,10 +932,13 @@ export function submitPullRequest(job: Job, pullRequestUrl: string, now: Date): 
   };
 }
 
-// Records that the pull request closed without merging (R-12, ENT-7.2):
-// the outcome is recorded, not hidden. No new timestamp: the status IS the
-// outcome; the observation instant is not a third-party-verifiable fact the
-// way mergedAt (GitHub's) is.
+// Records that the pull request closed without merging (R-12, ENT-7.2).
+// B71: only a legacy `stale` row reaches this outcome. It validates through
+// the transition table, which no longer lists closed_unmerged under
+// `submitted`, so a submitted job is refused: a plain close does not end a
+// paid job. No new timestamp: the status IS the outcome; the observation
+// instant is not a third-party-verifiable fact the way mergedAt (GitHub's)
+// is.
 export function recordClosedUnmerged(job: Job): Job {
   validateJobTransition(job.status, 'closed_unmerged');
   return { ...job, status: 'closed_unmerged' };
@@ -934,20 +946,21 @@ export function recordClosedUnmerged(job: Job): Job {
 
 // P6 (design record, 2026-09-01, row 4): the buyer's deliberate, reasoned
 // close after paying. Kept as a DIFFERENT status from closed_unmerged on
-// purpose: closed_unmerged is the merge route's OBSERVATION of a closed
-// pull request (recordClosedUnmerged's own header comment), with no
-// reason attached and no buyer intent behind it as far as this domain
-// knows -- a buyer could go silent and let GitHub's PR close for any
-// reason, or none. cited_closed is the opposite: a specific act, with a
-// specific reason, attributed to a specific party, that stops the
-// credential outright. Sharing one status would force a reader to open
-// the reason field just to learn whether a close was deliberate at all;
-// two statuses make that fact visible from the status alone. "No index
-// means the clock keeps running" (the absorbed counter-demand) follows
-// from this split by construction: a buyer who closes the PR on GitHub
-// without calling this function never reaches cited_closed, so
-// deemCompleted's own clock is untouched and keeps counting toward
-// deemed_completed on its own schedule.
+// purpose: closed_unmerged is the record of a closed pull request (see
+// recordClosedUnmerged's own header comment), with no reason attached and
+// no buyer intent behind it as far as this domain knows -- a buyer could go
+// silent and let GitHub's PR close for any reason, or none. cited_closed is
+// the opposite: a specific act, with a specific reason, attributed to a
+// specific party, that stops the credential outright. Sharing one status
+// would force a reader to open the reason field just to learn whether a
+// close was deliberate at all; two statuses make that fact visible from the
+// status alone. "No index means the clock keeps running" (the absorbed
+// counter-demand) follows from this split by construction: a buyer who
+// closes the PR on GitHub without calling this function never reaches
+// cited_closed, and since B71 the merge route records nothing for a plain
+// close on a submitted job either, so deemCompleted's own clock is
+// untouched and keeps counting toward deemed_completed on its own
+// schedule.
 export interface CitedCloseInput {
   readonly criterionIndex: number;
   readonly reasonText: string;

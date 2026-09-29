@@ -811,11 +811,14 @@ describe('job merge, faulted legs (R-11)', () => {
     }
   });
 
-  // R-12 (ENT-7.2): a closed-unmerged PR is recorded, not hidden. The
-  // outcome projects the submitted keyset, with no merge facts to read it as
-  // a hire (the invariant-2 legs in tests/api/job-invariant2.test.ts pin the
-  // absence half off-platform).
-  it('records closed_unmerged when github reports the PR closed unmerged', async () => {
+  // R-12 (ENT-7.2), superseded by B71 for a submitted job: a plain close on
+  // GitHub does not end a paid job. The route answers 409, records nothing,
+  // and the job stays submitted on the deem clock, so it is not terminal and a
+  // second merge call asks GitHub again. Only a legacy stale row still
+  // records closed_unmerged (the stale test below). The projection still
+  // carries no merge facts (the invariant-2 legs in
+  // tests/api/job-invariant2.test.ts pin the absence half off-platform).
+  it('answers 409 and leaves the job submitted when github reports the PR closed unmerged (B71)', async () => {
     const fixture = createStagingLifecycleGithubFake();
     const scripted = await startWith(new MemoryJobRepository(), fixture.github);
     try {
@@ -837,28 +840,33 @@ describe('job merge, faulted legs (R-11)', () => {
         authorLogin: AGENT_GITHUB_LOGIN,
         body: `Job: ${jobId}\n`,
       });
+      const callsBefore = fixture.calls.getPullRequest.length;
 
       const merge = await postSigned(`/jobs/${jobId}/merge`, {}, buyerIdentity, scripted.baseUrl);
-      expect(merge.status).toBe(200);
-      const body = (await merge.json()) as Record<string, unknown>;
-      expect(body.id).toBe(jobId);
-      expect(body.status).toBe('closed_unmerged');
-      expect(Object.keys(body).sort()).toEqual([...SUBMITTED_KEYS, 'price'].sort());
-      expect(body.mergeCommit).toBeUndefined();
-      expect(body.mergedAt).toBeUndefined();
-      expect(typeof body.deadline).toBe('string');
+      expect(merge.status).toBe(409);
+      expect(await merge.json()).toEqual({
+        error:
+          'the pull request is closed but not merged; the hire stays open until the review window ends, unless the buyer merges it or closes the hire with a cited reason',
+      });
+      expect(fixture.calls.getPullRequest.length).toBe(callsBefore + 1);
 
-      // The outcome stays on record: the read-back is the recorded row.
+      // Nothing was recorded: the read-back is still the submitted row, with
+      // no merge facts.
       const read = await get(`/jobs/${jobId}`, scripted.baseUrl);
-      expect(await read.json()).toEqual(body);
-      const callsAfterFirstMerge = fixture.calls.getPullRequest.length;
+      const readBack = (await read.json()) as Record<string, unknown>;
+      expect(readBack.id).toBe(jobId);
+      expect(readBack.status).toBe('submitted');
+      expect(Object.keys(readBack).sort()).toEqual([...SUBMITTED_KEYS, 'price'].sort());
+      expect(readBack.mergeCommit).toBeUndefined();
+      expect(readBack.mergedAt).toBeUndefined();
+      expect(typeof readBack.deadline).toBe('string');
 
-      // Second observation: the terminal state is checked before github is
-      // asked again, and it is a conflict, not a rewrite.
+      // Second observation: the job is not terminal, so GitHub is asked
+      // again and the answer is the same conflict.
       const again = await postSigned(`/jobs/${jobId}/merge`, {}, buyerIdentity, scripted.baseUrl);
       expect(again.status).toBe(409);
-      expect(((await again.json()) as { error: string }).error).toContain('closed_unmerged');
-      expect(fixture.calls.getPullRequest.length).toBe(callsAfterFirstMerge);
+      expect(((await again.json()) as { error: string }).error).toContain('closed but not merged');
+      expect(fixture.calls.getPullRequest.length).toBe(callsBefore + 2);
     } finally {
       await new Promise<void>((resolve) => scripted.server.close(() => resolve()));
     }
@@ -1301,9 +1309,11 @@ describe('job merge, outcomes (R-12)', () => {
     }
   });
 
-  it('answers 404 when the row vanishes on the closed record', async () => {
+  // B71: the closed record is written only for a legacy stale row, so the
+  // vanished-row leg plants one.
+  it('answers 404 when the row vanishes on the closed record of a stale row', async () => {
     const fixture = createStagingLifecycleGithubFake();
-    const row = submittedJob('j-closed-404');
+    const row: Job = { ...submittedJob('j-closed-404'), status: 'stale', deadline: pastDeadline() };
     registerMatchingPrFor(fixture, row.id, { state: 'closed' });
     const repo = new ScriptedOutcomeRepository(
       row,

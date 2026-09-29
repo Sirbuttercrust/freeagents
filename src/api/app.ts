@@ -8098,11 +8098,14 @@ export function createApp(
 
   // R-11 (ENT-7.1): the merge is observed from GitHub's API, never asserted
   // by either party. The route never trusts a client-supplied state - it
-  // always asks github directly. A non-merged answer records the outcome it
-  // reports, never hides it (R-12, ENT-7.2): closed-unmerged becomes
-  // closed_unmerged, and an open PR past its deadline becomes stale. Stale
-  // is not terminal - a merge observed after the stale marker still
-  // completes the job (D3 2026-08-22).
+  // always asks github directly. A non-merged answer is handled by what it
+  // means for the job: an open PR past its deadline becomes stale (R-12,
+  // ENT-7.2). A closed, unmerged PR on a legacy stale row becomes
+  // closed_unmerged, but on a submitted job it records nothing and answers
+  // 409 (B71): a plain close does not end a paid job, the review window
+  // keeps running, and only a cited close stops it. Stale is not terminal -
+  // a merge observed after the stale marker still completes the job (D3
+  // 2026-08-22).
   app.post(
     '/jobs/:jobId/merge',
     didSignature,
@@ -8234,6 +8237,16 @@ export function createApp(
         return;
       }
       if (summary.state === 'closed') {
+        // B71: a plain close does not end a paid job. A submitted job records
+        // nothing and stays on the deem clock; only a legacy stale row
+        // (R-31) still records closed_unmerged.
+        if (job.status === 'submitted') {
+          res.status(409).json({
+            error:
+              'the pull request is closed but not merged; the hire stays open until the review window ends, unless the buyer merges it or closes the hire with a cited reason',
+          });
+          return;
+        }
         await recordOutcome(recordClosedUnmerged);
         return;
       }
