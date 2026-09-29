@@ -44,14 +44,11 @@
   var LAPSE_AT_STAGED_AFTER_DAYS = 7, REDO_LAPSE_EXTENSION_DAYS = 7, ABT_FEE_RATE_PERCENT = 3, USDC_FEE_RATE_PERCENT = 6, MS_PER_DAY = 86400000;
   var ALREADY_PAID_PHRASE = "already been paid";
   var jobId = "", token = "", job = null, currentFigures = null, redoSelectedIndex = null, usdcPay = null, paying = false;
-  // Round 1 fix (qa D1): whether the signed-in session IS this job's
-  // buyer, resolved from GET /accounts/:did (already mounted,
-  // unauthenticated, app.ts:1300) against the stored session's own
-  // subject and method. Defaults false (fail closed): a buyer whose own
-  // account read fails loses redo/decline for that load rather than a
-  // non-buyer gaining them. No new route: this is the same comparison
-  // resolveActingParty already makes server-side, read back through a
-  // route this page already had reason to call.
+  // Whether the signed-in session IS this job's buyer: GET /accounts/me
+  // answers the caller's own account, and the page compares its did with
+  // job.buyerDid. Defaults false (fail closed): a buyer whose own account
+  // read fails loses redo/decline for that load rather than a non-buyer
+  // gaining them.
   var isBuyerParty = false;
   var session = null;
 
@@ -66,22 +63,19 @@
   function reload() {
     Promise.all([A.get("/jobs/" + encodeURIComponent(jobId)), A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/attestation", token)]).then(onLoaded);
   }
-  // Round 1 fix (qa D1): resolves whether the signed-in session names
-  // this job's buyer account. The route mirrors the buyer/passkey join
-  // resolveActingParty performs (app.ts:595-613): a github-oauth session
-  // matches on githubLogin, a passkey session matches on passkeySubject.
-  // A failed or absent read resolves false, never true: the redo and
-  // decline controls stay hidden rather than risk showing them to a
-  // party the page could not confirm.
+  // FIX-B61b: the buyer is whoever GET /accounts/me says this session is,
+  // compared by did with job.buyerDid. A public account's passkeySubject
+  // or githubLogin is not read: GET /accounts/:did answers anyone, so a
+  // match against it is a match against a string, not a sign-in. Any
+  // answer but a 200 naming the buyer's did resolves false, never true:
+  // the redo and decline controls stay hidden rather than risk showing
+  // them to a party the page could not confirm.
   function resolveIsBuyerParty(job_) {
     if (session === null || typeof job_.buyerDid !== "string" || job_.buyerDid === "") return Promise.resolve(false);
-    return A.get("/accounts/" + encodeURIComponent(job_.buyerDid)).then(function (result) {
-      if (result.state !== "ok") return false;
-      var account = result.value && typeof result.value === "object" ? result.value : {};
-      if (session.method === "passkey") {
-        return typeof account.passkeySubject === "string" && account.passkeySubject === session.subject;
-      }
-      return typeof account.githubLogin === "string" && account.githubLogin === session.subject;
+    return A.getAuthed("/accounts/me", session.token).then(function (result) {
+      if (result.state !== "ok" || result.value.status !== 200) return false;
+      var me = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
+      return typeof me.did === "string" && me.did === job_.buyerDid;
     });
   }
   function failLoad(detail) { A.showById("load-error", true); A.setTextById("load-error-detail", detail); }

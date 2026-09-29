@@ -123,6 +123,10 @@ async function renderPage(
   onFetch?: (input: string, init?: RequestInit) => void,
   poll?: (doc: Document) => void,
   settled?: (doc: Document) => boolean,
+  // Answers one request the page makes without reaching the app, or null
+  // to let it through: how a public record or a degraded /accounts/me is
+  // put in front of the page with everything else real.
+  script?: (input: string) => Response | null,
 ): Promise<Rendered> {
   const virtualConsole = new VirtualConsole();
   const failures: string[] = [];
@@ -142,6 +146,8 @@ async function renderPage(
         writable: true,
         value: (input: string, init?: RequestInit) => {
           if (onFetch) onFetch(input, init);
+          const scripted = script ? script(String(input)) : null;
+          if (scripted !== null) return Promise.resolve(scripted);
           return poll && String(input).includes('/accounts/')
             ? new Promise((resolve) => setTimeout(() => resolve(fetch(new URL(input, baseUrl), init)), 300))
             : fetch(new URL(input, baseUrl), init);
@@ -178,8 +184,13 @@ function renderStaged(
   onFetch?: (input: string, init?: RequestInit) => void,
   poll?: (doc: Document) => void,
   settled?: (doc: Document) => boolean,
+  script?: (input: string) => Response | null,
 ): Promise<Rendered> {
-  return renderPage(baseUrl, `/staged?job=${encodeURIComponent(jobId)}`, session, onFetch, poll, settled);
+  return renderPage(baseUrl, `/staged?job=${encodeURIComponent(jobId)}`, session, onFetch, poll, settled, script);
+}
+
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
 // Every CSS rule in force on this page: the page's own <style> block plus
@@ -928,25 +939,34 @@ describe('the staged screen, driven end to end against the real app', () => {
         // MSG1b: the shared nav script also fires its own background
         // reads for the Messages badge (GET /accounts/me plus
         // GET /accounts/:did/threads) on every page carrying the
-        // nav. Filtered out below, recomputed live off rawRequests at
-        // each check point (never a one-time snapshot) so the count
-        // still grows after the pay click; this test's own count is
-        // staged.js's reads, unchanged by the nav.
-        const ownRequests = () => rawRequests.filter((r) => r !== 'GET /accounts/me' && !r.endsWith('/threads'));
+        // nav. FIX-B61b: staged.js's own party read is now also
+        // GET /accounts/me, the same string, so the nav's cannot be
+        // filtered out by name alone. ownRequests drops the nav's
+        // /threads read and exactly ONE GET /accounts/me (the nav's), and
+        // the count of GET /accounts/me on the whole wire is pinned at 2
+        // below, so a page that stopped reading it, or read it twice,
+        // fails. Recomputed live off rawRequests at each check point
+        // (never a one-time snapshot) so the count still grows after the
+        // pay click.
+        const ownRequests = () => {
+          const out = rawRequests.filter((r) => !r.endsWith('/threads'));
+          const navRead = out.indexOf('GET /accounts/me');
+          if (navRead !== -1) out.splice(navRead, 1);
+          return out;
+        };
+        expect(rawRequests.filter((r) => r === 'GET /accounts/me').length, 'the nav badge read plus the page\u2019s own party read').toBe(2);
         let requests = ownRequests();
-        // Round 1 fix (qa D1): staged.js now also fires GET
-        // /accounts/:did (the party probe) before rendering the acting
-        // controls. It fires from a separate promise chain than the
-        // agent/hires calls renderWho makes, so its position in the
-        // load burst is not fixed relative to those two; asserted as a
-        // set, not an order, for that one reason. The job and
-        // attestation reads keep their fixed first-two position since
-        // they gate everything else on the page.
+        // The party read fires from a separate promise chain than the
+        // agent/hires calls renderWho makes, so its position in the load
+        // burst is not fixed relative to those two; asserted as a set, not
+        // an order, for that one reason. The job and attestation reads
+        // keep their fixed first-two position since they gate everything
+        // else on the page. The buyer's public account is never read.
         expect(requests.slice(0, 2)).toEqual(['GET /jobs/job-fully-staged', 'GET /jobs/job-fully-staged/attestation']);
         expect(new Set(requests.slice(2))).toEqual(new Set([
           'GET /agents/did%3Aabt%3Astaged-page-agent',
           'GET /agents/did%3Aabt%3Astaged-page-agent/hires',
-          'GET /accounts/did%3Aabt%3Astaged-page-buyer-account',
+          'GET /accounts/me',
         ]));
         expect(requests.length).toBe(5);
 
@@ -1413,9 +1433,9 @@ describe('the staged screen, driven end to end against the real app', () => {
     // every page on this screen shares, staged.js's own header comment)
     // admits BOTH the buyer and the agent on a job (app.ts:3485,
     // resolveJobActingParty), so a signed-in agent still reads this
-    // screen. What changed is the acting controls: staged.js now also
+    // screen. What changed is the acting controls: staged.js also
     // resolves whether the session's account IS the job's buyerDid (via
-    // GET /accounts/:did, already mounted, unauthenticated) before
+    // GET /accounts/me, the caller's own account, since FIX-B61b) before
     // rendering redo or decline, so an agent who is not that buyer sees
     // neither control, closing the gap qa's round 1 review found.
     it('an agent signed in on a staged hire is refused with the buyer-only 403 sentence and is shown neither control, and the job is unchanged', async () => {
@@ -1428,13 +1448,13 @@ describe('the staged screen, driven end to end against the real app', () => {
       const agentBaseUrl = `http://127.0.0.1:${(agentServer.address() as AddressInfo).port}`;
       try {
         // Round 2 fix (qa D4): the FULL minted session, not just the
-        // token. resolveIsBuyerParty compares account.githubLogin
-        // against session.subject; a fixture carrying only { token }
-        // makes that comparison false for a reason unrelated to party
-        // (undefined !== a string), so the absence this test asserts
-        // was not actually caused by the party check. mintSession is
-        // the same completeGitHubOAuth round trip mintSessionToken
-        // already ran, kept whole instead of discarding subject/method.
+        // token, so the session this page reads is exactly the one the
+        // server minted. Since FIX-B61b the party check reads
+        // GET /accounts/me with this token, and the absence asserted
+        // below comes from that answer naming the agent's did, not the
+        // buyer's. mintSession is the same completeGitHubOAuth round trip
+        // mintSessionToken already ran, kept whole instead of discarding
+        // subject/method.
         const agentSession = await mintSession(agentSessionAdapter);
         // D6 (qa round 4): decline-btn shipped visible (redo-btn shipped
         // hidden); polling catches the flash before the party probe ends.
@@ -1489,14 +1509,12 @@ describe('the staged screen, driven end to end against the real app', () => {
     });
 
     // Round 2 fix (qa D4, requirement 2): resolveIsBuyerParty's
-    // fail-closed leg (GET /accounts/:did answers something other than
-    // 200, e.g. a buyerDid naming no registered account at all). Signed
-    // in as the job's own AGENT (a real party, so the server-side
-    // attestation gate lets the page render at all) on a job whose
-    // buyerDid names no Account row, so GET /accounts/:did answers 404
-    // and resolveIsBuyerParty's result.state !== "ok" leg runs for
-    // real, distinct from D1's mismatch leg (which used a buyerDid that
-    // DOES resolve, just to a different login).
+    // fail-closed leg on a job whose buyerDid names no Account row at
+    // all. Signed in as the job's own AGENT (a real party, so the
+    // server-side attestation gate lets the page render at all). Since
+    // FIX-B61b the page reads GET /accounts/me, which answers the
+    // agent's did, and no did can equal a buyerDid nobody holds, so both
+    // controls stay absent.
     it('a buyerDid naming no registered account leaves both controls absent (fail-closed leg, distinct from the party-mismatch leg)', async () => {
       const orphanAccountRepo = new MemoryAccountRepository();
       await orphanAccountRepo.register({ did: AGENT_DID, githubLogin: 'staged-page-agent-login' });
@@ -1551,14 +1569,13 @@ describe('the staged screen, driven end to end against the real app', () => {
       }
     });
 
-    // Round 2 fix (qa D4, requirement 3): resolveIsBuyerParty's passkey
-    // branch had no coverage at all (a mutation gutting it to an
-    // always-true expression left the suite green). A buyer who signed
-    // in with a passkey, not GitHub OAuth, must still see the controls
-    // when the passkeySubject matches, and a passkey session naming a
-    // DIFFERENT subject than the job's buyer must not.
-    describe('the passkey branch of resolveIsBuyerParty (round 2 fix, qa D4, requirement 3)', () => {
-      it('a passkey session whose subject matches the buyer account renders both controls', async () => {
+    // Round 2 fix (qa D4, requirement 3): a buyer who signed in with a
+    // passkey, not GitHub OAuth, must still see the controls, and a
+    // passkey session belonging to a DIFFERENT account than the job's
+    // buyer must not. Since FIX-B61b the page asks GET /accounts/me which
+    // account the passkey session is; it no longer compares subjects.
+    describe('a passkey session on resolveIsBuyerParty (round 2 fix, qa D4, requirement 3)', () => {
+      it('a passkey session belonging to the buyer account renders both controls', async () => {
         const passkeyAccountRepo = new MemoryAccountRepository();
         const passkeySubjectValue = 'staged-page-passkey-buyer-subject';
         await passkeyAccountRepo.register({ did: BUYER_ACCOUNT_DID, passkeySubject: passkeySubjectValue });
@@ -1675,6 +1692,64 @@ describe('the staged screen, driven end to end against the real app', () => {
           }
         } finally {
           await new Promise<void>((resolve) => passkeyServer.close(() => resolve()));
+        }
+      });
+    });
+
+    // FIX-B61b: the buyer is whoever GET /accounts/me says the session
+    // is, never a match against the public account's passkeySubject.
+    // GET /accounts/:did answers anyone, so a public field that happened
+    // to equal a stranger's subject would otherwise hand the stranger the
+    // buyer's controls. Both cases sign in as the job's agent (a real
+    // party, so the page renders) and script only the two account reads.
+    describe('the buyer is decided from GET /accounts/me (FIX-B61b)', () => {
+      it('a public buyer record whose passkeySubject equals the session subject, with /accounts/me naming another account, shows neither control', async () => {
+        const agentSessionAdapter = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: 'staged-page-agent-login', id: 9403 }) });
+        const agentAccountRepo = new MemoryAccountRepository();
+        await agentAccountRepo.register({ did: AGENT_DID, githubLogin: 'staged-page-agent-login' });
+        await agentAccountRepo.register({ did: BUYER_ACCOUNT_DID, githubLogin: 'staged-page-buyer' });
+        const agentServer = createApp(agentAccountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, agentSessionAdapter, undefined, unsettledGate(), undefined, attestationRepo).listen(0, '127.0.0.1');
+        await new Promise<void>((resolve) => agentServer.once('listening', resolve));
+        const agentBaseUrl = `http://127.0.0.1:${(agentServer.address() as AddressInfo).port}`;
+        try {
+          const real = await mintSession(agentSessionAdapter);
+          const stranger = { ...real, method: 'passkey' as const, subject: 'pk-stranger-subject' };
+          const page = await renderStaged(agentBaseUrl, 'job-agent-view', stranger, undefined, undefined, (doc) => (doc.getElementById('choices')?.children.length ?? 0) > 0, (input) => {
+            if (input === `/accounts/${encodeURIComponent(BUYER_ACCOUNT_DID)}`) return jsonResponse(200, { did: BUYER_ACCOUNT_DID, passkeySubject: 'pk-stranger-subject', githubLogin: null });
+            if (input === '/accounts/me') return jsonResponse(200, { did: AGENT_DID });
+            return null;
+          });
+          try {
+            expect(page.document.getElementById('staged-body')?.hidden).toBe(false);
+            expect(page.document.getElementById('redo-btn')).toBeNull();
+            expect(page.document.getElementById('decline-btn')).toBeNull();
+          } finally {
+            page.close();
+          }
+        } finally {
+          await new Promise<void>((resolve) => agentServer.close(() => resolve()));
+        }
+      });
+
+      it.each([401, 503])('/accounts/me answering %i shows neither control, even to the real buyer', async (status) => {
+        const page = await renderStaged(baseUrl, 'job-agent-view', buyerSession, undefined, undefined, (doc) => (doc.getElementById('choices')?.children.length ?? 0) > 0, (input) =>
+          input === '/accounts/me' ? jsonResponse(status, { error: status === 401 ? 'sign in first' : 'storage unavailable' }) : null);
+        try {
+          expect(page.document.getElementById('staged-body')?.hidden).toBe(false);
+          expect(page.document.getElementById('redo-btn')).toBeNull();
+          expect(page.document.getElementById('decline-btn')).toBeNull();
+        } finally {
+          page.close();
+        }
+      });
+
+      it('the real buyer, with /accounts/me answering its own did, sees both controls', async () => {
+        const page = await renderStaged(baseUrl, 'job-agent-view', buyerSession, undefined, undefined, (doc) => (doc.getElementById('choices')?.children.length ?? 0) > 0);
+        try {
+          expect(page.document.getElementById('redo-btn')).not.toBeNull();
+          expect(page.document.getElementById('decline-btn')).not.toBeNull();
+        } finally {
+          page.close();
         }
       });
     });

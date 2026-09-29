@@ -12,23 +12,18 @@
    admits the buyer too (the buyer reads the same document, P5's own
    rule), so a 200 or 404 from that probe means only "not a stranger",
    never "this is the agent/operator seat" -- this screen's own controls
-   are agent/operator-only. resolveIsBuyerParty (below, staged.js's own
-   pattern) reads GET /accounts/:did for the job's buyerDid and compares
-   the stored session's subject/method against it, the same join
-   resolveActingParty makes server-side, before this screen's body ever
-   renders. A buyer session lands on the party-error panel.
+   are agent/operator-only. resolveIsBuyerParty (below) reads
+   GET /accounts/me, the caller's own account, and compares its did with
+   the job's buyerDid before this screen's body ever renders. A buyer
+   session lands on the party-error panel.
 
-   ROUND 3 FIX (qa D1, gate-fails-open): round 2's resolveIsBuyerParty
-   returned a plain boolean, collapsing "confirmed not the buyer" and
-   "GET /accounts/:did did not answer ok" into the same false value --
-   and false was the ADMIT branch for this screen's controls, so a
-   storage failure or an unregistered buyer DID (the GET /accounts/:did
-   route in src/api/app.ts answers 503 and 404 respectively, both
-   ordinary) opened the agent's controls to an unconfirmed caller.
-   resolveIsBuyerParty now returns
-   "buyer" / "not-buyer" / "unresolved"; onLoaded routes anything other
-   than "not-buyer" to party-error, so an unresolved read is refused
-   exactly like a confirmed buyer, never treated as cleared.
+   ROUND 3 FIX (qa D1, gate-fails-open): resolveIsBuyerParty returns
+   "buyer" / "not-buyer" / "unresolved" rather than a boolean, because
+   false was the ADMIT branch for this screen's controls and a failed
+   read (/accounts/me answers 401, 404 and 503, all ordinary) must not
+   open them. onLoaded routes anything other than "not-buyer" to
+   party-error, so an unresolved read is refused exactly like a
+   confirmed buyer, never treated as cleared.
 
    Controls post to /jobs/:jobId/redo-refuse and /jobs/:jobId/stage (the
    same route the agent's own key already used to stage the first time
@@ -139,30 +134,24 @@
   var PANEL_IDS = ["load-error", "signin-required", "party-error", "operatorjob-body"];
   function hideAllPanels() { PANEL_IDS.forEach(function (id) { A.showById(id, false); }); }
 
-  // Round 3 fix (qa D1, gate-fails-open): resolveIsBuyerParty used to
-  // collapse two different outcomes into one boolean. The
-  // GET /accounts/:did route (src/api/app.ts) genuinely answers 503 on
-  // any storage failure and 404 when the DID names no registered Account,
-  // so "the read did not confirm buyer" and "the read confirmed NOT
-  // buyer" are both reachable in production, not just in a test. On this
-  // screen the buyer is the party being EXCLUDED, so folding "could not
-  // confirm" into "not buyer" opened the agent/operator controls to a
-  // caller this page never actually cleared. resolveIsBuyerParty now
-  // returns one of three strings so the caller can tell "confirmed not
-  // the buyer" apart from "could not confirm" and route the second to
-  // party-error, same as a 403 from the server itself.
+  // Round 3 fix (qa D1, gate-fails-open): resolveIsBuyerParty returns one
+  // of three strings, because "confirmed not the buyer" and "could not
+  // confirm" are different outcomes. On this screen the buyer is the party
+  // being EXCLUDED, so folding "could not confirm" into "not buyer" would
+  // open the agent/operator controls to a caller this page never cleared.
+  // "unresolved" goes to party-error, same as a 403 from the server.
+  //
+  // FIX-B61b: the answer comes from GET /accounts/me, the caller's own
+  // account, compared by did with job.buyerDid. A public account's
+  // passkeySubject or githubLogin is not read. A 401, 404 or 503 from
+  // /accounts/me, or a network failure, is "unresolved".
   function resolveIsBuyerParty(job_) {
     if (session === null || typeof job_.buyerDid !== "string" || job_.buyerDid === "") return Promise.resolve("not-buyer");
-    return A.get("/accounts/" + encodeURIComponent(job_.buyerDid)).then(function (result) {
-      if (result.state !== "ok") return "unresolved";
-      var account = result.value && typeof result.value === "object" ? result.value : {};
-      var matches;
-      if (session.method === "passkey") {
-        matches = typeof account.passkeySubject === "string" && account.passkeySubject === session.subject;
-      } else {
-        matches = typeof account.githubLogin === "string" && account.githubLogin === session.subject;
-      }
-      return matches ? "buyer" : "not-buyer";
+    return A.getAuthed("/accounts/me", session.token).then(function (result) {
+      if (result.state !== "ok" || result.value.status !== 200) return "unresolved";
+      var me = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
+      if (typeof me.did !== "string" || me.did === "") return "unresolved";
+      return me.did === job_.buyerDid ? "buyer" : "not-buyer";
     });
   }
 

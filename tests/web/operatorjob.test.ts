@@ -439,16 +439,15 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
   });
 
   describe("a buyer session whose own account read is degraded (qa round 3, D1: gate-fails-open)", () => {
-    it('lands on the party-error panel, never the agent/operator controls, when GET /accounts/:did cannot confirm the seat', async () => {
+    it('lands on the party-error panel, never the agent/operator controls, when GET /accounts/me cannot confirm the seat', async () => {
       // Same fixture as the healthy-read buyer test above (a session that
       // resolves to job-redo-requested's own buyerDid, whose agent
       // belongs to a DIFFERENT operator), but this render answers every
-      // GET /accounts/:did with a 503 instead of letting it reach the
-      // real app. GET /accounts/:did (app.ts:1403-1415) genuinely answers
-      // 503 on any storage failure and 404 when the DID names no
-      // registered Account, so an unresolved read is not exotic; the
-      // page must treat "could not confirm" as its own outcome rather
-      // than folding it into "not the buyer".
+      // /accounts/ read, GET /accounts/me among them, with a 503 instead
+      // of letting it reach the real app. GET /accounts/me genuinely
+      // answers 503 on any storage failure, so an unresolved read is not
+      // exotic; the page must treat "could not confirm" as its own
+      // outcome rather than folding it into "not the buyer".
       const buyerAdapter = createSessionAdapter({
         github: fakeGitHubConfig(),
         fetchImpl: fakeGitHubFetch({ login: 'operatorjob-page-buyer-login', id: 88105 }),
@@ -489,6 +488,37 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
         }
       } finally {
         await new Promise<void>((resolve) => buyerServer.close(() => resolve()));
+      }
+    });
+  });
+
+  // FIX-B61b: who the buyer is comes from GET /accounts/me, never from a
+  // match against the public account's passkeySubject. On this screen the
+  // buyer is the party turned away, so the public-field match went wrong
+  // the other way: an operator whose session subject equalled a string on
+  // the buyer's public record was refused its own controls.
+  describe('the buyer is decided from GET /accounts/me (FIX-B61b)', () => {
+    it('the operator sees its controls even when the buyer\u2019s public record carries a passkeySubject equal to the operator\u2019s session subject', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-redo-requested', operatorSession, undefined, (input) =>
+        input === `/accounts/${encodeURIComponent('did:abt:operatorjob-page-buyer')}`
+          ? new Response(JSON.stringify({ did: 'did:abt:operatorjob-page-buyer', passkeySubject: operatorSession.subject, githubLogin: operatorSession.subject }), { status: 200 })
+          : null);
+      try {
+        expect(page.document.getElementById('party-error')?.hidden).toBe(true);
+        expect(page.document.getElementById('operatorjob-body')?.hidden).toBe(false);
+      } finally {
+        page.close();
+      }
+    });
+
+    it.each([401, 503])('/accounts/me answering %i lands the operator on the party-error panel (unresolved), never the controls', async (status) => {
+      const page = await renderOperatorJob(baseUrl, 'job-redo-requested', operatorSession, undefined, (input) =>
+        input === '/accounts/me' ? new Response(JSON.stringify({ error: 'x' }), { status }) : null);
+      try {
+        expect(page.document.getElementById('party-error')?.hidden).toBe(false);
+        expect(page.document.getElementById('operatorjob-body')?.hidden).toBe(true);
+      } finally {
+        page.close();
       }
     });
   });
