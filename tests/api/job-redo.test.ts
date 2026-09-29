@@ -207,13 +207,15 @@ describe('job redo at staged (P6, design record row 2)', () => {
 // describe above already spends most of a minute's write budget.
 describe('redo-refuse only refuses a redo that was asked (SW1-01)', () => {
   let server: Server;
+  let jobRepo: MemoryJobRepository;
   let baseUrl: string;
 
   beforeAll(async () => {
     buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(121));
     agent = await signingIdentityFromSeed(new Uint8Array(32).fill(122));
     stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(123));
-    const started = await startWith(new MemoryJobRepository(), new MemoryAttestationRepository());
+    jobRepo = new MemoryJobRepository();
+    const started = await startWith(jobRepo, new MemoryAttestationRepository());
     server = started.server;
     baseUrl = started.baseUrl;
   });
@@ -242,9 +244,11 @@ describe('redo-refuse only refuses a redo that was asked (SW1-01)', () => {
     expect(await res.json()).toEqual({
       error: 'cannot refuse a redo on this job: it is in status "confirmed", and only a requested redo can be refused',
     });
-    const after = (await (await fetch(`${baseUrl}/jobs/${jobId}`)).json()) as Record<string, unknown>;
-    expect(after.status).toBe('confirmed');
-    expect((after.redo as Record<string, unknown>).refusedAt).toBeNull();
+    // The projection carries a redo block only once a redo was asked, so the
+    // stored job is what shows nothing was written.
+    const after = await jobRepo.findById(jobId);
+    expect(after?.status).toBe('confirmed');
+    expect(after?.redoRefusedAt).toBeNull();
   });
 
   it('the agent refusing a redo on a staged job nobody asked a redo on gets 409 and the job is unchanged', async () => {
@@ -254,8 +258,10 @@ describe('redo-refuse only refuses a redo that was asked (SW1-01)', () => {
     expect(await res.json()).toEqual({
       error: 'cannot refuse a redo on this job: it is in status "staged", and only a requested redo can be refused',
     });
-    const after = (await (await fetch(`${baseUrl}/jobs/${jobId}`)).json()) as Record<string, unknown>;
-    expect(after.status).toBe('staged');
-    expect((after.redo as Record<string, unknown>).refusedAt).toBeNull();
+    // The projection carries a redo block only once a redo was asked, so the
+    // stored job is what shows nothing was written.
+    const after = await jobRepo.findById(jobId);
+    expect(after?.status).toBe('staged');
+    expect(after?.redoRefusedAt).toBeNull();
   });
 });
