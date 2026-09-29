@@ -13,7 +13,7 @@ import { MemoryAgentRepository, MemoryAttestationRepository, MemoryJobRepository
 import type { JobRepository } from '../../src/adapters/storage/types.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 import { testSessionAdapter } from '../helpers/session-fixtures.js';
-import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { depositSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 
@@ -78,7 +78,7 @@ async function startWith(repo: JobRepository, attestationRepo: MemoryAttestation
     undefined,
     sessionAdapter,
     undefined,
-    alwaysSettledGate(),
+    depositSettledGate(),
     anyCommitStagingObserver(),
     attestationRepo,
   ).listen(0, '127.0.0.1');

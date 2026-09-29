@@ -14,7 +14,7 @@ import {
 } from '../../src/adapters/storage/memory.js';
 import type { GithubAdapter } from '../../src/adapters/github/types.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
-import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { alwaysSettledGate, depositSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 import {
   createStagingLifecycleGithubFake,
@@ -298,7 +298,7 @@ describe('stage route: only the agent stages, confirmed -> staged (P4)', () => {
 
 describe('staged-decline route: buyer only, staged -> staged_declined, free (P4)', () => {
   it('the buyer declines staged work for free, terminally', async () => {
-    const gate = alwaysSettledGate();
+    const gate = depositSettledGate();
     const { server, baseUrl, buyer, agent } = await startApp(gate as MemorySettlementGate);
     try {
       const jobId = await walkToConfirmed(baseUrl, buyer, agent);

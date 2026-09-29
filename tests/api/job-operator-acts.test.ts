@@ -35,7 +35,7 @@ import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../h
 import { mintSession } from '../helpers/session-fixtures.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import { fakeGitHubConfig, fakeGitHubFetch } from '../helpers/session-fixtures.js';
-import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { depositSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
@@ -157,7 +157,7 @@ describe('an operator acts for their own agent (P8v)', () => {
       undefined,
       operatorAdapter,
       undefined,
-      alwaysSettledGate(),
+      depositSettledGate(),
       anyCommitStagingObserver(),
       attestationRepo,
     );
@@ -192,7 +192,7 @@ describe('an operator acts for their own agent (P8v)', () => {
       undefined,
       otherAdapter,
       undefined,
-      alwaysSettledGate(),
+      depositSettledGate(),
       anyCommitStagingObserver(),
       attestationRepo,
     ).listen(0, '127.0.0.1');
@@ -300,7 +300,7 @@ describe('an operator acts for their own agent (P8v)', () => {
       undefined,
       dualAdapter,
       undefined,
-      alwaysSettledGate(),
+      depositSettledGate(),
       anyCommitStagingObserver(),
       new MemoryAttestationRepository(),
     ).listen(0, '127.0.0.1');

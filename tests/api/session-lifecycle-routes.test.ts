@@ -47,7 +47,7 @@ import { fakeGitHubConfig } from '../helpers/session-fixtures.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import type { SessionAdapter } from '../../src/adapters/identity/session.js';
 import { createPasskeyFixture } from '../helpers/webauthn-fixtures.js';
-import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { alwaysSettledGate, depositSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 
@@ -234,6 +234,9 @@ describe('P8a: the full lifecycle walk, buyer by session, agent by its own signa
   let agentIdentity: SigningIdentity;
   let buyerAuthHeader: Record<string, string>;
   let githubFixture: ReturnType<typeof createStagingLifecycleGithubFake>;
+  // The story's own settlement: the deposit reads settled from the start, and
+  // the second payment settles right before the agent opens its pull request.
+  const walkGate = depositSettledGate();
 
   beforeAll(async () => {
     const repo = new MemoryAccountRepository();
@@ -262,7 +265,7 @@ describe('P8a: the full lifecycle walk, buyer by session, agent by its own signa
       undefined,
       sessionAdapter,
       undefined,
-      alwaysSettledGate(),
+      walkGate,
       anyCommitStagingObserver(),
       attestationRepo,
     ));
@@ -329,6 +332,8 @@ describe('P8a: the full lifecycle walk, buyer by session, agent by its own signa
     expect(restaged.status).toBe(200);
     expect(((await restaged.json()) as Record<string, unknown>).status).toBe('staged');
 
+    walkGate.markBalanceSettled(jobId);
+
     const pullRequest = await postAsAgent(`/jobs/${jobId}/pull-request`, {
       pullRequestUrl: registerAgentForkPullRequest(githubFixture, {
         repository: 'buyer/target-repo',
@@ -353,7 +358,7 @@ describe('P8a: the full lifecycle walk, buyer by session, agent by its own signa
   });
 
   // DEP1 (B24 ruling, 2026-09-23): this fixture's server shares
-  // one alwaysSettledGate() across every test in this describe block
+  // one depositSettledGate() across every test in this describe block
   // (deposit reads settled for any job id, including this fresh one),
   // so decline now answers 409 here -- the identity resolution this
   // test exists to prove still ran (a 403 would mean the agent's own
