@@ -1390,7 +1390,11 @@ export function createApp(
   // on a missing gist. `label` names the calling route in every
   // console.error this closure logs.
   type GistCheckOutcome =
-    | { readonly kind: 'verified' }
+    // `owner` is the gist author exactly as GitHub spells it. The check
+    // compares it to the claimed handle without case, so a caller that
+    // needs to STORE the login stores this spelling, the one a GitHub
+    // session's subject carries.
+    | { readonly kind: 'verified'; readonly owner: string }
     | { readonly kind: 'not-found' }
     | { readonly kind: 'github-unavailable' }
     | { readonly kind: 'author-mismatch'; readonly author: string | null }
@@ -1488,7 +1492,7 @@ export function createApp(
     if (!checksOut) {
       return { kind: 'signature-invalid' };
     }
-    return { kind: 'verified' };
+    return { kind: 'verified', owner: gist.owner };
   }
 
   app.get('/health', (_req: Request, res: Response) => {
@@ -1878,16 +1882,51 @@ export function createApp(
   // refused. The identityField in access.ts ('did') is still the acting
   // party's own claim, checked below the same way it always was; only the
   // session-or-signature gate in front of it is gone.
+  //
+  // FIX-B62a (bugs.md B62): the body is { did, githubLogin?, gist?,
+  // passkeySubject? }. Registration stays open to anyone, but a GitHub
+  // login on the row is a claim about a person, so it is stored only when
+  // a public gist authored by that GitHub account, signed by this DID's
+  // own key, proves it (the proof POST /agents/:agentDid/account-proof
+  // already takes for agents). Why: resolveActingParty and the conduct
+  // lookups trust the githubLogin column, so a login typed by a stranger
+  // would make the person who really holds it act as, and be shown as,
+  // the stranger's account. Leaving the login out registers the DID with
+  // none.
   app.post('/accounts', async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { did?: unknown; githubLogin?: unknown; passkeySubject?: unknown };
+    const body = (req.body ?? {}) as {
+      did?: unknown;
+      githubLogin?: unknown;
+      gist?: unknown;
+      passkeySubject?: unknown;
+    };
     const did = body.did;
-    const githubLogin = body.githubLogin;
+    const claimedLogin = body.githubLogin;
+    const gist = body.gist;
     const passkeySubject = body.passkeySubject;
 
-    if (typeof did !== 'string' || typeof githubLogin !== 'string' || did.length === 0 || githubLogin.length === 0) {
+    if (
+      typeof did !== 'string' ||
+      did.length === 0 ||
+      (claimedLogin !== undefined &&
+        (typeof claimedLogin !== 'string' || claimedLogin.length === 0 || /\s/.test(claimedLogin))) ||
+      (gist !== undefined && (typeof gist !== 'string' || gist.length === 0))
+    ) {
       res.status(400).json({
-        error: 'body must be { did, githubLogin }; both are non-empty strings',
+        error:
+          'body must be { did, githubLogin?, gist?, passkeySubject? }; did and githubLogin are non-empty strings, githubLogin has no whitespace, gist is a URL',
       });
+      return;
+    }
+    if (claimedLogin !== undefined && gist === undefined) {
+      res.status(400).json({
+        error:
+          "a GitHub login needs proof: publish a gist from that GitHub account, signed by this DID's key, and send its URL as gist; or leave githubLogin out",
+      });
+      return;
+    }
+    if (claimedLogin === undefined && gist !== undefined) {
+      res.status(400).json({ error: 'gist proves a githubLogin; send both or neither' });
       return;
     }
     if (!isValidOperatorDid(did)) {
@@ -1897,7 +1936,8 @@ export function createApp(
       return;
     }
     // passkeySubject is optional (design item 3): an account may register
-    // with a GitHub login only and bind a passkey subject here or later.
+    // with a proved GitHub login, a passkey subject, both, or (FIX-B62a)
+    // neither, and bind the rest here or later.
     // Present-but-wrong-type or present-but-empty is a 400, the same shape
     // githubLogin's own guard takes, rather than silently dropping a value
     // the caller explicitly sent.
@@ -1938,10 +1978,92 @@ export function createApp(
       return;
     }
 
+    // FIX-B62a: the proof. Everything above is a refusal that needs no
+    // network; GitHub is asked only now, and the row is written only after
+    // it answers `verified`. Every login comparison here ignores case
+    // (GitHub logins do), and the row stores the spelling GitHub gave
+    // (the gist author), the one a GitHub session's subject carries.
+    let provedLogin: string | null = null;
+    if (typeof claimedLogin === 'string' && typeof gist === 'string') {
+      const gistRef: GistUrlRef | null = parseGistUrl(gist);
+      if (gistRef === null) {
+        res.status(400).json({ error: 'gist must be a URL like https://gist.github.com/<owner>/<id>' });
+        return;
+      }
+      if (gistRef.owner.toLowerCase() !== claimedLogin.toLowerCase()) {
+        res.status(409).json({
+          error: `the gist URL owner ${gistRef.owner} does not match the claimed githubLogin ${claimedLogin}`,
+        });
+        return;
+      }
+      const outcome = await checkSignedGist('POST /accounts', did, claimedLogin, gistRef.id);
+      switch (outcome.kind) {
+        case 'verified':
+          provedLogin = outcome.owner;
+          break;
+        case 'not-found':
+          res.status(409).json({ error: 'the gist does not resolve: check the URL, and that the gist is public' });
+          return;
+        case 'github-unavailable':
+          res.status(503).json({ error: 'github unavailable' });
+          return;
+        case 'author-mismatch':
+          res.status(409).json({
+            error: `the gist author ${outcome.author ?? 'unknown'} does not match the claimed githubLogin ${claimedLogin}`,
+          });
+          return;
+        case 'no-statement':
+          res.status(409).json({
+            error: 'the gist does not hold a well-formed statement binding this DID to this GitHub account',
+          });
+          return;
+        case 'malformed-signature':
+          res.status(409).json({
+            error: 'the signature field is not a well-formed ed25519 signature (base64, 64 bytes)',
+          });
+          return;
+        case 'candidate-key-rejected':
+          res.status(409).json({
+            error: `the key line does not derive ${did}; check the publicKeyMultibase on the key line is this DID's own key`,
+          });
+          return;
+        case 'no-key-on-record':
+          res.status(409).json({
+            error:
+              "this DID has no key on record yet; add a `key: <publicKeyMultibase>` line to the gist statement naming this DID's own key",
+          });
+          return;
+        case 'identity-unavailable':
+          res.status(503).json({ error: 'identity verification unavailable' });
+          return;
+        case 'signature-invalid':
+          res.status(409).json({ error: "the signature does not check out against this DID's key" });
+          return;
+      }
+
+      // A proved login already on another account is refused with the
+      // sentence that is true for it, before register() could turn the
+      // unique column into a false "operator <did> is already registered".
+      // The stored column matches exactly, so both spellings in play are
+      // looked up; a row written before this rule may hold either.
+      try {
+        for (const spelling of new Set([provedLogin, claimedLogin, provedLogin.toLowerCase()])) {
+          if ((await repo.findByGithubLogin(spelling)) !== null) {
+            res.status(409).json({ error: `the GitHub login ${provedLogin} is already bound to another account` });
+            return;
+          }
+        }
+      } catch (err) {
+        console.error('POST /accounts: storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+    }
+
     try {
       const row = await repo.register({
         did,
-        githubLogin,
+        ...(provedLogin === null ? {} : { githubLogin: provedLogin }),
         ...(passkeySubject === undefined ? {} : { passkeySubject }),
       });
       res.status(201).json(accountProjection(row));
