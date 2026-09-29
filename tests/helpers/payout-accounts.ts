@@ -18,6 +18,7 @@ import {
   MemoryJobRepository,
 } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
+import { RealBrowser } from './real-browser.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSession, type FakeGitHubUser } from './session-fixtures.js';
 
 // The notice's whole sentence and its one destination, named once so a
@@ -146,4 +147,44 @@ export function noticeLinks(document: Document): Element[] {
   return Array.from(document.querySelectorAll(`a[href="${PAYOUT_NOTICE_HREF}"]`)).filter(
     (a) => a.closest('[hidden]') === null && (a.closest('p, div, b')?.textContent ?? '').replace(/\s+/g, ' ').includes(PAYOUT_NOTICE_SENTENCE),
   );
+}
+
+export interface NoticeGeometry {
+  readonly width: number;
+  readonly scrollWidth: number;
+  readonly clientWidth: number;
+  // The notice link's painted box, or null when no visible link rendered.
+  readonly link: { readonly width: number; readonly height: number } | null;
+}
+
+// Loads `path` signed in as `session` in a real Chrome at each width and
+// reads the page's sideways scroll and the notice link's box. The session
+// is stored on the origin first, then the page is loaded again so its own
+// script reads it, the same two-step the /myagents layout test takes.
+export async function measureNotice(baseUrl: string, path: string, session: Session, widths: readonly number[]): Promise<NoticeGeometry[]> {
+  const browser = await RealBrowser.launch({ width: widths[0] ?? 320, height: 900 });
+  try {
+    await browser.goto(`${baseUrl}${path}`);
+    await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(session))})`);
+    const out: NoticeGeometry[] = [];
+    for (const width of widths) {
+      await browser.setViewport(width, 900);
+      await browser.goto(`${baseUrl}${path}`, 800);
+      const g = await browser.evaluate<Omit<NoticeGeometry, 'width'>>(`
+        (function () {
+          var a = document.querySelector('#payout-notice a');
+          var box = a && a.closest('[hidden]') === null ? a.getBoundingClientRect() : null;
+          return {
+            scrollWidth: document.documentElement.scrollWidth,
+            clientWidth: document.documentElement.clientWidth,
+            link: box && box.height > 0 ? { width: box.width, height: box.height } : null,
+          };
+        })()
+      `);
+      out.push({ width, ...g });
+    }
+    return out;
+  } finally {
+    await browser.close();
+  }
 }

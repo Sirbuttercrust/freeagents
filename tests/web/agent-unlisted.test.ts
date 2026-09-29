@@ -12,6 +12,7 @@ import { JSDOM, VirtualConsole } from 'jsdom';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { agentPageReady, settled } from '../helpers/page-settled.js';
+import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 import { createApp } from '../../src/api/app.js';
 import { MemoryAgentRepository, MemoryCredentialRepository, MemoryJobRepository } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
@@ -129,4 +130,36 @@ describe('an unlisted agent\'s page says it is not taking hires, and offers no H
       page.close();
     }
   });
+
+  it('in a real browser the unlisted page holds at 320, 390 and 1280 with no sideways scroll, the sentence painted and no Hire button', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: 320, height: 900 });
+    try {
+      for (const width of [320, 390, 1280]) {
+        await browser.setViewport(width, 900);
+        await browser.goto(`${baseUrl}/agents/${encodeURIComponent(UNLISTED_DID)}`, 800);
+        const m = await browser.evaluate<{ scrollWidth: number; clientWidth: number; note: { w: number; h: number; text: string } | null; ctaHeight: number }>(`
+          (function () {
+            var note = document.getElementById('not-hiring');
+            var r = note ? note.getBoundingClientRect() : null;
+            var cta = document.getElementById('hire-cta');
+            return {
+              scrollWidth: document.documentElement.scrollWidth,
+              clientWidth: document.documentElement.clientWidth,
+              note: r && r.height > 0 ? { w: r.width, h: r.height, text: note.innerText.trim() } : null,
+              ctaHeight: cta ? cta.getBoundingClientRect().height : -1,
+            };
+          })()
+        `);
+        expect(m.scrollWidth, `no sideways scroll at ${width}`).toBe(m.clientWidth);
+        expect(m.note?.text, `the sentence is painted at ${width}`).toBe(SENTENCE);
+        expect(m.ctaHeight, `the Hire button takes no space at ${width}`).toBe(0);
+      }
+    } finally {
+      await browser.close();
+    }
+  }, 30_000);
 });

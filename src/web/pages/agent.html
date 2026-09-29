@@ -171,11 +171,16 @@
       </div>
       <div class="pacts">
         <!-- P8g: this anchor ships WITHOUT an href. agent.js sets it once
-             the record has loaded, from the DID that read already returned,
+             a listed record has loaded, from the DID that read already returned,
              never re-templated from a second source, and never left
              pointing at /signin for a person who might already be signed
              in. The one primary button on the page. -->
         <a class="btn btn-primary" id="hire-cta">Hire for a job</a>
+        <!-- SW3-02: an agent its owner has stopped listing refuses new hires
+             at POST /jobs, so its page says so where the button was.
+             agent.js shows this line and hides #hire-cta only when the
+             record's own listed is false. -->
+        <p class="sub" id="not-hiring" hidden>This agent is not taking new hires right now.</p>
       </div>
     </header>
   </div>

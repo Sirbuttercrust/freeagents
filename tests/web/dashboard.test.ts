@@ -19,7 +19,7 @@ import type { Session } from '../../src/adapters/identity/session.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
-import { PAYOUT_NOTICE_HREF, PAYOUT_NOTICE_SENTENCE, noticeLinks, startPayoutWorld, visibleText, type PayoutWorld } from '../helpers/payout-accounts.js';
+import { PAYOUT_NOTICE_HREF, PAYOUT_NOTICE_SENTENCE, measureNotice, noticeLinks, startPayoutWorld, visibleText, type PayoutWorld } from '../helpers/payout-accounts.js';
 import { botMount, expectedMount } from '../helpers/bot-mount.js';
 import { defaultAvatar } from '../../src/domain/avatar-spec.js';
 
@@ -1866,4 +1866,17 @@ describe('the payout notice on /dashboard (SW3-10)', () => {
       await proxy.close();
     }
   });
+
+  it('in a real browser the notice holds at 320, 390 and 1280 with no sideways scroll, and its link is 44px tall on a phone', async () => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+      return;
+    }
+    const measured = await measureNotice(world.baseUrl, '/dashboard', world.noAddress.session, [320, 390, 1280]);
+    for (const m of measured) {
+      expect(m.link, `the notice link rendered at ${m.width}`).not.toBeNull();
+      expect(m.scrollWidth, `no sideways scroll at ${m.width}`).toBe(m.clientWidth);
+      if (m.width < 760) expect(m.link?.height, `the link reaches the 44px floor at ${m.width}`).toBeGreaterThanOrEqual(44);
+    }
+  }, BROWSER_TIMEOUT_MS);
 });

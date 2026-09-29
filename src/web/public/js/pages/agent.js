@@ -196,12 +196,22 @@
     if (badge) badge.classList.toggle("is-zero", verifiedCount === 0);
     A.showById("pverified-badge", true);
 
-    /* P8g: the hire CTA's one and only destination. Taken from agent.did,
-       the same field tech-did renders from, never a second read: the query
-       string carries the DID (public, fine to be there) and never a session
-       token (the brief's own line: the token rides in no URL anywhere). */
+    /* P8g: the hire CTA's one destination, set for a listed record only.
+       Taken from agent.did, the same field tech-did renders from, never a
+       second read: the query string carries the DID (public, fine to be
+       there) and never a session token (the brief's own line: the token
+       rides in no URL anywhere).
+
+       SW3-02: a record whose listed is exactly false belongs to an agent
+       its owner has stopped listing, and POST /jobs refuses it. The button
+       goes, with no href set on it, and #not-hiring says why in its place,
+       so a person learns it before writing a brief. A record with listed
+       true or absent renders the button as before. */
     var hireCta = A.el("hire-cta");
-    if (hireCta && typeof agent.did === "string" && agent.did !== "") {
+    var notHiring = agent.listed === false;
+    A.showById("hire-cta", !notHiring);
+    A.showById("not-hiring", notHiring);
+    if (!notHiring && hireCta && typeof agent.did === "string" && agent.did !== "") {
       hireCta.setAttribute("href", "/hire?agent=" + encodeURIComponent(agent.did));
     }
 
